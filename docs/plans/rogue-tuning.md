@@ -363,7 +363,11 @@ needs a bot that kills more efficiently.
 
 ## Milestones
 
-| Milestone | Status | Format change |
+The table records the format changes at each original milestone, not current
+compatibility. The subsequent [item appearance and identity migration](../art/rogue-item-model-coverage.md)
+uses protocol 68, archive 66, and scenario 37; it does not retune these mechanics.
+
+| Milestone | Status | Historical format change |
 | --- | --- | --- |
 | 1 | Implemented: capability switches, growth schedules and the `scenarios/rogue` package | Protocol 67, save 65, scenario 36 |
 | 2 | Implemented: reference model, targets, encounter study, run summary and campaign harness | No |

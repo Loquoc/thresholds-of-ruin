@@ -144,6 +144,9 @@ fn sword_handle_mesh_centers_share_the_hand_grasp_and_keep_item_size() {
 fn nonsword_items_do_not_claim_sword_handle_frames() {
     for kind in [Kind::Mace, Kind::Wand, Kind::RingMail, Kind::Placeholder] {
         assert!(sword_handle_frame(kind).is_none());
+    }
+    // Devices now have their own authored shaft grip, not a sword frame.
+    for kind in [Kind::Mace, Kind::RingMail, Kind::Placeholder] {
         assert_eq!(
             held_transform(kind).translation,
             Vec3::new(0.0, -0.02, 0.29)
@@ -211,4 +214,68 @@ fn smooth_small_tubes_keep_closed_surfaces_without_blanket_subdivision() {
         "a straight 3cm tube must not need hundreds of triangles just for smooth shading: {}",
         indices.len() / 3
     );
+}
+
+#[test]
+fn ground_loot_silhouettes_are_bounded_static_and_do_not_change_held_recipes() {
+    let (mut library, mut meshes) = fixture();
+    for kind in [Kind::Coins, Kind::Ring, Kind::Scroll] {
+        let ordinary = library.item(kind, &mut meshes);
+        let ground = library.ground_item(kind, &mut meshes);
+        assert_ne!(ordinary.0[0].0.id(), ground.0[0].0.id());
+        assert_eq!(
+            ordinary.0[0].0.id(),
+            library.item(kind, &mut meshes).0[0].0.id()
+        );
+        let parts = ground_item_parts(kind);
+        assert!(
+            parts.glow.positions.is_empty(),
+            "no identity-implying emission"
+        );
+        assert!(parts.accent.is_none());
+        let points: Vec<_> = parts
+            .matte
+            .positions
+            .iter()
+            .chain(&parts.metal.positions)
+            .collect();
+        assert!(!points.is_empty());
+        for p in points {
+            assert!(p.iter().all(|v| v.is_finite()));
+            assert!(
+                p[0].abs() <= 0.28 && p[2].abs() <= 0.28 && p[1] >= -0.01 && p[1] <= 0.2,
+                "{kind:?}: {p:?}"
+            );
+        }
+    }
+    for kind in [
+        Kind::Greatsword,
+        Kind::ShortSword,
+        Kind::LeatherArmor,
+        Kind::PlateMail,
+    ] {
+        let held = library.item(kind, &mut meshes);
+        let ground = library.ground_item(kind, &mut meshes);
+        assert_eq!(held.0[0].0.id(), ground.0[0].0.id());
+        assert_eq!(crate::scene::ground_item_scale(kind), 0.72);
+    }
+}
+
+#[test]
+fn persistent_surface_is_part_of_ground_and_held_cache_keys_not_a_display_label() {
+    let (mut library, mut meshes) = fixture();
+    for ground in [true, false] {
+        let mut get = |surface| {
+            if ground {
+                library.ground_item_surface(Kind::Potion, surface, &mut meshes)
+            } else {
+                library.item_surface(Kind::Potion, surface, &mut meshes)
+            }
+        };
+        let amber = get(ItemSurface::Potion(0));
+        let identified_or_other_identity = get(ItemSurface::Potion(0));
+        let crimson = get(ItemSurface::Potion(4));
+        assert_eq!(amber.0[0].0.id(), identified_or_other_identity.0[0].0.id());
+        assert_ne!(amber.0[0].0.id(), crimson.0[0].0.id());
+    }
 }

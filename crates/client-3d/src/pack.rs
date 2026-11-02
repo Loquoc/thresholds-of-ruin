@@ -192,6 +192,7 @@ mod tests {
 
     fn carried(id: u8, name: &str) -> Carried {
         Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             model: tor_client_3d_model::ItemModel::Placeholder,
             id: ItemTarget::from_digest([id; 32]),
             name: name.into(),
@@ -212,10 +213,12 @@ mod tests {
     fn a_waiting_choice_comes_first_and_number_keys_follow_plan_order() {
         let mut view = crate::test_support::view(0);
         let scroll = Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             readable: true,
             ..carried(1, "rune scroll")
         };
         let wand = Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             device: Some(DeviceActivation::Direction),
             ..carried(2, "oak wand")
         };
@@ -241,6 +244,7 @@ mod tests {
         assert_eq!(listed[0].0, "oak wand: Identify");
         view.identify = None;
         view.inventory = vec![Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             device: Some(DeviceActivation::DirectionOrSelf),
             ..carried(3, "bone wand")
         }];

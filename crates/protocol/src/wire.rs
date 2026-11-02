@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 67;
+pub const PROTOCOL_VERSION: u32 = 68;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -573,6 +573,8 @@ impl<'de> Deserialize<'de> for CurrencyKind {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ItemView {
+    pub identity: crate::ItemIdentity,
+    pub knowledge: crate::ItemKnowledge,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corpse: Option<CreatureAppearance>,
     pub class: ItemClass,
@@ -592,9 +594,18 @@ pub struct ItemView {
 }
 impl ItemView {
     pub(crate) fn valid_disclosure(&self) -> bool {
-        self.known_supply
-            .as_ref()
-            .is_none_or(|supply| self.identified && supply.valid())
+        (self.identified || self.identity.is_unknown())
+            && (if self.identity.is_unknown() {
+                self.identity == self.class.unknown_identity()
+                    || self.identity == ItemClass::Misc.unknown_identity()
+            } else {
+                self.identity.as_str().split('.').count() >= 3
+            })
+            && self.knowledge.valid()
+            && self
+                .known_supply
+                .as_ref()
+                .is_none_or(|supply| self.identified && supply.valid())
             && self
                 .known_currency
                 .is_none_or(|_| self.identified && self.class == ItemClass::Coin)
@@ -606,6 +617,8 @@ impl<'de> Deserialize<'de> for ItemView {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct Fields {
+            identity: crate::ItemIdentity,
+            knowledge: crate::ItemKnowledge,
             class: ItemClass,
             #[serde(default)]
             corpse: Option<CreatureAppearance>,
@@ -626,6 +639,8 @@ impl<'de> Deserialize<'de> for ItemView {
         }
         let f: Fields = crate::bounded::named_map(d)?;
         let value = Self {
+            identity: f.identity,
+            knowledge: f.knowledge,
             class: f.class,
             corpse: f.corpse,
             quantity: f.quantity,
@@ -660,6 +675,8 @@ impl GroundItemView {
     pub(crate) fn valid_presentation(&self) -> bool {
         self.presentation.as_ref().is_none_or(|p| {
             p.validate().is_ok()
+                && self.item.identity == ItemClass::Misc.unknown_identity()
+                && self.item.knowledge == crate::ItemKnowledge::default()
                 && self.item.name == "object"
                 && self.item.appearance == "object"
                 && self.item.description.is_empty()
@@ -2197,6 +2214,37 @@ pub enum ItemClass {
     Coin,
     Gem,
 }
+impl ItemClass {
+    /// Public category hierarchy; never derived from a hidden true identity.
+    pub fn identity_family(self) -> crate::ItemIdentity {
+        let key = match self {
+            Self::Misc => "item.misc",
+            Self::Weapon => "item.weapon",
+            Self::Armor => "item.armor",
+            Self::Potion => "item.potion",
+            Self::Food => "item.food",
+            Self::Corpse => "item.corpse",
+            Self::Tool => "item.tool",
+            Self::Amulet => "item.amulet",
+            Self::Ring => "item.ring",
+            Self::Scroll => "item.scroll",
+            Self::Spellbook => "item.spellbook",
+            Self::Wand => "item.wand",
+            Self::Coin => "item.coin",
+            Self::Gem => "item.gem",
+        };
+        key.parse().expect("static public item category")
+    }
+    pub fn unknown_identity(self) -> crate::ItemIdentity {
+        if self == Self::Misc {
+            return "item.unknown".parse().expect("static generic sentinel");
+        }
+        format!("{}.unknown", self.identity_family())
+            .parse()
+            .expect("static public item sentinel")
+    }
+}
+
 /// Explicit ability operands. Physical projectile delivery is its sole weapon selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]

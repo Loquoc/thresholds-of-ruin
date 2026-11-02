@@ -102,6 +102,7 @@ fn fixture_custom(
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.carer{x}").parse().unwrap(),
                 name: format!("carer{x}"),
                 faction: "allies".into(),
             },
@@ -197,8 +198,11 @@ fn self_or_ally_touch_accepts_self_and_same_faction_without_hostility() {
 }
 
 fn bandages(game: &mut Game, id: u64, owner: Option<ActorId>, quantity: u64, x: i32) {
-    let mut spec =
-        serde_json::to_value(tor_simulation::ItemSpec::ordinary("bandage".into())).unwrap();
+    let mut spec = serde_json::to_value(tor_simulation::ItemSpec::ordinary(
+        "item.test.bandage".parse().unwrap(),
+        "bandage".into(),
+    ))
+    .unwrap();
     spec["supply"] = json!("bandage");
     spec["stackable"] = json!(true);
     game.place_item_stack(
@@ -360,6 +364,7 @@ fn fragmented_carried_cost_is_bounded_and_consumes_each_exact_fragment() {
 fn unknown_bandages_are_not_automatically_used_or_disclosed_as_supplies() {
     let (mut game, actor, _) = fixture(None, true, json!({"kind":"self_only"}));
     let mut spec = serde_json::to_value(tor_simulation::ItemSpec::ordinary(
+        "item.test.strange-wrapping".parse().unwrap(),
         "strange wrapping".into(),
     ))
     .unwrap();
@@ -480,7 +485,10 @@ fn drink_case(quantity_before: u64, lethal: bool, injured: bool) {
         )
         .unwrap();
     }
-    let mut spec = tor_simulation::ItemSpec::ordinary("finite potion".into());
+    let mut spec = tor_simulation::ItemSpec::ordinary(
+        "item.test.finite-potion".parse().unwrap(),
+        "finite potion".into(),
+    );
     spec.class = tor_simulation::ItemClass::Potion;
     spec.stackable = true;
     spec.consumable = Some(tor_simulation::ConsumableSpec {
@@ -847,7 +855,8 @@ fn two_cost_action(actor: ActorId, second_item: u64) -> Action {
     .unwrap()
 }
 fn ration(game: &mut Game, actor: ActorId) {
-    let mut spec = tor_simulation::ItemSpec::ordinary("ration".into());
+    let mut spec =
+        tor_simulation::ItemSpec::ordinary("item.test.ration".parse().unwrap(), "ration".into());
     spec.supply = Some(tor_simulation::content_ids::SupplyId::new("ration").unwrap());
     game.place_item_stack(11, at(1), Some(actor), 1, spec)
         .unwrap();
@@ -938,7 +947,8 @@ fn failed_second_supply_cost_preserves_first_stack_tokens_resources_rng_and_cool
         },
     );
     bandages(&mut game, 10, Some(actor), 1, 2);
-    let mut spec = tor_simulation::ItemSpec::ordinary("ration".into());
+    let mut spec =
+        tor_simulation::ItemSpec::ordinary("item.test.ration".parse().unwrap(), "ration".into());
     spec.supply = Some(tor_simulation::content_ids::SupplyId::new("ration").unwrap());
     game.place_item_stack(11, at(1), None, 1, spec).unwrap();
     game.apply_condition(
@@ -1103,7 +1113,10 @@ fn ai_resumes_paid_healing_before_a_fresh_minimum_resource_gate() {
 #[test]
 fn held_ground_healing_potion_changes_actual_take_to_wait_without_changing_loot_preview() {
     let (mut game, holder, actor) = fixture(Some(100), true, json!({"kind":"self_only"}));
-    let mut spec = tor_simulation::ItemSpec::ordinary("healing bandage draught".into());
+    let mut spec = tor_simulation::ItemSpec::ordinary(
+        "item.test.healing-bandage-draught".parse().unwrap(),
+        "healing bandage draught".into(),
+    );
     spec.class = tor_simulation::ItemClass::Potion;
     spec.supply = Some(tor_simulation::content_ids::SupplyId::new("bandage").unwrap());
     spec.consumable = Some(tor_simulation::ConsumableSpec {
@@ -1201,7 +1214,10 @@ fn settled_selection_rejects_identity_above_the_item_high_water() {
 #[test]
 fn direct_drink_without_an_issued_intention_rejects_atomically_then_admitted_drink_succeeds() {
     let (mut game, actor, _) = fixture(None, false, json!({"kind":"self_only"}));
-    let mut spec = tor_simulation::ItemSpec::ordinary("ordinary healing draught".into());
+    let mut spec = tor_simulation::ItemSpec::ordinary(
+        "item.test.ordinary-healing-draught".parse().unwrap(),
+        "ordinary healing draught".into(),
+    );
     spec.class = tor_simulation::ItemClass::Potion;
     spec.consumable = Some(tor_simulation::ConsumableSpec {
         descriptors: vec![],

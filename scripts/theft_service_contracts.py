@@ -232,6 +232,7 @@ class TheftServiceContracts(unittest.TestCase):
         self.assertEqual(transfer["thief_potions"], 1, transfer)
         potion = next(item for item in observation(stolen)["inventory"] if item["class"] == "potion")
         self.assertFalse(potion["identified"])
+        self.assertEqual(potion["identity"], "item.potion.unknown")
         self.assertNotEqual(potion["name"], POTION)
         position = next(row["position"] for row in observation(after)["visible_actors"] if row["name"] == "nymph")
         self.assertNotEqual(position, before, "TR3 moves only after the real transferred unit")
@@ -240,6 +241,8 @@ class TheftServiceContracts(unittest.TestCase):
         self.assertEqual(inventory_units(recovered, "potion"), 2)
         self.assertTrue(all(not item["identified"] for item in observation(recovered)["inventory"] if item["class"] == "potion"))
         self.assertNotIn(POTION, json.dumps(self.subject_frames), "the whole ordinary stream retains concealed identity")
+        self.assertNotIn("item.potion.restore-strength", json.dumps(self.subject_frames),
+                         "concealed machine identity stays private across transfer and recovery")
         self.setup_command("teleport 1 1 4 3 0")
         leprechaun = self.spawn("leprechaun")
         stolen = self.use(leprechaun, "filch_gold", "Warrior")

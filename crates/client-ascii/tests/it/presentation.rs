@@ -272,7 +272,11 @@ fn carried_rings() -> Snapshot {
     first.id = super::item_target(250);
     first.name = "silver ring".into();
     first.class = ItemClass::Ring;
+    if !first.identified {
+        first.identity = first.class.unknown_identity();
+    }
     first.identified = false;
+    first.identity = first.class.unknown_identity();
     let mut second = first.clone();
     second.id = super::item_target(1);
     view.inventory = vec![first, second];
@@ -1029,7 +1033,7 @@ fn state() -> ClientState {
             "actor":"1","self_target":super::actor_target(1),"tick":"0","position":{"x":1,"y":1,"z":0},
 
             "places":[],"visible_cells": (0..5).flat_map(|x| (0..3).map(move |y| serde_json::json!({"key":format!("{x}:{y}"),"trap":null,"object_presentation":null,"stairs_up":false,"stairs_down":false,"position":{"x":x,"y":y,"z":0},"wall":false,"lit":true,"place_hint":false}))).collect::<Vec<_>>(),
-            "ground_items":[{"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(3),"name":"token"},"position":{"x":1,"y":1,"z":0}}],
+            "ground_items":[{"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(3),"name":"token"},"position":{"x":1,"y":1,"z":0}}],
             "inventory":[],"visible_actors":[],
             "ready":true
         }}
@@ -1172,6 +1176,8 @@ fn ambiguous_pickup_is_modal_free_and_invalidated_by_an_observation_change() {
                 quantity: 1,
                 appearance: String::new(),
                 identified: true,
+                identity: "item.misc.fixture".parse().unwrap(),
+                knowledge: Default::default(),
                 description: String::new(),
                 id: super::item_target(4),
                 name: "another token".into(),
@@ -2265,6 +2271,9 @@ fn eat_picker_and_hunger_status_use_only_disclosed_nutrition() {
     let mut item = view.ground_items.remove(0).item;
     item.name = "fixture meal".into();
     item.class = ItemClass::Food;
+    if !item.identified {
+        item.identity = item.class.unknown_identity();
+    }
     view.inventory = vec![item.clone()];
     view.interactions = Some(InteractionView {
         refused: vec![],
@@ -2468,7 +2477,13 @@ fn status_reports_disclosed_attributes_resources_and_exact_gold_without_name_inf
     let mut coin = snapshot.state.observation.ground_items[0].item.clone();
     coin.id = super::item_target(800);
     coin.class = ItemClass::Coin;
+    if !coin.identified {
+        coin.identity = coin.class.unknown_identity();
+    }
     coin.identified = true;
+    coin.identity = format!("{}.fixture", coin.class.identity_family())
+        .parse()
+        .unwrap();
     coin.known_currency = Some(CurrencyKind::Gold);
     coin.name = "unusual tender".into();
     coin.quantity = u64::MAX;
@@ -2534,7 +2549,11 @@ fn status_does_not_invent_unavailable_personal_stats_or_hidden_gold() {
     item.id = super::item_target(803);
     item.name = "gold".into();
     item.class = ItemClass::Coin;
+    if !item.identified {
+        item.identity = item.class.unknown_identity();
+    }
     item.identified = false;
+    item.identity = item.class.unknown_identity();
     item.known_currency = None;
     observation.inventory = vec![item];
     let mut app = App::new();

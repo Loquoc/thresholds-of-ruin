@@ -7,6 +7,8 @@ from pathlib import Path
 import tomllib
 import unittest
 
+from rogue_identity_contracts import IDENTITIES
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scenarios/rogue"
 STARTER = ROOT / "scenarios/rogue-exploration"
@@ -55,7 +57,7 @@ class RogueProfileContent(unittest.TestCase):
         kit = {row["archetype"]: row["quantity"] for row in character["loadout"]}
         self.assertEqual(kit, {"rogue.mace": 1, "rogue.ring_mail": 1, "rogue.shortbow": 1,
                                "rogue.arrow": 32, "rogue.ration": 1})
-        self.assertTrue(set(kit) <= set(character["known_identities"]))
+        self.assertTrue({IDENTITIES[key] for key in kit} <= set(character["known_identities"]))
 
     def test_no_bandage_stock_or_universal_care(self):
         stages = self.manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"]

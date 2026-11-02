@@ -91,6 +91,7 @@ fn fixture_with_rules(
         game.configure_creature(
             first,
             tor_simulation::CreatureIdentity {
+                corpse_identity: "item.corpse.test.figure".parse().unwrap(),
                 name: "figure".into(),
                 faction: "neutral".into(),
             },
@@ -104,7 +105,7 @@ fn fixture_with_rules(
     (game, first, second)
 }
 fn armor(game: &mut Game, actor: ActorId) {
-    let mut spec = ItemSpec::ordinary("mail".into());
+    let mut spec = ItemSpec::ordinary("item.test.mail".parse().unwrap(), "mail".into());
     spec.class = ItemClass::Armor;
     spec.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -246,7 +247,7 @@ fn damage_pauses_item_work_and_saved_resume_keeps_original_intention() {
 #[test]
 fn duplicate_ring_slots_are_distinct_and_a_slot_must_match_the_item() {
     let (mut game, actor, _) = fixture(false);
-    let mut spec = ItemSpec::ordinary("ring".into());
+    let mut spec = ItemSpec::ordinary("item.test.ring".parse().unwrap(), "ring".into());
     spec.class = ItemClass::Ring;
     spec.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -274,7 +275,7 @@ fn duplicate_ring_slots_are_distinct_and_a_slot_must_match_the_item() {
 #[test]
 fn drinking_consumes_at_completion_and_identifies_only_observable_effects() {
     let (mut game, actor, _) = fixture(true);
-    let mut spec = ItemSpec::ordinary("healing".into());
+    let mut spec = ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
     spec.class = ItemClass::Potion;
     spec.concealed = true;
     spec.appearance = "red vial".into();
@@ -307,7 +308,8 @@ fn drinking_consumes_at_completion_and_identifies_only_observable_effects() {
         vec![tor_simulation::Work::Drink { item: ItemId(20) }]
     );
     assert_eq!(game.health(actor).unwrap().0, 30);
-    let mut replacement = ItemSpec::ordinary("healing".into());
+    let mut replacement =
+        ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
     replacement.class = ItemClass::Potion;
     replacement.concealed = true;
     replacement.appearance = "red vial".into();
@@ -319,7 +321,10 @@ fn drinking_consumes_at_completion_and_identifies_only_observable_effects() {
 #[test]
 fn consumed_objective_remains_unmet_and_its_checkpoint_is_valid() {
     let (mut game, actor, _) = fixture(true);
-    let mut spec = ItemSpec::ordinary("objective potion".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.objective-potion".parse().unwrap(),
+        "objective potion".into(),
+    );
     spec.class = ItemClass::Potion;
     spec.consumable = Some(ConsumableSpec {
         descriptors: vec![],
@@ -385,7 +390,7 @@ fn invalid_effect_sequence_is_atomic_and_lethal_sequence_never_revives() {
 #[test]
 fn lethal_final_potion_reports_completion_without_anatomy_or_remaining_inventory() {
     let (mut game, actor, observer) = fixture_with_anatomy(true, AnatomySpec::default());
-    let mut potion = ItemSpec::ordinary("poison".into());
+    let mut potion = ItemSpec::ordinary("item.test.poison".parse().unwrap(), "poison".into());
     potion.class = ItemClass::Potion;
     potion.concealed = true;
     potion.appearance = "red potion".into();
@@ -466,7 +471,10 @@ fn armor_protects_until_removal_finishes_and_death_drops_it_once() {
 #[test]
 fn concealed_equipment_discloses_its_slot_but_stats_require_actor_knowledge() {
     let (mut game, actor, witness) = fixture(true);
-    let mut spec = ItemSpec::ordinary("enchanted ring".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.enchanted-ring".parse().unwrap(),
+        "enchanted ring".into(),
+    );
     spec.class = ItemClass::Ring;
     spec.concealed = true;
     spec.appearance = "silver ring".into();
@@ -491,7 +499,8 @@ fn concealed_equipment_discloses_its_slot_but_stats_require_actor_knowledge() {
     );
     assert!(interaction.inventory[0].known_equipment.is_none());
     assert!(game.observe(witness).unwrap().interactions.is_none());
-    game.learn_identity(actor, "enchanted ring").unwrap();
+    game.learn_identity(actor, &"item.test.enchanted-ring".parse().unwrap())
+        .unwrap();
     assert!(
         game.observe(actor).unwrap().interactions.unwrap().inventory[0]
             .known_equipment
@@ -534,6 +543,7 @@ fn newly_visible_hostility_pauses_work_but_resume_accepts_the_existing_threat() 
     game.configure_creature(
         other,
         tor_simulation::CreatureIdentity {
+            corpse_identity: "item.corpse.test.enemy".parse().unwrap(),
             name: "enemy".into(),
             faction: "enemy".into(),
         },
@@ -579,7 +589,7 @@ fn effective_equipment_changes_attack_and_typed_damage_without_mutating_base_rul
         },
     );
     let natural_attack = game.selected_melee_attack(actor).unwrap().clone();
-    let mut weapon = ItemSpec::ordinary("sword".into());
+    let mut weapon = ItemSpec::ordinary("item.test.sword".parse().unwrap(), "sword".into());
     weapon.class = ItemClass::Weapon;
     let attack = tor_simulation::attacks::MeleeAttack::fixed(
         tor_simulation::attributes::Skill::HeavyWeaponry,
@@ -610,7 +620,7 @@ fn effective_equipment_changes_attack_and_typed_damage_without_mutating_base_rul
             attack
         ))
     );
-    let mut armor = ItemSpec::ordinary("armor".into());
+    let mut armor = ItemSpec::ordinary("item.test.armor".parse().unwrap(), "armor".into());
     armor.class = ItemClass::Armor;
     armor.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -677,7 +687,10 @@ fn defense(value: i64) -> Vec<Modifier> {
 #[test]
 fn saved_item_preparation_rejects_missing_ground_and_foreign_items() {
     let (mut game, actor, other) = fixture(true);
-    let mut potion = ItemSpec::ordinary("saved-potion".into());
+    let mut potion = ItemSpec::ordinary(
+        "item.test.saved-potion".parse().unwrap(),
+        "saved-potion".into(),
+    );
     potion.class = ItemClass::Potion;
     potion.consumable = Some(ConsumableSpec {
         descriptors: vec![],
@@ -810,7 +823,7 @@ fn rules_data_controls_equip_unequip_and_consumable_plan_timing() {
             },
             rules.clone(),
         );
-        let mut item = ItemSpec::ordinary("gear".into());
+        let mut item = ItemSpec::ordinary("item.test.gear".parse().unwrap(), "gear".into());
         item.class = if slot == EquipmentSlot::new("ring").unwrap() {
             ItemClass::Ring
         } else {
@@ -844,7 +857,7 @@ fn rules_data_controls_equip_unequip_and_consumable_plan_timing() {
         );
     }
     let (mut game, actor, _) = fixture_with_rules(true, AnatomySpec::from_rules(&rules), rules);
-    let mut potion = ItemSpec::ordinary("potion".into());
+    let mut potion = ItemSpec::ordinary("item.test.potion".parse().unwrap(), "potion".into());
     potion.class = ItemClass::Potion;
     potion.consumable = Some(ConsumableSpec {
         descriptors: vec![],
@@ -909,7 +922,10 @@ fn custom_slot_capability_timing_and_checkpoint_use_rules_data() {
         },
         rules,
     );
-    let mut item = ItemSpec::ordinary("grasped tool".into());
+    let mut item = ItemSpec::ordinary(
+        "item.test.grasped-tool".parse().unwrap(),
+        "grasped tool".into(),
+    );
     item.class = ItemClass::Tool;
     item.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -993,7 +1009,10 @@ fn shared_grip_capacity_limits_authored_and_paid_equips_without_combat() {
         let (mut game, actor, _) = fixture_with_anatomy(false, anatomy);
         for (index, socket) in [0, 10, 1, 11].into_iter().enumerate() {
             let shield = socket == 1;
-            let mut item = ItemSpec::ordinary(format!("capacity gear {index}"));
+            let mut item = ItemSpec::ordinary(
+                format!("item.test.capacity-gear-{index}").parse().unwrap(),
+                format!("capacity gear {index}"),
+            );
             item.class = if shield {
                 ItemClass::Armor
             } else {

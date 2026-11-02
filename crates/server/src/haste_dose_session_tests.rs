@@ -21,7 +21,7 @@ fn haste_source(root: &Path) -> crate::Scenario {
     manifest["creatures"]["species"]["fixture.haste_caster"]["modifiers"].as_array_mut().unwrap().push(
         json!({"scope":"always","op":{"kind":"set","stat":{"kind":"attribute","attribute":"intellect"},"value":100}}));
     manifest["archetypes"]["fixture.masked_haste"] = json!({
-        "name":"ordinary masked haste dose","class":"potion","stackable":true,
+        "name":"ordinary masked haste dose","identity":"item.potion.fixture.masked-haste","class":"potion","stackable":true,
         "consumable":{"discovery":"on_use","effects":[
             {"kind":"apply_persistent_condition","condition":"rogue.hasted","cancels":null},
             {"kind":"apply_persistent_condition","condition":"rogue.slowed","cancels":null}

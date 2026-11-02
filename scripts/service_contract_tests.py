@@ -66,16 +66,16 @@ def sequence_rider_fixture():
         "modifiers": [{"scope": "always", "op": {"kind": "grant_ability", "ability": "triple_strike"}},
             {"scope": "always", "op": {"kind": "add", "stat": {"kind": "health"}, "value": 200}}]}}}
 
-    def creature(name):
-        return {"species": "sequence_fighter", "name": name, "faction": "neutral", "binding": "intellect",
+    def creature(name, corpse_identity):
+        return {"species": "sequence_fighter", "name": name, "corpse_identity": corpse_identity, "faction": "neutral", "binding": "intellect",
             "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored",
             "nutrition": {"kind": "exempt"}, "hit_dice": [{"source": "racial"}]}
 
-    manifest["characters"][0]["creature"] = creature("Escaper")
+    manifest["characters"][0]["creature"] = creature("Escaper", "item.corpse.fixture.escaper")
     regions = [tomllib.loads((root / f"regions/{index}.toml").read_text(encoding="utf-8")) for index in (1, 2)]
     regions[0]["items"] = []
     regions[0]["actors"] = [{"id": 2, "at": [2, 1, 0], "turn_ticks": 100,
-        "controller": "external", "creature": creature("Sequence sentinel")}]
+        "controller": "external", "creature": creature("Sequence sentinel", "item.corpse.fixture.sequence-sentinel")}]
     return {"manifest": manifest, "regions": regions, "rules": toml_source(rules), "seed": 42,
         "wizard": True, "frame_bytes": 65536, "client_bytes": 262144, "total_bytes": 524288}
 
@@ -93,17 +93,17 @@ def idle_roaming_fixture():
                         "amount": {"kind": "fixed", "amount": 1}}]}}],
                 "on_failure": [], "descriptors": [], "riders": []}]}}}}
 
-    def creature(name):
-        return {"species": "idle_roamer", "name": name, "faction": "neutral", "binding": "intellect",
+    def creature(name, corpse_identity):
+        return {"species": "idle_roamer", "name": name, "corpse_identity": corpse_identity, "faction": "neutral", "binding": "intellect",
             "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored",
             "nutrition": {"kind": "exempt"}, "hit_dice": [{"source": "racial"}]}
 
-    manifest["characters"][0]["creature"] = creature("Waiting player")
+    manifest["characters"][0]["creature"] = creature("Waiting player", "item.corpse.fixture.waiting-player")
     region = {"id": 1, "name": "Divided idle room", "size": [13, 5, 2],
         "chamber": True, "gravity": [0, 0, -1], "anchors": {"start": [1, 2, 0]},
         "walls": [[5, y, z] for y in range(5) for z in range(2)],
         "actors": [{"id": 2, "at": [9, 2, 0], "turn_ticks": 100, "controller": "ai",
-            "creature": creature("Idle roamer")}]}
+            "creature": creature("Idle roamer", "item.corpse.fixture.idle-roamer")}]}
     return {"manifest": manifest, "regions": [region],
         "rules": (ROOT / "crates/simulation/data/default-ruleset.toml").read_text(encoding="utf-8"),
         "seed": 42, "wizard": False,

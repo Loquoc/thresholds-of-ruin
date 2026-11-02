@@ -5,7 +5,7 @@ fn item() -> Value {
     json!({
         "id": ItemTarget::from_digest([83; 32]),
         "class": "coin", "quantity": "9007199254740993",
-        "appearance": "unmarked discs", "identified": true,
+        "appearance": "unmarked discs", "identified": true,"identity":"item.coin.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
         "description": "", "name": "unrelated label",
         "known_supply": null, "known_currency": "gold"
     })
@@ -52,11 +52,20 @@ fn known_currency_requires_an_identified_coin_without_name_or_asset_inference() 
     for (field, invalid) in [("identified", json!(false)), ("class", json!("gem"))] {
         let mut value = item();
         value[field] = invalid;
+        if field == "identified" {
+            value["identity"] = "item.coin.unknown".into();
+        }
         assert!(serde_json::from_value::<ItemView>(value).is_err());
     }
     for identified in [false, true] {
         let mut value = item();
         value["identified"] = identified.into();
+        value["identity"] = if identified {
+            "item.coin.fixture"
+        } else {
+            "item.coin.unknown"
+        }
+        .into();
         value["known_currency"] = Value::Null;
         value["name"] = "gold".into();
         value["asset"] = "item.gold".into();

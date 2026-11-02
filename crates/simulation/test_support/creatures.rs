@@ -195,6 +195,7 @@ pub(crate) fn configure(game: &mut Game, actor: ActorId, faction: &str, species:
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.figure".parse().unwrap(),
             name: "figure".into(),
             faction: faction.into(),
         },

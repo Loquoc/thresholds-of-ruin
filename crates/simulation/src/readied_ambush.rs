@@ -468,6 +468,7 @@ mod tests {
         let definition = crate::prepared_spawn::PreparedActor {
             build: Some(crate::creatures::record::BuildRecord::capture(&build)),
             identity: Some(crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.body-witness".parse().unwrap(),
                 name: "body witness".into(),
                 faction: "neutral".into(),
             }),

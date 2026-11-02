@@ -15,7 +15,7 @@ fn views(count: usize, case: &str) -> (StateView, StateView) {
     let fixture: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/wire-v67.json"
+            "/tests/fixtures/wire-v68.json"
         ))
         .expect("regenerate current wire samples"),
     )
@@ -48,6 +48,8 @@ fn views(count: usize, case: &str) -> (StateView, StateView) {
             quantity: 1,
             appearance: "disclosed appearance".repeat(4),
             identified: true,
+            identity: "item.misc.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             description: "disclosed description".repeat(4),
             id: ItemTarget::from_digest(synthetic_digest(index as u64 + 1)),
             name: format!("item {index}"),

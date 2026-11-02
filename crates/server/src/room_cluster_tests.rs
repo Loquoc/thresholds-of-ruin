@@ -414,7 +414,7 @@ fn cluster_item_pool_cannot_bypass_reserved_retrieval_even_with_zero_chance() {
     let original = scenario.package.as_ref().unwrap();
     let mut source = serde_json::to_value(&original.manifest).unwrap();
     source["archetypes"]["amulet"] = json!({
-        "name":"Amulet of Yendor","identity":"amulet-of-yendor","class":"amulet"
+        "name":"Amulet of Yendor","identity":"item.amulet.amulet-of-yendor","class":"amulet"
     });
     source["unique_retrieval"] = json!({
         "version":1,"protagonist":"selected_character","family":"dungeon",
@@ -473,7 +473,7 @@ fn room_cluster_item_actor_and_carried_roots_require_spatial_scope() {
         crate::storage::schema::scenario::encode_rules_document(&document).unwrap();
     let rules = base.rules().unwrap();
     let mut item = base.manifest.archetypes["rogue.wand_nothing"].clone();
-    item.identity = Some("fixture.room_light".into());
+    item.identity = Some("item.misc.room-light".parse().unwrap());
     item.appearance_pool = None;
     item.forms.clear();
     item.device.as_mut().unwrap().ability = "fixture.room_light".into();
@@ -486,7 +486,7 @@ fn room_cluster_item_actor_and_carried_roots_require_spatial_scope() {
         let mut package = base.clone();
         package.validate_spatial_sources().unwrap();
         let mut actor = package.manifest.archetypes["rogue.hobgoblin"].clone();
-        actor.identity = Some("fixture.cluster_foe".into());
+        actor.identity = Some("item.misc.cluster-foe".parse().unwrap());
         if source_role == "actor" {
             let creature = actor.creature.as_mut().unwrap();
             let mut species = package.manifest.creatures.species[&creature.species].clone();

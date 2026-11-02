@@ -111,12 +111,28 @@ class AmuletProcesses(ProcessTestCase):
         self.remaining()
         return result
 
+    def assert_spectator_state_equal(self, actual, owner):
+        # New observer-owned fields differ deliberately; all legacy picture
+        # fields and retrieval affordances remain exactly equal.
+        expected = copy.deepcopy(owner)
+        rows = expected["observation"]["inventory"] + [
+            row["item"] for row in expected["observation"]["ground_items"]]
+        self.assertTrue(any(item["identity"] == "item.amulet.fixture-retrieval" for item in rows))
+        for item in rows:
+            item["identity"] = "item.unknown"
+            item["knowledge"] = {
+                "buc": "item.buc.unknown",
+                "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+                "condition": {"corrosion": None, "armor_deterioration": None, "protected": None},
+            }
+        self.assertDisclosedStateEqual(actual, expected)
+
     def fixture(self):
         manifest = copy.deepcopy(encounter_sources()["manifest"])
         selected = next(row for row in manifest["characters"] if row["id"] == ACTOR)
         selected["anchor"] = "dungeon/26/up"
         selected["creature"]["nutrition"] = {"kind": "exempt"}
-        selected["known_identities"].append("amulet-of-yendor")
+        selected["known_identities"].append("item.amulet.fixture-retrieval")
         manifest.update(id="amulet-process", default_character=ACTOR, characters=[selected])
         manifest.pop("objective", None)
         manifest.pop("arena", None)
@@ -131,8 +147,10 @@ class AmuletProcesses(ProcessTestCase):
             "families": {"dungeon": "empty"},
             "profiles": {"empty": {"version": 1, "stages": []}},
         }
+        # This synthetic retrieval archetype must not alias the separately
+        # imported production amulet; retrieval intentionally reserves one key.
         manifest.setdefault("archetypes", {})["amulet"] = {
-            "name": AMULET, "identity": "amulet-of-yendor", "class": "amulet",
+            "name": AMULET, "identity": "item.amulet.fixture-retrieval", "class": "amulet",
             "stackable": False,
         }
         manifest["unique_retrieval"] = {
@@ -294,8 +312,8 @@ class AmuletProcesses(ProcessTestCase):
 
         # Spectator snapshots and reconnects must not activate the objective.
         observer, watched = self.client(token=SPECTATOR_TOKEN, observe=True)
-        self.assertDisclosedStateEqual(watched["state"], current["state"])
-        self.assertDisclosedStateEqual(self.request(observer, {"type": "snapshot"})["state"], current["state"])
+        self.assert_spectator_state_equal(watched["state"], current["state"])
+        self.assert_spectator_state_equal(self.request(observer, {"type": "snapshot"})["state"], current["state"])
         self.assertEqual(self.retrieval_receipts(player), created)
         observer.stop()
         player.stop()
@@ -349,11 +367,11 @@ class AmuletProcesses(ProcessTestCase):
         self.assertIn("carry it up through the surface exit", welcome)
         self.assertIn("You are standing at the exit.", welcome)
         observer, watched = self.client(token=SPECTATOR_TOKEN, observe=True)
-        self.assertDisclosedStateEqual(watched["state"], dropped["state"])
+        self.assert_spectator_state_equal(watched["state"], dropped["state"])
         refused = self.say(text, "up")
         self.assertNotIn("You leave the dungeon", refused)
         unchanged = self.request(observer, {"type": "snapshot"})
-        self.assertDisclosedStateEqual(unchanged["state"], dropped["state"], "Missing artifact refusal must cost zero time")
+        self.assertDisclosedStateEqual(unchanged["state"], watched["state"], "Missing artifact refusal must cost zero time")
         self.assertEqual(unchanged["history"], dropped["history"])
         taken = self.say(text, "take Amulet of Yendor")
         self.assertEqual(taken, "You pick up the amulet of yendor.\n> ")

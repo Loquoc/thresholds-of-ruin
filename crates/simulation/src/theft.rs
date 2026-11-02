@@ -45,8 +45,8 @@ mod tests {
             .unwrap();
         game
     }
-    fn gold(name: &str) -> crate::ItemSpec {
-        let mut item = crate::ItemSpec::ordinary(name.into());
+    fn gold(identity: &str, name: &str) -> crate::ItemSpec {
+        let mut item = crate::ItemSpec::ordinary(identity.parse().unwrap(), name.into());
         item.class = crate::ItemClass::Coin;
         item.currency = Some(CurrencyKind::Gold);
         item.stackable = true;
@@ -62,12 +62,30 @@ mod tests {
     #[test]
     fn gold_caps_total_purse_across_specs_and_preserves_finite_stock() {
         let mut game = game();
-        game.place_item_stack(10, at(2), Some(ActorId(2)), 3, gold("old gold"))
-            .unwrap();
-        game.place_item_stack(11, at(2), Some(ActorId(2)), 5, gold("new gold"))
-            .unwrap();
-        game.place_item_stack(12, at(1), Some(ActorId(1)), 2, gold("old gold"))
-            .unwrap();
+        game.place_item_stack(
+            10,
+            at(2),
+            Some(ActorId(2)),
+            3,
+            gold("item.test.old-gold", "old gold"),
+        )
+        .unwrap();
+        game.place_item_stack(
+            11,
+            at(2),
+            Some(ActorId(2)),
+            5,
+            gold("item.test.new-gold", "new gold"),
+        )
+        .unwrap();
+        game.place_item_stack(
+            12,
+            at(1),
+            Some(ActorId(1)),
+            2,
+            gold("item.test.old-gold", "old gold"),
+        )
+        .unwrap();
         let mut rng = 9;
         let receipt = game
             .transfer_theft(ActorId(1), ActorId(2), &selection(7), &mut rng)
@@ -95,7 +113,10 @@ mod tests {
     #[test]
     fn magical_selection_moves_one_unknown_unit_without_learning_identity() {
         let mut game = game();
-        let mut spec = crate::ItemSpec::ordinary("hidden charm".into());
+        let mut spec = crate::ItemSpec::ordinary(
+            "item.test.hidden-charm".parse().unwrap(),
+            "hidden charm".into(),
+        );
         spec.magical = true;
         spec.concealed = true;
         spec.appearance = "unmarked charm".into();
@@ -107,7 +128,10 @@ mod tests {
             at(2),
             Some(ActorId(2)),
             1,
-            crate::ItemSpec::ordinary("ordinary armor".into()),
+            crate::ItemSpec::ordinary(
+                "item.test.ordinary-armor".parse().unwrap(),
+                "ordinary armor".into(),
+            ),
         )
         .unwrap();
         let knowledge = game.actors[&ActorId(1)].knowledge.clone();
@@ -139,10 +163,22 @@ mod tests {
     #[test]
     fn self_transfer_and_stale_destination_cannot_create_a_receipt() {
         let mut game = game();
-        game.place_item_stack(10, at(2), Some(ActorId(2)), 3, gold("gold"))
-            .unwrap();
-        game.place_item_stack(11, at(1), Some(ActorId(1)), 3, gold("gold"))
-            .unwrap();
+        game.place_item_stack(
+            10,
+            at(2),
+            Some(ActorId(2)),
+            3,
+            gold("item.test.gold", "gold"),
+        )
+        .unwrap();
+        game.place_item_stack(
+            11,
+            at(1),
+            Some(ActorId(1)),
+            3,
+            gold("item.test.gold", "gold"),
+        )
+        .unwrap();
         let before = game.clone();
         assert!(game
             .transfer_theft(ActorId(2), ActorId(2), &selection(3), &mut 9)
@@ -167,7 +203,8 @@ mod tests {
     #[test]
     fn live_equipment_and_claims_exclude_units_without_identifying_inventory() {
         let mut game = game();
-        let mut spec = crate::ItemSpec::ordinary("charm".into());
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.charm".parse().unwrap(), "charm".into());
         spec.magical = true;
         spec.stackable = true;
         game.place_item_stack(10, at(2), Some(ActorId(2)), 3, spec.clone())
@@ -224,8 +261,14 @@ mod tests {
     fn exact_transfer_rechecks_equipment_and_fresh_identity_absence() {
         for changed_equipment in [false, true] {
             let mut game = game();
-            game.place_item_stack(10, at(2), Some(ActorId(2)), 3, gold("gold"))
-                .unwrap();
+            game.place_item_stack(
+                10,
+                at(2),
+                Some(ActorId(2)),
+                3,
+                gold("item.test.gold", "gold"),
+            )
+            .unwrap();
             let plan = game
                 .prepare_owned_transfer(ItemId(10), ActorId(2), ActorId(1), 1)
                 .unwrap();
@@ -279,7 +322,10 @@ mod tests {
             rooms: vec![],
         })
         .unwrap();
-        let mut spec = crate::ItemSpec::ordinary("Amulet of Yendor".into());
+        let mut spec = crate::ItemSpec::ordinary(
+            "item.test.amulet-of-yendor".parse().unwrap(),
+            "Amulet of Yendor".into(),
+        );
         spec.class = crate::ItemClass::Amulet;
         spec.magical = true;
         game.place_item_stack(10, at(2), Some(ActorId(2)), 1, spec.clone())

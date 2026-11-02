@@ -44,11 +44,21 @@ fn scenario() -> crate::Scenario {
         json!({"scope":"always","op":{"kind":"set","stat":{"kind":"resource_max","resource":"mana"},"value":20}}),
         json!({"scope":"always","op":{"kind":"set","stat":{"kind":"health"},"value":100}}),
     ];
-    for (id, name, damage) in [
-        ("fixture.primary", "primary sword", 3),
-        ("fixture.secondary", "secondary sword", 7),
+    for (id, name, identity, damage) in [
+        (
+            "fixture.primary",
+            "primary sword",
+            "item.weapon.fixture.primary",
+            3,
+        ),
+        (
+            "fixture.secondary",
+            "secondary sword",
+            "item.weapon.fixture.secondary",
+            7,
+        ),
     ] {
-        manifest["archetypes"][id] = json!({"name":name, "class":"weapon", "equipment":{
+        manifest["archetypes"][id] = json!({"name":name, "identity":identity, "class":"weapon", "equipment":{
             "slot":"weapon", "attack":{"skill":"heavy_weaponry","bonus":0,"wind_up":300,"recovery":100,
                 "damage":{"components":[{"category":"keen","descriptor":null,"amount":{"type":"fixed","value":damage}}],"primary":{"category":"keen","descriptor":null}}}
         }});

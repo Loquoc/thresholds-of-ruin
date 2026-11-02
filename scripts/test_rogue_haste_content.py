@@ -13,7 +13,7 @@ def source(name):
 class RogueHasteContent(unittest.TestCase):
     def test_haste_potion_uses_shared_condition_and_dedicated_rest_on_use(self):
         self.assertEqual(source("catalog/items.toml")["items"]["rogue.haste"], {
-            "name": "potion of haste", "identity": "rogue.haste", "asset": "item.potion",
+            "name": "potion of haste", "identity": "item.potion.haste", "asset": "item.potion",
             "magical": True, "class": "potion", "stackable": True,
             "appearance_pool": "rogue.potions", "consumable": {
                 "discovery": "on_use", "effects": [{"kind": "haste_dose",
@@ -25,7 +25,7 @@ class RogueHasteContent(unittest.TestCase):
                           if item.get("appearance_pool") == "rogue.potions"}, {
             "rogue.restore_strength", "rogue.healing", "rogue.extra_healing", "rogue.confusion",
             "rogue.blindness", "rogue.poison", "rogue.see_invisible", "rogue.levitation", "rogue.haste", "rogue.gain_strength", "rogue.raise_level", "rogue.hallucination", "rogue.monster_detection", "rogue.magic_detection"})
-        self.assertEqual(catalog["appearance_pools"]["rogue.potions"]["appearances"], [
+        self.assertEqual([entry["name"] for entry in catalog["appearance_pools"]["rogue.potions"]["appearances"]], [
             "amber potion", "smoky potion", "violet potion", "azure potion", "crimson potion",
             "silver potion", "pearl potion", "teal potion", "ochre potion", "indigo potion", "copper potion", "chartreuse potion", "saffron potion", "cerulean potion"])
 
@@ -53,7 +53,7 @@ class RogueHasteContent(unittest.TestCase):
                 "choices": [{"archetype": "rogue.wand_" + kind, "weight": 1} for kind in
                     ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.haste", character["known_identities"])
+            self.assertNotIn("item.potion.haste", character["known_identities"])
             self.assertNotIn("rogue.haste", [row["archetype"] for row in character["loadout"]])
 
 

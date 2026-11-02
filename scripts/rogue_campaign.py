@@ -306,7 +306,8 @@ class CampaignRun(ProcessTestCase):
         potions = expected_healing(self.start_depth)
         if potions:
             character["loadout"].append({"archetype": "rogue.healing", "quantity": potions})
-        character["known_identities"] += [armor, *HEALING]
+        catalog = tomllib.loads((package / "catalog/items.toml").read_text(encoding="utf-8"))["items"]
+        character["known_identities"] += [catalog[key]["identity"] for key in (armor, *HEALING)]
         build = character["creature"]
         grown = min(level - 1, len(build["growth_schedule"]))
         build["hit_dice"] += build["growth_schedule"][:grown]

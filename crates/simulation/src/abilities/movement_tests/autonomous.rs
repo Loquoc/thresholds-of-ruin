@@ -6,7 +6,10 @@ fn autonomous_retreat_selects_a_typed_self_step_and_keeps_ordinary_turn_identity
     let idle = game
         .spawn_actor(cell(6, 6, 0), std::num::NonZeroU64::new(100).unwrap())
         .unwrap();
-    for (actor, faction) in [(crate::ActorId(1), "hero"), (crate::ActorId(2), "foe")] {
+    for (actor, faction, corpse_identity) in [
+        (crate::ActorId(1), "hero", "item.corpse.test.hero"),
+        (crate::ActorId(2), "foe", "item.corpse.test.foe"),
+    ] {
         game.actors
             .get_mut(&actor)
             .unwrap()
@@ -14,6 +17,7 @@ fn autonomous_retreat_selects_a_typed_self_step_and_keeps_ordinary_turn_identity
             .as_mut()
             .unwrap()
             .identity = crate::CreatureIdentity {
+            corpse_identity: corpse_identity.parse().unwrap(),
             name: faction.into(),
             faction: faction.into(),
         };
@@ -87,7 +91,10 @@ fn retreat_fixture() -> (crate::Game, crate::ActorId, crate::ActorId) {
     let idle = game
         .spawn_actor(cell(6, 6, 0), std::num::NonZeroU64::new(100).unwrap())
         .unwrap();
-    for (actor, faction) in [(crate::ActorId(1), "hero"), (crate::ActorId(2), "foe")] {
+    for (actor, faction, corpse_identity) in [
+        (crate::ActorId(1), "hero", "item.corpse.test.hero"),
+        (crate::ActorId(2), "foe", "item.corpse.test.foe"),
+    ] {
         game.actors
             .get_mut(&actor)
             .unwrap()
@@ -95,6 +102,7 @@ fn retreat_fixture() -> (crate::Game, crate::ActorId, crate::ActorId) {
             .as_mut()
             .unwrap()
             .identity = crate::CreatureIdentity {
+            corpse_identity: corpse_identity.parse().unwrap(),
             name: faction.into(),
             faction: faction.into(),
         };

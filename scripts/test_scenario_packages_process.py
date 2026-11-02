@@ -10,10 +10,10 @@ import unittest
 from process_harness import ProcessTestCase, ROOT, TOKEN, WIZARD_TOKEN, content_ids
 
 
-def subject_build(name):
+def subject_build(name, corpse_identity):
     """An explicit one-HD subject for construction and persistence fixtures."""
     return ('{ species = "figure", name = ' + json.dumps(name, ensure_ascii=False)
-            + ', faction = "neutral", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, '
+            + ', corpse_identity = ' + json.dumps(corpse_identity) + ', faction = "neutral", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, '
             'hit_dice = [{ source = "racial" }] }')
 
 
@@ -38,7 +38,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
                     context = 'scenario.toml: character 1'
                 elif boundary == "unused-archetype":
                     path = manifest
-                    build = ('{ species = "human", name = ' + name + ', faction = "neutral", '
+                    build = ('{ species = "human", name = ' + name + ', corpse_identity = "item.corpse.fixture.unused", faction = "neutral", '
                              'binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] }')
                     source = path.read_text(encoding="utf-8").replace('archetypes = { ',
                                 'archetypes = { "unused" = { creature = ' + build + ' }, ', 1)
@@ -66,8 +66,10 @@ class ScenarioPackageProcesses(ProcessTestCase):
         name, faction = chr(0xe9) * 30, chr(0xe9) * 40
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source = source.replace('name = "trainee", faction = "neutral"',
-                                'name = ' + json.dumps(name, ensure_ascii=False) + ', faction = '
+        original = 'name = "trainee", corpse_identity = "item.corpse.fixture.trainee", faction = "neutral"'
+        self.assertIn(original, source)
+        source = source.replace(original, 'name = ' + json.dumps(name, ensure_ascii=False)
+                                + ', corpse_identity = "item.corpse.fixture.trainee", faction = '
                                 + json.dumps(faction, ensure_ascii=False), 1)
         source = source.replace('ai_profiles = ', 'factions = { neutral = [], '
                                 + json.dumps(faction, ensure_ascii=False) + ' = [] }\nai_profiles = ', 1)
@@ -96,7 +98,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         shutil.copytree(ROOT / "scenarios/two-room", package)
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        build = ('creature = { species = "human", name = "arena trainee", '
+        build = ('creature = { species = "human", name = "arena trainee", corpse_identity = "item.corpse.fixture.arena-trainee", '
                  'faction = "neutral", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, '
                  'hit_dice = [{ source = "racial" }, { source = "warrior" }] }, ')
         source = source.replace('characters = [{ ', 'characters = [{ ' + build)
@@ -194,7 +196,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         self.assertIn("Objectives require declared creature builds", result.stderr)
         self.assertEqual(before, {p.relative_to(package): p.read_bytes()
                                   for p in package.rglob("*") if p.is_file()})
-        build = ('creature = { species = "figure", name = "figure", faction = "neutral", '
+        build = ('creature = { species = "figure", name = "figure", corpse_identity = "item.corpse.fixture.figure", faction = "neutral", '
                  'binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] }, ')
         source = source.replace('characters = [{ ', 'characters = [{ ' + build, 1)
         definitions = (ROOT / "scenarios/tests/interactions/scenario.toml").read_text(encoding="utf-8")
@@ -256,7 +258,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
     def test_region_and_generated_references_report_exact_source_values(self):
         cases = [
             ("portal", "two-room", "regions/1.toml", '"to" = "2/landing"', '"to" = "2/missing"', '"2/missing"', "portal anchor"),
-            ("known-identity", "tests/items", "scenario.toml", 'known_identities = ["healing"]', 'known_identities = ["healing", "missing"]', '"missing"', "initial item identity"),
+            ("known-identity", "tests/items", "scenario.toml", 'known_identities = ["item.potion.healing"]', 'known_identities = ["item.potion.healing", "item.potion.missing"]', '"item.potion.missing"', "initial item identity"),
             ("objective-anchor", "first-dungeon", "scenario.toml", 'objective = { anchor = "1/exit"', 'objective = { anchor = "1/missing"', '"1/missing"', "objective anchor"),
             ("objective-item", "first-dungeon", "scenario.toml", 'item = 100', 'item = 999', '999', "objective"),
             ("zone", "two-room", "regions/1.toml", 'zone = "entry"', 'zone = "missing"', '"missing"', "zone"),
@@ -321,13 +323,13 @@ class ScenarioPackageProcesses(ProcessTestCase):
         region = package / "regions/1.toml"
         add_subject_catalog(package)
         actor = (' { id = 3, at = [3, 1, 0], controller = "ai", '
-                 'creature = ' + subject_build("Gárd") + ', ai = "missing", '
+                 'creature = ' + subject_build("Gárd", "item.corpse.fixture.guard-accent") + ', ai = "missing", '
                  'body = { cells = [[0, 0, 0]], eye = [1, 0, 0], mass = 91 } },')
         text = region.read_text(encoding="utf-8") + (
             '\n# ai = "missing" is a decoy, not the failing reference.\n'
             'actors = [\n'
             ' { id = 2, at = [2, 1, 0], controller = "external", '
-            'creature = ' + subject_build("missing") + ' },\n'
+            'creature = ' + subject_build("missing", "item.corpse.fixture.missing") + ' },\n'
             + actor + '\n]\n')
         region.write_bytes(text.encode("utf-8"))
         line = text.splitlines().index(actor) + 1
@@ -481,7 +483,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         cases = [
             ('actor-ai', 'regions/1.toml',
              '\nactors = [{ id = 9, at = [3,1,0], controller = "ai", ai = "missing", creature = '
-             + subject_build("guard") + ', body = { cells = [[0,0,0]], eye = [1,0,0], mass = 91 } }]\n',
+             + subject_build("guard", "item.corpse.fixture.guard") + ', body = { cells = [[0,0,0]], eye = [1,0,0], mass = 91 } }]\n',
              'regions/1.toml: region 1, actor 9: Unknown actor AI profile "missing"'),
             ('actor-body', 'regions/1.toml',
              '\nactors = [{ id = 9, at = [3,1,0], body = { cells = [[0,0,0]], eye = [1,0,0], mass = 91 } }]\n',
@@ -526,7 +528,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
             ('actor', 'regions/1.toml', '\nactors = [{ id = 9, at = [1,1,0], controller = "bad" }]\n',
              'regions/1.toml: region 1, actor 9: Invalid actor controller'),
             ('creature', 'regions/1.toml', '\nactors = [{ id = 9, at = [3,1,0], creature = '
-             + subject_build("invalid").replace('hit_dice = [{ source = "racial" }]', 'hit_dice = []') + ' }]\n',
+             + subject_build("invalid", "item.corpse.fixture.invalid").replace('hit_dice = [{ source = "racial" }]', 'hit_dice = []') + ' }]\n',
              'regions/1.toml: region 1, actor 9: Authored creatures require 1 to 256 hit dice and at most 32 templates'),
         ]
         for name, source, edit, message in cases:
@@ -556,11 +558,13 @@ class ScenarioPackageProcesses(ProcessTestCase):
         shutil.copytree(ROOT / 'scenarios/two-room', package)
         manifest = package / 'scenario.toml'
         text = manifest.read_text()
-        text = text.replace('"token" = { "name" = "copper token" }',
-                            '"token" = { name = "compiled coin", stackable = true, '
+        original = '"token" = { identity = "item.misc.token", "name" = "copper token" }'
+        self.assertIn(original, text)
+        text = text.replace(original,
+                            '"token" = { identity = "item.misc.token", name = "compiled coin", stackable = true, '
                             'properties = { quality = "fine" } }')
         text = text.replace('"turn_ticks" = 100, body =',
-                            '"turn_ticks" = 100, creature = ' + subject_build("compiler hero") + ', body =')
+                            '"turn_ticks" = 100, creature = ' + subject_build("compiler hero", "item.corpse.fixture.compiler-hero") + ', body =')
         manifest.write_text(text.replace('mass = 80', 'mass = 91'))
         add_subject_catalog(package)
         region = package / 'regions/1.toml'
@@ -676,7 +680,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         cases.extend([
             ('actor-faction', 'tests/generated-filler', 'regions/1.toml',
              'anchors = { start = [2, 2, 0], east = [19, 2, 0] }',
-             'anchors = { start = [2, 2, 0], east = [19, 2, 0] }\nactors = [{ id = 17, at = [4, 2, 0], creature = { species = "delver", name = "guard", faction = "missing", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] } }]',
+             'anchors = { start = [2, 2, 0], east = [19, 2, 0] }\nactors = [{ id = 17, at = [4, 2, 0], creature = { species = "delver", name = "guard", corpse_identity = "item.corpse.fixture.guard", faction = "missing", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] } }]',
              '"missing"', 'faction'),
             ('default-character', 'tests/generated-filler', 'scenario.toml',
              'default_character = 1', 'default_character = 99', '99', 'selected character'),

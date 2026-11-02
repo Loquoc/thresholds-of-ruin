@@ -21,6 +21,13 @@ use std::{collections::HashMap, f32::consts::TAU, sync::Arc};
 #[cfg(test)]
 #[path = "props_art_tests.rs"]
 mod art_contract_tests;
+#[path = "props_item_surfaces.rs"]
+mod item_surfaces;
+#[path = "props_rogue_supplies.rs"]
+mod rogue_supplies;
+use tor_client_3d_model::ItemSurface;
+#[path = "props_rogue_weapons.rs"]
+mod rogue_weapons;
 mod tube_path;
 
 // The shared palette.
@@ -712,6 +719,66 @@ impl PropLibrary {
         })
     }
 
+    /// Ground-only silhouettes. Held/equipped recipes retain their physical size.
+    /// The resolved appearance selects geometry, never name, value or hidden traits.
+    pub fn ground_item(&mut self, kind: Kind, meshes: &mut Assets<Mesh>) -> Model {
+        match kind {
+            Kind::Potion
+            | Kind::Wand
+            | Kind::Staff
+            | Kind::Amulet
+            | Kind::Bandage
+            | Kind::Ration
+            | Kind::Fruit
+            | Kind::Torch => self.get(format!("ground-item:{kind:?}"), meshes, move || {
+                rogue_supplies::ground(kind).expect("supported ground supply")
+            }),
+            Kind::Coins | Kind::Ring | Kind::Scroll => {
+                self.get(format!("ground-item:{kind:?}"), meshes, move || {
+                    ground_item_parts(kind)
+                })
+            }
+            _ => self.item(kind, meshes),
+        }
+    }
+
+    /// Bounded public appearance is part of the cache key; identity and labels are not.
+    pub fn item_surface(
+        &mut self,
+        kind: Kind,
+        surface: ItemSurface,
+        meshes: &mut Assets<Mesh>,
+    ) -> Model {
+        if surface == ItemSurface::Neutral {
+            return self.item(kind, meshes);
+        }
+        self.get(format!("item:{kind:?}:{surface:?}"), meshes, move || {
+            let mut parts = surface_base(kind);
+            item_surfaces::apply(&mut parts, kind, surface);
+            parts
+        })
+    }
+
+    pub fn ground_item_surface(
+        &mut self,
+        kind: Kind,
+        surface: ItemSurface,
+        meshes: &mut Assets<Mesh>,
+    ) -> Model {
+        if surface == ItemSurface::Neutral {
+            return self.ground_item(kind, meshes);
+        }
+        self.get(
+            format!("ground-item:{kind:?}:{surface:?}"),
+            meshes,
+            move || {
+                let mut parts = surface_base(kind);
+                item_surfaces::apply(&mut parts, kind, surface);
+                parts
+            },
+        )
+    }
+
     pub fn door_frame(&mut self, meshes: &mut Assets<Mesh>) -> Model {
         self.get("door-frame".into(), meshes, door_frame)
     }
@@ -812,6 +879,9 @@ pub(crate) fn maintain_cache(
     }
 }
 
+#[path = "props_armor.rs"]
+mod armor;
+
 pub use tor_client_3d_model::ItemModel as Kind;
 
 /// Authored in prop-local coordinates, also used to emit the handle shaft.
@@ -840,7 +910,10 @@ fn sword_handle_frame(kind: Kind) -> Option<Transform> {
 pub(crate) fn held_transform(kind: Kind) -> Transform {
     let rotation = Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)
         * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
-    if let Some(handle) = sword_handle_frame(kind) {
+    if let Some(handle) = sword_handle_frame(kind)
+        .or_else(|| rogue_weapons::grip_frame(kind))
+        .or_else(|| rogue_supplies::grip_frame(kind))
+    {
         let grasp = Vec3::new(-0.03, -0.02, 0.0);
         // Align the authored handle with the target, rather than estimating
         // a model-dependent forward offset in each caller.
@@ -874,6 +947,18 @@ fn build_item(kind: Kind, name: &str) -> Parts {
             0.0,
             Vec3::new(0.38, 0.6, 0.68),
         ),
+        Kind::LongSword
+        | Kind::Dagger
+        | Kind::Shortbow
+        | Kind::Arrow
+        | Kind::Spear
+        | Kind::Dart
+        | Kind::Shuriken => {
+            assert!(rogue_weapons::append(kind, &mut p));
+        }
+        Kind::Staff | Kind::Fruit | Kind::Torch => {
+            return rogue_supplies::ground(kind).expect("supported supply")
+        }
         Kind::Mace => mace(&mut p),
         Kind::Greatsword | Kind::ShortSword => sword(&mut p, sword_scale(kind).unwrap()),
         Kind::LeatherArmor
@@ -1017,139 +1102,7 @@ fn sword(p: &mut Parts, scale: f32) {
 /// Body armour laid flat, its style read from the surface: the same vest
 /// outline as worn armour, in leather, iron or steel with its own detailing.
 fn body_armor(p: &mut Parts, kind: Kind) {
-    const OUTLINE: [Vec2; 11] = [
-        Vec2::new(-0.17, -0.25),
-        Vec2::new(0.17, -0.25),
-        Vec2::new(0.18, 0.06),
-        Vec2::new(0.3, 0.1),
-        Vec2::new(0.28, 0.2),
-        Vec2::new(0.1, 0.25),
-        Vec2::new(0.0, 0.2),
-        Vec2::new(-0.1, 0.25),
-        Vec2::new(-0.28, 0.2),
-        Vec2::new(-0.3, 0.1),
-        Vec2::new(-0.18, 0.06),
-    ];
-    let leathern = matches!(
-        kind,
-        Kind::LeatherArmor | Kind::StuddedLeather | Kind::RingMail | Kind::SplintMail
-    );
-    let base = match kind {
-        Kind::LeatherArmor | Kind::StuddedLeather => LEATHER * 1.15,
-        Kind::RingMail | Kind::SplintMail => LEATHER * 0.85,
-        Kind::ChainMail => IRON * 0.95,
-        Kind::PlateMail => STEEL,
-        _ => IRON * 0.8,
-    };
-    let body = if leathern { &mut p.matte } else { &mut p.metal };
-    body.extrude(
-        &OUTLINE,
-        Vec3::new(0.0, 0.025, 0.0),
-        Vec3::X,
-        Vec3::NEG_Z,
-        0.05,
-        base,
-    );
-    let top = 0.052;
-    let grid = |rows: usize, cols: usize, dx: f32, dz: f32| {
-        (0..rows).flat_map(move |row| {
-            (0..cols).filter_map(move |col| {
-                let x = -0.13 + col as f32 * dx + if row % 2 == 1 { dx * 0.5 } else { 0.0 };
-                (x <= 0.15).then(|| Vec2::new(x, 0.18 - row as f32 * dz))
-            })
-        })
-    };
-    match kind {
-        Kind::RingMail => {
-            for at in grid(6, 5, 0.065, 0.062) {
-                p.metal.torus(
-                    Vec3::new(at.x, top, at.y),
-                    Vec3::Y,
-                    0.024,
-                    0.0045,
-                    10,
-                    4,
-                    STEEL,
-                );
-            }
-        }
-        Kind::StuddedLeather => {
-            for at in grid(8, 6, 0.054, 0.048) {
-                let at = Vec3::new(at.x, top - 0.002, at.y);
-                p.metal
-                    .prism(at, at + Vec3::Y * 0.008, 0.008, 0.006, 8, BRONZE, 0.0);
-            }
-        }
-        Kind::ScaleMail => {
-            for at in grid(9, 6, 0.054, 0.045) {
-                p.metal.extrude(
-                    &[
-                        Vec2::new(-0.024, 0.02),
-                        Vec2::new(0.024, 0.02),
-                        Vec2::new(0.02, -0.012),
-                        Vec2::new(0.0, -0.03),
-                        Vec2::new(-0.02, -0.012),
-                    ],
-                    Vec3::new(at.x, top + 0.002, at.y),
-                    Vec3::X,
-                    Vec3::NEG_Z,
-                    0.004,
-                    STEEL * (0.9 + 0.1 * (at.y * 40.0).sin().abs()),
-                );
-            }
-        }
-        Kind::SplintMail => {
-            for k in 0..6 {
-                let x = -0.125 + k as f32 * 0.05;
-                p.metal.cuboid(
-                    Vec3::new(x, top + 0.003, -0.03),
-                    Vec3::new(0.018, 0.004, 0.17),
-                    Quat::IDENTITY,
-                    STEEL,
-                );
-            }
-        }
-        Kind::BandedMail => {
-            for k in 0..7 {
-                p.metal.cuboid(
-                    Vec3::new(0.0, top + 0.003 + 0.002 * k as f32, 0.15 - k as f32 * 0.058),
-                    Vec3::new(0.17, 0.004, 0.032),
-                    Quat::IDENTITY,
-                    STEEL * (1.0 - 0.03 * k as f32),
-                );
-            }
-        }
-        Kind::PlateMail => {
-            p.metal.cuboid(
-                Vec3::new(0.0, top + 0.003, -0.24),
-                Vec3::new(0.17, 0.005, 0.012),
-                Quat::IDENTITY,
-                GOLD,
-            );
-        }
-        _ => {}
-    }
-    p.matte.cuboid(
-        Vec3::new(0.0, 0.054, 0.17),
-        Vec3::new(0.172, 0.01, 0.022),
-        Quat::IDENTITY,
-        LEATHER,
-    );
-    p.metal.cuboid(
-        Vec3::new(0.0, 0.066, 0.17),
-        Vec3::new(0.03, 0.006, 0.026),
-        Quat::IDENTITY,
-        BRONZE,
-    );
-    p.matte.torus(
-        Vec3::new(0.0, 0.05, -0.2),
-        Vec3::Y,
-        0.075,
-        0.012,
-        9,
-        4,
-        LEATHER,
-    );
+    armor::append(p, kind);
 }
 
 /// A pressure plate sunk in the floor. Unknown traps show only a warning
@@ -1442,6 +1395,149 @@ fn coins(p: &mut Parts, name: &str) {
     );
 }
 
+/// Illustrative piles do not encode an exact coin count. Exact quantities
+/// belong to the disclosed on-demand label, not the number of decorative tokens.
+fn surface_base(kind: Kind) -> Parts {
+    rogue_supplies::ground(kind).unwrap_or_else(|| match kind {
+        Kind::Ring | Kind::Scroll | Kind::Coins => ground_item_parts(kind),
+        _ => build_item(kind, "neutral"),
+    })
+}
+
+fn ground_item_parts(kind: Kind) -> Parts {
+    let mut p = Parts::default();
+    match kind {
+        Kind::Coins => {
+            // Warm faces and darker edges read without relying on a glint frame.
+            for (x, z, height, radius) in [
+                (-0.045, -0.035, 0.0, 0.10),
+                (-0.04, -0.035, 0.033, 0.10),
+                (-0.045, -0.03, 0.066, 0.10),
+                (-0.035, -0.03, 0.099, 0.095),
+                (-0.18, 0.095, 0.0, 0.085),
+            ] {
+                let base = Vec3::new(x, height + 0.005, z);
+                p.metal.prism(
+                    base,
+                    base + Vec3::Y * 0.029,
+                    radius,
+                    radius,
+                    12,
+                    GOLD * 0.72,
+                    0.0,
+                );
+                p.metal.prism(
+                    base + Vec3::Y * 0.026,
+                    base + Vec3::Y * 0.033,
+                    radius * 0.88,
+                    radius * 0.88,
+                    12,
+                    GOLD * 1.10,
+                    0.0,
+                );
+                p.metal.torus(
+                    base + Vec3::Y * 0.034,
+                    Vec3::Y,
+                    radius * 0.72,
+                    0.006,
+                    12,
+                    4,
+                    GOLD * 0.87,
+                );
+            }
+            // A broad leaning face is visible from the normal steep play camera.
+            let face = Vec3::new(0.12, 0.084, 0.055);
+            let normal = Vec3::new(0.3, 0.5, 0.81).normalize();
+            p.metal.prism(
+                face - normal * 0.015,
+                face + normal * 0.015,
+                0.095,
+                0.095,
+                12,
+                GOLD * 0.76,
+                0.0,
+            );
+            p.metal.prism(
+                face + normal * 0.015,
+                face + normal * 0.020,
+                0.083,
+                0.083,
+                12,
+                GOLD * 1.10,
+                0.0,
+            );
+            p.metal.torus(
+                face + normal * 0.021,
+                normal,
+                0.064,
+                0.006,
+                12,
+                4,
+                GOLD * 0.85,
+            );
+        }
+        Kind::Ring => {
+            // A thick faceted band; no colour or glow implying magical identity.
+            let normal = Vec3::new(0.0, 0.94, 0.34).normalize();
+            let at = Vec3::new(0.0, 0.066, 0.0);
+            p.metal.torus(at, normal, 0.087, 0.026, 12, 5, GOLD * 0.83);
+            p.metal.torus(
+                at + normal * 0.020,
+                normal,
+                0.087,
+                0.007,
+                12,
+                4,
+                GOLD * 1.12,
+            );
+        }
+        Kind::Scroll => {
+            let parchment = Vec3::new(0.87, 0.78, 0.57);
+            p.matte.prism(
+                Vec3::new(0.0, 0.067, -0.16),
+                Vec3::new(0.0, 0.067, 0.16),
+                0.065,
+                0.065,
+                10,
+                parchment,
+                0.0,
+            );
+            for z in [-0.163, 0.163] {
+                p.matte.prism(
+                    Vec3::new(0.0, 0.067, z),
+                    Vec3::new(0.0, 0.067, z + z.signum() * 0.002),
+                    0.047,
+                    0.047,
+                    10,
+                    parchment * 0.48,
+                    0.0,
+                );
+                p.matte.torus(
+                    Vec3::new(0.0, 0.067, z + z.signum() * 0.003),
+                    Vec3::Z,
+                    0.052,
+                    0.011,
+                    10,
+                    4,
+                    parchment * 1.1,
+                );
+            }
+            // A cloth tie, not the old magical emission, gives a readable midpoint.
+            p.matte.prism(
+                Vec3::new(0.0, 0.067, -0.028),
+                Vec3::new(0.0, 0.067, 0.028),
+                0.069,
+                0.069,
+                10,
+                Vec3::new(0.40, 0.13, 0.10),
+                0.0,
+            );
+        }
+        _ => return build_item(kind, "neutral"),
+    }
+    p
+}
+
 /// A standing stone tablet with runes that glow in the cave's teal.
 fn tablet(p: &mut Parts) {
     p.accent = Some(Accent::Teal);
@@ -1654,34 +1750,7 @@ fn spellbook(p: &mut Parts) {
 }
 
 fn wand(p: &mut Parts) {
-    p.accent = Some(Accent::Teal);
-    p.matte.prism(
-        Vec3::new(-0.2, 0.016, 0.0),
-        Vec3::new(0.17, 0.02, 0.0),
-        0.014,
-        0.009,
-        6,
-        WOOD_DARK,
-        0.0,
-    );
-    p.metal.prism(
-        Vec3::new(0.14, 0.02, 0.0),
-        Vec3::new(0.17, 0.02, 0.0),
-        0.014,
-        0.014,
-        6,
-        BRONZE,
-        0.0,
-    );
-    p.glow.prism(
-        Vec3::new(0.17, 0.02, 0.0),
-        Vec3::new(0.22, 0.02, 0.0),
-        0.016,
-        0.0,
-        6,
-        Vec3::ONE,
-        0.0,
-    );
+    *p = rogue_supplies::ground(Kind::Wand).expect("wand recipe");
 }
 
 fn gem(p: &mut Parts, name: &str) {

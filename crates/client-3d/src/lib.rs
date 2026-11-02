@@ -22,6 +22,7 @@ mod interact;
 mod inventory;
 mod launch;
 mod lighting;
+mod loot_labels;
 mod map_journal;
 mod minimap;
 #[doc(hidden)]
@@ -29,6 +30,7 @@ pub mod model_benchmark;
 mod net;
 mod pack;
 mod picking;
+mod pile_picker;
 mod portrait;
 mod progression;
 mod props;
@@ -75,7 +77,7 @@ use tor_protocol::{ActorId, ActorTarget, Direction, ItemClass, Position};
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
-const HELP: &str = "WASD/arrows: move   Q/E: turn   wheel: zoom   click: act   G: pick up   \
+const HELP: &str = "WASD/arrows: move   Q/E: turn   wheel: zoom   click: act   G: pick up   Alt/F3: loot labels   \
 X: door   I: pack   Space: wait   R/F: up/down   M: map   Tab: control   Esc: close/quit";
 
 pub fn run() -> Result<(), Error> {
@@ -398,6 +400,8 @@ pub fn run() -> Result<(), Error> {
     .init_resource::<interact::Hover>()
     .init_resource::<interact::Panel>()
     .init_resource::<interact::Pursuit>()
+    .init_resource::<loot_labels::LootLabels>()
+    .init_resource::<pile_picker::PilePicker>()
     .insert_resource(autoplay::Autoplay::new(autoplay, hunt))
     .add_systems(
         Startup,
@@ -421,7 +425,7 @@ pub fn run() -> Result<(), Error> {
         (
             (receive, creatures::loading::poll, startup::tick).chain(),
             react,
-            (interact::keys, hud::buttons).chain(),
+            (pile_picker::update, interact::keys, hud::buttons).chain(),
             (
                 (progression::sync, progression::controls).chain(),
                 (
@@ -474,6 +478,8 @@ pub fn run() -> Result<(), Error> {
                 lighting::shade,
                 lighting::lamps,
                 hud::update,
+                loot_labels::show,
+                pile_picker::draw,
             )
                 .chain(),
         )
@@ -631,7 +637,7 @@ struct Game {
     chunks: HashMap<IVec3, Entity>,
     door_leaves: HashMap<IVec3, Entity>,
     /// The weapon shown in each figure's hand: hand joint to recipe and model.
-    held: HashMap<Entity, (ItemModel, Entity)>,
+    held: HashMap<Entity, ((ItemModel, tor_client_3d_model::ItemSurface), Entity)>,
     /// Counts views, so panels know when to refresh.
     view_serial: u64,
     /// The weapon hand of each figure, for showing what it holds.

@@ -1,4 +1,4 @@
-format = 36
+format = 37
 id = "crowd"
 version = "1.0"
 ruleset = "rules.toml"
@@ -18,7 +18,7 @@ asset = "creature.humanoid.human"
 turn_ticks = 100
 unselected = "omit"
 body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 80 }
-known_identities = ["rogue.mace", "rogue.ring_mail", "rogue.clean_bandage", "rogue.ration"]
+known_identities = ["item.weapon.mace", "item.armor.ring-mail", "item.misc.clean-bandage", "item.food.ration"]
 loadout = [
   { archetype = "rogue.mace", quantity = 1, equipped_slot = 0 },
   { archetype = "rogue.ring_mail", quantity = 1, equipped_slot = 2 },
@@ -26,6 +26,7 @@ loadout = [
 [characters.creature]
 species = "rogue.human"
 name = "Warrior"
+corpse_identity = "item.corpse.persona.warrior"
 faction = "delvers"
 binding = "intellect"
 starting_skills = ["heavy_weaponry", "discipline"]

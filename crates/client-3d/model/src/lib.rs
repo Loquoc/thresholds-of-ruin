@@ -15,8 +15,8 @@ pub use advancement::{
     catalog_command, AdvancementAction, AdvancementBrowser, AdvancementOption, AdvancementView,
 };
 pub use appearance::{
-    actor_model, creature_model, item_model, object_model, wearing, CreatureModel, ItemModel,
-    Wearing,
+    actor_model, creature_model, item_model, item_surface, object_model, wearing, CreatureModel,
+    ItemModel, ItemSurface, Wearing,
 };
 pub use commands::{
     offset, request_from, AbilityTarget, Cmd, Input, ProjectileStep, MAX_PLACE_NAME,

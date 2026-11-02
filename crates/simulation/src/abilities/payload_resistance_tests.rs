@@ -366,8 +366,11 @@ fn primary_damage_survives_resisted_or_immune_poison_rider() {
 fn poisoned_self_item_freezes_descriptor_spends_exact_unit_and_replays_resistance_after_restore() {
     for dc in [0, 100] {
         let mut game = fixture(dc, false);
-        let mut spec = ItemSpec::ordinary("fixture poison".into());
-        spec.identity = "fixture.poisoned_unit".into();
+        let mut spec = ItemSpec::ordinary(
+            "item.test.fixture-poison".parse().unwrap(),
+            "fixture poison".into(),
+        );
+        spec.identity = "item.test.fixture-poisoned-unit".parse().unwrap();
         spec.concealed = true;
         spec.class = crate::ItemClass::Potion;
         spec.stackable = true;
@@ -428,9 +431,11 @@ fn poisoned_self_item_freezes_descriptor_spends_exact_unit_and_replays_resistanc
             assert_eq!(current.items[&item].quantity, 1);
             assert!(current.items[&item].holds.is_empty());
             assert!(current.preparation(ActorId(1)).is_none());
-            assert!(current.actors[&ActorId(1)]
-                .knowledge
-                .contains("fixture.poisoned_unit"));
+            assert!(current.actors[&ActorId(1)].knowledge.contains(
+                &"item.test.fixture-poisoned-unit"
+                    .parse::<crate::ItemIdentity>()
+                    .unwrap()
+            ));
             assert_eq!(
                 current
                     .creature(ActorId(1))

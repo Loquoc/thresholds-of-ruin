@@ -19,18 +19,27 @@ fn fixture() -> (tempfile::TempDir, Service, Connection, BTreeSet<String>) {
     manifest.appearance_pools.insert(
         "guard_fur".into(),
         crate::scenario_package::AppearancePool {
-            appearances: vec!["grey fur".into(), "black fur".into()],
+            appearances: vec![
+                crate::scenario_package::AppearanceEntry {
+                    name: "grey fur".into(),
+                    asset: Some("creature.rat".into()),
+                },
+                crate::scenario_package::AppearanceEntry {
+                    name: "black fur".into(),
+                    asset: Some("creature.rat".into()),
+                },
+            ],
             confounding: false,
-            asset: Some("creature.rat".into()),
         },
     );
-    for (theme, name, asset, region, actor) in [
-        ("stone", "entry_guard", OLD, 0, 2),
-        ("vault", "vault_guard", NEW, 3, 3),
+    for (theme, name, identity, asset, region, actor) in [
+        ("stone", "entry_guard", "item.misc.entry-guard", OLD, 0, 2),
+        ("vault", "vault_guard", "item.misc.vault-guard", NEW, 3, 3),
     ] {
         let mut archetype = manifest.archetypes["rat"].clone();
         archetype.asset = Some(asset.into());
         archetype.name = Some(name.into());
+        archetype.identity = Some(identity.parse().unwrap());
         archetype.appearance_pool = Some("guard_fur".into());
         manifest.archetypes.insert(name.into(), archetype);
         manifest.assets.get_mut(theme).unwrap().push(asset.into());

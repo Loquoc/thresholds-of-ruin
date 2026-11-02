@@ -1490,7 +1490,7 @@ impl Game {
         plan: &crate::abilities::Plan,
         intention: Option<crate::IntentionId>,
         observed: bool,
-        consumed_identity: Option<String>,
+        consumed_identity: Option<crate::ItemIdentity>,
     ) -> Result<(), GameError> {
         use crate::lifecycle::{ItemChange, ItemOutcome};
         let work = plan.work();

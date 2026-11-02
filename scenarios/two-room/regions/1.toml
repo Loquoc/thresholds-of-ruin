@@ -9,4 +9,4 @@ anchors = { "start" = [1, 1, 0], "hall" = [5, 1, 0] }
 places = [{ at = [2, 1, 0], name = "Entry chamber" }]
 portals = [{ "at" = [5, 1, 0], "direction" = "east", "to" = "2/landing", "height" = 2 }]
 doors = [{ "id" = 1, "at" = [5, 1, 0], "open" = true, "height" = 2 }]
-items = [{ "id" = 1, "at" = [1, 1, 0], "seed_names" = ["copper token", "silver token", "iron token"] }]
+items = [{ "id" = 1, "at" = [1, 1, 0], seed_names = [{ name = "copper token", identity = "item.misc.copper-token" }, { name = "silver token", identity = "item.misc.silver-token" }, { name = "iron token", identity = "item.misc.iron-token" }] }]

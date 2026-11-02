@@ -8,7 +8,7 @@ fn fixture(equipped: bool) -> Package {
     let original = read_package(&root).unwrap();
     let mut manifest = serde_json::to_value(&original.manifest).unwrap();
     manifest["archetypes"] = json!({"stealth": {
-        "name":"stealth ring", "class":"ring", "stackable":false,
+        "name":"stealth ring", "identity":"item.ring.stealth","class":"ring", "stackable":false,
         "equipment":{"slot":"ring","modifiers":[{"scope":"always","op":{
             "kind":"perception","value":{"kind":"continual_stealth","edge":1}}}]}}});
     manifest["appearance_pools"] = json!({});

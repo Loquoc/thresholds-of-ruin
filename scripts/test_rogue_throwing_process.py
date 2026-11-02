@@ -21,7 +21,7 @@ def inventory(frame, name):
 
 def saved_items(saved, identity):
     return [(identity_id, row) for identity_id, row in saved["items"].items()
-            if row["spec"]["identity"] == identity]
+            if row["spec"]["identity"] == {"rogue.dart": "item.weapon.dart", "rogue.shuriken": "item.weapon.shuriken"}[identity]]
 
 
 class RogueThrowingFixtureTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class RogueThrowingFixtureTests(unittest.TestCase):
         manifest, region = fixture()
         selected = copy.deepcopy(production["characters"][0])
         selected["anchor"] = "1/start"
-        selected["known_identities"] += ["rogue.dart", "rogue.shuriken"]
+        selected["known_identities"] += ["item.weapon.dart", "item.weapon.shuriken"]
         selected["loadout"] += [{"archetype": "rogue.dart", "quantity": 3},
                                 {"archetype": "rogue.shuriken", "quantity": 3}]
         self.assertEqual(manifest["characters"], [selected])

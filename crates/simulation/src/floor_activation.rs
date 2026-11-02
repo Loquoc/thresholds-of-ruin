@@ -2686,7 +2686,7 @@ mod tests {
         }
     }
     fn marker() -> ItemSpec {
-        let mut spec = ItemSpec::ordinary("marker".into());
+        let mut spec = ItemSpec::ordinary("item.test.marker".parse().unwrap(), "marker".into());
         spec.stackable = true;
         spec
     }

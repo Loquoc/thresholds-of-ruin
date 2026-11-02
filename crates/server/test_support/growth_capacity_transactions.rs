@@ -14,7 +14,7 @@ pub(crate) fn scenario() -> Scenario {
     let mut regions = package.region_defs().unwrap();
     regions[0].items.push(
         serde_json::from_value(json!({
-            "id":10,"at":[2,1,0],"name":"Retained memento","carried_by":2
+            "id":10,"at":[2,1,0],"name":"Retained memento","identity":"item.misc.retained-memento","carried_by":2
         }))
         .unwrap(),
     );

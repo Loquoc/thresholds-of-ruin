@@ -200,9 +200,11 @@ fn global_portable_forecasts_never_include_a_concealed_identity_asset() {
     package.manifest.appearance_pools.insert(
         "shared".into(),
         scenario_package::AppearancePool {
-            appearances: vec!["cloudy vial".into()],
+            appearances: vec![scenario_package::AppearanceEntry {
+                name: "cloudy vial".into(),
+                asset: Some("item.potion".into()),
+            }],
             confounding: false,
-            asset: Some("item.potion".into()),
         },
     );
     let forecast = package.palette(std::iter::empty());
@@ -213,6 +215,7 @@ fn global_portable_forecasts_never_include_a_concealed_identity_asset() {
         .appearance_pools
         .get_mut("shared")
         .unwrap()
+        .appearances[0]
         .asset = None;
     assert!(!package.palette(std::iter::empty()).contains("item.secret"));
 }
@@ -260,13 +263,19 @@ fn an_actor_shows_its_archetypes_asset_and_validation_checks_that_one() {
     let rat = declaration["archetypes"]["rat"].as_table_mut().unwrap();
     rat.insert("asset".into(), toml::Value::String("creature.bat".into()));
     rat.insert("name".into(), toml::Value::String("rat".into()));
+    rat.insert(
+        "identity".into(),
+        toml::Value::String("item.misc.fixture.rat".into()),
+    );
     rat.insert("appearance_pool".into(), toml::Value::String("furs".into()));
     let mut pool = toml::map::Map::new();
     pool.insert(
         "appearances".into(),
-        toml::Value::Array(vec![toml::Value::String("grey fur".into())]),
+        toml::Value::Array(vec![toml::Value::Table(toml::map::Map::from_iter([
+            ("name".into(), toml::Value::String("grey fur".into())),
+            ("asset".into(), toml::Value::String("creature.rat".into())),
+        ]))]),
     );
-    pool.insert("asset".into(), toml::Value::String("creature.rat".into()));
     declaration
         .as_table_mut()
         .unwrap()
@@ -641,38 +650,53 @@ fn rogue_recipes_and_both_presets_forecast_disclosed_assets_including_the_potion
     }
     let mut assetless = BTreeSet::new();
     for (key, archetype) in &manifest.archetypes {
-        let asset = if let Some(pool) = &archetype.appearance_pool {
-            manifest.appearance_pools[pool].asset.as_deref()
+        let assets: Vec<_> = if let Some(pool) = &archetype.appearance_pool {
+            manifest.appearance_pools[pool]
+                .appearances
+                .iter()
+                .map(|entry| entry.asset.as_deref())
+                .collect()
         } else {
-            archetype.asset.as_deref()
+            vec![archetype.asset.as_deref()]
         };
-        if let Some(asset) = asset {
-            assert!(
-                forecast.contains(asset),
-                "missing theme forecast for {key}: {asset}"
-            );
-        } else {
-            assetless.insert(key.as_str());
+        for asset in assets {
+            if let Some(asset) = asset {
+                assert!(
+                    forecast.contains(asset),
+                    "missing theme forecast for {key}: {asset}"
+                );
+            } else {
+                assetless.insert(key.as_str());
+            }
         }
     }
-    // The accepted opt-in physical torch has no authored asset or appearance
-    // pool. Absence means the ordinary class fallback, not an undisclosed asset
-    // needing a forecast. Keep every other archetype's explicit asset contract.
-    assert_eq!(assetless, BTreeSet::from(["rogue.torch"]));
+    // Every current Rogue recipe, including the opt-in physical torch, now
+    // names an explicit disclosed cosmetic asset forecast by the package.
+    assert!(assetless.is_empty());
+    assert_eq!(
+        manifest.archetypes["rogue.torch"].asset.as_deref(),
+        Some("item.tool.torch")
+    );
     assert!(manifest.archetypes["rogue.torch"].appearance_pool.is_none());
     assert_eq!(
-        manifest.appearance_pools["rogue.potions"].asset.as_deref(),
-        Some("item.potion")
+        manifest.appearance_pools["rogue.potions"].appearances[0]
+            .asset
+            .as_deref(),
+        Some("item.potion.amber")
     );
     assert!(serde_json::to_vec(&forecast).unwrap().len() + 4096 < MAX_RESPONSE_BYTES);
 }
 
 #[test]
-fn assetless_production_torch_discloses_no_asset_and_does_not_change_the_palette() {
+fn authored_assetless_torch_discloses_no_asset_and_does_not_change_the_palette() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/rogue-exploration");
     let production = scenario_package::resolve_source(&root).unwrap().manifest;
-    let torch = production.archetypes["rogue.torch"].clone();
-    assert!(torch.asset.is_none() && torch.appearance_pool.is_none());
+    let mut torch = production.archetypes["rogue.torch"].clone();
+    assert_eq!(torch.asset.as_deref(), Some("item.tool.torch"));
+    // Preserve the optional-asset boundary witness independently of the
+    // production art choice: absence must never invent a cosmetic asset.
+    torch.asset = None;
+    assert!(torch.appearance_pool.is_none());
     assert!(torch.held_light.is_some());
 
     let expected = Engine::memory(caves()).unwrap().palette(ActorId(1));
@@ -720,6 +744,6 @@ fn assetless_production_torch_discloses_no_asset_and_does_not_change_the_palette
     assert_eq!(
         engine.palette(ActorId(1)),
         expected,
-        "carrying the real production torch cannot invent palette authority"
+        "carrying an explicitly assetless torch cannot invent palette authority"
     );
 }

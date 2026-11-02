@@ -174,7 +174,7 @@ class DiscoveryValidationTests(unittest.TestCase):
         rows = []
         for regions in (8, 256):
             case = f"traversal-r{regions}"
-            rows.append(dict(kind="traversal", case=case, cycles=2, regions=regions, trace_version=1, profile_version=1))
+            rows.append(dict(kind="traversal", case=case, cycles=2, regions=regions, trace_version=SPEC["version"], profile_version=1))
             for index, step in enumerate(SPEC["traversal"] * 2):
                 action = step["action"].copy()
                 if action["type"] == "door":

@@ -38,6 +38,7 @@ fn stacked_cells_do_not_borrow_items_from_another_height() {
     let above = Position { z: 1, ..below };
     view.visible = vec![cell(below, "lower"), cell(above, "upper")];
     view.items.push(GroundItem {
+        surface: tor_client_3d_model::ItemSurface::Neutral,
         corpse_seed: None,
         model: ItemModel::Placeholder,
         corpse_model: CreatureModel::Placeholder,
@@ -66,6 +67,7 @@ fn selecting_one_model_preserves_its_target_when_items_share_a_cell() {
     let second = ItemTarget::from_digest([22; 32]);
     for (id, name) in [(first, "first relic"), (second, "second relic")] {
         view.items.push(GroundItem {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             corpse_seed: None,
             model: ItemModel::Placeholder,
             corpse_model: CreatureModel::Placeholder,

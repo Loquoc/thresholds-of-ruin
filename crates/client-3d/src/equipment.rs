@@ -337,6 +337,7 @@ mod tests {
         let mut view = crate::test_support::view(1);
         let id = ItemTarget::from_digest([71; 32]);
         view.inventory = vec![tor_client_3d_model::Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             model: tor_client_3d_model::ItemModel::Mace,
             id,
             name: "Disclosed mace".into(),

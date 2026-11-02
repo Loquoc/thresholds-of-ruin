@@ -167,7 +167,7 @@ class IntentionProcesses(ProcessTestCase):
             result = self.act(player, {"type": "move", "direction": "east"})
             self.assertIsNone(result["error"])
             self.frame(observer, lambda frame:
-                frame["state"]["observation"] == result["state"]["observation"]
+                frame["state"]["observation"] == self.spectatorObservation(result["state"]["observation"])
                 and not frame["intentions"])
             deltas(player, player_start, first)
             deltas(observer, observer_start, watched)
@@ -293,7 +293,7 @@ class IntentionProcesses(ProcessTestCase):
         seen = self.frame(watcher, lambda frame: lifecycle(frame, identity, "cancelled"))
         seen = self.picture_after(watcher, seen)
         self.assertEqual(seen["intentions"], [])
-        self.assertDisclosedStateEqual(seen["state"], cancelled["state"])
+        self.assertSpectatorStateEqual(seen["state"], cancelled["state"])
         self.assertIsNone(self.request(player, {"type": "save"})["error"])
         server.stop(); player.stop(); watcher.stop()
         self.server(scenario=package)
@@ -405,12 +405,12 @@ class IntentionProcesses(ProcessTestCase):
         self.assertGreater(int(resolved["state"]["observation"]["tick"]), int(initial["state"]["observation"]["tick"]))
         self.assertEqual(resolved["intentions"], [])
         queued_watch = self.frame(watcher, lambda frame: lifecycle(frame, receipt["intention"], "queued"))
-        self.assertDisclosedStateEqual(queued_watch["state"], initial["state"])
+        self.assertSpectatorStateEqual(queued_watch["state"], initial["state"])
         resolved_status = self.frame(watcher, lambda frame: lifecycle(frame, receipt["intention"], "resolved"))
         self.assertEqual(resolved_status["intentions"], [])
         resolved_watch = self.request(watcher, {"type": "observe"})
         self.assertIsNone(resolved_watch["error"])
-        self.assertDisclosedStateEqual(resolved_watch["state"], resolved["state"])
+        self.assertSpectatorStateEqual(resolved_watch["state"], resolved["state"])
         self.assertEqual(resolved_watch["intentions"], [])
 
 

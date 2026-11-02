@@ -78,8 +78,11 @@ fn fixture(passage: bool, lit: bool) -> (Game, ItemId) {
         .lookup("fixture-room-light", at(1))
         .is_some());
     game.world.set_region_light(RegionId(1), lit).unwrap();
-    let mut spec = crate::ItemSpec::ordinary("plain light stick".into());
-    spec.identity = "fixture.light".into();
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.plain-light-stick".parse().unwrap(),
+        "plain light stick".into(),
+    );
+    spec.identity = "item.test.fixture-light".parse().unwrap();
     spec.concealed = true;
     spec.class = crate::ItemClass::Tool;
     spec.device = Some(crate::DeviceSpec {
@@ -119,7 +122,11 @@ fn complete(game: &mut Game, item: ItemId) {
     assert_eq!(game.tick, tick + 100);
     assert_eq!(game.items[&item].charges, Some(1));
     assert_eq!(game.rules_rng, rng);
-    assert!(game.actors[&ActorId(1)].knowledge.contains("fixture.light"));
+    assert!(game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-light"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
 }
 #[test]
 fn room_light_paid_device_lights_exact_room_surfaces_without_rng_or_targeting() {
@@ -279,7 +286,11 @@ fn room_light_empty_device_needs_no_spatial_payload_or_loaded_room() {
     assert_eq!(game.items[&item].charges, Some(0));
     assert_eq!(game.rules_rng, rng);
     assert_eq!(game.world, world);
-    assert!(!game.actors[&ActorId(1)].knowledge.contains("fixture.light"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-light"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
 }
 
 #[test]
@@ -382,7 +393,11 @@ fn room_light_direct_and_exposure_returns_use_actual_publication_not_pure_marker
         assert_eq!(game.tick, tick);
         assert_eq!(game.rules_rng, rng);
         assert_eq!(game.items[&item].charges, Some(2));
-        assert!(!game.actors[&ActorId(1)].knowledge.contains("fixture.light"));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-light"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         let changed = game
             .combat_events()
             .iter()

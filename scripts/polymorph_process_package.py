@@ -38,7 +38,7 @@ def prepare(test, *, diagnostic_ability=False):
     creature = manifest["characters"][0]["creature"]
     creature.update(body_package=BASE, hit_dice=[racial, {"source": "warrior", "purchases": []}])
     wand = manifest["archetypes"]["ember"]
-    wand.update(name="wand of polymorph", identity="fixture.polymorph")
+    wand.update(name="wand of polymorph", identity="item.wand.polymorph")
     wand["device"]["discovery"] = "discernible_effect"
     path.write_text(toml_source(manifest), encoding="utf-8")
     path = package / "rules.toml"

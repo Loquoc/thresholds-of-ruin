@@ -383,6 +383,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.actor-{x}").parse().unwrap(),
                     name: format!("actor {x}"),
                     faction: "neutral".into(),
                 },

@@ -93,6 +93,7 @@ fn fixture_placed(
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.actor-{x}").parse().unwrap(),
                 name: format!("actor {x}"),
                 faction: "neighbors".into(),
             },
@@ -747,7 +748,10 @@ fn partial_attacker_body_requires_disclosed_caster_for_historical_identity() {
 #[test]
 fn carrying_healing_and_loot_does_not_enable_generic_tactics() {
     let mut game = fixture(Disposition::Passive, 500);
-    let mut potion = crate::ItemSpec::ordinary("known healing".into());
+    let mut potion = crate::ItemSpec::ordinary(
+        "item.test.known-healing".parse().unwrap(),
+        "known healing".into(),
+    );
     potion.class = crate::ItemClass::Potion;
     potion.consumable = Some(crate::ConsumableSpec {
         descriptors: vec![],
@@ -1028,6 +1032,7 @@ fn species_policy_changes_settle_old_memory_and_never_reset_rng_or_resurrect_eng
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.actor-{x}").parse().unwrap(),
                 name: format!("actor {x}"),
                 faction: "neighbors".into(),
             },
@@ -1162,7 +1167,8 @@ fn hostile_neighbors(game: &mut Game) {
     .unwrap();
 }
 fn gold_coins() -> crate::ItemSpec {
-    let mut item = crate::ItemSpec::ordinary("gold coin".into());
+    let mut item =
+        crate::ItemSpec::ordinary("item.test.gold-coin".parse().unwrap(), "gold coin".into());
     item.class = crate::ItemClass::Coin;
     item.stackable = true;
     item.currency = Some(crate::CurrencyKind::Gold);

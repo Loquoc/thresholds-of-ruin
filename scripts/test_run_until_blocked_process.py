@@ -95,7 +95,7 @@ class RunUntilBlockedProcesses(ProcessTestCase):
         self.assertIsNone(final["error"])
         observed = self.request(observer, {"type": "observe"})
         self.assertIsNone(observed["error"])
-        self.assertEqual(observed["state"]["observation"], final["state"]["observation"])
+        self.assertSpectatorStateEqual(observed["state"], final["state"])
         self.assertEqual(observed["history"], final["history"])
         self.assertEqual(observed["state"]["observation"]["tick"], "100")
         self.assertIsNone(observer.child.poll())
@@ -213,7 +213,7 @@ class RunUntilBlockedProcesses(ProcessTestCase):
         self.assertTrue(boundary["state"]["observation"]["ready"])
         for client in watchers:
             watching = self.request(client, {"type": "snapshot"})
-            self.assertDisclosedStateEqual(watching["state"], boundary["state"])
+            self.assertSpectatorStateEqual(watching["state"], boundary["state"])
             client.stop()
         self.flush_save()
         player.stop()
@@ -307,7 +307,7 @@ class RunUntilBlockedProcesses(ProcessTestCase):
         self.assertNotEqual(stalled.child.wait(timeout=STALL_SECONDS * 4), 0)
         # A replacement spectator starts at the committed state.
         watcher, watching = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(watching["state"], final["state"])
+        self.assertSpectatorStateEqual(watching["state"], final["state"])
         return server, player, watcher, final
 
 

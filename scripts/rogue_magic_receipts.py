@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Independent finite magic-stock expectations for private population audits.
 
 These constants are reviewed test policy, never loaded from production content.
@@ -80,8 +81,7 @@ EQUIPMENT_ITEM_STAGE_IDS = tuple(identity for identity, _ in EQUIPMENT_ITEM_STAG
 def assert_finite_item_identity(test, item, content):
     """Birth archetypes may intentionally share a neutral equipment identity."""
     test.assertEqual(item["spec"]["archetype"], content)
-    identity = {"rogue.generated_mace": "rogue.mace",
-                "rogue.generated_ring_mail": "rogue.ring_mail"}.get(content, content)
+    identity = IDENTITIES[content]
     test.assertEqual(item["spec"]["identity"], identity)
 
 

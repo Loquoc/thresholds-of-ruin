@@ -17,6 +17,9 @@ pub struct CreatureInspection<'a> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreatureIdentity {
+    /// Authored corpse knowledge group, retained through body changes. Never derived from display text.
+    #[serde(deserialize_with = "read_corpse_identity")]
+    pub corpse_identity: crate::ItemIdentity,
     #[serde(deserialize_with = "read_name")]
     pub name: String,
     #[serde(deserialize_with = "read_faction")]
@@ -44,6 +47,21 @@ fn read_text<'de, D: serde::Deserializer<'de>, const MAXIMUM: usize>(
     }
     deserializer.deserialize_str(Text::<MAXIMUM>)
 }
+fn valid_corpse_identity(identity: &crate::ItemIdentity) -> bool {
+    !identity.is_unknown()
+        && identity.is_descendant_of(&"item.corpse".parse().expect("static corpse category"))
+}
+fn read_corpse_identity<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<crate::ItemIdentity, D::Error> {
+    let identity = crate::ItemIdentity::deserialize(deserializer)?;
+    if !valid_corpse_identity(&identity) {
+        return Err(serde::de::Error::custom(
+            "expected an authored known corpse identity leaf",
+        ));
+    }
+    Ok(identity)
+}
 fn read_name<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     read_text::<D, { CreatureIdentity::MAX_NAME_BYTES }>(deserializer)
 }
@@ -57,7 +75,7 @@ impl CreatureIdentity {
     pub const MAX_FACTION_BYTES: usize = 80;
 
     pub(crate) fn valid(&self) -> bool {
-        valid_identity(&self.name, &self.faction)
+        valid_identity(&self.name, &self.faction) && valid_corpse_identity(&self.corpse_identity)
     }
 }
 fn valid_identity(name: &str, faction: &str) -> bool {
@@ -531,6 +549,7 @@ mod preparation_cost_tests {
             game.configure_creature(
                 id,
                 CreatureIdentity {
+                    corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                     name: "subject".into(),
                     faction: "neutral".into(),
                 },
@@ -557,6 +576,7 @@ mod preparation_cost_tests {
     fn no_op_growth_retry_retains_shared_payload_unlike_mutating_entry() {
         let before = CombatState::from_creature(
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                 name: "subject".into(),
                 faction: "neutral".into(),
             },
@@ -725,6 +745,7 @@ mod preparation_cost_tests {
                 game.configure_creature(
                     target,
                     CreatureIdentity {
+                        corpse_identity: "item.corpse.test.other".parse().unwrap(),
                         name: "other".into(),
                         faction: "neutral".into(),
                     },
@@ -771,5 +792,44 @@ mod preparation_cost_tests {
         let costs = creature.costs();
         assert!(costs.reservations().is_empty());
         assert_eq!(costs.available(Resource::Stamina), 1);
+    }
+}
+
+#[cfg(test)]
+mod corpse_identity_contract_tests {
+    use super::CreatureIdentity;
+
+    #[test]
+    fn corpse_identity_is_required_known_and_category_scoped() {
+        let valid = serde_json::json!({"name":"display persona", "faction":"neutral", "corpse_identity":"item.corpse.persona.witness"});
+        let identity: CreatureIdentity = serde_json::from_value(valid.clone()).unwrap();
+        assert!(identity.valid());
+        assert_eq!(serde_json::to_value(identity).unwrap(), valid);
+        let mut missing = valid.clone();
+        missing.as_object_mut().unwrap().remove("corpse_identity");
+        assert!(serde_json::from_value::<CreatureIdentity>(missing).is_err());
+        for key in [
+            "item",
+            "item.corpse",
+            "item.unknown",
+            "item.corpse.unknown",
+            "item.potion.healing",
+            "item.corpsex.witness",
+            "item.corpse.bad_key",
+            "item.corpse.unknown.witness",
+        ] {
+            let mut bad = valid.clone();
+            bad["corpse_identity"] = key.into();
+            assert!(
+                serde_json::from_value::<CreatureIdentity>(bad).is_err(),
+                "{key}"
+            );
+        }
+        let mut trusted: CreatureIdentity = serde_json::from_value(valid).unwrap();
+        trusted.corpse_identity = "item.corpse.unknown".parse().unwrap();
+        assert!(
+            !trusted.valid(),
+            "trusted construction cannot bypass known-leaf validation"
+        );
     }
 }

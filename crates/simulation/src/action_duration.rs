@@ -130,6 +130,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                     name: format!("subject {x}"),
                     faction: "neutral".into(),
                 },
@@ -157,7 +158,9 @@ mod tests {
                     1 => (Action::Move(tor_world::Direction::North), turn),
                     2 => (Action::Move(tor_world::Direction::NorthEast), diagonal),
                     3 => {
-                        let item = game.place_item(at, "token".into()).unwrap();
+                        let item = game
+                            .place_item(at, "item.test.token".parse().unwrap(), "token".into())
+                            .unwrap();
                         (
                             Action::Take {
                                 item,
@@ -172,7 +175,10 @@ mod tests {
                             at,
                             Some(actor),
                             1,
-                            crate::ItemSpec::ordinary("token".into()),
+                            crate::ItemSpec::ordinary(
+                                "item.test.token".parse().unwrap(),
+                                "token".into(),
+                            ),
                         )
                         .unwrap();
                         (
@@ -218,7 +224,10 @@ mod tests {
                 let actor = ActorId(1);
                 let at = game.actors[&actor].location;
                 let item = ItemId(10);
-                let mut spec = crate::ItemSpec::ordinary("timed item".into());
+                let mut spec = crate::ItemSpec::ordinary(
+                    "item.test.timed-item".parse().unwrap(),
+                    "timed item".into(),
+                );
                 let effect = crate::rules::Effect::ApplyConditionForTurns {
                     condition: crate::content_ids::ConditionId::new("braced").unwrap(),
                     duration: crate::rules::AmountExpr::Fixed { amount: 3 },
@@ -557,6 +566,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.owner-{x}").parse().unwrap(),
                     name: format!("owner {x}"),
                     faction: "neutral".into(),
                 },

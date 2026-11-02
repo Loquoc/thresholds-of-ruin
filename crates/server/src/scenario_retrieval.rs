@@ -87,11 +87,13 @@ impl Package {
                 && artifact.appearance_pool.is_none(),
             "Unique retrieval needs a plain, nonstackable Amulet definition",
         )?;
-        let identity = artifact.identity.as_ref().unwrap_or(&policy.archetype);
+        let identity = artifact
+            .identity
+            .as_ref()
+            .ok_or_else(|| fail("Retrieval item requires an explicit canonical identity"))?;
         require(
             self.manifest.archetypes.iter().all(|(name, definition)| {
-                name == &policy.archetype
-                    || definition.identity.as_ref().unwrap_or(name) != identity
+                name == &policy.archetype || definition.identity.as_ref() != Some(identity)
             }),
             "Reserved retrieval identity has another archetype",
         )?;
@@ -141,16 +143,18 @@ impl Package {
             .archetypes
             .get(&policy.archetype)
             .ok_or_else(|| fail("Missing retrieval archetype"))?;
-        let identity = definition.identity.as_ref().unwrap_or(&policy.archetype);
+        let identity = definition
+            .identity
+            .as_ref()
+            .ok_or_else(|| fail("Retrieval item requires an explicit canonical identity"))?;
         require(
             region.items.iter().all(|item| {
                 item.archetype.as_ref() != Some(&policy.archetype)
-                    && (item.archetype.is_some()
-                        || item
-                            .name
-                            .iter()
-                            .chain(&item.seed_names)
-                            .all(|name| name != &policy.archetype && name != identity))
+                    && item.identity.as_ref() != Some(identity)
+                    && item
+                        .seed_names
+                        .iter()
+                        .all(|entry| &entry.identity != identity)
             }) && region
                 .generate
                 .as_ref()
@@ -303,14 +307,14 @@ mod tests {
         manifest.archetypes.insert(
             "amulet".into(),
             serde_json::from_value(json!({
-                "name":"Amulet of Yendor","identity":"amulet-of-yendor","class":"amulet"
+                "name":"Amulet of Yendor","identity":"item.amulet.amulet-of-yendor","class":"amulet"
             }))
             .unwrap(),
         );
         manifest.archetypes.insert(
             "ordinary".into(),
             serde_json::from_value(json!({
-                "name":"Amulet of Yendor","identity":"ordinary-lookalike","class":"amulet"
+                "name":"Amulet of Yendor","identity":"item.amulet.ordinary-lookalike","class":"amulet"
             }))
             .unwrap(),
         );
@@ -321,7 +325,7 @@ mod tests {
         )
         .unwrap();
         let base = json!({"id":999,"name":"unused","size":[7,5,2]});
-        for change in ["archetype", "name", "seed_name", "zero_count_pool"] {
+        for change in ["archetype", "identity", "seed_identity", "zero_count_pool"] {
             let mut region = base.clone();
             if change == "zero_count_pool" {
                 region["generate"] = json!({"generator":"rooms","version":2,
@@ -330,8 +334,16 @@ mod tests {
                 region["items"] = json!([{"id":100,"at":[1,1,0]}]);
                 match change {
                     "archetype" => region["items"][0]["archetype"] = json!("amulet"),
-                    "name" => region["items"][0]["name"] = json!("amulet-of-yendor"),
-                    "seed_name" => region["items"][0]["seed_names"] = json!(["other", "amulet"]),
+                    "identity" => {
+                        region["items"][0]["name"] = json!("arbitrary presentation");
+                        region["items"][0]["identity"] = json!("item.amulet.amulet-of-yendor");
+                    }
+                    "seed_identity" => {
+                        region["items"][0]["seed_names"] = json!([
+                            {"name":"other", "identity":"item.amulet.other"},
+                            {"name":"unselected reserved variant", "identity":"item.amulet.amulet-of-yendor"}
+                        ])
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -343,7 +355,7 @@ mod tests {
         }
         let mut lookalike = base;
         lookalike["items"] = json!([{"id":100,"at":[1,1,0],"archetype":"ordinary"},
-            {"id":101,"at":[2,1,0],"name":"Amulet of Yendor"}]);
+            {"id":101,"at":[2,1,0],"name":"Amulet of Yendor","class":"amulet","identity":"item.amulet.ordinary-lookalike"}]);
         package
             .check_retrieval_region(&serde_json::from_value(lookalike).unwrap())
             .unwrap();

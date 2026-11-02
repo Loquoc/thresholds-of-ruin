@@ -155,6 +155,7 @@ pub(super) fn fixture_with_perception(
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.subject".parse().unwrap(),
             name: "subject".into(),
             faction: "subject".into(),
         },
@@ -272,7 +273,7 @@ fn flight_does_not_brake_imposed_velocity_or_make_dropped_items_fly() {
         at(3, 3),
         None,
         1,
-        crate::ItemSpec::ordinary("stone".into()),
+        crate::ItemSpec::ordinary("item.test.stone".parse().unwrap(), "stone".into()),
     )
     .unwrap();
     game.act(actor, Action::Wait).unwrap();
@@ -944,7 +945,11 @@ fn levitation_pickup_refusal_has_a_valid_ground_item_baseline() {
     ] {
         let (mut game, actor) = fixture(&values);
         let item = game
-            .place_item(game.actors[&actor].location, "ordinary item".into())
+            .place_item(
+                game.actors[&actor].location,
+                "item.test.ordinary-item".parse().unwrap(),
+                "ordinary item".into(),
+            )
             .unwrap();
         let before = game.clone();
         let result = game.prepare_transfer(actor, item, None, true);

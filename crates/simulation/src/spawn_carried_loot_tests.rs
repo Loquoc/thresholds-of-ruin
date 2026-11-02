@@ -447,6 +447,7 @@ fn ordinary_death_drops_the_same_birth_stack_and_repeated_cleanup_never_restock(
     let definition = &mut carrier_choice(&mut plan).actor;
     definition.build = Some(crate::creatures::record::BuildRecord::capture(&build));
     definition.identity = Some(crate::CreatureIdentity {
+        corpse_identity: "item.corpse.test.carrier".parse().unwrap(),
         name: "carrier".into(),
         faction: "neutral".into(),
     });
@@ -529,6 +530,7 @@ fn living_carrier_game(chance: [u32; 2], healing_stock: bool) -> Game {
     let definition = &mut carrier_choice(&mut plan).actor;
     definition.build = Some(crate::creatures::record::BuildRecord::capture(&build));
     definition.identity = Some(crate::CreatureIdentity {
+        corpse_identity: "item.corpse.test.carrier".parse().unwrap(),
         name: "carrier".into(),
         faction: "neutral".into(),
     });

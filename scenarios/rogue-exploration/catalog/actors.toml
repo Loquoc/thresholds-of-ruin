@@ -5,13 +5,13 @@ namespace = "rogue"
 asset = "creature.bird.emu"
 turn_ticks = 100
 body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 35 }
-creature = { body_package = "rogue.body.emu", species = "rogue.emu", name = "emu", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.emu", body_package = "rogue.body.emu", species = "rogue.emu", name = "emu", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
 
 [actors."rogue.snake"]
 asset = "creature.serpent.snake"
 turn_ticks = 100
 body = { cells = [[0,0,0]], eye = [0,0,0], mass = 3 }
-creature = { body_package = "rogue.body.snake", species = "rogue.snake", name = "snake", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "stealth"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.snake", body_package = "rogue.body.snake", species = "rogue.snake", name = "snake", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "stealth"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
 
 # R owns VN1 at HD1; its second racial point is unspent. Snake body/timing
 # defaults are provisional TOR inputs, not a new species-balance claim.
@@ -19,7 +19,7 @@ creature = { body_package = "rogue.body.snake", species = "rogue.snake", name = 
 asset = "creature.serpent.rattlesnake"
 turn_ticks = 100
 body = { cells = [[0,0,0]], eye = [0,0,0], mass = 3 }
-creature = { body_package = "rogue.body.rattlesnake", species = "rogue.rattlesnake", name = "rattlesnake", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "stealth"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "rogue.venomous_bite" } }] }, { source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.rattlesnake", body_package = "rogue.body.rattlesnake", species = "rogue.rattlesnake", name = "rattlesnake", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "stealth"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "rogue.venomous_bite" } }] }, { source = "racial", purchases = [] }] }
 
 # Complete accepted combat purchases; scenario selection controls population eligibility.
 # Species dispositions live in creatures.toml; C/Y/V birth stock belongs to population choices.
@@ -31,6 +31,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 70 }
 body_package = "rogue.body.hobgoblin"
 species = "rogue.hobgoblin"
 name = "hobgoblin"
+corpse_identity = "item.corpse.persona.hobgoblin"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "discipline"]
@@ -50,6 +51,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 80 }
 body_package = "rogue.body.zombie"
 species = "rogue.zombie"
 name = "zombie"
+corpse_identity = "item.corpse.persona.zombie"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "athletics"]
@@ -69,6 +71,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 250 }
 body_package = "rogue.body.quagga"
 species = "rogue.quagga"
 name = "quagga"
+corpse_identity = "item.corpse.persona.quagga"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["light_weaponry", "athletics"]
@@ -89,6 +92,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 400 }
 body_package = "rogue.body.centaur"
 species = "rogue.centaur"
 name = "centaur"
+corpse_identity = "item.corpse.persona.centaur"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "athletics"]
@@ -111,6 +115,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 250 }
 body_package = "rogue.body.yeti"
 species = "rogue.yeti"
 name = "yeti"
+corpse_identity = "item.corpse.persona.yeti"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "athletics"]
@@ -134,6 +139,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 250 }
 body_package = "rogue.body.troll"
 species = "rogue.troll"
 name = "troll"
+corpse_identity = "item.corpse.persona.troll"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "athletics"]
@@ -157,6 +163,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 350 }
 body_package = "rogue.body.black_unicorn"
 species = "rogue.black_unicorn"
 name = "black unicorn"
+corpse_identity = "item.corpse.persona.black-unicorn"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["light_weaponry", "athletics"]
@@ -180,7 +187,7 @@ hit_dice = [
 asset = "creature.elemental.ice"
 turn_ticks = 100
 body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 40 }
-creature = { body_package = "rogue.body.ice_monster", species = "rogue.ice_monster", name = "ice monster", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "rogue.freezing_touch" } }] }] }
+creature = { corpse_identity = "item.corpse.persona.ice-monster", body_package = "rogue.body.ice_monster", species = "rogue.ice_monster", name = "ice monster", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "rogue.freezing_touch" } }] }] }
 
 # Eight actual racial rows. Only the accepted DR1(1), RG1(2) purchases are spent;
 # ordinary authored restoration retains their exact ordinals and seeded Health.
@@ -192,6 +199,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 70 }
 body_package = "rogue.body.vampire"
 species = "rogue.vampire"
 name = "vampire"
+corpse_identity = "item.corpse.persona.vampire"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "discipline"]
@@ -218,6 +226,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 70 }
 body_package = "rogue.body.wraith"
 species = "rogue.wraith"
 name = "wraith"
+corpse_identity = "item.corpse.persona.wraith"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "discipline"]
@@ -242,6 +251,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 250 }
 body_package = "rogue.body.jabberwock"
 species = "rogue.jabberwock"
 name = "jabberwock"
+corpse_identity = "item.corpse.persona.jabberwock"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "athletics"]
@@ -272,25 +282,25 @@ hit_dice = [
 asset = "creature.bat"
 turn_ticks = 100
 body = { cells = [[0, 0, 0]], eye = [0, 0, 0], mass = 1 }
-creature = { body_package = "rogue.body.bat", species = "rogue.bat", name = "bat", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.bat", body_package = "rogue.body.bat", species = "rogue.bat", name = "bat", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
 
 [actors."rogue.kestrel"]
 asset = "creature.bird.kestrel"
 turn_ticks = 100
 body = { cells = [[0, 0, 0]], eye = [0, 0, 0], mass = 1 }
-creature = { body_package = "rogue.body.kestrel", species = "rogue.kestrel", name = "kestrel", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.kestrel", body_package = "rogue.body.kestrel", species = "rogue.kestrel", name = "kestrel", faction = "dungeon_foes", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] }
 
 [actors."rogue.venus_flytrap"]
 asset = "creature.plant.venus.flytrap"
 turn_ticks = 100
 body = { cells = [[0, 0, 0], [0, 0, 1]], eye = [0, 0, 1], mass = 25 }
-creature = { body_package = "rogue.body.venus_flytrap", species = "rogue.venus_flytrap", name = "venus flytrap", faction = "dungeon_foes", binding = "awareness", starting_skills = ["heavy_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "clutch" } }] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "tightening_hold" } }] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.venus-flytrap", body_package = "rogue.body.venus_flytrap", species = "rogue.venus_flytrap", name = "venus flytrap", faction = "dungeon_foes", binding = "awareness", starting_skills = ["heavy_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "clutch" } }] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "tightening_hold" } }] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }] }
 
 [actors."rogue.griffin"]
 asset = "creature.griffin"
 turn_ticks = 100
 body = { cells = [[0, 0, 0], [0, 0, 1]], eye = [0, 0, 1], mass = 160 }
-creature = { body_package = "rogue.body.griffin", species = "rogue.griffin", name = "griffin", faction = "dungeon_foes", binding = "awareness", starting_skills = ["heavy_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "rogue.regeneration" } }] }, { source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "second_strike" } }] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }] }
+creature = { corpse_identity = "item.corpse.persona.griffin", body_package = "rogue.body.griffin", species = "rogue.griffin", name = "griffin", faction = "dungeon_foes", binding = "awareness", starting_skills = ["heavy_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "rogue.regeneration" } }] }, { source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "second_strike" } }] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }, { source = "racial", purchases = [] }] }
 
 [actors."rogue.leprechaun"]
 asset = "creature.fey.leprechaun"
@@ -300,6 +310,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 25 }
 body_package = "rogue.body.leprechaun"
 species = "rogue.leprechaun"
 name = "leprechaun"
+corpse_identity = "item.corpse.persona.leprechaun"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["light_weaponry", "stealth"]
@@ -320,6 +331,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 55 }
 body_package = "rogue.body.nymph"
 species = "rogue.nymph"
 name = "nymph"
+corpse_identity = "item.corpse.persona.nymph"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["light_weaponry", "stealth"]
@@ -340,6 +352,7 @@ body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 80 }
 body_package = "rogue.body.orc"
 species = "rogue.orc"
 name = "orc"
+corpse_identity = "item.corpse.persona.orc"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "stealth"]
@@ -363,6 +376,7 @@ body = { cells = [[0, 0, 0], [0, 0, 1]], eye = [0, 0, 1], mass = 80 }
 body_package = "rogue.body.medusa"
 species = "rogue.medusa"
 name = "medusa"
+corpse_identity = "item.corpse.persona.medusa"
 faction = "dungeon_foes"
 binding = "presence"
 starting_skills = ["spellcasting", "heavy_weaponry"]
@@ -388,6 +402,7 @@ body = { cells = [[0, 0, 0], [0, 0, 1]], eye = [0, 0, 1], mass = 40 }
 body_package = "rogue.body.phantom"
 species = "rogue.phantom"
 name = "phantom"
+corpse_identity = "item.corpse.persona.phantom"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "stealth"]
@@ -413,6 +428,7 @@ body = { cells = [[0, 0, 0]], eye = [0, 0, 0], mass = 40 }
 body_package = "rogue.body.xeroc"
 species = "rogue.xeroc"
 name = "xeroc"
+corpse_identity = "item.corpse.persona.xeroc"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "stealth"]
@@ -438,6 +454,7 @@ body = { cells = [[0, 0, 0]], eye = [0, 0, 0], mass = 40 }
 body_package = "rogue.body.aquator"
 species = "rogue.aquator"
 name = "aquator"
+corpse_identity = "item.corpse.persona.aquator"
 faction = "dungeon_foes"
 binding = "awareness"
 starting_skills = ["heavy_weaponry", "athletics"]
@@ -466,6 +483,7 @@ personal_body_grants = [
 ]
 species = "rogue.dragon"
 name = "dragon"
+corpse_identity = "item.corpse.persona.dragon"
 faction = "dungeon_foes"
 binding = "willpower"
 starting_skills = ["heavy_weaponry", "breath"]

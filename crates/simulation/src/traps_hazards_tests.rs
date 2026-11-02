@@ -81,7 +81,10 @@ fn fixture_with_resistance(modifiers: Vec<Modifier>, difficulty: i32) -> (Game, 
         },
     )
     .unwrap();
-    let mut arrow = crate::ItemSpec::ordinary("ordinary arrow".into());
+    let mut arrow = crate::ItemSpec::ordinary(
+        "item.test.ordinary-arrow".parse().unwrap(),
+        "ordinary arrow".into(),
+    );
     arrow.stackable = true;
     arrow.class = crate::ItemClass::Weapon;
     let component = crate::damage::DamageComponent::fixed(crate::combat::DamageType::Keen, None, 3);
@@ -126,6 +129,7 @@ fn fixture_with_resistance(modifiers: Vec<Modifier>, difficulty: i32) -> (Game, 
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.subject".parse().unwrap(),
             name: "subject".into(),
             faction: "test".into(),
         },
@@ -391,7 +395,9 @@ fn plain_body_known_trapdoor_still_opens_and_falls_with_loose_stock() {
     .unwrap();
     game.reveal_feature_family(actor, ConcealedFeatureId::Trap(1))
         .unwrap();
-    let item = game.place_item(at(2), "stone".into()).unwrap();
+    let item = game
+        .place_item(at(2), "item.test.stone".parse().unwrap(), "stone".into())
+        .unwrap();
     let rng = game.rules_rng;
     game.act(actor, crate::Action::Move(Direction::East))
         .unwrap();
@@ -549,7 +555,7 @@ fn reusable_arrow_misses_leave_real_ordinary_ammunition_and_do_not_repeat_in_pla
 #[test]
 fn arrow_hit_absorbed_by_live_armor_is_not_a_miss_or_an_arrow_drop() {
     let (mut game, actor) = fixture(vec![]);
-    let mut armor = crate::ItemSpec::ordinary("armor".into());
+    let mut armor = crate::ItemSpec::ordinary("item.test.armor".parse().unwrap(), "armor".into());
     armor.class = crate::ItemClass::Armor;
     armor.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -723,7 +729,9 @@ fn trapdoor_opens_before_any_actor_or_loose_item_falls_and_never_teleports_them(
         },
     )
     .unwrap();
-    let item = game.place_item(at(2), "stone".into()).unwrap();
+    let item = game
+        .place_item(at(2), "item.test.stone".parse().unwrap(), "stone".into())
+        .unwrap();
     game.teleport(actor, at(2)).unwrap();
     assert_eq!(
         game.actors[&actor].location,

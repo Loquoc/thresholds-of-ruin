@@ -33,7 +33,7 @@ pub(crate) struct ActorRecord {
     turn_ticks: NonZeroU64,
     ready_at: u64,
     visited: BTreeSet<RegionId>,
-    knowledge: Shared<BTreeSet<String>>,
+    knowledge: Shared<BTreeSet<crate::ItemIdentity>>,
     #[serde(deserialize_with = "crate::magic_items::read_known_charges")]
     known_charges: Shared<crate::magic_items::ChargeKnowledge>,
     #[serde(deserialize_with = "crate::equipment_knowledge::read_known_equipment")]
@@ -79,7 +79,7 @@ impl<'de> Deserialize<'de> for ActorRecord {
             turn_ticks: NonZeroU64,
             ready_at: u64,
             visited: BTreeSet<RegionId>,
-            knowledge: Shared<BTreeSet<String>>,
+            knowledge: Shared<BTreeSet<crate::ItemIdentity>>,
             #[serde(deserialize_with = "crate::magic_items::read_known_charges")]
             known_charges: Shared<crate::magic_items::ChargeKnowledge>,
             #[serde(deserialize_with = "crate::equipment_knowledge::read_known_equipment")]
@@ -272,6 +272,7 @@ mod public_plan_record_tests {
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.observer".parse().unwrap(),
                 name: "observer".into(),
                 faction: "neutral".into(),
             },

@@ -749,6 +749,19 @@ pub(crate) fn observation(
             ground_items.push(p::GroundItemView {
                 presentation: item.presentation.as_ref().map(object_presentation),
                 item: p::ItemView {
+                    identity: if item.presentation.is_some() {
+                        p::ItemClass::Misc.unknown_identity()
+                    } else {
+                        item.identity
+                            .as_str()
+                            .parse()
+                            .expect("validated simulation identity")
+                    },
+                    knowledge: if item.presentation.is_some() {
+                        p::ItemKnowledge::default()
+                    } else {
+                        item_knowledge(item.knowledge)
+                    },
                     corpse: item.corpse.as_ref().map(|source| p::CreatureAppearance {
                         seed: targets.appearance_seed(source.actor),
                         asset: source.asset.clone(),
@@ -781,6 +794,8 @@ pub(crate) fn observation(
             ground_items.push(p::GroundItemView {
                 presentation: object.presentation.as_ref().map(object_presentation),
                 item: p::ItemView {
+                    identity: p::ItemClass::Misc.unknown_identity(),
+                    knowledge: p::ItemKnowledge::default(),
                     corpse: None,
                     class: item_class(object.appearance.class),
                     quantity: 1,
@@ -1028,6 +1043,12 @@ pub(crate) fn observation(
             .inventory
             .into_iter()
             .map(|item| p::ItemView {
+                identity: item
+                    .identity
+                    .as_str()
+                    .parse()
+                    .expect("validated simulation identity"),
+                knowledge: item_knowledge(item.knowledge),
                 corpse: item.corpse.as_ref().map(|source| p::CreatureAppearance {
                     seed: targets.appearance_seed(source.actor),
                     asset: source.asset.clone(),
@@ -1494,5 +1515,26 @@ pub fn wire_device_aim(aim: a::DeviceAim) -> p::DeviceAim {
             direction: wire_direction(direction),
         },
         a::DeviceAim::SelfTarget {} => p::DeviceAim::SelfTarget {},
+    }
+}
+
+fn item_knowledge(value: s::ItemKnowledge) -> p::ItemKnowledge {
+    p::ItemKnowledge {
+        buc: match value.buc {
+            s::BucStatus::Unknown => p::BucStatus::Unknown,
+            s::BucStatus::Uncursed => p::BucStatus::Uncursed,
+            s::BucStatus::Cursed => p::BucStatus::Cursed,
+        },
+        enchantments: p::KnownEnchantments {
+            hit: value.enchantments.hit,
+            damage: value.enchantments.damage,
+            armor: value.enchantments.armor,
+            potency: value.enchantments.potency,
+        },
+        condition: p::KnownItemCondition {
+            corrosion: value.condition.corrosion,
+            armor_deterioration: value.condition.armor_deterioration,
+            protected: value.condition.protected,
+        },
     }
 }

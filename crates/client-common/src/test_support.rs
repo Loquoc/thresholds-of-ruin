@@ -151,6 +151,8 @@ pub fn portable_light_observation(lit: bool) -> Observation {
         class: ItemClass::Tool,
         appearance: "torch".into(),
         identified: true,
+        identity: "item.tool.fixture".parse().unwrap(),
+        knowledge: Default::default(),
         quantity: 1,
         description: String::new(),
         corpse: None,

@@ -785,9 +785,26 @@ pub struct PersonalBodyGrant {
     pub purchases: Vec<Purchase>,
     pub attribute: Option<Attribute>,
 }
+pub(crate) fn read_corpse_identity<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<s::ItemIdentity, D::Error> {
+    let identity = s::ItemIdentity::deserialize(deserializer)?;
+    if identity.is_unknown()
+        || !identity.is_descendant_of(&"item.corpse".parse().expect("static corpse category"))
+    {
+        return Err(serde::de::Error::custom(
+            "expected an authored known corpse identity leaf",
+        ));
+    }
+    Ok(identity)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildSpec {
+    /// Canonical corpse knowledge group; authored independently of the displayed persona.
+    #[serde(deserialize_with = "read_corpse_identity")]
+    pub corpse_identity: s::ItemIdentity,
     #[serde(default)]
     pub personal_body_grants: Vec<PersonalBodyGrant>,
     #[serde(default)]
@@ -1111,6 +1128,15 @@ impl CompiledCatalog {
                 "Authored creatures require 1 to 256 hit dice and at most 32 templates",
             ));
         }
+        if author.corpse_identity.is_unknown()
+            || !author
+                .corpse_identity
+                .is_descendant_of(&"item.corpse".parse().expect("static corpse category"))
+        {
+            return Err(invalid(
+                "Creature corpse_identity must be a known item.corpse leaf",
+            ));
+        }
         for (label, value, maximum) in [
             ("name", &author.name, s::CreatureIdentity::MAX_NAME_BYTES),
             (
@@ -1272,6 +1298,7 @@ impl CompiledCatalog {
             prototype,
             nutrition: author.nutrition,
             identity: s::CreatureIdentity {
+                corpse_identity: author.corpse_identity.clone(),
                 name: author.name.clone(),
                 faction: author.faction.clone(),
             },

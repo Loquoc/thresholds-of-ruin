@@ -73,17 +73,17 @@ class RogueStavesProcesses(ProcessTestCase):
         self.peer, _ = self.client(actor=3)
         text, _ = self.text_client()
         # Fixed seed4 vector, independently evaluated once from the public hash
-        # recipe and full14-effect catalog: Nothing→walnut staff, Fire→nickel wand.
+        # recipe and full14-effect catalog: Nothing→walnut staff, Fire→electrum wand.
         self.assertEqual(sorted(row["item"]["name"] for row in observation(initial)["ground_items"]
                                 if row["item"]["class"] == "wand"),
-                         ["nickel wand", "walnut staff", "walnut staff"])
+                         ["electrum wand", "walnut staff", "walnut staff"])
         for ground in observation(initial)["ground_items"]:
             self.completed(text, "take #" + ground["item"]["id"])
         carried = self.snapshot()
         staffs = [row for row in observation(carried)["inventory"] if row["name"] == "walnut staff"]
         self.assertEqual(len(staffs), 2)
         selected, twin = [row["id"] for row in staffs]
-        wand, = [row["id"] for row in observation(carried)["inventory"] if row["name"] == "nickel wand"]
+        wand, = [row["id"] for row in observation(carried)["inventory"] if row["name"] == "electrum wand"]
         scroll, = [row["id"] for row in observation(carried)["inventory"] if row["class"] == "scroll"]
         for item in (selected, twin, wand):
             self.assertFalse(inventory(carried, item)["identified"])
@@ -205,7 +205,7 @@ class RogueStavesProcesses(ProcessTestCase):
         adventure, _ = self.adventure()
         listed = self.say(adventure, "inventory")
         self.assertIn("staff of nothing", listed)
-        self.assertIn("nickel wand", listed)
+        self.assertIn("electrum wand", listed)
         staff_description = self.say(adventure, "examine first staff")
         self.assertIn("is a staff.", staff_description)
         self.assertNotIn("is a wand.", staff_description)
@@ -214,9 +214,9 @@ class RogueStavesProcesses(ProcessTestCase):
         clarification = self.say(adventure, "examine wand")
         self.assertIn("Which do you mean", clarification)
         self.assertIn("scroll of identify ring or wand", clarification)
-        self.assertIn("nickel wand", clarification)
-        wand_description = self.say(adventure, "nickel wand")
-        self.assertIn("nickel wand", wand_description)
+        self.assertIn("electrum wand", clarification)
+        wand_description = self.say(adventure, "electrum wand")
+        self.assertIn("electrum wand", wand_description)
         self.assertIn("is a wand.", wand_description)
         self.assertNotIn("staff of nothing", wand_description)
         self.say(adventure, "all skips staves")

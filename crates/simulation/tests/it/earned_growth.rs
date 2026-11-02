@@ -27,6 +27,7 @@ fn fatal_effect_awards_earned_xp_to_its_owner() {
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: "neutral".into(),
             },
@@ -77,6 +78,7 @@ fn three_actor_game() -> Game {
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: "allies".into(),
             },

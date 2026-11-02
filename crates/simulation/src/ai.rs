@@ -1224,7 +1224,10 @@ mod tests {
         )
         .unwrap();
         let mut game = Game::two_room_in_stone(42, content.clone());
-        for (x, name, faction) in [(1, "hero", "hero"), (2, "foe", "foe")] {
+        for (x, name, faction, corpse_identity) in [
+            (1, "hero", "hero", "item.corpse.test.hero"),
+            (2, "foe", "foe", "item.corpse.test.foe"),
+        ] {
             let actor = game
                 .spawn_actor(at(1, x, 1), NonZeroU64::new(100).unwrap())
                 .unwrap();
@@ -1242,6 +1245,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: corpse_identity.parse().unwrap(),
                     name: name.into(),
                     faction: faction.into(),
                 },
@@ -1416,6 +1420,7 @@ mod tests {
         game.configure_creature(
             other,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.other".parse().unwrap(),
                 name: "other".into(),
                 faction: "hero".into(),
             },
@@ -1490,7 +1495,10 @@ mod tests {
     }
 
     fn ring(game: &mut Game, item: u64, defense: i32, concealed: bool) {
-        let mut spec = crate::ItemSpec::ordinary(format!("ring-{item}"));
+        let mut spec = crate::ItemSpec::ordinary(
+            format!("item.test.ring-{item}").parse().unwrap(),
+            format!("ring-{item}"),
+        );
         spec.class = crate::ItemClass::Ring;
         spec.concealed = concealed;
         spec.appearance = "silver ring".into();
@@ -1544,7 +1552,8 @@ mod tests {
             BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
         )
         .unwrap();
-        let mut potion = crate::ItemSpec::ordinary("healing".into());
+        let mut potion =
+            crate::ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
         potion.class = crate::ItemClass::Potion;
         potion.consumable = Some(crate::ConsumableSpec {
             descriptors: vec![],
@@ -1587,7 +1596,8 @@ mod tests {
         let actor = ActorId(2);
         game.teleport(ActorId(1), at(2, 4, 2)).unwrap();
         game.set_region_light(RegionId(2), false).unwrap();
-        let mut potion = crate::ItemSpec::ordinary("healing".into());
+        let mut potion =
+            crate::ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
         potion.class = crate::ItemClass::Potion;
         potion.stackable = true;
         potion.concealed = true;
@@ -1620,7 +1630,10 @@ mod tests {
         let actor = ActorId(2);
         game.teleport(ActorId(1), at(1, 5, 1)).unwrap();
         for (id, x) in [(20, 3), (21, 4)] {
-            let mut potion = crate::ItemSpec::ordinary(format!("healing {id}"));
+            let mut potion = crate::ItemSpec::ordinary(
+                format!("item.test.healing-{id}").parse().unwrap(),
+                format!("healing {id}"),
+            );
             potion.class = crate::ItemClass::Potion;
             potion.consumable = Some(crate::ConsumableSpec {
                 descriptors: vec![],
@@ -1761,7 +1774,10 @@ mod tests {
         game.teleport(ActorId(1), at(2, 4, 2)).unwrap();
         game.set_region_light(RegionId(2), false).unwrap();
         for (id, reduction) in [(10, 1), (11, 2)] {
-            let mut spec = crate::ItemSpec::ordinary(format!("armor-{id}"));
+            let mut spec = crate::ItemSpec::ordinary(
+                format!("item.test.armor-{id}").parse().unwrap(),
+                format!("armor-{id}"),
+            );
             spec.class = crate::ItemClass::Armor;
             spec.equipment = Some(crate::EquipmentSpec {
                 periodic_relocation: None,
@@ -1887,7 +1903,8 @@ mod tests {
     fn healing_decisions_require_the_ai_actors_own_identity_knowledge() {
         let mut game = fixture();
         let actor = ActorId(2);
-        let mut potion = crate::ItemSpec::ordinary("healing".into());
+        let mut potion =
+            crate::ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
         potion.class = crate::ItemClass::Potion;
         potion.concealed = true;
         potion.appearance = "red potion".into();
@@ -1915,7 +1932,8 @@ mod tests {
     fn healing_priority_does_not_drink_known_mixed_harmful_effects_or_waste_full_health() {
         let mut game = fixture();
         let actor = ActorId(2);
-        let mut potion = crate::ItemSpec::ordinary("mixed".into());
+        let mut potion =
+            crate::ItemSpec::ordinary("item.test.mixed".parse().unwrap(), "mixed".into());
         potion.class = crate::ItemClass::Potion;
         potion.consumable = Some(crate::ConsumableSpec {
             descriptors: vec![],
@@ -1937,7 +1955,8 @@ mod tests {
             .unwrap();
         injury(&mut game, actor, 15);
         assert_eq!(game.choose_ai(actor).unwrap().action, basic(ActorId(1)));
-        let mut healing = crate::ItemSpec::ordinary("healing".into());
+        let mut healing =
+            crate::ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
         healing.class = crate::ItemClass::Potion;
         healing.consumable = Some(crate::ConsumableSpec {
             descriptors: vec![],
@@ -2300,7 +2319,10 @@ mod tests {
             .iter()
             .position(|slot| slot.as_str() == "body_armor")
             .unwrap();
-        let mut item = crate::ItemSpec::ordinary("private armor".into());
+        let mut item = crate::ItemSpec::ordinary(
+            "item.test.private-armor".parse().unwrap(),
+            "private armor".into(),
+        );
         item.class = crate::ItemClass::Armor;
         item.equipment = Some(crate::EquipmentSpec {
             periodic_relocation: None,

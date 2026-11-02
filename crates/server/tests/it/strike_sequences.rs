@@ -52,12 +52,13 @@ fn sequence_scenario(gated: bool) -> Scenario {
         "modifiers":[{"scope":"always","op":{"kind":"grant_ability","ability":"triple_strike"}},
             {"scope":"always","op":{"kind":"add","stat":{"kind":"health"},"value":200}}]
     }}})).unwrap();
-    let creature = |name| {
-        json!({"species":"sequence_fighter","name":name,"faction":"neutral",
+    let creature = |corpse_identity, name| {
+        json!({"species":"sequence_fighter","name":name,"corpse_identity":corpse_identity,"faction":"neutral",
         "binding":"intellect","starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},
         "hit_dice":[{"source":"racial"}]})
     };
-    manifest.characters[0].creature = Some(serde_json::from_value(creature("Escaper")).unwrap());
+    manifest.characters[0].creature =
+        Some(serde_json::from_value(creature("item.corpse.test.escaper", "Escaper")).unwrap());
     let mut regions: Vec<RegionDef> = [1, 2]
         .into_iter()
         .map(|id| {
@@ -70,7 +71,7 @@ fn sequence_scenario(gated: bool) -> Scenario {
     regions[0].items.clear();
     regions[0].actors = vec![serde_json::from_value(
         json!({"id":2,"at":[2,1,0],"turn_ticks":if gated {100} else {150},
-        "controller":"external","creature":creature("Sequence sentinel")}),
+        "controller":"external","creature":creature("item.corpse.test.sequence-sentinel", "Sequence sentinel")}),
     )
     .unwrap()];
     let package =

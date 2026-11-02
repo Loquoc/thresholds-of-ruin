@@ -2161,6 +2161,86 @@ class CausalPictureCompletion(unittest.TestCase):
                 harness.assertDisclosedStateEqual(original, {**new, "observation": payload})
 
 
+class SpectatorStateComparison(unittest.TestCase):
+    def states(self):
+        # Authored separately from the projection helper: unknown is generic,
+        # not a category sentinel, and known zero/false must become null.
+        public = {"id": "10", "name": "silver ring", "class": "ring",
+                  "identified": True, "quantity": "2", "known_currency": None,
+                  "known_supply": None, "description": "a ring", "appearance": "item.ring.silver"}
+        owner_item = {**public, "identity": "item.ring.protection", "knowledge": {
+            "buc": "item.buc.uncursed",
+            "enchantments": {"hit": 0, "damage": -2, "armor": 0, "potency": 3},
+            "condition": {"corrosion": 0, "armor_deterioration": 1, "protected": False}}}
+        spectator_item = {**public, "identity": "item.unknown", "knowledge": {
+            "buc": "item.buc.unknown",
+            "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+            "condition": {"corrosion": None, "armor_deterioration": None, "protected": None}}}
+        def state(item, revision):
+            return {"snapshot": revision, "revision": revision, "observation": {
+                "tick": "20", "health": 5, "inventory": [item],
+                "ground_items": [{"at": {"x": 1, "y": 2}, "item": dict(item)}]}}
+        return state(owner_item, "1"), state(spectator_item, "9")
+
+    def test_exact_projection_is_directional_and_does_not_mutate_either_state(self):
+        owner, spectator = self.states()
+        before = json.dumps([owner, spectator], sort_keys=True)
+        harness = ProcessTestCase()
+        harness.assertSpectatorStateEqual(spectator, owner)
+        self.assertEqual(harness.spectatorObservation(owner["observation"]), spectator["observation"])
+        self.assertEqual(json.dumps([owner, spectator], sort_keys=True), before)
+        with self.assertRaises(AssertionError):
+            harness.assertDisclosedStateEqual(spectator, owner)
+        with self.assertRaises(AssertionError):
+            harness.assertSpectatorStateEqual(owner, spectator)
+
+    def test_rejects_identity_knowledge_leaks_missing_fields_and_public_differences(self):
+        for location in ("inventory", "ground_items"):
+            for field, value in (("identity", "item.ring.protection"), ("identity", "item.ring.unknown"),
+                                 ("name", "different"), ("class", "potion"), ("identified", False),
+                                 ("quantity", "3"), ("known_currency", "gold"), ("known_supply", "food"),
+                                 ("description", "changed"), ("appearance", "item.ring.gold"), ("unexpected", True)):
+                with self.subTest(location=location, field=field, value=value):
+                    owner, spectator = self.states()
+                    item = spectator["observation"][location][0]
+                    if location == "ground_items":
+                        item = item["item"]
+                    item[field] = value
+                    with self.assertRaises(AssertionError):
+                        ProcessTestCase().assertSpectatorStateEqual(spectator, owner)
+            for path, value in ((["buc"], "item.buc.uncursed"), (["enchantments", "hit"], 0),
+                                (["condition", "protected"], False), (["condition", "corrosion"], 0)):
+                owner, spectator = self.states()
+                item = spectator["observation"][location][0]
+                if location == "ground_items":
+                    item = item["item"]
+                node = item["knowledge"]
+                for key in path[:-1]:
+                    node = node[key]
+                node[path[-1]] = value
+                with self.subTest(location=location, path=path), self.assertRaises(AssertionError):
+                    ProcessTestCase().assertSpectatorStateEqual(spectator, owner)
+            for field in ("identity", "knowledge"):
+                for side in (0, 1):
+                    states = self.states()
+                    item = states[side]["observation"][location][0]
+                    if location == "ground_items":
+                        item = item["item"]
+                    del item[field]
+                    with self.subTest(location=location, field=field, side=side), self.assertRaises(AssertionError):
+                        ProcessTestCase().assertSpectatorStateEqual(states[1], states[0])
+
+    def test_non_item_state_and_ground_position_remain_exact(self):
+        for mutate in (lambda state: state["observation"].update(tick="21"),
+                       lambda state: state["observation"].update(health=4),
+                       lambda state: state.update(extra=True),
+                       lambda state: state["observation"]["ground_items"][0].update(at={"x": 2, "y": 2})):
+            owner, spectator = self.states()
+            mutate(spectator)
+            with self.assertRaises(AssertionError):
+                ProcessTestCase().assertSpectatorStateEqual(spectator, owner)
+
+
 class InspectionGenerationComparison(unittest.TestCase):
     def test_only_issued_report_generation_is_attachment_local(self):
         harness = ProcessTestCase()

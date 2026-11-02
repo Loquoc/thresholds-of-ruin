@@ -1019,6 +1019,7 @@ fn production_combat_fixture(name: &str) -> (Game, ActorId, ActorId) {
     game.configure_creature(
         holder,
         CreatureIdentity {
+            corpse_identity: spec.corpse_identity.clone(),
             name: spec.name.clone(),
             faction: spec.faction.clone(),
         },
@@ -1038,6 +1039,7 @@ fn production_combat_fixture(name: &str) -> (Game, ActorId, ActorId) {
     game.configure_creature(
         subject,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.combat-subject".parse().unwrap(),
             name: "Combat subject".into(),
             faction: "delvers".into(),
         },

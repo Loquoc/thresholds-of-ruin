@@ -108,7 +108,10 @@ fn natural_melee_source_ignores_equipped_weapon_operands_and_timing() {
         |_, _| {},
     );
     let original = game.preparation(ActorId(1)).unwrap().plan.clone();
-    let mut weapon = crate::ItemSpec::ordinary("source selection probe".into());
+    let mut weapon = crate::ItemSpec::ordinary(
+        "item.test.source-selection-probe".parse().unwrap(),
+        "source selection probe".into(),
+    );
     weapon.class = crate::ItemClass::Weapon;
     weapon.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -520,7 +523,10 @@ fn natural_melee_selected_weapon_checks_keep_user_and_target_sources_separate() 
         },
     );
     for actor in [ActorId(1), ActorId(2)] {
-        let mut weapon = crate::ItemSpec::ordinary("opposed source probe".into());
+        let mut weapon = crate::ItemSpec::ordinary(
+            "item.test.opposed-source-probe".parse().unwrap(),
+            "opposed source probe".into(),
+        );
         weapon.class = crate::ItemClass::Weapon;
         weapon.equipment = Some(crate::EquipmentSpec {
             periodic_relocation: None,

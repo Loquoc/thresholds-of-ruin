@@ -1,5 +1,6 @@
 """Preserve the legacy acknowledgement boundary while exposing driver delay."""
 import io
+import copy
 import json
 import queue
 from pathlib import Path
@@ -23,6 +24,68 @@ class DisclosedStateComparison(unittest.TestCase):
         self.assertFalse(same_disclosed_state(first, dict(second, observation=dict(tick="200", inventory=[]))))
         self.assertFalse(same_disclosed_state(first, dict(second, extra="must not disappear")))
 
+
+    def test_spectator_presentation_requires_exact_public_fields_and_redaction(self):
+        from performance_driver import presented_action, same_spectator_state
+        from place_performance_driver import presented_place_command
+        unknown = dict(buc="item.buc.unknown",
+                       enchantments=dict(hit=None, damage=None, armor=None, potency=None),
+                       condition=dict(corrosion=None, armor_deterioration=None, protected=None))
+        item = dict(id="item", quantity="3", name="Known ring", appearance="jade ring",
+                    description="public description", identified=True, **{"class": "ring"},
+                    identity="item.ring.protection", known_currency=None, known_supply=None,
+                    knowledge=dict(buc="item.buc.uncursed",
+                                   enchantments=dict(hit=0, damage=None, armor=2, potency=None),
+                                   condition=dict(corrosion=0, armor_deterioration=None, protected=False)))
+        state = dict(snapshot="owner", revision="8", wizard_game=False,
+                     observation=dict(tick="200", ready=True, inventory=[item],
+                                      ground_items=[dict(item=copy.deepcopy(item), reachable=True,
+                                                         position=dict(x=1, y=2, z=0))]))
+        expected = dict(state=state, history=[dict(id="wait", tick="200", audience="actor")])
+        spectator = copy.deepcopy(state)
+        spectator.update(snapshot="spectator", revision="1")
+        for row in [spectator["observation"]["inventory"][0],
+                    spectator["observation"]["ground_items"][0]["item"]]:
+            row.update(identity="item.unknown", knowledge=copy.deepcopy(unknown))
+        frame = dict(state=spectator, role="spectator", history=expected["history"])
+        original = copy.deepcopy((frame, expected))
+        self.assertTrue(presented_action(frame, expected, {"type": "move"}))
+        self.assertTrue(presented_place_command(frame, expected, {"type": "move"}))
+        self.assertTrue(same_spectator_state(spectator, state), "initial places readiness uses the same directional contract")
+        self.assertFalse(same_disclosed_state(spectator, state), "same-role comparison stays strict")
+        for collection in ["inventory", "ground_items"]:
+            for field, value in [("identity", "item.ring.unknown"), ("identity", item["identity"]),
+                                 ("knowledge", item["knowledge"]), ("name", "changed"),
+                                 ("quantity", "4"), ("identified", False), ("appearance", "ruby ring"),
+                                 ("description", "changed"), ("class", "potion"), ("known_currency", "gold"),
+                                 ("known_supply", "ration"), ("unexpected", "must compare")]:
+                changed = copy.deepcopy(frame)
+                row = changed["state"]["observation"][collection][0]
+                row = row["item"] if collection == "ground_items" else row
+                row[field] = value
+                self.assertFalse(presented_action(changed, expected, {"type": "move"}), (collection, field))
+            for group, field, value in [("enchantments", key, 0) for key in unknown["enchantments"]] + [
+                    ("condition", "corrosion", 0), ("condition", "armor_deterioration", 0),
+                    ("condition", "protected", False)]:
+                changed = copy.deepcopy(frame)
+                row = changed["state"]["observation"][collection][0]
+                row = row["item"] if collection == "ground_items" else row
+                row["knowledge"][group][field] = value
+                self.assertFalse(presented_action(changed, expected, {"type": "move"}),
+                                 (collection, group, field, "known zero/false is still private"))
+            for missing in ["identity", "knowledge"]:
+                changed = copy.deepcopy(frame)
+                row = changed["state"]["observation"][collection][0]
+                row = row["item"] if collection == "ground_items" else row
+                del row[missing]
+                self.assertFalse(presented_action(changed, expected, {"type": "move"}))
+        earlier = copy.deepcopy(frame)
+        earlier["state"]["observation"]["tick"] = "100"
+        self.assertTrue(presented_action(earlier, expected, {"type": "wait"}))
+        self.assertFalse(presented_action(earlier, expected, {"type": "move"}))
+        earlier["history"] = []
+        self.assertFalse(presented_action(earlier, expected, {"type": "wait"}))
+        self.assertEqual((frame, expected), original, "comparison must not mutate either attachment")
 
     def test_wait_presentation_requires_exact_receipt_and_every_visual_field(self):
         from performance_driver import presented_action

@@ -1733,8 +1733,66 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 self.assertNotIn('owner_advancement', current_source.get('capabilities', {}))
             else:
                 self.assertEqual(current, old, name)
+
+    def test_current_baseline_v30_changes_only_required_item_identity_schema(self):
+        import hashlib
+        import tomllib
+        from arena_evaluation import files
+        from process_harness import ROOT
+        previous = ROOT / 'scripts/fixtures/rogue-earned-baseline-v29'
+        snapshot = ROOT / 'scripts/fixtures/rogue-earned-baseline-v30'
+        prior = json.loads((previous / 'source.json').read_text())
+        source = json.loads((snapshot / 'source.json').read_text())
+        transition_bytes = (snapshot / 'format-transition.json').read_bytes()
+        transition = json.loads(transition_bytes)
+        identities = {'rogue.mace': 'item.weapon.mace', 'rogue.ring_mail': 'item.armor.ring-mail',
+                      'rogue.clean_bandage': 'item.misc.clean-bandage', 'rogue.ration': 'item.food.ration'}
+        corpses = {'rogue.human': 'item.corpse.human', 'rogue.emu': 'item.corpse.emu',
+                   'rogue.snake': 'item.corpse.snake', 'rogue.hobgoblin': 'item.corpse.hobgoblin',
+                   'rogue.zombie': 'item.corpse.zombie', 'rogue.quagga': 'item.corpse.quagga',
+                   'rogue.centaur': 'item.corpse.centaur', 'rogue.yeti': 'item.corpse.yeti',
+                   'rogue.black_unicorn': 'item.corpse.black-unicorn',
+                   'rogue.ice_monster': 'item.corpse.ice-monster'}
+        self.assertEqual(transition['item_identity_map'], identities)
+        self.assertEqual(transition['corpse_identity_map'], corpses)
+        self.assertEqual((transition['previous_scenario_format'], transition['current_scenario_format']), (36, 37))
+        self.assertEqual((transition['previous_snapshot'], transition['current_snapshot']), (previous.name, snapshot.name))
+        self.assertEqual(transition['previous_source_sha256'], hashlib.sha256((previous / 'source.json').read_bytes()).hexdigest())
+        for field in ('package_inputs', 'rules_dependencies', 'reference'):
+            self.assertEqual(transition['previous_' + field], prior[field])
+        self.assertEqual(files(previous / 'package'), prior['package_inputs'])
+        self.assertEqual(files(snapshot / 'package'), source['package_inputs'])
+        self.assertEqual(source['rules_dependencies'], prior['rules_dependencies'])
+        self.assertEqual(transition['current_rules_dependencies'], prior['rules_dependencies'])
+        self.assertTrue(source['reference'].startswith(prior['reference'] + '; '))
+        self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(transition_bytes).hexdigest()))
+        self.assertIn('compiler and route qualification pending', source['reference'])
+        self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
+        inverse = {value: key for key, value in identities.items()}
+        for name in source['package_inputs']:
+            old_bytes = (previous / 'package' / name).read_bytes()
+            new_bytes = (snapshot / 'package' / name).read_bytes()
+            old, new = map(tomllib.loads, (old_bytes.decode(), new_bytes.decode()))
+            if name == 'scenario.toml':
+                self.assertEqual(new['format'], 37)
+                new['format'] = 36
+                for character in new['characters']:
+                    self.assertEqual(character['creature'].pop('corpse_identity'), 'item.corpse.human')
+                    character['known_identities'] = [inverse[key] for key in character['known_identities']]
+            elif name == 'catalog/items.toml':
+                self.assertEqual(set(new['items']), set(identities))
+                for key, item in new['items'].items():
+                    self.assertEqual(item['identity'], identities[key])
+                    item['identity'] = key
+            elif name == 'catalog/actors.toml':
+                self.assertEqual(set(new['actors']), set(corpses) - {'rogue.human'})
+                for key, actor in new['actors'].items():
+                    self.assertEqual(actor['creature'].pop('corpse_identity'), corpses[key])
+            else:
+                self.assertEqual(new_bytes, old_bytes, name)
+            self.assertEqual(new, old, name)
         loader = (ROOT / 'scripts/test_rogue_earned_route_process.py').read_text()
-        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v29'", loader)
+        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v30'", loader)
 
     def test_artifact_capacity_is_infrastructure_not_controller_failure(self):
         self.assertEqual(classify_failure(ValueError('JSON artifact exceeds bounded size')),

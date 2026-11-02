@@ -458,6 +458,7 @@ mod tests {
             view.has_control = true;
             view.can_act = true;
             view.inventory.push(tor_client_3d_model::Carried {
+                surface: tor_client_3d_model::ItemSurface::Neutral,
                 model: tor_client_3d_model::ItemModel::Placeholder,
                 id: target,
                 name: "item".into(),

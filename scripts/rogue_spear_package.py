@@ -17,7 +17,7 @@ def fixture():
     manifest, region = encounter("emu")
     manifest["id"] = "rogue-spear-acceptance"
     character = manifest["characters"][0]
-    character["known_identities"].append("rogue.spear")
+    character["known_identities"].append("item.weapon.spear")
     character["loadout"].append({"archetype": "rogue.spear", "quantity": 1})
     return manifest, region
 

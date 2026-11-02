@@ -532,6 +532,7 @@ mod discernible_device_tests {
         game.configure_creature(
             target,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.target".parse().unwrap(),
                 name: "target".into(),
                 faction: "fixture".into(),
             },

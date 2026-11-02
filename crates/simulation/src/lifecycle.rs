@@ -1656,7 +1656,10 @@ impl Game {
             .next_item_id
             .checked_add(1)
             .ok_or(GameError::IdentityExhausted)?;
-        let mut spec = ItemSpec::ordinary(format!("{} corpse", combat.identity.name));
+        let mut spec = ItemSpec::ordinary(
+            combat.identity.corpse_identity.clone(),
+            format!("{} corpse", combat.identity.name),
+        );
         spec.class = crate::ItemClass::Corpse;
         spec.properties
             .insert("actor".into(), outcome.id.0.to_string());
@@ -1848,6 +1851,7 @@ mod tests {
             game.configure_creature(
                 id,
                 CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                     name: format!("subject {x}"),
                     faction: "neutral".into(),
                 },
@@ -1878,7 +1882,10 @@ mod tests {
         let ring = crate::EquipmentSlot::new("ring").unwrap();
         let existing_socket =
             EquipmentSlotId(anatomy.slots.iter().position(|slot| *slot == ring).unwrap() as u16);
-        let mut spec = ItemSpec::ordinary("candidate ring".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.candidate-ring".parse().unwrap(),
+            "candidate ring".into(),
+        );
         spec.class = crate::ItemClass::Ring;
         spec.equipment = Some(EquipmentSpec {
             periodic_relocation: None,
@@ -2440,7 +2447,22 @@ mod growth_tests {
         let mut game = game();
         game.actors.get_mut(&ActorId(2)).unwrap().asset =
             Some("creature.humanoid.sentinel.red".into());
+        let captured_identity = game.actors[&ActorId(2)]
+            .combat
+            .as_ref()
+            .unwrap()
+            .identity
+            .corpse_identity
+            .clone();
         game.apply(fatal(ActorId(1), ActorId(2))).unwrap();
+        game.actors
+            .get_mut(&ActorId(2))
+            .unwrap()
+            .combat
+            .as_mut()
+            .unwrap()
+            .identity
+            .corpse_identity = "item.corpse.test.changed-persona".parse().unwrap();
         game.actors.get_mut(&ActorId(2)).unwrap().asset =
             Some("creature.humanoid.sentinel.blue".into());
         let (corpse_id, corpse) = game
@@ -2449,6 +2471,7 @@ mod growth_tests {
             .find(|(_, item)| item.spec.class == crate::ItemClass::Corpse)
             .map(|(id, item)| (*id, item))
             .unwrap();
+        assert_eq!(corpse.spec.identity, captured_identity);
         let value = serde_json::to_value(corpse).unwrap();
         assert_eq!(value["corpse"], serde_json::json!({
             "actor": 2, "asset": "creature.humanoid.sentinel.red"

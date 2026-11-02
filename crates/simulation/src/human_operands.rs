@@ -309,7 +309,7 @@ mod tests {
             NonZeroU64::new(1).unwrap(),
         )
         .unwrap();
-        let mut spec = ItemSpec::ordinary("bandage".into());
+        let mut spec = ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         spec.supply = Some(SupplyId::new("bandage").unwrap());
         let first = game
             .place_item_stack(10, at, Some(owner), 1, spec.clone())

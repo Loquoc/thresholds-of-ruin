@@ -27,7 +27,12 @@ fn interior_door_blocks_sight_and_movement_and_actions_are_atomic() {
     let door = game
         .place_door(cell(2), false, game.door_clearance(cell(2)))
         .unwrap();
-    game.place_item(cell(4), "stone tablet".into()).unwrap();
+    game.place_item(
+        cell(4),
+        "item.test.stone-tablet".parse().unwrap(),
+        "stone tablet".into(),
+    )
+    .unwrap();
     assert!(game.observe(actor).unwrap().ground_items.is_empty());
     assert!(
         !game
@@ -99,7 +104,12 @@ fn ground_items_prevent_closing_and_distant_doors_cannot_be_manipulated() {
         .is_err());
     assert_eq!(game, before);
     game.act(actor, Action::Move(Direction::East)).unwrap();
-    game.place_item(location(3), "token".into()).unwrap();
+    game.place_item(
+        location(3),
+        "item.test.token".parse().unwrap(),
+        "token".into(),
+    )
+    .unwrap();
     let before = game.clone();
     assert!(game
         .act(actor, Action::SetDoor { door, open: false })
@@ -147,7 +157,12 @@ fn a_rotated_join_door_is_reachable_without_crossing() {
     let door = game
         .place_door(at(2, 0, 0, 0), false, game.door_clearance(at(2, 0, 0, 0)))
         .unwrap();
-    game.place_item(at(2, 0, 2, 0), "tablet".into()).unwrap();
+    game.place_item(
+        at(2, 0, 2, 0),
+        "item.test.tablet".parse().unwrap(),
+        "tablet".into(),
+    )
+    .unwrap();
     assert!(game.observe(actor).unwrap().ground_items.is_empty());
     game.act(actor, Action::SetDoor { door, open: true })
         .unwrap();

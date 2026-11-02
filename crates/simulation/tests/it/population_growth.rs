@@ -68,6 +68,7 @@ fn actor_choice(build: &CreatureBuild) -> PreparedActorChoice {
         build: Some(BuildRecord::capture(build)),
         nutrition: tor_simulation::nutrition::NutritionRequirement::Exempt,
         identity: Some(CreatureIdentity {
+            corpse_identity: "item.corpse.test.growth-subject".parse().unwrap(),
             name: "growth subject".into(),
             faction: "test".into(),
         }),
@@ -113,7 +114,7 @@ fn configured(depth: u32, base: usize, destination: u64) -> (Game, CreatureBuild
                     content: "marker".into(),
                     weight: 1,
                     quantity: tor_simulation::quantity::QuantityExpr::Fixed { quantity: 1 },
-                    spec: ItemSpec::ordinary("marker".into()),
+                    spec: ItemSpec::ordinary("item.test.marker".parse().unwrap(), "marker".into()),
                 }],
             }],
         },

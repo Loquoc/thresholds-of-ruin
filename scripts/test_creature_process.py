@@ -4,9 +4,53 @@ from rogue_test_support import disclosed_frames, ordered_combat_events
 from process_harness import content_ids, hit_die_counts, read_capture
 import shutil
 import subprocess
+import unittest
 
 from process_harness import ProcessTestCase, ROOT, SPECTATOR_TOKEN, WIZARD_TOKEN, ascii_input_completion, creature_package, resource, settle_rogue_action
 
+
+
+def arena_preparation_frame(case, observer):
+    # Arena control acknowledges a step budget before the AI executes it.
+    # Observe on another socket can still return the pre-action picture. Wait
+    # for the committed ability-start event, then finish its visual projection.
+    started = case.frame(observer, lambda frame: any(
+        entry.get("content", {}).get("event", {}).get("type") == "ability_started"
+        for entry in frame.get("history", [])))
+    return case.picture_after(observer, started)
+
+
+class ArenaPreparationSynchronization(unittest.TestCase):
+    def test_waits_for_ability_start_not_early_ready_or_old_snapshot(self):
+        early = {"type": "ready", "state": {"revision": "2"}, "history": []}
+        snapshot = {"type": "response", "state": {"revision": "2"}, "history": []}
+        scheduled = {"type": "update", "history": [{"content": {"type": "wizard"}}]}
+        started = {"type": "update", "history": [{"content": {"event": {
+            "type": "ability_started", "ability": {"id": "spark_lance_fire"}}}}]}
+        # No resource or preparation fields appear in these causal frames:
+        # the barrier must not wait for the very values the process test checks.
+        frames = iter((early, snapshot, scheduled, started))
+        accepted = []
+        settled = {"state": {"revision": "3"}}
+
+        class Driver:
+            def request(self, observer, request):
+                return early
+
+            def frame(self, observer, predicate):
+                for frame in frames:
+                    accepted.append(predicate(frame))
+                    if accepted[-1]:
+                        return frame
+                raise AssertionError("ability-start barrier not reached")
+
+            def picture_after(self, observer, frame):
+                self_case.assertIs(frame, started)
+                return settled
+
+        self_case = self
+        self.assertIs(arena_preparation_frame(Driver(), object()), settled)
+        self.assertEqual(accepted, [False, False, False, True])
 
 
 class CreatureAbilityProcesses(ProcessTestCase):
@@ -331,13 +375,13 @@ class CreatureAbilityProcesses(ProcessTestCase):
         package = creature_package(self, "arena-selected-death")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source = source.replace('archetypes = { ', 'archetypes = { poison = { class = "potion", name = "test poison", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 100000 } }] } }] } }, ')
+        source = source.replace('archetypes = { ', 'archetypes = { poison = { class = "potion", identity = "item.potion.fixture.poison", name = "test poison", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 100000 } }] } }] } }, ')
         source = source.replace('ai_profiles = ', 'arena = { participants = [1, 2, 3], control = "manual", ticks = 700, actions = 100 }\nfactions = { neutral = ["foe"], foe = ["neutral"] }\nai_profiles = ')
         manifest.write_text(source, encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"
         source = region.read_text(encoding="utf-8")
         source += ('\n[[actors]]\nid = 3\nat = [3, 1, 0]\ncontroller = "ai"\nai = "practice"\n'
-                   'creature = { species = "human", name = "arena foe", faction = "foe", '
+                   'creature = { species = "human", name = "arena foe", corpse_identity = "item.corpse.fixture.arena-foe", faction = "foe", '
                    'binding = "intellect", starting_skills = ["athletics", "lore"], restoration = "authored", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] }\n'
                    '\n[[items]]\nid = 3\nat = [1, 1, 0]\ncarried_by = 1\narchetype = "poison"\n')
         region.write_text(source, encoding="utf-8", newline="\n")
@@ -520,7 +564,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         self.assertEqual(u64(initial["hit_dice"]["total"]), 3)
         initial_mana = resource(original, "mana")["balance"]
         self.assertNotIn("Server error", wizard.command("wizard arena step"))
-        prepared = self.request(observer, {"type": "observe"})
+        prepared = arena_preparation_frame(self, observer)
         self.assertIsNone(prepared["error"])
         self.assertEqual(resource(prepared, "mana")["reserved"], 1)
         self.assertTrue(prepared["state"]["observation"]["combat"]["preparation_active"])

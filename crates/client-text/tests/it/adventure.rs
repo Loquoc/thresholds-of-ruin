@@ -24,8 +24,8 @@ fn state() -> StateView {
             "trap":null,"object_presentation":null,"stairs_up":false,"stairs_down":false
         })).collect::<Vec<_>>(),
         "ground_items":[
-            {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(1),"name":"copper token","description":"A small copper disc."},"position":{"x":0,"y":0,"z":0}},
-            {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(2),"name":"stone tablet","description":"A weathered slab of stone."},"position":{"x":6,"y":0,"z":0}}
+            {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(1),"name":"copper token","description":"A small copper disc."},"position":{"x":0,"y":0,"z":0}},
+            {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(2),"name":"stone tablet","description":"A weathered slab of stone."},"position":{"x":6,"y":0,"z":0}}
         ],"inventory":[],"charts":[],"linked_holds":[],"visible_actors":[]}})).unwrap()
 }
 
@@ -501,6 +501,8 @@ fn carrying(s: &mut StateView) {
             name: name.into(),
             appearance: "item".into(),
             identified: true,
+            identity: "item.misc.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             description: description.into(),
             quantity: 1,
             asset: None,
@@ -1021,7 +1023,7 @@ pub(crate) fn walled(map: &[&str]) -> StateView {
             }
             if ch == 'i' {
                 items.push(serde_json::json!({"presentation":null,"supply_reachable":false,"reachable": x == 0 && y == 0,
-                    "item": {"known_currency":null,"known_supply":null,"quantity": "1", "class":"misc","appearance": "item", "identified": true,
+                    "item": {"known_currency":null,"known_supply":null,"quantity": "1", "class":"misc","appearance": "item", "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
                         "id":super::item_target(1), "name": "copper token", "description": ""},
                     "position": {"x": x, "y": y, "z": 0}}));
             }
@@ -1200,7 +1202,7 @@ fn things_and_figures_are_told_in_sentences() {
     let token = |id: u64, x: i32, quantity: u64| {
         serde_json::from_value::<GroundItemView>(serde_json::json!({"presentation":null,"supply_reachable":false,
             "reachable": x == 0, "position": {"x": x, "y": 0, "z": 0},
-            "item": {"known_currency":null,"known_supply":null,"quantity": quantity.to_string(), "class":"misc","appearance": "item", "identified": true,
+            "item": {"known_currency":null,"known_supply":null,"quantity": quantity.to_string(), "class":"misc","appearance": "item", "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
                 "id": super::item_target(id), "name": "copper token", "description": ""}}))
         .unwrap()
     };
@@ -1797,6 +1799,8 @@ fn phase5_using_clause_keeps_exact_ground_supply_through_both_text_modes() {
             quantity: 1,
             appearance: "bandage".into(),
             identified: true,
+            identity: "item.misc.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             asset: None,
             known_currency: None,
             known_supply: Some(SupplyView {
@@ -2307,6 +2311,9 @@ fn magical_staff_and_wand_nouns_follow_disclosed_form_not_shared_class() {
         {
             row.item.name = name.into();
             row.item.class = ItemClass::Wand;
+            if !row.item.identified {
+                row.item.identity = row.item.class.unknown_identity();
+            }
             row.item.description.clear();
             row.reachable = true;
         }
@@ -2382,6 +2389,10 @@ fn magical_staff_and_wand_nouns_follow_disclosed_form_not_shared_class() {
     let mut s = state();
     s.observation.ground_items[0].item.name = "amber rod".into();
     s.observation.ground_items[0].item.class = ItemClass::Wand;
+    if !s.observation.ground_items[0].item.identified {
+        s.observation.ground_items[0].item.identity =
+            s.observation.ground_items[0].item.class.unknown_identity();
+    }
     s.observation.ground_items[0].item.description.clear();
     assert!(said("examine rod", &s).contains("is a device."));
 }

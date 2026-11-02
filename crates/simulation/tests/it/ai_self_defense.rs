@@ -72,7 +72,10 @@ fn defensive_ai_admission_replays_the_same_paid_plan_then_stops_reapplying() {
     .unwrap();
     let mut game = Game::two_room_in_stone(42, content.clone());
     let mut actors = Vec::new();
-    for (x, faction) in [(1, "hero"), (2, "foe")] {
+    for (x, faction, corpse_identity) in [
+        (1, "hero", "item.corpse.test.hero"),
+        (2, "foe", "item.corpse.test.foe"),
+    ] {
         let actor = game
             .spawn_actor(
                 Location {
@@ -93,6 +96,7 @@ fn defensive_ai_admission_replays_the_same_paid_plan_then_stops_reapplying() {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: corpse_identity.parse().unwrap(),
                 name: faction.into(),
                 faction: faction.into(),
             },

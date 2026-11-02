@@ -139,6 +139,7 @@ fn game() -> Game {
         game.configure_creature(
             id,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject{x}").parse().unwrap(),
                 name: format!("subject{x}"),
                 faction: format!("side{x}"),
             },
@@ -163,7 +164,10 @@ fn game() -> Game {
     game
 }
 fn scare(game: &mut Game) -> ItemId {
-    let mut spec = crate::ItemSpec::ordinary("unread page".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.unread-page".parse().unwrap(),
+        "unread page".into(),
+    );
     spec.class = crate::ItemClass::Scroll;
     spec.stackable = true;
     spec.ground_scare = Some(ConditionPayload {
@@ -801,7 +805,10 @@ fn no_ground_scare_avoids_neighborhood_work_and_shared_actor_writes() {
                     at(1),
                     None,
                     1,
-                    crate::ItemSpec::ordinary("ordinary stone".into()),
+                    crate::ItemSpec::ordinary(
+                        "item.test.ordinary-stone".parse().unwrap(),
+                        "ordinary stone".into(),
+                    ),
                 )
                 .unwrap();
             }

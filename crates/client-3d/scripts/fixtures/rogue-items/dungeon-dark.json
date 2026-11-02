@@ -1,0 +1,273 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1440,
+    900
+  ],
+  "actors": [
+    {
+      "id": "man",
+      "model": "Human",
+      "seed": 7,
+      "body": {},
+      "outfit": "adventurer",
+      "equipment": [],
+      "position": [
+        -1.8,
+        -0.5,
+        -1.4
+      ],
+      "yaw": 15
+    }
+  ],
+  "ground_items": [
+    {
+      "model": "Coins",
+      "position": [
+        -3,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "gold coin",
+      "quantity": 1,
+      "asset": "item.coin"
+    },
+    {
+      "model": "Ring",
+      "position": [
+        -2,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "agate ring",
+      "quantity": 1,
+      "asset": "item.ring.agate"
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        -1,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll titled VEL MOR",
+      "quantity": 1,
+      "asset": "item.scroll.vel-mor"
+    },
+    {
+      "model": "Potion",
+      "position": [
+        0,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "amber potion",
+      "quantity": 1,
+      "asset": "item.potion.amber"
+    },
+    {
+      "model": "Fruit",
+      "position": [
+        1,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "fruit",
+      "quantity": 1,
+      "asset": "item.food.fruit"
+    },
+    {
+      "model": "LongSword",
+      "position": [
+        2,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "long sword",
+      "quantity": 1,
+      "asset": "item.weapon.sword.long"
+    },
+    {
+      "model": "LeatherArmor",
+      "position": [
+        3,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "leather armor",
+      "quantity": 1,
+      "asset": "item.armor.leather"
+    },
+    {
+      "model": "Coins",
+      "position": [
+        -1.23,
+        -0.5,
+        0.77
+      ],
+      "yaw": 25,
+      "disclosed_name": "gold coin",
+      "quantity": 27,
+      "asset": "item.coin"
+    },
+    {
+      "model": "Ring",
+      "position": [
+        -0.77,
+        -0.5,
+        0.77
+      ],
+      "yaw": 25,
+      "disclosed_name": "agate ring",
+      "quantity": 1,
+      "asset": "item.ring.agate"
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        -1.23,
+        -0.5,
+        1.23
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll titled VEL MOR",
+      "quantity": 1,
+      "asset": "item.scroll.vel-mor"
+    },
+    {
+      "model": "Potion",
+      "position": [
+        -0.77,
+        -0.5,
+        1.23
+      ],
+      "yaw": 25,
+      "disclosed_name": "amber potion",
+      "quantity": 1,
+      "asset": "item.potion.amber"
+    },
+    {
+      "model": "Coins",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "gold coin",
+      "quantity": 143,
+      "asset": "item.coin"
+    },
+    {
+      "model": "Ring",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "agate ring",
+      "quantity": 2,
+      "asset": "item.ring.agate"
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll titled VEL MOR",
+      "quantity": 3,
+      "asset": "item.scroll.vel-mor"
+    },
+    {
+      "model": "Potion",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "amber potion",
+      "quantity": 4,
+      "asset": "item.potion.amber"
+    },
+    {
+      "model": "Fruit",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "fruit",
+      "quantity": 5,
+      "asset": "item.food.fruit"
+    },
+    {
+      "model": "Ring",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "agate ring",
+      "quantity": 6,
+      "asset": "item.ring.agate"
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll titled VEL MOR",
+      "quantity": 7,
+      "asset": "item.scroll.vel-mor"
+    }
+  ],
+  "floor_color": [
+    0.17,
+    0.14,
+    0.12
+  ],
+  "cameras": [
+    {
+      "id": "play",
+      "position": [
+        0,
+        6.414031790709677,
+        4.94430626044301
+      ],
+      "target": [
+        0,
+        -0.5,
+        0
+      ],
+      "fov_degrees": 45
+    }
+  ],
+  "events": [],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "dungeon-dark",
+      "camera": "play"
+    }
+  ],
+  "ground_labels": false,
+  "dungeon": true
+}

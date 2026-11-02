@@ -153,7 +153,10 @@ fn frozen_item_plans_cannot_smuggle_unsupported_discernible_policy() {
     let actor = ActorId(1);
     for kind in 0..4 {
         let mut game = ray();
-        let mut spec = ItemSpec::ordinary("policy witness".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.policy-witness".parse().unwrap(),
+            "policy witness".into(),
+        );
         spec.class = match kind {
             0 => crate::ItemClass::Wand,
             1 => crate::ItemClass::Potion,

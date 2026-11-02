@@ -1129,7 +1129,7 @@ mod tests {
             }}}),
         ).unwrap();
         let spec: crate::creature_authoring::BuildSpec = serde_json::from_value(
-            serde_json::json!({"species":"inspection_subject","name":"subject","faction":"fixture",
+            serde_json::json!({"species":"inspection_subject","name":"subject","corpse_identity":"item.corpse.test.subject","faction":"fixture",
                 "binding":"intellect","starting_skills":["heavy_weaponry","discipline"],
                 "restoration":"authored","nutrition":{"kind":"exempt"},
                 "hit_dice":[{"source":"racial","purchases":[]},{"source":"warrior","purchases":[]}]}),

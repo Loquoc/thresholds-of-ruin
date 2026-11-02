@@ -84,7 +84,7 @@ class CreatureTemplateProcesses(ProcessTestCase):
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         source = source.replace('source = "warrior"', 'source = "racial"', 1)
-        source = source.replace('archetypes = { ', 'archetypes = { injury = { class = "potion", name = "injury potion", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 3 } }] } }] } }, ', 1)
+        source = source.replace('archetypes = { ', 'archetypes = { injury = { class = "potion", identity = "item.potion.fixture.injury", name = "injury potion", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 3 } }] } }] } }, ', 1)
         source += '\n[creatures.templates.undead_form]\npriority = 10\nkind = "undead"\n'
         manifest.write_text(source, encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"

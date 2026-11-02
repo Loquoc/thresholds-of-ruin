@@ -83,3 +83,36 @@ fn assert_disclosed_state_eq(actual: &tor_protocol::StateView, expected: &tor_pr
     payload.revision = expected.revision;
     assert_eq!(&payload, expected);
 }
+
+/// Independent spectator oracle: retain every legacy public field and compare
+/// exactly, while explicitly replacing the observer-owned item disclosures.
+/// Do not use this for same-role equality or reuse the production sanitizer.
+#[cfg(test)]
+fn assert_spectator_disclosed_state_eq(
+    actual: &tor_protocol::StateView,
+    owner: &tor_protocol::StateView,
+) {
+    let mut expected = owner.clone();
+    for item in expected.observation.inventory.iter_mut().chain(
+        expected
+            .observation
+            .ground_items
+            .iter_mut()
+            .map(|row| &mut row.item),
+    ) {
+        item.identity = "item.unknown".parse().unwrap();
+        item.knowledge = tor_protocol::ItemKnowledge::default();
+    }
+    if let Some(interaction) = &mut expected.observation.interactions {
+        interaction.identification = None;
+        interaction.curse_blocked.clear();
+        for item in &mut interaction.inventory {
+            item.charges = None;
+            item.known_equipment = None;
+            item.known_projectile_bonus = None;
+            item.known_cursed = None;
+            item.known_protected = None;
+        }
+    }
+    assert_disclosed_state_eq(actual, &expected);
+}

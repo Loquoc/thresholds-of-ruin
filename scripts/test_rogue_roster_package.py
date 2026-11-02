@@ -67,11 +67,11 @@ class RogueRosterPackageTests(unittest.TestCase):
             'family': 'dungeon', 'minimum_depth': 26, 'archetype': 'rogue.amulet_of_yendor',
             'exit_anchor': 'dungeon/1/up'})
         item = source['items']['rogue.amulet_of_yendor']
-        self.assertEqual(item, {'name': 'Amulet of Yendor', 'identity': 'rogue.amulet_of_yendor',
+        self.assertEqual(item, {'name': 'Amulet of Yendor', 'identity': 'item.amulet.amulet-of-yendor',
                                 'class': 'amulet', 'asset': 'item.amulet', 'stackable': False,
                                 'magical': True})
         for character in source['manifest']['characters']:
-            self.assertIn('rogue.amulet_of_yendor', character['known_identities'])
+            self.assertIn('item.amulet.amulet-of-yendor', character['known_identities'])
             self.assertNotIn('rogue.amulet_of_yendor',
                              [row['archetype'] for row in character['loadout']])
         band_fields = {

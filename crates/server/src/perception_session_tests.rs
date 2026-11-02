@@ -561,13 +561,16 @@ fn encoded_service_preserves_contact_and_apparent_object_authority() {
     assert!(!ordinary.reachable && !apparent.reachable);
     let mut same = (**apparent).clone();
     same.item.id = dropped;
+    assert_eq!(ordinary.item.identity.as_str(), "item.weapon.mace");
+    assert_eq!(same.item.identity.as_str(), "item.unknown");
+    same.item.identity = ordinary.item.identity.clone();
     // Public geometry is legitimate. Exact co-located projection equality is
     // covered by the separate persistence contract; never move X just to make
     // this comparison erase an intentional guise-lifecycle boundary.
     same.position = ordinary.position;
     assert_eq!(
         same, **ordinary,
-        "all passive item metadata and reach flags match; only location and opaque handle differ"
+        "display metadata and reach match; only location, opaque handle and asserted semantic identity differ"
     );
     assert!(passive.state.observation.inventory.is_empty());
     assert!(!passive

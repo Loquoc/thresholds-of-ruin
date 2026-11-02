@@ -988,6 +988,8 @@ mod borrowed_map_tests {
                 class: ItemClass::Wand,
                 appearance: "wand".into(),
                 identified: false,
+                identity: "item.wand.unknown".parse().unwrap(),
+                knowledge: Default::default(),
                 quantity: 1,
                 description: String::new(),
                 corpse: None,

@@ -442,7 +442,8 @@ mod tests {
     #[test]
     fn contribution_claimed_item_follows_carrier_without_item_mutation() {
         let (mut game, owner, _) = fixture();
-        let mut spec = crate::ItemSpec::ordinary("bandage".into());
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         spec.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
         let item = game
             .place_item_stack(10, at(1, 1), Some(owner), 1, spec)

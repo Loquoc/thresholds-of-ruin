@@ -1,7 +1,8 @@
 //! A renderer-independent projection of disclosed client state.
+use crate::appearance::surface_for_asset;
 use crate::{
     actor_model, creature_model, item_model, object_model, wearing, CreatureModel, ItemModel,
-    Wearing,
+    ItemSurface, Wearing,
 };
 use tor_client_common::{ClientState, Palette};
 use tor_protocol::*;
@@ -93,6 +94,7 @@ pub enum Happening {
 /// An item lying in view.
 #[derive(Clone)]
 pub struct GroundItem {
+    pub surface: ItemSurface,
     pub corpse_seed: Option<AppearanceSeed>,
     pub model: ItemModel,
     pub corpse_model: CreatureModel,
@@ -117,6 +119,7 @@ pub struct Ability {
 /// An item the character carries, with what can be done with it now.
 #[derive(Clone)]
 pub struct Carried {
+    pub surface: ItemSurface,
     pub model: ItemModel,
     pub id: ItemTarget,
     pub name: String,
@@ -242,6 +245,16 @@ pub fn view(state: &ClientState, palette: &Palette) -> View {
             .ground_items
             .iter()
             .map(|g| GroundItem {
+                surface: g.presentation.as_ref().map_or_else(
+                    || {
+                        surface_for_asset(
+                            palette,
+                            item_model(palette, &g.item),
+                            g.item.asset.as_deref(),
+                        )
+                    },
+                    |p| surface_for_asset(palette, object_model(palette, p), p.asset.as_deref()),
+                ),
                 corpse_seed: g
                     .presentation
                     .is_none()
@@ -288,6 +301,11 @@ pub fn view(state: &ClientState, palette: &Palette) -> View {
                         .map_or_else(|| "in use".to_string(), |slot| slot.equipped_phrase.clone())
                 });
                 Carried {
+                    surface: surface_for_asset(
+                        palette,
+                        item_model(palette, item),
+                        item.asset.as_deref(),
+                    ),
                     model: item_model(palette, item),
                     id: item.id,
                     name: item.name.clone(),

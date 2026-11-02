@@ -161,9 +161,9 @@ def prepare(test, name="status-condition", *, prefix=False, peer=True, streaming
     manifest["id"] = name
     manifest["factions"] = {"subjects": []}
     manifest["archetypes"] = {
-        "bandage": {"name": "fixture bandage", "identity": "fixture_bandage", "class": "misc",
+        "bandage": {"name": "fixture bandage", "identity": "item.misc.bandage", "class": "misc",
                     "stackable": True, "supply": "bandage"},
-        "injury": {"name": "fixture injury", "class": "potion", "consumable": {"effects": [
+        "injury": {"identity": "item.potion.injury", "name": "fixture injury", "class": "potion", "consumable": {"effects": [
             {"kind": "damage", "damage": {"kind": "components", "components": [
                 {"category": "vital", "amount": {"kind": "fixed", "amount": 5}}]}}]}}}
     grants = [WORK, *STATUS_ABILITIES.values(), *SELF_ABILITIES.values()]
@@ -181,19 +181,19 @@ def prepare(test, name="status-condition", *, prefix=False, peer=True, streaming
                       {"scope": "always", "op": {"kind": "set", "stat": {
                           "kind": "resource_max", "resource": "stamina"}, "value": 20}}]}}}
 
-    def creature(name):
-        return {"species": "subject", "name": name, "faction": "subjects", "binding": "intellect",
+    def creature(name, corpse_identity):
+        return {"species": "subject", "name": name, "corpse_identity": corpse_identity, "faction": "subjects", "binding": "intellect",
                 "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored",
                 "nutrition": {"kind": "required"}, "hit_dice": [{"source": "racial"}]}
 
-    manifest["characters"][0].update(creature=creature("first subject"), turn_ticks=25)
+    manifest["characters"][0].update(creature=creature("first subject", "item.corpse.fixture.first-subject"), turn_ticks=25)
     path.write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     path = package / "regions/1.toml"
     region = tomllib.loads(path.read_text(encoding="utf-8"))
     region["actors"] = ([{"id": 2, "at": [2, 1, 0], "turn_ticks": 25,
                           "controller": "ai" if streaming else "external",
                           **({"ai": "patient"} if streaming else {}),
-                          "creature": creature("second subject")}] if peer else [])
+                          "creature": creature("second subject", "item.corpse.fixture.second-subject")}] if peer else [])
     region["items"] = []
     for actor in (1, 2) if peer else (1,):
         for identity, archetype, quantity in ((10 + actor, "bandage", 2), (20 + actor, "injury", 1)):

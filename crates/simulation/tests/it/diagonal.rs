@@ -101,7 +101,12 @@ fn actors_and_closed_doors_block_sides_but_items_do_not() {
     assert_eq!(game, before);
     let (mut game, actor) = self::game(100);
     game.set_wall(cell(2, 1), true).unwrap();
-    game.place_item(cell(3, 2), "token".into()).unwrap();
+    game.place_item(
+        cell(3, 2),
+        "item.test.token".parse().unwrap(),
+        "token".into(),
+    )
+    .unwrap();
     game.act(actor, Action::Move(Direction::NorthEast)).unwrap();
 }
 

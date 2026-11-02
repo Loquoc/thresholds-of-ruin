@@ -13,7 +13,7 @@ fn snapshot(hidden: bool) -> Snapshot {
                 "key":x.to_string(),"position":{"x":x,"y":0,"z":0},"wall":x==3,
                 "trap":null,"object_presentation":null,"stairs_up":x==2,"stairs_down":false,"lit":true,"place_hint":false
             })).collect::<Vec<_>>(),
-            "ground_items":if hidden {vec![]} else {vec![serde_json::json!({"presentation":null,"supply_reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(1),"name":"token"},"position":{"x":1,"y":0,"z":0},"reachable":false})]},
+            "ground_items":if hidden {vec![]} else {vec![serde_json::json!({"presentation":null,"supply_reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(1),"name":"token"},"position":{"x":1,"y":0,"z":0},"reachable":false})]},
             "visible_actors":if hidden {vec![]} else {vec![serde_json::json!({"id":super::actor_target(2),"position":{"x":2,"y":0,"z":0}})]},
             "inventory":[],"ready":true
         }}
@@ -26,8 +26,15 @@ fn item_classes_use_disclosed_pile_order_and_keep_their_remembered_glyph() {
     let observation = &mut Arc::make_mut(&mut snapshot.state).observation;
     let mut second = observation.ground_items[0].clone();
     observation.ground_items[0].item.class = ItemClass::Weapon;
+    if !observation.ground_items[0].item.identified {
+        observation.ground_items[0].item.identity =
+            observation.ground_items[0].item.class.unknown_identity();
+    }
     second.item.id = super::item_target(2);
     second.item.class = ItemClass::Potion;
+    if !second.item.identified {
+        second.item.identity = second.item.class.unknown_identity();
+    }
     observation.ground_items.push(second);
     assert_eq!(
         tor_client_ascii::glyph_at(observation, &Default::default(), 1, 0),
@@ -71,6 +78,10 @@ fn every_physical_class_draws_its_symbol_through_the_map_renderer() {
         let mut snapshot = snapshot(false);
         let observation = &mut Arc::make_mut(&mut snapshot.state).observation;
         observation.ground_items[0].item.class = class;
+        if !observation.ground_items[0].item.identified {
+            observation.ground_items[0].item.identity =
+                observation.ground_items[0].item.class.unknown_identity();
+        }
         assert_eq!(
             tor_client_ascii::glyph_at(observation, &Default::default(), 1, 0),
             glyph
@@ -468,11 +479,17 @@ fn current_pile_wins_over_a_lower_remembered_pile_in_the_same_column() {
     view.visible_cells[1].position.z = -2;
     view.ground_items[0].position.z = -2;
     view.ground_items[0].item.class = ItemClass::Potion;
+    if !view.ground_items[0].item.identified {
+        view.ground_items[0].item.identity = view.ground_items[0].item.class.unknown_identity();
+    }
     let mut state = ClientState::from_snapshot(first).unwrap();
     let mut next = snapshot(false);
     next.context.epoch = 1;
     let view = &mut Arc::make_mut(&mut next.state).observation;
     view.ground_items[0].item.class = ItemClass::Weapon;
+    if !view.ground_items[0].item.identified {
+        view.ground_items[0].item.identity = view.ground_items[0].item.class.unknown_identity();
+    }
     // Keep a unique stationary anchor; the foot cell has another physical key.
     view.visible_cells[1].key = "upper-floor".into();
     state.replace_snapshot(next).unwrap();

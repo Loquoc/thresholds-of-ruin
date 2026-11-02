@@ -16,7 +16,7 @@ class RogueNothingContent(unittest.TestCase):
     def test_opt_in_nothing_has_exact_paid_noop_definition(self):
         catalog = source("catalog/items.toml")
         self.assertEqual(catalog["items"]["rogue.wand_nothing"], {
-            "asset": "item.wand", "name": "wand of nothing", "identity": "rogue.wand_nothing",
+            "asset": "item.wand", "name": "wand of nothing", "identity": "item.wand.wand-nothing",
             "magical": True, "class": "wand", "stackable": False, "appearance_pool": "rogue.wands",
             "forms": expected_forms("nothing"),
             "device": {"ability": "rogue.wand_nothing", "initial_charges": {"minimum": 3, "maximum": 7}, "discovery": "never"}})
@@ -37,7 +37,7 @@ class RogueNothingContent(unittest.TestCase):
                 "choices": [{"archetype": "rogue.wand_" + kind, "weight": 1} for kind in
                     ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.wand_nothing", character["known_identities"])
+            self.assertNotIn("item.wand.wand-nothing", character["known_identities"])
             self.assertNotIn("rogue.wand_nothing", [row["archetype"] for row in character["loadout"]])
 
     def test_distinct_appearances_cover_opt_in_catalog_identities(self):
@@ -46,7 +46,7 @@ class RogueNothingContent(unittest.TestCase):
                       if item.get("appearance_pool") == "rogue.wands"}
         self.assertEqual(identities, {"rogue.wand_" + kind for kind in
             ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to", "nothing", "light", "drain_life", "cancellation", "magic_missile", "polymorph")})
-        appearances = catalog["appearance_pools"]["rogue.wands"]["appearances"]
+        appearances = [entry["name"] for entry in catalog["appearance_pools"]["rogue.wands"]["appearances"]]
         self.assertEqual(appearances, [metal + " wand" for metal in METALS])
         self.assertEqual(len(appearances), 14)
         self.assertEqual(len(set(appearances)), len(identities))

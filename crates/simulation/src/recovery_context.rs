@@ -383,7 +383,10 @@ mod tests {
         )
         .unwrap();
         let mut game = Game::new(world, 42, content);
-        for (x, faction) in [(1, "hero"), (9, "foe")] {
+        for (x, faction, corpse_identity) in [
+            (1, "hero", "item.corpse.test.hero"),
+            (9, "foe", "item.corpse.test.foe"),
+        ] {
             let actor = game
                 .spawn_actor(
                     Location {
@@ -396,6 +399,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 CreatureIdentity {
+                    corpse_identity: corpse_identity.parse().unwrap(),
                     name: faction.into(),
                     faction: faction.into(),
                 },
@@ -530,6 +534,7 @@ mod tests {
         game.configure_creature(
             prototype,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.owner".parse().unwrap(),
                 name: "owner".into(),
                 faction: "owners".into(),
             },

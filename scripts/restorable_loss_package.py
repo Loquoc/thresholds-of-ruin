@@ -60,7 +60,7 @@ def prepare(test, *, peer=False, consume_turns=1, hit_dice=False):
     manifest["id"] = "restorable-loss-fixture"
     manifest["factions"] = {"subjects": []}
     manifest["archetypes"] = {"restoration": {
-        "name": "fixture restoration", "identity": "fixture_restoration", "class": "potion",
+        "name": "fixture restoration", "identity": "item.potion.restoration", "class": "potion",
         "stackable": True, "consumable": {"effects": [
             {"kind": "restore_attribute", "attribute": "strength", "amount": {"kind": "fixed", "amount": 1}},
             {"kind": "restore_maximum_health", "amount": {"kind": "fixed", "amount": 100}},
@@ -77,8 +77,8 @@ def prepare(test, *, peer=False, consume_turns=1, hit_dice=False):
         "modifiers": [{"scope": "always", "op": {"kind": "add", "stat": {"kind": "health"}, "value": 20}}],
     }}}
 
-    def creature(name):
-        value = {"species": "subject", "name": name, "faction": "subjects", "binding": "intellect",
+    def creature(name, corpse_identity):
+        value = {"species": "subject", "name": name, "corpse_identity": corpse_identity, "faction": "subjects", "binding": "intellect",
                 "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored",
                 "nutrition": {"kind": "exempt"}, "hit_dice": [{"source": "racial", "purchases": [
                     {"pool": "advancement", "selection": {"kind": "talent", "talent": "fixture_loss_operations"}},
@@ -89,12 +89,12 @@ def prepare(test, *, peer=False, consume_turns=1, hit_dice=False):
             ]}])
         return value
 
-    manifest["characters"][0].update(creature=creature("loss subject"), turn_ticks=100)
+    manifest["characters"][0].update(creature=creature("loss subject", "item.corpse.fixture.loss-subject"), turn_ticks=100)
     path.write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     path = package / "regions/1.toml"
     region = tomllib.loads(path.read_text(encoding="utf-8"))
     region["actors"] = ([{"id": 2, "at": [2, 1, 0], "turn_ticks": 100,
-                         "controller": "external", "creature": creature("loss peer")}] if peer else [])
+                         "controller": "external", "creature": creature("loss peer", "item.corpse.fixture.loss-peer")}] if peer else [])
     region["items"] = [{"id": 10, "at": [1, 1, 0], "carried_by": 1,
                         "archetype": "restoration", "quantity": 2}]
     path.write_text(toml_source(region), encoding="utf-8", newline="\n")

@@ -1482,6 +1482,7 @@ fn game_cancellation_returns_with_retained_magic_cap_without_healing_or_pending_
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.cap-subject".parse().unwrap(),
             name: "cap subject".into(),
             faction: "fixture".into(),
         },

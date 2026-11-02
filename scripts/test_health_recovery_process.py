@@ -13,7 +13,7 @@ class HealthRecoveryProcesses(ProcessTestCase):
         package = creature_package(self, "health-recovery", abilities=())
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source = source.replace('archetypes = { ', 'archetypes = { injury = { class = "potion", name = "injury potion", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 3 } }] } }] } }, ', 1)
+        source = source.replace('archetypes = { ', 'archetypes = { injury = { class = "potion", identity = "item.potion.fixture.injury", name = "injury potion", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 3 } }] } }] } }, ', 1)
         source = source.replace('bonus = 0, wind_up = 60', 'bonus = 100, wind_up = 60')
         manifest.write_text(source, encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"
@@ -52,7 +52,7 @@ class HealthRecoveryProcesses(ProcessTestCase):
             "priority": 0, "modifiers": [modifier("health_recovery_period_percent", -25)]}
         document["characters"][0]["creature"]["templates"] = ["health_care"]
         document["archetypes"]["recovery_cap"] = {
-            "class": "armor", "name": "recovery cap", "equipment": {
+            "identity": "item.armor.recovery-cap", "class": "armor", "name": "recovery cap", "equipment": {
                 "slot": "head_armor", "modifiers": [modifier("health_recovery_reset_percent", -50)]}}
         path.write_text(toml_source(document), encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"

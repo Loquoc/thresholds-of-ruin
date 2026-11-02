@@ -20,6 +20,9 @@ pub(super) fn validate(author: &Archetype) -> Result<(), Failure> {
     }
     require(
         (2..=16).contains(&author.forms.len())
+            && author.identity.as_ref().is_some_and(|identity| {
+                !identity.is_unknown() && identity.as_str().split('.').count() >= 3
+            })
             && !author.stackable
             && author.projectile.is_none()
             && author.creature.is_none()
@@ -41,11 +44,11 @@ pub(super) fn validate(author: &Archetype) -> Result<(), Failure> {
     )
 }
 
-pub(super) fn selected<'a>(author: &'a Archetype, key: &str, seed: u64) -> Option<&'a ItemForm> {
+pub(super) fn selected<'a>(author: &'a Archetype, _key: &str, seed: u64) -> Option<&'a ItemForm> {
     if author.forms.is_empty() {
         return None;
     }
-    let identity = author.identity.as_deref().unwrap_or(key);
+    let identity = author.identity.as_ref()?.as_str();
     let mut hash = Sha256::new();
     hash.update(b"tor-item-form-v1\0");
     hash.update(seed.to_le_bytes());

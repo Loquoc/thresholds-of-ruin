@@ -6,8 +6,8 @@ gravity = [0,0,-1]
 anchors = { start = [2, 4, 0] }
 places = [{ at = [11, 4, 0], name = "Viewing hall" }]
 actors = [
-  { id = 2, at = [6,2,0], archetype = "rogue.emu", controller = "ai", ai = "wander", creature = { species = "rogue.emu", name = "emu", faction = "sparring", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] } },
-  { id = 3, at = [8,6,0], archetype = "rogue.snake", controller = "ai", ai = "wander", creature = { species = "rogue.snake", name = "snake", faction = "sparring", binding = "awareness", starting_skills = ["light_weaponry", "stealth"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] } },
+  { id = 2, at = [6,2,0], archetype = "rogue.emu", controller = "ai", ai = "wander", creature = { corpse_identity = "item.corpse.persona.emu", species = "rogue.emu", name = "emu", faction = "sparring", binding = "awareness", starting_skills = ["light_weaponry", "athletics"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] } },
+  { id = 3, at = [8,6,0], archetype = "rogue.snake", controller = "ai", ai = "wander", creature = { corpse_identity = "item.corpse.persona.snake", species = "rogue.snake", name = "snake", faction = "sparring", binding = "awareness", starting_skills = ["light_weaponry", "stealth"], restoration = "authored", nutrition = { kind = "exempt" }, future_growth = { kind = "disabled" }, hit_dice = [{ source = "racial", purchases = [] }] } },
   { id = 4, at = [10,2,0], archetype = "rogue.hobgoblin", controller = "ai", ai = "wander" },
   { id = 5, at = [12,6,0], archetype = "rogue.zombie", controller = "ai", ai = "wander" },
   { id = 6, at = [14,2,0], archetype = "rogue.quagga", controller = "ai", ai = "wander" },

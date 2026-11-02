@@ -236,7 +236,7 @@ class RogueRosterContent(unittest.TestCase):
                                      for asset in manifest["assets"][theme]})
         self.assertEqual(actor["creature"], {
             "body_package": "rogue.body.wraith",
-            "species": "rogue.wraith", "name": "wraith", "faction": "dungeon_foes",
+            "species": "rogue.wraith", "name": "wraith", "corpse_identity": "item.corpse.persona.wraith", "faction": "dungeon_foes",
             "binding": "awareness", "starting_skills": ["heavy_weaponry", "discipline"],
             "restoration": "authored", "nutrition": {"kind": "exempt"},
             "future_growth": {"kind": "disabled"}, "hit_dice": [

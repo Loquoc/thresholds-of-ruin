@@ -2326,7 +2326,7 @@ mod weapon_profile_authoring_tests {
             Package::from_parts(manifest, regions, &rules).unwrap()
         };
         let mut authored = json!({
-            "name":"fixture dart", "class":"weapon", "stackable":false,
+            "name":"fixture dart", "identity":"item.weapon.fixture.dart", "class":"weapon", "stackable":false,
             "equipment":equipment()
         });
         authored["equipment"]["weapon_profile"]["expert_traits"]["add"] =

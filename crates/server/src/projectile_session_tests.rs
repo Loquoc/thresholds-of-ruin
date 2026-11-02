@@ -52,7 +52,7 @@ fn projectile_scenario(delivery: ProjectileDeliveryKind) -> crate::Scenario {
     });
     if launch {
         manifest["archetypes"]["fixture.arrow"] = json!({
-            "name":"fixture arrow", "class":"weapon", "stackable":true,
+            "name":"fixture arrow", "identity":"item.weapon.fixture.arrow","class":"weapon", "stackable":true,
             "projectile":{"family":"fixture.bow","recovery":"consumed_on_hit",
                 "damage":{"components":[{"category":"keen","descriptor":null,"amount":{"type":"fixed","value":11}}],
                     "primary":{"category":"keen","descriptor":null}}}

@@ -361,7 +361,10 @@ mod tests {
             holds: vec![],
             location,
             quantity: 1,
-            spec: tor_world::Shared::new(ItemSpec::ordinary("weight".into())),
+            spec: tor_world::Shared::new(ItemSpec::ordinary(
+                "item.test.weight".parse().unwrap(),
+                "weight".into(),
+            )),
             motion: MotionState::default(),
             orientation: 0,
         }

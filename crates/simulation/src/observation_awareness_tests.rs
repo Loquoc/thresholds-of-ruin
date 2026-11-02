@@ -585,7 +585,10 @@ fn worn_attribute_source_and_restorable_loss_drive_current_nonvisual_range() {
     let mut game = fixture(1, &[]);
     dark(&mut game);
     let base = locations(&game);
-    let mut spec = crate::ItemSpec::ordinary("awareness fixture ring".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.awareness-fixture-ring".parse().unwrap(),
+        "awareness fixture ring".into(),
+    );
     spec.class = crate::ItemClass::Ring;
     spec.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,

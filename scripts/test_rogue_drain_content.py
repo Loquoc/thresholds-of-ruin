@@ -15,7 +15,7 @@ def source(name):
 class RogueDrainContent(unittest.TestCase):
     def test_drain_life_is_paid_self_device_with_never_discovery(self):
         self.assertEqual(source("catalog/items.toml")["items"]["rogue.wand_drain_life"], {
-            "asset": "item.wand", "name": "wand of drain life", "identity": "rogue.wand_drain_life",
+            "asset": "item.wand", "name": "wand of drain life", "identity": "item.wand.wand-drain-life",
             "magical": True, "class": "wand", "stackable": False, "appearance_pool": "rogue.wands",
             "forms": expected_forms("drain life"),
             "device": {"ability": "rogue.wand_drain_life", "initial_charges": {"minimum": 3, "maximum": 7}, "discovery": "never"}})
@@ -36,5 +36,5 @@ class RogueDrainContent(unittest.TestCase):
                 "choices": [{"archetype": "rogue.wand_" + kind, "weight": 1} for kind in
                     ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.wand_drain_life", character["known_identities"])
+            self.assertNotIn("item.wand.wand-drain-life", character["known_identities"])
             self.assertNotIn("rogue.wand_drain_life", [row["archetype"] for row in character["loadout"]])

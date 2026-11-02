@@ -3,6 +3,8 @@ from pathlib import Path
 import tomllib
 import unittest
 
+from rogue_identity_contracts import IDENTITIES
+
 ROOT = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 
 
@@ -73,7 +75,7 @@ class RogueEquipmentContent(unittest.TestCase):
                              {"identify": [category], "discovery": "on_use"})
         scrolls = [item for item in items.values() if item.get("appearance_pool") == "rogue.scrolls"]
         self.assertEqual(len(scrolls), 18)
-        self.assertEqual(len(set(catalog["appearance_pools"]["rogue.scrolls"]["appearances"])), len(scrolls))
+        self.assertEqual(len(set([entry["name"] for entry in catalog["appearance_pools"]["rogue.scrolls"]["appearances"]])), len(scrolls))
 
     def test_existing_stages_are_preserved_and_new_stock_is_finite(self):
         stages = source("scenario.toml")["floor_activation"]["profiles"]["rogue.low_depth"]["stages"]
@@ -116,7 +118,7 @@ class RogueEquipmentContent(unittest.TestCase):
         for key, (_, rate) in expected.items():
             item = rings["rogue.ring_" + key]
             with self.subTest(ring=key):
-                self.assertEqual(item["identity"], "rogue.ring_" + key)
+                self.assertEqual(item["identity"], IDENTITIES["rogue.ring_" + key])
                 self.assertTrue(item["magical"])
                 self.assertFalse(item["stackable"])
                 self.assertEqual(item["appearance_pool"], "rogue.rings")
@@ -131,7 +133,7 @@ class RogueEquipmentContent(unittest.TestCase):
                 self.assertEqual(nutrition, [{"scope": "always", "op": {"kind": "add",
                                  "stat": {"kind": "nutrition_rate_thirtieths"}, "value": rate}}]
                                  if rate else [])
-        appearances = catalog["appearance_pools"]["rogue.rings"]["appearances"]
+        appearances = [entry["name"] for entry in catalog["appearance_pools"]["rogue.rings"]["appearances"]]
         self.assertEqual(len(appearances), 14)
         self.assertEqual(len(set(appearances)), 14)
         stages = source("scenario.toml")["floor_activation"]["profiles"]["rogue.low_depth"]["stages"]

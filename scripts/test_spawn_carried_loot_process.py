@@ -39,7 +39,7 @@ class SpawnCarriedLootProcesses(ProcessTestCase):
         manifest["creatures"]["species"]["cave_rat"]["behavior"] = {
             "disposition": "passive", "idle": "wait", "memory_ticks": 1000}
         manifest["archetypes"] = {"carrier": rat, "tonic": {
-            "name": "stock tonic", "class": "potion", "stackable": True,
+            "identity": "item.potion.stock-tonic", "name": "stock tonic", "class": "potion", "stackable": True,
             "consumable": {"effects": [{"kind": "heal", "amount": {"kind": "fixed", "amount": 1}}]}}}
         manifest["generation_recipes"] = {"tiny": {"kind": "grid_rooms", "version": 1,
             "room_width": [4, 4], "room_height": [3, 3], "extra_connections": [0, 0]}}

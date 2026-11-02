@@ -12,8 +12,11 @@ fn fixture(strength: u16, effect: Effect) -> (Game, ItemId) {
         attributes.strength = strength;
         species.default_attributes = Attributes::new(attributes).unwrap();
     });
-    let mut spec = crate::ItemSpec::ordinary("unmarked growth dose".into());
-    spec.identity = "fixture.growth_dose".into();
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.unmarked-growth-dose".parse().unwrap(),
+        "unmarked growth dose".into(),
+    );
+    spec.identity = "item.test.fixture-growth-dose".parse().unwrap();
     spec.concealed = true;
     spec.class = crate::ItemClass::Potion;
     spec.stackable = true;
@@ -54,9 +57,11 @@ fn drink(game: &mut Game, item: ItemId) -> ResolvedEffect {
     assert_eq!(game.items[&item].quantity, quantity);
     finish(game, due);
     assert_eq!(game.items[&item].quantity, quantity - 1);
-    assert!(game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.growth_dose"));
+    assert!(game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-growth-dose"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(game.rules_rng, rng);
     game.combat_events()
         .iter()

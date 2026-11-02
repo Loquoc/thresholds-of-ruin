@@ -215,6 +215,9 @@ pub(crate) fn spawn(game: &mut Game, species: &str, location: Location) -> Actor
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: format!("item.corpse.test.private-creature-{}", actor.0)
+                .parse()
+                .unwrap(),
             name: format!("private creature {}", actor.0),
             faction: "private affiliation".into(),
         },

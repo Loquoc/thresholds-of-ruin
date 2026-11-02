@@ -17,6 +17,16 @@ import threading
 PRESSURE_RECEIVE_BYTES = 65536
 
 
+def unknown_item_disclosure():
+    # Fresh complete protocol metadata keeps malformed fixtures aimed at their
+    # intended semantic/range/size failure, not an earlier wire decode failure.
+    return {'identity': 'item.unknown', 'knowledge': {
+        'buc': 'item.buc.unknown',
+        'enchantments': {'hit': None, 'damage': None, 'armor': None, 'potency': None},
+        'condition': {'corrosion': None, 'armor_deterioration': None, 'protected': None},
+    }}
+
+
 def exact(stream, size):
     result = bytearray()
     while len(result) < size:
@@ -226,7 +236,7 @@ class StreamRelay:
                 and message['request_id'] == 'attach'):
             message['snapshot']['state']['observation']['inventory'].append({
                 'id':'i_' + 'e' * 64, 'quantity':'1', 'name':'retained test item',
-                'appearance':'stone', 'class':'misc', 'identified':False,
+                'appearance':'stone', 'class':'misc', 'identified':False, **unknown_item_disclosure(),
                 'known_currency':None, 'known_supply':None,
                 'description':'x' * (8 * 1024 * 1024)})
             self.large_retained_base = False
@@ -247,13 +257,13 @@ class StreamRelay:
         elif self.overflow_delta.is_set():
             state['cells']['shift']['x'] = 2147483647
         elif self.invalid_inventory.is_set():
-            state['inventory'].append({'start':0, 'remove':0, 'insert':[{'id':'i_' + 'a' * 64, 'quantity':'0', 'name':'invalid test fixture', 'appearance':'stone', 'class':'misc', 'identified':False, 'known_currency':None, 'known_supply':None}]})
+            state['inventory'].append({'start':0, 'remove':0, 'insert':[{'id':'i_' + 'a' * 64, 'quantity':'0', 'name':'invalid test fixture', 'appearance':'stone', 'class':'misc', 'identified':False, **unknown_item_disclosure(), 'known_currency':None, 'known_supply':None}]})
         elif self.duplicate_inventory.is_set():
             # Distinct noncanonical handles followed by one repeated identity.
             # Every item is otherwise valid, so only uniqueness may reject it.
             items = [{'id': 'i_' + format((index * 513) % 1009, '064x'),
                       'quantity': '1', 'name': 'duplicate inventory fixture',
-                      'appearance': 'stone', 'class': 'misc', 'identified': False,
+                      'appearance': 'stone', 'class': 'misc', 'identified': False, **unknown_item_disclosure(),
                       'known_currency':None, 'known_supply': None}
                      for index in range(1000)]
             items.append(dict(items[500]))
@@ -263,7 +273,7 @@ class StreamRelay:
                 'presentation':None,
                 'reachable':False, 'supply_reachable':False, 'position':{'x':0, 'y':0, 'z':0},
                 'item':{'id':'i_' + 'f' * 64, 'quantity':'1', 'name':'inserted test item',
-                        'appearance':'stone', 'class':'misc', 'identified':False,
+                        'appearance':'stone', 'class':'misc', 'identified':False, **unknown_item_disclosure(),
                         'known_currency':None, 'known_supply':None,
                         'description':'y' * (8 * 1024 * 1024)}}]})
         elif self.invalid_collection_range.is_set():

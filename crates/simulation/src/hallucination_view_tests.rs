@@ -8,7 +8,7 @@ use crate::perception::contract_fixtures::{at, OWNER, SUBJECT};
 use std::sync::Arc;
 
 fn drink(game: &mut Game) {
-    let item = potion(game, "fixture.hallucination_view", vec![dose()]);
+    let item = potion(game, "item.test.fixture-hallucination-view", vec![dose()]);
     let due = start(game, item);
     finish(game, due);
 }
@@ -37,7 +37,10 @@ fn restore(game: &Game) -> Game {
 fn paid_visual_projection_sanitizes_siblings_preserves_ids_and_is_query_pure() {
     let mut game = fixture();
     let location = game.actors[&SUBJECT].location;
-    let mut spec = crate::ItemSpec::ordinary("genuine secret sword".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.genuine-secret-sword".parse().unwrap(),
+        "genuine secret sword".into(),
+    );
     spec.asset = Some("sword".into());
     spec.class = crate::ItemClass::Weapon;
     let item = game.place_item_stack(71, location, None, 1, spec).unwrap();
@@ -455,7 +458,8 @@ fn a_hallucinated_figure_shows_none_of_its_true_gear() {
     use crate::interactions::{AnatomySpec, EquipmentSlot, EquipmentSlotId};
     let mut game = fixture();
     let location = game.actors[&SUBJECT].location;
-    let mut spec = crate::ItemSpec::ordinary("plate mail".into());
+    let mut spec =
+        crate::ItemSpec::ordinary("item.test.plate-mail".parse().unwrap(), "plate mail".into());
     spec.class = crate::ItemClass::Armor;
     spec.asset = Some("item.armor.plate".into());
     let mail = game
@@ -582,7 +586,10 @@ fn map_projection_matches_full_appearances_without_rich_materialization() {
             },
         )
         .unwrap();
-        let mut spec = crate::ItemSpec::ordinary("genuine map object".into());
+        let mut spec = crate::ItemSpec::ordinary(
+            "item.test.genuine-map-object".parse().unwrap(),
+            "genuine map object".into(),
+        );
         spec.concealed = true;
         spec.appearance = "unidentified map object".into();
         spec.asset = Some("map_object".into());

@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1440,
+    900
+  ],
+  "actors": [
+    {
+      "id": "man",
+      "model": "Human",
+      "seed": 7,
+      "body": {},
+      "outfit": "adventurer",
+      "equipment": [],
+      "position": [
+        -1.8,
+        -0.5,
+        -1.4
+      ],
+      "yaw": 15
+    }
+  ],
+  "ground_items": [
+    {
+      "model": "Coins",
+      "position": [
+        -3,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "gold piece",
+      "quantity": 1
+    },
+    {
+      "model": "Ring",
+      "position": [
+        -2,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "copper ring",
+      "quantity": 1
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        -1,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll labelled ZELGO",
+      "quantity": 1
+    },
+    {
+      "model": "Potion",
+      "position": [
+        0,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "milky potion",
+      "quantity": 1
+    },
+    {
+      "model": "Gem",
+      "position": [
+        1,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "blue gem",
+      "quantity": 1
+    },
+    {
+      "model": "ShortSword",
+      "position": [
+        2,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "short sword",
+      "quantity": 1
+    },
+    {
+      "model": "LeatherArmor",
+      "position": [
+        3,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "leather armor",
+      "quantity": 1
+    },
+    {
+      "model": "Coins",
+      "position": [
+        -1.23,
+        -0.5,
+        0.77
+      ],
+      "yaw": 25,
+      "disclosed_name": "gold pieces",
+      "quantity": 27
+    },
+    {
+      "model": "Ring",
+      "position": [
+        -0.77,
+        -0.5,
+        0.77
+      ],
+      "yaw": 25,
+      "disclosed_name": "copper ring",
+      "quantity": 1
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        -1.23,
+        -0.5,
+        1.23
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll labelled ZELGO",
+      "quantity": 1
+    },
+    {
+      "model": "Potion",
+      "position": [
+        -0.77,
+        -0.5,
+        1.23
+      ],
+      "yaw": 25,
+      "disclosed_name": "milky potion",
+      "quantity": 1
+    },
+    {
+      "model": "Coins",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "gold pieces",
+      "quantity": 143
+    },
+    {
+      "model": "Ring",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "copper ring",
+      "quantity": 2
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll labelled ZELGO",
+      "quantity": 3
+    },
+    {
+      "model": "Potion",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "milky potion",
+      "quantity": 4
+    },
+    {
+      "model": "Gem",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "blue gem",
+      "quantity": 5
+    },
+    {
+      "model": "Ring",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "copper ring",
+      "quantity": 6
+    },
+    {
+      "model": "Scroll",
+      "position": [
+        1,
+        -0.5,
+        1
+      ],
+      "yaw": 25,
+      "disclosed_name": "scroll labelled ZELGO",
+      "quantity": 7
+    }
+  ],
+  "floor_color": [
+    0.46,
+    0.4,
+    0.31
+  ],
+  "cameras": [
+    {
+      "id": "play",
+      "position": [
+        0,
+        6.414031790709677,
+        4.94430626044301
+      ],
+      "target": [
+        0,
+        -0.5,
+        0
+      ],
+      "fov_degrees": 45
+    }
+  ],
+  "events": [],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "dungeon-light-labels",
+      "camera": "play"
+    }
+  ],
+  "ground_labels": true,
+  "dungeon": true
+}

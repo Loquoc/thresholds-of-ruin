@@ -2968,6 +2968,105 @@ The subsequently interrupted application build was resumed separately; its
 verified binaries passed all nine background-save process checks. Interruption
 without an exit receipt is incomplete evidence, not a pass or behavioral failure.
 
+## Item appearance and knowledge migration, 31 October 2026
+
+The approved current-only format migration separates persistent public appearance
+keys from disclosed identity and independently remembered BUC, enchantment and
+condition facts. Deliberate first-red checks exposed incomplete validation of
+unselected seeded identities (both reserved/non-leaf keys and inherited-identity
+mismatch), a missing restored-knowledge leaf check, a stale name-based wizard
+reservation branch, and a client presentation adapter that forwarded injected
+private semantic fields. The adapter test is defense in depth: the simulation's
+ordinary sampled-presentation path already redacted those fields. An initial
+wizard run failed in fixture setup; only the later run reaching the reserved-name
+case is behavioral evidence. Failed setup and zero-test runs are not first-red
+qualification.
+
+The first integrated server-library checkpoint passed 1,200 of 1,295 methods.
+Its 95 failures were classified before repair: 58 shared persona-helper omissions,
+8 other explicit identity fixtures, 2 hand-written item DTO omissions, 2 old
+cosmetic-equality assertions newly including semantic identity, 1 default fixture
+identity mismatch, 1 changed canonical appearance seed vector, 1 obsolete blanket
+corrosion-privacy assertion, 1 saved-identity expectation, and 1 pinned region
+header/bytes expectation. Nine failures awaited genuine new-version wire/save
+fixtures. Ten failures exposed one production diagnostic admission guard still
+accepting only fixture version 1 after the authored fixture moved to version 2;
+one was the intended wizard reservation regression. These are method counts in
+one execution, not 95 independent production defects. The diagnostic admission
+fix retains explicit obsolete-version rejection. Seed-vector expectations were
+independently recomputed, rather than copied from the implementation's output.
+
+A separate real-server ring process subsequently exposed a new disclosure-boundary
+omission: the owner received correct remembered facts, but the spectator also
+received the new semantic identity/knowledge fields because the existing sanitizer
+only knew the older interaction metadata. The repair covers inventory and ground
+items, including the early-return predicate and unchanged public-Arc sharing. It
+preserves existing AccessRole policy: Player read knowledge does not depend on a
+controller lease, while Spectator receives generic unknown identity and unknown
+new facts. Public names, appearance, quantities and existing affordances retain
+their prior policy. This is a production integration defect introduced by the new
+DTO fields, not an old gameplay bug or stale fixture.
+
+Final rebuilt process, protocol, save and renderer qualification is recorded
+separately; the checkpoint above does not claim those later stages passed.
+
+The rebuilt real-server ring test now passes its owner/spectator and source-free
+restart assertions. A later certificate refresh passed 44 packages, while three
+zero-authored-region procedural packages passed source checking but failed
+immutable artifact publication. Their semantic model identity was unchanged by
+an internal compiled-envelope bump, so the new writer found the earlier local
+intermediate-format artifact at the same address. This is one artifact-address
+versioning omission, not three invalid scenarios. The narrow repair binds the
+immutable address to the serialized format tuple in a new domain; it does not
+replace the old artifact, loosen current-format decoding or change model semantics.
+
+The documentation version guard subsequently caught one stale current-version
+table (ContentPackage 33 and RegionInput 9 instead of 34 and 10): one failed
+method with two subcases. The current table was corrected; historical qualification
+records remain unchanged.
+
+Fresh protocol and model checks found three additional fixture roots: two protocol
+cosmetic cases and one model cosmetic case retained a true semantic identity in a
+supposedly sanitized input; one protocol named-object oracle still counted eleven
+fields rather than thirteen. These were four failing methods, not production
+privacy failures. Valid sanitized inputs now use generic unknown identity; the
+protocol negative mutations additionally reject a true key, a more-specific
+unknown-category key, and a remembered `false` protection fact under a disguise.
+All prior real-handle, quantity, currency and navigation assertions remain.
+The complete protocol package and all 77 model checks then passed.
+
+Real-process recording also caught an intentionally changed canonical-key seeded
+form vector and an amulet fixture reusing the reserved production identity. The
+fixtures now state the exact new deterministic form expectations and a distinct
+synthetic retrieval key. The amulet observer oracle compares the same spectator
+before/after a refusal, rather than equating private owner metadata with spectator
+metadata. Targeted utility and amulet processes passed before the genuine wire
+recording completed. Additional armor acceptance preserves per-instance facts,
+source-free reopening, noncontrolling Player reads and Spectator redaction.
+
+The next rebuilt server checkpoint passed 1,280 of 1,299 methods. Nineteen
+remaining fixture failures were traced before repair: eight concrete fixture
+items lacked explicit identities, four indexed projectile variants accidentally
+shared the base arrow key, four comparisons equated spectator and owner facts,
+one encoding-size oracle used the owner's rather than the spectator's state,
+one expanded nine-fact connection test exceeded the sixteen-client limit without
+releasing earlier pairs, and one built-in tablet key differed from its authored
+counterpart. Indexed projectile keys preserve the old archetype-based groups;
+the signature validator remains strict. The independent spectator expectation
+enumerates private fields while retaining exact legacy public-field comparisons;
+same-role equality is untouched. The connection test still checks every fact and
+both roles, then releases each pair. All 1,299 methods and all 2,319 simulation
+methods passed after the coherent repair.
+
+External integration then passed 267 of 272 methods. Three websocket cases had
+four cross-role comparison sites needing the same independently authored
+spectator expectation; annotation no-update barriers, cursors, history privacy
+and same-user delivery checks remain. One appearance-pool fixture still replaced
+an old string-array spelling, so it never added the second entry; it now edits
+and verifies the typed TOML records. One actor-asset negative fixture needed an
+explicit item identity to reach its intended asset validation. All 272 methods
+then passed. Genuine save66 writer output and all 47 actual package validations
+also pass; old immutable artifact bytes remain unchanged under the new namespace.
 ### Arena sampling dependency pins diverged during Alembic maintenance, 31 October 2026
 
 Dependabot PR216 updated the hash-pinned Alembic requirement from 1.20.0 to
@@ -2996,3 +3095,124 @@ integrity-valid-history rejection witnesses while retaining the older 2.1.4
 controls. Both immediate-prior witnesses failed before its pin correction and
 passed afterward. Alembic and SQLAlchemy remain separately scoped maintenance
 changes; each final integration needs its own qualification.
+
+### Item migration hosted qualification, 2 November 2026
+
+The first PR221 tooling run reported 45 E402 diagnostics across 13 content-test
+modules: the new identity-contract import preceded each module docstring. This
+was one structural fixture-edit root, not 45 behavioral failures. Moving the
+imports below the docstrings preserved every assertion; pinned Ruff and all 71
+checks in those modules passed locally.
+
+The first Linux debug Python process shard independently caught a benchmark
+version-oracle mistake: the item geometry fixture advanced to version 2, but the
+unrelated place-discovery fixture remained version 1. `place_bench` incorrectly
+required version 2 and panicked before running its workload. Its assertion now
+again names the unchanged place-fixture version. The existing actual-producer
+acceptance test is the first-red witness; its post-fix hosted execution remains
+required, not inferred from static checks.
+
+Both Linux Rust profiles reached the same two ASCII fixture rejections (176
+other methods passed): a class-changing clone retained the original class's
+unknown identity, and a sampled ground-item fixture retained its true identity.
+The fixtures now match the already-enforced public disclosure contract. The
+validator and all equipment, opaque-target, naming and action assertions remain
+unchanged; repeated profile failures are not counted as new roots.
+
+Actual protected-binary checks of the scenario package, source and compiled-input
+process modules reproduced 15 failures and one error across 33 methods. Repairs
+supply explicit fixture identities/persona corpse keys, replace selectors that
+matched pre-migration TOML spelling, and check the actual current region format
+10 and its immediately previous format 9. All 33 methods then passed, including
+source-location, UTF-8 byte-boundary, source-free restart and no-rewrite checks.
+
+The process partitions exposed outdated comparisons between Player and Spectator
+pictures. Directional test oracles now redact only the *expected* Player item's
+identity and knowledge and require exact Spectator unknown values; they do not
+normalize away leaked actual values. Same-role comparisons remain strict. New
+mutants reject known identity, learned zero/false, missing fields and changes to
+legacy public fields. Role-proven call sites include readiness predicates,
+stream recovery and graphical observations; history, sequence, frozen-state and
+no-partial-publication checks remain. Focused units and ten actual non-graphical
+cross-role/streaming methods passed. Four retained graphical traces independently
+satisfy the corrected predicate and reject injected identity leakage; those
+replays do not replace fresh hosted graphical process execution.
+
+Adversarial relay fixtures also lacked the newly required identity/knowledge
+fields, causing decode rejection before the intended duplicate, invalid quantity
+or retained-state-size boundary. Their valid premises now include explicit
+unknown metadata while the original corruptions and byte bounds are unchanged.
+Ten relay unit checks and three actual text-client repair cases passed. Separately,
+the generated 3D fallback package omitted its new relic identity: eight native
+methods failed the shared package validator before rendering. The exact package
+helper now validates with an explicit cosmetic-fixture identity; all native
+assertions remain for the next hosted run.
+
+Further generated item fixtures needed explicit canonical identities; bounded
+compiler checks reproduced and resolved thirteen failing authored copies without
+changing mechanics. Fourteen focused runtime methods subsequently passed across
+the repaired fixtures, including source-free state and privacy assertions. A
+Rogue staff fixture's canonical-key seeded permutation now expects electrum rather
+than nickel, verified by an independent SHA-domain/seed oracle and the actual
+text/charge/restart process. Restoration's saved-knowledge oracle now uses the
+canonical identity, while birth continues to use the archetype. Neither repair
+changes the seed, effect or balance.
+
+The earned-route acceptance fixture followed its established append-only format
+transition: baseline v30 adds current-schema fields while v29 remains byte-exact.
+Independent reverse-normalization checks preserve all non-schema authored values;
+this is not a new tuning result. All three actual acceptance methods passed with
+frozen source inputs, including exact source-free reexecution and the zero/one
+command-budget cases. Previously unrun measurement slots remain unrun.
+
+After the ASCII barrier was repaired, a broader local client check found one
+additional sampled-item fixture in client-common carrying a true identity into
+a disguised projection. The original acquisition, hydration, stale-memory and
+non-authority assertions remain; only its disclosure metadata is corrected.
+The independent place benchmark also completed its actual workload and exact
+save recovery after its version-oracle repair. Fresh hosted qualification of the
+coherent follow-up remains required; the first failed matrices are not passes.
+
+The repaired client checkpoints passed all 178 ASCII integration methods, 188
+client-common unit methods and 103 client-common integration methods, plus 300
+text/headless methods. An intermediate isolated client-common invocation omitted
+its required `test-support` feature and failed compilation; that command is a
+harness configuration error, not regression evidence. The correctly configured
+owner passed without changing feature gates or production code.
+
+The next Linux release Rust matrix passed the backend and simulation owners, then
+found the shared performance trace's remaining version-1 expectation. Unlike the
+independent place fixture above, this trace intentionally reads the migrated
+item geometry fixture v2. Its test now independently expects 2 while preserving
+all accepted outcome labels and the misspelled-outcome rejection. This is a
+separate stale version oracle, not a performance or gameplay change.
+The focused shared-support owner then passed all 26 tests with the corrected
+version oracle; formatting and documentation checks also passed.
+
+A later Linux debug process shard exposed one independent driver race in the
+owned-hit-die paid-preparation test: `wizard arena step` acknowledged the step
+budget before the AI executed its action. An immediate Observe on another socket
+returned revision 2 without preparation, while the retained text stream then
+reported Spark Lance starting with 72 ticks remaining. The driver now waits for
+the committed ability-start event and settles its visual projection; it does not
+wait for the expected reserved-mana value. Exact payment, reservation, ability,
+unrelated-hit-die preservation, owning-hit-die cancellation and restart/rewind
+assertions remain unchanged. A deterministic ordered-frame regression failed
+with the original immediate-Observe behavior and passes with the event barrier;
+the two hit-die process cases and adjacent paid-preparation restart case also
+passed. The unchanged original passed locally, so this is a CI-evidenced race
+with a deterministic driver regression, not a claim of a locally reproduced
+scheduler failure or a gameplay defect.
+
+The subsequent CI run exposed an omission in that repair's affected-test
+selection: the separate wizard-socket ordering driver called the changed helper
+but still expected its removed initial Observe request. Both ordering-test
+methods failed (four ability/order subcases plus the rejected-sync case), not
+five independent defects. The local first-red reproduced those exact stale fake
+expectations. The fake now exercises the real ability-start barrier, rejecting
+early Ready and old snapshot frames before accepting the event; observer updates
+still cannot refresh the Text socket. Both socket orderings, all three explicit
+sync-before-removal boundaries, rejected-sync termination without mutation or
+retry, and exact remaining snapshot requests are retained. A repository-wide
+caller search identified both driver owners; all six affected unit/process
+methods passed together after adaptation. No production behavior changed.

@@ -29,7 +29,7 @@ fn preload_fixture() -> (Scenario, u64, u64) {
     source["factions"] = json!({"neutral":[]});
     source["ai_profiles"] =
         json!({"idle":{"care":false,"equipment":false,"loot":false,"flee_percent":0}});
-    let creature = json!({"species":"subject","name":"subject","faction":"neutral",
+    let creature = json!({"species":"subject","name":"subject","corpse_identity":"item.corpse.test.subject","faction":"neutral",
         "binding":"intellect","starting_skills":["deception","persuasion"],
         "restoration":"authored","nutrition":{"kind":"exempt"},"hit_dice":[{"source":"racial"}]});
     source["characters"][0]["creature"] = creature.clone();

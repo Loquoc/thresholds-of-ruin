@@ -11,7 +11,7 @@ fn fixture() -> Game {
 fn armor(game: &mut Game, id: u64, equipped: bool) -> ItemId {
     let actor = ActorId(1);
     let at = game.actors[&actor].location;
-    let mut spec = ItemSpec::ordinary("mail".into());
+    let mut spec = ItemSpec::ordinary("item.test.mail".parse().unwrap(), "mail".into());
     spec.class = ItemClass::Armor;
     spec.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -54,11 +54,14 @@ fn effect(alteration: EquipmentAlteration) -> Effect {
     }
 }
 fn scroll(game: &mut Game, id: u64, effects: Vec<Effect>) -> ItemId {
-    let mut spec = ItemSpec::ordinary("unread scroll".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.unread-scroll".parse().unwrap(),
+        "unread scroll".into(),
+    );
     spec.class = ItemClass::Scroll;
     spec.stackable = true;
     spec.concealed = true;
-    spec.identity = "fixture.gear-scroll".into();
+    spec.identity = "item.test.fixture-gear-scroll".parse().unwrap();
     spec.name = "equipment scroll".into();
     spec.readable = Some(ReadableSpec {
         control: None,
@@ -97,9 +100,11 @@ fn read_consumes_without_eligible_gear_and_never_identifies_with_or_without_effe
         assert!(!game.items.contains_key(&page));
         assert!(game.tick > tick);
         assert_eq!(game.rules_rng, rng);
-        assert!(!game.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.gear-scroll"));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-gear-scroll"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         if let Some(armor) = armor {
             assert_eq!(game.items[&armor].condition.armor_enchantment, 1);
         }
@@ -373,7 +378,7 @@ fn instance_magic_capability_changes_without_mutating_shared_definition() {
 
 fn weapon(game: &mut Game, id: u64) -> ItemId {
     let actor = ActorId(1);
-    let mut spec = ItemSpec::ordinary("test blade".into());
+    let mut spec = ItemSpec::ordinary("item.test.test-blade".parse().unwrap(), "test blade".into());
     spec.class = ItemClass::Weapon;
     spec.equipment = Some(EquipmentSpec {
         periodic_relocation: None,

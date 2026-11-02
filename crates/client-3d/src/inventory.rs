@@ -798,6 +798,7 @@ mod tests {
         view.can_act = true;
         let id = ItemTarget::from_digest([7; 32]);
         view.inventory = vec![tor_client_3d_model::Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             id,
             model: tor_client_3d_model::ItemModel::ShortSword,
             name: "Iron sword".into(),

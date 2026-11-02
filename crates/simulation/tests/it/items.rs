@@ -11,7 +11,11 @@ fn setup() -> (Game, ActorId) {
     let actor = game
         .spawn_actor(at, std::num::NonZeroU64::new(101).unwrap())
         .unwrap();
-    for (id, identity) in [(100, "healing"), (101, "healing"), (102, "poison")] {
+    for (id, identity, name) in [
+        (100, "item.test.healing", "healing"),
+        (101, "item.test.healing", "healing"),
+        (102, "item.test.poison", "poison"),
+    ] {
         game.place_item_stack(
             id,
             at,
@@ -31,9 +35,9 @@ fn setup() -> (Game, ActorId) {
                 edible: None,
                 supply: None,
                 class: Default::default(),
-                archetype: identity.into(),
-                identity: identity.into(),
-                name: identity.into(),
+                archetype: name.into(),
+                identity: identity.parse().unwrap(),
+                name: name.into(),
                 appearance: "red potion".into(),
                 concealed: true,
                 stackable: true,
@@ -50,7 +54,10 @@ fn setup() -> (Game, ActorId) {
 fn physical_classes_survive_identification_transfer_and_checkpoint() {
     let (mut game, actor) = setup();
     let at = game.observe(actor).unwrap().location;
-    let mut potion = ItemSpec::ordinary("hidden healing".into());
+    let mut potion = ItemSpec::ordinary(
+        "item.test.hidden-healing".parse().unwrap(),
+        "hidden healing".into(),
+    );
     potion.class = tor_simulation::ItemClass::Potion;
     potion.concealed = true;
     potion.appearance = "unmarked vial".into();
@@ -257,7 +264,7 @@ fn overflow_ownership_and_distinct_properties_cannot_corrupt_stacks() {
         supply: None,
         class: Default::default(),
         archetype: "arrow".into(),
-        identity: "arrow".into(),
+        identity: "item.test.arrow".parse().unwrap(),
         name: "arrow".into(),
         appearance: "arrow".into(),
         concealed: false,

@@ -24,16 +24,16 @@ class ShadowcastingProcesses(ProcessTestCase):
         capture=Path(os.environ.get("TOR_SHADOW_CAPTURE",str(self.save.parent / "shadow.ppm")))
         window=self.launch("tor-client-ascii",["--connect",self.address,"--automation","--capture",capture])
         native=self.ascii_frame(window,lambda f:f["state"] is not None and not f["busy"])
-        self.assertDisclosedStateEqual(native["state"],initial["state"])
+        self.assertSpectatorStateEqual(initial["state"],native["state"])
         self.key(window,"open_door")
         opened=self.key(window,"right",wait_for_admission=True)
         self.assertEqual(len(opened["state"]["observation"]["ground_items"]),2)
         self.key(window,"close_door")
         closed=self.key(window,"right",wait_for_admission=True)
-        self.assertEqual(closed["state"]["observation"]["ground_items"],view["ground_items"])
+        self.assertEqual(self.spectatorObservation(closed["state"]["observation"])["ground_items"],view["ground_items"])
         self.assertEqual(int(closed["state"]["observation"]["tick"]),int(view["tick"])+200)
         watched=self.request(observer,{"type":"snapshot"})
-        self.assertDisclosedStateEqual(watched["state"],closed["state"])
+        self.assertSpectatorStateEqual(watched["state"],closed["state"])
         # Hidden objects remain only in explicitly stale client memory.
         self.assertNotIn("stone tablet",json.dumps(watched["state"]))
         self.assertIn("stone tablet",json.dumps(watched["memory"]))
@@ -44,7 +44,7 @@ class ShadowcastingProcesses(ProcessTestCase):
         self.assertEqual(inspect_save(self.save)["ruleset"],"interactions-v57")
         self.server(wizard=True)
         _, resumed=self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(resumed["state"],closed["state"])
+        self.assertSpectatorStateEqual(resumed["state"],closed["state"])
 
 if __name__ == "__main__":
     unittest.main()

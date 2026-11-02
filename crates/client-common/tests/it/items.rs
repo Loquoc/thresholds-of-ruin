@@ -20,8 +20,8 @@ fn paired_equipment(slot: EquipmentSlot) -> Observation {
         "position":{"x":0,"y":0,"z":0},"ready":true,
         "places":[],"visible_cells":[],"ground_items":[],"charts":[],"linked_holds":[],"visible_actors":[],
         "inventory": [
-            {"known_currency":null,"known_supply":null,"quantity":"1","class":"ring","appearance":"silver ring","identified":false,"id":target(1),"name":"silver ring"},
-            {"known_currency":null,"known_supply":null,"quantity":"1","class":"ring","appearance":"silver ring","identified":false,"id":target(2),"name":"silver ring"}
+            {"known_currency":null,"known_supply":null,"quantity":"1","class":"ring","appearance":"silver ring","identified":false,"identity":"item.ring.unknown","knowledge":tor_protocol::ItemKnowledge::default(),"id":target(1),"name":"silver ring"},
+            {"known_currency":null,"known_supply":null,"quantity":"1","class":"ring","appearance":"silver ring","identified":false,"identity":"item.ring.unknown","knowledge":tor_protocol::ItemKnowledge::default(),"id":target(2),"name":"silver ring"}
         ]
     })).unwrap();
     view.interactions = Some(InteractionView {
@@ -139,6 +139,9 @@ fn eating_uses_only_explicit_disclosed_edibility_and_one_exact_item() {
     let mut view = paired_equipment(equipment_slot("ring", "on a finger", false));
     view.combat = tor_client_common::test_support::observation().combat;
     view.inventory[1].class = ItemClass::Food;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     assert!(item_action(&view, target(2), ItemOperation::Eat).is_err());
     view.interactions.as_mut().unwrap().inventory[1].edible = true;
     assert_eq!(
@@ -152,6 +155,9 @@ fn eating_uses_only_explicit_disclosed_edibility_and_one_exact_item() {
         Action::Eat { item: target(2) }
     );
     view.inventory[1].class = ItemClass::Corpse;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     assert_eq!(
         item_action(&view, target(2), ItemOperation::Eat).unwrap(),
         Action::Eat { item: target(2) }
@@ -166,7 +172,13 @@ fn magic_items_use_only_disclosed_affordances_and_never_test_unknown_charges() {
     let mut view = paired_equipment(equipment_slot("ring", "on a finger", false));
     view.combat = tor_client_common::test_support::observation().combat;
     view.inventory[0].class = ItemClass::Scroll;
+    if !view.inventory[0].identified {
+        view.inventory[0].identity = view.inventory[0].class.unknown_identity();
+    }
     view.inventory[1].class = ItemClass::Wand;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     assert!(item_action(&view, target(1), ItemOperation::Read).is_err());
     assert!(zap_action(&view, target(2), Direction::North).is_err());
     view.interactions.as_mut().unwrap().inventory[0].readable = true;
@@ -228,11 +240,17 @@ fn identification_binds_exact_pending_choice_category_and_carried_instance() {
         .unwrap()
         .classes = vec![ItemClass::Ring, ItemClass::Wand];
     view.inventory[1].class = ItemClass::Wand;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     assert!(identification_action(&view, Some(target(2))).is_ok());
     assert!(tor_client_common::items::identification_prompt(&view)
         .unwrap()
         .contains(&view.inventory[1].name));
     view.inventory[1].class = ItemClass::Potion;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     assert!(identification_action(&view, Some(target(2))).is_err());
     view.inventory.pop();
     assert!(identification_action(&view, Some(target(2))).is_err());
@@ -267,7 +285,13 @@ fn identified_self_device_uses_disclosed_mode_without_direction_prompt() {
         row.equipped_slot = None;
     }
     view.inventory[1].class = ItemClass::Wand;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     view.inventory[1].identified = true;
+    view.inventory[1].identity = format!("{}.fixture", view.inventory[1].class.identity_family())
+        .parse()
+        .unwrap();
     let device = &mut view.interactions.as_mut().unwrap().inventory[1];
     device.zappable = true;
     device.device_activation = Some(DeviceActivation::SelfTarget);
@@ -283,6 +307,8 @@ fn identified_self_device_uses_disclosed_mode_without_direction_prompt() {
     );
     let mut unknown = valid.clone();
     unknown.observation.inventory[1].identified = false;
+    unknown.observation.inventory[1].identity =
+        unknown.observation.inventory[1].class.unknown_identity();
     assert!(
         unknown.validate().is_err(),
         "unknown family must not expose self aim"
@@ -306,6 +332,9 @@ fn identified_self_device_uses_disclosed_mode_without_direction_prompt() {
 fn portable_light_actions_use_authoritative_affordances_without_auto_equipping() {
     let mut view = paired_equipment(equipment_slot("held_light", "held", false));
     view.inventory[0].class = ItemClass::Tool;
+    if !view.inventory[0].identified {
+        view.inventory[0].identity = view.inventory[0].class.unknown_identity();
+    }
     view.inventory[0].name = "torch".into();
     view.interactions.as_mut().unwrap().inventory[0].portable_light = Some(PortableLightView {
         remaining: 100_000,
@@ -463,7 +492,13 @@ fn dual_device_discloses_both_aims_only_when_identified() {
         row.equipped_slot = None;
     }
     view.inventory[1].class = ItemClass::Wand;
+    if !view.inventory[1].identified {
+        view.inventory[1].identity = view.inventory[1].class.unknown_identity();
+    }
     view.inventory[1].identified = true;
+    view.inventory[1].identity = format!("{}.fixture", view.inventory[1].class.identity_family())
+        .parse()
+        .unwrap();
     let row = &mut view.interactions.as_mut().unwrap().inventory[1];
     row.zappable = true;
     row.device_activation = Some(DeviceActivation::DirectionOrSelf);
@@ -487,6 +522,8 @@ fn dual_device_discloses_both_aims_only_when_identified() {
     assert!(tor_client_common::items::zap_action(&view, target(2), Direction::East).is_ok());
     let mut unknown = valid.clone();
     unknown.observation.inventory[1].identified = false;
+    unknown.observation.inventory[1].identity =
+        unknown.observation.inventory[1].class.unknown_identity();
     assert!(unknown.validate().is_err());
     unknown.observation.interactions.as_mut().unwrap().inventory[1].device_activation =
         Some(DeviceActivation::Direction);

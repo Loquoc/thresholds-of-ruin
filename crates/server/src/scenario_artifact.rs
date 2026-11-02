@@ -9,12 +9,22 @@ pub(crate) const MAX_PACKAGE_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES: u64 = 128 * 1024 * 1024;
 
 pub(crate) fn relative_root(package: &Package) -> String {
+    relative_root_for_formats(
+        package,
+        crate::storage::schema::scenario::compiled_format_versions(),
+    )
+}
+
+fn relative_root_for_formats(package: &Package, formats: (u32, u32, u32)) -> String {
     let identity = digest(
         format!(
-            "tor-compiled-artifact-v1\0{}\0{}\0{}",
+            "tor-compiled-artifact-v2\0{}\0{}\0{}\0{}\0{}\0{}",
             package.certificate.model_hash,
             package.certificate.content_hash,
-            package.certificate.validator
+            package.certificate.validator,
+            formats.0,
+            formats.1,
+            formats.2,
         )
         .as_bytes(),
     );
@@ -239,6 +249,73 @@ pub fn export(root: &Path, destination: &Path) -> Result<Certificate, Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn artifact_address_is_deterministic_and_includes_each_compiled_format() {
+        let package = super::super::read_package(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/rogue-geometry"),
+        )
+        .unwrap();
+        assert!(package.index.regions.is_empty());
+        let versions = crate::storage::schema::scenario::compiled_format_versions();
+        let current = relative_root(&package);
+        assert_eq!(current, relative_root_for_formats(&package, versions));
+        assert_eq!(current, relative_root(&package));
+        for changed in [
+            (versions.0 + 1, versions.1, versions.2),
+            (versions.0, versions.1 + 1, versions.2),
+            (versions.0, versions.1, versions.2 + 1),
+        ] {
+            assert_ne!(current, relative_root_for_formats(&package, changed));
+        }
+    }
+
+    #[test]
+    fn publication_preserves_prior_format_artifact_and_uses_new_address() {
+        let package = super::super::read_package(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/rogue-geometry"),
+        )
+        .unwrap();
+        assert!(package.index.regions.is_empty());
+        let dir = tempfile::tempdir().unwrap();
+        // Reproduce the prior unversioned address with the identical certificate.
+        // No authored region hash exists to incidentally distinguish its format.
+        let previous = format!(
+            ".compiled/{}",
+            digest(
+                format!(
+                    "tor-compiled-artifact-v1\0{}\0{}\0{}",
+                    package.certificate.model_hash,
+                    package.certificate.content_hash,
+                    package.certificate.validator,
+                )
+                .as_bytes()
+            )
+        );
+        let old_root = dir.path().join(&previous);
+        std::fs::create_dir_all(&old_root).unwrap();
+        let mut old: serde_json::Value = serde_json::from_slice(
+            &crate::storage::schema::scenario::encode_content_package(&package).unwrap(),
+        )
+        .unwrap();
+        old["format"] = (crate::storage::schema::scenario::compiled_format_versions().2 - 1).into();
+        let old_bytes = serde_json::to_vec(&old).unwrap();
+        std::fs::write(old_root.join("package.json"), &old_bytes).unwrap();
+        assert!(load(&old_root).is_err());
+        let mut wrong_version_source = package.clone();
+        wrong_version_source.directory = Some(old_root.display().to_string());
+        assert!(locate(&wrong_version_source, None).is_none());
+        publish(dir.path(), &package).unwrap();
+        let current = dir.path().join(relative_root(&package));
+        assert_ne!(current, old_root);
+        assert_eq!(load(&current).unwrap().certificate, package.certificate);
+        publish(dir.path(), &package).unwrap();
+        assert_eq!(
+            std::fs::read(old_root.join("package.json")).unwrap(),
+            old_bytes
+        );
+        assert!(load(&old_root).is_err());
+    }
+
     #[test]
     fn unsafe_output_is_rejected_before_any_other_output_is_changed() {
         let dir = tempfile::tempdir().unwrap();

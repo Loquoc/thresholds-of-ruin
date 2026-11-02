@@ -442,6 +442,7 @@ pub(crate) fn materialize(
                 at: [x, y, 0],
                 archetype: Some(loot.pick(&pool.archetypes).clone()),
                 name: None,
+                identity: None,
                 carried_by: None,
                 seed_names: Vec::new(),
             });

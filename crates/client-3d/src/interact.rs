@@ -42,6 +42,7 @@ pub struct Hover {
     /// What is under the pointer, for aiming abilities at creatures.
     focus: Option<Focus>,
     over_ui: bool,
+    pile: Option<Position>,
 }
 
 impl Hover {
@@ -49,6 +50,9 @@ impl Hover {
     pub(crate) fn pointer(&self) -> crate::cursor::Pointer {
         if self.over_ui || self.cell.is_none() {
             return crate::cursor::Pointer::Default;
+        }
+        if self.pile.is_some() {
+            return crate::cursor::Pointer::Grasp;
         }
         crate::cursor::pointer(self.intent.as_ref())
     }
@@ -256,9 +260,13 @@ pub fn hover(
     game: Res<Game>,
     mut hover: ResMut<Hover>,
     models: crate::picking::Models,
+    picker: Option<Res<crate::pile_picker::PilePicker>>,
 ) {
     *hover = Hover::default();
     hover.over_ui = ui.over();
+    if picker.is_some_and(|p| p.captures()) {
+        return;
+    }
     let (Ok(window), Ok((camera, eye)), Some(view)) =
         (window.single(), camera.single(), &game.view)
     else {
@@ -278,6 +286,18 @@ pub fn hover(
         return;
     };
     let cell = crate::ivec(local) + game.offset;
+    // Aggregate geometry and its floor cell select the cell, never an arbitrary item.
+    if matches!(focus, Focus::Cell(_)) && crate::pile_picker::is_pile(view, local) {
+        hover.cell = Some(cell);
+        hover.focus = Some(focus);
+        hover.pile = Some(local);
+        hover.title = format!(
+            "Loot pile — {} stacks",
+            crate::pile_picker::stack_count(view, local)
+        );
+        hover.description = "Click to choose one item.".into();
+        return;
+    }
     let (title, description, intent) = describe_focus(view, focus);
     if title.is_empty() {
         return;
@@ -356,9 +376,20 @@ pub fn click(
     net: Res<Net>,
     mut game: ResMut<Game>,
     mut pursuit: ResMut<Pursuit>,
+    mut picker: Option<ResMut<crate::pile_picker::PilePicker>>,
 ) {
+    if picker.as_ref().is_some_and(|p| p.captures()) {
+        return;
+    }
     if !mouse.just_pressed(MouseButton::Left) || hover.over_ui || game.screen.is_some() {
         return;
+    }
+    if let (Some(at), Some(view), Some(picker)) = (hover.pile, game.view.as_ref(), picker.as_mut())
+    {
+        if !game.fatal && game.aiming.is_none() && picker.open_at(view, at) {
+            *pursuit = Pursuit::default();
+            return;
+        }
     }
     // An ability waiting for a creature takes the clicked one.
     if let (Some(aim), Some(Focus::Actor(actor))) = (&game.aiming, hover.focus) {
@@ -540,8 +571,12 @@ pub fn keys(
     mut game: ResMut<Game>,
     mut panel: ResMut<Panel>,
     mut exit: EventWriter<AppExit>,
+    picker: Option<Res<crate::pile_picker::PilePicker>>,
 ) {
-    panel.keyboard_captured = false;
+    panel.keyboard_captured = picker.is_some_and(|p| p.captures());
+    if panel.keyboard_captured {
+        return;
+    }
     if panel.open
         && crate::inventory::grid(&game)
         && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
@@ -1021,4 +1056,165 @@ pub(crate) fn activate(action: PanelButton, net: &Net, panel: &mut Panel, game: 
         }
     };
     send(net, game, command);
+}
+#[cfg(test)]
+mod pile_tests {
+    use super::*;
+    fn fixture() -> View {
+        let mut view = crate::test_support::view(0);
+        view.visible.push(tor_protocol::CellView {
+            position: view.feet,
+            wall: false,
+            lit: true,
+            key: "floor".into(),
+            material: String::new(),
+            asset: None,
+            trap: None,
+            door: None,
+            stairs_up: false,
+            stairs_down: false,
+            place_hint: false,
+            object_presentation: None,
+        });
+        for i in 0..5 {
+            view.items.push(tor_client_3d_model::GroundItem {
+                surface: tor_client_3d_model::ItemSurface::Neutral,
+                id: ItemTarget::from_digest([i; 32]),
+                name: "unidentified potion".into(),
+                quantity: 1,
+                position: view.feet,
+                reachable: true,
+                model: tor_client_3d_model::ItemModel::Potion,
+                class: tor_protocol::ItemClass::Potion,
+                description: String::new(),
+                corpse_seed: None,
+                corpse_model: tor_client_3d_model::CreatureModel::Placeholder,
+            });
+        }
+        view
+    }
+    #[test]
+    fn pile_click_opens_chooser_without_submitting_an_arbitrary_item_or_travel() {
+        let view = fixture();
+        let at = view.feet;
+        let (net, mut sent) = crate::net::test_channel();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(net)
+            .init_resource::<Game>()
+            .init_resource::<Pursuit>()
+            .init_resource::<crate::pile_picker::PilePicker>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(Update, click);
+        app.world_mut()
+            .resource_mut::<Pursuit>()
+            .fetch(view.items[0].id);
+        app.world_mut().resource_mut::<Game>().view = Some(view);
+        app.insert_resource(Hover {
+            cell: Some(IVec3::ZERO),
+            pile: Some(at),
+            focus: Some(Focus::Cell(at)),
+            ..default()
+        });
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert!(app
+            .world()
+            .resource::<crate::pile_picker::PilePicker>()
+            .open());
+        assert!(!app.world().resource::<Pursuit>().active());
+        assert!(sent.try_recv().is_err());
+        assert_eq!(
+            app.world().resource::<Hover>().pointer(),
+            crate::cursor::Pointer::Grasp
+        );
+    }
+    #[test]
+    fn ui_pointer_and_missing_disclosure_do_not_open_pile_or_send_commands() {
+        for mode in 0..4 {
+            let obscured = mode == 0;
+            let mut view = fixture();
+            let at = view.feet;
+            if mode == 1 {
+                view.visible.clear();
+            }
+            let (net, mut sent) = crate::net::test_channel();
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .insert_resource(net)
+                .init_resource::<Game>()
+                .init_resource::<Pursuit>()
+                .init_resource::<crate::pile_picker::PilePicker>()
+                .init_resource::<ButtonInput<MouseButton>>()
+                .add_systems(Update, click);
+            app.world_mut().resource_mut::<Game>().view = Some(view);
+            if mode == 2 {
+                app.world_mut().resource_mut::<Game>().aiming =
+                    Some(crate::Aim::Device(ItemTarget::from_digest([0; 32])));
+            }
+            if mode == 3 {
+                app.world_mut().resource_mut::<Game>().fatal = true;
+            }
+            app.insert_resource(Hover {
+                cell: Some(IVec3::ZERO),
+                pile: Some(at),
+                over_ui: obscured,
+                ..default()
+            });
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
+            app.update();
+            assert!(!app
+                .world()
+                .resource::<crate::pile_picker::PilePicker>()
+                .open());
+            assert!(sent.try_recv().is_err());
+            if mode == 2 {
+                assert!(app.world().resource::<Game>().aiming.is_some());
+            }
+        }
+    }
+    #[test]
+    fn open_picker_blocks_world_keyboard_movement_abilities_and_camera_turn() {
+        let mut view = fixture();
+        view.has_control = true;
+        view.can_act = true;
+        let (net, mut sent) = crate::net::test_channel();
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(net)
+            .init_resource::<Game>()
+            .init_resource::<Hover>()
+            .init_resource::<Panel>()
+            .init_resource::<crate::CameraRig>()
+            .init_resource::<crate::pile_picker::PilePicker>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_event::<bevy::input::mouse::MouseWheel>()
+            .add_event::<AppExit>()
+            .add_systems(Update, (keys, crate::camera::input).chain());
+        assert!(app
+            .world_mut()
+            .resource_mut::<crate::pile_picker::PilePicker>()
+            .open_at(&view, view.feet));
+        app.world_mut().resource_mut::<Game>().view = Some(view);
+        for key in [
+            KeyCode::ArrowUp,
+            KeyCode::KeyQ,
+            KeyCode::KeyG,
+            KeyCode::F2,
+            KeyCode::Digit1,
+        ] {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+        }
+        app.update();
+        assert!(app.world().resource::<Panel>().keyboard_captured);
+        assert_eq!(app.world().resource::<crate::CameraRig>().facing, 0);
+        assert!(app.world().resource::<Game>().screen.is_none());
+        assert!(sent.try_recv().is_err());
+    }
 }

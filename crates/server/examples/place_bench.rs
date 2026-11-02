@@ -56,6 +56,7 @@ fn ms(start: Instant) -> f64 {
 fn main() {
     let spec: Spec =
         serde_json::from_str(include_str!("../fixtures/place-knowledge-v1.json")).unwrap();
+    // This place-discovery workload is independent of the item geometry fixture.
     assert_eq!(spec.version, 1);
     let directory = tempfile::tempdir().unwrap();
     let smoke = std::env::args().skip(1).any(|arg| arg == "--smoke");

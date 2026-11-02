@@ -126,7 +126,7 @@ pub struct PreparedActor {
     pub anatomy: Option<AnatomySpec>,
     pub body: Option<BodySpec>,
     pub ai: Option<crate::ai::AiProfile>,
-    pub known_identities: Vec<String>,
+    pub known_identities: Vec<crate::ItemIdentity>,
     pub velocity: Option<[i64; 3]>,
     pub asset: Option<String>,
 }
@@ -147,7 +147,7 @@ impl<'de> Deserialize<'de> for PreparedActor {
             body: Option<BodySpec>,
             #[serde(deserialize_with = "crate::bounded::required_option")]
             ai: Option<crate::ai::AiProfile>,
-            known_identities: crate::bounded::Bounded<String, 4096>,
+            known_identities: crate::bounded::Bounded<crate::ItemIdentity, 4096>,
             #[serde(deserialize_with = "crate::bounded::required_option")]
             velocity: Option<[i64; 3]>,
             #[serde(deserialize_with = "crate::bounded::required_option")]
@@ -588,7 +588,7 @@ impl PreparedActor {
             && self
                 .known_identities
                 .iter()
-                .all(|s| !s.is_empty() && s.len() <= 80 && !s.chars().any(char::is_control))
+                .all(|s| !s.is_unknown() && s.as_str().split('.').count() >= 3)
             && self.velocity.is_none_or(|v| {
                 v.iter()
                     .all(|n| n.unsigned_abs() <= crate::physics::TERMINAL as u64)

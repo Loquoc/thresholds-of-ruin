@@ -905,8 +905,15 @@ struct TerrainAssets {
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "source::AppearancePool", deny_unknown_fields)]
 struct AppearancePool {
-    appearances: Vec<String>,
+    #[serde(with = "mapped")]
+    appearances: Vec<source::AppearanceEntry>,
     confounding: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "source::AppearanceEntry", deny_unknown_fields)]
+struct AppearanceEntry {
+    name: String,
     asset: Option<String>,
 }
 
@@ -987,7 +994,7 @@ struct Archetype {
     class: crate::scenario_package::ItemClass,
     #[serde(with = "mapped")]
     body: Option<source::BodySpec>,
-    identity: Option<String>,
+    identity: Option<tor_simulation::ItemIdentity>,
     appearance_pool: Option<String>,
     stackable: bool,
     properties: BTreeMap<String, String>,
@@ -1012,7 +1019,7 @@ struct Character {
     #[serde(with = "mapped")]
     body: Option<source::BodySpec>,
     velocity: Option<[i64; 3]>,
-    known_identities: Vec<String>,
+    known_identities: Vec<tor_simulation::ItemIdentity>,
     id: u64,
     anchor: String,
     turn_ticks: u64,
@@ -1209,7 +1216,7 @@ impl Stored for tor_simulation::equipment_capacity::EquipmentCapacityUse {
             _ => {
                 return Err(serde::de::Error::custom(
                     "invalid stored equipment capacity use",
-                ))
+                ));
             }
         })
     }
@@ -2521,6 +2528,8 @@ struct PersonalBodyGrant {
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "crate::creature_authoring::BuildSpec", deny_unknown_fields)]
 struct BuildSpec {
+    #[serde(deserialize_with = "crate::creature_authoring::read_corpse_identity")]
+    corpse_identity: tor_simulation::ItemIdentity,
     #[serde(with = "mapped")]
     personal_body_grants: Vec<crate::creature_authoring::PersonalBodyGrant>,
     #[serde(deserialize_with = "required_option")]
@@ -2770,6 +2779,13 @@ struct Trap {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(remote = "source::SeedItemName", deny_unknown_fields)]
+struct SeedItemName {
+    name: String,
+    identity: tor_simulation::ItemIdentity,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(remote = "source::Item", deny_unknown_fields)]
 struct Item {
     equipped_slot: Option<u16>,
@@ -2782,8 +2798,10 @@ struct Item {
     at: [i32; 3],
     archetype: Option<String>,
     name: Option<String>,
+    identity: Option<tor_simulation::ItemIdentity>,
     carried_by: Option<u64>,
-    seed_names: Vec<String>,
+    #[serde(with = "mapped")]
+    seed_names: Vec<source::SeedItemName>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2793,7 +2811,7 @@ struct Actor {
     creature: Option<crate::creature_authoring::BuildSpec>,
     #[serde(with = "mapped")]
     anatomy: Option<source::AnatomySpec>,
-    known_identities: Vec<String>,
+    known_identities: Vec<tor_simulation::ItemIdentity>,
     #[serde(with = "mapped")]
     body: Option<source::BodySpec>,
     velocity: Option<[i64; 3]>,
@@ -4327,6 +4345,7 @@ remote!(
     NamedPlace => source::NamedPlace,
     Portal => source::Portal,
     Item => source::Item,
+    SeedItemName => source::SeedItemName,
     Actor => source::Actor,
     Generate => crate::generator::Generate,
     ActorPool => crate::generator::ActorPool,
@@ -4348,6 +4367,7 @@ remote!(
     Zone => source::Zone,
     TerrainAssets => source::TerrainAssets,
     AppearancePool => source::AppearancePool,
+    AppearanceEntry => source::AppearanceEntry,
     ItemForm => source::ItemForm,
     Archetype => source::Archetype,
     CurrencyKind => source::CurrencyKind,
@@ -4507,7 +4527,7 @@ struct RegionInput {
     #[serde(with = "mapped")]
     region: source::RegionDef,
 }
-const REGION_INPUT_FORMAT: u32 = 9;
+const REGION_INPUT_FORMAT: u32 = 10;
 pub(crate) fn encode_region_input(region: &source::RegionDef) -> Result<String, crate::Failure> {
     #[derive(Serialize)]
     struct Input<'a> {
@@ -4543,7 +4563,18 @@ struct ContentPackage {
     #[serde(with = "mapped")]
     index: source::RegionIndex,
 }
-const CONTENT_PACKAGE_FORMAT: u32 = 33;
+const CONTENT_PACKAGE_FORMAT: u32 = 34;
+
+/// Independent payload versions participate in immutable artifact addresses.
+/// Even packages without authored regions must not reuse an older encoding.
+pub(crate) fn compiled_format_versions() -> (u32, u32, u32) {
+    (
+        RULES_INPUT_FORMAT,
+        REGION_INPUT_FORMAT,
+        CONTENT_PACKAGE_FORMAT,
+    )
+}
+
 pub(crate) fn check_metadata_capacity(package: &source::Package) -> Result<(), crate::Failure> {
     let bytes = serde_json::to_vec(&Borrowed(package)).map_err(|_| storage_failure())?;
     if bytes.len() > MAX_SAVE_METADATA_BYTES {
@@ -4621,6 +4652,36 @@ pub(crate) fn decode_index(bytes: &[u8]) -> Result<source::RegionIndex, crate::F
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn stored_seeded_item_pairs_and_appearance_entries_round_trip_independent_schema() {
+        use super::{Borrowed, Owned};
+        let item: source::Item =
+            serde_json::from_value(serde_json::json!({"id":99,"at":[1,1,0],"seed_names":[
+                {"name":"arbitrary label","identity":"item.misc.token"}
+            ]}))
+            .unwrap();
+        let bytes = serde_json::to_vec(&Borrowed(&item)).unwrap();
+        let Owned(restored) = crate::storage::codec::strict::<Owned<source::Item>>(&bytes).unwrap();
+        assert_eq!(restored.seed_names[0].name, "arbitrary label");
+        assert_eq!(restored.seed_names[0].identity.as_str(), "item.misc.token");
+        let mut old = serde_json::to_value(Borrowed(&item)).unwrap();
+        old["seed_names"] = serde_json::json!(["arbitrary label"]);
+        assert!(serde_json::from_value::<Owned<source::Item>>(old).is_err());
+        for asset in [Some("item.potion.amber".to_owned()), None] {
+            let entry = source::AppearanceEntry {
+                name: "public label".into(),
+                asset,
+            };
+            let value = serde_json::to_value(Borrowed(&entry)).unwrap();
+            let Owned(decoded) =
+                serde_json::from_value::<Owned<source::AppearanceEntry>>(value.clone()).unwrap();
+            assert_eq!(decoded, entry);
+            let mut invalid = value;
+            invalid["identity"] = serde_json::json!("item.potion.healing");
+            assert!(serde_json::from_value::<Owned<source::AppearanceEntry>>(invalid).is_err());
+        }
+    }
+
     #[test]
     fn stored_action_duration_modifier_roundtrips_exact_named_vocabulary() {
         use super::{Borrowed, Owned};
@@ -5015,15 +5076,15 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (65, 36, "interactions-v57", 26, 9, 33, "tor-arena-run-v6")
+            (66, 37, "interactions-v57", 26, 10, 34, "tor-arena-run-v6")
         );
     }
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 67);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 68);
         assert_eq!(super::RULES_INPUT_FORMAT, 26);
-        assert_eq!(super::REGION_INPUT_FORMAT, 9);
+        assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently
         // of their physical framing, which remains unchanged.
         let base = crate::storage::codec::frame(0, 0, &serde_json::json!({})).unwrap();
@@ -5819,8 +5880,8 @@ mod tests {
             .unwrap()
             .remove("lighting");
         assert!(decode_region_input(&serde_json::to_string(&missing).unwrap()).is_err());
-        assert_eq!(value["format"], 9);
-        let header = "\"format\":9";
+        assert_eq!(value["format"], 10);
+        let header = "\"format\":10";
         for replacement in ["\"format\":0".to_owned(), format!("{header},{header}")] {
             let invalid = input.replacen(header, &replacement, 1);
             assert_ne!(
@@ -5973,13 +6034,13 @@ mod tests {
         }))
         .unwrap();
         let expected = concat!(
-            "{\"format\":9,\"region\":{\"trapdoor_destination\":null,\"lit\":true,\"lighting\":[],\"id\":1,",
+            "{\"format\":10,\"region\":{\"trapdoor_destination\":null,\"lit\":true,\"lighting\":[],\"id\":1,",
             "\"name\":\"Supply room\",\"size\":[4,4,1],\"chamber\":false,\"zone\":null,",
             "\"gravity\":null,\"gravity_overrides\":[],\"anchors\":{},\"walls\":[],",
             "\"openings\":[],\"places\":[],\"portals\":[],\"doors\":[],\"traps\":[],\"items\":[{",
             "\"equipped_slot\":null,\"class\":null,\"quantity\":2,\"stackable\":null,",
             "\"properties\":{},\"id\":10,\"at\":[1,1,0],\"archetype\":\"clean_bandage\",",
-            "\"name\":null,\"carried_by\":null,\"seed_names\":[]}],\"actors\":[],\"generate\":null}}"
+            "\"name\":null,\"identity\":null,\"carried_by\":null,\"seed_names\":[]}],\"actors\":[],\"generate\":null}}"
         );
         assert_eq!(encode_region_input(&region).unwrap(), expected);
         let restored = decode_region_input(expected).unwrap();
@@ -5991,13 +6052,13 @@ mod tests {
         let region: source::RegionDef = serde_json::from_value(serde_json::json!({
             "id":1,"name":"Growth room","size":[4,4,1],
             "actors":[{"id":2,"at":[1,1,0],"controller":"external",
-                "creature":{"species":"human","name":"owner","faction":"neutral",
+                "creature":{"species":"human","name":"owner","corpse_identity":"item.corpse.test.owner","faction":"neutral",
                     "binding":"intellect","restoration":"authored", "nutrition": {"kind":"exempt"},"starting_skills":["athletics","heavy_weaponry"],
                     "hit_dice":[{"source":"racial"}],"future_growth":{"kind":"selected","source":{"kind":"racial"}}}}]
         })).unwrap();
         let encoded = encode_region_input(&region).unwrap();
         let value: Value = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(value["format"], 9);
+        assert_eq!(value["format"], 10);
         assert_eq!(
             value["region"]["actors"][0]["creature"]["future_growth"],
             serde_json::json!({"kind":"selected","source":{"kind":"racial"}})
@@ -7391,12 +7452,31 @@ mod growth_boundary_tests {
     }
     #[test]
     fn saved_recipe_requires_future_policy_without_authoring_defaults() {
-        let source = json!({"species":"human","name":"owner","faction":"allies","binding":"intellect",
+        let source = json!({"species":"human","name":"owner","corpse_identity":"item.corpse.test.owner","faction":"allies","binding":"intellect",
             "starting_skills":["athletics","lore"],"restoration":"authored", "nutrition": {"kind":"exempt"},"hit_dice":[{"source":"racial"}]});
         let spec: crate::creature_authoring::BuildSpec = serde_json::from_value(source).unwrap();
         let good = serde_json::to_value(Borrowed(&spec)).unwrap();
         assert_eq!(good["future_growth"], json!({"kind":"disabled"}));
         assert_eq!(good["personal_body_grants"], json!([]));
+        let mut missing_corpse_identity = good.clone();
+        missing_corpse_identity
+            .as_object_mut()
+            .unwrap()
+            .remove("corpse_identity");
+        assert!(
+            serde_json::from_value::<Owned<crate::creature_authoring::BuildSpec>>(
+                missing_corpse_identity
+            )
+            .is_err()
+        );
+        let mut unknown_corpse_identity = good.clone();
+        unknown_corpse_identity["corpse_identity"] = json!("item.corpse.unknown");
+        assert!(
+            serde_json::from_value::<Owned<crate::creature_authoring::BuildSpec>>(
+                unknown_corpse_identity
+            )
+            .is_err()
+        );
         let mut missing_grants = good.clone();
         missing_grants
             .as_object_mut()
@@ -7888,11 +7968,14 @@ mod population_boundary_tests {
         let mut manifest = source::resolve_source(&root).unwrap().manifest;
         manifest.archetypes.insert(
             "marker".into(),
-            serde_json::from_value(json!({"name":"marker"})).unwrap(),
+            serde_json::from_value(json!({"name":"marker","identity":"item.misc.marker"})).unwrap(),
         );
         manifest.archetypes.insert(
             "stock".into(),
-            serde_json::from_value(json!({"name":"finite stock","stackable":true})).unwrap(),
+            serde_json::from_value(
+                json!({"name":"finite stock","identity":"item.misc.stock","stackable":true}),
+            )
+            .unwrap(),
         );
         manifest.floor_activation = Some(
             serde_json::from_value(json!({
@@ -7970,7 +8053,7 @@ mod population_boundary_tests {
         let mut manifest = source::resolve_source(&root).unwrap().manifest;
         manifest.archetypes.insert(
             "marker".into(),
-            serde_json::from_value(json!({"name":"marker"})).unwrap(),
+            serde_json::from_value(json!({"name":"marker","identity":"item.misc.marker"})).unwrap(),
         );
         manifest.floor_activation = Some(
             serde_json::from_value(json!({
@@ -8391,7 +8474,7 @@ mod nutrition_schema_tests {
             manifest.archetypes.insert(
                 "test_meal".into(),
                 serde_json::from_value(serde_json::json!({
-                    "name":"test meal", "identity":"test_meal", "class":"food",
+                    "name":"test meal", "identity":"item.food.test-meal", "class":"food",
                     "stackable":true, "edible":{"nutrition":amount.clone()}
                 }))
                 .unwrap(),
@@ -10695,7 +10778,7 @@ mod item_form_record_tests {
 
     fn author() -> source::Archetype {
         serde_json::from_value(json!({
-            "name": "wand of light", "class": "wand", "identity": "fixture.light",
+            "name": "wand of light", "class": "wand", "identity": "item.wand.light",
             "forms": [
                 {"name":"wand of light", "appearance_pool":"metal", "equipment":{
                     "slot":"weapon", "attack":{"skill":"heavy_weaponry", "bonus":0,

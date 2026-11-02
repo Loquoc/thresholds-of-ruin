@@ -358,6 +358,18 @@ a hostile creature attacks it, as in the ASCII client.
 
 Objects:
 
+- More than four non-corpse ground stacks share a compact treasure pile and an
+  always-visible stack count (not a count of individual units). Click the pile
+  or its floor cell to choose one disclosed item with Take / Go and take; a
+  nearer creature or ordinary item still receives its normal click. Escape
+  closes the chooser; it also closes on focus/context loss or when the pile
+  shrinks to four stacks. This never automatically picks up everything.
+- Hold Alt to show ground-item names and exact quantities, or press F3 to toggle
+  them without holding a key. Labels use only currently disclosed appearances,
+  group items sharing a cell, and pass clicks through to the world. Crowded
+  labels show an overflow count; zoom in to separate them. Labels hide while
+  a panel is open or the window is unfocused. Like other keys, Alt/F3 cancel
+  a pending click-to-travel errand.
 - Hover any cell for its name, description and what a click does; a frame of
   light marks it (gold: interact, red: attack, blue: travel).
 - The cursor shows what a click does: a grasping hand over things to pick

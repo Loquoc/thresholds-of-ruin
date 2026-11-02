@@ -91,7 +91,7 @@ fn retrieval_residency_fixture_with_destination_member(
         .unwrap();
         actor
     });
-    let mut spec = crate::ItemSpec::ordinary("Amulet of Yendor".into());
+    let mut spec = crate::ItemSpec::ordinary("item.test.amulet-of-yendor".parse().unwrap(), "Amulet of Yendor".into());
     spec.class = crate::ItemClass::Amulet;
     let item = game
         .place_item_stack(100, retrieval_at(8, 5), carrier, 1, spec.clone())
@@ -106,7 +106,7 @@ fn retrieval_residency_fixture_with_destination_member(
             "neutral",
             crate::test_creatures::species(),
         );
-        let mut bandage = crate::ItemSpec::ordinary("bandage".into());
+        let mut bandage = crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         bandage.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
         let supply = game
             .place_item_stack(101, retrieval_at(8, 11), None, 1, bandage)

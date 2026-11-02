@@ -79,7 +79,7 @@ def theft_package(test, species):
     body["species"] = "fixture.theft_witness"
     manifest["creatures"]["body_packages"] = {"fixture.theft_witness.body": body}
     character["creature"]["body_package"] = "fixture.theft_witness.body"
-    character.update(anchor="dungeon/1/start", known_identities=[GOLD, MUNDANE_MACE, "rogue.ring_mail"],
+    character.update(anchor="dungeon/1/start", known_identities=["item.coin.gold", "item.weapon.fixture-mundane-mace", "item.armor.ring-mail"],
                      loadout=[{"archetype": MUNDANE_MACE, "quantity": 1},
                               {"archetype": "rogue.ring_mail", "quantity": 1},
                               {"archetype": GOLD, "quantity": 9 if species == "orc" else 2}])
@@ -113,7 +113,7 @@ def theft_package(test, species):
     # correctly eligible for theft while unequipped. This mechanism witness
     # needs mundane recovery gear while its empty natural contact provokes.
     mundane = copy.deepcopy(source["items"]["rogue.mace"])
-    mundane.update(identity=MUNDANE_MACE, name="mundane witness mace",
+    mundane.update(identity="item.weapon.fixture-mundane-mace", name="mundane witness mace",
                    equipment_generation={"kind": "authored"})
     fixture_module = "catalog/theft-fixture.toml"
     manifest["modules"].append(fixture_module)
@@ -132,7 +132,7 @@ def theft_package(test, species):
 
 def carried(saved, actor, identity):
     return {key: item for key, item in saved["items"].items()
-            if item["location"] == {"Carried": actor} and item["spec"]["identity"] == identity}
+            if item["location"] == {"Carried": actor} and item["spec"]["identity"] == {GOLD: "item.coin.gold", POTION: "item.potion.restore-strength", MUNDANE_MACE: "item.weapon.fixture-mundane-mace"}[identity]}
 
 
 def quantity(saved, actor, identity):
@@ -457,8 +457,8 @@ class RogueTheftProcesses(ProcessTestCase):
                 else:
                     identity, expected = POTION, 1
                     self.assertEqual(combat(current)["hp"], hp, "Nymph contact and theft have zero damage")
-                    self.assertNotIn(POTION, transferred["actors"][str(actor)]["knowledge"])
-                    self.assertNotIn(POTION, transferred["actors"]["1"]["knowledge"])
+                    self.assertNotIn("item.potion.restore-strength", transferred["actors"][str(actor)]["knowledge"])
+                    self.assertNotIn("item.potion.restore-strength", transferred["actors"]["1"]["knowledge"])
                     self.assertTrue(inventory(current, "ring mail"), "Mundane unequipped armor is ineligible")
                     self.assertTrue(any(row["id"] == weapon_id
                                         for row in observation(current)["inventory"]),

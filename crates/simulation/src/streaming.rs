@@ -2432,7 +2432,8 @@ mod tests {
             NonZeroU64::new(100).unwrap(),
         )
         .unwrap();
-        let mut bandage = crate::ItemSpec::ordinary("bandage".into());
+        let mut bandage =
+            crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         bandage.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
         let item = game
             .place_item_stack(
@@ -2503,7 +2504,8 @@ mod tests {
         )
         .unwrap();
         for (region, at, actor) in holders {
-            let mut bandage = crate::ItemSpec::ordinary("bandage".into());
+            let mut bandage =
+                crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
             bandage.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
             game.place_item_stack(10 + region, at, Some(actor), 1, bandage)
                 .unwrap();
@@ -2595,7 +2597,8 @@ mod tests {
             NonZeroU64::new(100).unwrap(),
         )
         .unwrap();
-        let mut spec = crate::ItemSpec::ordinary("bandage".into());
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         spec.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
         let item = game.place_item_stack(10, item_at, None, 1, spec).unwrap();
         game.admit_intention(

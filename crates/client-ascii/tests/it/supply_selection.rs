@@ -33,6 +33,8 @@ fn app() -> App {
             quantity: 1,
             appearance: "bandage".into(),
             identified: true,
+            identity: "item.misc.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             description: String::new(),
             name: "clean bandage".into(),
             asset: None,
@@ -259,8 +261,12 @@ fn with_weapons(mut app: App, permitted: bool) -> App {
         let mut item = view.ground_items[0].item.clone();
         item.id = super::item_target(id);
         item.class = ItemClass::Weapon;
+        if !item.identified {
+            item.identity = item.class.unknown_identity();
+        }
         item.name = name.into();
         item.identified = false;
+        item.identity = item.class.unknown_identity();
         item.known_supply = None;
         view.inventory.push(item.clone());
         rows.push(ItemInteractionView {
@@ -648,6 +654,9 @@ fn projectile_app() -> App {
     ability.supply_costs.clear();
     for item in &mut view.inventory {
         item.identified = true;
+        item.identity = format!("{}.fixture", item.class.identity_family())
+            .parse()
+            .unwrap();
     }
     view.interactions.as_mut().unwrap().inventory[0].equipped_slot = None;
     app.set_state(ClientState::from_snapshot(snapshot).unwrap());

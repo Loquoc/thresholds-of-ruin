@@ -1,0 +1,520 @@
+[
+  {
+    "pool": "rogue.potions",
+    "appearance": "amber potion",
+    "asset": "item.potion.amber",
+    "surface_index": 0,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "smoky potion",
+    "asset": "item.potion.smoky",
+    "surface_index": 1,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "violet potion",
+    "asset": "item.potion.violet",
+    "surface_index": 2,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "azure potion",
+    "asset": "item.potion.azure",
+    "surface_index": 3,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "crimson potion",
+    "asset": "item.potion.crimson",
+    "surface_index": 4,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "silver potion",
+    "asset": "item.potion.silver",
+    "surface_index": 5,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "pearl potion",
+    "asset": "item.potion.pearl",
+    "surface_index": 6,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "teal potion",
+    "asset": "item.potion.teal",
+    "surface_index": 7,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "ochre potion",
+    "asset": "item.potion.ochre",
+    "surface_index": 8,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "indigo potion",
+    "asset": "item.potion.indigo",
+    "surface_index": 9,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "copper potion",
+    "asset": "item.potion.copper",
+    "surface_index": 10,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "chartreuse potion",
+    "asset": "item.potion.chartreuse",
+    "surface_index": 11,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "saffron potion",
+    "asset": "item.potion.saffron",
+    "surface_index": 12,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.potions",
+    "appearance": "cerulean potion",
+    "asset": "item.potion.cerulean",
+    "surface_index": 13,
+    "surface_family": "Potion"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled VEL MOR",
+    "asset": "item.scroll.vel-mor",
+    "surface_index": 0,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled ELAM TOR",
+    "asset": "item.scroll.elam-tor",
+    "surface_index": 1,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled NAR SHEN",
+    "asset": "item.scroll.nar-shen",
+    "surface_index": 2,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled HETH ARA",
+    "asset": "item.scroll.heth-ara",
+    "surface_index": 3,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled TAL ION",
+    "asset": "item.scroll.tal-ion",
+    "surface_index": 4,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled UR SEK",
+    "asset": "item.scroll.ur-sek",
+    "surface_index": 5,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled KEL RAN",
+    "asset": "item.scroll.kel-ran",
+    "surface_index": 6,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled AN DOR",
+    "asset": "item.scroll.an-dor",
+    "surface_index": 7,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled IV MEM",
+    "asset": "item.scroll.iv-mem",
+    "surface_index": 8,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled OS THAL",
+    "asset": "item.scroll.os-thal",
+    "surface_index": 9,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled VEL TOR",
+    "asset": "item.scroll.vel-tor",
+    "surface_index": 10,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled SAH REN",
+    "asset": "item.scroll.sah-ren",
+    "surface_index": 11,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled OR VETH",
+    "asset": "item.scroll.or-veth",
+    "surface_index": 12,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled NEM AL",
+    "asset": "item.scroll.nem-al",
+    "surface_index": 13,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled TIR OS",
+    "asset": "item.scroll.tir-os",
+    "surface_index": 14,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled KHA MER",
+    "asset": "item.scroll.kha-mer",
+    "surface_index": 15,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled LOR NEV",
+    "asset": "item.scroll.lor-nev",
+    "surface_index": 16,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.scrolls",
+    "appearance": "scroll titled MIR VEL",
+    "asset": "item.scroll.mir-vel",
+    "surface_index": 17,
+    "surface_family": "Scroll"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "aluminum wand",
+    "asset": "item.wand.aluminum",
+    "surface_index": 0,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "bronze wand",
+    "asset": "item.wand.bronze",
+    "surface_index": 1,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "copper wand",
+    "asset": "item.wand.copper",
+    "surface_index": 2,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "electrum wand",
+    "asset": "item.wand.electrum",
+    "surface_index": 3,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "gold wand",
+    "asset": "item.wand.gold",
+    "surface_index": 4,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "iron wand",
+    "asset": "item.wand.iron",
+    "surface_index": 5,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "lead wand",
+    "asset": "item.wand.lead",
+    "surface_index": 6,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "magnesium wand",
+    "asset": "item.wand.magnesium",
+    "surface_index": 7,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "nickel wand",
+    "asset": "item.wand.nickel",
+    "surface_index": 8,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "platinum wand",
+    "asset": "item.wand.platinum",
+    "surface_index": 9,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "silver wand",
+    "asset": "item.wand.silver",
+    "surface_index": 10,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "steel wand",
+    "asset": "item.wand.steel",
+    "surface_index": 11,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "tin wand",
+    "asset": "item.wand.tin",
+    "surface_index": 12,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.wands",
+    "appearance": "zinc wand",
+    "asset": "item.wand.zinc",
+    "surface_index": 13,
+    "surface_family": "Wand"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "ash staff",
+    "asset": "item.wand.staff.ash",
+    "surface_index": 0,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "birch staff",
+    "asset": "item.wand.staff.birch",
+    "surface_index": 1,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "cedar staff",
+    "asset": "item.wand.staff.cedar",
+    "surface_index": 2,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "cherry staff",
+    "asset": "item.wand.staff.cherry",
+    "surface_index": 3,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "elm staff",
+    "asset": "item.wand.staff.elm",
+    "surface_index": 4,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "hazel staff",
+    "asset": "item.wand.staff.hazel",
+    "surface_index": 5,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "mahogany staff",
+    "asset": "item.wand.staff.mahogany",
+    "surface_index": 6,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "maple staff",
+    "asset": "item.wand.staff.maple",
+    "surface_index": 7,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "oak staff",
+    "asset": "item.wand.staff.oak",
+    "surface_index": 8,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "pine staff",
+    "asset": "item.wand.staff.pine",
+    "surface_index": 9,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "teak staff",
+    "asset": "item.wand.staff.teak",
+    "surface_index": 10,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "walnut staff",
+    "asset": "item.wand.staff.walnut",
+    "surface_index": 11,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "willow staff",
+    "asset": "item.wand.staff.willow",
+    "surface_index": 12,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.staves",
+    "appearance": "yew staff",
+    "asset": "item.wand.staff.yew",
+    "surface_index": 13,
+    "surface_family": "Staff"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "agate ring",
+    "asset": "item.ring.agate",
+    "surface_index": 0,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "bronze ring",
+    "asset": "item.ring.bronze",
+    "surface_index": 1,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "coral ring",
+    "asset": "item.ring.coral",
+    "surface_index": 2,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "diamond ring",
+    "asset": "item.ring.diamond",
+    "surface_index": 3,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "emerald ring",
+    "asset": "item.ring.emerald",
+    "surface_index": 4,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "ivory ring",
+    "asset": "item.ring.ivory",
+    "surface_index": 5,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "jade ring",
+    "asset": "item.ring.jade",
+    "surface_index": 6,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "opal ring",
+    "asset": "item.ring.opal",
+    "surface_index": 7,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "ruby ring",
+    "asset": "item.ring.ruby",
+    "surface_index": 8,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "sapphire ring",
+    "asset": "item.ring.sapphire",
+    "surface_index": 9,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "topaz ring",
+    "asset": "item.ring.topaz",
+    "surface_index": 10,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "amethyst ring",
+    "asset": "item.ring.amethyst",
+    "surface_index": 11,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "garnet ring",
+    "asset": "item.ring.garnet",
+    "surface_index": 12,
+    "surface_family": "Ring"
+  },
+  {
+    "pool": "rogue.rings",
+    "appearance": "quartz ring",
+    "asset": "item.ring.quartz",
+    "surface_index": 13,
+    "surface_family": "Ring"
+  }
+]

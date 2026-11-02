@@ -158,6 +158,9 @@ pub(super) fn guarded_step_game_with(
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.movement-subject-{index}")
+                    .parse()
+                    .unwrap(),
                 name: format!("movement subject {index}"),
                 faction: "neutral".into(),
             },
@@ -538,7 +541,12 @@ fn push_content(
     crate::creatures::Content::new(rules, catalog).unwrap()
 }
 
-fn configure_push_subject(game: &mut crate::Game, actor: crate::ActorId, name: &str) {
+fn configure_push_subject(
+    game: &mut crate::Game,
+    actor: crate::ActorId,
+    corpse_identity: &str,
+    name: &str,
+) {
     let build = crate::creatures::CreatureBuild::new(
         game.content().clone(),
         crate::content_ids::SpeciesId::new(name).unwrap(),
@@ -554,6 +562,7 @@ fn configure_push_subject(game: &mut crate::Game, actor: crate::ActorId, name: &
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: corpse_identity.parse().unwrap(),
             name: name.into(),
             faction: "neutral".into(),
         },
@@ -581,14 +590,22 @@ fn push_game(
         42,
         push_content(source, target, with_push),
     );
-    for (at, name) in [
-        (cell(3, 3, 3), "pushing_source"),
-        (cell(4, 3, 3), "pushed_target"),
+    for (at, name, corpse_identity) in [
+        (
+            cell(3, 3, 3),
+            "pushing_source",
+            "item.corpse.test.pushing-source",
+        ),
+        (
+            cell(4, 3, 3),
+            "pushed_target",
+            "item.corpse.test.pushed-target",
+        ),
     ] {
         let actor = game
             .spawn_actor(at, std::num::NonZeroU64::new(100).unwrap())
             .unwrap();
-        configure_push_subject(&mut game, actor, name);
+        configure_push_subject(&mut game, actor, corpse_identity, name);
     }
     game
 }
@@ -907,8 +924,12 @@ fn occupied_nonreference_destination_blocks_a_tall_body_but_loose_items_do_not()
             )
             .unwrap();
         }
-        game.place_item(cell(5, 3, 3), "loose token".into())
-            .unwrap();
+        game.place_item(
+            cell(5, 3, 3),
+            "item.test.loose-token".parse().unwrap(),
+            "loose token".into(),
+        )
+        .unwrap();
         if head_blocked {
             game.set_wall(cell(5, 3, 4), true).unwrap();
         }
@@ -1041,8 +1062,18 @@ fn rotated_portal_head_contact_continues_in_the_targets_persistent_body_frame() 
         },
     )
     .unwrap();
-    configure_push_subject(&mut game, source, "pushing_source");
-    configure_push_subject(&mut game, target, "pushed_target");
+    configure_push_subject(
+        &mut game,
+        source,
+        "item.corpse.test.pushing-source",
+        "pushing_source",
+    );
+    configure_push_subject(
+        &mut game,
+        target,
+        "item.corpse.test.pushed-target",
+        "pushed_target",
+    );
     assert!(game.attack_available(source, target));
     start_push(&mut game);
     finish_push(&mut game);
@@ -1113,8 +1144,18 @@ fn equally_short_loop_embeddings_keep_damage_but_cannot_choose_a_push() {
         let target = game
             .spawn_actor(target_at, std::num::NonZeroU64::new(100).unwrap())
             .unwrap();
-        configure_push_subject(&mut game, source, "pushing_source");
-        configure_push_subject(&mut game, target, "pushed_target");
+        configure_push_subject(
+            &mut game,
+            source,
+            "item.corpse.test.pushing-source",
+            "pushing_source",
+        );
+        configure_push_subject(
+            &mut game,
+            target,
+            "item.corpse.test.pushed-target",
+            "pushed_target",
+        );
         assert!(game.attack_available(source, target));
         start_push(&mut game);
         finish_push(&mut game);
@@ -1148,6 +1189,7 @@ fn ordinary_control_game() -> crate::Game {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.control".parse().unwrap(),
                 name: "control".into(),
                 faction: "neutral".into(),
             },
@@ -1402,6 +1444,7 @@ fn unowned_self_step_rejects_before_geometry_without_licensing_the_private_abili
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.observer".parse().unwrap(),
                 name: "observer".into(),
                 faction: "neutral".into(),
             },

@@ -170,12 +170,17 @@ impl Game {
                 .expect("valid hallway wall");
             }
         }
-        let material = ["copper", "silver", "iron"][(seed % 3) as usize];
+        let (material, identity) = [
+            ("copper", "item.misc.copper-token"),
+            ("silver", "item.misc.silver-token"),
+            ("iron", "item.misc.iron-token"),
+        ][(seed % 3) as usize];
         game.place_item(
             Location {
                 region: entry,
                 position: Position { x: 1, y: 1, z: 0 },
             },
+            identity.parse().unwrap(),
             format!("{material} token"),
         )
         .expect("valid fixture item location");
@@ -184,6 +189,7 @@ impl Game {
                 region: gallery,
                 position: Position { x: 2, y: 1, z: 0 },
             },
+            "item.misc.tablet".parse().unwrap(),
             "stone tablet".into(),
         )
         .expect("valid fixture item location");

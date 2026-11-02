@@ -20,6 +20,7 @@ Native process launches also check the display regardless of test classification
 Use the headless client for setup and driving unless the behavior under test is
 another client's input or presentation (see docs/development/testing.md).
 """
+import copy
 import gzip
 import hashlib
 import json
@@ -372,7 +373,7 @@ def creature_package(test, name, *, hostile=False,
     rules_path.write_text(toml_source(rules), encoding="utf-8", newline="\n")
     manifest = package / "scenario.toml"
     source = manifest.read_text(encoding="utf-8")
-    build = ('creature = { species = "human", name = "trainee", faction = "neutral", '
+    build = ('creature = { species = "human", name = "trainee", corpse_identity = "item.corpse.fixture.trainee", faction = "neutral", '
              'binding = "intellect", starting_skills = ["heavy_weaponry", "spellcasting"], '
              'restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "warrior" }, { source = "mage", '
              'purchases = [{ pool = "advancement", selection = { kind = "skill_rank", skill = "intimidation" } }] }] }, ')
@@ -401,7 +402,7 @@ def creature_package(test, name, *, hostile=False,
     controller = ('controller = "external"\nturn_ticks = 1000\n' if controlled_target
                   else 'controller = "ai"\nai = "practice"\n')
     source += ('\n[[actors]]\nid = 2\nat = [' + str(target_x) + ', 1, 0]\n' + controller
-               + 'creature = { species = "human", name = "practice target", '
+               + 'creature = { species = "human", name = "practice target", corpse_identity = "item.corpse.fixture.practice-target", '
                'faction = "' + faction + '", binding = "intellect", '
                'starting_skills = ["athletics", "lore"], restoration = "authored", nutrition = { kind = "exempt" }, '
                'hit_dice = [{ source = "racial" }] }\n')
@@ -1093,6 +1094,33 @@ class ProcessTestCase(unittest.TestCase):
             # Observe preserves the stream epoch, unlike a repair Snapshot.
             return self.request(client, {"type": "observe"})
         return current
+
+    @staticmethod
+    def spectatorObservation(player_observation):
+        """Independent expected projection; never erase leaks from actual output.
+
+        Only machine item identity and learned instance facts are private here.
+        Legacy public names, identified flags, capabilities and every other
+        field remain exact; same-role callers must use the strict assertion.
+        """
+        expected = copy.deepcopy(player_observation)
+        items = list(expected.get("inventory", [])) + [row["item"] for row in expected.get("ground_items", [])]
+        for item in items:
+            # Real wire items require both fields; no legacy-shape fallback.
+            if "identity" not in item or "knowledge" not in item:
+                raise AssertionError("expected complete owner item disclosure")
+            item["identity"] = "item.unknown"
+            item["knowledge"] = {
+                "buc": "item.buc.unknown",
+                "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+                "condition": {"corrosion": None, "armor_deterioration": None, "protected": None},
+            }
+        return expected
+
+    def assertSpectatorStateEqual(self, spectator, player, message=None):
+        """Directional spectator-versus-owner assertion with exact redaction."""
+        expected = {**player, "observation": self.spectatorObservation(player["observation"])}
+        self.assertDisclosedStateEqual(spectator, expected, message)
 
     def assertDisclosedStateEqual(self, actual, expected, message=None):
         """Picture capabilities are local; every disclosed payload field is exact."""

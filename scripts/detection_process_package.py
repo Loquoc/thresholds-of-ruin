@@ -38,7 +38,7 @@ def fixture(*, paging=False, mapping=False, certified=True, production=PRODUCTIO
     manifest = {key: copy.deepcopy(source[key]) for key in
                 ("format", "version", "ruleset", "factions", "ai_profiles", "themes", "assets")}
     owner = copy.deepcopy(source["characters"][0])
-    owner.update(anchor="1/start", turn_ticks=100, loadout=[], known_identities=["rogue.ration"])
+    owner.update(anchor="1/start", turn_ticks=100, loadout=[], known_identities=["item.food.ration"])
     owner["creature"].update(species="fixture.detection", nutrition={"kind": "exempt"},
                              future_growth={"kind": "disabled"})
     human = copy.deepcopy(species["rogue.human"])

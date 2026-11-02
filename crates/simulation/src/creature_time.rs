@@ -411,6 +411,7 @@ mod tests {
                     game.configure_creature(
                         actor,
                         crate::CreatureIdentity {
+                            corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                             name: "subject".into(),
                             faction: "neutral".into(),
                         },
@@ -555,6 +556,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                     name: "subject".into(),
                     faction: "neutral".into(),
                 },
@@ -701,6 +703,7 @@ mod tests {
         game.configure_creature(
             subject,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                 name: "subject".into(),
                 faction: "neutral".into(),
             },
@@ -782,6 +785,7 @@ mod tests {
             game.configure_creature(
                 id,
                 crate::CreatureIdentity {
+                    corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                     name: "subject".into(),
                     faction: "neutral".into(),
                 },
@@ -862,7 +866,10 @@ mod tests {
         )
         .unwrap();
         let mut game = Game::two_room_in_stone(42, content);
-        for (x, faction) in [(1, "left"), (2, "right")] {
+        for (x, faction, corpse_identity) in [
+            (1, "left", "item.corpse.test.left"),
+            (2, "right", "item.corpse.test.right"),
+        ] {
             let actor = game
                 .spawn_actor(
                     Location {
@@ -875,6 +882,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: corpse_identity.parse().unwrap(),
                     name: faction.into(),
                     faction: faction.into(),
                 },
@@ -974,7 +982,10 @@ mod tests {
         )
         .unwrap();
         let mut game = Game::two_room_in_stone(42, content);
-        for (x, faction) in [(1, "left"), (2, "right")] {
+        for (x, faction, corpse_identity) in [
+            (1, "left", "item.corpse.test.left"),
+            (2, "right", "item.corpse.test.right"),
+        ] {
             let actor = game
                 .spawn_actor(
                     Location {
@@ -987,6 +998,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: corpse_identity.parse().unwrap(),
                     name: faction.into(),
                     faction: faction.into(),
                 },

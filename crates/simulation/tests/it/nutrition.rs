@@ -155,6 +155,9 @@ fn game_with_selected_character(
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{region}")
+                    .parse()
+                    .unwrap(),
                 name: format!("subject {region}"),
                 faction: "allies".into(),
             },
@@ -194,7 +197,10 @@ fn food(game: &mut Game, actor: ActorId, id: u64, quantity: u64, nourishment: u3
 }
 
 fn food_amount(game: &mut Game, actor: ActorId, id: u64, quantity: u64, nourishment: Value) {
-    let mut spec = ItemSpec::ordinary(format!("test food {id}"));
+    let mut spec = ItemSpec::ordinary(
+        format!("item.test.test-food-{id}").parse().unwrap(),
+        format!("test food {id}"),
+    );
     spec.class = tor_simulation::ItemClass::Food;
     spec.stackable = true;
     let mut encoded = serde_json::to_value(spec).unwrap();
@@ -402,7 +408,13 @@ fn starvation_uses_shared_death_cleanup_without_awarding_xp() {
     let mut game = game(subject, -2, 90);
     game.teleport(ActorId(1), at(2, 3)).unwrap();
     let keepsake = game
-        .place_authored_item(10, at(2, 1), "keepsake".into(), Some(subject))
+        .place_authored_item(
+            10,
+            at(2, 1),
+            "item.test.keepsake".parse().unwrap(),
+            "keepsake".into(),
+            Some(subject),
+        )
         .unwrap();
     let owner_before = game.creature(ActorId(1)).unwrap().earned_progress().clone();
     rest(&mut game, 10);
@@ -829,7 +841,10 @@ fn food_and_corpse_classes_do_not_grant_edibility_and_forged_meal_plans_reject()
     let actor = ActorId(1);
     let mut game = game(actor, 8, 0);
     for (id, class) in [(10, ItemClass::Food), (11, ItemClass::Corpse)] {
-        let mut spec = ItemSpec::ordinary("inedible fixture".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.inedible-fixture".parse().unwrap(),
+            "inedible fixture".into(),
+        );
         spec.class = class;
         game.place_item_stack(id, at(1, 1), Some(actor), 1, spec)
             .unwrap();
@@ -974,6 +989,9 @@ fn population_game(requirement: tor_simulation::nutrition::NutritionRequirement)
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{region}")
+                    .parse()
+                    .unwrap(),
                 name: format!("subject {region}"),
                 faction: "allies".into(),
             },
@@ -988,6 +1006,7 @@ fn population_game(requirement: tor_simulation::nutrition::NutritionRequirement)
         build: Some(BuildRecord::capture(&build)),
         nutrition: requirement,
         identity: Some(CreatureIdentity {
+            corpse_identity: "item.corpse.test.newborn".parse().unwrap(),
             name: "newborn".into(),
             faction: "allies".into(),
         }),
@@ -1223,7 +1242,10 @@ fn edible_operands_are_bounded_strictly_positive_and_round_trip_named_json_and_t
         assert!(!edible.valid(), "{amount}");
         let mut state = game(ActorId(1), 8, 0);
         let before = state.clone();
-        let mut spec = ItemSpec::ordinary("invalid meal".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.invalid-meal".parse().unwrap(),
+            "invalid meal".into(),
+        );
         spec.edible = Some(edible);
         assert!(state
             .place_item_stack(10, at(1, 1), Some(ActorId(1)), 1, spec)
@@ -1576,7 +1598,11 @@ fn pooled_population_item_recipes_retain_distinct_declared_meal_operands() {
     ] {
         let mut game =
             game_with_selected_character(ActorId(1), 8, 0, build(), 10, Some(ActorId(1)));
-        let mut spec = serde_json::to_value(ItemSpec::ordinary("future meal".into())).unwrap();
+        let mut spec = serde_json::to_value(ItemSpec::ordinary(
+            "item.test.future-meal".parse().unwrap(),
+            "future meal".into(),
+        ))
+        .unwrap();
         spec["edible"] = json!({"nutrition":amount});
         let item = PreparedItemChoice {
             content: "meal".into(),
@@ -1670,7 +1696,10 @@ fn assert_rolled_meal_late_failure_is_atomic(charge_regeneration: bool) {
     let third = game
         .spawn_actor(at(2, 3), NonZeroU64::new(1).unwrap())
         .unwrap();
-    let mut potion = ItemSpec::ordinary("late failure".into());
+    let mut potion = ItemSpec::ordinary(
+        "item.test.late-failure".parse().unwrap(),
+        "late failure".into(),
+    );
     potion.class = tor_simulation::ItemClass::Potion;
     potion.consumable = Some(tor_simulation::ConsumableSpec {
         descriptors: vec![],

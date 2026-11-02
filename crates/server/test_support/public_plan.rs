@@ -44,13 +44,14 @@ pub(super) fn scenario(known: bool) -> Scenario {
         "melee":{"skill":"heavy_weaponry","bonus":0,"wind_up":100,"recovery":100,"strikes":[effect(json!([{"kind":"damage","damage":{"kind":"components","components":[{"category":"impact","descriptor":null,"amount":{"kind":"fixed","amount":1}}]}}]))]},
         "modifiers":[{"scope":"always","op":{"kind":"set","stat":{"kind":"resource_max","resource":"focus"},"value":10}}]
     }},"templates":{"known_plan":{"priority":0,"kind":null,"modifiers":[{"scope":"always","op":{"kind":"grant_ability","ability":"slow_plan"}}]}}})).unwrap();
-    let creature = |name, knows| {
-        json!({"species":"reader","name":name,"faction":"neutral","binding":"intellect",
+    let creature = |corpse_identity, name, knows| {
+        json!({"species":"reader","name":name,"corpse_identity":corpse_identity,"faction":"neutral","binding":"intellect",
         "starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},"hit_dice":[{"source":"racial"}],
         "templates":if knows {vec!["known_plan"]} else {vec![]}})
     };
-    manifest.characters[0].creature =
-        Some(serde_json::from_value(creature("observer", known)).unwrap());
+    manifest.characters[0].creature = Some(
+        serde_json::from_value(creature("item.corpse.test.observer", "observer", known)).unwrap(),
+    );
     let mut regions: Vec<RegionDef> = [1, 2]
         .into_iter()
         .map(|id| {
@@ -61,7 +62,7 @@ pub(super) fn scenario(known: bool) -> Scenario {
         })
         .collect();
     regions[0].items.clear();
-    regions[0].actors = vec![serde_json::from_value(json!({"id":2,"at":[2,1,0],"turn_ticks":100,"controller":"external","creature":creature("subject", true)})).unwrap()];
+    regions[0].actors = vec![serde_json::from_value(json!({"id":2,"at":[2,1,0],"turn_ticks":100,"controller":"external","creature":creature("item.corpse.test.subject", "subject", true)})).unwrap()];
     let package =
         Package::from_parts(manifest, regions, &toml::to_string(&rules).unwrap()).unwrap();
     Scenario {

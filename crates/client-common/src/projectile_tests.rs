@@ -26,6 +26,8 @@ fn state() -> ClientState {
             quantity: 1,
             appearance: "weapon".into(),
             identified: true,
+            identity: "item.weapon.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             known_currency: None,
             known_supply: None,
             description: String::new(),

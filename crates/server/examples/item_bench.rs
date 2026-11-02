@@ -25,11 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for id in 0..identities {
             let key = format!("identity-{id}");
             let mut a = archetype.clone();
-            a.identity = Some(key.clone());
+            let identity =
+                format!("item.potion.benchmark-{id}").parse::<tor_simulation::ItemIdentity>()?;
+            a.identity = Some(identity.clone());
             a.name = Some(format!("effect-{id}"));
             package.manifest.archetypes.insert(key.clone(), a);
             if id + 1 < identities {
-                package.manifest.characters[0].known_identities.push(key);
+                package.manifest.characters[0]
+                    .known_identities
+                    .push(identity);
             }
         }
         for id in 1..=items {

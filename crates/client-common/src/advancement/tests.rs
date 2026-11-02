@@ -529,6 +529,8 @@ fn respec_exact_supplies_reuse_known_touch_ground_facts_and_one_cost_ordinal() {
             quantity: 2,
             appearance: "ration".into(),
             identified: true,
+            identity: "item.misc.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             name: "ration source".into(),
             description: String::new(),
             asset: None,

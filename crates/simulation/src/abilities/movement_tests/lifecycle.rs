@@ -26,20 +26,36 @@ pub(super) fn push_variant(
     );
     let rows = if source_first {
         [
-            (cell(3, 3, 3), "pushing_source"),
-            (cell(4, 3, 3), "pushed_target"),
+            (
+                cell(3, 3, 3),
+                "pushing_source",
+                "item.corpse.test.pushing-source",
+            ),
+            (
+                cell(4, 3, 3),
+                "pushed_target",
+                "item.corpse.test.pushed-target",
+            ),
         ]
     } else {
         [
-            (cell(4, 3, 3), "pushed_target"),
-            (cell(3, 3, 3), "pushing_source"),
+            (
+                cell(4, 3, 3),
+                "pushed_target",
+                "item.corpse.test.pushed-target",
+            ),
+            (
+                cell(3, 3, 3),
+                "pushing_source",
+                "item.corpse.test.pushing-source",
+            ),
         ]
     };
-    for (at, name) in rows {
+    for (at, name, corpse_identity) in rows {
         let actor = game
             .spawn_actor(at, std::num::NonZeroU64::new(100).unwrap())
             .unwrap();
-        configure_push_subject(&mut game, actor, name);
+        configure_push_subject(&mut game, actor, corpse_identity, name);
     }
     (
         game,
@@ -244,7 +260,10 @@ fn pushed_carer_retires_original_claim_once_in_both_actor_orders_and_when_paused
                 let idle = game
                     .spawn_actor(cell(7, 7, 3), std::num::NonZeroU64::new(100).unwrap())
                     .unwrap();
-                let mut bandage = crate::ItemSpec::ordinary("claimed bandage".into());
+                let mut bandage = crate::ItemSpec::ordinary(
+                    "item.test.claimed-bandage".parse().unwrap(),
+                    "claimed bandage".into(),
+                );
                 bandage.stackable = true;
                 bandage.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
                 let item = game
@@ -431,7 +450,10 @@ fn pushed_entry_allocates_stock_before_later_lethal_effect_in_the_same_batch() {
                                 content: "entry marker".into(),
                                 weight: 1,
                                 quantity: crate::quantity::QuantityExpr::Fixed { quantity: 1 },
-                                spec: crate::ItemSpec::ordinary("entry marker".into()),
+                                spec: crate::ItemSpec::ordinary(
+                                    "item.test.entry-marker".parse().unwrap(),
+                                    "entry marker".into(),
+                                ),
                             }],
                         }],
                     },

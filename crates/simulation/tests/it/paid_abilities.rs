@@ -523,6 +523,7 @@ fn replacing_paid_work_can_use_the_hold_released_by_that_replacement() {
     game.configure_creature(
         other,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.other".parse().unwrap(),
             name: "other".into(),
             faction: "neutral".into(),
         },
@@ -760,6 +761,7 @@ fn ability_history_preserves_event_time_identity_without_licensing_late_observer
     game.configure_creature(
         other,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.other".parse().unwrap(),
             name: "other".into(),
             faction: "neutral".into(),
         },

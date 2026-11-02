@@ -5,6 +5,8 @@ from rogue_staves_package import expected_forms
 
 from test_rogue_utility_potions_content import source
 
+from rogue_identity_contracts import IDENTITIES
+
 
 class RogueUtilityWandsContent(unittest.TestCase):
     def test_utility_devices_are_unknown_charged_contact_rays_without_extra_costs(self):
@@ -15,7 +17,7 @@ class RogueUtilityWandsContent(unittest.TestCase):
                 identity = "rogue.wand_" + kind
                 self.assertIn(identity, set(catalog["items"]))
                 self.assertEqual(catalog["items"][identity], {
-                    "asset": "item.wand", "name": "wand of " + name, "identity": identity,
+                    "asset": "item.wand", "name": "wand of " + name, "identity": IDENTITIES[identity],
                     "magical": True, "class": "wand", "stackable": False, "appearance_pool": "rogue.wands",
                     "forms": expected_forms(name),
                     "device": {"ability": identity, "initial_charges": {"minimum": 3, "maximum": 7},
@@ -59,7 +61,7 @@ class RogueUtilityWandsContent(unittest.TestCase):
                       if item.get("appearance_pool") == "rogue.wands"}
         self.assertEqual(identities, {"rogue.wand_" + kind for kind in
                                      ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to", "nothing", "light", "drain_life", "cancellation", "magic_missile", "polymorph")})
-        appearances = catalog["appearance_pools"]["rogue.wands"]["appearances"]
+        appearances = [entry["name"] for entry in catalog["appearance_pools"]["rogue.wands"]["appearances"]]
         self.assertEqual(len(appearances), len(set(appearances)))
         self.assertEqual(len(appearances), len(identities))
         manifest = source("scenario.toml")
@@ -69,7 +71,7 @@ class RogueUtilityWandsContent(unittest.TestCase):
                 "choices": [{"archetype": "rogue.wand_" + kind, "weight": 1}
                             for kind in ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
-            self.assertTrue(identities.isdisjoint(character["known_identities"]))
+            self.assertTrue({IDENTITIES[key] for key in identities}.isdisjoint(character["known_identities"]))
             self.assertTrue(identities.isdisjoint(row["archetype"] for row in character["loadout"]))
 
     def test_service_and_process_fixture_change_only_explicit_setup_not_device_definitions(self):

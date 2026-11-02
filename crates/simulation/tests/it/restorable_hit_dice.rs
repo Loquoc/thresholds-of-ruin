@@ -66,6 +66,7 @@ fn game(build: CreatureBuild) -> Game {
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.drained-subject".parse().unwrap(),
             name: "drained subject".into(),
             faction: "neutral".into(),
         },

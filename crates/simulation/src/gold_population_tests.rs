@@ -303,6 +303,7 @@ fn contextual_birth_purse_is_finite_at_birth_and_drops_without_resampling() {
         let definition = &mut carrier_choice(&mut policy).actor;
         definition.build = Some(crate::creatures::record::BuildRecord::capture(&build));
         definition.identity = Some(crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.carrier".parse().unwrap(),
             name: "carrier".into(),
             faction: "neutral".into(),
         });

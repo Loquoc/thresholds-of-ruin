@@ -22,7 +22,7 @@ def fixture():
         {"archetype": "rogue.extra_healing", "quantity": 5},
         {"archetype": "rogue.blindness", "quantity": 2},
         {"archetype": "rogue.restore_strength", "quantity": 1}],
-        known_identities=["rogue.blindness", "rogue.restore_strength"])
+        known_identities=["item.potion.blindness", "item.potion.restore-strength"])
     character["creature"]["nutrition"] = {"kind": "exempt"}
     phantom = {"archetype": "rogue.phantom", "id": 3, "at": [3, 2, 0],
                "turn_ticks": 1000000, "controller": "external"}

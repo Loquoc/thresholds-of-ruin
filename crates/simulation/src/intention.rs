@@ -1950,7 +1950,9 @@ mod tests {
     fn execution_revalidates_the_original_target_and_records_failure_without_effect() {
         let (mut game, actor) = fixture();
         let at = game.actors[&actor].location;
-        let item = game.place_item(at, "token".into()).unwrap();
+        let item = game
+            .place_item(at, "item.test.token".parse().unwrap(), "token".into())
+            .unwrap();
         let id = game
             .admit_intention(
                 actor,
@@ -2010,7 +2012,11 @@ mod tests {
     fn malformed_saved_action_structure_is_rejected_without_rechecking_availability() {
         let (mut game, actor) = fixture();
         let item = game
-            .place_item(game.actors[&actor].location, "token".into())
+            .place_item(
+                game.actors[&actor].location,
+                "item.test.token".parse().unwrap(),
+                "token".into(),
+            )
             .unwrap();
         game.admit_intention(
             actor,
@@ -2315,6 +2321,7 @@ mod tests {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.healer".parse().unwrap(),
                 name: "healer".into(),
                 faction: "neutral".into(),
             },

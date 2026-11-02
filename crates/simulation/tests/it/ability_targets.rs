@@ -56,6 +56,7 @@ fn fixture_with_factions(
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject{}", id.0).parse().unwrap(),
                 name: format!("subject{}", id.0),
                 faction: factions[ids.len()].into(),
             },

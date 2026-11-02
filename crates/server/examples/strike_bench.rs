@@ -74,7 +74,7 @@ fn scenario(
         "modifiers":[{"scope":"always","op":{"kind":"grant_ability","ability":"benchmark_sequence"}},
             {"scope":"always","op":{"kind":"add","stat":{"kind":"health"},"value":999000}}]
     }}}))?;
-    let creature = json!({"species":"benchmark_fighter","name":"Benchmark fighter","faction":"neutral",
+    let creature = json!({"species":"benchmark_fighter","name":"Benchmark fighter","corpse_identity":"item.corpse.test.benchmark-fighter","faction":"neutral",
         "binding":"intellect","starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},
         "hit_dice":[{"source":"racial"}]});
     manifest.characters[0].creature = Some(serde_json::from_value(creature.clone())?);

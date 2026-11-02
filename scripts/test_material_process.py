@@ -61,7 +61,7 @@ class MaterialProcesses(ProcessTestCase):
                 self.assertIn((wall_x, y), cells, name)
                 self.assertTrue(cells[(wall_x, y)]["wall"], name)
             watched = self.request(observer, {"type": "snapshot"})
-            self.assertDisclosedStateEqual(watched["state"], native["state"])
+            self.assertSpectatorStateEqual(watched["state"], native["state"])
             if os.environ.get("TOR_RIM_CAPTURE_DIR"):
                 (Path(os.environ["TOR_RIM_CAPTURE_DIR"]) / ("rim-" + name + ".ppm")).write_bytes(read_capture(capture))
             if name != "east":
@@ -77,7 +77,7 @@ class MaterialProcesses(ProcessTestCase):
         observer.stop(); server.stop()
         self.server()
         _, resumed = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(resumed["state"], opened["state"])
+        self.assertSpectatorStateEqual(resumed["state"], opened["state"])
 
     def test_wizard_chamber_surface_refresh_native_view_and_rewind(self):
         server = self.server(wizard=True, scenario="material-volumes")

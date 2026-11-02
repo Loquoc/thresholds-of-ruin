@@ -36,6 +36,7 @@ from status_condition_package import actor_creature, checkpoint, combat, observa
 
 BITE = "rogue.venomous_bite"
 POTION = "rogue.restore_strength"
+POTION_IDENTITY = "item.potion.restore-strength"
 POTION_NAME = "potion of restore strength"
 DISK_LIMIT = 64 * 1024 * 1024
 
@@ -295,7 +296,7 @@ class RogueRestorationProcesses(ProcessTestCase):
         saved_before = checkpoint(self, player)
         self.assertEqual(saved_before["items"]["1000"]["location"], {"Carried": 1})
         self.assertEqual(saved_before["items"]["1000"]["quantity"], 1)
-        self.assertNotIn(POTION, saved_before["actors"]["1"]["knowledge"])
+        self.assertNotIn(POTION_IDENTITY, saved_before["actors"]["1"]["knowledge"])
 
         # The unchanged item timing is one actual 100-tick Warrior turn. Keep
         # this dose strictly before passive recovery, so injury equality is a
@@ -338,9 +339,9 @@ class RogueRestorationProcesses(ProcessTestCase):
                          actor_creature(saved_before)["earned_progress"], "Keep legitimate pre-dose XP/growth")
         self.assertEqual(actor_creature(saved_after)["injury"], actor_creature(saved_before)["injury"])
         self.assertEqual(saved_after["rules_rng"], saved_before["rules_rng"], "Fixed restoration draws no dice")
-        self.assertIn(POTION, saved_after["actors"]["1"]["knowledge"],
+        self.assertIn(POTION_IDENTITY, saved_after["actors"]["1"]["knowledge"],
                       "Observable positive restoration identifies even the consumed final unit")
-        self.assertNotIn(POTION, saved_after["actors"]["3"]["knowledge"],
+        self.assertNotIn(POTION_IDENTITY, saved_after["actors"]["3"]["knowledge"],
                          "Another actor does not inherit the Warrior's observed-use knowledge")
         self.stop_case(server, player)
 
@@ -365,7 +366,7 @@ class RogueRestorationProcesses(ProcessTestCase):
                              for row in observation(current)["ground_items"]))
         revisited = checkpoint(self, player)
         self.assertNotIn("1000", revisited["items"])
-        self.assertIn(POTION, revisited["actors"]["1"]["knowledge"])
+        self.assertIn(POTION_IDENTITY, revisited["actors"]["1"]["knowledge"])
         self.stop_case(server, player)
         self.sample["phase"] = "passed"
 

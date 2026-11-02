@@ -359,6 +359,7 @@ pub(super) fn sequence_game_on_world_configured(
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: "neutral".into(),
             },
@@ -3963,6 +3964,7 @@ fn fatal_opening_growth_deactivating_its_grant_cancels_tail_without_erasing_debt
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: "neutral".into(),
             },

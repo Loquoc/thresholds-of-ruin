@@ -846,6 +846,7 @@ mod tests {
             )
             .unwrap();
         let identity = crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.restoration-owner".parse().unwrap(),
             name: "restoration owner".into(),
             faction: "neutral".into(),
         };

@@ -19,6 +19,7 @@ class OwnedHitDieWizardOrdering(unittest.TestCase):
             "test_wizard_preserves_paid_preparation_until_its_owned_hit_die_is_removed")
         commands = []
         observer_requests = []
+        observer_barriers = []
         state = {"remaining": 3, "fresh": False}
 
         def frame(remaining=3, *, prepared=True):
@@ -59,15 +60,22 @@ class OwnedHitDieWizardOrdering(unittest.TestCase):
 
         def observed(client, predicate):
             self.assertIs(client, observer)
+            # Exercise the real ability-start barrier, including the early
+            # Ready/old snapshot that must not satisfy it. These observer frames
+            # do not refresh the separate Text socket in either ordering.
+            early = frame(prepared=False)
+            early["type"] = "ready"
+            old_snapshot = copy.deepcopy(early)
+            old_snapshot["type"] = "response"
             value = frame()
-            self.assertTrue(predicate(value))
-            # Receiving this other socket's update does not change Text freshness.
+            matches = [predicate(candidate) for candidate in (early, old_snapshot, value)]
+            self.assertEqual(matches, [False, False, True])
+            observer_barriers.append(matches)
             return value
 
         def request(client, value):
             self.assertIs(client, observer)
-            expected = "observe" if not observer_requests else "snapshot"
-            self.assertEqual(value, {"type": expected})
+            self.assertEqual(value, {"type": "snapshot"})
             observer_requests.append(value["type"])
             # This read refreshes only the observer, never the Text mutator.
             return copy.deepcopy(frame(state["remaining"]))
@@ -82,13 +90,14 @@ class OwnedHitDieWizardOrdering(unittest.TestCase):
                         subject.check_owned_hit_die_preparation(ability, start_x=1, granted_hd=granted_hd)
                     self.assertEqual(commands, ["wizard arena step", "sync"])
                     self.assertEqual(state["remaining"], 3)
-                    self.assertEqual(observer_requests, ["observe"])
+                    self.assertEqual(observer_requests, [])
                 else:
                     with self.assertRaises(ReachedThirdRemoval):
                         subject.check_owned_hit_die_preparation(ability, start_x=1, granted_hd=granted_hd)
-                    self.assertEqual(observer_requests, ["observe", "snapshot", "snapshot"])
+                    self.assertEqual(observer_requests, ["snapshot", "snapshot"])
                     self.assertEqual(commands, ["wizard arena step"] +
                         [value for _ in range(3) for value in ("sync", "wizard creature remove-hd 1")])
+                self.assertEqual(observer_barriers, [[False, False, True]])
 
     def test_each_owned_hd_mutation_synchronizes_its_own_text_socket_in_both_orders(self):
         for ability, hd in (("falter", 3), ("spark_lance_fire", 2)):

@@ -796,7 +796,10 @@ mod tests {
                 .collect(),
         )
         .unwrap();
-        let mut arrow = ItemSpec::ordinary("body boundary arrow".into());
+        let mut arrow = ItemSpec::ordinary(
+            "item.test.body-boundary-arrow".parse().unwrap(),
+            "body boundary arrow".into(),
+        );
         arrow.stackable = true;
         arrow.class = ItemClass::Weapon;
         let component =
@@ -830,6 +833,7 @@ mod tests {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.same-person".parse().unwrap(),
                 name: "same person".into(),
                 faction: "neutral".into(),
             },
@@ -848,7 +852,10 @@ mod tests {
                 .position(|s| *s == slot)
                 .unwrap() as u16,
         );
-        let mut spec = ItemSpec::ordinary("cursed body witness".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.cursed-body-witness".parse().unwrap(),
+            "cursed body witness".into(),
+        );
         spec.class = ItemClass::Ring;
         spec.equipment = Some(EquipmentSpec {
             periodic_relocation: None,
@@ -881,7 +888,10 @@ mod tests {
                 .position(|s| *s == slot)
                 .unwrap() as u16,
         );
-        let mut spec = ItemSpec::ordinary("body transition torch".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.body-transition-torch".parse().unwrap(),
+            "body transition torch".into(),
+        );
         spec.class = ItemClass::Tool;
         spec.held_light = Some(crate::HeldLightSpec {
             radius: 2,
@@ -1541,6 +1551,7 @@ mod tests {
         game.configure_creature(
             blocker,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.expiring-blocker".parse().unwrap(),
                 name: "expiring blocker".into(),
                 faction: "neutral".into(),
             },

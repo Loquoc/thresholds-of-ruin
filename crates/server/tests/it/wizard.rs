@@ -142,6 +142,13 @@ fn invalid_placement_is_atomic_and_successful_placement_is_idempotent() {
         engine.observation(ActorId(1)).unwrap().ground_items.len(),
         before.observation.ground_items.len() + 1
     );
+    let observed = engine.observation(ActorId(1)).unwrap();
+    let tablet = observed
+        .ground_items
+        .iter()
+        .find(|row| row.item.name == "stone tablet")
+        .unwrap();
+    assert_eq!(tablet.item.identity.as_str(), "item.misc.tablet");
     assert_eq!(engine.observation(ActorId(1)).unwrap().tick, 0);
 }
 

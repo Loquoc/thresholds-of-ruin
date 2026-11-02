@@ -1,15 +1,15 @@
-format = 36
+format = 37
 id = "magic-items"
 version = "1.0"
 ruleset = "rules.toml"
 default_character = 1
-characters = [{ id = 1, anchor = "1/start", creature = { species = "figure", name = "figure", faction = "neutral", binding = "intellect", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
+characters = [{ id = 1, anchor = "1/start", creature = { corpse_identity = "item.corpse.persona.figure", species = "figure", name = "figure", faction = "neutral", binding = "intellect", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
 
 # All supplies begin on the floor and are acquired through ordinary pickup.
 [archetypes.draught]
 class = "potion"
 name = "potion of mending"
-identity = "magic.mending"
+identity = "item.potion.mending"
 appearance_pool = "potions"
 stackable = true
 consumable = { discovery = "on_use", effects = [{ kind = "heal", amount = { kind = "fixed", amount = 5 } }] }
@@ -17,7 +17,7 @@ consumable = { discovery = "on_use", effects = [{ kind = "heal", amount = { kind
 [archetypes.identify]
 class = "scroll"
 name = "scroll of identify wand"
-identity = "magic.identify_wand"
+identity = "item.scroll.identify-wand"
 appearance_pool = "scrolls"
 stackable = true
 readable = { identify = ["wand"], discovery = "on_use" }
@@ -25,18 +25,24 @@ readable = { identify = ["wand"], discovery = "on_use" }
 [archetypes.ember]
 class = "wand"
 name = "wand of embers"
-identity = "magic.embers"
+identity = "item.wand.embers"
 appearance_pool = "wands"
 device = { ability = "magic.ember_ray", initial_charges = { minimum = 3, maximum = 3 }, discovery = "on_use" }
 
 [appearance_pools.potions]
-appearances = ["red potion"]
+appearances = [
+  { name = "red potion" },
+]
 
 [appearance_pools.scrolls]
-appearances = ["rune scroll"]
+appearances = [
+  { name = "rune scroll" },
+]
 
 [appearance_pools.wands]
-appearances = ["oak wand"]
+appearances = [
+  { name = "oak wand" },
+]
 
 [creatures.species.figure]
 behavior = { disposition = "mean", idle = "explore", memory_ticks = 1000 }

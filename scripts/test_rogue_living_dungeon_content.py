@@ -3,6 +3,8 @@ from pathlib import Path
 import tomllib
 import unittest
 
+from rogue_identity_contracts import IDENTITIES
+
 ROOT = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 
 
@@ -45,7 +47,7 @@ class RogueLivingDungeonContent(unittest.TestCase):
             self.assertTrue(item["stackable"])
             self.assertEqual(item["appearance_pool"], "rogue.scrolls")
             for character in manifest["characters"]:
-                self.assertNotIn("rogue." + name, character["known_identities"])
+                self.assertNotIn(IDENTITIES["rogue." + name], character["known_identities"])
                 self.assertNotIn("rogue." + name, [v["archetype"] for v in character["loadout"]])
         self.assertEqual(items["rogue.scare_monster"]["ground_scare"], {
             "condition": "rogue.scared", "duration": 1000})

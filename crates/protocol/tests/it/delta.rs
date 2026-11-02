@@ -49,6 +49,8 @@ fn appearance_and_corpse_disclosures_survive_full_and_delta_round_trips() {
         name: "unrelated label".into(),
         appearance: "body".into(),
         identified: true,
+        identity: "item.corpse.fixture".parse().unwrap(),
+        knowledge: Default::default(),
         description: String::new(),
         asset: Some("item.corpse".into()),
         known_currency: None,
@@ -61,7 +63,17 @@ fn appearance_and_corpse_disclosures_survive_full_and_delta_round_trips() {
     for (class, identified) in [(ItemClass::Weapon, true), (ItemClass::Corpse, false)] {
         let mut bad = good.clone();
         bad.class = class;
+        if !bad.identified {
+            bad.identity = bad.class.unknown_identity();
+        }
         bad.identified = identified;
+        bad.identity = if identified {
+            format!("{}.fixture", bad.class.identity_family())
+                .parse()
+                .unwrap()
+        } else {
+            bad.class.unknown_identity()
+        };
         assert!(serde_json::from_value::<ItemView>(serde_json::to_value(&bad).unwrap()).is_err());
         next.observation.inventory[0] = bad;
         assert_eq!(next.validate(), Err(InvalidState::InvalidItem));
@@ -81,6 +93,8 @@ fn equipped_state(requires_attack: bool) -> StateView {
         class: ItemClass::Misc,
         quantity: 1,
         identified: true,
+        identity: "item.misc.fixture".parse().unwrap(),
+        knowledge: Default::default(),
         asset: None,
         known_currency: None,
         known_supply: None,
@@ -125,6 +139,8 @@ fn known_currency_survives_full_and_delta_updates_and_rejects_hidden_facts() {
         quantity: 9_007_199_254_740_993,
         appearance: "unmarked discs".into(),
         identified: false,
+        identity: "item.coin.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         description: String::new(),
         name: "unmarked discs".into(),
         asset: None,
@@ -134,6 +150,12 @@ fn known_currency_survives_full_and_delta_updates_and_rejects_hidden_facts() {
     let mut next = base.clone();
     next.revision += 1;
     next.observation.inventory[0].identified = true;
+    next.observation.inventory[0].identity = format!(
+        "{}.fixture",
+        next.observation.inventory[0].class.identity_family()
+    )
+    .parse()
+    .unwrap();
     next.observation.inventory[0].known_currency = Some(CurrencyKind::Gold);
     next.validate().unwrap();
     round_trip(&base, &next);
@@ -148,7 +170,21 @@ fn known_currency_survives_full_and_delta_updates_and_rejects_hidden_facts() {
     for (class, identified) in [(ItemClass::Coin, false), (ItemClass::Gem, true)] {
         let mut invalid = next.clone();
         invalid.observation.inventory[0].class = class;
+        if !invalid.observation.inventory[0].identified {
+            invalid.observation.inventory[0].identity =
+                invalid.observation.inventory[0].class.unknown_identity();
+        }
         invalid.observation.inventory[0].identified = identified;
+        invalid.observation.inventory[0].identity = if identified {
+            format!(
+                "{}.fixture",
+                invalid.observation.inventory[0].class.identity_family()
+            )
+            .parse()
+            .unwrap()
+        } else {
+            invalid.observation.inventory[0].class.unknown_identity()
+        };
         assert_eq!(invalid.validate(), Err(InvalidState::InvalidItem));
         let delta = StateDelta::between(&base, &invalid).unwrap();
         assert!(
@@ -815,6 +851,8 @@ fn collection_view(count: usize) -> StateView {
             quantity: 1,
             appearance: "disclosed appearance".repeat(4),
             identified: true,
+            identity: "item.misc.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             description: "disclosed description".repeat(4),
             id: ItemTarget::from_digest(synthetic_digest(index as u64 + 1)),
             name: format!("carried item {index}"),
@@ -1530,6 +1568,8 @@ fn paid_choice_and_instance_charges_validate_and_survive_full_delta_replacement(
         name: "ivory wand".into(),
         appearance: "ivory wand".into(),
         identified: false,
+        identity: "item.wand.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         corpse: None,
         description: String::new(),
         asset: None,
@@ -1570,6 +1610,12 @@ fn paid_choice_and_instance_charges_validate_and_survive_full_delta_replacement(
     let mut identified = next.clone();
     identified.revision += 1;
     identified.observation.inventory[0].identified = true;
+    identified.observation.inventory[0].identity = format!(
+        "{}.fixture",
+        identified.observation.inventory[0].class.identity_family()
+    )
+    .parse()
+    .unwrap();
     let interaction = identified.observation.interactions.as_mut().unwrap();
     interaction.identification = None;
     interaction.inventory[0].charges = Some(0);
@@ -1622,6 +1668,8 @@ fn remembered_projectile_bonus_delta_requires_identified_item_and_bounds() {
     round_trip(&base, &next);
     let mut invalid = next.clone();
     invalid.observation.inventory[0].identified = false;
+    invalid.observation.inventory[0].identity =
+        invalid.observation.inventory[0].class.unknown_identity();
     assert_eq!(invalid.validate(), Err(InvalidState::InvalidInteraction));
     next.observation.interactions.as_mut().unwrap().inventory[0]
         .known_projectile_bonus
@@ -1682,6 +1730,16 @@ fn remembered_curse_and_protection_do_not_invent_equipment_slots_or_numeric_know
     row.known_equipment = None;
     for identified in [false, true] {
         base.observation.inventory[0].identified = identified;
+        base.observation.inventory[0].identity = if identified {
+            format!(
+                "{}.fixture",
+                base.observation.inventory[0].class.identity_family()
+            )
+            .parse()
+            .unwrap()
+        } else {
+            base.observation.inventory[0].class.unknown_identity()
+        };
         for (cursed, protected) in [
             (Some(true), None),
             (None, Some(false)),
@@ -1824,6 +1882,8 @@ fn device_activation_is_knowledge_gated_and_exactly_matches_zappable() {
         name: "ivory wand".into(),
         appearance: "ivory wand".into(),
         identified: false,
+        identity: "item.wand.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         corpse: None,
         description: String::new(),
         asset: None,
@@ -1878,6 +1938,12 @@ fn device_activation_is_knowledge_gated_and_exactly_matches_zappable() {
     round_trip(&base, &next);
     let mut known_self = next.clone();
     known_self.observation.inventory[0].identified = true;
+    known_self.observation.inventory[0].identity = format!(
+        "{}.fixture",
+        known_self.observation.inventory[0].class.identity_family()
+    )
+    .parse()
+    .unwrap();
     known_self
         .observation
         .interactions
@@ -1892,6 +1958,10 @@ fn device_activation_is_knowledge_gated_and_exactly_matches_zappable() {
     round_trip(&base, &known_self);
     let mut nondevice = next.clone();
     nondevice.observation.inventory[0].class = ItemClass::Misc;
+    if !nondevice.observation.inventory[0].identified {
+        nondevice.observation.inventory[0].identity =
+            nondevice.observation.inventory[0].class.unknown_identity();
+    }
     let row = &mut nondevice
         .observation
         .interactions

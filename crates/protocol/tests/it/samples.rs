@@ -441,13 +441,14 @@ fn known_weapon_views_validate_full_source_and_keep_identification_boundary() {
         }
         let mut hidden = state.clone();
         let target = hidden.observation.interactions.as_ref().unwrap().inventory[index].item;
-        hidden
+        let item = hidden
             .observation
             .inventory
             .iter_mut()
             .find(|item| item.id == target)
-            .unwrap()
-            .identified = false;
+            .unwrap();
+        item.identified = false;
+        item.identity = item.class.unknown_identity();
         assert_eq!(hidden.validate(), Err(InvalidState::InvalidInteraction));
         let mut forged = serde_json::to_value(&full).unwrap();
         forged["damage"]["components"][0]["amount"]["cached_damage"] = 9.into();

@@ -116,9 +116,9 @@ class AiInteractionProcesses(ProcessTestCase):
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         weapons = []
-        for name, skill, bonus in [("light_blade", "light_weaponry", 1),
-                                   ("heavy_blade", "heavy_weaponry", 0)]:
-            weapons.append(name + ' = { class = "weapon", name = "' + name + '", '
+        for name, identity, skill, bonus in [("light_blade", "item.weapon.fixture.light-blade", "light_weaponry", 1),
+                                             ("heavy_blade", "item.weapon.fixture.heavy-blade", "heavy_weaponry", 0)]:
+            weapons.append(name + ' = { class = "weapon", identity = "' + identity + '", name = "' + name + '", '
                            'equipment = { slot = "weapon", attack = { skill = "' + skill + '", '
                            'bonus = ' + str(bonus) + ', wind_up = 60, recovery = 40, damage = { '
                            'primary = { category = "impact", sides = 6 }, components = [{ '
@@ -240,9 +240,9 @@ class AiInteractionProcesses(ProcessTestCase):
         package = self.save.parent / "unknown-ai"
         shutil.copytree(ROOT / "scenarios/tests/ai-interactions", package)
         region = package / "regions/1.toml"
-        region.write_text(region.read_text().replace('known_identities = ["healing"]', 'known_identities = []'))
+        region.write_text(region.read_text().replace('known_identities = ["item.potion.healing"]', 'known_identities = []'))
         manifest = package / "scenario.toml"
-        manifest.write_text(manifest.read_text().replace('characters = [{ id = 1,', 'characters = [{ id = 1, known_identities = ["healing"],'))
+        manifest.write_text(manifest.read_text().replace('characters = [{ id = 1,', 'characters = [{ id = 1, known_identities = ["item.potion.healing"],'))
         subprocess.run([self.bin / "tor-scenario", "validate", package], check=True, capture_output=True, text=True)
         self.server(scenario=package, wizard=True)
         observer, _ = self.client(WIZARD_TOKEN, observe=True, actor=2)

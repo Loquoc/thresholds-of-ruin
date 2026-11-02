@@ -48,7 +48,7 @@ class WanderingPopulationProcesses(ProcessTestCase):
         neighbor["name"] = "fixture neighbor"
         manifest["archetypes"] = {
             "creation": {"name": "creation page", "class": "scroll", "stackable": True,
-                         "identity": "fixture.creation_page",
+                         "identity": "item.scroll.creation-page",
                          "readable": {"control": {"kind": "create_monster"},
                                       "discovery": "never"}},
             "neighbor": {"creature": neighbor},

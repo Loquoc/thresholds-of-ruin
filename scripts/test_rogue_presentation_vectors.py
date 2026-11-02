@@ -35,7 +35,7 @@ def rosters(root):
                 objects.add((form['name'], form.get('asset'), item.get('class', 'misc')))
     for key, kind in pools.items():
         pool = catalog['appearance_pools'][key]
-        objects.update((name, pool.get('asset'), kind) for name in pool['appearances'])
+        objects.update((entry['name'], entry.get('asset'), kind) for entry in pool['appearances'])
     objects = sorted(objects, key=lambda row: (row[0], row[1] is not None, row[1] or '', row[2]))
     # Name/asset tuples are unique here, so Rust enum discriminants cannot affect order.
     assert len({(name, asset) for name, asset, _ in objects}) == len(objects)
@@ -59,10 +59,10 @@ class RoguePresentationVectors(unittest.TestCase):
         self.assertEqual(vectors(PRODUCTION), {
             'creatures': 26, 'objects': 98, 'phases': [
                 {'phase': 0, 'visual': ('emu', 'creature.bird.emu'),
-                 'object': ('gold wand', 'item.wand', 'wand'),
+                 'object': ('gold wand', 'item.wand.gold', 'wand'),
                  'monster_sense': ('snake', 'creature.serpent.snake')},
                 {'phase': 1, 'visual': ('bat', 'creature.bat'),
-                 'object': ('cedar staff', 'item.wand', 'wand'),
+                 'object': ('cedar staff', 'item.wand.staff.cedar', 'wand'),
                  'monster_sense': ('leprechaun', 'creature.fey.leprechaun')} ]})
 
 if __name__ == '__main__':

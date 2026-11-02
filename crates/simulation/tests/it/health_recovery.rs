@@ -65,6 +65,9 @@ fn game(build: CreatureBuild) -> Game {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{region}")
+                    .parse()
+                    .unwrap(),
                 name: format!("subject {region}"),
                 faction: "neutral".into(),
             },
@@ -606,6 +609,7 @@ fn ordinary_portal_crossing_earns_only_its_action_ticks_and_never_heals_at_the_s
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.walker".parse().unwrap(),
             name: "walker".into(),
             faction: "neutral".into(),
         },

@@ -4,4 +4,4 @@ size = [9,5,8]
 chamber = true
 gravity = [0,0,-1]
 anchors = { start = [2,2,6] }
-items = [{ id = 1, at = [2,2,6], name = "copper weight" }]
+items = [{ identity = "item.misc.copper-weight", id = 1, at = [2,2,6], name = "copper weight" }]

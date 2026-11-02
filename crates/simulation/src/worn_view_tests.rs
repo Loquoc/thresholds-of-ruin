@@ -7,8 +7,8 @@ use tor_world::{Position, RegionId, Shared};
 
 const SLOTS: [&str; 5] = ["weapon", "body_armor", "ring", "ring", "weapon"];
 
-fn spec(name: &str, appearance: &str, class: ItemClass, asset: &str) -> ItemSpec {
-    let mut spec = ItemSpec::ordinary(name.into());
+fn spec(identity: &str, name: &str, appearance: &str, class: ItemClass, asset: &str) -> ItemSpec {
+    let mut spec = ItemSpec::ordinary(identity.parse().unwrap(), name.into());
     spec.appearance = appearance.into();
     spec.class = class;
     spec.asset = Some(asset.into());
@@ -74,7 +74,13 @@ fn weapons_and_armour_are_worn_visibly_and_rings_are_not() {
         wearer,
         10,
         4,
-        spec("dagger", "dagger", ItemClass::Weapon, "item.weapon"),
+        spec(
+            "item.test.dagger",
+            "dagger",
+            "dagger",
+            ItemClass::Weapon,
+            "item.weapon",
+        ),
     );
     wear(
         &mut game,
@@ -82,6 +88,7 @@ fn weapons_and_armour_are_worn_visibly_and_rings_are_not() {
         11,
         1,
         spec(
+            "item.test.ring-mail",
             "ring mail",
             "ring mail",
             ItemClass::Armor,
@@ -93,14 +100,26 @@ fn weapons_and_armour_are_worn_visibly_and_rings_are_not() {
         wearer,
         12,
         3,
-        spec("ring of stealth", "jade ring", ItemClass::Ring, "item.ring"),
+        spec(
+            "item.test.ring-of-stealth",
+            "ring of stealth",
+            "jade ring",
+            ItemClass::Ring,
+            "item.ring",
+        ),
     );
     wear(
         &mut game,
         wearer,
         13,
         0,
-        spec("mace", "mace", ItemClass::Weapon, "item.weapon.mace"),
+        spec(
+            "item.test.mace",
+            "mace",
+            "mace",
+            ItemClass::Weapon,
+            "item.weapon.mace",
+        ),
     );
     assert_eq!(
         worn(&game, wearer),
@@ -124,7 +143,13 @@ fn private_item_facts_never_change_the_worn_record() {
         wearer,
         11,
         1,
-        spec("ring mail", "ring mail", ItemClass::Armor, "item.armor"),
+        spec(
+            "item.test.ring-mail",
+            "ring mail",
+            "ring mail",
+            ItemClass::Armor,
+            "item.armor",
+        ),
     );
     let before = game.worn_view(&game.actors[&wearer]);
     // Enchantment, true name and the hidden ring beneath are private.
@@ -136,6 +161,7 @@ fn private_item_facts_never_change_the_worn_record() {
         12,
         2,
         spec(
+            "item.test.ring-of-teleportation",
             "ring of teleportation",
             "opal ring",
             ItemClass::Ring,
@@ -155,6 +181,7 @@ fn private_item_facts_never_change_the_worn_record() {
         14,
         1,
         spec(
+            "item.test.cursed-ring-mail",
             "cursed ring mail",
             "ring mail",
             ItemClass::Armor,
@@ -172,7 +199,13 @@ fn onlookers_and_the_wearer_receive_the_same_worn_record() {
         wearer,
         11,
         1,
-        spec("ring mail", "ring mail", ItemClass::Armor, "item.armor"),
+        spec(
+            "item.test.ring-mail",
+            "ring mail",
+            "ring mail",
+            ItemClass::Armor,
+            "item.armor",
+        ),
     );
     let own = game.observe(wearer).unwrap();
     assert_eq!(own.worn, game.worn_view(&game.actors[&wearer]));

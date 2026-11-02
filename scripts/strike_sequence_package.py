@@ -43,7 +43,7 @@ def sequence_package(test, *, autonomous, natural_source=False, conditional_ride
     manifest = tomllib.loads((package / "scenario.toml").read_text(encoding="utf-8"))
     manifest["id"] = package.name
     if natural_source:
-        manifest["archetypes"]["natural_charge"] = {"name": "natural charge", "identity": "natural_charge",
+        manifest["archetypes"]["natural_charge"] = {"name": "natural charge", "identity": "item.misc.natural-charge",
             "class": "misc", "stackable": True, "supply": "bandage"}
     manifest["factions"] = {"neutral": [], "foe": ["neutral"]}
     manifest["ai_profiles"] = {"sequence": {"care": True, "equipment": True, "loot": True, "flee_percent": 0}}
@@ -61,12 +61,12 @@ def sequence_package(test, *, autonomous, natural_source=False, conditional_ride
             row["riders"] = [copy.deepcopy(inherited)]
     manifest["creatures"] = {"species": {"sequence_fighter": species}}
 
-    def creature(name, faction):
-        return {"species": "sequence_fighter", "name": name, "faction": faction, "binding": "intellect",
+    def creature(name, faction, corpse_identity):
+        return {"species": "sequence_fighter", "name": name, "corpse_identity": corpse_identity, "faction": faction, "binding": "intellect",
                 "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored", "nutrition": {"kind":"exempt"},
                 "hit_dice": [{"source": "racial"}]}
 
-    manifest["characters"][0]["creature"] = creature("Escaper", "neutral")
+    manifest["characters"][0]["creature"] = creature("Escaper", "neutral", "item.corpse.fixture.escaper")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     path = package / "regions/1.toml"
     region = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -74,7 +74,7 @@ def sequence_package(test, *, autonomous, natural_source=False, conditional_ride
                          "quantity": 2, "carried_by": 1}] if natural_source else [])
     sentinel = {"id": 2, "at": [2, 1, 0], "turn_ticks": 150,
                 "controller": "ai" if autonomous else "external",
-                "creature": creature("Sequence sentinel", "foe" if autonomous else "neutral")}
+                "creature": creature("Sequence sentinel", "foe" if autonomous else "neutral", "item.corpse.fixture.sequence-sentinel")}
     if autonomous:
         sentinel["ai"] = "sequence"
     region["actors"] = [sentinel]

@@ -5,7 +5,8 @@ use tor_protocol::ItemClass;
 
 pub const TILE: usize = 96;
 pub const ATLAS: usize = TILE * 4;
-pub const ATLAS_HEIGHT: usize = TILE * 5;
+pub const ATLAS_HEIGHT: usize = TILE * 8;
+const ICON_COUNT: usize = 29;
 
 pub fn icon_index(class: ItemClass, model: ItemModel) -> usize {
     match model {
@@ -20,7 +21,16 @@ pub fn icon_index(class: ItemClass, model: ItemModel) -> usize {
         ItemModel::Bandage => return 17,
         ItemModel::Seal => return 18,
         ItemModel::Tablet => return 19,
-        ItemModel::ShortSword | ItemModel::Greatsword => return 0,
+        ItemModel::ShortSword | ItemModel::LongSword | ItemModel::Greatsword => return 0,
+        ItemModel::Dagger => return 20,
+        ItemModel::Shortbow => return 21,
+        ItemModel::Arrow => return 22,
+        ItemModel::Spear => return 23,
+        ItemModel::Dart => return 24,
+        ItemModel::Shuriken => return 25,
+        ItemModel::Fruit => return 26,
+        ItemModel::Torch => return 27,
+        ItemModel::Staff => return 28,
         ItemModel::LeatherArmor | ItemModel::StuddedLeather => return 1,
         ItemModel::Potion => return 2,
         ItemModel::Ration => return 3,
@@ -194,7 +204,7 @@ pub fn panel_pixels() -> Vec<u8> {
 
 pub fn atlas_pixels() -> Vec<u8> {
     let mut atlas = vec![0; ATLAS * ATLAS_HEIGHT * 4];
-    for index in 0..20 {
+    for index in 0..ICON_COUNT {
         let mut p = Paint::new(TILE);
         match index {
             0 => {
@@ -351,8 +361,15 @@ pub fn atlas_pixels() -> Vec<u8> {
                     7.,
                     [149, 100, 54, 255],
                 );
-                p.circle(72., 18., 9., [158, 183, 216, 255]);
-                p.circle(70., 16., 4., [237, 239, 240, 255]);
+                p.line(
+                    Vec2::new(63., 30.),
+                    Vec2::new(74., 16.),
+                    8.,
+                    [222, 211, 178, 255],
+                );
+                p.line(Vec2::new(25., 74.), Vec2::new(32., 79.), 4., BRASS);
+                p.line(Vec2::new(40., 54.), Vec2::new(47., 59.), 4., BRASS);
+                p.line(Vec2::new(60., 27.), Vec2::new(67., 32.), 4., BRASS);
             }
             11 => {
                 for (x, y) in [(31., 65.), (61., 65.), (48., 44.)] {
@@ -480,6 +497,169 @@ pub fn atlas_pixels() -> Vec<u8> {
                     p.line(Vec2::new(36., y), Vec2::new(59., y), 3., SHADE);
                 }
             }
+            20 => {
+                p.poly(&[[64., 20.], [70., 44.], [48., 66.], [34., 53.]], SHADE);
+                p.poly(&[[64., 20.], [58., 47.], [40., 59.], [34., 53.]], STEEL);
+                p.line(Vec2::new(28., 51.), Vec2::new(51., 72.), 5., BRASS);
+                p.line(
+                    Vec2::new(37., 64.),
+                    Vec2::new(24., 80.),
+                    8.,
+                    [108, 65, 32, 255],
+                );
+                p.circle(23., 81., 4., BRASS);
+            }
+            21 => {
+                let mut last = Vec2::new(31., 14.);
+                for i in 1..=24 {
+                    let a = i as f32 / 24. * std::f32::consts::PI;
+                    let next = Vec2::new(31. + 36. * a.sin(), 14. + 68. * i as f32 / 24.);
+                    p.line(last, next, 7., [161, 109, 56, 255]);
+                    last = next;
+                }
+                p.line(Vec2::new(31., 14.), Vec2::new(31., 82.), 2., LIGHT);
+                p.line(
+                    Vec2::new(64., 41.),
+                    Vec2::new(64., 55.),
+                    8.,
+                    [70, 43, 27, 255],
+                );
+            }
+            22..=24 => {
+                let (tail, tip, width) = if index == 24 {
+                    (Vec2::new(28., 73.), Vec2::new(67., 30.), 5.)
+                } else {
+                    (Vec2::new(18., 83.), Vec2::new(69., 25.), 4.)
+                };
+                p.line(tail, tip, width, [162, 117, 69, 255]);
+                if index == 23 {
+                    p.poly(&[[80., 10.], [78., 33.], [61., 36.], [61., 20.]], STEEL);
+                    p.line(Vec2::new(65., 29.), Vec2::new(57., 39.), 6., BRASS);
+                } else {
+                    p.poly(&[[78., 17.], [71., 37.], [60., 28.]], STEEL);
+                    p.poly(
+                        &[[19., 63.], [28., 69.], [43., 54.], [33., 53.]],
+                        [216, 210, 184, 255],
+                    );
+                    p.poly(
+                        &[[29., 81.], [28., 69.], [43., 54.], [45., 65.]],
+                        [151, 158, 151, 255],
+                    );
+                    if index == 24 {
+                        p.line(Vec2::new(31., 65.), Vec2::new(42., 55.), 8., BRASS);
+                    }
+                }
+            }
+            25 => {
+                p.poly(
+                    &[
+                        [48., 12.],
+                        [57., 37.],
+                        [84., 48.],
+                        [58., 57.],
+                        [48., 84.],
+                        [39., 58.],
+                        [12., 48.],
+                        [37., 39.],
+                    ],
+                    SHADE,
+                );
+                p.poly(
+                    &[
+                        [48., 12.],
+                        [48., 48.],
+                        [84., 48.],
+                        [58., 57.],
+                        [48., 84.],
+                        [48., 48.],
+                        [12., 48.],
+                        [37., 39.],
+                    ],
+                    STEEL,
+                );
+                p.circle(48., 48., 10., BRASS);
+                p.circle(48., 48., 5., [31, 30, 25, 255]);
+            }
+            26 => {
+                p.circle(37., 56., 23., [164, 48, 25, 255]);
+                p.circle(56., 55., 24., [190, 65, 30, 255]);
+                p.line(
+                    Vec2::new(46., 36.),
+                    Vec2::new(52., 17.),
+                    6.,
+                    [97, 62, 31, 255],
+                );
+                p.poly(
+                    &[[51., 28.], [62., 15.], [79., 19.], [66., 32.]],
+                    [90, 130, 48, 255],
+                );
+                p.line(
+                    Vec2::new(25., 45.),
+                    Vec2::new(22., 56.),
+                    3.,
+                    [230, 139, 86, 255],
+                );
+            }
+            27 => {
+                // An unlit wrapped torch, not a claim about current flame state.
+                p.line(
+                    Vec2::new(24., 82.),
+                    Vec2::new(66., 25.),
+                    10.,
+                    [137, 90, 45, 255],
+                );
+                p.poly(
+                    &[[50., 18.], [68., 10.], [84., 24.], [67., 47.], [48., 35.]],
+                    [171, 142, 95, 255],
+                );
+                for y in [22., 29., 36.] {
+                    p.line(
+                        Vec2::new(51., y),
+                        Vec2::new(73., y + 5.),
+                        4.,
+                        [103, 83, 55, 255],
+                    );
+                }
+                p.line(
+                    Vec2::new(61., 13.),
+                    Vec2::new(79., 24.),
+                    8.,
+                    [48, 40, 32, 255],
+                );
+            }
+            28 => {
+                p.line(
+                    Vec2::new(25., 84.),
+                    Vec2::new(63., 29.),
+                    8.,
+                    [146, 102, 58, 255],
+                );
+                p.line(
+                    Vec2::new(63., 29.),
+                    Vec2::new(74., 20.),
+                    10.,
+                    [146, 102, 58, 255],
+                );
+                p.line(
+                    Vec2::new(74., 20.),
+                    Vec2::new(79., 29.),
+                    9.,
+                    [146, 102, 58, 255],
+                );
+                p.line(
+                    Vec2::new(79., 29.),
+                    Vec2::new(74., 36.),
+                    7.,
+                    [146, 102, 58, 255],
+                );
+                p.line(
+                    Vec2::new(41., 58.),
+                    Vec2::new(51., 44.),
+                    10.,
+                    [74, 47, 28, 255],
+                );
+                p.circle(25., 84., 5., STEEL);
+            }
             _ => {
                 p.poly(&[[48., 17.], [78., 48.], [48., 79.], [18., 48.]], BRASS);
                 p.poly(
@@ -496,4 +676,57 @@ pub fn atlas_pixels() -> Vec<u8> {
         }
     }
     atlas
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rogue_public_forms_have_bounded_distinct_visible_inventory_symbols() {
+        let atlas = atlas_pixels();
+        let mut rendered = Vec::new();
+        for model in [
+            ItemModel::Dagger,
+            ItemModel::Shortbow,
+            ItemModel::Arrow,
+            ItemModel::Spear,
+            ItemModel::Dart,
+            ItemModel::Shuriken,
+            ItemModel::Fruit,
+            ItemModel::Torch,
+            ItemModel::Staff,
+        ] {
+            let rect = icon_rect(ItemClass::Misc, model);
+            assert!(rect.min.cmpge(Vec2::ZERO).all());
+            assert!(rect
+                .max
+                .cmple(Vec2::new(ATLAS as f32, ATLAS_HEIGHT as f32))
+                .all());
+            let mut bytes = Vec::new();
+            for y in rect.min.y as usize..rect.max.y as usize {
+                let start = (y * ATLAS + rect.min.x as usize) * 4;
+                bytes.extend_from_slice(&atlas[start..start + TILE * 4]);
+            }
+            assert!(
+                bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|p| p[3] != 0)
+                    .count()
+                    > 300,
+                "{model:?}"
+            );
+            assert!(
+                !rendered.contains(&bytes),
+                "{model:?} aliases another physical form"
+            );
+            rendered.push(bytes);
+        }
+        assert_ne!(
+            icon_index(ItemClass::Weapon, ItemModel::Dagger),
+            icon_index(ItemClass::Weapon, ItemModel::LongSword)
+        );
+        assert_eq!(atlas.len(), ATLAS * ATLAS_HEIGHT * 4);
+    }
 }

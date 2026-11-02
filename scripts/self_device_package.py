@@ -18,7 +18,7 @@ def prepare(test, *, peer=False, condition=False, discovery="never"):
     test.assertEqual(manifest["creatures"]["species"]["figure"]["attributes"]["speed"], 0)
     device = manifest["archetypes"]["ember"]
     device["name"] = "wand of self condition" if condition else "wand of nothing"
-    device["identity"] = "fixture.self_condition" if condition else "fixture.nothing"
+    device["identity"] = "item.wand.self-condition" if condition else "item.wand.nothing"
     device["device"]["discovery"] = discovery
     manifest_path.write_text(toml_source(manifest), encoding="utf-8")
     rules_path = package / "rules.toml"

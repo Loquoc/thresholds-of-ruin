@@ -22,7 +22,7 @@ class FloorActivationProcess(ProcessTestCase):
         # the product receiving the playable starter and population.
         with (package / "scenario.toml").open("w", encoding="utf-8") as output:
             output.write('''
-format = 36
+format = 37
 id = "floor-activation"
 version = "1.0"
 ruleset = "rules.toml"
@@ -52,8 +52,10 @@ recipe = "exploration"
 kind = "open"
 max_depth = 1000000
 [archetypes.marker]
+identity = "item.misc.fixture.activation-marker"
 name = "activation marker"
 [archetypes.alternate]
+identity = "item.misc.fixture.alternate-activation-marker"
 name = "alternate activation marker"
 [floor_activation]
 version = 1

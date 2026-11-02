@@ -23,7 +23,10 @@ fn fixture() -> (Game, ActorId, ActorId, ItemId, ItemId) {
             NonZeroU64::new(100).unwrap(),
         )
         .unwrap();
-    let mut spec = ItemSpec::ordinary("homogeneous units".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.homogeneous-units".parse().unwrap(),
+        "homogeneous units".into(),
+    );
     spec.stackable = true;
     let source = game
         .place_item_stack(100, at, Some(owner), 3, spec.clone())

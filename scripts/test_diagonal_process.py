@@ -31,7 +31,7 @@ class DiagonalProcesses(ProcessTestCase):
         self.frame(window, lambda f: f.get("note") is None)
         key("Escape", False)
         watched = self.request(observer, {"type":"snapshot"})
-        self.assertDisclosedStateEqual(watched["state"], current["state"])
+        self.assertSpectatorStateEqual(watched["state"], current["state"])
         self.flush_save()
         before = self.save.read_bytes()
         denied = self.act(observer, {"type":"move","direction":"north_east"})
@@ -40,7 +40,7 @@ class DiagonalProcesses(ProcessTestCase):
         window.stop(); observer.stop(); server.stop()
         self.server()
         _, resumed = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(resumed["state"],current["state"])
+        self.assertSpectatorStateEqual(resumed["state"],current["state"])
         self.assertEqual(inspect_save(self.save)["ruleset"],"interactions-v57")
 
     def test_diagonal_doors_corner_travel_and_rewind(self):

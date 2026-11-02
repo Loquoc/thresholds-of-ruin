@@ -56,7 +56,10 @@ pub(super) fn retrieval_game() -> Game {
         })
         .unwrap();
     }
-    let mut item = ItemSpec::ordinary("Amulet of Yendor".into());
+    let mut item = ItemSpec::ordinary(
+        "item.test.amulet-of-yendor".parse().unwrap(),
+        "Amulet of Yendor".into(),
+    );
     item.class = ItemClass::Amulet;
     game.configure_unique_retrieval(UniqueRetrievalPolicy {
         version: RETRIEVAL_VERSION,
@@ -149,9 +152,12 @@ fn initial_deep_entry_is_once_only_and_observation_does_nothing() {
 #[test]
 fn intentional_surface_up_requires_exact_item_and_never_wins_by_position() {
     let mut game = retrieval_game();
-    let mut decoy = ItemSpec::ordinary("Amulet of Yendor".into());
+    let mut decoy = ItemSpec::ordinary(
+        "item.test.amulet-of-yendor".parse().unwrap(),
+        "Amulet of Yendor".into(),
+    );
     decoy.class = ItemClass::Amulet;
-    decoy.identity = "decoy".into();
+    decoy.identity = "item.test.decoy".parse().unwrap();
     decoy.archetype = "decoy".into();
     let id = game.spawn_item_stack(at(1, 1, 1), None, 1, decoy).unwrap();
     game.act(
@@ -245,8 +251,16 @@ fn singleton_entrant_pile_and_same_cell_are_valid_placements() {
             }
         }
     }
-    game.spawn_item_stack(arrival, None, 1, ItemSpec::ordinary("ordinary pile".into()))
-        .unwrap();
+    game.spawn_item_stack(
+        arrival,
+        None,
+        1,
+        ItemSpec::ordinary(
+            "item.test.ordinary-pile".parse().unwrap(),
+            "ordinary pile".into(),
+        ),
+    )
+    .unwrap();
     game.teleport(ActorId(1), arrival).unwrap();
     let item = game.unique_retrieval_state().unwrap().item.unwrap();
     assert_eq!(game.items[&item].location, ItemLocation::Ground(arrival));
@@ -350,7 +364,12 @@ fn physical_entry_relocates_before_finishing_the_original_tick_cohort() {
     game.set_actor_velocity(mover, [crate::physics::TERMINAL, 0, 0])
         .unwrap();
     let loose = game
-        .spawn_item_stack(at(1, 2, 0), None, 1, ItemSpec::ordinary("loose".into()))
+        .spawn_item_stack(
+            at(1, 2, 0),
+            None,
+            1,
+            ItemSpec::ordinary("item.test.loose".parse().unwrap(), "loose".into()),
+        )
         .unwrap();
     game.items
         .edit(loose, |item| {
@@ -1082,6 +1101,7 @@ fn host_teleport_preserves_an_entry_from_cancel_released_preload_continuation() 
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                 name: "subject".into(),
                 faction: "neutral".into(),
             },
@@ -1316,10 +1336,14 @@ fn accepted_terminal_up_stops_scheduled_attack_recovery_and_hunger_work() {
     let enemy = game
         .spawn_actor(at(1, 2, 1), NonZeroU64::new(100).unwrap())
         .unwrap();
-    for (actor, faction) in [(ActorId(1), "player"), (enemy, "enemy")] {
+    for (actor, faction, corpse_identity) in [
+        (ActorId(1), "player", "item.corpse.test.player"),
+        (enemy, "enemy", "item.corpse.test.enemy"),
+    ] {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: corpse_identity.parse().unwrap(),
                 name: faction.into(),
                 faction: faction.into(),
             },

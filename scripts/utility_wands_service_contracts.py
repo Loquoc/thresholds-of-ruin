@@ -116,7 +116,7 @@ class UtilityWandsServiceContracts(UtilityServiceHarness):
             for rows in streams.values():
                 self.assertFalse(any(row["type"] == "combat_diagnostics" for row in rows))
                 encoded = json.dumps(rows, sort_keys=True)
-                for hidden in ("rogue.wand_invisibility", "Wand of Invisibility", "wand of invisibility", "staff of invisibility"):
+                for hidden in ("rogue.wand_invisibility", "item.wand.wand-invisibility", "Wand of Invisibility", "wand of invisibility", "staff of invisibility"):
                     self.assertNotIn(hidden, encoded,
                                      "Snapshots, updates, history and denied previews must keep the source private")
 

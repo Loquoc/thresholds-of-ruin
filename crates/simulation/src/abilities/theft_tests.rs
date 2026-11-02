@@ -18,8 +18,8 @@ fn at(region: u64, x: i32) -> Location {
     }
 }
 
-fn gold(name: &str) -> ItemSpec {
-    let mut spec = ItemSpec::ordinary(name.into());
+fn gold(identity: &str, name: &str) -> ItemSpec {
+    let mut spec = ItemSpec::ordinary(identity.parse().unwrap(), name.into());
     spec.class = crate::ItemClass::Coin;
     spec.currency = Some(CurrencyKind::Gold);
     spec.stackable = true;
@@ -200,8 +200,14 @@ fn paid_theft_relocation_preserves_destination_trap_rng_after_selection() {
             configure_population(game);
             register_floor(game, 7, &[1], vec![at(1, 1), at(1, 2), at(1, 3), at(1, 4)]);
             game.activate_initial_floor().unwrap();
-            game.place_item_stack(10, at(1, 2), Some(ActorId(2)), 2, gold("gold"))
-                .unwrap();
+            game.place_item_stack(
+                10,
+                at(1, 2),
+                Some(ActorId(2)),
+                2,
+                gold("item.test.gold", "gold"),
+            )
+            .unwrap();
         },
     );
     let mut trapped = clear.clone();
@@ -276,16 +282,28 @@ fn paid_theft_relocation_preserves_destination_trap_rng_after_selection() {
 fn late_fragment_overflow_rolls_back_the_public_paid_action_and_rng() {
     let (mut game, intention) =
         theft_game(&[0], QuantityExpr::Fixed { quantity: 4 }, false, |game| {
-            game.place_item_stack(10, at(1, 2), Some(ActorId(2)), 2, gold("first gold"))
-                .unwrap();
-            game.place_item_stack(11, at(1, 2), Some(ActorId(2)), 2, gold("second gold"))
-                .unwrap();
+            game.place_item_stack(
+                10,
+                at(1, 2),
+                Some(ActorId(2)),
+                2,
+                gold("item.test.first-gold", "first gold"),
+            )
+            .unwrap();
+            game.place_item_stack(
+                11,
+                at(1, 2),
+                Some(ActorId(2)),
+                2,
+                gold("item.test.second-gold", "second gold"),
+            )
+            .unwrap();
             game.place_item_stack(
                 12,
                 at(1, 1),
                 Some(ActorId(1)),
                 u64::MAX,
-                gold("second gold"),
+                gold("item.test.second-gold", "second gold"),
             )
             .unwrap();
         });
@@ -333,8 +351,14 @@ fn equal_offset_theft_freezes_the_paid_tail_until_destination_thaws() {
             configure_population(game);
             register_floor(game, 7, &[1, 2], vec![at(1, 1), at(1, 2), at(2, 1)]);
             game.activate_initial_floor().unwrap();
-            game.place_item_stack(10, at(1, 2), Some(ActorId(2)), 2, gold("gold"))
-                .unwrap();
+            game.place_item_stack(
+                10,
+                at(1, 2),
+                Some(ActorId(2)),
+                2,
+                gold("item.test.gold", "gold"),
+            )
+            .unwrap();
             game.transition_regions(
                 &RegionTransition {
                     active: [RegionId(1)].into(),
@@ -613,8 +637,14 @@ fn tr3_flag_gain_or_loss_does_not_rewrite_prepared_optional_relocation() {
                         .unwrap();
                 }
                 game.rebuild_creature(ActorId(1), build).unwrap();
-                game.place_item_stack(10, at(1, 2), Some(ActorId(2)), 2, gold("gold"))
-                    .unwrap();
+                game.place_item_stack(
+                    10,
+                    at(1, 2),
+                    Some(ActorId(2)),
+                    2,
+                    gold("item.test.gold", "gold"),
+                )
+                .unwrap();
             },
         );
         let original = game.preparation(ActorId(1)).unwrap().plan.clone();

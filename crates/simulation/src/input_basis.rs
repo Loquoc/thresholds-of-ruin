@@ -142,7 +142,10 @@ mod tests {
             holds: vec![],
             location: ItemLocation::Carried(owner),
             quantity: 1,
-            spec: Shared::new(ItemSpec::ordinary("weight".into())),
+            spec: Shared::new(ItemSpec::ordinary(
+                "item.test.weight".parse().unwrap(),
+                "weight".into(),
+            )),
             motion: MotionState::default(),
             orientation: 0,
         }
@@ -187,7 +190,9 @@ mod tests {
         game.items
             .edit(ItemId(10), |item| {
                 item.spec.name = "undisclosed replacement name".into();
-                item.spec.identity = "undisclosed replacement identity".into();
+                item.spec.identity = "item.test.undisclosed-replacement-identity"
+                    .parse()
+                    .unwrap();
                 item.spec.asset = Some("other-art".into());
             })
             .unwrap();

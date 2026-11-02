@@ -963,7 +963,10 @@ mod tests {
             position: Position { x: 1, y: 1, z: 0 },
         };
         let actor = game.spawn_actor(at, NonZeroU64::new(1).unwrap()).unwrap();
-        let mut spec = crate::ItemSpec::ordinary("split supplies".into());
+        let mut spec = crate::ItemSpec::ordinary(
+            "item.test.split-supplies".parse().unwrap(),
+            "split supplies".into(),
+        );
         spec.stackable = true;
         let source = game.place_item_stack(10, at, None, 2, spec).unwrap();
         (game, actor, source)
@@ -1019,7 +1022,8 @@ mod tests {
             NonZeroU64::new(1).unwrap(),
         )
         .unwrap();
-        let mut spec = crate::ItemSpec::ordinary("bandage".into());
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         spec.stackable = true;
         spec.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
         let destination = game
@@ -1064,7 +1068,8 @@ mod tests {
             "neutral",
             crate::test_creatures::species(),
         );
-        let mut spec = crate::ItemSpec::ordinary("bandage".into());
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.bandage".parse().unwrap(), "bandage".into());
         spec.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
         let item = game.place_item_stack(10, at, Some(actor), 1, spec).unwrap();
         game.spawn_actor(

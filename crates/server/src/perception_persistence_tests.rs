@@ -315,10 +315,12 @@ fn assert_mundane_and_apparent_mace_rows(engine: &Engine) {
             ordinary_id, apparent_id,
             "item and apparent-object target domains differ"
         );
-        assert_eq!(
-            ordinary, apparent,
-            "without prior item knowledge, complete ground rows differ only in opaque target tokens"
-        );
+        assert_eq!(ordinary["item"]["identity"], "item.weapon.mace");
+        assert_eq!(apparent["item"]["identity"], "item.unknown");
+        ordinary["item"].as_object_mut().unwrap().remove("identity");
+        apparent["item"].as_object_mut().unwrap().remove("identity");
+        assert_eq!(ordinary, apparent,
+            "display rows differ only in opaque targets and explicitly known versus unknown semantic identity");
     }
 }
 

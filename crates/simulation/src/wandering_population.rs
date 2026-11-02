@@ -945,6 +945,7 @@ mod tests {
             &crate::test_creatures::build(crate::test_creatures::species()),
         ));
         definition.identity = Some(crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.wanderer".parse().unwrap(),
             name: "wanderer".into(),
             faction: "hostile".into(),
         });

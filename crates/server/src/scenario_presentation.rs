@@ -104,9 +104,8 @@ fn preflight(manifest: &Manifest) -> Result<Layout<'_>, Failure> {
     }
     for (_, pool, _) in &pools {
         object_rows = add(object_rows, pool.appearances.len())?;
-        text_bytes = add(text_bytes, pool.asset.as_deref().map_or(0, str::len))?;
-        for name in &pool.appearances {
-            text_bytes = add(text_bytes, name.len())?;
+        for entry in &pool.appearances {
+            text_bytes = add(text_bytes, text_size(&entry.name, entry.asset.as_deref())?)?;
         }
     }
     // Core adds one neutral Misc if there are no item rows, and always Stairs.
@@ -157,11 +156,10 @@ pub(super) fn compile(manifest: &Manifest) -> Result<Arc<PresentationCatalog>, F
         }
     }
     for (_, pool, class) in layout.pools {
-        let asset: Option<Arc<str>> = pool.asset.as_deref().map(Arc::from);
-        for name in &pool.appearances {
+        for entry in &pool.appearances {
             objects.push(ObjectPresentation {
-                name: Arc::from(name.as_str()),
-                asset: asset.clone(),
+                name: Arc::from(entry.name.as_str()),
+                asset: entry.asset.as_deref().map(Arc::from),
                 kind: ObjectPresentationKind::Item {
                     class: class.into(),
                 },
@@ -175,7 +173,7 @@ pub(super) fn compile(manifest: &Manifest) -> Result<Arc<PresentationCatalog>, F
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scenario_package::{read_package, AppearancePool, Package};
+    use crate::scenario_package::{read_package, AppearanceEntry, AppearancePool, Package};
     fn manifest() -> Manifest {
         let mut value: Manifest =
             toml::from_str(include_str!("../../../scenarios/two-room/scenario.toml")).unwrap();
@@ -183,9 +181,10 @@ mod tests {
         value.appearance_pools.clear();
         value
     }
-    fn pooled(pool: &str) -> Archetype {
+    fn pooled(pool: &str, identity: &str) -> Archetype {
         Archetype {
             name: Some("SECRET IDENTITY MUST NOT ENTER PALETTE".into()),
+            identity: Some(identity.parse().unwrap()),
             appearance_pool: Some(pool.into()),
             class: ItemClass::Potion,
             ..Default::default()
@@ -229,21 +228,36 @@ mod tests {
             source.appearance_pools.insert(
                 prefix.into(),
                 AppearancePool {
-                    appearances: (0..4096).map(|index| format!("{prefix} {index}")).collect(),
-                    asset: Some("item.potion".into()),
+                    appearances: (0..4096)
+                        .map(|index| AppearanceEntry {
+                            name: format!("{prefix} {index}"),
+                            asset: Some("item.potion".into()),
+                        })
+                        .collect(),
                     confounding: false,
                 },
             );
-            source.archetypes.insert(prefix.into(), pooled(prefix));
+            source.archetypes.insert(
+                prefix.into(),
+                pooled(
+                    prefix,
+                    match prefix {
+                        "amber" => "item.potion.fixture-amber",
+                        "violet" => "item.potion.fixture-violet",
+                        _ => unreachable!(),
+                    },
+                ),
+            );
         }
         let package = checked_package(source.clone());
         let plan = preflight(&package.manifest).unwrap();
         assert_eq!(plan.object_rows, 8193);
         assert_eq!(plan.pools.len(), 2);
         let before = compile(&source).unwrap();
-        source
-            .archetypes
-            .insert("duplicate alias".into(), pooled("amber"));
+        source.archetypes.insert(
+            "duplicate alias".into(),
+            pooled("amber", "item.potion.fixture-duplicate-alias"),
+        );
         let aliased = preflight(&source).unwrap();
         assert_eq!(aliased.object_rows, plan.object_rows);
         assert_eq!(aliased.text_bytes, plan.text_bytes);

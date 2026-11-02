@@ -4,21 +4,21 @@ namespace = "rogue"
 [items."rogue.mace"]
 asset = "item.weapon.mace"
 name = "mace"
-identity = "rogue.mace"
+identity = "item.weapon.mace"
 class = "weapon"
 equipment = { slot = "weapon", attack = { skill = "heavy_weaponry", bonus = 1, wind_up = 60, recovery = 40, damage = { primary = { category = "impact", sides = 4 }, components = [{ category = "impact", amount = { type = "rolled", count = 2, sides = 4, bonus = 1 } }] } }, modifiers = [] }
 
 [items."rogue.ring_mail"]
 asset = "item.armor.mail"
 name = "ring mail"
-identity = "rogue.ring_mail"
+identity = "item.armor.ring-mail"
 class = "armor"
 equipment = { slot = "body_armor", armor = { physical_reduction = 2, material = "metal", rustproof = false }, modifiers = [] }
 
 [items."rogue.clean_bandage"]
 asset = "item.bandage"
 name = "clean bandage"
-identity = "rogue.clean_bandage"
+identity = "item.misc.clean-bandage"
 class = "misc"
 stackable = true
 supply = "bandage"
@@ -26,7 +26,7 @@ supply = "bandage"
 [items."rogue.ration"]
 asset = "item.food.ration"
 name = "food ration"
-identity = "rogue.ration"
+identity = "item.food.ration"
 class = "food"
 stackable = true
 supply = "ration"

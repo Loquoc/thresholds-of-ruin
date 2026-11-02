@@ -39,7 +39,7 @@ fn source(root: &Path, blocked: bool) -> crate::Scenario {
     .unwrap();
     let mut manifest = serde_json::to_value(&source.manifest).unwrap();
     manifest["archetypes"]["ember"]["name"] = json!("wand of polymorph");
-    manifest["archetypes"]["ember"]["identity"] = json!("fixture.polymorph");
+    manifest["archetypes"]["ember"]["identity"] = json!("item.wand.polymorph");
     manifest["archetypes"]["ember"]["device"]["discovery"] = json!("discernible_effect");
     let mut changed = manifest["creatures"]["species"]["figure"].clone();
     changed["attributes"] =

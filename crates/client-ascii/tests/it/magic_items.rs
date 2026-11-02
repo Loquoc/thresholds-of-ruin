@@ -22,6 +22,8 @@ fn snapshot(identify: bool) -> Snapshot {
         class,
         appearance: "unknown".into(),
         identified: false,
+        identity: class.unknown_identity(),
+        knowledge: Default::default(),
         quantity: 1,
         description: String::new(),
         corpse: None,
@@ -129,6 +131,14 @@ fn zap_selects_device_before_direction_and_never_infers_charge_eligibility() {
     let mut app = self::app(false);
     let mut snapshot = app.state.as_ref().unwrap().reset_snapshot().unwrap();
     Arc::make_mut(&mut snapshot.state).observation.inventory[2].identified = true;
+    Arc::make_mut(&mut snapshot.state).observation.inventory[2].identity = format!(
+        "{}.fixture",
+        Arc::make_mut(&mut snapshot.state).observation.inventory[2]
+            .class
+            .identity_family()
+    )
+    .parse()
+    .unwrap();
     Arc::make_mut(&mut snapshot.state)
         .observation
         .interactions
@@ -330,6 +340,14 @@ fn inventory_displays_only_disclosed_exact_instance_charges_and_modal_renders() 
     let mut app = self::app(false);
     let mut known = snapshot(false);
     Arc::make_mut(&mut known.state).observation.inventory[2].identified = true;
+    Arc::make_mut(&mut known.state).observation.inventory[2].identity = format!(
+        "{}.fixture",
+        Arc::make_mut(&mut known.state).observation.inventory[2]
+            .class
+            .identity_family()
+    )
+    .parse()
+    .unwrap();
     Arc::make_mut(&mut known.state)
         .observation
         .interactions
@@ -440,6 +458,9 @@ fn identified_self_device_selection_emits_without_direction_modal() {
     let mut snap = snapshot(false);
     let view = &mut Arc::make_mut(&mut snap.state).observation;
     view.inventory[1].identified = true;
+    view.inventory[1].identity = format!("{}.fixture", view.inventory[1].class.identity_family())
+        .parse()
+        .unwrap();
     view.interactions.as_mut().unwrap().inventory[1].device_activation =
         Some(DeviceActivation::SelfTarget);
     let state = ClientState::from_snapshot(snap).expect("valid disclosed self device premise");
@@ -506,6 +527,9 @@ fn dual_device_direction_prompt_offers_explicit_self_without_defaulting_to_it() 
     let mut snap = snapshot(false);
     let view = &mut Arc::make_mut(&mut snap.state).observation;
     view.inventory[1].identified = true;
+    view.inventory[1].identity = format!("{}.fixture", view.inventory[1].class.identity_family())
+        .parse()
+        .unwrap();
     view.interactions.as_mut().unwrap().inventory[1].device_activation =
         Some(DeviceActivation::DirectionOrSelf);
     let state = ClientState::from_snapshot(snap).expect("valid dual aim premise");
@@ -604,6 +628,7 @@ fn equipment_keys_filter_public_classes_and_reuse_exact_equip_remove_actions() {
             .map(|(index, class)| ItemView {
                 id: super::item_target(index as u64 + 10),
                 class,
+                identity: class.unknown_identity(),
                 name: format!("fixture item {index}"),
                 ..prototype.clone()
             })

@@ -43,7 +43,7 @@ class StreamRecoveryFixture:
         relay.gate.set()
         if kind == 'ascii':
             caught_up = self.ascii_frame(slow, lambda f: f['state']['observation']['tick'] == '400')
-            self.assertDisclosedStateEqual(caught_up['state'], final['state'])
+            self.assertSpectatorStateEqual(caught_up['state'], final['state'])
             self.assertEqual(caught_up['history'], final['history'])
             actions = [entry for entry in caught_up['history']
                        if entry['content']['type'] == 'action']
@@ -81,7 +81,7 @@ class StreamRecoveryFixture:
 
         replacement, initial = self.playable(kind, self.address)
         if kind == 'ascii':
-            self.assertDisclosedStateEqual(initial['state'], final['state'])
+            self.assertSpectatorStateEqual(initial['state'], final['state'])
             self.assertEqual(initial['history'], final['history'])
             self.assertFalse(initial['has_control'])
             self.assertEqual(initial['narration'], [])
@@ -126,8 +126,8 @@ class StreamRecoveryFixture:
     def assert_recovered(self, kind, client, final):
         if kind == 'ascii':
             recovered = self.ascii_frame(client, lambda f:
-                f['connected'] and f['state']['observation'] == final['state']['observation'] and f['history'] == final['history'])
-            self.assertDisclosedStateEqual(recovered['state'], final['state'])
+                f['connected'] and f['state']['observation'] == self.spectatorObservation(final['state']['observation']) and f['history'] == final['history'])
+            self.assertSpectatorStateEqual(recovered['state'], final['state'])
             self.assertFalse(recovered['has_control'])
         else:
             client.until(lambda line: line == '> ')
@@ -159,8 +159,8 @@ class StreamRecoveryFixture:
         final = self.act(player, {'type': 'move', 'direction': 'west'})
         self.assertIsNone(final['error'])
         if kind == 'ascii':
-            continued = self.ascii_frame(spectator, lambda f: f['state']['observation'] == final['state']['observation'])
-            self.assertDisclosedStateEqual(continued['state'], final['state'])
+            continued = self.ascii_frame(spectator, lambda f: f['state']['observation'] == self.spectatorObservation(final['state']['observation']))
+            self.assertSpectatorStateEqual(continued['state'], final['state'])
             self.assertEqual(continued['history'], final['history'])
             self.assertTrue(continued['connected'])
         else:
@@ -171,7 +171,7 @@ class StreamRecoveryFixture:
         spectator.stop()
         replacement, recovered = self.playable(kind, self.address)
         if kind == 'ascii':
-            self.assertDisclosedStateEqual(recovered['state'], final['state'])
+            self.assertSpectatorStateEqual(recovered['state'], final['state'])
             self.assertEqual(recovered['history'], final['history'])
         else:
             replacement.child.stdin.write('history\n')
@@ -207,7 +207,7 @@ class StreamRecoveryProcesses(StreamRecoveryFixture, ProcessTestCase):
         self.assertDisclosedStateEqual(reset["state"], initial["state"])
         self.assertEqual([entry["content"]["text"] for entry in reset["history"]], notes)
         spectator, observed = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(observed["state"], reset["state"])
+        self.assertSpectatorStateEqual(observed["state"], reset["state"])
         self.assertEqual(observed["history"], reset["history"])
         self.flush_save()
         player.stop()
@@ -273,7 +273,7 @@ class StreamRecoveryProcesses(StreamRecoveryFixture, ProcessTestCase):
         self.assertEqual(relay.attachments, 1)
         self.assertFalse(relay.errors)
         replacement, recovered = self.client(SPECTATOR_TOKEN, observe=True)
-        self.assertDisclosedStateEqual(recovered['state'], final['state'])
+        self.assertSpectatorStateEqual(recovered['state'], final['state'])
         self.assertGreater(int(recovered['state']['observation']['tick']),
                            int(initial['state']['observation']['tick']))
         self.assertIsNone(self.act(player, {'type': 'move', 'direction': 'east'})['error'])

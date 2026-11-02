@@ -73,6 +73,7 @@ fn game(state: CreatureState) -> Game {
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.growth-subject".parse().unwrap(),
             name: "growth subject".into(),
             faction: "neutral".into(),
         },

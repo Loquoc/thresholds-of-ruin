@@ -27,7 +27,7 @@ class WizardCreatureSpawnProcesses(ProcessTestCase):
             "disposition": "passive", "idle": "wait", "memory_ticks": 1000}
         source["ai_profiles"]["idle"] = {
             "care": False, "equipment": False, "loot": False, "flee_percent": 0}
-        source["archetypes"]["tonic"] = {"name": "birth tonic", "class": "potion", "stackable": True,
+        source["archetypes"]["tonic"] = {"identity": "item.potion.birth-tonic", "name": "birth tonic", "class": "potion", "stackable": True,
             "consumable": {"effects": [{"kind": "heal", "amount": {"kind": "fixed", "amount": 1}}]}}
         source["floor_activation"] = {"version": 1, "protagonist": 1, "families": {},
             "carried_item_pools": {"supplies": {"version": 1, "choices": [
