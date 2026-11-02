@@ -3203,3 +3203,16 @@ the two hit-die process cases and adjacent paid-preparation restart case also
 passed. The unchanged original passed locally, so this is a CI-evidenced race
 with a deterministic driver regression, not a claim of a locally reproduced
 scheduler failure or a gameplay defect.
+
+The subsequent CI run exposed an omission in that repair's affected-test
+selection: the separate wizard-socket ordering driver called the changed helper
+but still expected its removed initial Observe request. Both ordering-test
+methods failed (four ability/order subcases plus the rejected-sync case), not
+five independent defects. The local first-red reproduced those exact stale fake
+expectations. The fake now exercises the real ability-start barrier, rejecting
+early Ready and old snapshot frames before accepting the event; observer updates
+still cannot refresh the Text socket. Both socket orderings, all three explicit
+sync-before-removal boundaries, rejected-sync termination without mutation or
+retry, and exact remaining snapshot requests are retained. A repository-wide
+caller search identified both driver owners; all six affected unit/process
+methods passed together after adaptation. No production behavior changed.
