@@ -2986,3 +2986,13 @@ failed before the pin correction and passed afterward. Existing older NumPy and
 SQLAlchemy rejection witnesses remain intact. Sampling histories remain bound
 to their exact environment; this maintenance does not introduce cross-version
 history compatibility. Fresh integrated hosted qualification remains required.
+
+The separate SQLAlchemy PR217 exposed the same requirements/allowlist drift
+for 2.1.5 to 2.1.6: its [Linux debug shard](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41133356249/job/124335725929)
+reported the same five methods. This is a second dependency-update instance of
+the same contract-maintenance mistake, not five more independent defects. The
+SQLAlchemy update adds its own immediate-prior 2.1.5 environment and
+integrity-valid-history rejection witnesses while retaining the older 2.1.4
+controls. Both immediate-prior witnesses failed before its pin correction and
+passed afterward. Alembic and SQLAlchemy remain separately scoped maintenance
+changes; each final integration needs its own qualification.
