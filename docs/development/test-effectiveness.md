@@ -3179,3 +3179,12 @@ text/headless methods. An intermediate isolated client-common invocation omitted
 its required `test-support` feature and failed compilation; that command is a
 harness configuration error, not regression evidence. The correctly configured
 owner passed without changing feature gates or production code.
+
+The next Linux release Rust matrix passed the backend and simulation owners, then
+found the shared performance trace's remaining version-1 expectation. Unlike the
+independent place fixture above, this trace intentionally reads the migrated
+item geometry fixture v2. Its test now independently expects 2 while preserving
+all accepted outcome labels and the misspelled-outcome rejection. This is a
+separate stale version oracle, not a performance or gameplay change.
+The focused shared-support owner then passed all 26 tests with the corrected
+version oracle; formatting and documentation checks also passed.

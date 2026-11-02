@@ -175,7 +175,7 @@ fn truthful_blocked_wait_and_disclosed_move_traces_pass() {
 fn versioned_trace_accepts_only_known_expected_outcomes() {
     let fixture: serde_json::Value =
         serde_json::from_str(tor_test_support::performance::SPEC).unwrap();
-    assert_eq!(Trace::load().version, 1);
+    assert_eq!(Trace::load().version, 2);
     for expected in ["blocked", "waited", "moved", "door_changed"] {
         let value =
             serde_json::json!({"label":"guard", "action":{"type":"wait"},"expected":expected});
