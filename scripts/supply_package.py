@@ -36,7 +36,7 @@ def prepare(test, *, bandages=1, hit_dice=1, hostile=False, autonomous=False,
     manifest["factions"] = {"carers": [], "foe": ["carers"]}
     manifest["ai_profiles"] = {"partner": {"care": True, "equipment": True, "loot": True, "flee_percent": 0}}
     manifest["archetypes"]["clean_bandage"] = {
-        "name": "clean bandage", "identity": "clean_bandage", "class": "misc",
+        "name": "clean bandage", "identity": "item.misc.clean-bandage", "class": "misc",
         "stackable": True, "supply": "bandage"}
     strike = {"offset": 0, "on_success": [{"kind": "damage", "damage": {
         "kind": "components", "components": [{"category": "impact", "amount": {
@@ -47,12 +47,12 @@ def prepare(test, *, bandages=1, hit_dice=1, hostile=False, autonomous=False,
         "melee": {"skill": "heavy_weaponry", "bonus": 0, "wind_up": 100,
                   "recovery": 100, "strikes": [copy.deepcopy(strike)]}}}}
 
-    def creature(name, faction):
-        return {"species": "carer", "name": name, "faction": faction,
+    def creature(name, faction, corpse_identity):
+        return {"species": "carer", "name": name, "corpse_identity": corpse_identity, "faction": faction,
                 "binding": "intellect", "starting_skills": ["heavy_weaponry", "athletics"],
                 "restoration": "authored", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial"} for _ in range(hit_dice)]}
 
-    manifest["characters"][0]["creature"] = creature("first carer", "carers")
+    manifest["characters"][0]["creature"] = creature("first carer", "carers", "item.corpse.fixture.first-carer")
     manifest["characters"][0]["turn_ticks"] = 100
     manifest_path.write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     path = package / "regions/1.toml"
@@ -61,7 +61,7 @@ def prepare(test, *, bandages=1, hit_dice=1, hostile=False, autonomous=False,
                          "quantity": bandages}] if bandages else [])
     partner = {"id": 2, "at": [3, 1, 0], "turn_ticks": 100,
                "controller": "ai" if autonomous else "external",
-               "creature": creature("second carer", "foe" if hostile else "carers")}
+               "creature": creature("second carer", "foe" if hostile else "carers", "item.corpse.fixture.second-carer")}
     if autonomous:
         partner["ai"] = "partner"
     if isolate_partner:

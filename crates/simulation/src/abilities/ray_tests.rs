@@ -220,6 +220,7 @@ pub(super) fn fixture_with(
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.ray-subject-{x}").parse().unwrap(),
                 name: format!("ray subject {x}"),
                 faction: format!("side{x}"),
             },
@@ -356,6 +357,7 @@ fn first_contact_ray_stops_on_hit_or_dodge_and_never_bounces() {
         game.configure_creature(
             third,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.behind-interceptor".parse().unwrap(),
                 name: "behind interceptor".into(),
                 faction: "third".into(),
             },
@@ -425,6 +427,9 @@ fn first_contact_whole_payload_immunity_stops_without_target_roll_or_token_spend
     game.configure_creature(
         rear,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.behind-immune-interceptor"
+                .parse()
+                .unwrap(),
             name: "behind immune interceptor".into(),
             faction: "rear".into(),
         },
@@ -520,6 +525,7 @@ fn current_interceptor_checks_live_agility_against_the_frozen_launch() {
         .configure_creature(
             third,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.interceptor".parse().unwrap(),
                 name: "interceptor".into(),
                 faction: "other".into(),
             },
@@ -747,7 +753,10 @@ fn paid_ray_scheduler_failure_preserves_holds_supplies_tokens_cooldown_queue_and
     game.actors.get_mut(&ActorId(2)).unwrap().ready_at = 0;
     buff(&mut game, ActorId(1), "ray_strong", ActorId(1));
     buff(&mut game, ActorId(1), "ray_token", ActorId(1));
-    let mut supply = crate::ItemSpec::ordinary("ray bandage".into());
+    let mut supply = crate::ItemSpec::ordinary(
+        "item.test.ray-bandage".parse().unwrap(),
+        "ray bandage".into(),
+    );
     supply.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
     supply.stackable = true;
     let item = game

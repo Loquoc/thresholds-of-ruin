@@ -35,8 +35,11 @@ pub(crate) fn fixture() -> Game {
     })
 }
 pub(crate) fn potion(game: &mut Game, discovery: ItemDiscovery, effect: Effect) -> ItemId {
-    let mut spec = crate::ItemSpec::ordinary("unmarked dose".into());
-    spec.identity = "fixture.monster_chart".into();
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.unmarked-dose".parse().unwrap(),
+        "unmarked dose".into(),
+    );
+    spec.identity = "item.test.fixture-monster-chart".parse().unwrap();
     spec.concealed = true;
     spec.class = crate::ItemClass::Potion;
     spec.stackable = true;
@@ -368,9 +371,11 @@ fn paid_unavailable_chart_starts_full_lifetime_but_does_not_identify() {
     assert!(game.monster_detection_active(OWNER));
     assert_eq!(game.items[&item].quantity, 2);
     assert_eq!(game.rules_rng, rng);
-    assert!(!game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(!game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert!(game.combat_events().iter().any(|event| matches!(event,
         crate::combat::CombatEvent::Resolved { outcome, .. } if outcome.result == OutcomeStatus::Applied
         && matches!(outcome.effects.as_slice(), [ResolvedEffect::DetectMonsters { duration: 2000, changed: true, .. }]))));
@@ -385,9 +390,11 @@ fn detection_receipt_does_not_change_on_use_never_or_ordinary_self_effect() {
         let due = start(&mut game, item);
         finish(&mut game, due);
         assert_eq!(
-            game.actors[&OWNER]
-                .knowledge
-                .contains("fixture.monster_chart"),
+            game.actors[&OWNER].knowledge.contains(
+                &"item.test.fixture-monster-chart"
+                    .parse::<crate::ItemIdentity>()
+                    .unwrap()
+            ),
             known
         );
         assert_eq!(remaining(&game), Some((0, 2000)));
@@ -405,9 +412,11 @@ fn detection_receipt_does_not_change_on_use_never_or_ordinary_self_effect() {
     let due = start(&mut game, item);
     finish(&mut game, due);
     assert!(!game.monster_detection_active(OWNER));
-    assert!(game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
 }
 
 #[test]

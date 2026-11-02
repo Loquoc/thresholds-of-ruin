@@ -66,7 +66,7 @@ class MagicItemProcesses(ProcessTestCase):
             # A real externally controlled peer holds a finite preparation boundary.
             with (package / "regions/1.toml").open("a", encoding="utf-8") as output:
                 output.write('''
-actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", creature = { species = "figure", name = "partner", faction = "neutral", binding = "intellect", starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial", purchases = [] }] } }]
+actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", creature = { species = "figure", name = "partner", corpse_identity = "item.corpse.fixture.partner", faction = "neutral", binding = "intellect", starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial", purchases = [] }] } }]
 ''')
         validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                    capture_output=True, text=True, encoding="utf-8", timeout=30)
@@ -258,17 +258,17 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         path = package / "scenario.toml"
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
         manifest["archetypes"].update({
-            "mail": {"name": "ring mail", "identity": "fixture.mail", "class": "armor",
+            "mail": {"name": "ring mail", "identity": "item.armor.mail", "class": "armor",
                      "equipment": {"slot": "body_armor", "armor": {"physical_reduction": 2, "material": "metal", "rustproof": False}, "modifiers": []},
                      "equipment_generation": {"kind": "armor", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}},
-            "armor_identify": {"name": "scroll of identify armor", "identity": "fixture.identify_armor", "class": "scroll", "stackable": True,
+            "armor_identify": {"name": "scroll of identify armor", "identity": "item.scroll.identify-armor", "class": "scroll", "stackable": True,
                                "appearance_pool": "armor_pages", "readable": {"identify": ["armor"], "discovery": "on_use"}},
-            "armor_enchant": {"name": "scroll of enchant armor", "identity": "fixture.enchant_armor", "class": "scroll", "stackable": True,
+            "armor_enchant": {"name": "scroll of enchant armor", "identity": "item.scroll.enchant-armor", "class": "scroll", "stackable": True,
                               "appearance_pool": "enchant_pages", "readable": {"discovery": "never", "effects": [
                                   {"kind": "alter_equipment", "selection": {"kind": "slot", "slot": "body_armor", "class": "armor", "last": False}, "alteration": "enchant_armor"}]}},
         })
-        manifest["appearance_pools"].update({"armor_pages": {"appearances": ["indigo page"]}, "enchant_pages": {"appearances": ["silver page"]}})
-        manifest["characters"][0].update({"known_identities": ["fixture.mail"], "loadout": [
+        manifest["appearance_pools"].update({"armor_pages": {"appearances": [{"name": "indigo page"}]}, "enchant_pages": {"appearances": [{"name": "silver page"}]}})
+        manifest["characters"][0].update({"known_identities": ["item.armor.mail"], "loadout": [
             {"archetype": "mail", "quantity": 1, "equipped_slot": 1},
             {"archetype": "mail", "quantity": 1},
             {"archetype": "armor_identify", "quantity": 1},
@@ -328,11 +328,25 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
         probe, restored = self.client(observe=True)
         self.assertEqual(interactions(restored)["inventory"], interactions(removed)["inventory"])
+        self.assertEqual(items(restored, "armor"), items(removed, "armor"))
+        remembered = next(item for item in items(restored, "armor") if item["id"] == worn)
+        untouched = next(item for item in items(restored, "armor") if item["id"] == spare)
+        self.assertEqual(remembered["identity"], "item.armor.mail")
+        self.assertEqual(remembered["knowledge"]["buc"], "item.buc.uncursed")
+        self.assertIsNotNone(remembered["knowledge"]["enchantments"]["armor"])
+        self.assertEqual(untouched["identity"], "item.armor.mail")
+        self.assertEqual(untouched["knowledge"]["buc"], "item.buc.unknown")
+        self.assertIsNone(untouched["knowledge"]["enchantments"]["armor"])
         spectator, hidden = self.client(SPECTATOR_TOKEN, observe=True)
         for item in interactions(hidden)["inventory"]:
             self.assertIsNone(item["known_cursed"])
             self.assertIsNone(item["known_protected"])
             self.assertIsNone(item["known_equipment"])
+        for item in items(hidden, "armor"):
+            self.assertEqual(item["identity"], "item.unknown")
+            self.assertEqual(item["knowledge"]["buc"], "item.buc.unknown")
+            self.assertTrue(all(value is None for value in item["knowledge"]["enchantments"].values()))
+            self.assertTrue(all(value is None for value in item["knowledge"]["condition"].values()))
         self.assertFalse(restored["state"]["wizard_game"])
 
     @non_graphical
@@ -343,7 +357,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         # A bounded birth policy forces the negative branch without wizard edits.
         # Exhaustive -1/+1/+2 distribution belongs to equipment_generation tests.
         manifest["archetypes"]["ring"] = {
-            "name": "ring of increase damage", "identity": "magic.damage_ring",
+            "name": "ring of increase damage", "identity": "item.ring.damage",
             "class": "ring", "magical": True, "stackable": False,
             "appearance_pool": "rings",
             "equipment_generation": {"kind": "signed_potency", "negative": 1, "positive": 0},
@@ -351,7 +365,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
                 {"scope": "always", "op": {"kind": "add",
                  "stat": {"kind": "attack_damage_roll_bonus"}, "value": 1}}]},
         }
-        manifest["appearance_pools"]["rings"] = {"appearances": ["agate ring"]}
+        manifest["appearance_pools"]["rings"] = {"appearances": [{"name": "agate ring"}]}
         manifest["archetypes"]["identify"]["readable"]["identify"] = ["ring", "wand"]
         manifest["characters"][0]["loadout"] = [
             {"archetype": "ring", "quantity": 1},
@@ -429,6 +443,21 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertTrue(row(failed, spare)["known_cursed"])
         self.assertIsNone(row(failed, spare)["known_equipment"])
         hidden = self.snapshot(spectator)
+        # Per-instance facts belong to the controlling observer, even though
+        # the established public name and identified affordance remain visible.
+        self.assertTrue(any(item["knowledge"]["buc"] == "item.buc.cursed"
+                            for item in items(failed, "ring")))
+        unknown_knowledge = {
+            "buc": "item.buc.unknown",
+            "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+            "condition": {"corrosion": None, "armor_deterioration": None, "protected": None},
+        }
+        for item in items(hidden, "ring"):
+            self.assertEqual(item["knowledge"], unknown_knowledge)
+            self.assertEqual(item["identity"], "item.unknown")
+            source = next(value for value in items(failed, "ring") if value["id"] == item["id"])
+            for field in ("name", "identified", "known_currency", "known_supply"):
+                self.assertEqual(item[field], source[field])
         for value in interactions(hidden)["inventory"]:
             self.assertIsNone(value["known_cursed"])
             self.assertIsNone(value["known_equipment"])

@@ -30,7 +30,7 @@ fn source(root: &Path) -> crate::Scenario {
     owner["turn_ticks"] = json!(100);
     owner["creature"]["species"] = json!("fixture.hallucination");
     owner["creature"]["body_package"] = json!("fixture.hallucination.body");
-    owner["known_identities"] = json!(["rogue.gold"]);
+    owner["known_identities"] = json!(["item.coin.gold"]);
     let mut peer = owner["creature"].clone();
     peer["name"] = json!("actual visible peer");
     let body = owner["body"].clone();
@@ -142,14 +142,14 @@ fn assert_sample(view: &Observation, phase: u64) {
             "emu",
             "creature.bird.emu",
             "gold wand",
-            Some("item.wand"),
+            Some("item.wand.gold"),
             ItemClass::Wand,
         ),
         1 => (
             "bat",
             "creature.bat",
             "cedar staff",
-            Some("item.wand"),
+            Some("item.wand.staff.cedar"),
             ItemClass::Wand,
         ),
         _ => panic!("unlisted literal phase witness"),

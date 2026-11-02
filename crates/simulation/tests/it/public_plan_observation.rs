@@ -113,6 +113,7 @@ fn observation_duel(
         game.configure_creature(
             actor,
             tor_simulation::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject{x}").parse().unwrap(),
                 name: format!("subject{x}"),
                 faction: "neutral".into(),
             },
@@ -703,7 +704,10 @@ fn public_plan_review_item_source_matrix_rejects_ineligible_qualified_effects() 
     let mut mismatches = Vec::new();
     for (label, effect, expected) in qualified_named_cases() {
         let mut game = base.clone();
-        let mut item = tor_simulation::ItemSpec::ordinary("qualification vial".into());
+        let mut item = tor_simulation::ItemSpec::ordinary(
+            "item.test.qualification-vial".parse().unwrap(),
+            "qualification vial".into(),
+        );
         item.class = tor_simulation::ItemClass::Potion;
         item.consumable = Some(tor_simulation::ConsumableSpec {
             descriptors: vec![],

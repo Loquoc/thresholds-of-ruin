@@ -4,7 +4,9 @@ use serde::Deserialize;
 use tor_simulation::Game;
 use tor_world::{Extent, Location, Passage, Position, Region, RegionId, World};
 
-pub const SPEC: &str = include_str!("../fixtures/performance-v1.json");
+pub(crate) const VERSION: u32 = 2;
+
+pub const SPEC: &str = include_str!("../fixtures/performance-v2.json");
 
 #[derive(Deserialize)]
 pub(crate) struct Fixture {
@@ -31,6 +33,7 @@ struct Link {
 }
 #[derive(Deserialize)]
 struct Item {
+    identity: tor_simulation::ItemIdentity,
     at: [i32; 3],
     name: String,
     region: Option<u64>,
@@ -110,8 +113,12 @@ pub(crate) fn game(seed: u64, regions: u64) -> Result<Game, Failure> {
         }
         for item in &g.items {
             if item.region.is_none_or(|id| id == region) {
-                game.place_item(at(region, item.at), item.name.clone())
-                    .expect("fixture item");
+                game.place_item(
+                    at(region, item.at),
+                    item.identity.clone(),
+                    item.name.clone(),
+                )
+                .expect("fixture item");
             }
         }
     }
@@ -124,6 +131,35 @@ mod tests {
     use std::num::NonZeroU64;
     use tor_simulation::{Action, OutcomeKind};
     use tor_world::Direction;
+
+    #[test]
+    fn version_two_adds_explicit_identity_without_changing_the_workload() {
+        let old: serde_json::Value =
+            serde_json::from_str(include_str!("../fixtures/performance-v1.json")).unwrap();
+        let mut current: serde_json::Value = serde_json::from_str(SPEC).unwrap();
+        assert_eq!(current["version"], 2);
+        let expected = ["occluded", "far", "upper", "rotated-hide", "rotated-reveal"];
+        for (item, key) in current["geometry"]["items"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .zip(expected)
+        {
+            let identity = item.as_object_mut().unwrap().remove("identity").unwrap();
+            assert_eq!(identity, format!("item.misc.marker.{key}"));
+            let parsed: tor_simulation::ItemIdentity = serde_json::from_value(identity).unwrap();
+            assert!(!parsed.is_unknown());
+        }
+        current["version"] = 1.into();
+        assert_eq!(
+            current, old,
+            "identity authoring must not change geometry, actions, counts or timing"
+        );
+        assert!(
+            serde_json::from_value::<Fixture>(old).is_err(),
+            "legacy name-only diagnostic input is not inferred at runtime"
+        );
+    }
 
     #[test]
     fn rotated_join_preserves_named_entities_and_cells_at_expanded_range() {
@@ -207,6 +243,21 @@ mod tests {
                 }
             }
             assert!(game.teleport(actor, at(regions + 1, [0, 4, 0])).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod version_boundary_tests {
+    #[test]
+    fn current_diagnostic_identity_fixture_is_admitted_and_other_versions_reject() {
+        assert_eq!(super::specification().version, super::VERSION);
+        let scenario = crate::Scenario::performance(42, 2, 1).unwrap();
+        assert!(crate::Engine::memory(scenario.clone()).is_ok());
+        for version in [super::VERSION - 1, super::VERSION + 1] {
+            let mut obsolete = scenario.clone();
+            obsolete.workload_version = Some(version);
+            assert!(crate::Engine::memory(obsolete).is_err());
         }
     }
 }

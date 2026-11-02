@@ -9,7 +9,7 @@ from pathlib import Path
 from workload_report import require, is_duration, nonnegative_counts, positive_counts
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = json.loads((ROOT/"crates/server/fixtures/performance-v1.json").read_text())
+SPEC = json.loads((ROOT/"crates/server/fixtures/performance-v2.json").read_text())
 
 
 OBSERVER_WORK_CONTRACT = "causal_facts_demand_display_v1"

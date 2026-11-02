@@ -18,7 +18,7 @@ def fixture():
         "stat": {"kind": "attribute", "attribute": "speed"}, "value": 0}}]
     manifest["creatures"]["species"]["fixture.hallucination"] = figure
     owner = manifest["characters"][0]
-    owner.update(anchor="1/start", turn_ticks=100, loadout=[], known_identities=["rogue.gold"])
+    owner.update(anchor="1/start", turn_ticks=100, loadout=[], known_identities=["item.coin.gold"])
     owner["creature"].update(species="fixture.hallucination", nutrition={"kind": "exempt"},
                              future_growth={"kind": "disabled"})
     body = copy.deepcopy(manifest["creatures"]["body_packages"][owner["creature"]["body_package"]])
@@ -57,8 +57,8 @@ def assert_sample(test, observation, phase):
     # and canonical production tuple roster: seed42, observer1, peer2/item40.
     # Metal wand and wood staff form pools make 98 object tuples;
     # no combat RNG or actor-HD operand participates in this selector.
-    expected = {0: ("emu", "creature.bird.emu", "gold wand", "item.wand", "wand"),
-                1: ("bat", "creature.bat", "cedar staff", "item.wand", "wand")}[phase]
+    expected = {0: ("emu", "creature.bird.emu", "gold wand", "item.wand.gold", "wand"),
+                1: ("bat", "creature.bat", "cedar staff", "item.wand.staff.cedar", "wand")}[phase]
     name, asset, object_name, object_asset, cosmetic_class = expected
     peers = [row for row in observation["visible_actors"] if row["id"] != observation["self_target"]]
     # One creature may have several genuinely disclosed body-cell occurrences.
@@ -76,5 +76,10 @@ def assert_sample(test, observation, phase):
     test.assertEqual((item["name"], item["appearance"], item["description"]), ("object", "object", ""))
     test.assertIsNone(item.get("asset"))
     test.assertIsNone(item.get("corpse"))
+    test.assertEqual(item["identity"], "item.unknown")
+    test.assertEqual(item["knowledge"], {
+        "buc": "item.buc.unknown",
+        "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+        "condition": {"corrosion": None, "armor_deterioration": None, "protected": None}})
     test.assertEqual((item["class"], item["quantity"], item["known_currency"]), ("coin", "7", "gold"))
     test.assertTrue(all(not row["stairs_up"] and not row["stairs_down"] for row in observation["visible_cells"]))

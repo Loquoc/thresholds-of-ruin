@@ -92,7 +92,10 @@ fn equip_configured(
     expert_reduces_grip: bool,
     configure: impl FnOnce(&mut crate::ItemSpec),
 ) -> ItemId {
-    let mut item = crate::ItemSpec::ordinary(format!("weapon {socket}"));
+    let mut item = crate::ItemSpec::ordinary(
+        format!("item.test.weapon-{socket}").parse().unwrap(),
+        format!("weapon {socket}"),
+    );
     item.class = crate::ItemClass::Weapon;
     let component = crate::damage::DamageComponent::fixed(
         crate::combat::DamageType::Keen,
@@ -1368,7 +1371,7 @@ fn frozen_equip_compares_only_its_complete_pool_and_rejects_capacity_changes() {
         )
         .unwrap();
     start_plan(&mut game, &plan);
-    let mut ring = crate::ItemSpec::ordinary("ring".into());
+    let mut ring = crate::ItemSpec::ordinary("item.test.ring".parse().unwrap(), "ring".into());
     ring.class = crate::ItemClass::Ring;
     ring.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -1569,7 +1572,10 @@ fn projectile_launch_fixture_with(
     let component =
         crate::damage::DamageComponent::fixed(crate::combat::DamageType::Keen, None, 11);
     let primary = component.key();
-    let mut spec = crate::ItemSpec::ordinary("test ammunition".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.test-ammunition".parse().unwrap(),
+        "test ammunition".into(),
+    );
     spec.class = crate::ItemClass::Weapon;
     spec.stackable = true;
     spec.projectile = Some(ProjectileSpec {
@@ -2751,6 +2757,7 @@ fn projectile_ai_request_does_not_scan_invisible_intervening_occupancy() {
     game.configure_creature(
         blocker,
         crate::actor_creatures::CreatureIdentity {
+            corpse_identity: "item.corpse.test.hidden-interceptor".parse().unwrap(),
             name: "Hidden interceptor".into(),
             faction: "neutral".into(),
         },
@@ -3418,7 +3425,7 @@ fn ranged_loot_respects_idle_equipment_knowledge_and_inventory_bounds() {
     let at = game.actors[&actor].location;
     let mut payload = (*game.items[&ammo].spec).clone();
     payload.concealed = true;
-    payload.identity = "unknown projectile".into();
+    payload.identity = "item.test.unknown-projectile".parse().unwrap();
     payload.appearance = "unfamiliar shaft".into();
     let ground = game.spawn_item_stack(at, None, 20, payload).unwrap();
     assert_eq!(ranged_loot_choice(&game), None);
@@ -3447,7 +3454,7 @@ fn ranged_loot_respects_idle_equipment_knowledge_and_inventory_bounds() {
             at,
             Some(actor),
             1,
-            crate::ItemSpec::ordinary("clutter".into()),
+            crate::ItemSpec::ordinary("item.test.clutter".parse().unwrap(), "clutter".into()),
         )
         .unwrap();
     }

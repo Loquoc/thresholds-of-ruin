@@ -99,6 +99,7 @@ fn game_with_memory(
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{id}").parse().unwrap(),
                 name: format!("subject {id}"),
                 faction: "allies".into(),
             },
@@ -485,7 +486,8 @@ fn required_rebuild_cannot_change_the_trigger_policy() {
 }
 
 fn meal(game: &mut Game) {
-    let mut spec = tor_simulation::ItemSpec::ordinary("ration".into());
+    let mut spec =
+        tor_simulation::ItemSpec::ordinary("item.test.ration".parse().unwrap(), "ration".into());
     spec.class = tor_simulation::ItemClass::Food;
     spec.stackable = true;
     spec.supply = Some(tor_simulation::content_ids::SupplyId::new("ration").unwrap());

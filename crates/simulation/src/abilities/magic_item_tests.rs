@@ -35,8 +35,11 @@ fn device_with_discovery(
     charges: u16,
     discovery: ItemDiscovery,
 ) -> ItemId {
-    let mut spec = ItemSpec::ordinary("plain stick".into());
-    spec.identity = "fixture.elemental_device".into();
+    let mut spec = ItemSpec::ordinary(
+        "item.test.plain-stick".parse().unwrap(),
+        "plain stick".into(),
+    );
+    spec.identity = "item.test.fixture-elemental-device".parse().unwrap();
     spec.appearance = "plain stick".into();
     spec.name = "test elemental device".into();
     spec.concealed = true;
@@ -118,9 +121,11 @@ fn captured_zap_discovery_policy_rejects_source_mismatch_before_payment_and_rest
         let snapshot = game.checkpoint(&mut shared);
         assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
         assert_eq!(game.items[&item].charges, Some(3));
-        assert!(!game.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.elemental_device"));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-elemental-device"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
     }
 }
 
@@ -161,16 +166,26 @@ fn device_never_discovery_spends_charge_without_disclosing_identity_or_count() {
     assert_eq!(game.items[&item].charges, Some(2));
     assert_eq!(game.items[&item].quantity, 1);
     assert!(game.items[&item].holds.is_empty());
-    assert!(!game.actors[&ActorId(1)]
-        .knowledge
-        .contains("fixture.elemental_device"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-elemental-device"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert!(game.actors[&ActorId(1)].known_charges.is_empty());
     assert_eq!(game, roundtrip(&game));
 }
 fn identify_scroll(game: &mut Game, id: u64, class: ItemClass, quantity: u64) -> ItemId {
-    let mut spec = ItemSpec::ordinary("unread page".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.unread-page".parse().unwrap(),
+        "unread page".into(),
+    );
     spec.class = ItemClass::Misc;
-    spec.identity = format!("fixture.identify.{class:?}");
+    spec.identity = format!(
+        "item.test.fixture-identify-{}",
+        class.identity_family().as_str().rsplit('.').next().unwrap()
+    )
+    .parse()
+    .unwrap();
     spec.name = "identify page".into();
     spec.appearance = "unread page".into();
     spec.concealed = true;
@@ -282,8 +297,11 @@ fn levitation_drink_fixture() -> (Game, ItemId, crate::content_ids::ConditionId)
         });
     });
     game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
-    let mut spec = ItemSpec::ordinary("unmarked vial".into());
-    spec.identity = "fixture.hover_drink".into();
+    let mut spec = ItemSpec::ordinary(
+        "item.test.unmarked-vial".parse().unwrap(),
+        "unmarked vial".into(),
+    );
+    spec.identity = "item.test.fixture-hover-drink".parse().unwrap();
     spec.concealed = true;
     spec.stackable = true;
     // Match the existing consumable capability schema; no item identity dispatch.
@@ -348,9 +366,11 @@ fn drink_brakes_only_at_completion_and_repeat_dose_still_arrests_imposed_descent
         for current in [&mut game, &mut restored] {
             assert_eq!(current.items[&item].quantity, 2);
             assert_eq!(current.actors[&ActorId(1)].motion.velocity, [17, -11, -23]);
-            assert!(!current.actors[&ActorId(1)]
-                .knowledge
-                .contains("fixture.hover_drink"));
+            assert!(!current.actors[&ActorId(1)].knowledge.contains(
+                &"item.test.fixture-hover-drink"
+                    .parse::<crate::ItemIdentity>()
+                    .unwrap()
+            ));
             current
                 .with_recovery_transition(true, |candidate| {
                     candidate.tick = due;
@@ -380,9 +400,11 @@ fn drink_brakes_only_at_completion_and_repeat_dose_still_arrests_imposed_descent
                     .remaining(&condition, ActorId(1)),
                 Some(existing.map_or(0, |remaining| remaining - due) + duration)
             );
-            assert!(current.actors[&ActorId(1)]
-                .knowledge
-                .contains("fixture.hover_drink"));
+            assert!(current.actors[&ActorId(1)].knowledge.contains(
+                &"item.test.fixture-hover-drink"
+                    .parse::<crate::ItemIdentity>()
+                    .unwrap()
+            ));
             assert_eq!(current.rules_rng, expected_rng);
         }
         assert_eq!(game, restored);
@@ -455,6 +477,7 @@ fn teleport_to_uses_frozen_launch_but_live_interceptor_and_restores_paid_prepara
             .configure_creature(
                 interceptor,
                 crate::CreatureIdentity {
+                    corpse_identity: "item.corpse.test.live-interceptor".parse().unwrap(),
                     name: "live interceptor".into(),
                     faction: "third".into(),
                 },
@@ -490,9 +513,11 @@ fn teleport_to_uses_frozen_launch_but_live_interceptor_and_restores_paid_prepara
         assert_eq!(current.items[&item].charges, Some(2));
         assert!(current.items[&item].holds.is_empty());
         assert_eq!(current.actors[&ActorId(1)].ready_at, 100);
-        assert!(!current.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.elemental_device"));
+        assert!(!current.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-elemental-device"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         assert!(current.combat_events().iter().any(|event| matches!(event,
             crate::combat::CombatEvent::Resolved { outcome, .. }
             if outcome.target == interceptor && outcome.effects.iter().any(|effect|
@@ -646,9 +671,11 @@ fn teleport_wand_dodge_or_blocked_live_body_fit_spends_charge_without_identifica
         );
         assert_eq!(game.items[&item].charges, Some(2));
         assert!(game.items[&item].holds.is_empty());
-        assert!(!game.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.elemental_device"));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-elemental-device"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         let outcome = game
             .combat_events()
             .iter()
@@ -734,8 +761,11 @@ fn forced_caster_relocation_retires_uncompleted_zap_without_spending_a_charge() 
 fn paid_self_teleport_reads_exact_unit_and_only_successful_displacement_is_discovered() {
     for blocked in [false, true] {
         let mut game = fixture();
-        let mut spec = ItemSpec::ordinary("unread escape page".into());
-        spec.identity = "fixture.escape_page".into();
+        let mut spec = ItemSpec::ordinary(
+            "item.test.unread-escape-page".parse().unwrap(),
+            "unread escape page".into(),
+        );
+        spec.identity = "item.test.fixture-escape-page".parse().unwrap();
         spec.concealed = true;
         spec.stackable = true;
         spec.readable = Some(ReadableSpec {
@@ -784,14 +814,18 @@ fn paid_self_teleport_reads_exact_unit_and_only_successful_displacement_is_disco
                 blocked
             );
             assert_eq!(
-                current.actors[&ActorId(1)]
-                    .knowledge
-                    .contains("fixture.escape_page"),
+                current.actors[&ActorId(1)].knowledge.contains(
+                    &"item.test.fixture-escape-page"
+                        .parse::<crate::ItemIdentity>()
+                        .unwrap()
+                ),
                 !blocked
             );
-            assert!(!current.actors[&ActorId(2)]
-                .knowledge
-                .contains("fixture.escape_page"));
+            assert!(!current.actors[&ActorId(2)].knowledge.contains(
+                &"item.test.fixture-escape-page"
+                    .parse::<crate::ItemIdentity>()
+                    .unwrap()
+            ));
             assert!(!current.combat_events().iter().any(|event| matches!(
                 event,
                 crate::combat::CombatEvent::Interrupted {
@@ -815,7 +849,10 @@ fn random_teleport_callers_preserve_rng_consumed_by_ordinary_destination_contact
             });
         });
         game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
-        let mut spec = ItemSpec::ordinary("escape page".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.escape-page".parse().unwrap(),
+            "escape page".into(),
+        );
         spec.readable = Some(ReadableSpec {
             control: None,
             descriptors: vec![],
@@ -1020,6 +1057,7 @@ fn private_utility_fixture(
     game.configure_creature(
         bystander,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.uninvolved-witness".parse().unwrap(),
             name: "uninvolved witness".into(),
             faction: "third".into(),
         },
@@ -1053,11 +1091,12 @@ fn private_utility_fixture(
     game.items
         .edit(item, |item| {
             item.spec.identity = if alternative {
-                "opaque_device_b"
+                "item.test.opaque-device-b"
             } else {
-                "opaque_device_a"
+                "item.test.opaque-device-a"
             }
-            .into();
+            .parse()
+            .unwrap();
             item.spec.name = if alternative {
                 "Second concealed utility"
             } else {
@@ -1397,9 +1436,11 @@ fn known_never_and_on_use_devices_retain_licensed_owner_identity_feedback() {
                 assert_eq!(game.actors[&ActorId(1)].recognized_abilities, known);
             }
             assert_eq!(
-                game.actors[&ActorId(1)]
-                    .knowledge
-                    .contains("opaque_device_a"),
+                game.actors[&ActorId(1)].knowledge.contains(
+                    &"item.test.opaque-device-a"
+                        .parse::<crate::ItemIdentity>()
+                        .unwrap()
+                ),
                 discovery == ItemDiscovery::Never || charges > 0
             );
             assert!(game.actors[&ActorId(1)].known_charges.is_empty());
@@ -1460,9 +1501,11 @@ fn charged_item_uses_rank_zero_compiled_lore_without_grant_or_quantity_payment()
         game.creature(ActorId(1)).unwrap().derived().abilities,
         before.derived().abilities
     );
-    assert!(game.actors[&ActorId(1)]
-        .knowledge
-        .contains("fixture.elemental_device"));
+    assert!(game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-elemental-device"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert!(game.actors[&ActorId(1)].known_charges.is_empty());
     assert_eq!(game, roundtrip(&game));
 }
@@ -1495,9 +1538,11 @@ fn unknown_empty_device_keeps_same_affordance_and_pays_time_without_rng_or_learn
     assert_eq!(game.rules_rng, rng);
     assert_eq!(game.items[&item].charges, Some(0));
     assert_eq!(game.items[&item].quantity, 1);
-    assert!(!game.actors[&ActorId(1)]
-        .knowledge
-        .contains("fixture.elemental_device"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-elemental-device"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(
         game.observe(ActorId(1))
             .unwrap()
@@ -2166,7 +2211,7 @@ fn device_creation_samples_owned_rng_once_and_failed_placement_never_spends_it()
     let mut game = fixture();
     let prototype = device(&mut game, 10, 3);
     let mut spec = (*game.items[&prototype].spec).clone();
-    spec.identity = "fixture.sampled_device".into();
+    spec.identity = "item.test.fixture-sampled-device".parse().unwrap();
     let range = ChargeRange {
         minimum: 3,
         maximum: 7,
@@ -2206,7 +2251,7 @@ fn device_creation_samples_owned_rng_once_and_failed_placement_never_spends_it()
         Err(GameError::InvalidQuantity)
     );
     assert_eq!(game, before);
-    spec.identity = "fixture.empty_device".into();
+    spec.identity = "item.test.fixture-empty-device".parse().unwrap();
     spec.device.as_mut().unwrap().initial_charges = ChargeRange {
         minimum: 0,
         maximum: 0,
@@ -2256,9 +2301,12 @@ fn read_self_sleep_while_blind_consumes_exactly_and_restores_without_protection(
                     .push(serde_json::from_value(definition).unwrap());
             }
         });
-        let mut spec = ItemSpec::ordinary("unread page".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.unread-page".parse().unwrap(),
+            "unread page".into(),
+        );
         spec.class = ItemClass::Scroll;
-        spec.identity = "fixture.ink_rest_page".into();
+        spec.identity = "item.test.fixture-ink-rest-page".parse().unwrap();
         spec.name = "ink rest page".into();
         spec.appearance = "unread page".into();
         spec.concealed = true;
@@ -2302,12 +2350,16 @@ fn read_self_sleep_while_blind_consumes_exactly_and_restores_without_protection(
                 actor: ActorId(1), work: Work::Read { item }, intention: Some(id),
             } if *item == scroll && *id == origin
         )));
-        assert!(game.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.ink_rest_page"));
-        assert!(!game.actors[&ActorId(2)]
-            .knowledge
-            .contains("fixture.ink_rest_page"));
+        assert!(game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-ink-rest-page"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
+        assert!(!game.actors[&ActorId(2)].knowledge.contains(
+            &"item.test.fixture-ink-rest-page"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         assert!(game
             .creature(ActorId(1))
             .unwrap()
@@ -2402,7 +2454,7 @@ fn equipment_fact_fixture() -> Game {
     })
 }
 fn fact_armor(game: &mut Game, id: u64, cursed: bool) -> ItemId {
-    let mut spec = ItemSpec::ordinary("test mail".into());
+    let mut spec = ItemSpec::ordinary("item.test.test-mail".parse().unwrap(), "test mail".into());
     spec.class = ItemClass::Armor;
     spec.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -2899,9 +2951,11 @@ fn admitted_nothing_device_completes_paid_without_rng_or_learning() {
     assert_eq!(game.tick, before_tick + 100);
     assert_eq!(game.items[&item].charges, Some(2));
     assert_eq!(game.rules_rng, before_rng);
-    assert!(!game.actors[&ActorId(1)]
-        .knowledge
-        .contains("fixture.elemental_device"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-elemental-device"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(game, roundtrip(&game));
 }
 
@@ -2923,9 +2977,11 @@ fn admitted_empty_self_device_has_no_payload_and_does_not_underflow_charge() {
     assert_eq!(game.items[&item].charges, Some(0));
     assert_eq!(game.tick, before_tick + 100);
     assert_eq!(game.rules_rng, before_rng);
-    assert!(!game.actors[&ActorId(1)]
-        .knowledge
-        .contains("fixture.elemental_device"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-elemental-device"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(game, roundtrip(&game));
 }
 

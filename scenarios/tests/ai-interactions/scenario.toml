@@ -1,36 +1,40 @@
-format = 36
+format = 37
 id = "ai-interactions"
 version = "1.0"
 ruleset = "rules.toml"
 default_character = 1
 factions = { delvers = ["ruin"], ruin = ["delvers"] }
 ai_profiles = { tactical = { care = true, equipment = true, loot = true, flee_percent = 25 } }
-characters = [{ id = 1, anchor = "1/start", turn_ticks = 100, creature = { species = "delver", name = "delver", faction = "delvers", binding = "intellect", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
+characters = [{ id = 1, anchor = "1/start", turn_ticks = 100, creature = { corpse_identity = "item.corpse.persona.delver", species = "delver", name = "delver", faction = "delvers", binding = "intellect", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
 
 [archetypes.healing]
 class = "potion"
 name = "potion of healing"
-identity = "healing"
+identity = "item.potion.healing"
 appearance_pool = "potions"
 stackable = true
 consumable = { effects = [{ kind = "heal", amount = { kind = "fixed", amount = 10 } }] }
 
 [archetypes.old_mail]
+identity = "item.armor.old-mail"
 class = "armor"
 name = "old mail"
 equipment = { slot = "body_armor", armor = { physical_reduction = 1, material = "metal", rustproof = false }, modifiers = [] }
 
 [archetypes.mail]
+identity = "item.armor.mail"
 class = "armor"
 name = "mail"
 equipment = { slot = "body_armor", armor = { physical_reduction = 3, material = "metal", rustproof = false }, modifiers = [] }
 
 [archetypes.old_ring]
+identity = "item.ring.old-ring"
 class = "ring"
 name = "old ring"
 equipment = { slot = "ring", modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "defense", defense = "physical" }, value = 2 } }] }
 
 [archetypes.ring]
+identity = "item.ring.ring"
 class = "ring"
 name = "ring"
 equipment = { slot = "ring", modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "defense", defense = "physical" }, value = 3 } }] }
@@ -38,16 +42,20 @@ equipment = { slot = "ring", modifiers = [{ scope = "always", op = { kind = "add
 [archetypes.hidden_ring]
 class = "ring"
 name = "ring of protection"
-identity = "protection"
+identity = "item.ring.protection"
 appearance_pool = "rings"
 equipment = { slot = "ring", modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "defense", defense = "physical" }, value = 5 } }] }
 
 [appearance_pools.rings]
-appearances = ["silver ring"]
+appearances = [
+  { name = "silver ring" },
+]
 confounding = true
 
 [appearance_pools.potions]
-appearances = ["red potion"]
+appearances = [
+  { name = "red potion" },
+]
 confounding = true
 
 # Synthetic one-HD fixture subjects leave advancement points unspent.

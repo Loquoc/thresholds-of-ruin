@@ -41,7 +41,9 @@ fn every_actor_applies_effects_before_recovery_and_uses_the_same_scheduler() {
             } else {
                 (first, second, cell(1, 1), 100)
             };
-            let item = game.place_item(origin, "token".into()).unwrap();
+            let item = game
+                .place_item(origin, "item.test.token".parse().unwrap(), "token".into())
+                .unwrap();
             let door_cell = cell(origin.position.x + 1, 1);
             let door = game
                 .place_door(door_cell, false, game.door_clearance(door_cell))
@@ -140,7 +142,13 @@ fn recovery_overflow_rejects_each_action_before_applying_its_effect() {
     for action_index in 0..5 {
         let (mut game, actor) = fixture(u64::MAX);
         game.act(actor, Action::Wait).unwrap();
-        let item = game.place_item(cell(1, 1), "token".into()).unwrap();
+        let item = game
+            .place_item(
+                cell(1, 1),
+                "item.test.token".parse().unwrap(),
+                "token".into(),
+            )
+            .unwrap();
         let door = game
             .place_door(cell(2, 1), false, game.door_clearance(cell(2, 1)))
             .unwrap();
@@ -196,7 +204,10 @@ fn remaining_family(index: usize) -> (Game, ActorId, Action, u64) {
     use tor_simulation::{ConsumableSpec, EquipmentSlotId, EquipmentSpec, ItemId, ItemSpec};
     let (mut game, actor, target) = super::abilities::duel(42);
     let at = game.observe(actor).unwrap().location;
-    let mut spec = ItemSpec::ordinary("boundary item".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.boundary-item".parse().unwrap(),
+        "boundary item".into(),
+    );
     let (action, duration) = match index {
         0 => {
             spec.stackable = true;

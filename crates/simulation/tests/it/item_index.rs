@@ -21,7 +21,7 @@ fn fixture(hidden: u64) -> (Game, tor_simulation::ActorId) {
     let actor = game
         .spawn_actor(at(1), NonZeroU64::new(100).unwrap())
         .unwrap();
-    let mut spec = ItemSpec::ordinary("potion".into());
+    let mut spec = ItemSpec::ordinary("item.test.potion".parse().unwrap(), "potion".into());
     spec.stackable = true;
     game.place_item_stack(100, at(1), None, 2, spec.clone())
         .unwrap();
@@ -72,7 +72,10 @@ fn unrelated_regions_do_not_add_disclosure_candidates() {
                 },
                 None,
                 1,
-                ItemSpec::ordinary("unseen weight".into()),
+                ItemSpec::ordinary(
+                    "item.test.unseen-weight".parse().unwrap(),
+                    "unseen weight".into(),
+                ),
             )
             .unwrap();
         }
@@ -148,7 +151,10 @@ fn portal_transfer_and_checkpoint_restore_rebuild_local_indexes() {
         target,
         None,
         1,
-        ItemSpec::ordinary("portal weight".into()),
+        ItemSpec::ordinary(
+            "item.test.portal-weight".parse().unwrap(),
+            "portal weight".into(),
+        ),
     )
     .unwrap();
     assert!(game

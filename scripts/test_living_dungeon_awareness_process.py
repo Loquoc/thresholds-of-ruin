@@ -62,7 +62,7 @@ class LivingDungeonAwarenessProcesses(ProcessTestCase):
         character["loadout"] = [{"archetype": "stealth", "quantity": 1, "equipped_slot": 2},
                                 {"archetype": "aggravation", "quantity": 1},
                                 {"archetype": "alert", "quantity": 2}]
-        character["known_identities"] = ["rogue.ring_stealth", "rogue.ring_aggravation", "rogue.aggravate_monster"]
+        character["known_identities"] = ["item.ring.ring-stealth", "item.ring.ring-aggravation", "item.scroll.aggravate-monster"]
         target = copy.deepcopy(character["creature"])
         target.update(species="figure", name="patient watcher", faction="watcher")
         path.write_text(toml_source(manifest), encoding="utf-8")

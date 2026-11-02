@@ -100,6 +100,7 @@ fn fixture() -> Game {
         game.configure_creature(
             id,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.actor-{}", id.0).parse().unwrap(),
                 name: format!("actor {}", id.0),
                 faction: "neutral".into(),
             },
@@ -734,7 +735,7 @@ fn ordinary_actor_visibility_epoch_ignores_receipt_and_knowledge_writes() {
         .get_mut(&ActorId(3))
         .unwrap()
         .knowledge
-        .insert("fixture_fact".into());
+        .insert("item.test.fixture-fact".parse().unwrap());
     assert_eq!(game.actors.visibility_epoch(), before);
     template(&mut game, ActorId(3), Some("event_detecting"));
     assert_ne!(game.actors.visibility_epoch(), before);
@@ -1100,8 +1101,11 @@ fn later_identification_reads_restore_and_rollback_never_upgrade_source_history(
     game.seal_event_observations().unwrap();
     let before = [ActorId(1), ActorId(2), ActorId(3)].map(|actor| events(&game, actor));
     for actor in [ActorId(1), ActorId(2), ActorId(3)] {
-        game.learn_identity(actor, "fixture.later_identified_source")
-            .unwrap();
+        game.learn_identity(
+            actor,
+            &"item.test.fixture-later-identified-source".parse().unwrap(),
+        )
+        .unwrap();
         let knowledge = game.actors[&actor].recognized_abilities.clone();
         let view = game.observe(actor).unwrap();
         game.record_observation_knowledge(&view).unwrap();
@@ -1769,6 +1773,7 @@ mod boundary_effects_contracts {
                 .configure_creature(
                     id,
                     crate::CreatureIdentity {
+                        corpse_identity: format!("item.corpse.test.holder-{x}").parse().unwrap(),
                         name: format!("holder {x}"),
                         faction: "neutral".into(),
                     },

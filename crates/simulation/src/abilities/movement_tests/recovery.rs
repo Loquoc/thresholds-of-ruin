@@ -30,7 +30,10 @@ fn recovery_translation_game() -> crate::Game {
     )
     .unwrap();
     let mut game = crate::Game::two_room_in_stone(42, content.clone());
-    for (x, faction) in [(1, "hero"), (4, "foe")] {
+    for (x, faction, corpse_identity) in [
+        (1, "hero", "item.corpse.test.hero"),
+        (4, "foe", "item.corpse.test.foe"),
+    ] {
         let id = game
             .spawn_actor(cell(x, 1, 0), std::num::NonZeroU64::new(100).unwrap())
             .unwrap();
@@ -49,6 +52,7 @@ fn recovery_translation_game() -> crate::Game {
         game.configure_creature(
             id,
             crate::CreatureIdentity {
+                corpse_identity: corpse_identity.parse().unwrap(),
                 name: faction.into(),
                 faction: faction.into(),
             },

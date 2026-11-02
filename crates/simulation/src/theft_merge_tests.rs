@@ -20,8 +20,8 @@ fn game() -> Game {
     game
 }
 
-fn gold(name: &str) -> ItemSpec {
-    let mut spec = ItemSpec::ordinary(name.into());
+fn gold(identity: &str, name: &str) -> ItemSpec {
+    let mut spec = ItemSpec::ordinary(identity.parse().unwrap(), name.into());
     spec.class = crate::ItemClass::Coin;
     spec.currency = Some(CurrencyKind::Gold);
     spec.stackable = true;
@@ -63,7 +63,10 @@ fn currency_merge_work_is_recipient_entries_plus_transferred_fragments() {
                 at(1),
                 Some(ActorId(1)),
                 1,
-                ItemSpec::ordinary(format!("recipient gear {index}")),
+                ItemSpec::ordinary(
+                    format!("item.test.recipient-gear-{index}").parse().unwrap(),
+                    format!("recipient gear {index}"),
+                ),
             )
             .unwrap();
             game.place_item_stack(
@@ -71,7 +74,10 @@ fn currency_merge_work_is_recipient_entries_plus_transferred_fragments() {
                 at(2),
                 Some(ActorId(2)),
                 2,
-                gold(&format!("victim mint {index}")),
+                gold(
+                    &format!("item.test.victim-mint-{index}"),
+                    &format!("victim mint {index}"),
+                ),
             )
             .unwrap();
             // Another indexed bucket must not enlarge the recipient pass.
@@ -80,7 +86,10 @@ fn currency_merge_work_is_recipient_entries_plus_transferred_fragments() {
                 at(3),
                 None,
                 5,
-                gold(&format!("ground mint {index}")),
+                gold(
+                    &format!("item.test.ground-mint-{index}"),
+                    &format!("ground mint {index}"),
+                ),
             )
             .unwrap();
         }
@@ -122,7 +131,7 @@ fn separately_allocated_equal_specs_merge_into_the_lowest_recipient_id() {
             at(owner as i32),
             Some(ActorId(owner)),
             amount,
-            gold("equal gold"),
+            gold("item.test.equal-gold", "equal gold"),
         )
         .unwrap();
     }
@@ -144,7 +153,7 @@ fn separately_allocated_equal_specs_merge_into_the_lowest_recipient_id() {
 #[test]
 fn full_spec_difference_stays_separate_and_new_destinations_are_reused() {
     let mut game = game();
-    let plain = gold("same identity and name");
+    let plain = gold("item.test.same-identity-and-name", "same identity and name");
     let mut different = plain.clone();
     different
         .properties
@@ -182,9 +191,15 @@ fn empty_victim_does_not_build_a_recipient_merge_index() {
     let mut game = game();
     for index in 0..8 {
         let spec = if index % 2 == 0 {
-            gold(&format!("recipient gold {index}"))
+            gold(
+                &format!("item.test.recipient-gold-{index}"),
+                &format!("recipient gold {index}"),
+            )
         } else {
-            ItemSpec::ordinary(format!("recipient gear {index}"))
+            ItemSpec::ordinary(
+                format!("item.test.recipient-gear-{index}").parse().unwrap(),
+                format!("recipient gear {index}"),
+            )
         };
         game.place_item_stack(10 + index, at(1), Some(ActorId(1)), 1, spec)
             .unwrap();
@@ -221,7 +236,7 @@ fn currency_merge_index_distinguishes_condition_and_reuses_matching_fragments() 
             at(owner as i32),
             Some(ActorId(owner)),
             2,
-            gold("same gold"),
+            gold("item.test.same-gold", "same gold"),
         )
         .unwrap();
     }

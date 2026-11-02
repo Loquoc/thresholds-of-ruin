@@ -6,7 +6,7 @@ pub(super) fn attach_objective(mut scenario: Scenario) -> Scenario {
     let original = scenario.package.as_ref().unwrap();
     let mut source = serde_json::to_value(&original.manifest).unwrap();
     source["archetypes"]["amulet"] = json!({
-        "name":"Amulet of Yendor", "class":"amulet", "identity":"amulet-of-yendor"
+        "name":"Amulet of Yendor", "class":"amulet", "identity":"item.amulet.amulet-of-yendor"
     });
     source["unique_retrieval"] = json!({
         "version":1, "protagonist":"selected_character", "family":"dungeon",
@@ -677,15 +677,21 @@ fn surface_escape_requires_the_bound_item_and_an_intentional_ordinary_up() {
 
 #[test]
 fn wizard_birth_cannot_duplicate_a_reserved_identity_but_may_share_its_display_name() {
-    for reserved_identity in [true, false] {
+    for case in 0..3 {
+        let reserved_identity = case == 0;
         let mut scenario = at_depth(25);
         let original = scenario.package.as_ref().unwrap();
         let mut manifest = original.manifest.clone();
         let amulet = manifest.archetypes.get_mut("amulet").unwrap();
         if reserved_identity {
-            amulet.identity = Some("copper token".into());
-        } else {
+            amulet.identity = Some("item.misc.copper-token".parse().unwrap());
+        } else if case == 1 {
             amulet.name = Some("copper token".into());
+        }
+        if case == 2 {
+            let amulet = manifest.archetypes.remove("amulet").unwrap();
+            manifest.archetypes.insert("copper token".into(), amulet);
+            manifest.unique_retrieval.as_mut().unwrap().archetype = "copper token".into();
         }
         scenario.package = Some(Arc::new(
             Package::from_parts(manifest, vec![], &original.rules_source).unwrap(),

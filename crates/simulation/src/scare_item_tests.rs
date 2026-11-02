@@ -42,7 +42,10 @@ fn fixture() -> (Game, ActorId, ItemId) {
         position: Position { x: 1, y: 1, z: 0 },
     };
     let owner = game.spawn_actor(at, NonZeroU64::new(100).unwrap()).unwrap();
-    let mut spec = ItemSpec::ordinary("unread scroll".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.unread-scroll".parse().unwrap(),
+        "unread scroll".into(),
+    );
     spec.class = ItemClass::Scroll;
     spec.stackable = true;
     spec.ground_scare = Some(crate::control_scrolls::ScareSpec {

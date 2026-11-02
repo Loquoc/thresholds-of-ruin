@@ -23,7 +23,7 @@ fn catalog() -> Catalog {
 
 fn specification() -> BuildSpec {
     serde_json::from_value(serde_json::json!({
-        "species": "human", "name": "test subject", "faction": "neutral", "binding": "intellect",
+        "species": "human", "name": "test subject", "corpse_identity": "item.corpse.test.test-subject", "faction": "neutral", "binding": "intellect",
         "starting_skills": ["heavy_weaponry", "spellcasting"], "restoration": "authored", "nutrition": {"kind":"exempt"},
         "hit_dice": [{"source": "warrior", "purchases": [{"pool":"advancement", "selection":{"kind":"talent", "talent":"rattling_blow"}}]}, {"source": "mage", "purchases": [{"pool":"advancement", "selection":{"kind":"talent_form", "talent":"evocation_initiate", "form":"spark_lance_fire"}}]}]
     })).unwrap()
@@ -862,4 +862,40 @@ fn explicit_body_packages_enroll_only_authored_prefix_and_reseed_personal_birth_
         .hit_dice[0]
         .source = "warrior".into();
     assert!(catalog.compile(rules()).is_err());
+}
+
+#[test]
+fn authored_corpse_identity_is_required_and_preserves_persona_group() {
+    let compiled = catalog().compile(rules()).unwrap();
+    let spec = specification();
+    let recipe = compiled.prepare(&spec).unwrap();
+    assert_eq!(recipe.identity().corpse_identity, spec.corpse_identity);
+    let mut renamed = spec.clone();
+    renamed.name = "new presentation, same persona group".into();
+    assert_eq!(
+        compiled
+            .prepare(&renamed)
+            .unwrap()
+            .identity()
+            .corpse_identity,
+        spec.corpse_identity
+    );
+    let mut missing = serde_json::to_value(&spec).unwrap();
+    missing.as_object_mut().unwrap().remove("corpse_identity");
+    assert!(serde_json::from_value::<BuildSpec>(missing).is_err());
+    for key in [
+        "item.corpse",
+        "item.corpse.unknown",
+        "item.unknown",
+        "item.potion.healing",
+        "item.corpsex.witness",
+    ] {
+        let mut invalid = spec.clone();
+        invalid.corpse_identity = key.parse().unwrap();
+        assert!(compiled.prepare(&invalid).is_err(), "{key}");
+        assert!(
+            serde_json::from_value::<BuildSpec>(serde_json::to_value(&invalid).unwrap()).is_err(),
+            "{key}"
+        );
+    }
 }

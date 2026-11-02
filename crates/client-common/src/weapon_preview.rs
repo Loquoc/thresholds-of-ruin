@@ -208,6 +208,8 @@ mod tests {
             quantity: 1,
             appearance: "weapon".into(),
             identified: false,
+            identity: "item.weapon.unknown".parse().unwrap(),
+            knowledge: Default::default(),
             known_currency: None,
             known_supply: None,
             asset: None,

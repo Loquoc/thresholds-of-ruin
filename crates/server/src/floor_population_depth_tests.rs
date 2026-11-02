@@ -5,7 +5,8 @@ fn weighted_fixture() -> Scenario {
     let mut scenario = single_member_foe_fixture(true);
     let original = scenario.package.as_ref().unwrap();
     let mut source = serde_json::to_value(&original.manifest).unwrap();
-    source["archetypes"]["alternate"] = json!({"name":"alternate marker"});
+    source["archetypes"]["alternate"] =
+        json!({"name":"alternate marker","identity":"item.misc.alternate"});
     source["archetypes"]["other_rat"] = source["archetypes"]["rat"].clone();
     let stages = source["floor_activation"]["profiles"]["baseline"]["stages"]
         .as_array_mut()

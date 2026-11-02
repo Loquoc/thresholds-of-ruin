@@ -219,3 +219,36 @@ fail instead of silently running no cases. Use the standard Windows build settin
 from the development guide and retain the command output with the tested revision.
 The native process acceptance test also checks camera-independent state,
 equip/unequip/re-equip identities, animated joints and complete PNG output.
+
+## Ground-loot readability fixtures
+
+`dungeon-ground-loot.json`, `dungeon-ground-loot-labels.json`, and
+`dungeon-ground-loot-picker.json` show the same normal-play camera (distance 8.5,
+pitch 0.95), a Human scale reference, single loot categories, four individually
+arranged stacks, and a seven-stack aggregate. Run any with a new capture output
+and `--offscreen` for a no-display render. These are **read-only rendering
+fixtures**, not live gameplay or proof of network disclosure, input, or picking.
+They share the production ground-item/pile geometry, label/picker widgets,
+sculpted cave meshes/materials, and studio lights. The room is deliberately
+bounded and deterministic; it does not generate or simulate a dungeon.
+
+Optional capture-only fields:
+
+- `ground_items`: up to 128 exact supported item model names, world `position`,
+  and `yaw` in degrees. `disclosed_name` is explicit fixture text, never inferred
+  from a model; positive `quantity` defaults to 1. At least one actor or ground
+  item is required. Groups larger than four use the shared pile renderer.
+- `ground_labels`: show the disclosed names and exact quantities. Every item
+  must have a bounded nonempty disclosed name. Otherwise only large-pile stack
+  counts appear. Labels are pass-through, not clickable badges.
+- `pile_picker`: show the shared picker for the first cell with more than four
+  stacks. Requires explicit disclosed names. This static capture has no input or
+  gameplay actions; live interaction has separate tests.
+- `dungeon`: use the fixed sculpted room and production studio lights instead of
+  the flat stage. `floor_color` is three finite values in 0..1; it controls the
+  flat stage color or the cave floor palette. A dark variation can use
+  `[0.17, 0.14, 0.12]` instead of the included light palette.
+
+Ground items, labels, picker, custom floor colors and dungeon fixtures are rejected by live showcase
+scripts rather than silently ignored. Change only the desired presentation field
+when comparing captures; keep camera, viewport, placements and lighting matched.

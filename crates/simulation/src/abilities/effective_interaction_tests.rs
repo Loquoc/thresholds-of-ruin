@@ -163,7 +163,10 @@ fn harmless_game() -> crate::Game {
 fn effective_interaction_frozen_plan_rejects_positive_harm_without_current_equipment() {
     let mut game = harmless_game();
     let captured = game.preparation(ActorId(1)).unwrap().plan.clone();
-    let mut weapon = crate::ItemSpec::ordinary("later weapon".into());
+    let mut weapon = crate::ItemSpec::ordinary(
+        "item.test.later-weapon".parse().unwrap(),
+        "later weapon".into(),
+    );
     weapon.class = crate::ItemClass::Weapon;
     weapon.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -686,6 +689,9 @@ fn growth_invariant_failure_rolls_back_fatal_damage_inventory_and_rng() {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.growth-subject-{x}")
+                    .parse()
+                    .unwrap(),
                 name: format!("growth subject {x}"),
                 faction: "neutral".into(),
             },
@@ -697,7 +703,10 @@ fn growth_invariant_failure_rolls_back_fatal_damage_inventory_and_rng() {
         game.actors[&ActorId(2)].location,
         Some(ActorId(2)),
         1,
-        crate::ItemSpec::ordinary("retained stock".into()),
+        crate::ItemSpec::ordinary(
+            "item.test.retained-stock".parse().unwrap(),
+            "retained stock".into(),
+        ),
     )
     .unwrap();
     let before = game.clone();

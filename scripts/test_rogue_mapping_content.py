@@ -11,13 +11,13 @@ def source(name):
 class RogueMappingContent(unittest.TestCase):
     def test_mapping_is_sole_on_use_readable_operation(self):
         self.assertEqual(source("catalog/items.toml")["items"].get("rogue.magic_mapping"), {
-            "name": "scroll of magic mapping", "identity": "rogue.magic_mapping", "asset": "item.scroll",
+            "name": "scroll of magic mapping", "identity": "item.scroll.magic-mapping", "asset": "item.scroll",
             "magical": True, "class": "scroll", "stackable": True, "appearance_pool": "rogue.scrolls",
             "readable": {"discovery": "on_use", "effects": [{"kind": "map_topology"}]}})
 
     def test_mapping_and_food_scroll_labels_extend_exact_existing_capacity(self):
         catalog = source("catalog/items.toml")
-        self.assertEqual(catalog["appearance_pools"]["rogue.scrolls"]["appearances"], [
+        self.assertEqual([entry["name"] for entry in catalog["appearance_pools"]["rogue.scrolls"]["appearances"]], [
             "scroll titled VEL MOR", "scroll titled ELAM TOR", "scroll titled NAR SHEN", "scroll titled HETH ARA",
             "scroll titled TAL ION", "scroll titled UR SEK", "scroll titled KEL RAN", "scroll titled AN DOR",
             "scroll titled IV MEM", "scroll titled OS THAL", "scroll titled VEL TOR", "scroll titled SAH REN",
@@ -29,7 +29,7 @@ class RogueMappingContent(unittest.TestCase):
         manifest = source("scenario.toml")
         self.assertIn("rogue.magic_mapping", repr(manifest["floor_activation"]))
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.magic_mapping", character["known_identities"])
+            self.assertNotIn("item.scroll.magic-mapping", character["known_identities"])
             self.assertNotIn("rogue.magic_mapping", [row["archetype"] for row in character["loadout"]])
 
 if __name__ == "__main__":

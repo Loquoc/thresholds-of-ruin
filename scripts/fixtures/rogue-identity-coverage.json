@@ -1,0 +1,767 @@
+[
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.mace",
+    "old_identity": "rogue.mace",
+    "new_identity": "item.weapon.mace",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_mail",
+    "old_identity": "rogue.ring_mail",
+    "new_identity": "item.armor.ring-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.clean_bandage",
+    "old_identity": "rogue.clean_bandage",
+    "new_identity": "item.misc.clean-bandage",
+    "item_class": "misc"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ration",
+    "old_identity": "rogue.ration",
+    "new_identity": "item.food.ration",
+    "item_class": "food"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.fruit",
+    "old_identity": "rogue.fruit",
+    "new_identity": "item.food.fruit",
+    "item_class": "food"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.amulet_of_yendor",
+    "old_identity": "rogue.amulet_of_yendor",
+    "new_identity": "item.amulet.amulet-of-yendor",
+    "item_class": "amulet"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.restore_strength",
+    "old_identity": "rogue.restore_strength",
+    "new_identity": "item.potion.restore-strength",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.gold",
+    "old_identity": "rogue.gold",
+    "new_identity": "item.coin.gold",
+    "item_class": "coin"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.healing",
+    "old_identity": "rogue.healing",
+    "new_identity": "item.potion.healing",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.extra_healing",
+    "old_identity": "rogue.extra_healing",
+    "new_identity": "item.potion.extra-healing",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.confusion",
+    "old_identity": "rogue.confusion",
+    "new_identity": "item.potion.confusion",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.blindness",
+    "old_identity": "rogue.blindness",
+    "new_identity": "item.potion.blindness",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.poison",
+    "old_identity": "rogue.poison",
+    "new_identity": "item.potion.poison",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.see_invisible",
+    "old_identity": "rogue.see_invisible",
+    "new_identity": "item.potion.see-invisible",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.identify_potion",
+    "old_identity": "rogue.identify_potion",
+    "new_identity": "item.scroll.identify-potion",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.sleep",
+    "old_identity": "rogue.sleep",
+    "new_identity": "item.scroll.sleep",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.identify_scroll",
+    "old_identity": "rogue.identify_scroll",
+    "new_identity": "item.scroll.identify-scroll",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.identify_wand",
+    "old_identity": "rogue.identify_wand",
+    "new_identity": "item.scroll.identify-wand",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_fire",
+    "old_identity": "rogue.wand_fire",
+    "new_identity": "item.wand.wand-fire",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_cold",
+    "old_identity": "rogue.wand_cold",
+    "new_identity": "item.wand.wand-cold",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_lightning",
+    "old_identity": "rogue.wand_lightning",
+    "new_identity": "item.wand.wand-lightning",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_invisibility",
+    "old_identity": "rogue.wand_invisibility",
+    "new_identity": "item.wand.wand-invisibility",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_haste",
+    "old_identity": "rogue.wand_haste",
+    "new_identity": "item.wand.wand-haste",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_slow",
+    "old_identity": "rogue.wand_slow",
+    "new_identity": "item.wand.wand-slow",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.generated_mace",
+    "old_identity": "rogue.mace",
+    "new_identity": "item.weapon.mace",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.long_sword",
+    "old_identity": "rogue.long_sword",
+    "new_identity": "item.weapon.long-sword",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.dagger",
+    "old_identity": "rogue.dagger",
+    "new_identity": "item.weapon.dagger",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.shortbow",
+    "old_identity": "rogue.shortbow",
+    "new_identity": "item.weapon.shortbow",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.arrow",
+    "old_identity": "rogue.arrow",
+    "new_identity": "item.weapon.arrow",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.two_handed_sword",
+    "old_identity": "rogue.two_handed_sword",
+    "new_identity": "item.weapon.two-handed-sword",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.spear",
+    "old_identity": "rogue.spear",
+    "new_identity": "item.weapon.spear",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.leather_armor",
+    "old_identity": "rogue.leather_armor",
+    "new_identity": "item.armor.leather-armor",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.generated_ring_mail",
+    "old_identity": "rogue.ring_mail",
+    "new_identity": "item.armor.ring-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.studded_leather",
+    "old_identity": "rogue.studded_leather",
+    "new_identity": "item.armor.studded-leather",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.scale_mail",
+    "old_identity": "rogue.scale_mail",
+    "new_identity": "item.armor.scale-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.chain_mail",
+    "old_identity": "rogue.chain_mail",
+    "new_identity": "item.armor.chain-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.splint_mail",
+    "old_identity": "rogue.splint_mail",
+    "new_identity": "item.armor.splint-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.banded_mail",
+    "old_identity": "rogue.banded_mail",
+    "new_identity": "item.armor.banded-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.plate_mail",
+    "old_identity": "rogue.plate_mail",
+    "new_identity": "item.armor.plate-mail",
+    "item_class": "armor"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.enchant_armor",
+    "old_identity": "rogue.enchant_armor",
+    "new_identity": "item.scroll.enchant-armor",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.protect_armor",
+    "old_identity": "rogue.protect_armor",
+    "new_identity": "item.scroll.protect-armor",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.enchant_weapon",
+    "old_identity": "rogue.enchant_weapon",
+    "new_identity": "item.scroll.enchant-weapon",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.remove_curse",
+    "old_identity": "rogue.remove_curse",
+    "new_identity": "item.scroll.remove-curse",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.identify_weapon",
+    "old_identity": "rogue.identify_weapon",
+    "new_identity": "item.scroll.identify-weapon",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.identify_armor",
+    "old_identity": "rogue.identify_armor",
+    "new_identity": "item.scroll.identify-armor",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_protection",
+    "old_identity": "rogue.ring_protection",
+    "new_identity": "item.ring.ring-protection",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_add_strength",
+    "old_identity": "rogue.ring_add_strength",
+    "new_identity": "item.ring.ring-add-strength",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_sustain_strength",
+    "old_identity": "rogue.ring_sustain_strength",
+    "new_identity": "item.ring.ring-sustain-strength",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_see_invisible",
+    "old_identity": "rogue.ring_see_invisible",
+    "new_identity": "item.ring.ring-see-invisible",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_adornment",
+    "old_identity": "rogue.ring_adornment",
+    "new_identity": "item.ring.ring-adornment",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_dexterity",
+    "old_identity": "rogue.ring_dexterity",
+    "new_identity": "item.ring.ring-dexterity",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_increase_damage",
+    "old_identity": "rogue.ring_increase_damage",
+    "new_identity": "item.ring.ring-increase-damage",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_regeneration",
+    "old_identity": "rogue.ring_regeneration",
+    "new_identity": "item.ring.ring-regeneration",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_slow_digestion",
+    "old_identity": "rogue.ring_slow_digestion",
+    "new_identity": "item.ring.ring-slow-digestion",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_maintain_armor",
+    "old_identity": "rogue.ring_maintain_armor",
+    "new_identity": "item.ring.ring-maintain-armor",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_searching",
+    "old_identity": "rogue.ring_searching",
+    "new_identity": "item.ring.ring-searching",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.levitation",
+    "old_identity": "rogue.levitation",
+    "new_identity": "item.potion.levitation",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.teleportation",
+    "old_identity": "rogue.teleportation",
+    "new_identity": "item.scroll.teleportation",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_teleportation",
+    "old_identity": "rogue.ring_teleportation",
+    "new_identity": "item.ring.ring-teleportation",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_teleport_away",
+    "old_identity": "rogue.wand_teleport_away",
+    "new_identity": "item.wand.wand-teleport-away",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_teleport_to",
+    "old_identity": "rogue.wand_teleport_to",
+    "new_identity": "item.wand.wand-teleport-to",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_stealth",
+    "old_identity": "rogue.ring_stealth",
+    "new_identity": "item.ring.ring-stealth",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.ring_aggravation",
+    "old_identity": "rogue.ring_aggravation",
+    "new_identity": "item.ring.ring-aggravation",
+    "item_class": "ring"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.aggravate_monster",
+    "old_identity": "rogue.aggravate_monster",
+    "new_identity": "item.scroll.aggravate-monster",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.create_monster",
+    "old_identity": "rogue.create_monster",
+    "new_identity": "item.scroll.create-monster",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.hold_monster",
+    "old_identity": "rogue.hold_monster",
+    "new_identity": "item.scroll.hold-monster",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.monster_confusion",
+    "old_identity": "rogue.monster_confusion",
+    "new_identity": "item.scroll.monster-confusion",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.scare_monster",
+    "old_identity": "rogue.scare_monster",
+    "new_identity": "item.scroll.scare-monster",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_nothing",
+    "old_identity": "rogue.wand_nothing",
+    "new_identity": "item.wand.wand-nothing",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_light",
+    "old_identity": "rogue.wand_light",
+    "new_identity": "item.wand.wand-light",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_drain_life",
+    "old_identity": "rogue.wand_drain_life",
+    "new_identity": "item.wand.wand-drain-life",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_cancellation",
+    "old_identity": "rogue.wand_cancellation",
+    "new_identity": "item.wand.wand-cancellation",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_magic_missile",
+    "old_identity": "rogue.wand_magic_missile",
+    "new_identity": "item.wand.wand-magic-missile",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.torch",
+    "old_identity": "rogue.torch",
+    "new_identity": "item.tool.torch",
+    "item_class": "tool"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.haste",
+    "old_identity": "rogue.haste",
+    "new_identity": "item.potion.haste",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.gain_strength",
+    "old_identity": "rogue.gain_strength",
+    "new_identity": "item.potion.gain-strength",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.raise_level",
+    "old_identity": "rogue.raise_level",
+    "new_identity": "item.potion.raise-level",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.hallucination",
+    "old_identity": "rogue.hallucination",
+    "new_identity": "item.potion.hallucination",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.monster_detection",
+    "old_identity": "rogue.monster_detection",
+    "new_identity": "item.potion.monster-detection",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.food_detection",
+    "old_identity": "rogue.food_detection",
+    "new_identity": "item.scroll.food-detection",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.magic_detection",
+    "old_identity": "rogue.magic_detection",
+    "new_identity": "item.potion.magic-detection",
+    "item_class": "potion"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.magic_mapping",
+    "old_identity": "rogue.magic_mapping",
+    "new_identity": "item.scroll.magic-mapping",
+    "item_class": "scroll"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.wand_polymorph",
+    "old_identity": "rogue.wand_polymorph",
+    "new_identity": "item.wand.wand-polymorph",
+    "item_class": "wand"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.dart",
+    "old_identity": "rogue.dart",
+    "new_identity": "item.weapon.dart",
+    "item_class": "weapon"
+  },
+  {
+    "package": "scenarios/rogue",
+    "source": "scenarios/rogue/catalog/items.toml",
+    "section": "items",
+    "archetype": "rogue.shuriken",
+    "old_identity": "rogue.shuriken",
+    "new_identity": "item.weapon.shuriken",
+    "item_class": "weapon"
+  }
+]

@@ -234,6 +234,7 @@ fn phase5b_game_rebuild_and_checkpoint_preserve_non_initial_epoch() {
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.epoch-subject".parse().unwrap(),
             name: "Epoch subject".into(),
             faction: "neutral".into(),
         },

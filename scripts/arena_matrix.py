@@ -95,7 +95,7 @@ def recipe(family, hd):
             current[attribute] += 1
             entry["attribute"] = attribute
         entries.append(entry)
-    return {"species": "subject", "name": "subject", "faction": "blue",
+    return {"species": "subject", "name": "subject", "corpse_identity": "item.corpse.fixture.arena-subject", "faction": "blue",
             "binding": binding, "attributes": attributes, "starting_skills": starting,
             "restoration": "authored", "nutrition": {"kind":"exempt"}, "hit_dice": entries}, style
 
@@ -121,7 +121,7 @@ def encounter(family, hd, candidate, mirrored, ruleset):
         catalog["subject"]["modifiers"] = [
             {"scope": "always", "op": {"kind": "immunity", "selector": {"kind": "descriptor", "descriptor": "fear"}}},
             {"scope": "always", "op": {"kind": "reduction", "selector": {"kind": "category", "category": "energy"}, "amount": 2}}]
-    manifest = {"format": 36, "id": "arena-matrix-" + family + "-" + str(hd),
+    manifest = {"format": 37, "id": "arena-matrix-" + family + "-" + str(hd),
                 "version": "1.0", "ruleset": ruleset, "default_character": 1,
                 "arena": {"participants": [1, 2], "control": "all_ai", "ticks": 100000, "actions": 10000},
                 "factions": {"blue": ["red"], "red": ["blue"]},

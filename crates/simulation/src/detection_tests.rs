@@ -63,7 +63,10 @@ fn place(
     class: ItemClass,
     magical: bool,
 ) -> crate::ItemId {
-    let mut spec = crate::ItemSpec::ordinary("private item name".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.private-item-name".parse().unwrap(),
+        "private item name".into(),
+    );
     spec.class = class;
     spec.magical = magical;
     game.place_item_stack(id, at, carrier, 1, spec).unwrap()
@@ -133,7 +136,10 @@ fn food_chart_is_true_ground_food_presence_not_nutrition_or_carried_stock() {
         false,
     );
     place(&mut game, 33, at(2, 4, 2), None, ItemClass::Food, false);
-    let mut edible = crate::ItemSpec::ordinary("edible tool".into());
+    let mut edible = crate::ItemSpec::ordinary(
+        "item.test.edible-tool".parse().unwrap(),
+        "edible tool".into(),
+    );
     edible.class = ItemClass::Tool;
     edible.edible = Some(crate::EdibleSpec {
         nutrition: crate::rules::AmountExpr::Fixed { amount: 5 },
@@ -183,7 +189,10 @@ fn magic_includes_other_carried_stock_without_any_ground_item_and_excludes_own_p
 #[test]
 fn corrosion_does_not_become_detection_magic_or_redefine_existing_theft_predicate() {
     let mut game = fixture();
-    let mut spec = crate::ItemSpec::ordinary("rusted armor".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.rusted-armor".parse().unwrap(),
+        "rusted armor".into(),
+    );
     spec.class = ItemClass::Armor;
     spec.equipment = Some(crate::EquipmentSpec {
         slot: crate::EquipmentSlot::new("body_armor").unwrap(),
@@ -245,9 +254,11 @@ fn paid_nonempty_monster_reveal_identifies_but_empty_then_later_arrival_does_not
     );
     let due = crate::detection_lifecycle::tests::start(&mut positive, item);
     crate::detection_lifecycle::tests::finish(&mut positive, due);
-    assert!(positive.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(positive.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(positive.items[&item].quantity, 2);
     let mut empty = fixture();
     empty
@@ -267,9 +278,11 @@ fn paid_nonempty_monster_reveal_identifies_but_empty_then_later_arrival_does_not
     );
     let due = crate::detection_lifecycle::tests::start(&mut empty, item);
     crate::detection_lifecycle::tests::finish(&mut empty, due);
-    assert!(!empty.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(!empty.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(empty.items[&item].quantity, 2);
     empty
         .relocate_exact_in_transaction(
@@ -293,9 +306,11 @@ fn paid_nonempty_monster_reveal_identifies_but_empty_then_later_arrival_does_not
             .len(),
         1
     );
-    assert!(!empty.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(!empty.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
 }
 #[test]
 fn empty_food_attempt_keeps_prior_positive_sample_historical_without_tracking_item() {
@@ -410,14 +425,18 @@ fn paid_final_page_envelope_failure_consumes_dose_without_learning_or_later_retr
     assert_eq!(game.tick(), due);
     assert_eq!(game.items[&item].quantity, 2);
     assert!(game.monster_detection_active(OWNER));
-    assert!(!game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(!game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     // Removing the test-only bound now yields the positive current view, but
     // cannot retroactively change the final-only paid receipt or discovery.
     let view = game.detection_chart(OWNER, Kind::Monsters).unwrap();
     assert_eq!(view.candidate.unwrap().chart().unwrap().rows().len(), 1);
-    assert!(!game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.monster_chart"));
+    assert!(!game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-monster-chart"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
 }

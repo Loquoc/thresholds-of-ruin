@@ -12,20 +12,19 @@ pub(crate) fn scenario() -> Scenario {
     )
     .unwrap();
     manifest["factions"] = json!({"allies":[]});
-    manifest["archetypes"]["ration"] =
-        json!({"name":"ordinary ration","class":"food","stackable":true,"supply":"ration"});
+    manifest["archetypes"]["ration"] = json!({"name":"ordinary ration","identity":"item.food.ration","class":"food","stackable":true,"supply":"ration"});
     manifest["creatures"] = json!({"species":{"learner":{
         "kind":"humanoid", "behavior": {"disposition":"mean","idle":"explore","memory_ticks":1000},"attributes":{"strength":0,"speed":0,"intellect":0,"willpower":0,"awareness":0,"presence":0},
         "melee":{"skill":"heavy_weaponry","bonus":0,"wind_up":100,"recovery":100,"strikes":[{
             "offset":0,"on_success":[{"kind":"damage","damage":{"kind":"components","components":[{
                 "category":"impact","amount":{"kind":"fixed","amount":1}}]}}],"on_failure":[],"descriptors":[],"riders":[]}]}
     }}});
-    let creature = |name: &str| {
-        json!({"species":"learner","name":name,"faction":"allies","binding":"intellect",
+    let creature = |corpse_identity: &str, name: &str| {
+        json!({"species":"learner","name":name,"corpse_identity":corpse_identity,"faction":"allies","binding":"intellect",
         "starting_skills":["deception","persuasion"],"restoration":"authored", "nutrition": {"kind":"exempt"},
         "hit_dice":[{"source":"racial"},{"source":"racial"}]})
     };
-    manifest["characters"][0]["creature"] = creature("owner");
+    manifest["characters"][0]["creature"] = creature("item.corpse.test.owner", "owner");
     let mut regions: Vec<RegionDef> = [1, 2]
         .into_iter()
         .map(|id| {
@@ -36,7 +35,7 @@ pub(crate) fn scenario() -> Scenario {
         })
         .collect();
     let mut region = serde_json::to_value(&regions[0]).unwrap();
-    region["actors"] = json!([{"id":2,"at":[3,1,0],"turn_ticks":100,"controller":"external","creature":creature("partner")}]);
+    region["actors"] = json!([{"id":2,"at":[3,1,0],"turn_ticks":100,"controller":"external","creature":creature("item.corpse.test.partner", "partner")}]);
     region["items"] =
         json!([{"id":10,"at":[1,1,0],"carried_by":1,"archetype":"ration","quantity":2}]);
     regions[0] = serde_json::from_value(region).unwrap();
@@ -82,13 +81,13 @@ pub(crate) fn replacement_scenario(lethal: bool) -> Scenario {
         // A bounded +100 source and 100-damage dose make the lethal control
         // independent of the two small HD rolls. Positive current Health and
         // the lethal replacement preview are asserted after legitimate recovery.
-        manifest["archetypes"]["injury"] = json!({"name":"injury dose","class":"potion",
+        manifest["archetypes"]["injury"] = json!({"name":"injury dose","identity":"item.potion.injury","class":"potion",
             "consumable":{"effects":[{"kind":"damage","damage":{"kind":"components","components":[{
                 "category":"vital","amount":{"kind":"fixed","amount":100}}]}}]}});
         first["items"].as_array_mut().unwrap().push(json!({
             "id":11,"at":[1,1,0],"carried_by":1,"archetype":"injury","quantity":1
         }));
-        manifest["archetypes"]["health_ring"] = json!({"name":"Health ring","class":"ring",
+        manifest["archetypes"]["health_ring"] = json!({"name":"Health ring","identity":"item.ring.health-ring","class":"ring",
         "equipment":{"slot":"ring","attack":null,"modifiers":[
             {"scope":"always","op":{"kind":"add","stat":{"kind":"health"},"value":5}},
             {"scope":"always","op":{"kind":"add","stat":{"kind":"resource_max","resource":"stamina"},"value":3}}

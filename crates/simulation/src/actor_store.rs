@@ -1351,6 +1351,7 @@ mod tests {
         game.configure_creature(
             source,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.source".parse().unwrap(),
                 name: "source".into(),
                 faction: "neutral".into(),
             },
@@ -1360,6 +1361,7 @@ mod tests {
         game.configure_creature(
             ActorId(1),
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                 name: "subject".into(),
                 faction: "neutral".into(),
             },

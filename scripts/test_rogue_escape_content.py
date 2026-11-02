@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Independent authored contracts for ordinary escape and levitation items."""
 from pathlib import Path
 import tomllib
@@ -15,7 +16,7 @@ class RogueEscapeContent(unittest.TestCase):
         catalog = source("catalog/items.toml")
         self.assertIn("rogue.levitation", catalog["items"])
         self.assertEqual(catalog["items"]["rogue.levitation"], {
-            "asset": "item.potion", "name": "potion of levitation", "identity": "rogue.levitation",
+            "asset": "item.potion", "name": "potion of levitation", "identity": "item.potion.levitation",
             "magical": True, "class": "potion", "stackable": True, "appearance_pool": "rogue.potions",
             "consumable": {"discovery": "on_use", "effects": [
                 {"kind": "apply_condition_for_turns", "condition": "rogue.levitation",
@@ -73,10 +74,10 @@ class RogueEscapeContent(unittest.TestCase):
                 self.assertEqual(stage["quantity"], 1)
                 self.assertIn({"archetype": identity, "weight": weight}, stage["bands"][0]["choices"])
                 for character in manifest["characters"]:
-                    self.assertNotIn(identity, character["known_identities"])
+                    self.assertNotIn(IDENTITIES[identity], character["known_identities"])
                     self.assertNotIn(identity, [row["archetype"] for row in character["loadout"]])
         for pool in ("rogue.potions", "rogue.scrolls", "rogue.wands", "rogue.rings"):
-            appearances = catalog["appearance_pools"][pool]["appearances"]
+            appearances = [entry["name"] for entry in catalog["appearance_pools"][pool]["appearances"]]
             count = sum(item.get("appearance_pool") == pool for item in catalog["items"].values())
             self.assertEqual(len(appearances), count)
             self.assertEqual(len(set(appearances)), count)

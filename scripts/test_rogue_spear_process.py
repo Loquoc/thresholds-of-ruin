@@ -21,7 +21,7 @@ class RogueSpearFixtureTests(unittest.TestCase):
         manifest, region = fixture()
         selected = copy.deepcopy(production["characters"][0])
         selected["anchor"] = "1/start"
-        selected["known_identities"].append("rogue.spear")
+        selected["known_identities"].append("item.weapon.spear")
         selected["loadout"].append({"archetype": "rogue.spear", "quantity": 1})
         self.assertEqual(manifest["characters"], [selected])
         self.assertEqual(manifest["modules"], production["modules"])
@@ -166,7 +166,7 @@ class RogueSpearProcesses(ProcessTestCase):
         self.assertEqual(resource(thrown, "focus")["reserved"], 0)
         settled = checkpoint(self, self.probe)
         spear_rows = [(key, row) for key, row in settled["items"].items()
-                      if row["spec"]["identity"] == "rogue.spear"]
+                      if row["spec"]["identity"] == "item.weapon.spear"]
         self.assertEqual([key for key, _ in spear_rows], [source])
         self.assertEqual(settled["items"][source]["quantity"], 1)
         self.assertEqual(settled["items"][source]["condition"], condition)

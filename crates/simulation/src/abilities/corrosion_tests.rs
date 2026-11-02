@@ -147,7 +147,7 @@ fn fixture_config(
                     .iter()
                     .position(|s| s.as_str() == "body_armor")
                     .unwrap();
-                let mut spec = ItemSpec::ordinary("mail".into());
+                let mut spec = ItemSpec::ordinary("item.test.mail".parse().unwrap(), "mail".into());
                 spec.class = crate::ItemClass::Armor;
                 spec.equipment = Some(EquipmentSpec {
                     periodic_relocation: None,
@@ -509,7 +509,7 @@ fn worn_armor_protection_prevents_new_corrosion_without_repair_and_removal_resto
         })
         .map(|(socket, slot)| (EquipmentSlotId(socket as u16), slot.clone()))
         .unwrap();
-    let mut spec = ItemSpec::ordinary("armor ward".into());
+    let mut spec = ItemSpec::ordinary("item.test.armor-ward".parse().unwrap(), "armor ward".into());
     spec.class = crate::ItemClass::Ring;
     spec.equipment = Some(EquipmentSpec {
         periodic_relocation: None,

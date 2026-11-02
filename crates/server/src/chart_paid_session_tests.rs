@@ -665,22 +665,22 @@ fn aggregate_history_source(root: &Path, streaming: bool) -> crate::Scenario {
     let package = base.package.as_ref().unwrap();
     let mut manifest = serde_json::to_value(&package.manifest).unwrap();
     manifest["archetypes"] = json!({
-        "magic_dose":{"class":"potion","name":"potion of magic detection","identity":"fixture.magic",
+        "magic_dose":{"class":"potion","name":"potion of magic detection","identity":"item.potion.magic",
             "magical":true,"stackable":true,"appearance_pool":"fixture.magic",
             "consumable":{"discovery":"self_effect","effects":[{"kind":"detect_magic"}]}},
-        "food_scroll":{"class":"scroll","name":"scroll of food detection","identity":"fixture.food",
+        "food_scroll":{"class":"scroll","name":"scroll of food detection","identity":"item.scroll.food",
             "magical":true,"stackable":true,"appearance_pool":"fixture.food",
             "readable":{"discovery":"self_effect","effects":[{"kind":"detect_food"}]}},
-        "mapping_scroll":{"class":"scroll","name":"scroll of magic mapping","identity":"fixture.mapping",
+        "mapping_scroll":{"class":"scroll","name":"scroll of magic mapping","identity":"item.scroll.mapping",
             "magical":true,"stackable":true,"appearance_pool":"fixture.mapping",
             "readable":{"discovery":"on_use","effects":[{"kind":"map_topology"}]}},
-        "ration":{"class":"food","name":"ration"},
-        "sigil":{"class":"misc","name":"magic sigil","magical":true}
+        "ration":{"class":"food","name":"ration","identity":"item.food.ration"},
+        "sigil":{"class":"misc","name":"magic sigil","identity":"item.misc.magic-sigil","magical":true}
     });
     manifest["appearance_pools"] = json!({
-        "fixture.magic":{"appearances":["brass potion"]},
-        "fixture.food":{"appearances":["scroll titled FOOD"]},
-        "fixture.mapping":{"appearances":["scroll titled MAP"]}
+        "fixture.magic":{"appearances":[{"name":"brass potion"}]},
+        "fixture.food":{"appearances":[{"name":"scroll titled FOOD"}]},
+        "fixture.mapping":{"appearances":[{"name":"scroll titled MAP"}]}
     });
     let mut regions = package.region_defs().unwrap();
     let mut scopes = serde_json::Map::new();

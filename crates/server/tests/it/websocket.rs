@@ -70,6 +70,34 @@ pub(super) fn assert_picture_payload(actual: &StateView, expected: &StateView) {
     assert_eq!(&actual, expected);
 }
 
+/// Compare a spectator picture to the owner source using an independent,
+/// explicit disclosure oracle; all legacy public fields remain exact.
+fn assert_spectator_picture_payload(actual: &StateView, owner: &StateView) {
+    let mut expected = owner.clone();
+    for item in expected.observation.inventory.iter_mut().chain(
+        expected
+            .observation
+            .ground_items
+            .iter_mut()
+            .map(|row| &mut row.item),
+    ) {
+        item.identity = "item.unknown".parse().unwrap();
+        item.knowledge = ItemKnowledge::default();
+    }
+    if let Some(interaction) = &mut expected.observation.interactions {
+        interaction.identification = None;
+        interaction.curse_blocked.clear();
+        for item in &mut interaction.inventory {
+            item.charges = None;
+            item.known_equipment = None;
+            item.known_projectile_bonus = None;
+            item.known_cursed = None;
+            item.known_protected = None;
+        }
+    }
+    assert_picture_payload(actual, &expected);
+}
+
 /// Observe publishes one picture; it does not emit a separate acknowledgement.
 async fn observe(client: &mut Client, base: &StateView) -> StateView {
     client.request("observe-picture", Request::Observe).await;
@@ -332,7 +360,7 @@ async fn private_annotations_stream_to_same_user_across_frontends_but_not_other_
         ServerMessage::Snapshot { snapshot, .. } => {
             assert_eq!(snapshot.cursor.sequence, 0);
             assert!(snapshot.history.entries.is_empty());
-            assert_picture_payload(&snapshot.state, &initial.state);
+            assert_spectator_picture_payload(&snapshot.state, &initial.state);
         }
         other => panic!("{other:?}"),
     }
@@ -779,7 +807,7 @@ async fn spectators_receive_each_accepted_action_once_with_identical_disclosed_s
     let initial = attach(&mut player).await;
     let mut spectator = connect(&address, "bob-test-token", "ascii").await;
     let seen = attach(&mut spectator).await;
-    assert_picture_payload(&seen.state, &initial.state);
+    assert_spectator_picture_payload(&seen.state, &initial.state);
     assert!(!serde_json::to_string(&seen)
         .unwrap()
         .contains("known_places"));
@@ -864,7 +892,7 @@ async fn spectators_receive_each_accepted_action_once_with_identical_disclosed_s
         snapshot.cursor.sequence, 10,
         "exactly three causal action lifecycles and control"
     );
-    assert_picture_payload(&snapshot.state, &state);
+    assert_spectator_picture_payload(&snapshot.state, &state);
     assert_eq!(snapshot.history.entries, entries);
     spectator.close(None).await.unwrap();
     let mut resumed = connect(&address, "bob-test-token", "text").await;
@@ -1055,7 +1083,7 @@ async fn deltas_follow_each_attachments_last_observation_across_control_and_rese
             assert!(saw_delta);
         }
         assert!(player_state.readiness().admission);
-        assert_picture_payload(player_state.state(), observer_state.state());
+        assert_spectator_picture_payload(observer_state.state(), player_state.state());
         if round == 0 {
             player.request("reset", Request::Snapshot).await;
             let ServerMessage::Snapshot { snapshot, .. } = receive_metadata(&mut player).await

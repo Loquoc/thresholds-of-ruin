@@ -49,6 +49,18 @@ fn fixture(portal: bool, rows: usize) -> (s::Observation, Vec<w::SightCell>) {
         let location = at((index % 4) as i32);
         let id = 10_000 - index as u64;
         view.ground_items.push(s::GroundItemView {
+            identity: "item.misc.private-fixture".parse().unwrap(),
+            knowledge: s::ItemKnowledge {
+                buc: s::BucStatus::Cursed,
+                enchantments: s::KnownEnchantments {
+                    hit: Some(37),
+                    ..Default::default()
+                },
+                condition: s::KnownItemCondition {
+                    protected: Some(true),
+                    ..Default::default()
+                },
+            },
             presentation: Some(s::appearance_catalog::ObjectPresentation {
                 name: format!("shown-item-{index}").into(),
                 asset: None,

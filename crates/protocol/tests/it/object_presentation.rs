@@ -7,7 +7,7 @@ fn presentation() -> Value {
 }
 fn item() -> Value {
     json!({"id":ItemTarget::from_digest([47;32]),"class":"coin","quantity":"3",
-        "appearance":"object","identified":true,"description":"","name":"object",
+        "appearance":"object","identified":true,"identity":"item.coin.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"description":"","name":"object",
         "known_supply":null,"known_currency":"gold"})
 }
 fn ground() -> Value {
@@ -101,6 +101,7 @@ fn current_and_remembered_cosmetics_require_explicit_null_and_keep_true_authorit
     assert!(serde_json::from_value::<CellView>(c.clone()).is_ok());
     assert!(serde_json::from_value::<RememberedMapCell>(m.clone()).is_ok());
     g["presentation"] = presentation();
+    g["item"]["identity"] = json!("item.unknown");
     c["stairs_down"] = json!(true);
     c["object_presentation"] = presentation();
     m["stairs_down"] = json!(true);
@@ -144,8 +145,11 @@ fn current_and_remembered_cosmetics_require_explicit_null_and_keep_true_authorit
 fn cosmetic_outer_fields_reject_impossible_cells_and_true_identity_siblings() {
     let mut g = ground();
     g["presentation"] = presentation();
+    g["item"]["identity"] = json!("item.unknown");
     assert!(serde_json::from_value::<GroundItemView>(g.clone()).is_ok());
     for (field, value) in [
+        ("identity", json!("item.coin.fixture")),
+        ("identity", json!("item.coin.unknown")),
         ("name", json!("real coin")),
         ("appearance", json!("real coin")),
         ("description", json!("secret description")),
@@ -158,6 +162,9 @@ fn cosmetic_outer_fields_reject_impossible_cells_and_true_identity_siblings() {
             "{field}"
         );
     }
+    let mut private_fact = g.clone();
+    private_fact["item"]["knowledge"]["condition"]["protected"] = json!(false);
+    assert!(serde_json::from_value::<GroundItemView>(private_fact).is_err());
     let mut m = remembered();
     m["ground_items"][0]["presentation"] = presentation();
     let valid: RememberedMapCell = serde_json::from_value(m.clone()).unwrap();

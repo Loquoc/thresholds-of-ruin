@@ -964,6 +964,7 @@ fn a_dark_tactile_corpse_discloses_no_name_appearance_asset_or_source_identity()
         .unwrap();
     assert_eq!(item.class, crate::ItemClass::Corpse);
     assert!(!item.identified);
+    assert_eq!(item.identity.as_str(), "item.corpse.unknown");
     assert!(!item.name.is_empty() && !item.appearance.is_empty());
     assert!(!item.name.contains("private"));
     assert!(!item.appearance.contains("private"));
@@ -1136,7 +1137,10 @@ fn item_preparation_keeps_known_threat_reference_domains_separate() {
                 location: at(1, 3, 2),
                 last_seen: 0,
             });
-        let mut potion = crate::ItemSpec::ordinary("ordinary potion".into());
+        let mut potion = crate::ItemSpec::ordinary(
+            "item.test.ordinary-potion".parse().unwrap(),
+            "ordinary potion".into(),
+        );
         potion.class = crate::ItemClass::Potion;
         potion.consumable = Some(crate::ConsumableSpec {
             descriptors: vec![],
@@ -1367,4 +1371,44 @@ fn reused_projection_indexes_keep_rotated_portal_sight_distinct_from_stair_discl
     assert_eq!(subject.name, "private creature 2");
     assert_eq!(subject.asset.as_deref(), Some("private_creature_asset"));
     assert_eq!(game, original);
+}
+
+#[test]
+fn corpse_knowledge_is_persona_scoped_and_persists_without_cross_group_disclosure() {
+    let (mut game, first) = corpse_fixture(false);
+    let original = game.items[&first].clone();
+    let at = match original.location {
+        crate::ItemLocation::Ground(at) => at,
+        _ => unreachable!(),
+    };
+    let same = game
+        .spawn_item_stack(at, None, 1, (*original.spec).clone())
+        .unwrap();
+    let mut distinct_spec = (*original.spec).clone();
+    distinct_spec.identity = "item.corpse.test.unrelated-persona".parse().unwrap();
+    distinct_spec.name = "unrelated secret persona corpse".into();
+    distinct_spec.appearance = distinct_spec.name.clone();
+    let distinct = game.spawn_item_stack(at, None, 1, distinct_spec).unwrap();
+    for id in [same, distinct] {
+        game.items
+            .edit(id, |item| item.corpse = original.corpse.clone());
+    }
+    game.identify_item(OWNER, first).unwrap();
+    for candidate in [game.clone(), restore(&game)] {
+        let view = candidate.observe(OWNER).unwrap();
+        for id in [first, same] {
+            let row = view.ground_items.iter().find(|item| item.id == id).unwrap();
+            assert!(row.identified);
+            assert_eq!(row.identity, original.spec.identity);
+        }
+        let row = view
+            .ground_items
+            .iter()
+            .find(|item| item.id == distinct)
+            .unwrap();
+        assert!(!row.identified);
+        assert_eq!(row.identity.as_str(), "item.corpse.unknown");
+        assert_eq!(row.name, "corpse");
+        assert_eq!(row.corpse, None);
+    }
 }

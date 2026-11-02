@@ -138,7 +138,7 @@ class StudyArrangements(unittest.TestCase):
         [character] = package["characters"]
         self.assertIn({"archetype": study.SEE_INVISIBLE, "quantity": 1,
                        "equipped_slot": study.RING_SLOT}, character["loadout"])
-        self.assertIn(study.SEE_INVISIBLE, character["known_identities"])
+        self.assertIn("item.potion.see-invisible", character["known_identities"])
 
 
 class EncounterProcess(unittest.TestCase):

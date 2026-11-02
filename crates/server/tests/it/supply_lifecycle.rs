@@ -32,19 +32,19 @@ fn scenario(hd: usize, bandages: u64, partner: Option<bool>, injury: u32) -> Sce
     manifest["factions"] = json!({"carers":[],"foe":["carers"]});
     manifest["ai_profiles"] =
         json!({"pressure":{"care": true, "equipment": true, "loot": true, "flee_percent":0}});
-    manifest["archetypes"]["bandage"] =
-        json!({"name":"clean bandage","identity":"bandage", "stackable":true,"supply":"bandage"});
-    manifest["archetypes"]["injury"] = json!({"name":"fixture injury dose","class":"potion","consumable":{"effects":[damage(injury)]}});
+    manifest["archetypes"]["bandage"] = json!({"name":"clean bandage","identity":"item.misc.bandage", "stackable":true,"supply":"bandage"});
+    manifest["archetypes"]["injury"] = json!({"name":"fixture injury dose","identity":"item.potion.injury","class":"potion","consumable":{"effects":[damage(injury)]}});
     manifest["creatures"] = json!({"species":{"carer":{
         "kind":"humanoid", "behavior": {"disposition":"mean","idle":"explore","memory_ticks":1000},"attributes":{"strength":0,"speed":0,"intellect":0,"willpower":0,"awareness":0,"presence":0},
         "melee":{"skill":"heavy_weaponry","bonus":0,"wind_up":100,"recovery":100,"strikes":[strike(1)]}
     }}});
-    let creature = |name: &str, faction: &str| {
-        json!({"species":"carer","name":name,"faction":faction,
+    let creature = |corpse_identity: &str, name: &str, faction: &str| {
+        json!({"species":"carer","name":name,"corpse_identity":corpse_identity,"faction":faction,
         "binding":"intellect","starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},
         "hit_dice":vec![json!({"source":"racial"});hd]})
     };
-    manifest["characters"][0]["creature"] = creature("first carer", "carers");
+    manifest["characters"][0]["creature"] =
+        creature("item.corpse.test.first-carer", "first carer", "carers");
     manifest["characters"][0]["turn_ticks"] = json!(100);
     let mut regions: Vec<RegionDef> = [1, 2]
         .into_iter()
@@ -67,7 +67,7 @@ fn scenario(hd: usize, bandages: u64, partner: Option<bool>, injury: u32) -> Sce
         Some(ai) => {
             let mut actor = json!({"id":2,"at":[if ai {2} else {3},1,0],"turn_ticks":100,
                 "controller":if ai {"ai"} else {"external"},
-                "creature":creature("second carer",if ai {"foe"} else {"carers"})});
+                "creature":creature("item.corpse.test.second-carer", "second carer",if ai {"foe"} else {"carers"})});
             if ai {
                 actor["ai"] = json!("pressure");
             }

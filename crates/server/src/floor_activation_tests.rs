@@ -55,7 +55,8 @@ fn fixture_with_activation(activation: bool) -> Scenario {
     source["capabilities"] = Value::Null;
     source["factions"] = json!({});
     source["ai_profiles"] = json!({});
-    source["archetypes"] = json!({"marker":{"name":"activation marker"}});
+    source["archetypes"] =
+        json!({"marker":{"name":"activation marker","identity":"item.misc.marker"}});
     source["objective"] = Value::Null;
     source["unique_retrieval"] = Value::Null;
     source["arena"] = Value::Null;

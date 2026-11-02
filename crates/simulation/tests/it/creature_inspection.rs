@@ -78,6 +78,7 @@ fn game() -> Game {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: format!("team{x}"),
             },

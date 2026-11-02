@@ -417,6 +417,7 @@ fn candidate_birth_setup_preserves_unfinished_event_suffix_without_nested_clones
     game.configure_creature_in_transaction(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.new-subject".parse().unwrap(),
             name: "new subject".into(),
             faction: "neutral".into(),
         },

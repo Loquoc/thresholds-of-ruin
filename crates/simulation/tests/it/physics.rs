@@ -185,7 +185,12 @@ fn loose_items_fall_and_other_actors_keep_their_turns() {
         .spawn_actor(at(5, 10), NonZeroU64::new(50).unwrap())
         .unwrap();
     game.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
-    game.place_item(at(2, 10), "weight".into()).unwrap();
+    game.place_item(
+        at(2, 10),
+        "item.test.weight".parse().unwrap(),
+        "weight".into(),
+    )
+    .unwrap();
     game.act(id, Action::Wait).unwrap();
     assert_eq!(game.tick(), 0);
     assert_eq!(game.next_actor(), Some(other));
@@ -321,7 +326,13 @@ fn straddling_body_averages_fields_in_both_regions() {
 fn dropped_items_inherit_carrier_motion() {
     let (mut game, id) = game();
     game.set_gravity(RegionId(1), [0; 3]).unwrap();
-    let item = game.place_item(at(2, 10), "weight".into()).unwrap();
+    let item = game
+        .place_item(
+            at(2, 10),
+            "item.test.weight".parse().unwrap(),
+            "weight".into(),
+        )
+        .unwrap();
     game.act(
         id,
         Action::Take {

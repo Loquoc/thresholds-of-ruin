@@ -26,7 +26,7 @@ class EffectiveInteractionProcesses(ProcessTestCase):
             amount = {"kind": "rolled", "dice": {"count": 1, "sides": 2, "bonus": -5}}
         species["melee"]["strikes"][0]["on_success"][0]["damage"]["components"][0]["amount"] = amount
         manifest["archetypes"]["amplifier"] = {
-            "class": "armor", "name": "damage amplifier", "equipment": {
+            "identity": "item.armor.damage-amplifier", "class": "armor", "name": "damage amplifier", "equipment": {
                 "slot": "head_armor", "modifiers": [flat_modifier(3)]}}
         manifest["ai_profiles"]["practice"] = {
             "care": False, "equipment": False, "loot": False, "flee_percent": 0}

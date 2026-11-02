@@ -123,11 +123,11 @@ fn context_growth_game_with_rules(
     )
     .unwrap();
     let mut game = Game::new(world, 42, content);
-    for (region, x, faction, build) in [
-        (1, 1, "hero", ordinary.clone()),
-        (2, 1, "owner", owner),
-        (2, 9, "foe", ordinary.clone()),
-        (1, 9, "victim", ordinary),
+    for (region, x, faction, build, corpse_identity) in [
+        (1, 1, "hero", ordinary.clone(), "item.corpse.test.hero"),
+        (2, 1, "owner", owner, "item.corpse.test.owner"),
+        (2, 9, "foe", ordinary.clone(), "item.corpse.test.foe"),
+        (1, 9, "victim", ordinary, "item.corpse.test.victim"),
     ] {
         let id = game
             .spawn_actor(location(region, x), std::num::NonZeroU64::new(1).unwrap())
@@ -135,6 +135,7 @@ fn context_growth_game_with_rules(
         game.configure_creature(
             id,
             crate::CreatureIdentity {
+                corpse_identity: corpse_identity.parse().unwrap(),
                 name: faction.into(),
                 faction: faction.into(),
             },
@@ -435,7 +436,8 @@ fn pending_recovery_survives_repeated_growth_equipment_and_condition_folds_until
         .enumerate()
         .find(|(_, slot)| slot.as_str() == "body_armor")
         .unwrap();
-    let mut item = crate::ItemSpec::ordinary("clock mail".into());
+    let mut item =
+        crate::ItemSpec::ordinary("item.test.clock-mail".parse().unwrap(), "clock mail".into());
     item.class = crate::ItemClass::Armor;
     item.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,

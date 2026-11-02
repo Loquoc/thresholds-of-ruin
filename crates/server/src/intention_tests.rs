@@ -3683,13 +3683,20 @@ mod ordered_strikes_ai_replay_tests {
         manifest.creatures = serde_json::from_value(json!({"species":{
             "escaper":species("interrupt_strike"),"sentinel":species("triple_strike")}}))
         .unwrap();
-        let creature = |species, name, faction| {
-            json!({"species":species,"name":name,"faction":faction,
+        let creature = |corpse_identity, species, name, faction| {
+            json!({"species":species,"name":name,"corpse_identity":corpse_identity,"faction":faction,
             "binding":"intellect","starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},
             "hit_dice":[{"source":"racial"}]})
         };
-        manifest.characters[0].creature =
-            Some(serde_json::from_value(creature("escaper", "Escaper", "player")).unwrap());
+        manifest.characters[0].creature = Some(
+            serde_json::from_value(creature(
+                "item.corpse.test.escaper",
+                "escaper",
+                "Escaper",
+                "player",
+            ))
+            .unwrap(),
+        );
         manifest.characters[0].turn_ticks = 150;
         manifest
             .factions
@@ -3718,7 +3725,7 @@ mod ordered_strikes_ai_replay_tests {
             .collect();
         regions[0].items.clear();
         regions[0].actors = vec![serde_json::from_value(json!({"id":2,"at":[2,1,0],"turn_ticks":100,
-            "controller":"ai","ai":"retreat","creature":creature("sentinel", "Sequence sentinel", "sentinel")})).unwrap()];
+            "controller":"ai","ai":"retreat","creature":creature("item.corpse.test.sequence-sentinel", "sentinel", "Sequence sentinel", "sentinel")})).unwrap()];
         let package =
             Package::from_parts(manifest, regions, &toml::to_string(&rules).unwrap()).unwrap();
         Scenario {
@@ -3899,7 +3906,7 @@ mod finite_supply_publication_tests {
         manifest.archetypes.insert(
             "bandage".into(),
             serde_json::from_value(
-                json!({"name":"clean bandage","stackable":true,"supply":"bandage"}),
+                json!({"name":"clean bandage","identity":"item.misc.bandage","stackable":true,"supply":"bandage"}),
             )
             .unwrap(),
         );
@@ -3910,7 +3917,7 @@ mod finite_supply_publication_tests {
                     "category":"impact","amount":{"kind":"fixed","amount":1}}]}}],
                 "on_failure":[],"descriptors":[],"riders":[]}]}
         }}})).unwrap();
-        let creature = json!({"species":"carer","name":"ordinary carer","faction":"neutral","binding":"intellect",
+        let creature = json!({"species":"carer","name":"ordinary carer","corpse_identity":"item.corpse.test.ordinary-carer","faction":"neutral","binding":"intellect",
             "starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},"hit_dice":[{"source":"racial"}]});
         manifest.characters[0].creature = Some(serde_json::from_value(creature.clone()).unwrap());
         let mut regions: Vec<RegionDef> = [1, 2]
@@ -4310,7 +4317,7 @@ mod finite_supply_publication_tests {
         manifest.archetypes.insert(
             "preparation_dose".into(),
             serde_json::from_value(json!({
-            "name":"ordinary preparation dose","class":"potion","consumable":{"effects":[
+            "name":"ordinary preparation dose","identity":"item.potion.preparation","class":"potion","consumable":{"effects":[
                 {"kind":"damage","damage":{"kind":"components","components":[{
                     "category":"vital","amount":{"kind":"fixed","amount":1}}]}},
                 {"kind":"apply_condition","condition":"readied","duration":1000}

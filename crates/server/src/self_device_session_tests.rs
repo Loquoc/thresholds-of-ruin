@@ -68,7 +68,7 @@ fn self_device_source(root: &Path, with_other: bool, condition: bool) -> crate::
     let rules = toml::to_string(rules.document()).unwrap();
     let mut manifest = serde_json::to_value(&source.manifest).unwrap();
     manifest["archetypes"]["ember"]["name"] = json!("wand of nothing");
-    manifest["archetypes"]["ember"]["identity"] = json!("fixture.nothing");
+    manifest["archetypes"]["ember"]["identity"] = json!("item.wand.nothing");
     manifest["archetypes"]["ember"]["device"]["discovery"] = json!("never");
     let manifest = serde_json::from_value(manifest).unwrap();
     let regions = source.region_defs().unwrap();
@@ -660,11 +660,11 @@ fn on_use_self_condition_identifies_only_on_completion_and_other_owner_remains_u
     let before = wire.checkpoint();
     assert_eq!(
         nothing_items(&before)[&physical]["spec"]["identity"],
-        "fixture.nothing"
+        "item.wand.nothing"
     );
     assert_eq!(
         nothing_items(&before)["31"]["spec"]["identity"],
-        "fixture.nothing"
+        "item.wand.nothing"
     );
     assert_eq!(
         nothing_items(&before)["31"]["location"],

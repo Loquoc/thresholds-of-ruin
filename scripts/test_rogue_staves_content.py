@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Independent physical-form and unchanged effect-family authoring contracts."""
 from pathlib import Path
 import tomllib
@@ -29,7 +30,7 @@ class RogueStavesContent(unittest.TestCase):
             item = devices[identity]
             with self.subTest(effect=effect):
                 self.assertEqual(item.get("forms"), expected_forms(name))
-                self.assertEqual(item["identity"], identity)
+                self.assertEqual(item["identity"], IDENTITIES[identity])
                 self.assertEqual(item["class"], "wand")
                 self.assertEqual(item["device"]["ability"], identity)
                 self.assertEqual(item["device"]["initial_charges"],
@@ -43,10 +44,8 @@ class RogueStavesContent(unittest.TestCase):
 
     def test_separate_metal_and_wood_pools_cover_every_possible_effect_assignment(self):
         pools = source("catalog/items.toml")["appearance_pools"]
-        self.assertEqual(pools["rogue.wands"], {"asset": "item.wand",
-                                              "appearances": [metal + " wand" for metal in METALS]})
-        self.assertEqual(pools["rogue.staves"], {"asset": "item.wand",
-                                               "appearances": [wood + " staff" for wood in WOODS]})
+        self.assertEqual(pools["rogue.wands"], {"appearances": [{"name": metal + " wand", "asset": "item.wand." + metal} for metal in METALS]})
+        self.assertEqual(pools["rogue.staves"], {"appearances": [{"name": wood + " staff", "asset": "item.wand.staff." + wood} for wood in WOODS]})
         self.assertEqual(len(set(METALS)), len(EFFECTS))
         self.assertEqual(len(set(WOODS)), len(EFFECTS))
 

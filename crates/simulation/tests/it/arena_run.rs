@@ -246,6 +246,7 @@ fn unconfigured() -> Game {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.combatant-{x}").parse().unwrap(),
                 name: format!("combatant {x}"),
                 faction: faction.into(),
             },
@@ -420,6 +421,7 @@ fn granting_arena_execution_advances_to_the_next_future_decision_after_restart()
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.idle-{x}").parse().unwrap(),
                 name: format!("idle {x}"),
                 faction: "idle".into(),
             },

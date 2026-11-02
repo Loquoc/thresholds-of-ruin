@@ -72,6 +72,7 @@ fn fixture_with(
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.tester".parse().unwrap(),
             name: "tester".into(),
             faction: "test".into(),
         },
@@ -86,7 +87,7 @@ fn periodic() -> Modifier {
     })
 }
 fn equip_armor(game: &mut Game, actor: ActorId, rustproof: bool) -> ItemId {
-    let mut spec = ItemSpec::ordinary("test armor".into());
+    let mut spec = ItemSpec::ordinary("item.test.test-armor".parse().unwrap(), "test armor".into());
     spec.class = crate::ItemClass::Armor;
     spec.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -637,7 +638,10 @@ fn relocation_from_frozen_region_establishes_new_active_ground_contact() {
 #[test]
 fn real_worn_ring_preserves_fraction_across_unequip_and_re_equip() {
     let (mut game, actor) = fixture(vec![]);
-    let mut spec = ItemSpec::ordinary("searching ring fixture".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.searching-ring-fixture".parse().unwrap(),
+        "searching ring fixture".into(),
+    );
     spec.class = crate::ItemClass::Ring;
     spec.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,

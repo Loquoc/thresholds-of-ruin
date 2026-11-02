@@ -128,7 +128,8 @@ fn public_equipment_death_publishes_own_feedback_before_reopen() {
         .unwrap();
     assert!(game.alive(ActorId(2)));
     assert_eq!(game.health(ActorId(2)), Some((1, baseline)));
-    let mut item = crate::ItemSpec::ordinary("frail ring".into());
+    let mut item =
+        crate::ItemSpec::ordinary("item.test.frail-ring".parse().unwrap(), "frail ring".into());
     item.class = crate::ItemClass::Ring;
     item.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,

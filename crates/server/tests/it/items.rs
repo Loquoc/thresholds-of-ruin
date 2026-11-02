@@ -174,7 +174,7 @@ fn projectile_stack_package(root: &Path) -> Scenario {
     )
     .unwrap();
     std::fs::write(root.join("scenario.toml"), r#"
-format = 36
+format = 37
 id = "projectile-stack-identity"
 version = "1.0"
 ruleset = "rules.toml"
@@ -184,6 +184,7 @@ characters = [{ id = 1, anchor = "1/start" }]
 [archetypes.arrow]
 class = "weapon"
 name = "fixture arrow"
+identity = "item.weapon.fixture.arrow"
 stackable = true
 projectile = { family = "fixture_bow", recovery = "consumed_on_hit", damage = { components = [{ category = "keen", amount = { type = "fixed", value = 2 } }], primary = { category = "keen" } } }
 "#).unwrap();
@@ -516,13 +517,19 @@ fn selected_character_knowledge_and_seed_mapping_are_deterministic() {
     crate::support::copy_package(&root, dir.path());
     let manifest = dir.path().join("scenario.toml");
     let content = std::fs::read_to_string(&manifest).unwrap();
-    std::fs::write(
-        &manifest,
-        content
-            .replace("[\"red potion\"]", "[\"red potion\", \"blue potion\"]")
-            .replace("confounding = true", "confounding = false"),
-    )
-    .unwrap();
+    let mut declaration: toml::Value = toml::from_str(&content).unwrap();
+    let pool = declaration["appearance_pools"]["potions"]
+        .as_table_mut()
+        .unwrap();
+    let appearances = pool["appearances"].as_array_mut().unwrap();
+    assert_eq!(appearances.len(), 1);
+    assert_eq!(appearances[0]["name"].as_str(), Some("red potion"));
+    appearances.push(toml::Value::Table(toml::map::Map::from_iter([(
+        "name".into(),
+        toml::Value::String("blue potion".into()),
+    )])));
+    pool.insert("confounding".into(), toml::Value::Boolean(false));
+    std::fs::write(&manifest, toml::to_string_pretty(&declaration).unwrap()).unwrap();
     scenario_package::validate(dir.path()).unwrap();
     let mut mappings = std::collections::BTreeSet::new();
     for seed in 0..16 {
@@ -577,8 +584,8 @@ fn selected_character_knowledge_and_seed_mapping_are_deterministic() {
     for invalid in [
         content.replace("confounding = true", "confounding = false"),
         content.replace(
-            "known_identities = [\"healing\"]",
-            "known_identities = [\"missing\"]",
+            "known_identities = [\"item.potion.healing\"]",
+            "known_identities = [\"item.potion.missing\"]",
         ),
     ] {
         std::fs::write(&manifest, invalid).unwrap();

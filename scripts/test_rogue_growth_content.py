@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Opt-in permanent growth doses preserve existing stock and restoration."""
 from pathlib import Path
 import tomllib
@@ -13,7 +14,7 @@ def source(name):
 class RogueGrowthContent(unittest.TestCase):
     def assert_dose(self, kind, name):
         self.assertEqual(source("catalog/items.toml")["items"]["rogue." + kind], {
-            "name": "potion of " + name, "identity": "rogue." + kind, "asset": "item.potion",
+            "name": "potion of " + name, "identity": IDENTITIES["rogue." + kind], "asset": "item.potion",
             "magical": True, "class": "potion", "stackable": True,
             "appearance_pool": "rogue.potions", "consumable": {
                 "discovery": "on_use", "effects": [{"kind": kind}]}})
@@ -31,7 +32,7 @@ class RogueGrowthContent(unittest.TestCase):
             "rogue.restore_strength", "rogue.healing", "rogue.extra_healing", "rogue.confusion",
             "rogue.blindness", "rogue.poison", "rogue.see_invisible", "rogue.levitation", "rogue.haste",
             "rogue.gain_strength", "rogue.raise_level", "rogue.hallucination", "rogue.monster_detection", "rogue.magic_detection"})
-        self.assertEqual(catalog["appearance_pools"]["rogue.potions"]["appearances"], [
+        self.assertEqual([entry["name"] for entry in catalog["appearance_pools"]["rogue.potions"]["appearances"]], [
             "amber potion", "smoky potion", "violet potion", "azure potion", "crimson potion",
             "silver potion", "pearl potion", "teal potion", "ochre potion", "indigo potion", "copper potion", "chartreuse potion", "saffron potion", "cerulean potion"])
 
@@ -40,7 +41,7 @@ class RogueGrowthContent(unittest.TestCase):
         for kind in ("rogue.gain_strength", "rogue.raise_level"):
             self.assertIn(kind, repr(manifest["floor_activation"]))
             for character in manifest["characters"]:
-                self.assertNotIn(kind, character["known_identities"])
+                self.assertNotIn(IDENTITIES[kind], character["known_identities"])
                 self.assertNotIn(kind, [row["archetype"] for row in character["loadout"]])
         stage = manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"][7]
         self.assertEqual(stage, {"id": "rogue.magic_devices", "version": 1, "kind": "items",

@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1440,
+    900
+  ],
+  "actors": [
+    {
+      "id": "man",
+      "model": "Human",
+      "seed": 7,
+      "body": {},
+      "outfit": "adventurer",
+      "equipment": [],
+      "position": [
+        -1.8,
+        -0.5,
+        -1.4
+      ],
+      "yaw": 15
+    }
+  ],
+  "ground_items": [
+    {
+      "model": "LongSword",
+      "position": [
+        -3,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "LongSword",
+      "quantity": 1
+    },
+    {
+      "model": "Dagger",
+      "position": [
+        -2,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "Dagger",
+      "quantity": 1
+    },
+    {
+      "model": "Shortbow",
+      "position": [
+        -1,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "Shortbow",
+      "quantity": 1
+    },
+    {
+      "model": "Arrow",
+      "position": [
+        0,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "Arrow",
+      "quantity": 1
+    },
+    {
+      "model": "Spear",
+      "position": [
+        1,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "Spear",
+      "quantity": 1
+    },
+    {
+      "model": "Dart",
+      "position": [
+        2,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "Dart",
+      "quantity": 1
+    },
+    {
+      "model": "Shuriken",
+      "position": [
+        3,
+        -0.5,
+        0
+      ],
+      "yaw": 25,
+      "disclosed_name": "Shuriken",
+      "quantity": 1
+    },
+    {
+      "model": "Potion",
+      "position": [
+        -2,
+        -0.5,
+        1.8
+      ],
+      "yaw": 25,
+      "disclosed_name": "Potion",
+      "quantity": 1
+    },
+    {
+      "model": "Fruit",
+      "position": [
+        -1,
+        -0.5,
+        1.8
+      ],
+      "yaw": 25,
+      "disclosed_name": "Fruit",
+      "quantity": 1
+    },
+    {
+      "model": "Staff",
+      "position": [
+        0,
+        -0.5,
+        1.8
+      ],
+      "yaw": 25,
+      "disclosed_name": "Staff",
+      "quantity": 1
+    },
+    {
+      "model": "Amulet",
+      "position": [
+        1,
+        -0.5,
+        1.8
+      ],
+      "yaw": 25,
+      "disclosed_name": "Amulet",
+      "quantity": 1
+    },
+    {
+      "model": "Torch",
+      "position": [
+        2,
+        -0.5,
+        1.8
+      ],
+      "yaw": 25,
+      "disclosed_name": "Torch",
+      "quantity": 1
+    }
+  ],
+  "floor_color": [
+    0.48,
+    0.45,
+    0.38
+  ],
+  "cameras": [
+    {
+      "id": "play",
+      "position": [
+        0,
+        6.414031790709677,
+        4.94430626044301
+      ],
+      "target": [
+        0,
+        -0.5,
+        0
+      ],
+      "fov_degrees": 45
+    }
+  ],
+  "events": [],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "rogue-world-light",
+      "camera": "play"
+    }
+  ],
+  "ground_labels": false,
+  "dungeon": true
+}

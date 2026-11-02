@@ -57,6 +57,16 @@ pub enum ItemModel {
     Mace,
     Greatsword,
     ShortSword,
+    LongSword,
+    Dagger,
+    Shortbow,
+    Arrow,
+    Spear,
+    Dart,
+    Shuriken,
+    Fruit,
+    Torch,
+    Staff,
     LeatherArmor,
     StuddedLeather,
     RingMail,
@@ -80,6 +90,121 @@ pub enum ItemModel {
     Gem,
     Pick,
     Pouch,
+}
+
+/// Public, persistent cosmetic appearance; never an item's true identity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ItemSurface {
+    #[default]
+    Neutral,
+    Potion(u8),
+    Scroll(u8),
+    Wand(u8),
+    Staff(u8),
+    Ring(u8),
+}
+
+/// Resolve a hierarchical public appearance asset within its model family.
+pub fn item_surface(kind: ItemModel, asset: &str) -> ItemSurface {
+    let mut key = asset;
+    loop {
+        let surface = match (kind, key) {
+            (ItemModel::Potion, "item.potion.amber") => Some(ItemSurface::Potion(0)),
+            (ItemModel::Potion, "item.potion.smoky") => Some(ItemSurface::Potion(1)),
+            (ItemModel::Potion, "item.potion.violet") => Some(ItemSurface::Potion(2)),
+            (ItemModel::Potion, "item.potion.azure") => Some(ItemSurface::Potion(3)),
+            (ItemModel::Potion, "item.potion.crimson") => Some(ItemSurface::Potion(4)),
+            (ItemModel::Potion, "item.potion.silver") => Some(ItemSurface::Potion(5)),
+            (ItemModel::Potion, "item.potion.pearl") => Some(ItemSurface::Potion(6)),
+            (ItemModel::Potion, "item.potion.teal") => Some(ItemSurface::Potion(7)),
+            (ItemModel::Potion, "item.potion.ochre") => Some(ItemSurface::Potion(8)),
+            (ItemModel::Potion, "item.potion.indigo") => Some(ItemSurface::Potion(9)),
+            (ItemModel::Potion, "item.potion.copper") => Some(ItemSurface::Potion(10)),
+            (ItemModel::Potion, "item.potion.chartreuse") => Some(ItemSurface::Potion(11)),
+            (ItemModel::Potion, "item.potion.saffron") => Some(ItemSurface::Potion(12)),
+            (ItemModel::Potion, "item.potion.cerulean") => Some(ItemSurface::Potion(13)),
+            (ItemModel::Scroll, "item.scroll.vel-mor") => Some(ItemSurface::Scroll(0)),
+            (ItemModel::Scroll, "item.scroll.elam-tor") => Some(ItemSurface::Scroll(1)),
+            (ItemModel::Scroll, "item.scroll.nar-shen") => Some(ItemSurface::Scroll(2)),
+            (ItemModel::Scroll, "item.scroll.heth-ara") => Some(ItemSurface::Scroll(3)),
+            (ItemModel::Scroll, "item.scroll.tal-ion") => Some(ItemSurface::Scroll(4)),
+            (ItemModel::Scroll, "item.scroll.ur-sek") => Some(ItemSurface::Scroll(5)),
+            (ItemModel::Scroll, "item.scroll.kel-ran") => Some(ItemSurface::Scroll(6)),
+            (ItemModel::Scroll, "item.scroll.an-dor") => Some(ItemSurface::Scroll(7)),
+            (ItemModel::Scroll, "item.scroll.iv-mem") => Some(ItemSurface::Scroll(8)),
+            (ItemModel::Scroll, "item.scroll.os-thal") => Some(ItemSurface::Scroll(9)),
+            (ItemModel::Scroll, "item.scroll.vel-tor") => Some(ItemSurface::Scroll(10)),
+            (ItemModel::Scroll, "item.scroll.sah-ren") => Some(ItemSurface::Scroll(11)),
+            (ItemModel::Scroll, "item.scroll.or-veth") => Some(ItemSurface::Scroll(12)),
+            (ItemModel::Scroll, "item.scroll.nem-al") => Some(ItemSurface::Scroll(13)),
+            (ItemModel::Scroll, "item.scroll.tir-os") => Some(ItemSurface::Scroll(14)),
+            (ItemModel::Scroll, "item.scroll.kha-mer") => Some(ItemSurface::Scroll(15)),
+            (ItemModel::Scroll, "item.scroll.lor-nev") => Some(ItemSurface::Scroll(16)),
+            (ItemModel::Scroll, "item.scroll.mir-vel") => Some(ItemSurface::Scroll(17)),
+            (ItemModel::Wand, "item.wand.aluminum") => Some(ItemSurface::Wand(0)),
+            (ItemModel::Wand, "item.wand.bronze") => Some(ItemSurface::Wand(1)),
+            (ItemModel::Wand, "item.wand.copper") => Some(ItemSurface::Wand(2)),
+            (ItemModel::Wand, "item.wand.electrum") => Some(ItemSurface::Wand(3)),
+            (ItemModel::Wand, "item.wand.gold") => Some(ItemSurface::Wand(4)),
+            (ItemModel::Wand, "item.wand.iron") => Some(ItemSurface::Wand(5)),
+            (ItemModel::Wand, "item.wand.lead") => Some(ItemSurface::Wand(6)),
+            (ItemModel::Wand, "item.wand.magnesium") => Some(ItemSurface::Wand(7)),
+            (ItemModel::Wand, "item.wand.nickel") => Some(ItemSurface::Wand(8)),
+            (ItemModel::Wand, "item.wand.platinum") => Some(ItemSurface::Wand(9)),
+            (ItemModel::Wand, "item.wand.silver") => Some(ItemSurface::Wand(10)),
+            (ItemModel::Wand, "item.wand.steel") => Some(ItemSurface::Wand(11)),
+            (ItemModel::Wand, "item.wand.tin") => Some(ItemSurface::Wand(12)),
+            (ItemModel::Wand, "item.wand.zinc") => Some(ItemSurface::Wand(13)),
+            (ItemModel::Staff, "item.wand.staff.ash") => Some(ItemSurface::Staff(0)),
+            (ItemModel::Staff, "item.wand.staff.birch") => Some(ItemSurface::Staff(1)),
+            (ItemModel::Staff, "item.wand.staff.cedar") => Some(ItemSurface::Staff(2)),
+            (ItemModel::Staff, "item.wand.staff.cherry") => Some(ItemSurface::Staff(3)),
+            (ItemModel::Staff, "item.wand.staff.elm") => Some(ItemSurface::Staff(4)),
+            (ItemModel::Staff, "item.wand.staff.hazel") => Some(ItemSurface::Staff(5)),
+            (ItemModel::Staff, "item.wand.staff.mahogany") => Some(ItemSurface::Staff(6)),
+            (ItemModel::Staff, "item.wand.staff.maple") => Some(ItemSurface::Staff(7)),
+            (ItemModel::Staff, "item.wand.staff.oak") => Some(ItemSurface::Staff(8)),
+            (ItemModel::Staff, "item.wand.staff.pine") => Some(ItemSurface::Staff(9)),
+            (ItemModel::Staff, "item.wand.staff.teak") => Some(ItemSurface::Staff(10)),
+            (ItemModel::Staff, "item.wand.staff.walnut") => Some(ItemSurface::Staff(11)),
+            (ItemModel::Staff, "item.wand.staff.willow") => Some(ItemSurface::Staff(12)),
+            (ItemModel::Staff, "item.wand.staff.yew") => Some(ItemSurface::Staff(13)),
+            (ItemModel::Ring, "item.ring.agate") => Some(ItemSurface::Ring(0)),
+            (ItemModel::Ring, "item.ring.bronze") => Some(ItemSurface::Ring(1)),
+            (ItemModel::Ring, "item.ring.coral") => Some(ItemSurface::Ring(2)),
+            (ItemModel::Ring, "item.ring.diamond") => Some(ItemSurface::Ring(3)),
+            (ItemModel::Ring, "item.ring.emerald") => Some(ItemSurface::Ring(4)),
+            (ItemModel::Ring, "item.ring.ivory") => Some(ItemSurface::Ring(5)),
+            (ItemModel::Ring, "item.ring.jade") => Some(ItemSurface::Ring(6)),
+            (ItemModel::Ring, "item.ring.opal") => Some(ItemSurface::Ring(7)),
+            (ItemModel::Ring, "item.ring.ruby") => Some(ItemSurface::Ring(8)),
+            (ItemModel::Ring, "item.ring.sapphire") => Some(ItemSurface::Ring(9)),
+            (ItemModel::Ring, "item.ring.topaz") => Some(ItemSurface::Ring(10)),
+            (ItemModel::Ring, "item.ring.amethyst") => Some(ItemSurface::Ring(11)),
+            (ItemModel::Ring, "item.ring.garnet") => Some(ItemSurface::Ring(12)),
+            (ItemModel::Ring, "item.ring.quartz") => Some(ItemSurface::Ring(13)),
+            _ => None,
+        };
+        if let Some(surface) = surface {
+            return surface;
+        }
+        let Some((parent, _)) = key.rsplit_once('.') else {
+            return ItemSurface::Neutral;
+        };
+        key = parent;
+    }
+}
+
+pub(crate) fn surface_for_asset(
+    palette: &Palette,
+    kind: ItemModel,
+    asset: Option<&str>,
+) -> ItemSurface {
+    if palette.resolve(items(), asset).is_some() {
+        asset.map_or(ItemSurface::Neutral, |key| item_surface(kind, key))
+    } else {
+        ItemSurface::Neutral
+    }
 }
 
 fn creatures() -> &'static AssetTable<CreatureModel> {
@@ -143,8 +268,17 @@ fn items() -> &'static AssetTable<ItemModel> {
         AssetTable::new([
             ("item.weapon", ItemModel::ShortSword),
             ("item.weapon.mace", ItemModel::Mace),
+            ("item.weapon.sword.long", ItemModel::LongSword),
+            ("item.weapon.bow.short", ItemModel::Shortbow),
+            ("item.weapon.arrow", ItemModel::Arrow),
+            ("item.weapon.spear", ItemModel::Spear),
+            ("item.weapon.dart", ItemModel::Dart),
+            ("item.weapon.shuriken", ItemModel::Shuriken),
+            ("item.food.fruit", ItemModel::Fruit),
+            ("item.tool.torch", ItemModel::Torch),
+            ("item.wand.staff", ItemModel::Staff),
             ("item.weapon.greatsword", ItemModel::Greatsword),
-            ("item.weapon.dagger", ItemModel::ShortSword),
+            ("item.weapon.dagger", ItemModel::Dagger),
             ("item.armor", ItemModel::RingMail),
             ("item.armor.leather", ItemModel::LeatherArmor),
             ("item.armor.leather.studded", ItemModel::StuddedLeather),
@@ -236,6 +370,7 @@ pub struct Wearing {
     pub shield: Option<ItemModel>,
     /// Main and off hand, by weapon socket occurrence.
     pub weapons: [Option<ItemModel>; 2],
+    pub weapon_surfaces: [ItemSurface; 2],
 }
 
 impl Wearing {
@@ -266,6 +401,10 @@ pub fn wearing(palette: &Palette, worn: &[WornView]) -> Wearing {
             _ => continue,
         };
         *slot = Some(model);
+        if piece.slot == "weapon" && piece.occurrence < 2 {
+            result.weapon_surfaces[usize::from(piece.occurrence)] =
+                surface_for_asset(palette, model, piece.asset.as_deref());
+        }
     }
     result
 }
@@ -275,6 +414,131 @@ mod tests {
     use super::*;
     use std::collections::{BTreeMap, BTreeSet};
     use tor_protocol::{PaletteBody, PaletteUpdate};
+
+    #[test]
+    fn rogue_distinct_physical_shapes_resolve_without_names_or_identity() {
+        let cases = [
+            (
+                "item.weapon.sword.long",
+                ItemClass::Weapon,
+                ItemModel::LongSword,
+            ),
+            ("item.weapon.dagger", ItemClass::Weapon, ItemModel::Dagger),
+            (
+                "item.weapon.bow.short",
+                ItemClass::Weapon,
+                ItemModel::Shortbow,
+            ),
+            ("item.weapon.arrow", ItemClass::Weapon, ItemModel::Arrow),
+            (
+                "item.weapon.greatsword",
+                ItemClass::Weapon,
+                ItemModel::Greatsword,
+            ),
+            ("item.weapon.spear", ItemClass::Weapon, ItemModel::Spear),
+            ("item.weapon.dart", ItemClass::Weapon, ItemModel::Dart),
+            (
+                "item.weapon.shuriken",
+                ItemClass::Weapon,
+                ItemModel::Shuriken,
+            ),
+            ("item.food.fruit", ItemClass::Food, ItemModel::Fruit),
+            ("item.tool.torch", ItemClass::Tool, ItemModel::Torch),
+            ("item.wand.staff", ItemClass::Wand, ItemModel::Staff),
+            ("item.wand", ItemClass::Wand, ItemModel::Wand),
+        ];
+        let mut palette = Palette::default();
+        palette.apply(&PaletteUpdate {
+            revision: 1,
+            body: PaletteBody::Full {
+                assets: cases.iter().map(|(asset, _, _)| (*asset).into()).collect(),
+            },
+        });
+        for (asset, class, expected) in cases {
+            assert_eq!(
+                item_shape(&palette, class, Some(asset)),
+                expected,
+                "{asset}"
+            );
+            // The worn path must use the same public cosmetic asset, including
+            // devices whose disclosed class is Wand rather than Weapon.
+            if matches!(class, ItemClass::Weapon | ItemClass::Wand) {
+                assert_eq!(
+                    wearing(&palette, &[piece("weapon", 0, class, asset)]).weapons[0],
+                    Some(expected),
+                    "{asset}"
+                );
+            }
+        }
+        // Absence from a current palette still obeys the disclosed class
+        // fallback; new precise recipes cannot bypass palette authority.
+        assert_eq!(
+            item_shape(
+                &Palette::default(),
+                ItemClass::Weapon,
+                Some("item.weapon.bow.short")
+            ),
+            ItemModel::ShortSword
+        );
+    }
+
+    #[test]
+    fn hierarchical_surfaces_are_family_bounded_and_worn_devices_use_public_assets() {
+        assert_eq!(
+            item_surface(ItemModel::Potion, "item.potion.amber"),
+            ItemSurface::Potion(0)
+        );
+        assert_eq!(
+            item_surface(ItemModel::Potion, "item.potion.amber.cloudy"),
+            ItemSurface::Potion(0)
+        );
+        assert_eq!(
+            item_surface(ItemModel::Ring, "item.ring.ruby"),
+            ItemSurface::Ring(8)
+        );
+        assert_eq!(
+            item_surface(ItemModel::Potion, "item.ring.ruby"),
+            ItemSurface::Neutral
+        );
+        assert_eq!(
+            item_surface(ItemModel::Potion, "item.potion.unknown"),
+            ItemSurface::Neutral
+        );
+        assert_eq!(
+            item_surface(ItemModel::Potion, "potion of healing"),
+            ItemSurface::Neutral
+        );
+        let mut palette = Palette::default();
+        palette.apply(&PaletteUpdate {
+            revision: 1,
+            body: PaletteBody::Full {
+                assets: ["item.wand.silver".into(), "item.wand.staff.oak".into()]
+                    .into_iter()
+                    .collect(),
+            },
+        });
+        let mut wand = piece("weapon", 0, ItemClass::Wand, "item.wand.silver");
+        wand.appearance = "arbitrary translated public label".into();
+        let mut staff = piece("weapon", 1, ItemClass::Wand, "item.wand.staff.oak");
+        staff.appearance = "unrelated display label".into();
+        let result = wearing(&palette, &[wand, staff]);
+        assert_eq!(
+            result.weapon_surfaces,
+            [ItemSurface::Wand(10), ItemSurface::Staff(8)]
+        );
+        assert_eq!(
+            result.weapons,
+            [Some(ItemModel::Wand), Some(ItemModel::Staff)]
+        );
+        assert_eq!(
+            surface_for_asset(
+                &Palette::default(),
+                ItemModel::Potion,
+                Some("item.potion.amber")
+            ),
+            ItemSurface::Neutral
+        );
+    }
 
     /// The monsters the Rogue scenario names in its dungeon asset list; the
     /// player's own body is named elsewhere in the manifest.

@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 fn weighted_source() -> Value {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/rogue-geometry");
     let mut source = serde_json::to_value(resolve_source(&root).unwrap().manifest).unwrap();
-    source["archetypes"] = json!({"marker":{"name":"marker"},"alternate":{"name":"alternate"}});
+    source["archetypes"] = json!({"marker":{"name":"marker","identity":"item.misc.marker"},"alternate":{"name":"alternate","identity":"item.misc.alternate"}});
     source["floor_activation"] = json!({"version":1,"protagonist":"selected_character",
     "families":{"dungeon":"plain"},"profiles":{"plain":{"version":1,"stages":[
     {"kind":"items","id":"weighted","version":1,"count":[1,1],"bands":[

@@ -17,7 +17,7 @@ import uuid
 from client_performance_report import validate_presentation_profile
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = ROOT / "crates/server/fixtures/performance-v1.json"
+SPEC = ROOT / "crates/server/fixtures/performance-v2.json"
 
 
 def same_disclosed_state(actual, expected):

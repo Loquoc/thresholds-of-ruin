@@ -31,17 +31,33 @@ fn fixture() -> Package {
     manifest.appearance_pools.insert(
         "wands".into(),
         AppearancePool {
-            appearances: vec!["copper wand".into(), "iron wand".into()],
+            appearances: vec![
+                crate::scenario_package::AppearanceEntry {
+                    name: "copper wand".into(),
+                    asset: Some("item.metal".into()),
+                },
+                crate::scenario_package::AppearanceEntry {
+                    name: "iron wand".into(),
+                    asset: Some("item.metal".into()),
+                },
+            ],
             confounding: false,
-            asset: Some("item.metal".into()),
         },
     );
     manifest.appearance_pools.insert(
         "staves".into(),
         AppearancePool {
-            appearances: vec!["ash staff".into(), "oak staff".into()],
+            appearances: vec![
+                crate::scenario_package::AppearanceEntry {
+                    name: "ash staff".into(),
+                    asset: Some("item.wood".into()),
+                },
+                crate::scenario_package::AppearanceEntry {
+                    name: "oak staff".into(),
+                    asset: Some("item.wood".into()),
+                },
+            ],
             confounding: false,
-            asset: Some("item.wood".into()),
         },
     );
     let ember = manifest.archetypes.get_mut("ember").unwrap();
@@ -64,7 +80,7 @@ fn fixture() -> Package {
         .archetypes
         .insert("ember_alias".into(), alias.clone());
     let mut other = alias;
-    other.identity = Some("magic.other".into());
+    other.identity = Some("item.wand.other".parse().unwrap());
     other.name = Some("wand of another effect".into());
     other.forms[0].name = "wand of another effect".into();
     other.forms[1].name = "staff of another effect".into();
@@ -96,15 +112,18 @@ fn seeded_forms_bind_identity_aliases_instances_and_source_free_reopening() {
     let mut names = BTreeSet::new();
     let mut appearances = BTreeSet::new();
     // Independent fixed vectors, not values calculated by the selector under test.
+    // Recomputed independently with Python hashlib over canonical identity
+    // item.wand.embers (form domain + LE seed/length), then sorted SHA-256
+    // pool/index hashes. The alias shares that key; item.wand.other does not.
     let expected = [
-        (false, "iron wand"),
-        (false, "copper wand"),
-        (false, "copper wand"),
-        (true, "ash staff"),
-        (true, "ash staff"),
         (false, "iron wand"),
         (true, "oak staff"),
         (false, "copper wand"),
+        (true, "ash staff"),
+        (false, "iron wand"),
+        (true, "oak staff"),
+        (true, "oak staff"),
+        (true, "oak staff"),
     ];
     for seed in 0..8 {
         let item = resolve(&package, "ember", seed);
@@ -302,4 +321,79 @@ fn unselected_bad_form_and_cross_form_pool_leaks_reject_for_every_seed() {
             );
         }
     }
+}
+
+#[test]
+fn appearance_entries_reject_legacy_strings_and_identity_fields() {
+    for value in [
+        json!({"appearances":["amber potion"]}),
+        json!({"appearances":[{"name":"amber potion","identity":"item.potion.healing"}]}),
+        json!({"appearances":[{"name":"amber potion"}],"asset":"item.potion"}),
+    ] {
+        assert!(serde_json::from_value::<AppearancePool>(value).is_err());
+    }
+    let pool: AppearancePool = serde_json::from_value(json!({"appearances":[
+        {"name":"amber potion","asset":"item.potion.amber"},
+        {"name":"unmarked vial"}
+    ]}))
+    .unwrap();
+    assert_eq!(pool.appearances[0].name, "amber potion");
+    assert_eq!(
+        pool.appearances[0].asset.as_deref(),
+        Some("item.potion.amber")
+    );
+    assert_eq!(pool.appearances[1].name, "unmarked vial");
+    assert!(pool.appearances[1].asset.is_none());
+}
+
+#[test]
+fn seeded_public_name_asset_pairs_survive_source_free_reopening() {
+    let original = fixture();
+    let mut manifest = original.manifest.clone();
+    let pairs = [
+        ("copper wand", "item.wand.copper"),
+        ("iron wand", "item.wand.iron"),
+        ("ash staff", "item.wand.staff.ash"),
+        ("oak staff", "item.wand.staff.oak"),
+    ];
+    for pool in ["wands", "staves"] {
+        for entry in &mut manifest.appearance_pools.get_mut(pool).unwrap().appearances {
+            entry.asset = Some(
+                pairs
+                    .iter()
+                    .find(|(name, _)| *name == entry.name)
+                    .unwrap()
+                    .1
+                    .into(),
+            );
+        }
+    }
+    let package = Package::from_parts(
+        manifest,
+        original.region_defs().unwrap(),
+        &original.rules_source,
+    )
+    .unwrap();
+    let encoded = crate::storage::schema::scenario::encode_content_package(&package).unwrap();
+    let restored = crate::storage::schema::scenario::decode_content_package(&encoded).unwrap();
+    assert!(restored.directory.is_none());
+    let mut seen = BTreeSet::new();
+    for seed in 0..32 {
+        for key in ["ember", "ember_alias", "other"] {
+            let item = resolve(&package, key, seed);
+            assert_eq!(item, resolve(&restored, key, seed));
+            let expected = pairs
+                .iter()
+                .find(|(name, _)| *name == item.appearance)
+                .unwrap()
+                .1;
+            assert_eq!(item.asset.as_deref(), Some(expected));
+            assert_ne!(item.asset.as_deref(), Some("secret.embers"));
+            seen.insert(item.appearance);
+        }
+    }
+    assert_eq!(
+        seen,
+        pairs.into_iter().map(|(name, _)| name.to_owned()).collect()
+    );
 }

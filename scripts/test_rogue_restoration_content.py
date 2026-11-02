@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Production R/VN1 and ordinary finite restoration binding contracts."""
 from pathlib import Path
 import re
@@ -109,16 +110,15 @@ class RogueRestorationContent(unittest.TestCase):
         item = catalog["items"][POTION]
         bound = re.search(r"pub const DERIVED_ATTRIBUTE: u16 = (\d+);",
             (ROOT / "crates/simulation/src/limits.rs").read_text()).group(1)
-        self.assertEqual(item, {"name": "potion of restore strength", "identity": POTION,
+        self.assertEqual(item, {"name": "potion of restore strength", "identity": IDENTITIES[POTION],
             "class": "potion", "asset": "item.potion", "stackable": True, "magical": True,
             "appearance_pool": "rogue.potions",
             "consumable": {"discovery": "self_effect", "effects": [{"kind": "restore_attribute", "attribute": "strength",
                 "amount": {"kind": "fixed", "amount": int(bound)}}]}})
         self.assertEqual(catalog["appearance_pools"]["rogue.potions"], {
-            "asset": "item.potion",
-            "appearances": ["amber potion", "smoky potion", "violet potion", "azure potion", "crimson potion", "silver potion", "pearl potion", "teal potion", "ochre potion", "indigo potion", "copper potion", "chartreuse potion", "saffron potion", "cerulean potion"]})
+            "appearances": [{"name": name, "asset": "item.potion." + name.removesuffix(" potion")} for name in ["amber potion", "smoky potion", "violet potion", "azure potion", "crimson potion", "silver potion", "pearl potion", "teal potion", "ochre potion", "indigo potion", "copper potion", "chartreuse potion", "saffron potion", "cerulean potion"]]})
         for character in source("scenario.toml")["characters"]:
-            self.assertNotIn(POTION, character["known_identities"])
+            self.assertNotIn(IDENTITIES[POTION], character["known_identities"])
             self.assertNotIn(POTION, [row["archetype"] for row in character["loadout"]])
 
     def test_rattlesnake_depth_edges_zero_carry_and_appended_finite_potion_stage(self):

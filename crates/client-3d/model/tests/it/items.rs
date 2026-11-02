@@ -15,6 +15,8 @@ fn carried(id: [u8; 32], name: &str, class: ItemClass) -> ItemView {
         class,
         appearance: name.into(),
         identified: false,
+        identity: class.unknown_identity(),
+        knowledge: Default::default(),
         quantity: 1,
         description: String::new(),
         corpse: None,
@@ -53,10 +55,18 @@ fn observation(identifying: bool) -> Observation {
         // Only an identified device may be aimed at its user.
         ItemView {
             identified: true,
+
+            identity: "item.wand.fixture".parse().unwrap(),
+
+            knowledge: Default::default(),
             ..carried(STAFF, "ash staff", ItemClass::Wand)
         },
         ItemView {
             identified: true,
+
+            identity: "item.wand.fixture".parse().unwrap(),
+
+            knowledge: Default::default(),
             ..carried(BONE, "bone wand", ItemClass::Wand)
         },
     ];

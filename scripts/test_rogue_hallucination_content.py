@@ -13,7 +13,7 @@ def source(name):
 class RogueHallucinationContent(unittest.TestCase):
     def test_dose_uses_base_turn_recipe_and_on_use_recognition(self):
         self.assertEqual(source("catalog/items.toml")["items"].get("rogue.hallucination"), {
-            "name": "potion of hallucination", "identity": "rogue.hallucination",
+            "name": "potion of hallucination", "identity": "item.potion.hallucination",
             "asset": "item.potion", "magical": True, "class": "potion", "stackable": True,
             "appearance_pool": "rogue.potions", "consumable": {"discovery": "on_use", "effects": [
                 {"kind": "apply_condition_for_turns", "condition": "rogue.hallucinating",
@@ -45,7 +45,7 @@ class RogueHallucinationContent(unittest.TestCase):
 
     def test_old_appearances_are_preserved_and_new_identity_has_distinct_label(self):
         catalog = source("catalog/items.toml")
-        self.assertEqual(catalog["appearance_pools"]["rogue.potions"]["appearances"], [
+        self.assertEqual([entry["name"] for entry in catalog["appearance_pools"]["rogue.potions"]["appearances"]], [
             "amber potion", "smoky potion", "violet potion", "azure potion", "crimson potion",
             "silver potion", "pearl potion", "teal potion", "ochre potion", "indigo potion", "copper potion",
             "chartreuse potion", "saffron potion", "cerulean potion"])
@@ -62,7 +62,7 @@ class RogueHallucinationContent(unittest.TestCase):
             {"archetype": "rogue." + kind, "weight": 1} for kind in
             ("healing", "confusion", "blindness", "poison", "see_invisible", "extra_healing", "levitation")]}])
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.hallucination", character["known_identities"])
+            self.assertNotIn("item.potion.hallucination", character["known_identities"])
             self.assertNotIn("rogue.hallucination", [row["archetype"] for row in character["loadout"]])
 
 

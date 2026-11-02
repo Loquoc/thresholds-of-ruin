@@ -29,23 +29,45 @@ pub struct Account {
 /// Keep the sharing fast path beside the restriction it must exactly match.
 /// Presence, including a known false curse/protection fact, is private knowledge.
 fn has_private_item_disclosure(state: &StateView) -> bool {
-    state.observation.interactions.as_ref().is_some_and(|view| {
-        view.identification.is_some()
-            || !view.curse_blocked.is_empty()
-            || view.inventory.iter().any(|item| {
-                item.charges.is_some()
-                    || item.known_equipment.is_some()
-                    || item.known_projectile_bonus.is_some()
-                    || item.known_cursed.is_some()
-                    || item.known_protected.is_some()
-            })
-    })
+    state
+        .observation
+        .inventory
+        .iter()
+        .chain(state.observation.ground_items.iter().map(|row| &row.item))
+        .any(|item| {
+            item.identity != ItemClass::Misc.unknown_identity()
+                || item.knowledge != ItemKnowledge::default()
+        })
+        || state.observation.interactions.as_ref().is_some_and(|view| {
+            view.identification.is_some()
+                || !view.curse_blocked.is_empty()
+                || view.inventory.iter().any(|item| {
+                    item.charges.is_some()
+                        || item.known_equipment.is_some()
+                        || item.known_projectile_bonus.is_some()
+                        || item.known_cursed.is_some()
+                        || item.known_protected.is_some()
+                })
+        })
 }
 
 /// Ordinary preparation remains visible; paid selection, exact-instance counts,
 /// and learned equipment facts belong only to account-authorized owner attachments.
 fn restrict_item_disclosure(state: &mut StateView, role: AccessRole) {
     if role == AccessRole::Spectator {
+        // Machine identity and learned instance facts are observer-owned. Keep
+        // legacy public names, identified flags and currency/supply affordances;
+        // identified does not imply a disclosed concrete machine identity.
+        for item in state.observation.inventory.iter_mut().chain(
+            state
+                .observation
+                .ground_items
+                .iter_mut()
+                .map(|row| &mut row.item),
+        ) {
+            item.identity = ItemClass::Misc.unknown_identity();
+            item.knowledge = ItemKnowledge::default();
+        }
         if let Some(interaction) = &mut state.observation.interactions {
             interaction.identification = None;
             interaction.curse_blocked.clear();
@@ -3009,6 +3031,9 @@ mod tests {
         service.handle(client.id, "attach".into(), Request::Attach { actor });
         while client.messages.try_recv_frame().is_ok() {}
         let mut base = service.engine.state(actor).unwrap();
+        // This encoding-size witness operates on the spectator's actual base,
+        // not the richer owner picture supplied to the role projection.
+        restrict_item_disclosure(&mut base, AccessRole::Spectator);
         base.revision += 1;
         base.observation.tick += 1;
         base.observation.visible_cells.truncate(5);
@@ -3798,7 +3823,7 @@ mod tests {
             panic!("recovery must publish one complete logical snapshot");
         };
         assert_eq!(request_id, "recover");
-        crate::assert_disclosed_state_eq(&snapshot.state, &expected_state);
+        crate::assert_spectator_disclosed_state_eq(&snapshot.state, &expected_state);
         assert_eq!(
             snapshot.history, expected_history,
             "recovery cannot prune history to fit"
@@ -3847,7 +3872,7 @@ mod tests {
                 panic!("healthy peer must receive its snapshot");
             };
             assert_eq!(request_id, "healthy-reset");
-            crate::assert_disclosed_state_eq(&snapshot.state, &before);
+            crate::assert_spectator_disclosed_state_eq(&snapshot.state, &before);
         }
     }
 
@@ -4110,17 +4135,18 @@ mod tests {
         let item = ItemTarget::from_digest([72; 32]);
         let mut state = service.engine.state(ActorId(1)).unwrap();
         state.observation.inventory.push(serde_json::from_value(serde_json::json!({
-            "id":item,"class":"wand","quantity":"1","appearance":"ivory wand","identified":true,"name":"Known wand","known_currency":null,"known_supply":null
+            "id":item,"class":"wand","quantity":"1","appearance":"ivory wand","identified":true,"identity":"item.unknown","knowledge":ItemKnowledge::default(),"name":"Known wand","known_currency":null,"known_supply":null
         })).unwrap());
         let coin = ItemTarget::from_digest([84; 32]);
         state.observation.inventory.push(
             serde_json::from_value(serde_json::json!({
                 "id":coin,"class":"coin","quantity":"9007199254740993",
-                "appearance":"unmarked discs","identified":true,"name":"Known tender",
+                "appearance":"unmarked discs","identified":true,"identity":"item.unknown","knowledge":ItemKnowledge::default(),"name":"Known tender",
                 "known_currency":"gold","known_supply":null
             }))
             .unwrap(),
         );
+        restrict_item_disclosure(&mut state, AccessRole::Spectator);
         let public = Arc::new(state.clone());
         for role in [AccessRole::Player, AccessRole::Spectator] {
             assert!(Arc::ptr_eq(
@@ -4272,6 +4298,84 @@ mod tests {
     }
 
     #[test]
+    fn semantic_item_facts_require_projection_even_without_interactions() {
+        let service = Service::new(Engine::memory(Scenario::two_room(0)).unwrap());
+        for ground in [false, true] {
+            for fact in 0..4 {
+                let mut state = service.engine.state(ActorId(1)).unwrap();
+                state.observation.inventory.clear();
+                state.observation.ground_items.clear();
+                state.observation.interactions = None;
+                let mut item: ItemView = serde_json::from_value(serde_json::json!({
+                    "id":ItemTarget::from_digest([79; 32]), "class":"ring",
+                    "quantity":"1", "appearance":"silver ring", "identified":true,
+                    "identity":"item.unknown", "knowledge":ItemKnowledge::default(),
+                    "name":"Known ring", "known_currency":null, "known_supply":null
+                }))
+                .unwrap();
+                match fact {
+                    0 => item.identity = "item.ring.fixture".parse().unwrap(),
+                    1 => item.knowledge.condition.protected = Some(false),
+                    2 => item.knowledge.enchantments.hit = Some(0),
+                    _ => item.knowledge.enchantments.potency = Some(-1),
+                }
+                if ground {
+                    state.observation.ground_items.push(GroundItemView {
+                        presentation: None,
+                        reachable: true,
+                        supply_reachable: false,
+                        position: Position { x: 0, y: 0, z: 0 },
+                        item,
+                    });
+                } else {
+                    state.observation.inventory.push(item);
+                }
+                let owner = Arc::new(state);
+                assert!(Arc::ptr_eq(
+                    &owner,
+                    &service.item_observation(Arc::clone(&owner), AccessRole::Player)
+                ));
+                let spectator = service.item_observation(Arc::clone(&owner), AccessRole::Spectator);
+                assert!(
+                    !Arc::ptr_eq(&owner, &spectator),
+                    "ground={ground}, fact={fact}"
+                );
+                let mut expected = owner.as_ref().clone();
+                let item = if ground {
+                    &mut expected.observation.ground_items[0].item
+                } else {
+                    &mut expected.observation.inventory[0]
+                };
+                item.identity = ItemClass::Misc.unknown_identity();
+                item.knowledge = ItemKnowledge::default();
+                assert_eq!(spectator.as_ref(), &expected);
+                // A previously authorized attachment cannot reuse its old owner
+                // projection after its role changes; public projections can share.
+                assert_eq!(
+                    service.item_observation(Arc::clone(&owner), AccessRole::Spectator),
+                    spectator
+                );
+                assert!(Arc::ptr_eq(
+                    &spectator,
+                    &service.item_observation(Arc::clone(&spectator), AccessRole::Spectator)
+                ));
+                assert!(has_private_item_disclosure(&owner));
+                // Read authority follows AccessRole, not command ownership.
+                // A Player without any controller lease still reads the source;
+                // returning from a spectator projection must not poison it.
+                assert!(service.controllers.is_empty());
+                let player_again = service.item_observation(Arc::clone(&owner), AccessRole::Player);
+                assert!(Arc::ptr_eq(&player_again, &owner));
+                assert!(has_private_item_disclosure(&player_again));
+                let second_observer =
+                    service.item_observation(Arc::clone(&owner), AccessRole::Spectator);
+                assert_eq!(second_observer, spectator);
+                assert!(!Arc::ptr_eq(&second_observer, &owner));
+            }
+        }
+    }
+
+    #[test]
     fn each_private_equipment_fact_is_sanitized_without_losing_public_arc_sharing() {
         let mut service = Service::new(Engine::memory(Scenario::two_room(0)).unwrap());
         let item = ItemTarget::from_digest([73; 32]);
@@ -4279,7 +4383,7 @@ mod tests {
         public.observation.inventory.push(
             serde_json::from_value(serde_json::json!({
                 "id":item,"class":"ring","quantity":"1","appearance":"silver ring",
-                "identified":true,"name":"Known ring","known_currency":null,"known_supply":null
+                "identified":true,"identity":"item.unknown","knowledge":ItemKnowledge::default(),"name":"Known ring","known_currency":null,"known_supply":null
             }))
             .unwrap(),
         );
@@ -4312,6 +4416,7 @@ mod tests {
                 charges: None,
             }],
         });
+        restrict_item_disclosure(&mut public, AccessRole::Spectator);
         public.revision += 1;
         assert!(public.validate().is_ok());
         let public = Arc::new(public);
@@ -4324,7 +4429,7 @@ mod tests {
                 "truly public updates must preserve shared storage"
             );
         }
-        for fact in 0..6 {
+        for fact in 0..9 {
             let mut owner = public.as_ref().clone();
             let interaction = owner.observation.interactions.as_mut().unwrap();
             match fact {
@@ -4338,7 +4443,31 @@ mod tests {
                 2 => interaction.inventory[0].known_protected = Some(true),
                 3 => interaction.curse_blocked.push(item),
                 4 => interaction.inventory[0].known_cursed = Some(false),
-                _ => interaction.inventory[0].known_protected = Some(false),
+                5 => interaction.inventory[0].known_protected = Some(false),
+                6 => {
+                    owner.observation.inventory.last_mut().unwrap().identity =
+                        "item.ring.fixture".parse().unwrap()
+                }
+                7 => {
+                    owner
+                        .observation
+                        .inventory
+                        .last_mut()
+                        .unwrap()
+                        .knowledge
+                        .condition
+                        .protected = Some(false)
+                }
+                _ => {
+                    owner
+                        .observation
+                        .inventory
+                        .last_mut()
+                        .unwrap()
+                        .knowledge
+                        .enchantments
+                        .potency = Some(-1)
+                }
             }
             assert!(owner.validate().is_ok(), "fact {fact}");
             let owner = Arc::new(owner);
@@ -4412,6 +4541,10 @@ mod tests {
                 let mut snapshot = owner.as_ref().clone();
                 restrict_item_disclosure(&mut snapshot, role);
                 assert_eq!(&snapshot, expected.as_ref());
+                // Each fact is an independent projection case, not a test of
+                // accumulating live connections beyond the host's finite cap.
+                service.disconnect(connection.id);
+                drop(connection);
             }
         }
     }

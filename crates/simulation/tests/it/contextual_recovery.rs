@@ -124,7 +124,11 @@ fn game_with_context(hostile_present: bool, contextual: bool) -> Game {
     )
     .unwrap();
     let mut game = Game::new(world, 42, content);
-    for (region, x, faction) in [(1, 1, "hero"), (2, 1, "clock"), (1, 9, "foe")] {
+    for (region, x, faction, corpse_identity) in [
+        (1, 1, "hero", "item.corpse.test.hero"),
+        (2, 1, "clock", "item.corpse.test.clock"),
+        (1, 9, "foe", "item.corpse.test.foe"),
+    ] {
         if faction == "foe" && !hostile_present {
             continue;
         }
@@ -134,6 +138,7 @@ fn game_with_context(hostile_present: bool, contextual: bool) -> Game {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: corpse_identity.parse().unwrap(),
                 name: faction.into(),
                 faction: faction.into(),
             },
@@ -278,6 +283,7 @@ fn newly_spawned_or_dead_perceived_hostiles_update_context_without_a_read_trigge
     game.configure_creature(
         foe,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.foe".parse().unwrap(),
             name: "foe".into(),
             faction: "foe".into(),
         },
@@ -496,7 +502,8 @@ fn first_contextual_equipment_source_does_not_round_through_an_inapplicable_rate
         .enumerate()
         .find(|(_, slot)| slot.as_str() == "body_armor")
         .unwrap();
-    let mut armor = ItemSpec::ordinary("quiet mail".into());
+    let mut armor =
+        ItemSpec::ordinary("item.test.quiet-mail".parse().unwrap(), "quiet mail".into());
     armor.class = ItemClass::Armor;
     armor.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -600,6 +607,7 @@ fn simultaneous_expiry_deaths_rephase_the_survivor_once_without_full_observation
     game.configure_creature(
         another,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.foe-two".parse().unwrap(),
             name: "foe two".into(),
             faction: "foe".into(),
         },
@@ -754,7 +762,8 @@ fn contextual_recovery_followup_frozen_first_contextual_equipment_rejects_atomic
         .enumerate()
         .find(|(_, slot)| slot.as_str() == "body_armor")
         .unwrap();
-    let mut armor = ItemSpec::ordinary("quiet mail".into());
+    let mut armor =
+        ItemSpec::ordinary("item.test.quiet-mail".parse().unwrap(), "quiet mail".into());
     armor.class = ItemClass::Armor;
     armor.equipment = Some(EquipmentSpec {
         periodic_relocation: None,
@@ -915,6 +924,7 @@ fn contextual_recovery_followup_initial_contextual_construction_in_a_frozen_regi
     game.configure_creature(
         newborn,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.newborn".parse().unwrap(),
             name: "newborn".into(),
             faction: "clock".into(),
         },

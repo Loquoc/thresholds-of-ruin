@@ -43,8 +43,11 @@ pub(crate) fn dose() -> Effect {
     }
 }
 pub(crate) fn potion(game: &mut Game, identity: &str, effects: Vec<Effect>) -> ItemId {
-    let mut spec = crate::ItemSpec::ordinary("unmarked dose".into());
-    spec.identity = identity.into();
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.unmarked-dose".parse().unwrap(),
+        "unmarked dose".into(),
+    );
+    spec.identity = identity.parse().unwrap();
     spec.concealed = true;
     spec.class = crate::ItemClass::Potion;
     spec.stackable = true;
@@ -127,7 +130,11 @@ pub(crate) fn roundtrip(game: &Game) -> Game {
 #[test]
 fn paid_hallucination_starts_phase_zero_at_completion_not_old_interval() {
     let mut game = fixture();
-    let item = potion(&mut game, "fixture.hallucination_dose", vec![dose()]);
+    let item = potion(
+        &mut game,
+        "item.test.fixture-hallucination-dose",
+        vec![dose()],
+    );
     let plan = game.plan_work(OWNER, Work::Drink { item }).unwrap();
     assert!(matches!(
         &plan.on_success()[0],
@@ -148,9 +155,11 @@ fn paid_hallucination_starts_phase_zero_at_completion_not_old_interval() {
     assert_eq!(game.rules_rng, initial_rng);
     finish(&mut game, due);
     assert_eq!(game.items[&item].quantity, 2);
-    assert!(game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.hallucination_dose"));
+    assert!(game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-hallucination-dose"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(game.rules_rng, expected_rng);
     assert_eq!(
         hallucination_instance(&game.actors[&OWNER]).unwrap().1,
@@ -245,7 +254,7 @@ fn blind_paid_cure_clears_only_marker_while_ordinary_healing_keeps_it() {
     assert_eq!(clock(&game), (0, 0, 100));
     let item = potion(
         &mut game,
-        "fixture.hallucination_cure",
+        "item.test.fixture-hallucination-cure",
         vec![Effect::RemoveCondition {
             condition: condition(),
         }],
@@ -260,9 +269,11 @@ fn blind_paid_cure_clears_only_marker_while_ordinary_healing_keeps_it() {
         .conditions()
         .has_active(&crate::content_ids::ConditionId::new("fixture_blind").unwrap()));
     assert!(!game.actors[&OWNER].perception().sight);
-    assert!(game.actors[&OWNER]
-        .knowledge
-        .contains("fixture.hallucination_cure"));
+    assert!(game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-hallucination-cure"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert_eq!(game.items[&item].quantity, 2);
 }
 

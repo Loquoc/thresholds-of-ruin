@@ -7,6 +7,9 @@ fn equipment_and_drink_commands_use_disclosed_affordances_and_distinct_slots() {
     let mut s = state();
     let mut item = s.observation.ground_items[0].item.clone();
     item.class = ItemClass::Ring;
+    if !item.identified {
+        item.identity = item.class.unknown_identity();
+    }
     item.name = "silver ring".into();
     s.observation.inventory = vec![item.clone()];
     s.observation.interactions = Some(InteractionView {
@@ -53,6 +56,9 @@ fn equip_commands_support_multiple_custom_attack_sockets() {
     let mut state = state();
     let mut first = state.observation.ground_items[0].item.clone();
     first.class = ItemClass::Tool;
+    if !first.identified {
+        first.identity = first.class.unknown_identity();
+    }
     first.name = "brass wing fitting".into();
     let mut second = first.clone();
     second.id = ItemTarget::from_digest([127; 32]);
@@ -229,8 +235,8 @@ fn state() -> StateView {
 
             "places":[],"visible_cells": (0..5).flat_map(|x| (0..3).map(move |y| serde_json::json!({"key":format!("{x}:{y}"),"trap":null,"object_presentation":null,"stairs_up":false,"stairs_down":false,"position":{"x":x,"y":y,"z":0},"wall":false,"lit":true,"place_hint":false}))).collect::<Vec<_>>(),
             "ground_items":[
-                {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(10),"name":"copper token"},"position":{"x":1,"y":1,"z":0}},
-                {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(11),"name":"silver token"},"position":{"x":2,"y":1,"z":0}}
+                {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(10),"name":"copper token"},"position":{"x":1,"y":1,"z":0}},
+                {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(11),"name":"silver token"},"position":{"x":2,"y":1,"z":0}}
             ], "inventory":[], "charts":[],"linked_holds":[],"visible_actors":[], "exits":[],  "ready":true
         }
     }))
@@ -343,6 +349,9 @@ fn eat_command_uses_the_exact_carried_item_and_never_infers_edibility() {
     s.observation.combat = Some(super::creature_combat(vec![]));
     let mut item = s.observation.ground_items[0].item.clone();
     item.class = ItemClass::Food;
+    if !item.identified {
+        item.identity = item.class.unknown_identity();
+    }
     item.name = "fixture meal".into();
     s.observation.inventory = vec![item.clone()];
     s.observation.interactions = Some(InteractionView {
@@ -429,12 +438,20 @@ fn magic_state() -> StateView {
     view.observation.combat = tor_client_common::test_support::observation().combat;
     let mut scroll = view.observation.ground_items[0].item.clone();
     scroll.class = ItemClass::Scroll;
+    if !scroll.identified {
+        scroll.identity = scroll.class.unknown_identity();
+    }
     scroll.name = "amber scroll".into();
     scroll.identified = false;
+    scroll.identity = scroll.class.unknown_identity();
     let mut wand = view.observation.ground_items[1].item.clone();
     wand.class = ItemClass::Wand;
+    if !wand.identified {
+        wand.identity = wand.class.unknown_identity();
+    }
     wand.name = "ivory wand".into();
     wand.identified = false;
+    wand.identity = wand.class.unknown_identity();
     view.observation.inventory = vec![scroll.clone(), wand.clone()];
     view.observation.interactions = Some(InteractionView {
         refused: vec![],
@@ -701,6 +718,12 @@ fn identified_self_device_command_needs_no_direction() {
     let mut view = magic_state();
     view.observation.ground_items.clear();
     view.observation.inventory[1].identified = true;
+    view.observation.inventory[1].identity = format!(
+        "{}.fixture",
+        view.observation.inventory[1].class.identity_family()
+    )
+    .parse()
+    .unwrap();
     view.observation.interactions.as_mut().unwrap().inventory[1].device_activation =
         Some(DeviceActivation::SelfTarget);
     assert!(
@@ -759,6 +782,12 @@ fn known_dual_device_requires_explicit_self_or_direction() {
     let mut view = magic_state();
     view.observation.ground_items.clear();
     view.observation.inventory[1].identified = true;
+    view.observation.inventory[1].identity = format!(
+        "{}.fixture",
+        view.observation.inventory[1].class.identity_family()
+    )
+    .parse()
+    .unwrap();
     view.observation.interactions.as_mut().unwrap().inventory[1].device_activation =
         Some(DeviceActivation::DirectionOrSelf);
     assert!(view.validate().is_ok());
@@ -779,6 +808,7 @@ fn known_dual_device_requires_explicit_self_or_direction() {
     }
     assert!(parse(&format!("zap #{item} east"), &view).is_ok());
     view.observation.inventory[1].identified = false;
+    view.observation.inventory[1].identity = view.observation.inventory[1].class.unknown_identity();
     view.observation.interactions.as_mut().unwrap().inventory[1].device_activation =
         Some(DeviceActivation::Direction);
     assert!(parse(&format!("zap #{item} self"), &view).is_err());

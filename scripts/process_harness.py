@@ -372,7 +372,7 @@ def creature_package(test, name, *, hostile=False,
     rules_path.write_text(toml_source(rules), encoding="utf-8", newline="\n")
     manifest = package / "scenario.toml"
     source = manifest.read_text(encoding="utf-8")
-    build = ('creature = { species = "human", name = "trainee", faction = "neutral", '
+    build = ('creature = { species = "human", name = "trainee", corpse_identity = "item.corpse.fixture.trainee", faction = "neutral", '
              'binding = "intellect", starting_skills = ["heavy_weaponry", "spellcasting"], '
              'restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "warrior" }, { source = "mage", '
              'purchases = [{ pool = "advancement", selection = { kind = "skill_rank", skill = "intimidation" } }] }] }, ')
@@ -401,7 +401,7 @@ def creature_package(test, name, *, hostile=False,
     controller = ('controller = "external"\nturn_ticks = 1000\n' if controlled_target
                   else 'controller = "ai"\nai = "practice"\n')
     source += ('\n[[actors]]\nid = 2\nat = [' + str(target_x) + ', 1, 0]\n' + controller
-               + 'creature = { species = "human", name = "practice target", '
+               + 'creature = { species = "human", name = "practice target", corpse_identity = "item.corpse.fixture.practice-target", '
                'faction = "' + faction + '", binding = "intellect", '
                'starting_skills = ["athletics", "lore"], restoration = "authored", nutrition = { kind = "exempt" }, '
                'hit_dice = [{ source = "racial" }] }\n')

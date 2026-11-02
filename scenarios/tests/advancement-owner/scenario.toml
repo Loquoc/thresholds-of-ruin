@@ -2,29 +2,32 @@
 # All initial talents are active. Refund HD 2 purchase 3 (Thievery rank) through
 # ordinary respec to retain Dormant Anchor as dormant at its free starting rank.
 # This spends one carried ration and restores the five-talent ledger baseline.
-format = 36
+format = 37
 id = "advancement-owner"
 version = "1.0"
 ruleset = "rules.toml"
 default_character = 1
 factions = { allies = [] }
 characters = [
-  { id = 1, anchor = "1/owner", turn_ticks = 100, creature = { species = "learner", name = "owner", faction = "allies", binding = "intellect", starting_skills = ["thievery", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial", purchases = [{ pool = "discipline", selection = { kind = "talent", talent = "steady_foundation" } }, { pool = "discipline", selection = { kind = "talent", talent = "foundation_followthrough" } }, { pool = "discipline", selection = { kind = "talent", talent = "dormant_anchor" } }] }, { source = "racial", purchases = [{ pool = "discipline", selection = { kind = "talent", talent = "alternate_foundation" } }, { pool = "discipline", selection = { kind = "talent", talent = "either_foundation" } }, { pool = "practice", selection = { kind = "skill_rank", skill = "thievery" } }] }] } },
+  { id = 1, anchor = "1/owner", turn_ticks = 100, creature = { corpse_identity = "item.corpse.persona.owner", species = "learner", name = "owner", faction = "allies", binding = "intellect", starting_skills = ["thievery", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial", purchases = [{ pool = "discipline", selection = { kind = "talent", talent = "steady_foundation" } }, { pool = "discipline", selection = { kind = "talent", talent = "foundation_followthrough" } }, { pool = "discipline", selection = { kind = "talent", talent = "dormant_anchor" } }] }, { source = "racial", purchases = [{ pool = "discipline", selection = { kind = "talent", talent = "alternate_foundation" } }, { pool = "discipline", selection = { kind = "talent", talent = "either_foundation" } }, { pool = "practice", selection = { kind = "skill_rank", skill = "thievery" } }] }] } },
 ]
 
 [archetypes.carried_ration]
+identity = "item.food.carried-ration"
 name = "carried ration"
 class = "food"
 stackable = true
 supply = "ration"
 
 [archetypes.ground_ration]
+identity = "item.food.ground-ration"
 name = "ground ration"
 class = "food"
 stackable = true
 supply = "ration"
 
 [archetypes.bruising_draught]
+identity = "item.potion.bruising-draught"
 name = "bruising draught"
 class = "potion"
 consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 2 } }] } }] }

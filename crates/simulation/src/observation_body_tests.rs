@@ -87,6 +87,7 @@ fn fixture() -> (Game, ActorId, ActorId, Vec<Arc<BodyPackage>>) {
         game.configure_creature(
             id,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.same-person".parse().unwrap(),
                 name: "same person".into(),
                 faction: "fixture".into(),
             },

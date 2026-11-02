@@ -11,7 +11,7 @@ fn torch_source(root: &Path, with_other: bool) -> crate::Scenario {
         .unwrap()
         .push(json!("held_light"));
     manifest["archetypes"]["torch"] = json!({
-        "name":"fixture torch", "class":"tool", "stackable":false,
+        "name":"fixture torch", "identity":"item.tool.torch","class":"tool", "stackable":false,
         "held_light":{"radius":4,"fuel_ticks":1000},
         "equipment":{"slot":"held_light","attack":null,"modifiers":[]}
     });
@@ -377,7 +377,7 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
         assert!(result.is_err(), "invalid torch {field}");
     }
     let mut aliases = original.clone();
-    aliases["archetypes"]["torch"]["identity"] = json!("fixture.shared_torch");
+    aliases["archetypes"]["torch"]["identity"] = json!("item.tool.shared-torch");
     aliases["archetypes"]["torch_alias"] = aliases["archetypes"]["torch"].clone();
     Package::from_parts(
         serde_json::from_value(aliases.clone()).unwrap(),

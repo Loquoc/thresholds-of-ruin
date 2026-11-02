@@ -420,7 +420,7 @@ mod tests {
         }}})).unwrap();
         let catalog = catalog.compile(rules).unwrap();
         let recipe:crate::creature_authoring::BuildSpec=serde_json::from_value(serde_json::json!({
-            "species":"inspected","name":"subject","faction":"neutral","binding":"intellect","starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice":[{"source":"racial"},{"source":"warrior"},{"source":"mage"}]
+            "species":"inspected","name":"subject","corpse_identity":"item.corpse.test.subject","faction":"neutral","binding":"intellect","starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice":[{"source":"racial"},{"source":"warrior"},{"source":"mage"}]
         })).unwrap();
         let build = catalog.prepare(&recipe).unwrap().instantiate(91).unwrap();
         configured_game(build)
@@ -442,6 +442,7 @@ mod tests {
             game.configure_creature(
                 actor,
                 s::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                     name: format!("subject {x}"),
                     faction: format!("team {x}"),
                 },
@@ -1401,7 +1402,8 @@ mod tests {
     fn phase5_own_stats_disclose_current_cooldown_and_known_supply_without_claims() {
         let (mut game, actor, other) = game();
         let at = game.observe(actor).unwrap().location;
-        let mut bandage = s::ItemSpec::ordinary("clean bandage".into());
+        let mut bandage =
+            s::ItemSpec::ordinary("item.misc.bandage".parse().unwrap(), "clean bandage".into());
         bandage.supply = Some(SupplyId::new("bandage").unwrap());
         game.place_item_stack(10, at, Some(actor), 1, bandage)
             .unwrap();

@@ -13,7 +13,7 @@ fn menu_scenario(
         manifest["archetypes"]["fixture.secondary"]["appearance_pool"] =
             json!("fixture.hidden_weapon");
         manifest["appearance_pools"]["fixture.hidden_weapon"] =
-            json!({"appearances":["unknown weapon"]});
+            json!({"appearances":[{"name":"unknown weapon"}]});
     }
     manifest["characters"][0]["loadout"] = json!([
         {"archetype":"fixture.primary","quantity":1,"equipped_slot":0},
@@ -23,10 +23,13 @@ fn menu_scenario(
         let id = format!("fixture.arrow_{index}");
         let mut archetype = manifest["archetypes"]["fixture.arrow"].clone();
         archetype["name"] = json!(format!("arrow {index}"));
+        // Each menu variant is its own authored type, not an alias of the base
+        // arrow (the first may also have a different concealed appearance).
+        archetype["identity"] = json!(format!("item.weapon.fixture.arrow-{index}"));
         if concealed_ammunition && index == 0 {
             archetype["appearance_pool"] = json!("fixture.hidden_ammunition");
             manifest["appearance_pools"]["fixture.hidden_ammunition"] =
-                json!({"appearances":["unknown ammunition"]});
+                json!({"appearances":[{"name":"unknown ammunition"}]});
         }
         manifest["archetypes"][&id] = archetype;
         manifest["characters"][0]["loadout"]
@@ -138,6 +141,21 @@ fn encoded_projectile_choices_page_inventory_order_without_cross_product_or_muta
         .map(|item| item.id)
         .collect();
     assert_eq!(expected.len(), 35);
+    let identities: std::collections::BTreeSet<_> = wire
+        .service
+        .engine
+        .observation(SOURCE)
+        .unwrap()
+        .inventory
+        .iter()
+        .filter(|item| item.name.starts_with("arrow "))
+        .map(|item| item.identity.clone())
+        .collect();
+    assert_eq!(
+        identities.len(),
+        expected.len(),
+        "menu variants retain distinct authored type knowledge"
+    );
     let mut query = query(ProjectileChoicePhase::Ammunition { launcher });
     let mut actual = Vec::new();
     let mut sizes = Vec::new();

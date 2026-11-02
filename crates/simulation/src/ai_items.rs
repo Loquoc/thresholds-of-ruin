@@ -877,7 +877,8 @@ mod tests {
     }
 
     fn gold(concealed: bool) -> crate::ItemSpec {
-        let mut item = crate::ItemSpec::ordinary("gold coin".into());
+        let mut item =
+            crate::ItemSpec::ordinary("item.test.gold-coin".parse().unwrap(), "gold coin".into());
         item.class = crate::ItemClass::Coin;
         item.stackable = true;
         item.currency = Some(crate::CurrencyKind::Gold);
@@ -886,7 +887,10 @@ mod tests {
     }
 
     fn healing_potion() -> crate::ItemSpec {
-        let mut item = crate::ItemSpec::ordinary("known restorative".into());
+        let mut item = crate::ItemSpec::ordinary(
+            "item.test.known-restorative".parse().unwrap(),
+            "known restorative".into(),
+        );
         item.class = crate::ItemClass::Potion;
         item.consumable = Some(crate::ConsumableSpec {
             descriptors: vec![],
@@ -906,6 +910,7 @@ mod tests {
         game.configure_creature(
             other,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.neutral-neighbor".parse().unwrap(),
                 name: "neutral neighbor".into(),
                 faction: "neutral".into(),
             },
@@ -1083,7 +1088,10 @@ mod tests {
     }
 
     fn add(game: &mut Game, actor: ActorId, at: Location, id: u64, gear: EquipmentSpec) {
-        let mut item = crate::ItemSpec::ordinary(format!("gear {id}"));
+        let mut item = crate::ItemSpec::ordinary(
+            format!("item.test.gear-{id}").parse().unwrap(),
+            format!("gear {id}"),
+        );
         item.class = if gear.slot == EquipmentSlot::new("weapon").unwrap() {
             crate::ItemClass::Weapon
         } else {

@@ -621,7 +621,9 @@ anything.** Once approved:
 ## Shared deterministic fixture and trace
 
 The versioned specification is
-[`performance-v1.json`](../../crates/server/fixtures/performance-v1.json). The actual
+[`performance-v2.json`](../../crates/server/fixtures/performance-v2.json). Version 2
+adds explicit item identity keys to the five diagnostic markers; geometry, actions,
+counts and timing remain identical to the retained version 1 fixture. The actual
 server constructor, Rust benchmark/test orchestration, and Python headless driver
 consume this file. Simulation remains free of clocks, filesystem and client code.
 No wizard setup or hidden-state client access is needed for this fixture.

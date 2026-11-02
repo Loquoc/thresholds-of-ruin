@@ -3,6 +3,11 @@
 //! [`Game`] and [`ActionOutcome`] are backend-only types. Network adapters must
 //! disclose observations and filter events; they must not serialize raw game state.
 
+mod item_identity;
+pub use item_identity::{InvalidItemIdentity, ItemIdentity};
+mod item_knowledge;
+pub use item_knowledge::{BucStatus, ItemKnowledge, KnownEnchantments, KnownItemCondition};
+
 pub mod abilities;
 pub mod action_duration;
 mod actions;
@@ -549,7 +554,7 @@ struct Actor {
     turn_ticks: NonZeroU64,
     ready_at: u64,
     visited: BTreeSet<RegionId>,
-    knowledge: Shared<BTreeSet<String>>,
+    knowledge: Shared<BTreeSet<crate::ItemIdentity>>,
     known_charges: Shared<crate::magic_items::ChargeKnowledge>,
     known_equipment: Shared<crate::equipment_knowledge::EquipmentKnowledge>,
     discovery: Shared<discovery::DiscoveryKnowledge>,
@@ -778,6 +783,7 @@ impl Game {
         &mut self,
         id: u64,
         at: Location,
+        identity: ItemIdentity,
         name: String,
         owner: Option<ActorId>,
     ) -> Result<ItemId, GameError> {
@@ -789,7 +795,7 @@ impl Game {
         }
         let next = self.next_item_id;
         self.next_item_id = id;
-        let result = self.place_item(at, name);
+        let result = self.place_item(at, identity, name);
         self.next_item_id = if result.is_ok() {
             self.next_item_id.max(next)
         } else {
@@ -960,7 +966,12 @@ impl Game {
     }
 
     /// Scenario setup operation, distinct from player inventory manipulation.
-    pub fn place_item(&mut self, location: Location, name: String) -> Result<ItemId, GameError> {
+    pub fn place_item(
+        &mut self,
+        location: Location,
+        identity: ItemIdentity,
+        name: String,
+    ) -> Result<ItemId, GameError> {
         if !self.world.walkable(location) {
             return Err(GameError::InvalidLocation);
         }
@@ -980,7 +991,7 @@ impl Game {
                 holds: vec![],
                 motion: MotionState::default(),
                 orientation: 0,
-                spec: Shared::new(ItemSpec::ordinary(name)),
+                spec: Shared::new(ItemSpec::ordinary(identity, name)),
                 quantity: 1,
                 location: ItemLocation::Ground(location),
             },
@@ -1333,7 +1344,12 @@ mod sharing_tests {
         assert!(game.world.shares_storage(&original.world));
         assert!(game.items.shares_storage(&original.items));
         assert!(game.navigation[&actor].shares_storage(&original.navigation[&actor]));
-        game.place_item(location, "new token".into()).unwrap();
+        game.place_item(
+            location,
+            "item.test.new-token".parse().unwrap(),
+            "new token".into(),
+        )
+        .unwrap();
         assert_ne!(game.items, original.items);
         assert!(game.world.shares_storage(&original.world));
         let scene = game.scene(actor).unwrap();

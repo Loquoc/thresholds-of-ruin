@@ -1,5 +1,10 @@
 //! Public observation types. Never expose internal world state through this crate.
 
+mod item_identity;
+pub use item_identity::{InvalidItemIdentity, ItemIdentity};
+mod item_knowledge;
+pub use item_knowledge::{BucStatus, ItemKnowledge, KnownEnchantments, KnownItemCondition};
+
 mod advancement;
 pub use advancement::*;
 

@@ -469,6 +469,8 @@ mod tests {
             quantity: 2,
             appearance: "stone".into(),
             identified: true,
+            identity: "item.weapon.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             known_currency: None,
             known_supply: None,
             description: String::new(),
@@ -694,6 +696,8 @@ mod supply_tests {
                 quantity: 1,
                 appearance: "bandage".into(),
                 identified: true,
+                identity: "item.misc.fixture".parse().unwrap(),
+                knowledge: Default::default(),
                 asset: None,
                 known_currency: None,
                 known_supply: Some(SupplyView {

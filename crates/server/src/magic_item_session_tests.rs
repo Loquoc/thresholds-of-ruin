@@ -502,12 +502,12 @@ fn equipment_scenario() -> crate::Scenario {
     let source = scenario.package.as_ref().unwrap();
     let mut manifest = serde_json::to_value(&source.manifest).unwrap();
     manifest["id"] = json!("equipment-magic-service");
-    manifest["archetypes"]["mail"] = json!({"name":"ring mail","identity":"fixture.mail","class":"armor","equipment":{"slot":"body_armor","armor":{"physical_reduction":2,"material":"metal","rustproof":false},"modifiers":[]},"equipment_generation":{"kind":"armor","curse_percent":100,"enchant_percent":0,"minimum":1,"maximum":1}});
-    manifest["archetypes"]["armor_identify"] = json!({"name":"scroll of identify armor","identity":"fixture.identify_armor","class":"scroll","stackable":true,"appearance_pool":"armor_pages","readable":{"identify":["armor"],"discovery":"on_use"}});
-    manifest["archetypes"]["armor_enchant"] = json!({"name":"scroll of enchant armor","identity":"fixture.enchant_armor","class":"scroll","stackable":true,"appearance_pool":"enchant_pages","readable":{"discovery":"never","effects":[{"kind":"alter_equipment","selection":{"kind":"slot","slot":"body_armor","class":"armor","last":false},"alteration":"enchant_armor"}]}});
-    manifest["appearance_pools"]["armor_pages"] = json!({"appearances":["indigo page"]});
-    manifest["appearance_pools"]["enchant_pages"] = json!({"appearances":["silver page"]});
-    manifest["characters"][0]["known_identities"] = json!(["fixture.mail"]);
+    manifest["archetypes"]["mail"] = json!({"name":"ring mail","identity":"item.armor.mail","class":"armor","equipment":{"slot":"body_armor","armor":{"physical_reduction":2,"material":"metal","rustproof":false},"modifiers":[]},"equipment_generation":{"kind":"armor","curse_percent":100,"enchant_percent":0,"minimum":1,"maximum":1}});
+    manifest["archetypes"]["armor_identify"] = json!({"name":"scroll of identify armor","identity":"item.scroll.identify-armor","class":"scroll","stackable":true,"appearance_pool":"armor_pages","readable":{"identify":["armor"],"discovery":"on_use"}});
+    manifest["archetypes"]["armor_enchant"] = json!({"name":"scroll of enchant armor","identity":"item.scroll.enchant-armor","class":"scroll","stackable":true,"appearance_pool":"enchant_pages","readable":{"discovery":"never","effects":[{"kind":"alter_equipment","selection":{"kind":"slot","slot":"body_armor","class":"armor","last":false},"alteration":"enchant_armor"}]}});
+    manifest["appearance_pools"]["armor_pages"] = json!({"appearances":[{"name":"indigo page"}]});
+    manifest["appearance_pools"]["enchant_pages"] = json!({"appearances":[{"name":"silver page"}]});
+    manifest["characters"][0]["known_identities"] = json!(["item.armor.mail"]);
     manifest["characters"][0]["loadout"] = json!([
         {"archetype":"mail","quantity":1,"equipped_slot":1},
         {"archetype":"mail","quantity":1},
@@ -809,7 +809,7 @@ fn control_scroll_scenario() -> crate::Scenario {
         ("nothing", json!({"kind":"nothing"})),
     ];
     for (id, control) in modes {
-        manifest["archetypes"][id] = json!({"name":id,"identity":format!("fixture.{id}"),"class":"scroll","stackable":true,"readable":{"control":control,"discovery":"never"}});
+        manifest["archetypes"][id] = json!({"name":id,"identity":format!("item.scroll.fixture-{id}"),"class":"scroll","stackable":true,"readable":{"control":control,"discovery":"never"}});
     }
     manifest["characters"][0]["loadout"] = json!([
         {"archetype":"confuse","quantity":2},

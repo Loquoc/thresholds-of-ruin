@@ -36,9 +36,9 @@ fn growth_source(root: &Path, peer: bool) -> crate::Scenario {
     assert_eq!(owner["creature"]["future_growth"]["kind"], "disabled");
     let mut creature = owner["creature"].clone();
     creature["body_package"] = json!("fixture.growth.peer_body");
-    manifest["archetypes"]["fixture.strength_loss"] = json!({"name":"strength loss fixture","class":"potion","stackable":true,
+    manifest["archetypes"]["fixture.strength_loss"] = json!({"name":"strength loss fixture","identity":"item.potion.fixture.strength-loss","class":"potion","stackable":true,
         "consumable":{"discovery":"on_use","effects":[{"kind":"lose_attribute","attribute":"strength","amount":{"kind":"fixed","amount":1}}]}});
-    manifest["archetypes"]["fixture.strength_ring"] = json!({"name":"strength ring fixture","class":"ring","stackable":false,
+    manifest["archetypes"]["fixture.strength_ring"] = json!({"name":"strength ring fixture","identity":"item.ring.fixture.strength-ring","class":"ring","stackable":false,
         "equipment":{"slot":"ring","attack":null,"modifiers":[{"scope":"always","op":{"kind":"add","stat":{"kind":"attribute","attribute":"strength"},"value":2}}]}});
     let mut regions = source.region_defs().unwrap();
     let mut region = serde_json::to_value(&regions[0]).unwrap();

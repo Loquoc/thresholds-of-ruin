@@ -1,7 +1,7 @@
 // Included by floor_activation::tests.
 
-fn food_choice(content: &str) -> PreparedItemChoice {
-    let mut spec = ItemSpec::ordinary(content.into());
+fn food_choice(identity: &str, content: &str) -> PreparedItemChoice {
+    let mut spec = ItemSpec::ordinary(identity.parse().unwrap(), content.into());
     spec.stackable = true;
     PreparedItemChoice {
         content: content.into(),
@@ -19,7 +19,7 @@ fn drought_stage(threshold: u16) -> PopulationStage {
         population: PopulationContent::FoodDrought {
             bands: vec![DepthBand {
                 depth: DepthInterval::Open { minimum: 1 },
-                choices: vec![food_choice("ration")],
+                choices: vec![food_choice("item.test.ration", "ration")],
             }],
             threshold,
             food: vec!["fruit".into(), "ration".into()],
@@ -35,7 +35,7 @@ fn chance_stage(attempts: u16, numerator: u32, denominator: u32) -> PopulationSt
         population: PopulationContent::ChanceItems {
             bands: vec![DepthBand {
                 depth: DepthInterval::Open { minimum: 1 },
-                choices: vec![food_choice("marker")],
+                choices: vec![food_choice("item.test.marker", "marker")],
             }],
             chance: CarryChance {
                 numerator,

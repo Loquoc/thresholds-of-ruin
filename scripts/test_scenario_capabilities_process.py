@@ -92,7 +92,7 @@ class ScenarioCapabilityProcesses(ProcessTestCase):
         manifest = tomllib.loads((package / "scenario.toml").read_text(encoding="utf-8"))
         character = manifest["characters"][0]
         character["loadout"].append({"archetype": "rogue.raise_level", "quantity": 1})
-        character["known_identities"].append("rogue.raise_level")
+        character["known_identities"].append("item.potion.raise-level")
         (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
         compiler = self.bin / ("tor-scenario" + self.suffix)
         validated = subprocess.run([str(compiler), "validate", str(package)], capture_output=True,

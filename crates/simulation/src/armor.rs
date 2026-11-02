@@ -490,7 +490,7 @@ mod tests {
     use crate::{EquipmentSpec, ItemSpec};
 
     fn item(armor: ArmorSpec) -> Item {
-        let mut spec = ItemSpec::ordinary("mail".into());
+        let mut spec = ItemSpec::ordinary("item.test.mail".parse().unwrap(), "mail".into());
         spec.class = crate::ItemClass::Armor;
         spec.equipment = Some(EquipmentSpec {
             periodic_relocation: None,

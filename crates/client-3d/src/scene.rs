@@ -1,6 +1,7 @@
 //! Reconcile disclosed views into render entities.
 use super::*;
 use std::time::Instant;
+use tor_client_3d_model::ItemSurface;
 #[cfg(test)]
 mod tests;
 
@@ -832,8 +833,39 @@ fn ring_visibility(hostile: bool) -> Visibility {
 /// Items are drawn larger than life so they read at play distance.
 const ITEM_SCALE: f32 = 0.72;
 
+/// Presentation sizes are per disclosed category, never per rarity or true identity.
+/// Large weapons/armour retain their original scale. Tiny shapes get enough pixels
+/// at the normal 8.5-unit camera distance without filling the whole floor cell.
+pub(crate) fn ground_item_scale(kind: ItemModel) -> f32 {
+    match kind {
+        ItemModel::Coins => 0.85,
+        ItemModel::Ring => 1.05,
+        ItemModel::Scroll => 1.1,
+        ItemModel::Potion | ItemModel::Gem | ItemModel::Amulet => 1.05,
+        _ => ITEM_SCALE,
+    }
+}
+
 /// Lay each item on the floor as its model, with a glint so it reads in the
 /// dark. Several in one cell gather around its middle.
+/// Stable slots keep small groups separately targetable without changing cell ownership.
+pub(crate) fn ground_item_spread(index: u32, count: u32) -> Vec3 {
+    match count {
+        0 | 1 => Vec3::ZERO,
+        2 => Vec3::new(if index == 0 { -0.23 } else { 0.23 }, 0.0, 0.0),
+        3 | 4 => {
+            let slots = [(-0.23, -0.23), (0.23, -0.23), (-0.23, 0.23), (0.23, 0.23)];
+            let (x, z) = slots[index.min(3) as usize];
+            Vec3::new(x, 0.0, z)
+        }
+        _ if index == 0 => Vec3::ZERO,
+        _ => {
+            let a = index as f32 * 2.4;
+            Vec3::new(a.cos(), 0.0, a.sin()) * 0.27
+        }
+    }
+}
+
 fn build_items(
     commands: &mut Commands,
     game: &mut Game,
@@ -857,20 +889,32 @@ fn build_items(
     let mut seen_corpses = HashSet::new();
     let mut per_cell: HashMap<IVec3, u32> = HashMap::new();
     let glint = library.glint(meshes);
-    for item in &view.items {
+    let mut items: Vec<_> = view.items.iter().collect();
+    items.sort_by_key(|item| item.id);
+    let mut kinds_by_cell: HashMap<IVec3, Vec<(ItemModel, ItemSurface)>> = HashMap::new();
+    for item in &items {
+        if item.model != ItemModel::Corpse {
+            kinds_by_cell
+                .entry(ivec(item.position) + game.offset)
+                .or_default()
+                .push((item.model, item.surface));
+        }
+    }
+    let mut piled = HashSet::new();
+    for item in items {
         let at = ivec(item.position) + game.offset;
         let lit = lighting::Lit(lighting::at(view, item.position));
         let count = per_cell.entry(at).or_insert(0);
         let index = *count;
-        *count += 1;
-        let key = hash(&item.name) ^ u64::from(index);
+        if item.model != ItemModel::Corpse {
+            *count += 1;
+        }
+        let key = hash(&item.id.to_string());
         let angle = (key % 6283) as f32 / 1000.0;
-        let spread = if index == 0 {
-            Vec3::ZERO
-        } else {
-            let a = index as f32 * 2.4;
-            Vec3::new(a.cos(), 0.0, a.sin()) * 0.27
-        };
+        let spread = ground_item_spread(
+            index,
+            kinds_by_cell.get(&at).map_or(0, |kinds| kinds.len() as u32),
+        );
         if item.model == ItemModel::Corpse {
             if let Some(body) = game.dying.iter_mut().find(|d| {
                 !d.holds
@@ -930,30 +974,150 @@ fn build_items(
             );
             continue;
         }
-        let model = library.item(item.model, meshes);
-        let entity = commands
-            .spawn((
-                lit,
-                crate::picking::Pick(tor_client_3d_model::Focus::Item(item.id)),
-                Transform::from_translation(stand(at) + spread)
-                    .with_rotation(Quat::from_rotation_y(angle))
-                    .with_scale(Vec3::splat(ITEM_SCALE)),
-                Visibility::default(),
-            ))
-            .with_children(|parent| {
-                model.attach(parent);
-                parent
-                    .spawn((
-                        Glint { phase: angle },
-                        Transform::from_xyz(0.0, 0.32, 0.0),
-                        Visibility::default(),
-                    ))
-                    .with_children(|g| glint.attach(g));
-            })
-            .id();
+        let pile_kinds = &kinds_by_cell[&at];
+        if pile_kinds.len() > crate::pile_picker::SMALL_PILE_LIMIT {
+            if piled.insert(at) {
+                let entity = spawn_ground_pile(commands, library, meshes, pile_kinds, stand(at));
+                commands.entity(entity).insert((
+                    lit,
+                    crate::picking::Pick(tor_client_3d_model::Focus::Cell(item.position)),
+                ));
+                game.items.push(entity);
+            }
+            continue;
+        }
+        let entity = spawn_ground_item(
+            commands,
+            library,
+            meshes,
+            item.model,
+            item.surface,
+            stand(at) + spread,
+            angle,
+        );
+        commands.entity(entity).insert((
+            lit,
+            crate::picking::Pick(tor_client_3d_model::Focus::Item(item.id)),
+        ));
         game.items.push(entity);
     }
     prune_corpses(commands, game, &seen_corpses);
+}
+
+fn pile_representatives(kinds: &[(ItemModel, ItemSurface)]) -> Vec<(ItemModel, ItemSurface)> {
+    let mut unique = kinds.to_vec();
+    unique.sort_by_key(|kind| format!("{kind:?}"));
+    unique.dedup();
+    unique.truncate(3);
+    unique
+}
+
+/// One compact cell silhouette for large groups. Representatives are selected
+/// only from disclosed categories; their scale is presentation, not quantity.
+pub(crate) fn spawn_ground_pile(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    kinds: &[(ItemModel, ItemSurface)],
+    position: Vec3,
+) -> Entity {
+    let root = commands
+        .spawn((Transform::from_translation(position), Visibility::default()))
+        .id();
+    let representatives = pile_representatives(kinds);
+    let offsets = [
+        Vec3::new(-0.16, 0.025, -0.10),
+        Vec3::new(0.15, 0.045, -0.01),
+        Vec3::new(-0.01, 0.065, 0.16),
+    ];
+    for (index, (kind, surface)) in representatives.into_iter().enumerate() {
+        let item = spawn_ground_item_inner(
+            commands,
+            library,
+            meshes,
+            (kind, surface),
+            offsets[index],
+            index as f32 * 2.1,
+            false,
+        );
+        // Compress only representative large objects; actual individual weapons keep size.
+        let factor = match kind {
+            ItemModel::Coins
+            | ItemModel::Ring
+            | ItemModel::Scroll
+            | ItemModel::Potion
+            | ItemModel::Gem => 0.85,
+            _ => 0.45,
+        };
+        commands.entity(item).insert(
+            Transform::from_translation(offsets[index])
+                .with_rotation(Quat::from_rotation_y(index as f32 * 2.1))
+                .with_scale(Vec3::splat(ground_item_scale(kind) * factor)),
+        );
+        commands.entity(root).add_child(item);
+    }
+    root
+}
+
+/// Shared ground presentation used by disclosed gameplay and offline review.
+/// Callers own disclosure, illumination and picking; this function owns geometry.
+pub(crate) fn spawn_ground_item(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    kind: ItemModel,
+    surface: ItemSurface,
+    position: Vec3,
+    yaw: f32,
+) -> Entity {
+    spawn_ground_item_inner(
+        commands,
+        library,
+        meshes,
+        (kind, surface),
+        position,
+        yaw,
+        true,
+    )
+}
+
+fn spawn_ground_item_inner(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    (kind, surface): (ItemModel, ItemSurface),
+    position: Vec3,
+    yaw: f32,
+    highlight: bool,
+) -> Entity {
+    let model = library.ground_item_surface(kind, surface, meshes);
+    let glint = library.glint(meshes);
+    commands
+        .spawn((
+            Transform::from_translation(position)
+                .with_rotation(Quat::from_rotation_y(yaw))
+                .with_scale(Vec3::splat(ground_item_scale(kind))),
+            Visibility::default(),
+        ))
+        .with_children(|parent| {
+            model.attach(parent);
+            if highlight {
+                parent
+                    .spawn((
+                        Glint { phase: yaw },
+                        Transform::from_xyz(0.0, 0.32, 0.0),
+                        Visibility::default(),
+                    ))
+                    .with_children(|g| {
+                        g.spawn((
+                            Transform::from_scale(Vec3::splat(0.5)),
+                            Visibility::default(),
+                        ))
+                        .with_children(|tiny| glint.attach(tiny));
+                    });
+            }
+        })
+        .id()
 }
 
 /// Bright, readable figures and usable objects take priority over darkness.
@@ -1046,14 +1210,14 @@ fn update_held(
     let own = view
         .inventory
         .iter()
-        .find(|c| c.equipped.is_some() && c.class == ItemClass::Weapon)
-        .map(|c| c.model);
+        .find(|c| c.equipped.is_some() && matches!(c.class, ItemClass::Weapon | ItemClass::Wand))
+        .map(|c| (c.model, c.surface));
     let mut wanted = HashMap::new();
     for actor in &view.actors {
         let weapon = if actor.is_self {
             own
         } else {
-            actor.wearing.weapons[0]
+            actor.wearing.weapons[0].map(|kind| (kind, actor.wearing.weapon_surfaces[0]))
         };
         let hand = game
             .actors
@@ -1076,14 +1240,27 @@ fn update_held(
         if game.held.contains_key(&hand) {
             continue;
         }
-        let model = library.item(kind, meshes);
-        let held = commands
-            .spawn((crate::props::held_transform(kind), Visibility::default()))
-            .with_children(|parent| model.attach(parent))
-            .id();
-        commands.entity(hand).add_child(held);
+        let held = spawn_held_item(commands, library, meshes, hand, kind.0, kind.1);
         game.held.insert(hand, (kind, held));
     }
+}
+
+/// Shared attachment for disclosed equipped props and bounded Human review fixtures.
+pub(crate) fn spawn_held_item(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    hand: Entity,
+    kind: ItemModel,
+    surface: ItemSurface,
+) -> Entity {
+    let model = library.item_surface(kind, surface, meshes);
+    let held = commands
+        .spawn((crate::props::held_transform(kind), Visibility::default()))
+        .with_children(|parent| model.attach(parent))
+        .id();
+    commands.entity(hand).add_child(held);
+    held
 }
 
 pub(super) fn animate_props(

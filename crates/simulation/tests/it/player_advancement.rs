@@ -29,6 +29,7 @@ fn game_with_build(build: tor_simulation::creatures::CreatureBuild) -> Game {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.owner-{x}").parse().unwrap(),
                 name: format!("owner {x}"),
                 faction: "neutral".into(),
             },
@@ -334,6 +335,7 @@ fn phase5_purchase_admission_rejects_frozen_actor_without_spending() {
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.frozen-owner".parse().unwrap(),
             name: "frozen owner".into(),
             faction: "neutral".into(),
         },
@@ -915,7 +917,10 @@ pub(super) fn game_with_runtime_sources() -> Game {
     });
     let mut game = game_with_build(authored_build(document, 1));
     let actor = ActorId(1);
-    let mut spec = tor_simulation::ItemSpec::ordinary("known ring".into());
+    let mut spec = tor_simulation::ItemSpec::ordinary(
+        "item.test.known-ring".parse().unwrap(),
+        "known ring".into(),
+    );
     spec.class = tor_simulation::ItemClass::Ring;
     spec.concealed = true;
     spec.appearance = "unmarked ring".into();

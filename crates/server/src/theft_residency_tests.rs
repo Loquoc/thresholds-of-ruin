@@ -53,7 +53,8 @@ fn scenario() -> Scenario {
         "kind":"grid_chain","version":1,"base_region":1,"grid":[5,1],
         "size":[9,7,2],"recipe":"room","domain":{"kind":"open","max_depth":100}
     }});
-    source["archetypes"]["marker"] = json!({"name":"residency marker"});
+    source["archetypes"]["marker"] =
+        json!({"name":"residency marker","identity":"item.misc.marker"});
     source["floor_activation"] = json!({"version":1,"protagonist":"selected_character",
     "families":{"dungeon":"baseline"},"profiles":{"baseline":{"version":1,"stages":[
         {"kind":"items","id":"marker","version":1,"count":[1,1],"quantity":1,

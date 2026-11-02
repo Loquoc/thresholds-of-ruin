@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Approved physical-projectile authoring contracts; runtime has separate owners."""
 from pathlib import Path
 import tomllib
@@ -149,7 +150,7 @@ class RogueProjectileContent(unittest.TestCase):
             with self.subTest(identity=identity):
                 self.assertTrue(identity in items, f"Missing standalone inventory weapon {identity}")
                 self.assertEqual(items[identity], {
-                    "asset": "item.weapon", "name": name, "identity": identity,
+                    "asset": "item.weapon." + name, "name": name, "identity": IDENTITIES[identity],
                     "class": "weapon", "stackable": True,
                     "equipment_generation": {"kind": "weapon", "curse_percent": 10,
                                              "enchant_percent": 5, "minimum": 1, "maximum": 3},

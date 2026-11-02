@@ -74,6 +74,7 @@ fn fixture(
     game.configure_creature(
         human,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.human".parse().unwrap(),
             name: "human".into(),
             faction: "hero".into(),
         },
@@ -83,6 +84,7 @@ fn fixture(
     game.configure_creature(
         mob,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.mob".parse().unwrap(),
             name: "mob".into(),
             faction: "foe".into(),
         },

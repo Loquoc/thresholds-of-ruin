@@ -260,6 +260,7 @@ fn assert_confused_partition_equivalence(flying: bool) {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.subject".parse().unwrap(),
                 name: "subject".into(),
                 faction: "subject".into(),
             },
@@ -588,6 +589,7 @@ fn spawn_matching_creature(
     game.configure_creature(
         subject,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.subject".parse().unwrap(),
             name: "subject".into(),
             faction: "subject".into(),
         },
@@ -825,6 +827,7 @@ fn confused_held_simulation_move_rejects_before_rng_and_explicit_escape_stays_us
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.fixture-actor".parse().unwrap(),
                 name: "fixture actor".into(),
                 faction: "neutral".into(),
             },

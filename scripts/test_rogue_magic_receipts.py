@@ -200,11 +200,11 @@ class RogueEquipmentReceiptTests(unittest.TestCase):
                 assert_equipment_item_receipts(self, receipts)
 
     def test_generated_aliases_require_exact_archetype_and_shared_identity(self):
-        for content, identity in (("rogue.generated_mace", "rogue.mace"),
-                                  ("rogue.generated_ring_mail", "rogue.ring_mail"),
-                                  ("rogue.long_sword", "rogue.long_sword"),
-                                  ("rogue.enchant_armor", "rogue.enchant_armor"),
-                                  ("rogue.healing", "rogue.healing")):
+        for content, identity in (("rogue.generated_mace", "item.weapon.mace"),
+                                  ("rogue.generated_ring_mail", "item.armor.ring-mail"),
+                                  ("rogue.long_sword", "item.weapon.long-sword"),
+                                  ("rogue.enchant_armor", "item.scroll.enchant-armor"),
+                                  ("rogue.healing", "item.potion.healing")):
             item = {"spec": {"archetype": content, "identity": identity}}
             assert_finite_item_identity(self, item, content)
             for field in ("archetype", "identity"):

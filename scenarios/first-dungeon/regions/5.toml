@@ -6,4 +6,4 @@ gravity = [0,0,-1]
 anchors = { "west" = [0,2,0], "east" = [6,2,0] }
 places = [{ at = [3,2,0], name = "Reliquary" }]
 portals = [{ at = [0,2,0], direction = "west", to = "4/east", height = 2 }]
-items = [{ id = 100, at = [4,2,0], name = "dawn seal" }]
+items = [{ identity = "item.misc.dawn-seal", id = 100, at = [4,2,0], name = "dawn seal" }]

@@ -138,3 +138,6 @@ The checks live in [test_documentation.py](../scripts/test_documentation.py) and
 [protocol documentation tests](../crates/protocol/tests/it/documentation.rs).
 Source-adjacent Rustdoc owns API-local invariants; avoid copying Rust type layouts
 into prose unless the example is tested and explains something additional.
+
+- [Item identity, appearance, and remembered facts](reference/item-knowledge.md)
+- [Rogue item model coverage](art/rogue-item-model-coverage.md)

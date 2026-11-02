@@ -1523,7 +1523,7 @@ mod tests {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/rogue-geometry");
         let mut source = serde_json::to_value(resolve_source(&root).unwrap().manifest).unwrap();
-        source["archetypes"] = json!({"marker":{"name":"marker"}});
+        source["archetypes"] = json!({"marker":{"name":"marker","identity":"item.misc.marker"}});
         source["floor_activation"] = json!({"version":1,"protagonist":"selected_character",
             "families":{"dungeon":"plain"},"profiles":{"plain":{"version":1,"stages":[
             {"kind":"items","id":"stock","version":1,"count":[1,1],
@@ -1548,7 +1548,8 @@ mod tests {
 
     fn carried_fixture() -> Package {
         changed(&fixture(), |value| {
-            value["archetypes"]["stock"] = json!({"name":"finite stock","stackable":true});
+            value["archetypes"]["stock"] =
+                json!({"name":"finite stock","identity":"item.misc.stock","stackable":true});
             value["floor_activation"]["carried_item_pools"] = json!({
                 "supplies":{"version":1,"choices":[
                     {"archetype":"marker","weight":2,"quantity":1},
@@ -1808,7 +1809,7 @@ mod tests {
             value["archetypes"]["marker"]["asset"] = json!("item.secret");
             value["archetypes"]["marker"]["appearance_pool"] = json!("vials");
             value["appearance_pools"] =
-                json!({"vials":{"appearances":["cloudy vial"],"asset":"item.potion"}});
+                json!({"vials":{"appearances":[{"name":"cloudy vial","asset":"item.potion"}]}});
         })
         .unwrap();
         let error = package.check().unwrap_err();
@@ -1835,8 +1836,8 @@ mod tests {
                 value["themes"] = json!(["floor"]);
                 value["assets"] = json!({"floor":["item.metal", "item.wood"]});
                 value["appearance_pools"] = json!({
-                    "metal":{"appearances":["copper scepter"], "asset":"item.metal"},
-                    "wood":{"appearances":["oak scepter"], "asset":"item.wood"}
+                    "metal":{"appearances":[{"name":"copper scepter","asset":"item.metal"}]},
+                    "wood":{"appearances":[{"name":"oak scepter","asset":"item.wood"}]}
                 });
                 let equipment = json!({"slot":"weapon", "modifiers":[], "attack":{
                     "skill":"heavy_weaponry", "bonus":0, "wind_up":60, "recovery":40,
@@ -1846,7 +1847,7 @@ mod tests {
                 }});
                 let key = if carried { "stock" } else { "marker" };
                 value["archetypes"][key] = json!({
-                    "name":"scepter", "class":"weapon", "appearance_pool":"metal",
+                    "name":"scepter", "identity":if carried { "item.weapon.stock" } else { "item.weapon.marker" }, "class":"weapon", "appearance_pool":"metal",
                     "forms":[
                         {"name":"metal scepter", "appearance_pool":"metal", "equipment":equipment},
                         {"name":"wooden scepter", "appearance_pool":"wood", "equipment":equipment}
@@ -1947,7 +1948,7 @@ mod tests {
     fn carried_stock_pins_concealed_ordinary_items_and_maximum_unused_pools() {
         let package = changed(&carried_fixture(), |value| {
             value["appearance_pools"] = json!({"hidden":{
-                "appearances":["unmarked parcel"], "confounding":false, "asset":"item.hidden"
+                "appearances":[{"name":"unmarked parcel","asset":"item.hidden"}], "confounding":false
             }});
             value["archetypes"]["stock"]["appearance_pool"] = json!("hidden");
             value["archetypes"]["stock"]["asset"] = json!("item.secret");
@@ -1966,7 +1967,7 @@ mod tests {
             let choices: Vec<_> = (0..64)
                 .map(|n| {
                     let name = format!("stock{n}");
-                    value["archetypes"][&name] = json!({"name":name,"stackable":true});
+                    value["archetypes"][&name] = json!({"name":name,"identity":format!("item.misc.stock{n}"),"stackable":true});
                     json!({"archetype":name,"weight":1,"quantity":7})
                 })
                 .collect();

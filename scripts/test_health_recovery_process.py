@@ -52,7 +52,7 @@ class HealthRecoveryProcesses(ProcessTestCase):
             "priority": 0, "modifiers": [modifier("health_recovery_period_percent", -25)]}
         document["characters"][0]["creature"]["templates"] = ["health_care"]
         document["archetypes"]["recovery_cap"] = {
-            "class": "armor", "name": "recovery cap", "equipment": {
+            "identity": "item.armor.recovery-cap", "class": "armor", "name": "recovery cap", "equipment": {
                 "slot": "head_armor", "modifiers": [modifier("health_recovery_reset_percent", -50)]}}
         path.write_text(toml_source(document), encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"

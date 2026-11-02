@@ -224,7 +224,7 @@ fn main() {
     }
 }
 
-/// `crates/server/fixtures/performance-v1.json`, as built by the server's
+/// `crates/server/fixtures/performance-v2.json`, as built by the server's
 /// performance fixture: 9x9x2 rooms in a chain.
 fn latency_fixture(regions: u64) -> World {
     let cell = |region, [x, y, z]: [i32; 3]| lift(at(region, x, y), z);

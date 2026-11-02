@@ -59,6 +59,7 @@ fn configure_subject(game: &mut Game, actor: ActorId, species: Species, faction:
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.figure".parse().unwrap(),
             name: "figure".into(),
             faction: faction.into(),
         },

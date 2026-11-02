@@ -6,6 +6,7 @@ use tor_protocol::{ItemClass, ItemTarget, Snapshot, StreamContext, StreamId};
 
 fn item(n: u8, name: &str, class: ItemClass) -> Carried {
     Carried {
+        surface: tor_client_3d_model::ItemSurface::Neutral,
         id: ItemTarget::from_digest([n; 32]),
         model: ItemModel::Placeholder,
         name: name.into(),
@@ -127,6 +128,7 @@ fn only_reachable_ground_targets_can_be_selected_and_they_do_not_get_hidden_by_p
     let mut v = fixture();
     let id = ItemTarget::from_digest([88; 32]);
     v.items.push(tor_client_3d_model::GroundItem {
+        surface: tor_client_3d_model::ItemSurface::Neutral,
         corpse_seed: None,
         model: ItemModel::Potion,
         corpse_model: tor_client_3d_model::CreatureModel::Placeholder,

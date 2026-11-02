@@ -419,9 +419,12 @@ pub(crate) fn game_fixture(certified: bool) -> Game {
     game
 }
 fn scroll(game: &mut Game) -> crate::ItemId {
-    let mut spec = crate::ItemSpec::ordinary("unread mapping page".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.unread-mapping-page".parse().unwrap(),
+        "unread mapping page".into(),
+    );
     spec.class = crate::ItemClass::Scroll;
-    spec.identity = "fixture.mapping".into();
+    spec.identity = "item.test.fixture-mapping".parse().unwrap();
     spec.concealed = true;
     spec.stackable = true;
     spec.readable = Some(crate::ReadableSpec {
@@ -477,7 +480,11 @@ fn paid_read_acquires_private_historical_chart_without_exploration_discovery_or_
     game.actors.get_mut(&SUBJECT).unwrap().turn_ticks = NonZeroU64::new(due - game.tick()).unwrap();
     game.act(SUBJECT, crate::Action::Wait).unwrap();
     assert_eq!(game.items[&item].quantity, 2);
-    assert!(game.actors[&OWNER].knowledge.contains("fixture.mapping"));
+    assert!(game.actors[&OWNER].knowledge.contains(
+        &"item.test.fixture-mapping"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     let view = game.detection_chart(OWNER, Kind::Mapping).unwrap();
     assert!(view.supported && view.historical);
     assert_eq!(view.acquired_at, Some(due));

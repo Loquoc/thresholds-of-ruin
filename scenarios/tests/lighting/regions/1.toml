@@ -4,7 +4,7 @@ size = [24,7,2]
 chamber = true
 lit = false
 anchors = {start=[2,3,0]}
-items = [{id=1,at=[14,3,0],name="lit tablet"},{id=2,at=[8,3,0],name="hidden token"}]
+items = [{ identity = "item.misc.lit-tablet", id=1,at=[14,3,0],name="lit tablet"},{ identity = "item.misc.hidden-token", id=2,at=[8,3,0],name="hidden token"}]
 [[lighting]]
 at = [12,1,-1]
 lit = true

@@ -7,6 +7,7 @@ fn repeated_recipe_fixture() -> (Game, PopulationPlan) {
     let actor = &mut carrier_choice(&mut plan).actor;
     actor.build = Some(crate::creatures::record::BuildRecord::capture(&build));
     actor.identity = Some(crate::CreatureIdentity {
+        corpse_identity: "item.corpse.test.carrier".parse().unwrap(),
         name: "carrier".into(),
         faction: "neutral".into(),
     });
@@ -72,7 +73,7 @@ fn population_recipe_validation_rejects_same_label_changed_build_growth_or_sched
                     choices: Default::default(),
                 }),
             3 => choice.actor.identity.as_mut().unwrap().name.clear(),
-            4 => choice.actor.known_identities.push(String::new()),
+            4 => choice.actor.known_identities.push("item.unknown".parse().unwrap()),
             _ => unreachable!(),
         }
         let mut validation = PopulationRecipeValidation::new(&game);

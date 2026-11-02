@@ -15,7 +15,7 @@ def source(name):
 class RogueLightContent(unittest.TestCase):
     def test_room_light_is_paid_self_device_with_on_use_discovery(self):
         self.assertEqual(source("catalog/items.toml")["items"]["rogue.wand_light"], {
-            "asset": "item.wand", "name": "wand of light", "identity": "rogue.wand_light",
+            "asset": "item.wand", "name": "wand of light", "identity": "item.wand.wand-light",
             "magical": True, "class": "wand", "stackable": False, "appearance_pool": "rogue.wands",
             "forms": expected_forms("light"),
             "device": {"ability": "rogue.wand_light", "initial_charges": {"minimum": 10, "maximum": 19}, "discovery": "on_use"}})
@@ -36,5 +36,5 @@ class RogueLightContent(unittest.TestCase):
                 "choices": [{"archetype": "rogue.wand_" + kind, "weight": 1} for kind in
                     ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.wand_light", character["known_identities"])
+            self.assertNotIn("item.wand.wand-light", character["known_identities"])
             self.assertNotIn("rogue.wand_light", [row["archetype"] for row in character["loadout"]])

@@ -52,6 +52,7 @@ fn fixture() -> (Game, ActorId) {
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.wearer".parse().unwrap(),
             name: "wearer".into(),
             faction: "test".into(),
         },
@@ -61,7 +62,10 @@ fn fixture() -> (Game, ActorId) {
     (game, actor)
 }
 fn wear(game: &mut Game, actor: ActorId, id: u64, ordinal: usize) -> ItemId {
-    let mut spec = ItemSpec::ordinary(format!("source-{id}"));
+    let mut spec = ItemSpec::ordinary(
+        format!("item.test.source-{id}").parse().unwrap(),
+        format!("source-{id}"),
+    );
     spec.class = crate::ItemClass::Ring;
     spec.equipment = Some(EquipmentSpec {
         periodic_relocation: Some(PeriodicRelocation {

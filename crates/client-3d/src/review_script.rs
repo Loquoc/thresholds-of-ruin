@@ -1,4 +1,5 @@
 //! Offline script runner, sharing procedural composition and presentation animation.
+mod dungeon;
 pub(crate) mod live;
 mod schema;
 #[cfg(test)]
@@ -147,6 +148,8 @@ fn run(path: &Path, output: &Path, offscreen: bool) -> Result<(), crate::Error> 
     } else {
         app.add_plugins(plugins);
     }
+    app.add_plugins(bevy::pbr::MaterialPlugin::<crate::cave::CaveMaterial>::default());
+    bevy::asset::load_internal_asset!(app, crate::cave::SHADER, "cave.wgsl", Shader::from_wgsl);
     app.insert_resource(ClearColor(Color::srgb(0.08, 0.09, 0.12)))
         .insert_resource(AmbientLight {
             color: Color::WHITE,
@@ -166,7 +169,7 @@ fn run(path: &Path, output: &Path, offscreen: bool) -> Result<(), crate::Error> 
             manifest,
             error: None,
         })
-        .add_systems(Startup, setup)
+        .add_systems(Startup, (crate::chrome::setup, setup).chain())
         .add_systems(First, clock.after(TimeSystem))
         .add_systems(
             Update,
@@ -177,8 +180,15 @@ fn run(path: &Path, output: &Path, offscreen: bool) -> Result<(), crate::Error> 
                 refresh_animation,
                 creatures::snuff,
                 creatures::effects,
+                crate::scene::animate_props,
             )
                 .chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            ground_labels
+                .after(bevy::render::camera::CameraUpdateSystem)
+                .before(bevy::ui::UiSystem::Prepare),
         )
         .add_systems(Last, (track_drawn_meshes, capture).chain());
     configure_animation(&mut app);
@@ -245,6 +255,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut cave_materials: ResMut<Assets<crate::cave::CaveMaterial>>,
 ) {
     let mut library = PropLibrary::new(PropMaterials::new(&mut materials));
     for spec in &run.script.actors {
@@ -270,26 +281,127 @@ fn setup(
             entity,
             &spec.look().expect("validated actor"),
         );
+        if let Some(kind) = &spec.held_item {
+            let hand = rig.joint(J::HandR).expect("validated Human hand");
+            crate::scene::spawn_held_item(
+                &mut commands,
+                &mut library,
+                &mut meshes,
+                hand,
+                item_model(kind).expect("validated held model"),
+                tor_client_3d_model::item_surface(
+                    item_model(kind).expect("validated held model"),
+                    spec.held_asset.as_deref().unwrap_or(""),
+                ),
+            );
+        }
         commands.entity(entity).insert(rig);
     }
+    let mut groups = std::collections::BTreeMap::new();
+    for spec in &run.script.ground_items {
+        groups
+            .entry(ground_cell(spec.position))
+            .or_insert_with(Vec::new)
+            .push(spec);
+    }
+    if run.script.pile_picker {
+        let (cell, items) = groups
+            .iter()
+            .find(|(_, items)| items.len() > 4)
+            .expect("validated pile");
+        let rows = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                (
+                    tor_protocol::ItemTarget::from_digest([index as u8 + 1; 32]),
+                    format!(
+                        "{} ×{}",
+                        item.disclosed_name
+                            .as_deref()
+                            .expect("validated disclosure"),
+                        item.quantity
+                    ),
+                    true,
+                )
+            })
+            .collect();
+        crate::pile_picker::spawn(
+            &mut commands,
+            &crate::pile_picker::Drawing {
+                at: *cell,
+                rows,
+                enabled: true,
+            },
+        );
+    }
+    for (cell, items) in groups {
+        if items.len() > 4 {
+            let models: Vec<_> = items
+                .iter()
+                .map(|spec| {
+                    let kind = item_model(&spec.model).expect("validated ground model");
+                    (
+                        kind,
+                        tor_client_3d_model::item_surface(
+                            kind,
+                            spec.asset.as_deref().unwrap_or(""),
+                        ),
+                    )
+                })
+                .collect();
+            crate::scene::spawn_ground_pile(
+                &mut commands,
+                &mut library,
+                &mut meshes,
+                &models,
+                crate::stand(crate::ivec(cell)),
+            );
+        } else {
+            for spec in items {
+                crate::scene::spawn_ground_item(
+                    &mut commands,
+                    &mut library,
+                    &mut meshes,
+                    item_model(&spec.model).expect("validated ground model"),
+                    tor_client_3d_model::item_surface(
+                        item_model(&spec.model).expect("validated ground model"),
+                        spec.asset.as_deref().unwrap_or(""),
+                    ),
+                    Vec3::from_array(spec.position),
+                    spec.yaw.to_radians(),
+                );
+            }
+        }
+    }
     commands.insert_resource(library);
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(100.0, 100.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.2, 0.21, 0.23),
-            perceptual_roughness: 0.9,
-            ..default()
-        })),
-        Transform::from_xyz(0.0, -0.5, 0.0),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 8000.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(3.0, 5.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+    if run.script.dungeon {
+        dungeon::setup(
+            &mut commands,
+            &run.script,
+            &mut meshes,
+            &mut materials,
+            &mut cave_materials,
+        );
+    } else {
+        commands.spawn((
+            Mesh3d(meshes.add(Plane3d::default().mesh().size(100.0, 100.0))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb_from_array(run.script.floor_color),
+                perceptual_roughness: 0.9,
+                ..default()
+            })),
+            Transform::from_xyz(0.0, -0.5, 0.0),
+        ));
+        commands.spawn((
+            DirectionalLight {
+                illuminance: 8000.0,
+                shadows_enabled: true,
+                ..default()
+            },
+            Transform::from_xyz(3.0, 5.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ));
+    }
     let target = if run.offscreen {
         let image = images.add(offscreen_image(run.script.viewport));
         commands.insert_resource(OffscreenTarget(image.clone()));
@@ -299,6 +411,7 @@ fn setup(
     };
     commands.spawn((
         ReviewCamera,
+        bevy::ui::IsDefaultUiCamera,
         Camera {
             target,
             ..default()
@@ -308,6 +421,62 @@ fn setup(
         Transform::from_xyz(0.0, 1.5, 4.0).looking_at(Vec3::Y * 0.5, Vec3::Y),
     ));
 }
+fn ground_cell([x, y, z]: [f32; 3]) -> tor_protocol::Position {
+    tor_protocol::Position {
+        x: x.round() as i32,
+        y: z.round() as i32,
+        z: (y + 0.5).round() as i32,
+    }
+}
+
+/// Capture-only adapter: explicit fixture disclosure enters the same grouping,
+/// layout and UI composition used by gameplay. This does not simulate live fog
+/// or picking; those remain enforced by loot_labels::show in exploration.
+fn ground_labels(
+    mut commands: Commands,
+    run: Res<Run>,
+    camera: Query<(&Camera, &Transform), With<ReviewCamera>>,
+    old: Query<Entity, With<crate::loot_labels::GroundLabel>>,
+    mut previous: Local<Vec<crate::loot_labels::PlacedLabel>>,
+) {
+    if run.script.pile_picker {
+        return;
+    }
+    let Ok((camera, transform)) = camera.single() else {
+        return;
+    };
+    // ReviewCamera is an unparented root. Use its current transform before UI
+    // layout rather than the previous frame's propagated GlobalTransform.
+    let eye = GlobalTransform::from(*transform);
+    let groups = crate::loot_labels::disclosed_groups(run.script.ground_items.iter().map(|item| {
+        let name = item.disclosed_name.as_deref().unwrap_or("");
+        let position = ground_cell(item.position);
+        (position, name, item.quantity)
+    }));
+    let groups = if run.script.ground_labels {
+        groups
+    } else {
+        crate::loot_labels::pile_counts(groups)
+    };
+    let anchors = groups
+        .into_iter()
+        .filter_map(|group| {
+            let world = crate::stand(crate::ivec(group.position)) + Vec3::Y * 0.12;
+            let at = camera.world_to_viewport(&eye, world).ok()?;
+            Some((at, group))
+        })
+        .collect();
+    let [w, h] = run.script.viewport;
+    let next = crate::loot_labels::layout(anchors, Vec2::new(w as f32, h as f32));
+    if *previous != next {
+        for entity in &old {
+            commands.entity(entity).despawn();
+        }
+        crate::loot_labels::spawn(&mut commands, &next);
+        *previous = next;
+    }
+}
+
 /// The meshes the scene draws now. A rebuild frees the old outfit's
 /// wearer-owned meshes, which never reach the renderer again, so readiness
 /// must not wait on every mesh asset that existed when it began.

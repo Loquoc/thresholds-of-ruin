@@ -240,10 +240,10 @@ class AsciiHudPickupProcesses(ProcessTestCase):
         manifest["id"] = "ascii-hud-pickup"
         manifest["characters"][0]["turn_ticks"] = 100
         manifest["archetypes"]["hud_tender"] = {
-            "name": "unusual tender", "class": "coin", "stackable": True,
+            "identity": "item.coin.unusual-tender", "name": "unusual tender", "class": "coin", "stackable": True,
             "currency": "gold"}
         manifest["archetypes"]["hud_decoy"] = {
-            "name": "gold coin", "class": "coin", "stackable": True}
+            "identity": "item.coin.ordinary-disc", "name": "gold coin", "class": "coin", "stackable": True}
         manifest_path.write_text(toml_source(manifest), encoding="utf-8", newline="\n")
         region_path = package / "regions/1.toml"
         region = tomllib.loads(region_path.read_text(encoding="utf-8"))

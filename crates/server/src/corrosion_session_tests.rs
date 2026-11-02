@@ -21,7 +21,7 @@ fn scenario() -> crate::Scenario {
     manifest["characters"].as_array_mut().unwrap().truncate(1);
     let owner = &mut manifest["characters"][0];
     owner["anchor"] = json!("1/start");
-    owner["known_identities"] = json!(["rogue.ring_mail"]);
+    owner["known_identities"] = json!(["item.armor.ring-mail"]);
     owner["loadout"] = json!([
         {"archetype":"rogue.ring_mail","quantity":1,"equipped_slot":2},
         {"archetype":"rogue.ring_mail","quantity":1}
@@ -338,10 +338,43 @@ fn encoded_co1_changes_one_item_once_with_retry_disclosure_and_source_free_reope
     );
     assert_eq!(reduction_amounts(&after), vec![1, 1, 2, 2]);
     let encoded = serde_json::to_string(&after).unwrap();
-    assert!(
-        !encoded.contains("corrosion"),
-        "public snapshot exposes current protection, not private wear storage"
+    let mut remembered: Vec<_> = after
+        .state
+        .observation
+        .inventory
+        .iter()
+        .map(|item| item.knowledge.condition.corrosion)
+        .collect();
+    remembered.sort();
+    assert_eq!(
+        remembered,
+        vec![Some(0), Some(1)],
+        "only the owner's explicitly observed per-instance wear is disclosed"
     );
+    assert!(
+        after
+            .state
+            .observation
+            .inventory
+            .iter()
+            .all(
+                |item| item.knowledge.buc == tor_protocol::BucStatus::Unknown
+                    && item.knowledge.condition.protected.is_none()
+            ),
+        "observing numeric wear must not invent BUC or protection knowledge"
+    );
+    for private in [
+        "armor_penalty",
+        "hit_enchantment",
+        "damage_enchantment",
+        "armor_enchantment",
+        "rustproof",
+    ] {
+        assert!(
+            !encoded.contains(private),
+            "private authoritative storage leaked: {private}"
+        );
+    }
     let state = wire.saved();
     assert_eq!(ack(wire.send(AQUATOR, &id, request.clone())), receipt);
     let mut conflict = request.clone();

@@ -16,7 +16,7 @@ def projectile_package(test):
     manifest, region = encounter("emu")
     manifest["id"] = "projectile-client-acceptance"
     character = manifest["characters"][0]
-    character["known_identities"] += ["rogue.dagger", "rogue.shortbow", "rogue.arrow"]
+    character["known_identities"] += ["item.weapon.dagger", "item.weapon.shortbow", "item.weapon.arrow"]
     # Socket 10 is the ordinary secondary weapon socket. Its nonzero Focus
     # price makes cancellation/payment observable with unchanged Rogue rules.
     character["loadout"] = [

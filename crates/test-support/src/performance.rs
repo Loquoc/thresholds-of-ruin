@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use tor_protocol::{Action, Direction, StateView};
 
-pub const SPEC: &str = include_str!("../../server/fixtures/performance-v1.json");
+pub const SPEC: &str = include_str!("../../server/fixtures/performance-v2.json");
 
 #[derive(Deserialize)]
 pub struct Trace {

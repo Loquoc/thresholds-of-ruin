@@ -609,6 +609,7 @@ fn item_game_from(creature: CreatureState, effects: Vec<Effect>) -> (crate::Game
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.drinker-{x}").parse().unwrap(),
                 name: format!("drinker {x}"),
                 faction: "neutral".into(),
             },
@@ -616,7 +617,10 @@ fn item_game_from(creature: CreatureState, effects: Vec<Effect>) -> (crate::Game
         )
         .unwrap();
     }
-    let mut potion = crate::ItemSpec::ordinary("restorable loss probe".into());
+    let mut potion = crate::ItemSpec::ordinary(
+        "item.test.restorable-loss-probe".parse().unwrap(),
+        "restorable loss probe".into(),
+    );
     potion.class = crate::ItemClass::Potion;
     potion.consumable = Some(crate::ConsumableSpec {
         descriptors: vec![],
@@ -949,7 +953,10 @@ fn fatal_hit_die_drain_drops_inventory_attributes_owner_once_and_replays_sticky_
             at,
             Some(ActorId(2)),
             1,
-            crate::ItemSpec::ordinary("drained owner's item".into()),
+            crate::ItemSpec::ordinary(
+                "item.test.drained-owner-s-item".parse().unwrap(),
+                "drained owner's item".into(),
+            ),
         )
         .unwrap();
     let items = game.items.len();
@@ -1373,6 +1380,7 @@ fn hit_die_grant_loss_cancels_only_the_unresolved_tail_and_never_refunds_or_repl
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.hd-subject-{x}").parse().unwrap(),
                     name: format!("HD subject {x}"),
                     faction: "neutral".into(),
                 },

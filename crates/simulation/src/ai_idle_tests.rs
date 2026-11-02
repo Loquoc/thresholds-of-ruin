@@ -21,8 +21,8 @@ fn fixture_with_rules(profile: AiProfile, rules: std::sync::Arc<crate::rules::Ru
     game.refresh_navigation();
     game
 }
-fn potion(name: &str, concealed: bool) -> ItemSpec {
-    let mut item = ItemSpec::ordinary(name.into());
+fn potion(identity: &str, name: &str, concealed: bool) -> ItemSpec {
+    let mut item = ItemSpec::ordinary(identity.parse().unwrap(), name.into());
     item.class = crate::ItemClass::Potion;
     item.concealed = concealed;
     item.stackable = true;
@@ -53,13 +53,25 @@ fn idle_wait_forbids_loot_detours_but_permits_underfoot_useful_pickup() {
         idle: IdleBehavior::Wait,
         ..AiProfile::general()
     });
-    game.place_item_stack(20, at(1, 3, 1), None, 9, potion("known", false))
-        .unwrap();
+    game.place_item_stack(
+        20,
+        at(1, 3, 1),
+        None,
+        9,
+        potion("item.test.known", "known", false),
+    )
+    .unwrap();
     game.refresh_navigation();
     assert_eq!(loot(&game), None);
     assert_eq!(game.choose_ai(ActorId(2)).unwrap().action, Action::Wait);
-    game.place_item_stack(21, at(1, 2, 1), None, 9, potion("near", false))
-        .unwrap();
+    game.place_item_stack(
+        21,
+        at(1, 2, 1),
+        None,
+        9,
+        potion("item.test.near", "near", false),
+    )
+    .unwrap();
     assert_eq!(
         loot(&game),
         Some(Action::Take {
@@ -76,8 +88,14 @@ fn loot_respects_care_and_equipment_overrides_independently() {
         equipment: false,
         ..AiProfile::general()
     });
-    game.place_item_stack(20, at(1, 2, 1), None, 4, potion("known", false))
-        .unwrap();
+    game.place_item_stack(
+        20,
+        at(1, 2, 1),
+        None,
+        4,
+        potion("item.test.known", "known", false),
+    )
+    .unwrap();
     assert_eq!(loot(&game), None);
     game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.care = true;
     assert_eq!(
@@ -87,7 +105,10 @@ fn loot_respects_care_and_equipment_overrides_independently() {
             quantity: Some(1)
         })
     );
-    let mut armor = ItemSpec::ordinary("known armor".into());
+    let mut armor = ItemSpec::ordinary(
+        "item.test.known-armor".parse().unwrap(),
+        "known armor".into(),
+    );
     armor.class = crate::ItemClass::Armor;
     armor.equipment = Some(crate::EquipmentSpec {
         periodic_relocation: None,
@@ -126,9 +147,15 @@ fn loot_respects_care_and_equipment_overrides_independently() {
 fn unknown_item_semantics_and_unseen_piles_never_change_idle_choices() {
     let mut game = fixture(AiProfile::general());
     let mut other = game.clone();
-    game.place_item_stack(20, at(1, 2, 1), None, 1, potion("unknown", true))
-        .unwrap();
-    let mut unknown = potion("unknown", true);
+    game.place_item_stack(
+        20,
+        at(1, 2, 1),
+        None,
+        1,
+        potion("item.test.concealed-fixture", "unknown", true),
+    )
+    .unwrap();
+    let mut unknown = potion("item.test.concealed-fixture", "unknown", true);
     unknown.consumable.as_mut().unwrap().effects = vec![crate::rules::Effect::RestoreAttribute {
         attribute: crate::attributes::Attribute::Strength,
         amount: crate::rules::AmountExpr::Fixed { amount: 1 },
@@ -137,7 +164,13 @@ fn unknown_item_semantics_and_unseen_piles_never_change_idle_choices() {
         .place_item_stack(20, at(1, 2, 1), None, 1, unknown)
         .unwrap();
     other
-        .place_item_stack(21, at(2, 3, 2), None, 1, potion("hidden", false))
+        .place_item_stack(
+            21,
+            at(2, 3, 2),
+            None,
+            1,
+            potion("item.test.hidden", "hidden", false),
+        )
         .unwrap();
     assert!(
         game.observe(ActorId(2)) == other.observe(ActorId(2)),
@@ -286,8 +319,8 @@ fn visit_encoding_is_ordered_strict_and_does_not_depend_on_shared_storage() {
     assert!(serde_json::from_value::<Ai>(reversed).is_err());
 }
 
-fn supply(id: &str) -> ItemSpec {
-    let mut item = ItemSpec::ordinary(id.into());
+fn supply(identity: &str, id: &str) -> ItemSpec {
+    let mut item = ItemSpec::ordinary(identity.parse().unwrap(), id.into());
     item.stackable = true;
     item.supply = Some(crate::content_ids::SupplyId::new(id).unwrap());
     item
@@ -337,9 +370,9 @@ fn supply_game() -> Game {
 #[test]
 fn useful_supply_reserve_keeps_a_complete_recipe_instead_of_unpayable_component_minima() {
     let mut game = supply_game();
-    game.place_item_stack(20, at(1, 2, 1), None, 99, supply("swab"))
+    game.place_item_stack(20, at(1, 2, 1), None, 99, supply("item.test.swab", "swab"))
         .unwrap();
-    game.place_item_stack(21, at(1, 2, 1), None, 99, supply("herb"))
+    game.place_item_stack(21, at(1, 2, 1), None, 99, supply("item.test.herb", "herb"))
         .unwrap();
     assert_eq!(
         loot(&game),
@@ -348,8 +381,14 @@ fn useful_supply_reserve_keeps_a_complete_recipe_instead_of_unpayable_component_
             quantity: Some(2)
         })
     );
-    game.place_item_stack(22, at(1, 2, 1), Some(ActorId(2)), 2, supply("swab"))
-        .unwrap();
+    game.place_item_stack(
+        22,
+        at(1, 2, 1),
+        Some(ActorId(2)),
+        2,
+        supply("item.test.swab", "swab"),
+    )
+    .unwrap();
     assert_eq!(
         loot(&game),
         Some(Action::Take {
@@ -357,8 +396,14 @@ fn useful_supply_reserve_keeps_a_complete_recipe_instead_of_unpayable_component_
             quantity: Some(1)
         })
     );
-    game.place_item_stack(23, at(1, 2, 1), Some(ActorId(2)), 1, supply("herb"))
-        .unwrap();
+    game.place_item_stack(
+        23,
+        at(1, 2, 1),
+        Some(ActorId(2)),
+        1,
+        supply("item.test.herb", "herb"),
+    )
+    .unwrap();
     assert_eq!(
         loot(&game),
         None,
@@ -369,12 +414,18 @@ fn useful_supply_reserve_keeps_a_complete_recipe_instead_of_unpayable_component_
 #[test]
 fn unknown_supplies_and_supplies_without_a_safe_owned_use_are_ignored() {
     let mut game = supply_game();
-    let mut concealed = supply("swab");
+    let mut concealed = supply("item.test.swab", "swab");
     concealed.concealed = true;
     game.place_item_stack(20, at(1, 2, 1), None, 99, concealed)
         .unwrap();
-    game.place_item_stack(21, at(1, 2, 1), None, 99, supply("bandage"))
-        .unwrap();
+    game.place_item_stack(
+        21,
+        at(1, 2, 1),
+        None,
+        99,
+        supply("item.test.bandage", "bandage"),
+    )
+    .unwrap();
     assert_eq!(loot(&game), None);
     game.identify_item(ActorId(2), ItemId(20)).unwrap();
     assert_eq!(
@@ -387,7 +438,7 @@ fn unknown_supplies_and_supplies_without_a_safe_owned_use_are_ignored() {
 }
 
 fn food(concealed: bool) -> ItemSpec {
-    let mut item = ItemSpec::ordinary("meal".into());
+    let mut item = ItemSpec::ordinary("item.test.meal".parse().unwrap(), "meal".into());
     item.class = crate::ItemClass::Food;
     item.stackable = true;
     item.concealed = concealed;
@@ -491,8 +542,14 @@ fn held_idle_actor_waits_without_recording_false_movement_and_resumes_after_expi
         10,
     )
     .unwrap();
-    game.place_item_stack(20, at(1, 3, 1), None, 1, potion("known", false))
-        .unwrap();
+    game.place_item_stack(
+        20,
+        at(1, 3, 1),
+        None,
+        1,
+        potion("item.test.known", "known", false),
+    )
+    .unwrap();
     game.refresh_navigation();
     let before = game.clone();
     let chosen = game.choose_ai(ActorId(2)).unwrap();
@@ -542,6 +599,7 @@ fn frozen_and_detached_idle_actors_keep_history_without_taking_turns() {
             game.configure_creature(
                 id,
                 crate::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.actor-{}", id.0).parse().unwrap(),
                     name: format!("actor {}", id.0),
                     faction: "neutral".into(),
                 },
@@ -643,8 +701,14 @@ fn stationary_underfoot_pickup_needs_no_previous_navigation_record() {
         idle: IdleBehavior::Wait,
         ..AiProfile::general()
     });
-    game.place_item_stack(20, at(1, 2, 1), None, 1, potion("known", false))
-        .unwrap();
+    game.place_item_stack(
+        20,
+        at(1, 2, 1),
+        None,
+        1,
+        potion("item.test.known", "known", false),
+    )
+    .unwrap();
     game.navigation.remove(&ActorId(2));
     assert!(game.route_search(ActorId(2)).is_err());
     let before = crate::diagnostics::work_counts();
@@ -662,7 +726,10 @@ fn stationary_underfoot_pickup_needs_no_previous_navigation_record() {
 }
 
 fn ring_probe(op: crate::rules::ModifierOp, scaled: bool) -> ItemSpec {
-    let mut item = ItemSpec::ordinary("unfamiliar band".into());
+    let mut item = ItemSpec::ordinary(
+        "item.test.unfamiliar-band".parse().unwrap(),
+        "unfamiliar band".into(),
+    );
     item.class = crate::ItemClass::Ring;
     item.concealed = true;
     let modifier = crate::rules::Modifier {

@@ -491,6 +491,8 @@ pub struct CorpseAppearance {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ItemView {
+    pub identity: crate::ItemIdentity,
+    pub knowledge: crate::ItemKnowledge,
     pub corpse: Option<CorpseAppearance>,
     pub class: crate::ItemClass,
     pub description: String,
@@ -506,6 +508,8 @@ pub struct ItemView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroundItemView {
+    pub identity: crate::ItemIdentity,
+    pub knowledge: crate::ItemKnowledge,
     pub presentation: Option<crate::appearance_catalog::ObjectPresentation>,
     pub corpse: Option<CorpseAppearance>,
     pub class: crate::ItemClass,
@@ -979,6 +983,12 @@ impl Game {
         let (identified, anonymous_corpse, name, known_supply) =
             self.project_item_identity(id, item, eyes);
         GroundItemView {
+            identity: if identified {
+                item.spec.identity.clone()
+            } else {
+                item.spec.class.unknown_identity()
+            },
+            knowledge: self.actors[&id].known_equipment.disclosed(item_id),
             presentation: None,
             corpse: identified.then(|| item.corpse.clone()).flatten(),
             class: item.spec.class,
@@ -1127,6 +1137,12 @@ impl Game {
                         });
                     }
                     inventory.push(ItemView {
+                        identity: if identified {
+                            item.spec.identity.clone()
+                        } else {
+                            item.spec.class.unknown_identity()
+                        },
+                        knowledge: actor.known_equipment.disclosed(item_id),
                         corpse: identified.then(|| item.corpse.clone()).flatten(),
                         class: item.spec.class,
                         description: item_description(name),
@@ -1909,6 +1925,105 @@ mod tests {
     }
 
     #[test]
+    fn ground_and_inventory_item_knowledge_is_private_independent_and_remembered() {
+        let (mut game, actor) = membership_fixture();
+        let location = game.actors[&actor].location;
+        let identity: crate::ItemIdentity = "item.armor.test-mail".parse().unwrap();
+        let mut spec =
+            crate::ItemSpec::ordinary(identity.clone(), "mail of concealed power".into());
+        spec.class = crate::ItemClass::Armor;
+        spec.concealed = true;
+        spec.appearance = "ordinary mail".into();
+        spec.asset = Some("item.armor.mail".into());
+        spec.equipment = Some(crate::EquipmentSpec {
+            slot: crate::EquipmentSlot::new("body_armor").unwrap(),
+            periodic_relocation: None,
+            armor: Some(crate::ArmorSpec {
+                physical_reduction: 10,
+                material: crate::ArmorMaterial::Metal,
+                rustproof: false,
+            }),
+            attack: None,
+            weapon_profile: None,
+            modifiers: vec![],
+            potency_modifiers: vec![],
+        });
+        let item = game.place_item_stack(400, location, None, 1, spec).unwrap();
+        let ground = |game: &Game| {
+            game.observe(actor)
+                .unwrap()
+                .ground_items
+                .into_iter()
+                .find(|i| i.id == item)
+                .unwrap()
+        };
+        assert_eq!(
+            ground(&game).identity,
+            crate::ItemClass::Armor.unknown_identity()
+        );
+        assert_eq!(ground(&game).knowledge, crate::ItemKnowledge::default());
+        let mut type_known = game.clone();
+        type_known.learn_identity(actor, &identity).unwrap();
+        assert_eq!(ground(&type_known).identity, identity);
+        assert_eq!(ground(&type_known).knowledge.buc, crate::BucStatus::Unknown);
+        game.actors
+            .get_mut(&actor)
+            .unwrap()
+            .known_equipment
+            .learn_curse(item, true)
+            .unwrap();
+        assert_eq!(ground(&game).knowledge.buc, crate::BucStatus::Cursed);
+        assert!(!ground(&game).identified);
+        let remembered = crate::armor::ItemCondition {
+            corrosion: 1,
+            ..Default::default()
+        };
+        game.items.edit(item, |i| i.condition = remembered).unwrap();
+        game.actors
+            .get_mut(&actor)
+            .unwrap()
+            .known_equipment
+            .learn_numbers(item, remembered)
+            .unwrap();
+        let numeric = ground(&game);
+        assert_eq!(numeric.knowledge.enchantments.hit, Some(0));
+        assert_eq!(numeric.knowledge.condition.corrosion, Some(1));
+        assert_eq!(numeric.knowledge.condition.protected, None);
+        assert!(!numeric.identified);
+        game.items
+            .edit(item, |i| i.condition.corrosion = 2)
+            .unwrap();
+        assert_eq!(
+            ground(&game).knowledge,
+            numeric.knowledge,
+            "unseen current rust must not replace remembered rust"
+        );
+        let stranger = game
+            .spawn_actor(at(1, 1, 0), NonZeroU64::new(100).unwrap())
+            .unwrap();
+        let seen = game
+            .observe(stranger)
+            .unwrap()
+            .ground_items
+            .into_iter()
+            .find(|i| i.id == item)
+            .unwrap();
+        assert_eq!(seen.knowledge, crate::ItemKnowledge::default());
+        game.items
+            .edit(item, |i| i.location = crate::ItemLocation::Carried(actor))
+            .unwrap();
+        let carried = game
+            .observe(actor)
+            .unwrap()
+            .inventory
+            .into_iter()
+            .find(|i| i.id == item)
+            .unwrap();
+        assert_eq!(carried.knowledge, numeric.knowledge);
+        assert_eq!(carried.identity, numeric.identity);
+        assert_eq!(carried.asset, numeric.asset);
+    }
+    #[test]
     fn streaming_geometry_reuses_scene_witness_without_rebuilding_body_queries() {
         let (game, actor) = membership_fixture();
         game.scene_snapshot_shared(actor).unwrap();
@@ -2000,7 +2115,11 @@ mod tests {
         crate::test_creatures::injure(&mut game, OWNER, 1).unwrap();
         game.tick += 1;
         let item = game
-            .place_item(game.actors[&OWNER].location, "fresh fact".into())
+            .place_item(
+                game.actors[&OWNER].location,
+                "item.test.fresh-fact".parse().unwrap(),
+                "fresh fact".into(),
+            )
             .unwrap();
         assert_eq!(game.actors.visibility_epoch(), visibility);
         assert!(Arc::ptr_eq(
@@ -2365,7 +2484,11 @@ mod tests {
             .spawn_actor(at(1, 1, 0), NonZeroU64::new(100).unwrap())
             .unwrap();
         let item = game
-            .place_item(at(1, 1, 0), "new shared-scene item".into())
+            .place_item(
+                at(1, 1, 0),
+                "item.test.new-shared-scene-item".parse().unwrap(),
+                "new shared-scene item".into(),
+            )
             .unwrap();
         let (after, unchanged_geometry) = game.observe_shared_scene(actor).unwrap();
         assert!(Arc::ptr_eq(&shared, &unchanged_geometry));
@@ -2738,7 +2861,11 @@ mod tests {
         );
         assert_eq!(after.raw_world_fact_cells, before.raw_world_fact_cells);
         let item = game
-            .place_item(at(1, 1, 0), "fresh raw-cache item".into())
+            .place_item(
+                at(1, 1, 0),
+                "item.test.fresh-raw-cache-item".parse().unwrap(),
+                "fresh raw-cache item".into(),
+            )
             .unwrap();
         let changed = game.observe(actor).unwrap();
         assert!(changed.ground_items.iter().any(|row| row.id == item));
@@ -2767,7 +2894,11 @@ mod tests {
             .spawn_actor(at(1, 1, 0), NonZeroU64::new(100).unwrap())
             .unwrap();
         let item = game
-            .place_item(at(1, 1, 0), "fresh shared-cell item".into())
+            .place_item(
+                at(1, 1, 0),
+                "item.test.fresh-shared-cell-item".parse().unwrap(),
+                "fresh shared-cell item".into(),
+            )
             .unwrap();
         let fresh = game.observe(actor).unwrap();
         assert!(expected.visible_actors.iter().all(|row| row.id != other));
@@ -2827,7 +2958,11 @@ mod tests {
         assert_eq!(decision.view, expected);
         assert_eq!(*decision.sight, *snapshot.sight);
         let item = game
-            .place_item(at(1, 1, 0), "fresh decision item".into())
+            .place_item(
+                at(1, 1, 0),
+                "item.test.fresh-decision-item".parse().unwrap(),
+                "fresh decision item".into(),
+            )
             .unwrap();
         let fresh = game.decision_snapshot(actor).unwrap();
         assert!(fresh.view.ground_items.iter().any(|row| row.id == item));
@@ -2972,7 +3107,10 @@ mod tests {
                 at(1, 1, 0),
                 None,
                 1,
-                crate::ItemSpec::ordinary(format!("fragment {id}")),
+                crate::ItemSpec::ordinary(
+                    format!("item.test.fragment-{id}").parse().unwrap(),
+                    format!("fragment {id}"),
+                ),
             )
             .unwrap();
         }
@@ -3128,7 +3266,10 @@ mod tests {
                 landing,
                 None,
                 1,
-                crate::ItemSpec::ordinary("stair supply".into()),
+                crate::ItemSpec::ordinary(
+                    "item.test.stair-supply".parse().unwrap(),
+                    "stair supply".into(),
+                ),
             )
             .unwrap();
         assert!(!game.supply_access(

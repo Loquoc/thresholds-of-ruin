@@ -108,14 +108,18 @@ fn fixture_with_discovery(discovery: crate::ItemDiscovery) -> (Game, ItemId, Arc
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.subject".parse().unwrap(),
             name: "subject".into(),
             faction: "fixture".into(),
         },
         build,
     )
     .unwrap();
-    let mut item = crate::ItemSpec::ordinary("Polymorph test wand".into());
-    item.identity = "fixture.polymorph_wand".into();
+    let mut item = crate::ItemSpec::ordinary(
+        "item.test.polymorph-test-wand".parse().unwrap(),
+        "Polymorph test wand".into(),
+    );
+    item.identity = "item.test.fixture-polymorph-wand".parse().unwrap();
     item.class = crate::ItemClass::Tool;
     item.concealed = true;
     item.device = Some(crate::DeviceSpec {
@@ -252,7 +256,7 @@ fn explicit_self_polymorph_is_known_only_and_waives_only_its_own_save() {
             .device_activation,
         Some(crate::DeviceActivation::Direction)
     );
-    game.learn_identity(actor, "fixture.polymorph_wand")
+    game.learn_identity(actor, &"item.test.fixture-polymorph-wand".parse().unwrap())
         .unwrap();
     assert_eq!(
         game.observe(actor)
@@ -412,6 +416,7 @@ fn bounded_polymorph_prepares_off_ray_shape_without_selecting_or_loading() {
     game.configure_creature(
         target,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.target".parse().unwrap(),
             name: "target".into(),
             faction: "fixture".into(),
         },
@@ -469,6 +474,7 @@ fn paid_polymorph_identifies_only_immediate_visible_changed_form() {
             game.configure_creature(
                 target,
                 crate::CreatureIdentity {
+                    corpse_identity: "item.corpse.test.recipient".parse().unwrap(),
                     name: "recipient".into(),
                     faction: "fixture".into(),
                 },
@@ -529,9 +535,11 @@ fn paid_polymorph_identifies_only_immediate_visible_changed_form() {
             );
             let changed = expected_changed;
             assert_eq!(
-                game.actors[&actor]
-                    .knowledge
-                    .contains("fixture.polymorph_wand"),
+                game.actors[&actor].knowledge.contains(
+                    &"item.test.fixture-polymorph-wand"
+                        .parse::<crate::ItemIdentity>()
+                        .unwrap()
+                ),
                 visible && changed
             );
             let observation = game.observe(actor).unwrap();
@@ -576,6 +584,7 @@ fn body_compile_work_paid_polymorph_baseline() {
         game.configure_creature(
             target,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.work-count-recipient".parse().unwrap(),
                 name: "work-count recipient".into(),
                 faction: "fixture".into(),
             },
@@ -651,9 +660,11 @@ fn body_compile_work_paid_polymorph_baseline() {
             })
         );
         assert_eq!(
-            game.actors[&actor]
-                .knowledge
-                .contains("fixture.polymorph_wand"),
+            game.actors[&actor].knowledge.contains(
+                &"item.test.fixture-polymorph-wand"
+                    .parse::<crate::ItemIdentity>()
+                    .unwrap()
+            ),
             changed,
             "paid nonchanges do not identify this discernible-only device"
         );

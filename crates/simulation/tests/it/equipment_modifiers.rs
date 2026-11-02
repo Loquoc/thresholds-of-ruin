@@ -225,7 +225,10 @@ fn multiple_weapon_sockets_select_only_the_authored_primary() {
         let low = super::creature_fixture::melee(1, 40, DamageType::Keen, 3);
         let high = super::creature_fixture::melee(2, 80, DamageType::Impact, 7);
         for (id, slot, attack) in [(11, 1, high.clone()), (12, 0, low.clone())] {
-            let mut item = ItemSpec::ordinary(format!("weapon {id}"));
+            let mut item = ItemSpec::ordinary(
+                format!("item.test.weapon-{id}").parse().unwrap(),
+                format!("weapon {id}"),
+            );
             item.class = ItemClass::Weapon;
             item.equipment = Some(tor_simulation::EquipmentSpec {
                 periodic_relocation: None,
@@ -272,7 +275,7 @@ fn ordinary_equipment_does_not_require_a_combat_creature() {
         },
     )
     .unwrap();
-    let mut armor = ItemSpec::ordinary("mail".into());
+    let mut armor = ItemSpec::ordinary("item.test.mail".parse().unwrap(), "mail".into());
     armor.class = ItemClass::Armor;
     armor.equipment = Some(tor_simulation::EquipmentSpec {
         periodic_relocation: None,

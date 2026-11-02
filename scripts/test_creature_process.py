@@ -337,7 +337,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         region = package / "regions/1.toml"
         source = region.read_text(encoding="utf-8")
         source += ('\n[[actors]]\nid = 3\nat = [3, 1, 0]\ncontroller = "ai"\nai = "practice"\n'
-                   'creature = { species = "human", name = "arena foe", faction = "foe", '
+                   'creature = { species = "human", name = "arena foe", corpse_identity = "item.corpse.fixture.arena-foe", faction = "foe", '
                    'binding = "intellect", starting_skills = ["athletics", "lore"], restoration = "authored", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] }\n'
                    '\n[[items]]\nid = 3\nat = [1, 1, 0]\ncarried_by = 1\narchetype = "poison"\n')
         region.write_text(source, encoding="utf-8", newline="\n")

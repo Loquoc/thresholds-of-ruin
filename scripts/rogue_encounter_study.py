@@ -100,7 +100,7 @@ def encounter(manifest, actors, glyph, level, mirrored=False, depth=None):
     if glyph == "P":
         character["loadout"].append({"archetype": SEE_INVISIBLE, "quantity": 1,
                                      "equipped_slot": RING_SLOT})
-        character["known_identities"].append(SEE_INVISIBLE)
+        character["known_identities"].append("item.potion.see-invisible")
     if glyph == "L":
         character["loadout"].append({"archetype": "rogue.gold", "quantity": STUDY_GOLD})
     if glyph == "N":

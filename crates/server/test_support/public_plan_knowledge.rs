@@ -502,7 +502,7 @@ fn private_work_scenario() -> Scenario {
     let package = scenario.package.take().unwrap();
     let mut manifest = package.manifest.clone();
     manifest.archetypes.insert("inert_mail".into(), toml::from_str(
-        "class = 'armor'\nname = 'private mail'\nequipment = { slot = 'body_armor', modifiers = [] }"
+        "class = 'armor'\nname = 'private mail'\nidentity = 'item.armor.private-mail'\nequipment = { slot = 'body_armor', modifiers = [] }"
     ).unwrap());
     let mut regions = package.region_defs().unwrap();
     regions[0].items.push(

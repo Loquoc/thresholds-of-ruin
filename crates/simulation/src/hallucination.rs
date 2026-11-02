@@ -128,6 +128,8 @@ impl Game {
             }
             item.presentation =
                 Some(self.cosmetic_object(observer, item.id.0, AppearanceChannel::Item, phase));
+            item.identity = crate::ItemClass::Misc.unknown_identity();
+            item.knowledge = crate::ItemKnowledge::default();
             item.name = "object".into();
             item.appearance = "object".into();
             item.description.clear();

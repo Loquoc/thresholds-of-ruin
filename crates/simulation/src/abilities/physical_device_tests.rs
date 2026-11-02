@@ -15,10 +15,10 @@ fn stick_spec(staff: bool) -> ItemSpec {
         DamageComponent::fixed(DamageType::Impact, None, 1)
     };
     let primary = component.key();
-    let mut spec = ItemSpec::ordinary("oak staff".into());
+    let mut spec = ItemSpec::ordinary("item.test.oak-staff".parse().unwrap(), "oak staff".into());
     spec.class = ItemClass::Wand;
     spec.magical = true;
-    spec.identity = "fixture.physical_device".into();
+    spec.identity = "item.test.fixture-physical-device".parse().unwrap();
     spec.name = "staff of embers".into();
     spec.concealed = true;
     spec.device = Some(DeviceSpec {
@@ -209,9 +209,11 @@ fn staff_and_wand_melee_use_physical_payload_without_charges_or_identity_discove
             assert_eq!(damage, 1);
         }
         assert_eq!(game.items[&item].charges, Some(3));
-        assert!(!game.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.physical_device"));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-physical-device"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         assert!(game.actors[&ActorId(1)].known_charges.is_empty());
         assert!(game.items[&item].holds.is_empty());
         assert_eq!(game, roundtrip(&game));
@@ -230,9 +232,11 @@ fn staff_and_wand_melee_use_physical_payload_without_charges_or_identity_discove
             game.equipment(ActorId(1)).unwrap().get(&EquipmentSlotId(0)),
             Some(&item)
         );
-        assert!(game.actors[&ActorId(1)]
-            .knowledge
-            .contains("fixture.physical_device"));
+        assert!(game.actors[&ActorId(1)].knowledge.contains(
+            &"item.test.fixture-physical-device"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         assert_eq!(
             game.creature(ActorId(2)).unwrap().health().current(),
             before - damage

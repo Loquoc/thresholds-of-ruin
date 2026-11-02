@@ -175,6 +175,7 @@ fn fixture_with_options(
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.friend{x}").parse().unwrap(),
                     name: format!("friend{x}"),
                     faction: "side1".into(),
                 },
@@ -218,9 +219,12 @@ fn fixture_with_options(
         },
     )
     .unwrap();
-    let mut spec = crate::ItemSpec::ordinary("plain stick".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.plain-stick".parse().unwrap(),
+        "plain stick".into(),
+    );
     spec.class = crate::ItemClass::Tool;
-    spec.identity = "fixture.drain".into();
+    spec.identity = "item.test.fixture-drain".parse().unwrap();
     spec.concealed = true;
     spec.device = Some(crate::DeviceSpec {
         ability: crate::content_ids::AbilityId::new("fixture_ray").unwrap(),
@@ -267,7 +271,11 @@ fn drain_life_weak_paid_refusal_releases_charge_without_discovery_or_completed_d
     assert_eq!(game.health(ActorId(2)).unwrap().0, 1);
     assert_eq!(game.items[&item].charges, Some(3));
     assert!(game.items[&item].holds.is_empty());
-    assert!(!game.actors[&ActorId(1)].knowledge.contains("fixture.drain"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-drain"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     assert!(game.combat_events().iter().any(|event| matches!(event,crate::combat::CombatEvent::ItemRefused{actor:ActorId(1),intention:Some(id),reason:crate::ItemRefusal::TooWeak,..} if *id==intention)));
     assert!(!game
         .combat_events()
@@ -300,7 +308,11 @@ fn drain_life_empty_census_spends_charge_without_halving_or_identity() {
     assert_eq!(game.items[&item].charges, Some(2));
     assert_eq!(game.health(ActorId(1)).unwrap().0, 5);
     assert_eq!(game.health(ActorId(2)).unwrap().0, 5);
-    assert!(!game.actors[&ActorId(1)].knowledge.contains("fixture.drain"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-drain"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
 }
 #[test]
 fn drain_life_paid_odd_health_snapshot_splits_across_friendly_and_other_creatures() {
@@ -311,7 +323,11 @@ fn drain_life_paid_odd_health_snapshot_splits_across_friendly_and_other_creature
     for id in [ActorId(2), ActorId(3), ActorId(4)] {
         assert_eq!(game.health(id).unwrap().0, 10);
     }
-    assert!(!game.actors[&ActorId(1)].knowledge.contains("fixture.drain"));
+    assert!(!game.actors[&ActorId(1)].knowledge.contains(
+        &"item.test.fixture-drain"
+            .parse::<crate::ItemIdentity>()
+            .unwrap()
+    ));
     let item_losses: Vec<_> =
         game.combat_events()
             .iter()

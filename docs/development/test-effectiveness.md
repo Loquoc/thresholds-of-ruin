@@ -2968,6 +2968,105 @@ The subsequently interrupted application build was resumed separately; its
 verified binaries passed all nine background-save process checks. Interruption
 without an exit receipt is incomplete evidence, not a pass or behavioral failure.
 
+## Item appearance and knowledge migration, 31 October 2026
+
+The approved current-only format migration separates persistent public appearance
+keys from disclosed identity and independently remembered BUC, enchantment and
+condition facts. Deliberate first-red checks exposed incomplete validation of
+unselected seeded identities (both reserved/non-leaf keys and inherited-identity
+mismatch), a missing restored-knowledge leaf check, a stale name-based wizard
+reservation branch, and a client presentation adapter that forwarded injected
+private semantic fields. The adapter test is defense in depth: the simulation's
+ordinary sampled-presentation path already redacted those fields. An initial
+wizard run failed in fixture setup; only the later run reaching the reserved-name
+case is behavioral evidence. Failed setup and zero-test runs are not first-red
+qualification.
+
+The first integrated server-library checkpoint passed 1,200 of 1,295 methods.
+Its 95 failures were classified before repair: 58 shared persona-helper omissions,
+8 other explicit identity fixtures, 2 hand-written item DTO omissions, 2 old
+cosmetic-equality assertions newly including semantic identity, 1 default fixture
+identity mismatch, 1 changed canonical appearance seed vector, 1 obsolete blanket
+corrosion-privacy assertion, 1 saved-identity expectation, and 1 pinned region
+header/bytes expectation. Nine failures awaited genuine new-version wire/save
+fixtures. Ten failures exposed one production diagnostic admission guard still
+accepting only fixture version 1 after the authored fixture moved to version 2;
+one was the intended wizard reservation regression. These are method counts in
+one execution, not 95 independent production defects. The diagnostic admission
+fix retains explicit obsolete-version rejection. Seed-vector expectations were
+independently recomputed, rather than copied from the implementation's output.
+
+A separate real-server ring process subsequently exposed a new disclosure-boundary
+omission: the owner received correct remembered facts, but the spectator also
+received the new semantic identity/knowledge fields because the existing sanitizer
+only knew the older interaction metadata. The repair covers inventory and ground
+items, including the early-return predicate and unchanged public-Arc sharing. It
+preserves existing AccessRole policy: Player read knowledge does not depend on a
+controller lease, while Spectator receives generic unknown identity and unknown
+new facts. Public names, appearance, quantities and existing affordances retain
+their prior policy. This is a production integration defect introduced by the new
+DTO fields, not an old gameplay bug or stale fixture.
+
+Final rebuilt process, protocol, save and renderer qualification is recorded
+separately; the checkpoint above does not claim those later stages passed.
+
+The rebuilt real-server ring test now passes its owner/spectator and source-free
+restart assertions. A later certificate refresh passed 44 packages, while three
+zero-authored-region procedural packages passed source checking but failed
+immutable artifact publication. Their semantic model identity was unchanged by
+an internal compiled-envelope bump, so the new writer found the earlier local
+intermediate-format artifact at the same address. This is one artifact-address
+versioning omission, not three invalid scenarios. The narrow repair binds the
+immutable address to the serialized format tuple in a new domain; it does not
+replace the old artifact, loosen current-format decoding or change model semantics.
+
+The documentation version guard subsequently caught one stale current-version
+table (ContentPackage 33 and RegionInput 9 instead of 34 and 10): one failed
+method with two subcases. The current table was corrected; historical qualification
+records remain unchanged.
+
+Fresh protocol and model checks found three additional fixture roots: two protocol
+cosmetic cases and one model cosmetic case retained a true semantic identity in a
+supposedly sanitized input; one protocol named-object oracle still counted eleven
+fields rather than thirteen. These were four failing methods, not production
+privacy failures. Valid sanitized inputs now use generic unknown identity; the
+protocol negative mutations additionally reject a true key, a more-specific
+unknown-category key, and a remembered `false` protection fact under a disguise.
+All prior real-handle, quantity, currency and navigation assertions remain.
+The complete protocol package and all 77 model checks then passed.
+
+Real-process recording also caught an intentionally changed canonical-key seeded
+form vector and an amulet fixture reusing the reserved production identity. The
+fixtures now state the exact new deterministic form expectations and a distinct
+synthetic retrieval key. The amulet observer oracle compares the same spectator
+before/after a refusal, rather than equating private owner metadata with spectator
+metadata. Targeted utility and amulet processes passed before the genuine wire
+recording completed. Additional armor acceptance preserves per-instance facts,
+source-free reopening, noncontrolling Player reads and Spectator redaction.
+
+The next rebuilt server checkpoint passed 1,280 of 1,299 methods. Nineteen
+remaining fixture failures were traced before repair: eight concrete fixture
+items lacked explicit identities, four indexed projectile variants accidentally
+shared the base arrow key, four comparisons equated spectator and owner facts,
+one encoding-size oracle used the owner's rather than the spectator's state,
+one expanded nine-fact connection test exceeded the sixteen-client limit without
+releasing earlier pairs, and one built-in tablet key differed from its authored
+counterpart. Indexed projectile keys preserve the old archetype-based groups;
+the signature validator remains strict. The independent spectator expectation
+enumerates private fields while retaining exact legacy public-field comparisons;
+same-role equality is untouched. The connection test still checks every fact and
+both roles, then releases each pair. All 1,299 methods and all 2,319 simulation
+methods passed after the coherent repair.
+
+External integration then passed 267 of 272 methods. Three websocket cases had
+four cross-role comparison sites needing the same independently authored
+spectator expectation; annotation no-update barriers, cursors, history privacy
+and same-user delivery checks remain. One appearance-pool fixture still replaced
+an old string-array spelling, so it never added the second entry; it now edits
+and verifies the typed TOML records. One actor-asset negative fixture needed an
+explicit item identity to reach its intended asset validation. All 272 methods
+then passed. Genuine save66 writer output and all 47 actual package validations
+also pass; old immutable artifact bytes remain unchanged under the new namespace.
 ### Arena sampling dependency pins diverged during Alembic maintenance, 31 October 2026
 
 Dependabot PR216 updated the hash-pinned Alembic requirement from 1.20.0 to

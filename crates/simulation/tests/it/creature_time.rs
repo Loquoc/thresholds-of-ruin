@@ -49,6 +49,7 @@ pub(super) fn game() -> (Game, ActorId, ActorId) {
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject{region}").parse().unwrap(),
                 name: format!("subject{region}"),
                 faction: "neutral".into(),
             },
@@ -251,6 +252,7 @@ fn condition_expiry_keeps_the_check_operands_owned_by_preparation() {
             game.configure_creature(
                 actor,
                 CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.subject{x}").parse().unwrap(),
                     name: format!("subject{x}"),
                     faction: "neutral".into(),
                 },
@@ -326,6 +328,7 @@ fn intermediate_expiry_does_not_stop_the_loop_while_all_actors_prepare_attacks()
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject{x}").parse().unwrap(),
                 name: format!("subject{x}"),
                 faction: "neutral".into(),
             },

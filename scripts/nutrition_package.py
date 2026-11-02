@@ -47,13 +47,13 @@ def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
     manifest = tomllib.loads(path.read_text(encoding="utf-8"))
     manifest["id"] = name
     manifest["factions"] = {"subjects": []}
-    manifest["archetypes"]["meal"] = {"name": "fixture meal", "identity": "meal", "class": "food",
+    manifest["archetypes"]["meal"] = {"name": "fixture meal", "identity": "item.food.meal", "class": "food",
         "stackable": True, "edible": {"nutrition": copy.deepcopy(
             meal_amount if meal_amount is not None else {"kind": "fixed", "amount": 6})}}
     if concealed:
-        manifest["appearance_pools"] = {"meals": {"appearances": ["wrapped fixture meal"]}}
+        manifest["appearance_pools"] = {"meals": {"appearances": [{"name": "wrapped fixture meal"}]}}
         manifest["archetypes"]["meal"]["appearance_pool"] = "meals"
-    manifest["archetypes"]["stone_food"] = {"name": "stone food", "identity": "stone_food", "class": "food"}
+    manifest["archetypes"]["stone_food"] = {"name": "stone food", "identity": "item.food.stone-food", "class": "food"}
     strike = {"offset": 0, "on_success": [{"kind": "damage", "damage": {
         "kind": "components", "components": [{"category": "impact", "amount": {"kind": "fixed", "amount": 1}}]}}],
         "on_failure": [], "descriptors": [], "riders": []}
@@ -62,7 +62,7 @@ def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
             ("strength", "speed", "intellect", "willpower", "awareness", "presence"), 0),
         "melee": {"skill": "heavy_weaponry", "bonus": 0, "wind_up": 100,
                   "recovery": 100, "strikes": [copy.deepcopy(strike)]}}}}
-    manifest["characters"][0]["creature"] = {"species": "subject", "name": "nutrition subject", "faction": "subjects",
+    manifest["characters"][0]["creature"] = {"species": "subject", "name": "nutrition subject", "corpse_identity": "item.corpse.fixture.nutrition-subject", "faction": "subjects",
         "binding": "intellect", "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored",
         "nutrition": {"kind": "required"}, "hit_dice": [{"source": "racial"}]}
     manifest["characters"][0]["turn_ticks"] = 100
@@ -73,6 +73,7 @@ def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
     if peer:
         creature = copy.deepcopy(manifest["characters"][0]["creature"])
         creature["name"] = "nutrition peer"
+        creature["corpse_identity"] = "item.corpse.fixture.nutrition-peer"
         region["actors"].append({"id": 2, "at": [2, 1, 0], "turn_ticks": 1000,
                                  "controller": "external", "creature": creature})
     region["items"] = [{"id": 10, "at": [1, 1, 0], "carried_by": 1, "archetype": "meal", "quantity": 2},

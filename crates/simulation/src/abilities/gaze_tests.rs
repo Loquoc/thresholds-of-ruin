@@ -113,6 +113,7 @@ fn fixture() -> Game {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: format!("side{x}"),
             },

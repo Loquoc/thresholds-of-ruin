@@ -49,6 +49,9 @@ fn game(build: CreatureBuild, turns: [u64; 2]) -> Game {
         game.configure_creature(
             id,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.cooldown-subject-{region}")
+                    .parse()
+                    .unwrap(),
                 name: format!("cooldown subject {region}"),
                 faction: "neutral".into(),
             },

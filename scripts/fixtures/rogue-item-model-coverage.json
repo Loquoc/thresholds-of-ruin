@@ -1,0 +1,676 @@
+{
+  "items": {
+    "rogue.mace": [
+      {
+        "pool": null,
+        "asset": "item.weapon.mace",
+        "model": "Mace"
+      }
+    ],
+    "rogue.ring_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.mail.ring",
+        "model": "RingMail"
+      }
+    ],
+    "rogue.clean_bandage": [
+      {
+        "pool": null,
+        "asset": "item.bandage",
+        "model": "Bandage"
+      }
+    ],
+    "rogue.ration": [
+      {
+        "pool": null,
+        "asset": "item.food.ration",
+        "model": "Ration"
+      }
+    ],
+    "rogue.fruit": [
+      {
+        "pool": null,
+        "asset": "item.food.fruit",
+        "model": "Fruit"
+      }
+    ],
+    "rogue.amulet_of_yendor": [
+      {
+        "pool": null,
+        "asset": "item.amulet",
+        "model": "Amulet"
+      }
+    ],
+    "rogue.restore_strength": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.gold": [
+      {
+        "pool": null,
+        "asset": "item.coin",
+        "model": "Coins"
+      }
+    ],
+    "rogue.healing": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.extra_healing": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.confusion": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.blindness": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.poison": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.see_invisible": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.identify_potion": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.sleep": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.identify_scroll": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.identify_wand": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.wand_fire": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_cold": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_lightning": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_invisibility": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_haste": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_slow": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.generated_mace": [
+      {
+        "pool": null,
+        "asset": "item.weapon.mace",
+        "model": "Mace"
+      }
+    ],
+    "rogue.long_sword": [
+      {
+        "pool": null,
+        "asset": "item.weapon.sword.long",
+        "model": "LongSword"
+      }
+    ],
+    "rogue.dagger": [
+      {
+        "pool": null,
+        "asset": "item.weapon.dagger",
+        "model": "Dagger"
+      }
+    ],
+    "rogue.shortbow": [
+      {
+        "pool": null,
+        "asset": "item.weapon.bow.short",
+        "model": "Shortbow"
+      }
+    ],
+    "rogue.arrow": [
+      {
+        "pool": null,
+        "asset": "item.weapon.arrow",
+        "model": "Arrow"
+      }
+    ],
+    "rogue.two_handed_sword": [
+      {
+        "pool": null,
+        "asset": "item.weapon.greatsword",
+        "model": "Greatsword"
+      }
+    ],
+    "rogue.spear": [
+      {
+        "pool": null,
+        "asset": "item.weapon.spear",
+        "model": "Spear"
+      }
+    ],
+    "rogue.leather_armor": [
+      {
+        "pool": null,
+        "asset": "item.armor.leather",
+        "model": "LeatherArmor"
+      }
+    ],
+    "rogue.generated_ring_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.mail.ring",
+        "model": "RingMail"
+      }
+    ],
+    "rogue.studded_leather": [
+      {
+        "pool": null,
+        "asset": "item.armor.leather.studded",
+        "model": "StuddedLeather"
+      }
+    ],
+    "rogue.scale_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.mail.scale",
+        "model": "ScaleMail"
+      }
+    ],
+    "rogue.chain_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.mail.chain",
+        "model": "ChainMail"
+      }
+    ],
+    "rogue.splint_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.plate.splint",
+        "model": "SplintMail"
+      }
+    ],
+    "rogue.banded_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.plate.banded",
+        "model": "BandedMail"
+      }
+    ],
+    "rogue.plate_mail": [
+      {
+        "pool": null,
+        "asset": "item.armor.plate",
+        "model": "PlateMail"
+      }
+    ],
+    "rogue.enchant_armor": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.protect_armor": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.enchant_weapon": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.remove_curse": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.identify_weapon": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.identify_armor": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.ring_protection": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_add_strength": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_sustain_strength": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_see_invisible": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_adornment": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_dexterity": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_increase_damage": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_regeneration": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_slow_digestion": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_maintain_armor": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_searching": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.levitation": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.teleportation": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.ring_teleportation": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.wand_teleport_away": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_teleport_to": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.ring_stealth": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.ring_aggravation": [
+      {
+        "pool": "rogue.rings",
+        "asset": "item.ring",
+        "model": "Ring"
+      }
+    ],
+    "rogue.aggravate_monster": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.create_monster": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.hold_monster": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.monster_confusion": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.scare_monster": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.wand_nothing": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_light": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_drain_life": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_cancellation": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.wand_magic_missile": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.torch": [
+      {
+        "pool": null,
+        "asset": "item.tool.torch",
+        "model": "Torch"
+      }
+    ],
+    "rogue.haste": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.gain_strength": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.raise_level": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.hallucination": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.monster_detection": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.food_detection": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.magic_detection": [
+      {
+        "pool": "rogue.potions",
+        "asset": "item.potion",
+        "model": "Potion"
+      }
+    ],
+    "rogue.magic_mapping": [
+      {
+        "pool": "rogue.scrolls",
+        "asset": "item.scroll",
+        "model": "Scroll"
+      }
+    ],
+    "rogue.wand_polymorph": [
+      {
+        "pool": "rogue.wands",
+        "asset": "item.wand",
+        "model": "Wand"
+      },
+      {
+        "pool": "rogue.staves",
+        "asset": "item.wand.staff",
+        "model": "Staff"
+      }
+    ],
+    "rogue.dart": [
+      {
+        "pool": null,
+        "asset": "item.weapon.dart",
+        "model": "Dart"
+      }
+    ],
+    "rogue.shuriken": [
+      {
+        "pool": null,
+        "asset": "item.weapon.shuriken",
+        "model": "Shuriken"
+      }
+    ]
+  },
+  "pool_label_counts": {
+    "rogue.potions": 14,
+    "rogue.scrolls": 18,
+    "rogue.wands": 14,
+    "rogue.staves": 14,
+    "rogue.rings": 14
+  }
+}

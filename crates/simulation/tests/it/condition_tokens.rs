@@ -96,6 +96,7 @@ fn exposed_is_claimed_by_only_the_first_preparation_and_retry_does_not_reclaim()
     game.configure_creature(
         second,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.competitor".parse().unwrap(),
             name: "competitor".into(),
             faction: "neutral".into(),
         },
@@ -157,6 +158,7 @@ fn freezing_and_thawing_preserve_reserved_token_expiry_and_frozen_operands() {
     game.configure_creature(
         target,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.target".parse().unwrap(),
             name: "target".into(),
             faction: "neutral".into(),
         },
@@ -239,6 +241,7 @@ fn detached_token_partners_are_loaded_before_cross_region_reservations_are_reval
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject{region}").parse().unwrap(),
                 name: format!("subject{region}"),
                 faction: "neutral".into(),
             },

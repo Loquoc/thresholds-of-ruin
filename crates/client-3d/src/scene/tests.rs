@@ -57,6 +57,7 @@ fn identifying_a_corpse_refreshes_its_cached_recipe_without_rebuilding_unchanged
         .0
         .items
         .push(tor_client_3d_model::GroundItem {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             corpse_seed: None,
             model: ItemModel::Corpse,
             corpse_model: CreatureModel::Placeholder,
@@ -197,6 +198,7 @@ fn only_the_same_cosmetic_identity_in_the_same_3d_cell_reuses_a_fallen_body() {
             .0
             .items
             .push(tor_client_3d_model::GroundItem {
+                surface: tor_client_3d_model::ItemSurface::Neutral,
                 model: ItemModel::Corpse,
                 corpse_model: CreatureModel::Placeholder,
                 corpse_seed: Some(AppearanceSeed::from_digest([seed; 32])),
@@ -501,7 +503,7 @@ fn held_one(app: &App) -> (Entity, (ItemModel, Entity)) {
     let held = &app.world().resource::<Game>().held;
     assert_eq!(held.len(), 1, "one figure holds one weapon");
     held.iter()
-        .map(|(hand, value)| (*hand, *value))
+        .map(|(hand, (visual, entity))| (*hand, (visual.0, *entity)))
         .next()
         .unwrap()
 }
@@ -560,6 +562,7 @@ fn cosmetic_item_models_never_reuse_real_corpse_rigs_or_acquire_cell_picks() {
             .0
             .items
             .push(tor_client_3d_model::GroundItem {
+                surface: tor_client_3d_model::ItemSurface::Neutral,
                 corpse_seed: None,
                 corpse_model: CreatureModel::Placeholder,
                 model,
@@ -655,6 +658,7 @@ fn ordinary_corpse_rig_and_real_pick_return_after_a_cosmetic_item_is_cured() {
     let id = ItemTarget::from_digest([93; 32]);
     let seed = AppearanceSeed::from_digest([94; 32]);
     let corpse = tor_client_3d_model::GroundItem {
+        surface: tor_client_3d_model::ItemSurface::Neutral,
         corpse_seed: Some(seed),
         corpse_model: CreatureModel::Equine,
         model: ItemModel::Corpse,
@@ -745,6 +749,7 @@ fn live_sword_swaps_align_handles_and_clear_unequipped_meshes() {
         let mut fixture = app.world_mut().resource_mut::<Fixture>();
         fixture.0.actors[0].is_self = true;
         fixture.0.inventory.push(tor_client_3d_model::Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
             model: ItemModel::Greatsword,
             id: tor_protocol::ItemTarget::from_digest([87; 32]),
             name: "test sword".into(),
@@ -920,5 +925,271 @@ fn update(app: &mut App) {
             .iter(app.world())
             .count(),
         0
+    );
+}
+
+#[test]
+fn small_ground_groups_have_distinct_bounded_slots_and_larger_loot_keeps_scale() {
+    for count in 1..=4 {
+        let slots: Vec<_> = (0..count).map(|i| ground_item_spread(i, count)).collect();
+        for (i, p) in slots.iter().enumerate() {
+            assert!(p.x.abs() <= 0.23 && p.z.abs() <= 0.23 && p.y == 0.0);
+            for q in &slots[i + 1..] {
+                assert!(p.distance(*q) >= 0.45);
+            }
+        }
+    }
+    assert!(ground_item_scale(ItemModel::Coins) > ITEM_SCALE);
+    assert!(ground_item_scale(ItemModel::Ring) > ground_item_scale(ItemModel::Coins));
+    assert_eq!(ground_item_scale(ItemModel::ShortSword), ITEM_SCALE);
+    assert_eq!(ground_item_scale(ItemModel::LeatherArmor), ITEM_SCALE);
+}
+
+#[test]
+fn ground_stack_scene_transitions_preserve_disclosed_targets_and_remove_old_roots() {
+    use tor_protocol::ItemTarget;
+    let mut app = app(CreatureModel::Placeholder);
+    let at = Position { x: 1, y: 0, z: 0 };
+    let items: Vec<_> = (1..=6)
+        .map(|i| tor_client_3d_model::GroundItem {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
+            corpse_seed: None,
+            corpse_model: CreatureModel::Placeholder,
+            model: [ItemModel::Coins, ItemModel::Ring, ItemModel::Scroll][i as usize % 3],
+            id: ItemTarget::from_digest([i; 32]),
+            name: format!("disclosed {i}"),
+            class: ItemClass::Potion,
+            quantity: 100,
+            description: String::new(),
+            position: at,
+            reachable: true,
+        })
+        .collect();
+    app.world_mut().resource_mut::<Fixture>().0.items = items[..4].to_vec();
+    update(&mut app);
+    let small = app.world().resource::<Game>().items.clone();
+    assert_eq!(small.len(), 4);
+    for e in &small {
+        assert!(matches!(
+            app.world().get::<crate::picking::Pick>(*e).unwrap().0,
+            tor_client_3d_model::Focus::Item(_)
+        ));
+    }
+    let before: Vec<_> = small
+        .iter()
+        .map(|e| {
+            (
+                match app.world().get::<crate::picking::Pick>(*e).unwrap().0 {
+                    tor_client_3d_model::Focus::Item(id) => id,
+                    _ => panic!("individual item target"),
+                },
+                *app.world().get::<Transform>(*e).unwrap(),
+            )
+        })
+        .collect();
+    app.world_mut().resource_mut::<Fixture>().0.items.reverse();
+    update(&mut app);
+    let after: Vec<_> = app
+        .world()
+        .resource::<Game>()
+        .items
+        .iter()
+        .map(|e| {
+            (
+                match app.world().get::<crate::picking::Pick>(*e).unwrap().0 {
+                    tor_client_3d_model::Focus::Item(id) => id,
+                    _ => panic!("individual item target"),
+                },
+                *app.world().get::<Transform>(*e).unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        before, after,
+        "server order does not move individual targets"
+    );
+    app.world_mut().resource_mut::<Fixture>().0.items = items;
+    update(&mut app);
+    assert!(small.iter().all(|e| !app.world().entities().contains(*e)));
+    let pile = app.world().resource::<Game>().items.clone();
+    assert_eq!(pile.len(), 1);
+    assert!(
+        matches!(app.world().get::<crate::picking::Pick>(pile[0]).unwrap().0,
+        tor_client_3d_model::Focus::Cell(cell) if cell == at)
+    );
+    assert_eq!(
+        app.world().get::<lighting::Lit>(pile[0]).unwrap().0,
+        lighting::at(&app.world().resource::<Fixture>().0, at)
+    );
+    app.world_mut()
+        .resource_mut::<Fixture>()
+        .0
+        .items
+        .truncate(2);
+    update(&mut app);
+    assert_eq!(app.world().resource::<Game>().items.len(), 2);
+    assert!(!app.world().entities().contains(pile[0]));
+    app.world_mut().resource_mut::<Fixture>().0.items.clear();
+    update(&mut app);
+    assert!(app.world().resource::<Game>().items.is_empty());
+}
+
+#[test]
+fn pile_representatives_are_bounded_and_independent_of_observation_or_fixture_order() {
+    let kinds = [
+        ItemModel::Ring,
+        ItemModel::Coins,
+        ItemModel::Scroll,
+        ItemModel::Potion,
+        ItemModel::Coins,
+    ];
+    let kinds = kinds.map(|kind| (kind, ItemSurface::Neutral));
+    let mut reverse = kinds.to_vec();
+    reverse.reverse();
+    assert_eq!(pile_representatives(&kinds), pile_representatives(&reverse));
+    assert_eq!(pile_representatives(&kinds).len(), 3);
+    assert!(pile_representatives(&kinds)
+        .iter()
+        .all(|k| kinds.contains(k)));
+}
+
+#[test]
+fn disclosed_equipped_devices_render_for_self_and_clear_when_removed() {
+    fn present(
+        mut commands: Commands,
+        mut game: ResMut<Game>,
+        mut library: ResMut<PropLibrary>,
+        mut meshes: ResMut<Assets<Mesh>>,
+        view: Res<Fixture>,
+    ) {
+        update_held(&mut commands, &mut game, &mut library, &mut meshes, &view.0);
+    }
+    let mut app = app(CreatureModel::Human);
+    app.add_systems(Update, present.after(project));
+    {
+        let mut view = app.world_mut().resource_mut::<Fixture>();
+        view.0.actors[0].is_self = true;
+        view.0.inventory.push(tor_client_3d_model::Carried {
+            surface: tor_client_3d_model::ItemSurface::Neutral,
+            model: ItemModel::Wand,
+            id: tor_protocol::ItemTarget::from_digest([90; 32]),
+            name: "unknown device".into(),
+            class: ItemClass::Wand,
+            quantity: 1,
+            description: String::new(),
+            equipped: Some("hand".into()),
+            can_equip: true,
+            drinkable: false,
+            edible: false,
+            portable_light: None,
+            readable: false,
+            device: None,
+        });
+    }
+    for kind in [ItemModel::Wand, ItemModel::Staff] {
+        app.world_mut().resource_mut::<Fixture>().0.inventory[0].model = kind;
+        update(&mut app);
+        assert_eq!(
+            app.world().resource::<Game>().held.len(),
+            1,
+            "disclosed equipped device must be visible"
+        );
+        assert_eq!(held_one(&app).1 .0, kind);
+        let before = held_one(&app).1 .1;
+        app.world_mut().resource_mut::<Fixture>().0.inventory[0].name =
+            "newly identified effect".into();
+        update(&mut app);
+        assert_eq!(
+            held_one(&app).1 .1,
+            before,
+            "identity label must not rebuild held art"
+        );
+        let surface = if kind == ItemModel::Wand {
+            ItemSurface::Wand(2)
+        } else {
+            ItemSurface::Staff(3)
+        };
+        app.world_mut().resource_mut::<Fixture>().0.inventory[0].surface = surface;
+        update(&mut app);
+        assert_ne!(
+            held_one(&app).1 .1,
+            before,
+            "different public appearance must update held art"
+        );
+        let after = held_one(&app).1 .1;
+        {
+            let mut fixture = app.world_mut().resource_mut::<Fixture>();
+            fixture.0.actors[0].is_self = false;
+            fixture.0.actors[0].wearing.weapons[0] = Some(kind);
+            fixture.0.actors[0].wearing.weapon_surfaces[0] = surface;
+        }
+        update(&mut app);
+        assert_eq!(
+            held_one(&app).1 .1,
+            after,
+            "same disclosed worn appearance reuses held art"
+        );
+        app.world_mut().resource_mut::<Fixture>().0.actors[0].is_self = true;
+    }
+    app.world_mut().resource_mut::<Fixture>().0.inventory[0].equipped = None;
+    update(&mut app);
+    assert!(app.world().resource::<Game>().held.is_empty());
+}
+
+#[test]
+fn identifying_or_recounting_a_ground_item_does_not_change_its_pose() {
+    let mut app = app(CreatureModel::Placeholder);
+    let id = tor_protocol::ItemTarget::from_digest([86; 32]);
+    app.world_mut()
+        .resource_mut::<Fixture>()
+        .0
+        .items
+        .push(tor_client_3d_model::GroundItem {
+            surface: ItemSurface::Potion(3),
+            model: ItemModel::Potion,
+            id,
+            name: "azure potion".into(),
+            class: ItemClass::Potion,
+            quantity: 1,
+            description: "An unidentified azure potion.".into(),
+            position: Position { x: 1, y: 0, z: 0 },
+            reachable: true,
+            corpse_seed: None,
+            corpse_model: CreatureModel::Placeholder,
+        });
+    update(&mut app);
+    let root = app.world().resource::<Game>().items[0];
+    let before = *app.world().get::<Transform>(root).unwrap();
+    assert!(
+        matches!(app.world().get::<crate::picking::Pick>(root).unwrap().0,
+        tor_client_3d_model::Focus::Item(target) if target == id)
+    );
+    {
+        let mut fixture = app.world_mut().resource_mut::<Fixture>();
+        fixture.0.items[0].name = "potion of healing".into();
+        fixture.0.items[0].description = "The effect is now identified.".into();
+    }
+    update(&mut app);
+    let identified = app.world().resource::<Game>().items[0];
+    assert_eq!(
+        *app.world().get::<Transform>(identified).unwrap(),
+        before,
+        "identification changes text, not the persistent appearance or orientation"
+    );
+    assert_eq!(
+        app.world().resource::<Fixture>().0.items[0].surface,
+        ItemSurface::Potion(3)
+    );
+    app.world_mut().resource_mut::<Fixture>().0.items[0].quantity = 143;
+    update(&mut app);
+    let recounted = app.world().resource::<Game>().items[0];
+    assert_eq!(
+        *app.world().get::<Transform>(recounted).unwrap(),
+        before,
+        "counting the same stack must not rotate or move it"
+    );
+    assert!(
+        matches!(app.world().get::<crate::picking::Pick>(recounted).unwrap().0,
+        tor_client_3d_model::Focus::Item(target) if target == id)
     );
 }

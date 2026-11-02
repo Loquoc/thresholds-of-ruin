@@ -10,7 +10,10 @@ fn at(x: i32) -> Location {
     }
 }
 fn spec(fuel: u64, radius: u8) -> crate::ItemSpec {
-    let mut spec = crate::ItemSpec::ordinary("ordinary torch".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.ordinary-torch".parse().unwrap(),
+        "ordinary torch".into(),
+    );
     spec.class = crate::ItemClass::Tool;
     spec.held_light = Some(HeldLightSpec {
         radius,
@@ -460,7 +463,7 @@ fn torch_lethal_grip_removal_drops_remaining_inventory_once_and_preserves_torch(
             at(1),
             Some(OWNER),
             1,
-            crate::ItemSpec::ordinary("spare".into()),
+            crate::ItemSpec::ordinary("item.test.spare".parse().unwrap(), "spare".into()),
         )
         .unwrap();
     let slot = EquipmentSlotId(

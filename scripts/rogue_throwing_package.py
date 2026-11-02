@@ -26,7 +26,7 @@ def fixture():
     character = manifest["characters"][0]
     # Keep the primary mace occupied: carried throws use the real secondary
     # socket and its ordinary nonzero Focus cost, not an invented launcher.
-    character["known_identities"] += list(MISSILES)
+    character["known_identities"] += ["item.weapon.dart", "item.weapon.shuriken"]
     character["loadout"] += [{"archetype": identity, "quantity": 3} for identity in MISSILES]
     return manifest, region
 

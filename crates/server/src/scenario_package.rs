@@ -74,12 +74,12 @@ use tor_simulation::Game;
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
 pub const RULESET: &str = "interactions-v57";
-const VALIDATOR: &str = "tor-scenario-48";
+const VALIDATOR: &str = "tor-scenario-49";
 /// The manifest and the validator's files are bounded to this.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// The package layout this version reads: `scenario.toml`, one file per
 /// region in `regions/`, and the validator's `index.json`.
-pub const FORMAT: u32 = 36;
+pub const FORMAT: u32 = 37;
 const REGION_DIR: &str = "regions";
 /// Regions a package may have.
 pub const MAX_REGIONS: usize = 65_536;
@@ -257,11 +257,17 @@ pub struct TerrainAssets {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppearancePool {
-    pub appearances: Vec<String>,
+    pub appearances: Vec<AppearanceEntry>,
     #[serde(default)]
     pub confounding: bool,
-    /// The asset every concealed item drawing from this pool looks like, so
-    /// it never discloses which identity an item is.
+}
+
+/// One public appearance: its stable drawing key and human-readable label stay
+/// paired through seeded assignment and identification. Neither is an identity.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppearanceEntry {
+    pub name: String,
     pub asset: Option<String>,
 }
 #[derive(Debug, Default, Serialize)]
@@ -287,7 +293,7 @@ pub struct Archetype {
     #[serde(default)]
     pub class: crate::scenario_package::ItemClass,
     pub body: Option<BodySpec>,
-    pub identity: Option<String>,
+    pub identity: Option<tor_simulation::ItemIdentity>,
     pub appearance_pool: Option<String>,
     #[serde(default)]
     pub forms: Vec<ItemForm>,
@@ -324,7 +330,7 @@ impl<'de> serde::Deserialize<'de> for Archetype {
             #[serde(default)]
             class: crate::scenario_package::ItemClass,
             body: Option<BodySpec>,
-            identity: Option<String>,
+            identity: Option<tor_simulation::ItemIdentity>,
             appearance_pool: Option<String>,
             #[serde(default)]
             forms: Vec<ItemForm>,
@@ -423,7 +429,7 @@ pub struct Character {
     pub body: Option<BodySpec>,
     pub velocity: Option<[i64; 3]>,
     #[serde(default)]
-    pub known_identities: Vec<String>,
+    pub known_identities: Vec<tor_simulation::ItemIdentity>,
     pub id: u64,
     pub anchor: String,
     #[serde(default = "hundred")]
@@ -661,6 +667,13 @@ pub struct Trap {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct SeedItemName {
+    pub name: String,
+    pub identity: tor_simulation::ItemIdentity,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Item {
     pub equipped_slot: Option<u16>,
     pub class: Option<crate::scenario_package::ItemClass>,
@@ -673,9 +686,10 @@ pub struct Item {
     pub at: [i32; 3],
     pub archetype: Option<String>,
     pub name: Option<String>,
+    pub identity: Option<tor_simulation::ItemIdentity>,
     pub carried_by: Option<u64>,
     #[serde(default)]
-    pub seed_names: Vec<String>,
+    pub seed_names: Vec<SeedItemName>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -684,7 +698,7 @@ pub struct Actor {
     pub creature: Option<crate::creature_authoring::BuildSpec>,
     pub anatomy: Option<AnatomySpec>,
     #[serde(default)]
-    pub known_identities: Vec<String>,
+    pub known_identities: Vec<tor_simulation::ItemIdentity>,
     pub body: Option<BodySpec>,
     pub velocity: Option<[i64; 3]>,
     pub id: u64,
@@ -2942,12 +2956,11 @@ impl Package {
                     .values()
                     .filter_map(|a| a.asset.as_ref()),
             )
-            .chain(
-                self.manifest
-                    .appearance_pools
-                    .values()
-                    .filter_map(|p| p.asset.as_ref()),
-            )
+            .chain(self.manifest.appearance_pools.values().flat_map(|p| {
+                p.appearances
+                    .iter()
+                    .filter_map(|entry| entry.asset.as_ref())
+            }))
             .chain(
                 self.manifest
                     .characters
@@ -2979,8 +2992,8 @@ impl Package {
         let identities: BTreeSet<_> = self
             .manifest
             .archetypes
-            .iter()
-            .map(|(id, a)| a.identity.as_ref().unwrap_or(id))
+            .values()
+            .filter_map(|a| a.identity.as_ref())
             .collect();
         for character in &self.manifest.characters {
             for (index, identity) in character.known_identities.iter().enumerate() {
@@ -2996,7 +3009,7 @@ impl Package {
                             PathSegment::Field("known_identities"),
                             PathSegment::Index(index),
                         ],
-                        ReferenceValue::Text(identity),
+                        ReferenceValue::Text(identity.as_str()),
                     )
                 })?;
             }
@@ -3374,9 +3387,10 @@ impl Package {
             .map_err(contextualize)?;
             for identity in &a.known_identities {
                 require(
-                    self.manifest.archetypes.iter().any(|(key, archetype)| {
-                        archetype.identity.as_ref().unwrap_or(key) == identity
-                    }),
+                    self.manifest
+                        .archetypes
+                        .iter()
+                        .any(|(_, archetype)| archetype.identity.as_ref() == Some(identity)),
                     "Unknown initial item identity",
                 )
                 .map_err(contextualize)?;
@@ -3398,9 +3412,19 @@ impl Package {
         for (key, item) in &self.manifest.archetypes {
             item_forms::validate(item)
                 .map_err(|failure| self.archetype_origin(key).context(failure))?;
-            let identity = item.identity.as_ref().unwrap_or(key);
-            require(label(identity), "Invalid item identity")
+            let Some(identity) = item.identity.as_ref() else {
+                require(
+                    item.appearance_pool.is_none(),
+                    "Concealed item needs an explicit identity",
+                )
                 .map_err(|failure| self.archetype_origin(key).context(failure))?;
+                continue;
+            };
+            require(
+                !identity.is_unknown() && identity.as_str().split('.').count() >= 3,
+                "Invalid item identity",
+            )
+            .map_err(|failure| self.archetype_origin(key).context(failure))?;
             let signature = (
                 &item.name,
                 &item.appearance_pool,
@@ -3423,7 +3447,10 @@ impl Package {
         }
         Ok(())
     }
-    fn appearance_mapping(&self, seed: u64) -> Result<BTreeMap<String, String>, Failure> {
+    fn appearance_mapping(
+        &self,
+        seed: u64,
+    ) -> Result<BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>, Failure> {
         self.check_item_identities()?;
         let rules = self.rules()?;
         let mut result = BTreeMap::new();
@@ -3609,10 +3636,12 @@ impl Package {
                 label(key)
                     && !pool.appearances.is_empty()
                     && pool.appearances.len() <= 4096
-                    && pool.appearances.iter().all(|s| label(s)),
+                    && pool.appearances.iter().all(|entry| {
+                        label(&entry.name) && entry.asset.as_deref().is_none_or(asset_id)
+                    }),
                 "Invalid appearance pool",
             )?;
-            let unique: BTreeSet<_> = pool.appearances.iter().collect();
+            let unique: BTreeSet<_> = pool.appearances.iter().map(|entry| &entry.name).collect();
             require(
                 pool.confounding || unique.len() == pool.appearances.len(),
                 "Duplicate appearances require confounding",
@@ -3620,7 +3649,7 @@ impl Package {
             let possible_identities: BTreeSet<_> = alternatives
                 .iter()
                 .filter(|(_, a)| a.appearance_pool.as_ref() == Some(key))
-                .map(|(id, a)| a.identity.as_deref().unwrap_or(id))
+                .filter_map(|(_, a)| a.identity.as_ref())
                 .collect();
             require(
                 pool.confounding || possible_identities.len() <= pool.appearances.len(),
@@ -3631,7 +3660,7 @@ impl Package {
                 .archetypes
                 .iter()
                 .filter(|(id, a)| item_forms::selected_pool(a, id, seed) == Some(key.as_str()))
-                .map(|(id, a)| a.identity.as_ref().unwrap_or(id))
+                .filter_map(|(_, a)| a.identity.as_ref())
                 .collect();
             let mut appearances: Vec<_> = pool.appearances.iter().enumerate().collect();
             appearances.sort_by_key(|(index, _)| {
@@ -4858,7 +4887,7 @@ pub(crate) struct PackageIndex {
     seed: u64,
     /// Where generated actor and item identity ranges start.
     generated_base: (u64, u64),
-    appearances: BTreeMap<String, String>,
+    appearances: BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
     /// Region definitions handed out, for scaling contracts.
     lookups: std::cell::Cell<usize>,
 }
@@ -5053,6 +5082,112 @@ impl tor_simulation::RecordStore for PackageRecords {
 
 #[cfg(test)]
 mod tests {
+    fn identity_contract_definitions() -> compiler::PreparedDefinitions {
+        let manifest: Manifest =
+            toml::from_str(include_str!("../../../scenarios/tests/items/scenario.toml")).unwrap();
+        compiler::PreparedDefinitions::new(&manifest, 1).unwrap()
+    }
+
+    #[test]
+    fn concrete_authored_identity_is_required_known_leaf_and_not_derived_from_name() {
+        let definitions = identity_contract_definitions();
+        let mut value =
+            serde_json::json!({"id":99,"at":[1,1,0],"class":"potion","name":"potion of healing"});
+        let missing: Item = serde_json::from_value(value.clone()).unwrap();
+        assert!(definitions
+            .item(&missing, 0, &BTreeMap::new())
+            .unwrap_err()
+            .message
+            .contains("explicit canonical identity"));
+        for key in ["item", "item.potion", "item.potion.unknown"] {
+            value["identity"] = serde_json::json!(key);
+            let invalid: Item = serde_json::from_value(value.clone()).unwrap();
+            assert!(
+                definitions
+                    .item(&invalid, 0, &BTreeMap::new())
+                    .unwrap_err()
+                    .message
+                    .contains("known leaf"),
+                "{key}"
+            );
+        }
+        value["identity"] = serde_json::json!("item.potion.healing");
+        let valid: Item = serde_json::from_value(value.clone()).unwrap();
+        let first = definitions.item(&valid, 0, &BTreeMap::new()).unwrap();
+        value["name"] = serde_json::json!("arbitrary translated label");
+        let renamed: Item = serde_json::from_value(value).unwrap();
+        let second = definitions.item(&renamed, 0, &BTreeMap::new()).unwrap();
+        assert_eq!(first.identity, second.identity);
+        assert_ne!(first.name, second.name);
+    }
+
+    #[test]
+    fn seeded_item_names_keep_same_index_explicit_identity_and_reject_legacy_strings() {
+        let definitions = identity_contract_definitions();
+        let value = serde_json::json!({"id":99,"at":[1,1,0],"seed_names":[
+            {"name":"copper token","identity":"item.misc.copper-token"},
+            {"name":"silver token","identity":"item.misc.silver-token"},
+            {"name":"iron token","identity":"item.misc.iron-token"}
+        ]});
+        let valid: Item = serde_json::from_value(value.clone()).unwrap();
+        let expected = [
+            ("copper token", "item.misc.copper-token"),
+            ("silver token", "item.misc.silver-token"),
+            ("iron token", "item.misc.iron-token"),
+        ];
+        for seed in 0..9 {
+            let item = definitions.item(&valid, seed, &BTreeMap::new()).unwrap();
+            let (name, identity) = expected[(seed % 3) as usize];
+            assert_eq!(item.name, name);
+            assert_eq!(item.identity.as_str(), identity);
+        }
+        let mut legacy = value;
+        legacy["seed_names"] = serde_json::json!(["copper token"]);
+        assert!(serde_json::from_value::<Item>(legacy).is_err());
+    }
+
+    #[test]
+    fn unselected_seeded_identity_is_also_validated_before_item_creation() {
+        let definitions = identity_contract_definitions();
+        for bad in ["item", "item.misc", "item.misc.unknown"] {
+            let value = serde_json::json!({"id":99,"at":[1,1,0],"seed_names":[
+                {"name":"good","identity":"item.misc.good"},
+                {"name":"invalid later choice","identity":bad}
+            ]});
+            let invalid: Item = serde_json::from_value(value).unwrap();
+            assert!(
+                definitions.item(&invalid, 0, &BTreeMap::new()).is_err(),
+                "unselected {bad} must reject, not wait until another seed"
+            );
+        }
+    }
+
+    #[test]
+    fn unselected_seeded_identity_cannot_override_inherited_identity() {
+        let definitions = identity_contract_definitions();
+        let mut value = serde_json::json!({"id":99,"at":[1,1,0],"archetype":"arrow","seed_names":[
+            {"name":"first public arrow label","identity":"item.weapon.arrow"},
+            {"name":"later public arrow label","identity":"item.weapon.arrow"}
+        ]});
+        let valid: Item = serde_json::from_value(value.clone()).unwrap();
+        for seed in [0, 1] {
+            assert_eq!(
+                definitions
+                    .item(&valid, seed, &BTreeMap::new())
+                    .unwrap()
+                    .identity
+                    .as_str(),
+                "item.weapon.arrow"
+            );
+        }
+        value["seed_names"][1]["identity"] = serde_json::json!("item.weapon.dagger");
+        let invalid: Item = serde_json::from_value(value).unwrap();
+        assert!(
+            definitions.item(&invalid, 0, &BTreeMap::new()).is_err(),
+            "a currently unselected known key cannot override the inherited identity"
+        );
+    }
+
     fn care_alias_package(replacement: &str) -> Result<Package, Failure> {
         let manifest: Manifest =
             toml::from_str(include_str!("../../../scenarios/two-room/scenario.toml")).unwrap();
@@ -5256,7 +5391,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
         let original = read_package(&root).unwrap();
         original.check_identity().unwrap();
-        assert_eq!(original.certificate.validator, "tor-scenario-48");
+        assert_eq!(original.certificate.validator, "tor-scenario-49");
         assert_eq!(original.certificate.ruleset, "interactions-v57");
         let current_artifact = artifact::relative_root(&original);
         for (boundary, identity) in [
@@ -6763,7 +6898,7 @@ mod tests {
             "damage":{"components":[{"category":"keen","descriptor":null,"amount":{"type":"fixed","value":3}}],"primary":{"category":"keen","descriptor":null}}
         });
         let archetype = serde_json::json!({
-            "name":"shared arrow", "identity":"fixture.shared_arrow", "class":"weapon", "stackable":true,
+            "name":"shared arrow", "identity":"item.weapon.shared-arrow", "class":"weapon", "stackable":true,
             "projectile":projectile
         });
         let mut manifest = template.manifest.clone();
@@ -7491,10 +7626,10 @@ value = 13
             .species
             .insert("override".into(), override_species);
         let inherited_creature: crate::creature_authoring::BuildSpec = serde_json::from_value(serde_json::json!({
-            "species": "guard", "name": "guard", "faction": "neutral", "binding": "intellect", "starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial"}]
+            "species": "guard", "name": "guard", "corpse_identity": "item.corpse.test.guard", "faction": "neutral", "binding": "intellect", "starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial"}]
         })).unwrap();
         let override_creature: crate::creature_authoring::BuildSpec = serde_json::from_value(serde_json::json!({
-            "species": "override", "name": "override", "faction": "neutral", "binding": "intellect", "starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial"}]
+            "species": "override", "name": "override", "corpse_identity": "item.corpse.test.override", "faction": "neutral", "binding": "intellect", "starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial"}]
         })).unwrap();
         let inherited_body = BodySpec {
             cells: vec![[0, 0, 0]],
@@ -7510,7 +7645,7 @@ value = 13
             Archetype {
                 creature: Some(inherited_creature.clone()),
                 body: Some(inherited_body.clone()),
-                identity: Some("guard-item".into()),
+                identity: Some("item.misc.guard-item".parse().unwrap()),
                 name: Some("guard token".into()),
                 stackable: true,
                 properties: BTreeMap::from([
@@ -7565,6 +7700,7 @@ value = 13
         ]);
         regions[0].items.extend([
             Item {
+                identity: None,
                 equipped_slot: None,
                 class: None,
                 id: 3,
@@ -7578,6 +7714,7 @@ value = 13
                 seed_names: vec![],
             },
             Item {
+                identity: None,
                 equipped_slot: None,
                 class: None,
                 id: 4,
@@ -7651,7 +7788,7 @@ value = 13
             serde_json::json!({"quality": "ordinary", "origin": "authored"})
         );
         for id in ["3", "4"] {
-            assert_eq!(items[id]["spec"]["identity"], "guard-item");
+            assert_eq!(items[id]["spec"]["identity"], "item.misc.guard-item");
             assert_eq!(items[id]["spec"]["asset"], "creature.guard");
         }
     }
@@ -7763,10 +7900,10 @@ value = 13
             "id": 9, "at": [1, 2, 3], "archetype": "guard", "turn_ticks": 73,
             "controller": "ai", "ai": "cautious", "velocity": [-1, 0, 2],
             "anatomy": null,
-            "known_identities": ["healing"],
+            "known_identities": ["item.potion.healing"],
             "body": {"cells": [[0, 0, 0], [0, 0, 1]], "eye": [0, 0, 1], "mass": 91},
             "creature": {
-                "species": "guard", "name": "guard", "faction": "guards", "binding": "intellect",
+                "species": "guard", "name": "guard", "corpse_identity": "item.corpse.test.guard", "faction": "guards", "binding": "intellect",
                 "attributes": null, "templates": [], "future_growth": {"kind": "disabled"},
                 "body_package": null, "personal_body_grants": [],
                 "starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial", "purchases": [], "attribute": null}],

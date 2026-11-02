@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """The Rogue-only package: one locked build and Rogue's mechanics only.
 
 It shares the rogue-exploration catalog by copy. Divergence is deliberate per
@@ -55,7 +56,7 @@ class RogueProfileContent(unittest.TestCase):
         kit = {row["archetype"]: row["quantity"] for row in character["loadout"]}
         self.assertEqual(kit, {"rogue.mace": 1, "rogue.ring_mail": 1, "rogue.shortbow": 1,
                                "rogue.arrow": 32, "rogue.ration": 1})
-        self.assertTrue(set(kit) <= set(character["known_identities"]))
+        self.assertTrue({IDENTITIES[key] for key in kit} <= set(character["known_identities"]))
 
     def test_no_bandage_stock_or_universal_care(self):
         stages = self.manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"]

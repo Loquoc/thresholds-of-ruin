@@ -40,6 +40,7 @@ fn game_with_seed_and_talents(seed: u64, talents: Vec<tor_simulation::rules::Tal
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: format!("team{x}"),
             },
@@ -284,6 +285,7 @@ fn initial_configuration_cannot_reset_an_existing_creature_or_accept_invalid_ide
         .configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.reset".parse().unwrap(),
                 name: "reset".into(),
                 faction: "a".into()
             },
@@ -304,6 +306,7 @@ fn initial_configuration_cannot_reset_an_existing_creature_or_accept_invalid_ide
         .configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.n".parse().unwrap(),
                 name: "\n".into(),
                 faction: "a".into()
             },
@@ -391,7 +394,7 @@ fn identity_text_is_bounded_and_required_when_decoding() {
         ("x".into(), "".into()),
     ] {
         let data =
-            serde_json::to_vec(&serde_json::json!({ "name": name, "faction": faction })).unwrap();
+            serde_json::to_vec(&serde_json::json!({ "corpse_identity":"item.corpse.test.text-probe", "name": name, "faction": faction })).unwrap();
         assert!(serde_json::from_slice::<CreatureIdentity>(&data).is_err());
     }
     assert!(serde_json::from_str::<CreatureIdentity>("{\"name\":\"x\"}").is_err());
@@ -416,7 +419,10 @@ fn equipped_fixed_melee_keeps_flat_talent_damage_and_scales_its_physical_phases(
         )
         .unwrap();
     game.rebuild_creature(ActorId(1), build).unwrap();
-    let mut weapon = tor_simulation::ItemSpec::ordinary("test weapon".into());
+    let mut weapon = tor_simulation::ItemSpec::ordinary(
+        "item.test.test-weapon".parse().unwrap(),
+        "test weapon".into(),
+    );
     weapon.class = tor_simulation::ItemClass::Weapon;
     weapon.equipment = Some(tor_simulation::EquipmentSpec {
         periodic_relocation: None,
@@ -525,7 +531,10 @@ fn equipped_attack_uses_its_skill_timing_and_mixed_damage_through_checkpoint() {
         modifiers: vec![],
         potency_modifiers: vec![],
     };
-    let mut weapon = tor_simulation::ItemSpec::ordinary("fire blade".into());
+    let mut weapon = tor_simulation::ItemSpec::ordinary(
+        "item.test.fire-blade".parse().unwrap(),
+        "fire blade".into(),
+    );
     weapon.class = tor_simulation::ItemClass::Weapon;
     weapon.equipment = Some(gear);
     let item = game
@@ -645,6 +654,7 @@ fn creature_rule_failures_keep_specific_errors_and_leave_state_unchanged() {
         game.configure_creature(
             ActorId(1),
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.invalid-n".parse().unwrap(),
                 name: "invalid\n".into(),
                 faction: "team1".into()
             },
@@ -656,6 +666,7 @@ fn creature_rule_failures_keep_specific_errors_and_leave_state_unchanged() {
         game.configure_creature(
             ActorId(1),
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.valid".parse().unwrap(),
                 name: "valid".into(),
                 faction: "team1".into()
             },

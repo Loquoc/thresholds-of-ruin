@@ -16,7 +16,7 @@ fn item(index: u8) -> serde_json::Value {
 
 fn disclosed_item() -> serde_json::Value {
     serde_json::json!({"id":ItemTarget::from_digest([1;32]),"class":"misc","quantity":"1",
-        "appearance":"bandage","identified":true,"description":"","name":"Bandage",
+        "appearance":"bandage","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"description":"","name":"Bandage",
         "known_currency":null,"known_supply":{"id":"bandage","name":"Bandage"}})
 }
 
@@ -33,6 +33,8 @@ fn phase5_container_item_requires_a_named_object() {
         "quantity",
         "appearance",
         "identified",
+        "identity",
+        "knowledge",
         "description",
         "id",
         "name",
@@ -188,7 +190,7 @@ fn phase5_supply_selection_rejects_missing_unbounded_duplicate_and_quantity_rows
 
 #[test]
 fn phase5_known_supply_is_explicit_and_unknown_items_cannot_expose_it() {
-    let value = serde_json::json!({"id":ItemTarget::from_digest([1;32]),"class":"misc","quantity":"1","appearance":"bandage","identified":true,"description":"","name":"Bandage","known_currency":null,"known_supply":{"id":"bandage","name":"Bandage"}});
+    let value = serde_json::json!({"id":ItemTarget::from_digest([1;32]),"class":"misc","quantity":"1","appearance":"bandage","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"description":"","name":"Bandage","known_currency":null,"known_supply":{"id":"bandage","name":"Bandage"}});
     let decoded: ItemView = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), value);
     let mut missing = value.clone();
@@ -196,12 +198,13 @@ fn phase5_known_supply_is_explicit_and_unknown_items_cannot_expose_it() {
     assert!(serde_json::from_value::<ItemView>(missing).is_err());
     let mut hidden = value;
     hidden["identified"] = false.into();
+    hidden["identity"] = "item.unknown".into();
     assert!(serde_json::from_value::<ItemView>(hidden).is_err());
 }
 
 #[test]
 fn phase5_ground_supply_touch_is_explicit_and_does_not_change_pickup() {
-    let item = serde_json::json!({"id":ItemTarget::from_digest([1;32]),"class":"misc","quantity":"1","appearance":"bandage","identified":true,"description":"","name":"Bandage","known_currency":null,"known_supply":{"id":"bandage","name":"Bandage"}});
+    let item = serde_json::json!({"id":ItemTarget::from_digest([1;32]),"class":"misc","quantity":"1","appearance":"bandage","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"description":"","name":"Bandage","known_currency":null,"known_supply":{"id":"bandage","name":"Bandage"}});
     let value = serde_json::json!({"reachable":false,"presentation":null,"supply_reachable":true,"item":item,"position":{"x":1,"y":0,"z":0}});
     let decoded: GroundItemView = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), value);
@@ -274,7 +277,7 @@ fn recorded_care_request() -> serde_json::Value {
     let samples: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/wire-v67.json"
+            "/tests/fixtures/wire-v68.json"
         ))
         .expect("regenerate current wire samples"),
     )
@@ -323,7 +326,7 @@ fn recorded_ability_response(id: &str) -> (serde_json::Value, usize) {
     let samples: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/wire-v67.json"
+            "/tests/fixtures/wire-v68.json"
         ))
         .expect("regenerate current wire samples"),
     )

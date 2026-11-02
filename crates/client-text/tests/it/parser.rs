@@ -76,7 +76,7 @@ fn sample_state() -> StateView {
                         "description": "A worn copper disc.",
                         "quantity": "1",
                         "class":"misc","appearance": "token",
-                        "identified": true
+                        "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default()
                     }
                 },
                 {"presentation":null,"supply_reachable":false,
@@ -88,7 +88,7 @@ fn sample_state() -> StateView {
                         "description": "A polished silver disc.",
                         "quantity": "1",
                         "class":"misc","appearance": "token",
-                        "identified": true
+                        "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default()
                     }
                 },
                 {"presentation":null,"supply_reachable":false,
@@ -100,7 +100,7 @@ fn sample_state() -> StateView {
                         "description": "An inscribed slab of granite.",
                         "quantity": "1",
                         "class":"misc","appearance": "tablet",
-                        "identified": true
+                        "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default()
                     }
                 }
             ],
@@ -111,7 +111,7 @@ fn sample_state() -> StateView {
                     "description": "A sharp iron shortsword.",
                     "quantity": "1",
                     "class":"misc","appearance": "sword",
-                    "identified": true
+                    "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default()
                 },
                 {"known_currency":null,"known_supply":null,
                     "id":super::item_target(11),
@@ -119,7 +119,7 @@ fn sample_state() -> StateView {
                     "description": "An ornate brass key.",
                     "quantity": "1",
                     "class":"misc","appearance": "key",
-                    "identified": true
+                    "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default()
                 }
             ],
             "charts":[],"linked_holds":[],"visible_actors": [

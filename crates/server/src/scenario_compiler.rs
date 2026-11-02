@@ -1,7 +1,7 @@
 //! Immutable manifest definitions prepared for deterministic region construction.
 //! Region instances remain lazy; this context contains no mutable game state and
 //! is reconstructed rather than serialized into a save.
-use super::{fail, label, require, Actor, Archetype, Failure, Item, Manifest};
+use super::{fail, label, require, Actor, AppearanceEntry, Archetype, Failure, Item, Manifest};
 use crate::creature_authoring::{BuildSpec, CompiledCatalog, Recipe};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -120,7 +120,7 @@ impl From<MissingArchetype<'_>> for Failure {
 pub(super) struct PreparedCreature<'a> {
     pub recipe: Option<Cow<'a, Recipe>>,
     pub anatomy: Option<Cow<'a, tor_simulation::AnatomySpec>>,
-    pub known_identities: Vec<String>,
+    pub known_identities: Vec<tor_simulation::ItemIdentity>,
     pub body: Option<Cow<'a, tor_simulation::BodySpec>>,
     pub control: PreparedControl,
     pub velocity: Option<[i64; 3]>,
@@ -160,7 +160,7 @@ pub(super) struct PreparedArchetype {
     pub currency: Option<tor_simulation::CurrencyKind>,
     pub class: tor_simulation::ItemClass,
     pub body: Option<tor_simulation::BodySpec>,
-    pub identity: Option<String>,
+    pub identity: Option<tor_simulation::ItemIdentity>,
     pub concealed: bool,
     pub stackable: bool,
     pub properties: BTreeMap<String, String>,
@@ -277,35 +277,43 @@ impl PreparedArchetype {
     }
 }
 
-/// Concealed items use their appearance pool's asset, including an intentional
-/// absence. Never fall back to the identity-revealing archetype asset.
-pub(super) fn item_asset<'a>(author: &'a Archetype, manifest: &'a Manifest) -> Option<&'a str> {
-    match &author.appearance_pool {
-        Some(pool) => manifest.appearance_pools.get(pool)?.asset.as_deref(),
-        None => author.asset.as_deref(),
-    }
+/// A concealed item's key is assigned with its seeded public appearance at
+/// birth, never inherited from its true identity's archetype.
+pub(super) fn item_asset<'a>(author: &'a Archetype, _manifest: &'a Manifest) -> Option<&'a str> {
+    author
+        .appearance_pool
+        .is_none()
+        .then_some(author.asset.as_deref())
+        .flatten()
 }
 
-/// Forecast every possible concealed form, never an identity-specific asset.
+/// Forecast every appearance of every possible form, independent of which
+/// secret identity receives which appearance in a particular world.
 pub(super) fn item_assets<'a>(
     author: &'a Archetype,
     manifest: &'a Manifest,
 ) -> impl Iterator<Item = &'a str> {
-    author
+    let pools = author
         .forms
         .iter()
-        .filter_map(|form| {
-            manifest
-                .appearance_pools
-                .get(&form.appearance_pool)?
-                .asset
-                .as_deref()
-        })
+        .map(|form| form.appearance_pool.as_str())
         .chain(
             author
                 .forms
                 .is_empty()
-                .then(|| item_asset(author, manifest))
+                .then_some(author.appearance_pool.as_deref())
+                .flatten(),
+        );
+    pools
+        .filter_map(|key| manifest.appearance_pools.get(key))
+        .flat_map(|pool| {
+            pool.appearances
+                .iter()
+                .filter_map(|entry| entry.asset.as_deref())
+        })
+        .chain(
+            (author.forms.is_empty() && author.appearance_pool.is_none())
+                .then_some(author.asset.as_deref())
                 .flatten(),
         )
 }
@@ -316,7 +324,7 @@ pub(super) struct PreparedCharacter {
     pub anchor: String,
     pub turn_ticks: u64,
     pub creature: PreparedCreature<'static>,
-    pub known_identities: Vec<String>,
+    pub known_identities: Vec<tor_simulation::ItemIdentity>,
 }
 
 #[derive(Debug)]
@@ -633,7 +641,7 @@ impl PreparedDefinitions {
         archetype: &str,
         quantity: u64,
         seed: u64,
-        appearances: &BTreeMap<String, String>,
+        appearances: &BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
     ) -> Result<tor_simulation::ItemSpec, Failure> {
         self.item(
             &Item {
@@ -646,6 +654,7 @@ impl PreparedDefinitions {
                 stackable: None,
                 properties: BTreeMap::new(),
                 name: None,
+                identity: None,
                 carried_by: None,
                 seed_names: vec![],
             },
@@ -714,7 +723,7 @@ impl PreparedDefinitions {
         &self,
         author: &Item,
         seed: u64,
-        appearances: &BTreeMap<String, String>,
+        appearances: &BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
     ) -> Result<tor_simulation::ItemSpec, Failure> {
         let inherited = self.archetype(&author.archetype).map_err(Failure::from)?;
         require(
@@ -724,33 +733,64 @@ impl PreparedDefinitions {
                     .is_none_or(|class| tor_simulation::ItemClass::from(class) == inherited.class),
             "Concealed items cannot override their physical class",
         )?;
-        let name = if author.seed_names.is_empty() {
-            author
-                .name
-                .clone()
-                .or_else(|| inherited.name.clone())
-                .ok_or_else(|| fail("Item needs a name or archetype"))?
-        } else {
-            require(
-                author.name.is_none(),
-                "Item cannot have both name and seed_names",
-            )?;
-            author.seed_names[(seed % author.seed_names.len() as u64) as usize].clone()
-        };
         require(
-            label(&name) && author.seed_names.iter().all(|s| label(s)),
+            author.seed_names.iter().all(|entry| {
+                !entry.identity.is_unknown() && entry.identity.as_str().split('.').count() >= 3
+            }),
+            "Every seeded item identity must be a known leaf",
+        )?;
+        require(
+            author.seed_names.iter().all(|entry| {
+                inherited
+                    .identity
+                    .as_ref()
+                    .is_none_or(|known| known == &entry.identity)
+            }),
+            "Seeded item cannot override its inherited identity",
+        )?;
+        let seeded = (!author.seed_names.is_empty())
+            .then(|| &author.seed_names[(seed % author.seed_names.len() as u64) as usize]);
+        require(
+            seeded.is_none() || (author.name.is_none() && author.identity.is_none()),
+            "Item cannot combine seed_names with a direct name or identity",
+        )?;
+        let name = seeded
+            .map(|entry| entry.name.clone())
+            .or_else(|| author.name.clone())
+            .or_else(|| inherited.name.clone())
+            .ok_or_else(|| fail("Item needs a name or archetype"))?;
+        require(
+            label(&name) && author.seed_names.iter().all(|entry| label(&entry.name)),
             "Invalid item name",
         )?;
-        let key = author.archetype.clone().unwrap_or_else(|| name.clone());
-        let identity = inherited.identity.clone().unwrap_or_else(|| key.clone());
+        let identity = seeded
+            .map(|entry| entry.identity.clone())
+            .or_else(|| author.identity.clone())
+            .or_else(|| inherited.identity.clone())
+            .ok_or_else(|| fail("Concrete item requires an explicit canonical identity"))?;
+        require(
+            !identity.is_unknown() && identity.as_str().split('.').count() >= 3,
+            "Concrete item identity must be a known leaf",
+        )?;
+        require(
+            inherited
+                .identity
+                .as_ref()
+                .is_none_or(|known| known == &identity),
+            "Concrete item cannot override its inherited identity",
+        )?;
+        let key = author
+            .archetype
+            .clone()
+            .unwrap_or_else(|| identity.to_string());
         require(
             !inherited.concealed || (author.name.is_none() && author.seed_names.is_empty()),
             "Concealed items cannot override their identity name",
         )?;
-        let appearance = appearances
-            .get(&identity)
-            .cloned()
-            .unwrap_or_else(|| name.clone());
+        let assigned = appearances.get(&identity);
+        let appearance = assigned.map_or_else(|| name.clone(), |entry| entry.name.clone());
+        let appearance_asset =
+            assigned.map_or_else(|| inherited.item_asset.clone(), |entry| entry.asset.clone());
         let stackable = author.stackable.unwrap_or(inherited.stackable);
         require(
             self.objective_item != Some(author.id) || !stackable,
@@ -779,7 +819,7 @@ impl PreparedDefinitions {
             concealed: inherited.concealed,
             stackable,
             properties,
-            asset: inherited.item_asset.clone(),
+            asset: appearance_asset,
         };
         require(
             spec.device.is_none() || (!stackable && author.quantity == 1),
@@ -816,6 +856,7 @@ mod tests {
             super::Archetype {
                 class: super::super::ItemClass::Weapon,
                 name: Some("Fixture arrow".into()),
+                identity: Some("item.test.fixture-arrow".parse().unwrap()),
                 projectile: Some(projectile),
                 stackable: true,
                 equipment_generation: Some(super::super::EquipmentGeneration::Authored {
@@ -850,6 +891,7 @@ mod tests {
             super::Archetype {
                 supply: Some("bandage".into()),
                 name: Some("Bandage".into()),
+                identity: Some("item.test.bandage".parse().unwrap()),
                 stackable: true,
                 ..Default::default()
             },
@@ -1064,7 +1106,7 @@ mod tests {
             "modifiers": [{"scope":"always", "op":{"kind":"grant_ability", "ability":"spark_lance_fire"}}]
         }}})).unwrap();
         manifest.characters[0].creature = Some(serde_json::from_value(serde_json::json!({
-            "species": "human", "name": "test creature", "faction": "neutral", "binding": "intellect",
+            "species": "human", "name": "test creature", "corpse_identity": "item.corpse.test.test-creature", "faction": "neutral", "binding": "intellect",
             "starting_skills": ["deception", "persuasion"], "restoration": "choose_again", "nutrition": {"kind":"exempt"}, "hit_dice": [{"source": "racial"}, {"source": "warrior"}]
         })).unwrap());
         manifest
@@ -1085,6 +1127,7 @@ mod tests {
         );
         for capability in ["consumable", "readable"] {
             let item = serde_json::json!({
+                "identity": "item.test.polymorph-item",
                 capability: {"effects": [{"kind": "baleful_polymorph", "forms": ["eligible_body"]}]}
             });
             manifest.archetypes.insert(
@@ -1377,12 +1420,52 @@ mod tests {
     }
 
     #[test]
+    fn assigned_appearance_keeps_label_and_key_paired_including_explicit_absence() {
+        let mut manifest: Manifest =
+            toml::from_str(include_str!("../../../scenarios/tests/items/scenario.toml")).unwrap();
+        manifest.archetypes.get_mut("healing").unwrap().asset =
+            Some("identity.secret-healing".into());
+        let identity = manifest.archetypes["healing"].identity.clone().unwrap();
+        let prepared = PreparedDefinitions::new(&manifest, 1).unwrap();
+        let item: Item =
+            toml::from_str("id = 99\nat = [1, 1, 0]\narchetype = 'healing'\n").unwrap();
+        for (name, asset) in [
+            ("translated amber label", Some("item.potion.amber")),
+            (
+                "same identity different public appearance",
+                Some("item.potion.crimson"),
+            ),
+            ("unmarked", None),
+        ] {
+            let assignment = BTreeMap::from([(
+                identity.clone(),
+                AppearanceEntry {
+                    name: name.into(),
+                    asset: asset.map(str::to_owned),
+                },
+            )]);
+            let spec = prepared.item(&item, 42, &assignment).unwrap();
+            assert_eq!(spec.appearance, name);
+            assert_eq!(spec.asset.as_deref(), asset);
+            assert_eq!(spec.identity, identity);
+            assert_ne!(spec.asset.as_deref(), Some("identity.secret-healing"));
+        }
+    }
+
+    #[test]
     fn prepared_item_assets_keep_pool_absence_and_do_not_reveal_identity_assets() {
         let mut manifest: Manifest =
             toml::from_str(include_str!("../../../scenarios/tests/items/scenario.toml")).unwrap();
         manifest.archetypes.get_mut("arrow").unwrap().asset = Some("item.arrow".into());
         manifest.archetypes.get_mut("healing").unwrap().asset = Some("identity.healing".into());
-        manifest.appearance_pools.get_mut("potions").unwrap().asset = Some("item.shared".into());
+        for entry in &mut manifest
+            .appearance_pools
+            .get_mut("potions")
+            .unwrap()
+            .appearances
+        {
+            entry.asset = Some("item.shared".into());
+        }
         let arrow = &manifest.archetypes["arrow"];
         assert_eq!(item_asset(arrow, &manifest), Some("item.arrow"));
         assert_eq!(
@@ -1406,7 +1489,11 @@ mod tests {
             Some("item.arrow")
         );
         let hidden = &manifest.archetypes["healing"];
-        assert_eq!(item_asset(hidden, &manifest), Some("item.shared"));
+        assert_eq!(item_asset(hidden, &manifest), None);
+        assert_eq!(
+            item_assets(hidden, &manifest).collect::<BTreeSet<_>>(),
+            BTreeSet::from(["item.shared"])
+        );
         assert_eq!(
             PreparedArchetype::new(
                 hidden,
@@ -1425,9 +1512,16 @@ mod tests {
             .unwrap()
             .item_asset
             .as_deref(),
-            Some("item.shared")
+            None
         );
-        manifest.appearance_pools.get_mut("potions").unwrap().asset = None;
+        for entry in &mut manifest
+            .appearance_pools
+            .get_mut("potions")
+            .unwrap()
+            .appearances
+        {
+            entry.asset = None;
+        }
         let hidden = &manifest.archetypes["healing"];
         assert_eq!(item_asset(hidden, &manifest), None);
         assert_eq!(
@@ -1566,9 +1660,11 @@ mod tests {
         manifest.appearance_pools.insert(
             "hidden".into(),
             AppearancePool {
-                appearances: vec!["unmarked".into()],
+                appearances: vec![AppearanceEntry {
+                    name: "unmarked".into(),
+                    asset: Some("item.hidden".into()),
+                }],
                 confounding: false,
-                asset: Some("item.hidden".into()),
             },
         );
         let definitions: Manifest = toml::from_str(include_str!(
@@ -1591,6 +1687,7 @@ mod tests {
         }];
         let mut creature = definitions.characters[0].creature.clone().unwrap();
         creature.name = "guard".into();
+        creature.corpse_identity = "item.corpse.test.guard".parse().unwrap();
         manifest.archetypes.insert(
             "guard".into(),
             Archetype {
@@ -1614,7 +1711,7 @@ mod tests {
                     eye: [0, 0, 0],
                     mass: 91,
                 }),
-                identity: Some("guard-item".into()),
+                identity: Some("item.misc.guard-item".parse().unwrap()),
                 appearance_pool: Some("hidden".into()),
                 forms: vec![],
                 stackable: true,
@@ -1638,7 +1735,10 @@ mod tests {
             41
         );
         assert_eq!(guard.body.as_ref().unwrap().mass, 91);
-        assert_eq!(guard.identity.as_deref(), Some("guard-item"));
+        assert_eq!(
+            guard.identity.as_ref().map(|key| key.as_str()),
+            Some("item.misc.guard-item")
+        );
         assert!(guard.concealed && guard.stackable);
         assert_eq!(
             guard.properties.get("quality").map(String::as_str),
@@ -1647,7 +1747,10 @@ mod tests {
         assert_eq!(guard.name.as_deref(), Some("guard token"));
         assert_eq!(guard.turn_ticks, Some(73));
         assert_eq!(guard.actor_asset.as_deref(), Some("creature.guard"));
-        assert_eq!(guard.item_asset.as_deref(), Some("item.hidden"));
+        assert_eq!(
+            guard.item_asset, None,
+            "concealed asset waits for paired seeded appearance"
+        );
         assert_eq!(prepared.ai_profiles["careful"].care, Some(true));
         assert_eq!(prepared.ai_profiles["careful"].flee_percent, Some(19));
         let ordinary = prepared.archetype(&None).unwrap();

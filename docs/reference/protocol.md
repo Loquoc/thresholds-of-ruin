@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":67,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":68,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -1694,3 +1694,9 @@ means currency is not known, even if a label or asset resembles gold. Apparent
 objects never disclose this capability. Attached spectators see only the same
 ordinary identified item facts already available in their observation; this field
 does not reveal private equipment knowledge or hidden item definitions.
+
+## Item machine identity and remembered facts
+
+Protocol 68 adds the independent identity and item-knowledge fields described in
+[the item contract](item-knowledge.md), while `asset` remains the persistent
+public appearance key. Appearance never switches to true identity on discovery.

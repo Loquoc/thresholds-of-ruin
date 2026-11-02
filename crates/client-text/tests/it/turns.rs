@@ -487,8 +487,8 @@ fn state() -> StateView {
             "trap":null,"object_presentation":null,"stairs_up":false,"stairs_down":false
         })).collect::<Vec<_>>(),
         "ground_items":[
-            {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(1),"name":"copper token","description":"A small copper disc."},"position":{"x":0,"y":0,"z":0}},
-            {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"id":super::item_target(2),"name":"stone tablet","description":"A weathered slab of stone."},"position":{"x":6,"y":0,"z":0}}
+            {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(1),"name":"copper token","description":"A small copper disc."},"position":{"x":0,"y":0,"z":0}},
+            {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(2),"name":"stone tablet","description":"A weathered slab of stone."},"position":{"x":6,"y":0,"z":0}}
         ],"inventory":[],"charts":[],"linked_holds":[],"visible_actors":[],
         "combat":{"own_stats":tor_client_common::test_support::stats(),"public_plan":null,"hp":"50","max_hp":"50","sequence":null,"preparation_remaining":null,"preparation_active":false,
             "recovery_remaining":"0","actors":[],"events":[],"objective":null,
@@ -674,6 +674,9 @@ async fn equipment_goal_sends_matching_socket_and_tells_preparation() {
     let mut ring = initial.observation.ground_items.remove(0).item;
     ring.name = "silver ring".into();
     ring.class = ItemClass::Ring;
+    if !ring.identified {
+        ring.identity = ring.class.unknown_identity();
+    }
     let item = ring.id;
     initial.observation.inventory.push(ring);
     initial.observation.interactions = Some(InteractionView {
@@ -1904,7 +1907,7 @@ async fn stacks_of_alike_things_are_counted_together() {
     let stack = |id: u64, name: &str, quantity: u64| {
         serde_json::from_value::<GroundItemView>(serde_json::json!({"presentation":null,"supply_reachable":false,
             "reachable": true, "position": {"x": 0, "y": 0, "z": 0},
-            "item": {"known_currency":null,"known_supply":null,"quantity": quantity.to_string(), "class":"misc","appearance": "item", "identified": true,
+            "item": {"known_currency":null,"known_supply":null,"quantity": quantity.to_string(), "class":"misc","appearance": "item", "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
                 "id": super::item_target(id), "name": name, "description": ""}}))
         .unwrap()
     };
@@ -2212,7 +2215,7 @@ fn open_ground(find: usize) -> Scripted {
                 there.observation.ground_items.push(
                     serde_json::from_value(serde_json::json!({"presentation":null,"supply_reachable":false,
                         "reachable": false, "position": {"x": 5, "y": 0, "z": 0},
-                        "item": {"known_currency":null,"known_supply":null,"quantity": "1", "class":"misc","appearance": "item", "identified": true,
+                        "item": {"known_currency":null,"known_supply":null,"quantity": "1", "class":"misc","appearance": "item", "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
                             "id":super::item_target(7), "name": "pebble", "description": ""}}))
                     .unwrap(),
                 );
@@ -2336,7 +2339,7 @@ async fn a_count_from_alike_stacks_is_some_of_them_not_the_ones() {
     let mut s = state();
     let arrows = |id: u64, quantity: u64| {
         serde_json::from_value::<ItemView>(serde_json::json!({"known_currency":null,"known_supply":null,
-            "quantity": quantity.to_string(), "class":"misc","appearance": "item", "identified": true,
+            "quantity": quantity.to_string(), "class":"misc","appearance": "item", "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
             "id": super::item_target(id), "name": "arrow", "description": ""}))
         .unwrap()
     };
@@ -3246,7 +3249,7 @@ fn with_corpse(mut s: StateView, x: i32) -> StateView {
     s.observation.ground_items.push(
         serde_json::from_value(serde_json::json!({
             "presentation":null,"supply_reachable":false,"reachable":x == 0,
-            "item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"corpse","appearance":"item","identified":true,
+            "item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"corpse","appearance":"item","identified":true,"identity":"item.corpse.fixture","knowledge":tor_protocol::ItemKnowledge::default(),
                 "id":super::item_target(7),"name":"ruin scout corpse","description":""},
             "position":{"x":x,"y":0,"z":0}}))
         .unwrap(),
@@ -3761,11 +3764,18 @@ fn magic_turn_state() -> StateView {
     let mut scroll = state.observation.ground_items.remove(0).item;
     scroll.name = "amber scroll".into();
     scroll.class = ItemClass::Scroll;
+    if !scroll.identified {
+        scroll.identity = scroll.class.unknown_identity();
+    }
     scroll.identified = false;
+    scroll.identity = scroll.class.unknown_identity();
     let mut wand = scroll.clone();
     wand.id = super::item_target(73);
     wand.name = "ivory wand".into();
     wand.class = ItemClass::Wand;
+    if !wand.identified {
+        wand.identity = wand.class.unknown_identity();
+    }
     state.observation.inventory = vec![scroll.clone(), wand.clone()];
     state.observation.interactions = Some(InteractionView {
         refused: vec![],
@@ -3851,6 +3861,12 @@ async fn ordinary_read_discloses_paid_choice_then_identifies_without_another_scr
             ));
             after.observation.inventory[0].name = "Wand of sparks".into();
             after.observation.inventory[0].identified = true;
+            after.observation.inventory[0].identity = format!(
+                "{}.fixture",
+                after.observation.inventory[0].class.identity_family()
+            )
+            .parse()
+            .unwrap();
             let interactions = after.observation.interactions.as_mut().unwrap();
             interactions.identification = None;
             interactions.completed.clear();
@@ -3949,7 +3965,11 @@ fn weapon_preview_state() -> StateView {
     weapon.id = super::item_target(81);
     weapon.name = "secondary sword".into();
     weapon.class = ItemClass::Weapon;
+    if !weapon.identified {
+        weapon.identity = weapon.class.unknown_identity();
+    }
     weapon.identified = false;
+    weapon.identity = weapon.class.unknown_identity();
     state.observation.inventory.push(weapon.clone());
     let slot = equipment_slot("weapon", "in hand", true);
     state.observation.interactions = Some(InteractionView {
@@ -4153,6 +4173,9 @@ fn projectile_state() -> StateView {
         .find(|item| item.id == super::item_target(81))
         .unwrap();
     weapon.identified = true;
+    weapon.identity = format!("{}.fixture", weapon.class.identity_family())
+        .parse()
+        .unwrap();
     let mut ammunition = weapon.clone();
     ammunition.id = super::item_target(82);
     ammunition.name = "known arrows".into();

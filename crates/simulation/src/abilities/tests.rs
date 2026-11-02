@@ -102,6 +102,7 @@ fn captured_plan_with_modifiers(
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                 name: format!("subject {x}"),
                 faction: "neutral".into(),
             },
@@ -488,6 +489,7 @@ fn final_plan_and_timing_bounds_reject_plus_one_without_mutation() {
             game.configure_creature(
                 actor,
                 crate::CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.subject-{x}").parse().unwrap(),
                     name: format!("subject {x}"),
                     faction: "neutral".into(),
                 },

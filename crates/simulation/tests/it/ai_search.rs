@@ -30,7 +30,7 @@ fn autonomous_healing_intention_survives_checkpoint_and_consumes_only_on_complet
         "AI integration subjects own their builds"
     );
     game.configure_ai(ai, AiProfile::general()).unwrap();
-    let mut potion = ItemSpec::ordinary("healing".into());
+    let mut potion = ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
     potion.class = ItemClass::Potion;
     potion.stackable = true;
     potion.concealed = true;
@@ -102,7 +102,10 @@ fn autonomous_armor_replacement_resumes_checkpointed_removal_before_equipping_up
     super::creature_fixture::configure(&mut game, ai, "neutral", species);
     game.configure_ai(ai, AiProfile::general()).unwrap();
     for (id, defense) in [(10, 1), (11, 3)] {
-        let mut item = ItemSpec::ordinary(format!("mail {id}"));
+        let mut item = ItemSpec::ordinary(
+            format!("item.test.mail-{id}").parse().unwrap(),
+            format!("mail {id}"),
+        );
         item.class = ItemClass::Armor;
         item.equipment = Some(tor_simulation::EquipmentSpec {
             periodic_relocation: None,
@@ -203,7 +206,7 @@ fn autonomous_loot_checkpoint_preserves_split_stack_and_does_not_collect_spares(
         super::creature_fixture::species(),
     );
     game.configure_ai(ai, AiProfile::general()).unwrap();
-    let mut potion = ItemSpec::ordinary("healing".into());
+    let mut potion = ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
     potion.class = ItemClass::Potion;
     potion.stackable = true;
     potion.consumable = Some(ConsumableSpec {

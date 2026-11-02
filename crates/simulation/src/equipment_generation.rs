@@ -558,7 +558,10 @@ mod tests {
         // deliberately starts empty. Keep the ready actor at the current tick.
         game.spawn_actor(at, std::num::NonZeroU64::new(100).unwrap())
             .unwrap();
-        let mut spec = crate::ItemSpec::ordinary("generated mail".into());
+        let mut spec = crate::ItemSpec::ordinary(
+            "item.test.generated-mail".parse().unwrap(),
+            "generated mail".into(),
+        );
         spec.class = ItemClass::Armor;
         spec.equipment = Some(armor());
         spec.equipment_generation = Some(EquipmentGeneration::Armor {

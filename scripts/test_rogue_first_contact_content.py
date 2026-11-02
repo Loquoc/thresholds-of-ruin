@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Opt-in first-body devices preserve original profiles and unchanged live stock."""
 from pathlib import Path
 import tomllib
@@ -14,7 +15,7 @@ def source(name):
 
 def expected_item(kind, name, discovery):
     identity = "rogue.wand_" + kind
-    return {"asset": "item.wand", "name": "wand of " + name, "identity": identity,
+    return {"asset": "item.wand", "name": "wand of " + name, "identity": IDENTITIES[identity],
             "magical": True, "class": "wand", "stackable": False,
             "appearance_pool": "rogue.wands", "forms": expected_forms(name), "device": {"ability": identity,
             "initial_charges": {"minimum": 3, "maximum": 7}, "discovery": discovery}}
@@ -62,7 +63,7 @@ class RogueFirstContactContent(unittest.TestCase):
                     ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
             for identity in ("rogue.wand_cancellation", "rogue.wand_magic_missile"):
-                self.assertNotIn(identity, character["known_identities"])
+                self.assertNotIn(IDENTITIES[identity], character["known_identities"])
                 self.assertNotIn(identity, [row["archetype"] for row in character["loadout"]])
 
     def test_cancellation_metadata_marks_only_reviewed_special_sources(self):

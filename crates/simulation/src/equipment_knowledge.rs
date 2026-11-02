@@ -229,6 +229,30 @@ impl EquipmentKnowledge {
             fact.protected = Some(after.protected);
         }
     }
+    /// Copy only remembered facts. Never consult current hidden item condition.
+    pub(crate) fn disclosed(&self, item: ItemId) -> crate::ItemKnowledge {
+        let Some(fact) = self.fact(item) else {
+            return crate::ItemKnowledge::default();
+        };
+        crate::ItemKnowledge {
+            buc: match fact.cursed {
+                None => crate::BucStatus::Unknown,
+                Some(false) => crate::BucStatus::Uncursed,
+                Some(true) => crate::BucStatus::Cursed,
+            },
+            enchantments: crate::KnownEnchantments {
+                hit: fact.numbers.map(|n| n.hit_enchantment),
+                damage: fact.numbers.map(|n| n.damage_enchantment),
+                armor: fact.numbers.map(|n| n.armor_enchantment),
+                potency: fact.numbers.map(|n| n.potency),
+            },
+            condition: crate::KnownItemCondition {
+                corrosion: fact.numbers.map(|n| n.corrosion),
+                armor_deterioration: fact.numbers.map(|n| n.armor_penalty),
+                protected: fact.protected,
+            },
+        }
+    }
     pub(crate) fn curse(&self, item: ItemId) -> Option<bool> {
         self.fact(item)?.cursed
     }
@@ -307,6 +331,51 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn structured_item_facts_keep_unknown_zero_false_and_stale_memory_distinct() {
+        let item = ItemId(19);
+        let mut facts = EquipmentKnowledge::default();
+        assert_eq!(facts.disclosed(item), crate::ItemKnowledge::default());
+        facts.learn_curse(item, true).unwrap();
+        let curse_only = facts.disclosed(item);
+        assert_eq!(curse_only.buc, crate::BucStatus::Cursed);
+        assert_eq!(curse_only.enchantments.hit, None);
+        assert_eq!(curse_only.condition.protected, None);
+        let original = ItemCondition {
+            corrosion: 1,
+            hit_enchantment: 0,
+            protected: false,
+            ..ItemCondition::default()
+        };
+        facts.learn_numbers(item, original).unwrap();
+        let numeric = facts.disclosed(item);
+        assert_eq!(numeric.buc, crate::BucStatus::Cursed);
+        assert_eq!(numeric.enchantments.hit, Some(0));
+        assert_eq!(numeric.condition.corrosion, Some(1));
+        assert_eq!(numeric.condition.protected, None);
+        // An unseen intervening change must not refresh any remembered field.
+        let hidden = ItemCondition {
+            corrosion: 4,
+            hit_enchantment: 6,
+            protected: true,
+            ..original
+        };
+        facts.observe_change(
+            item,
+            hidden,
+            ItemCondition {
+                corrosion: 5,
+                ..hidden
+            },
+        );
+        assert_eq!(facts.disclosed(item), numeric);
+        facts.identify(item, original).unwrap();
+        let full = facts.disclosed(item);
+        assert_eq!(full.buc, crate::BucStatus::Uncursed);
+        assert_eq!(full.condition.protected, Some(false));
+        assert_eq!(full.enchantments.damage, Some(0));
+        assert_eq!(facts.disclosed(ItemId(20)), crate::ItemKnowledge::default());
+    }
     #[test]
     fn partial_facts_remain_private_and_hidden_changes_do_not_erase_or_refresh_memory() {
         let item = ItemId(1);

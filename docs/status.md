@@ -6,8 +6,8 @@ work from implemented design records. “Implemented” does not mean balanced,
 fully optimized or qualified for every workload. Follow the
 [testing policy](development/testing.md).
 
-**Current formats:** protocol **67**, save format **65**, scenario format **36**,
-ruleset **`interactions-v57`**, scenario validator **`tor-scenario-48`**.
+**Current formats:** protocol **68**, save format **66**, scenario format **37**,
+ruleset **`interactions-v57`**, scenario validator **`tor-scenario-49`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
@@ -15,8 +15,8 @@ change with a deterministic rules correction. Current private
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.
 
-Independent compiled inputs are RulesInput **26**, ContentPackage **33** and
-RegionInput **9**. Physical TORB/TORJ/TORR framing is **6**, TORC **1**; rooms **2**,
+Independent compiled inputs are RulesInput **26**, ContentPackage **34** and
+RegionInput **10**. Physical TORB/TORJ/TORR framing is **6**, TORC **1**; rooms **2**,
 grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 **`tor-arena-run-v6`**. Other guides link here instead of duplicating version lists.
 

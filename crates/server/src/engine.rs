@@ -22,7 +22,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 65;
+pub(crate) const ARCHIVE_VERSION: u32 = 66;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -2189,7 +2189,9 @@ impl Engine {
                 Some(package) => package.build(scenario.seed, true)?,
                 None => scenario_game(&scenario)?,
             },
-            (Some(1), None) => crate::performance_fixture::game(scenario.seed, scenario.regions)?,
+            (Some(crate::performance_fixture::VERSION), None) => {
+                crate::performance_fixture::game(scenario.seed, scenario.regions)?
+            }
             _ => return Err(invalid_archive()),
         };
         if scenario.actors.is_empty() && scenario.package.is_none() {
@@ -5126,20 +5128,24 @@ impl Candidate {
                 WizardResult::ItemIdentified
             }
             WizardOperation::PlaceItem { kind, position } => {
-                let name = match kind {
-                    WizardItem::Token => "copper token",
-                    WizardItem::Tablet => "stone tablet",
+                let (name, key) = match kind {
+                    WizardItem::Token => ("copper token", "item.misc.copper-token"),
+                    WizardItem::Tablet => ("stone tablet", "item.misc.tablet"),
                 };
+                let identity: tor_simulation::ItemIdentity =
+                    key.parse().expect("authored wizard stock key");
                 // Wizard stock is ordinary, but a source may reserve one of
                 // these identities. A display-name match alone is harmless.
-                if self.game.unique_retrieval_policy().is_some_and(|policy| {
-                    policy.item.archetype == name || policy.item.identity == name
-                }) {
+                if self
+                    .game
+                    .unique_retrieval_policy()
+                    .is_some_and(|policy| policy.item.identity == identity)
+                {
                     return Err(invalid());
                 }
                 let item = self
                     .game
-                    .place_item(adapt::location(*position), name.into())
+                    .place_item(adapt::location(*position), identity, name.into())
                     .map_err(|_| invalid())?;
                 WizardResult::ItemPlaced { item: item.0 }
             }

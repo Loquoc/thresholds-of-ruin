@@ -471,6 +471,7 @@ fn room_cluster_retains_birth_evidence_after_actor_death_and_rejects_duplicate_i
     actor_bands[0].choices[0].actor.build =
         Some(crate::creatures::record::BuildRecord::capture(&build));
     actor_bands[0].choices[0].actor.identity = Some(crate::CreatureIdentity {
+        corpse_identity: "item.corpse.test.cluster-carrier".parse().unwrap(),
         name: "cluster carrier".into(),
         faction: "neutral".into(),
     });

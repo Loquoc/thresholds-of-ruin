@@ -84,7 +84,7 @@ value = { id = "fixture_resilience", name = "Fixture resilience", prerequisites 
 ''', encoding="utf-8", newline="\n")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        build = ('creature = { species = "subject", name = "rules subject", '
+        build = ('creature = { species = "subject", name = "rules subject", corpse_identity = "item.corpse.fixture.rules-subject", '
                  'faction = "neutral", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, '
                  'hit_dice = [{ source = "racial", purchases = [{ pool = "advancement", selection = { kind = "talent", talent = "fixture_resilience" } }] }] }, ')
         self.assertIn('characters = [{ ', source)

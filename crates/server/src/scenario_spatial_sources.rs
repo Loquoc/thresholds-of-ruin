@@ -678,7 +678,7 @@ mod tests {
             crate::storage::schema::scenario::encode_rules_document(&document).unwrap();
         let rules = package.rules().unwrap(); // Actual complete rules validator.
         let mut item = package.manifest.archetypes["rogue.wand_nothing"].clone();
-        item.identity = Some("fixture.room_light".into());
+        item.identity = Some("item.misc.room-light".parse().unwrap());
         item.device.as_mut().unwrap().ability = "fixture.room_light".into();
         item.device.as_ref().unwrap().compile(&rules).unwrap();
         // No appearance pool: this typed source-closure fixture is not adding
@@ -838,7 +838,7 @@ mod tests {
             .unwrap()
             .clone();
         equipment.appearance_pool = None;
-        equipment.identity = Some("fixture.light_equipment".into());
+        equipment.identity = Some("item.tool.light-equipment".parse().unwrap());
         equipment
             .equipment
             .as_mut()
@@ -979,7 +979,7 @@ mod cancellation_source_tests {
             crate::storage::schema::scenario::encode_rules_document(&document).unwrap();
         let rules = package.rules().unwrap();
         let mut item = package.manifest.archetypes["rogue.wand_invisibility"].clone();
-        item.identity = Some("fixture.cancellation".into());
+        item.identity = Some("item.wand.cancellation".parse().unwrap());
         item.appearance_pool = None;
         item.forms.clear();
         item.device.as_mut().unwrap().ability = "fixture.cancellation".into();
@@ -1144,7 +1144,7 @@ mod optional_mapping_source_tests {
         manifest.archetypes.insert(
             "fixture.mapping".into(),
             serde_json::from_value(json!({
-                "name":"mapping control","class":"scroll","magical":true,
+                "name":"mapping control","identity":"item.scroll.fixture.mapping","class":"scroll","magical":true,
                 "readable":{"discovery":"on_use","effects":[{"kind":"map_topology"}]}
             }))
             .unwrap(),

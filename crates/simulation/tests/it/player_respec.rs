@@ -203,6 +203,7 @@ fn fixture_custom(customize: impl FnOnce(&mut Value)) -> Game {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: format!("item.corpse.test.owner{x}").parse().unwrap(),
                 name: format!("owner{x}"),
                 faction: "allies".into(),
             },
@@ -210,7 +211,7 @@ fn fixture_custom(customize: impl FnOnce(&mut Value)) -> Game {
         )
         .unwrap();
     }
-    let mut spec = ItemSpec::ordinary("ration".into());
+    let mut spec = ItemSpec::ordinary("item.test.ration".parse().unwrap(), "ration".into());
     spec.class = tor_simulation::ItemClass::Food;
     spec.edible = Some(tor_simulation::EdibleSpec {
         nutrition: tor_simulation::rules::AmountExpr::Fixed { amount: 9 },
@@ -496,7 +497,10 @@ fn phase5_respec_permanent_build_change_immediately_releases_its_ration() {
 #[test]
 fn phase5_respec_restore_rejects_an_unheld_extra_explicit_ration() {
     let mut game = fixture_game();
-    let mut spec = ItemSpec::ordinary("second ration".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.second-ration".parse().unwrap(),
+        "second ration".into(),
+    );
     spec.supply = Some(tor_simulation::content_ids::SupplyId::new("ration").unwrap());
     game.place_item_stack(11, at(1), Some(ActorId(1)), 1, spec)
         .unwrap();
@@ -684,6 +688,7 @@ fn add_enemy(game: &mut Game) -> ActorId {
     game.configure_creature(
         enemy,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.unseen-enemy".parse().unwrap(),
             name: "unseen enemy".into(),
             faction: "enemies".into(),
         },
@@ -925,7 +930,10 @@ fn lethal_replacement() -> (Game, Action) {
     .unwrap();
     let remaining = game.health(actor).unwrap().0;
     fixture::injure(&mut game, actor, u32::try_from(remaining - 5).unwrap()).unwrap();
-    let mut spec = ItemSpec::ordinary("last ration".into());
+    let mut spec = ItemSpec::ordinary(
+        "item.test.last-ration".parse().unwrap(),
+        "last ration".into(),
+    );
     spec.supply = Some(tor_simulation::content_ids::SupplyId::new("ration").unwrap());
     game.place_item_stack(10, at(1), Some(actor), 1, spec)
         .unwrap();
@@ -1241,13 +1249,17 @@ fn projection_subject(game: &mut Game) -> ActorId {
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.clock-subject".parse().unwrap(),
             name: "clock subject".into(),
             faction: "allies".into(),
         },
         game.creature(ActorId(1)).unwrap().build().clone(),
     )
     .unwrap();
-    let mut ration = ItemSpec::ordinary("clock ration".into());
+    let mut ration = ItemSpec::ordinary(
+        "item.test.clock-ration".parse().unwrap(),
+        "clock ration".into(),
+    );
     ration.supply = Some(tor_simulation::content_ids::SupplyId::new("ration").unwrap());
     game.place_item_stack(11, hidden_location(), Some(actor), 1, ration)
         .unwrap();
@@ -1671,7 +1683,10 @@ fn phase5_respec_boundary_damage_to_loaded_frozen_actor_discards_without_false_d
 #[test]
 fn phase5_respec_boundary_byte_operands_reject_positional_paid_actions_in_both_tag_orders() {
     let mut game = fixture_game();
-    let mut bandage = ItemSpec::ordinary("byte control bandage".into());
+    let mut bandage = ItemSpec::ordinary(
+        "item.test.byte-control-bandage".parse().unwrap(),
+        "byte control bandage".into(),
+    );
     bandage.supply = Some(tor_simulation::content_ids::SupplyId::new("bandage").unwrap());
     game.place_item_stack(12, at(1), Some(ActorId(1)), 1, bandage)
         .unwrap();

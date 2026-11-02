@@ -227,7 +227,7 @@ class TextCombatBoundaryProcesses(ProcessTestCase):
             "care": False, "equipment": False, "loot": False, "flee_percent": 0}
         if named or rider:
             manifest["archetypes"]["fixture_blade"] = {
-                "class": "weapon", "name": "unmistakable blade", "equipment": {
+                "identity": "item.weapon.unmistakable-blade", "class": "weapon", "name": "unmistakable blade", "equipment": {
                     "slot": "weapon", "modifiers": [], "attack": {
                         "skill": "heavy_weaponry", "bonus": 0, "wind_up": 60, "recovery": 40,
                         "damage": {"primary": {"category": "keen"}, "components": [
@@ -251,11 +251,11 @@ class TextCombatBoundaryProcesses(ProcessTestCase):
         path = package / "regions/1.toml"
         region = tomllib.loads(path.read_text(encoding="utf-8"))
         region["actors"].append({"id": 3, "at": [5, 1, 0], "turn_ticks": 30,
-            "controller": "external", "creature": {"species": "delver", "name": "partner",
+            "controller": "external", "creature": {"species": "delver", "name": "partner", "corpse_identity": "item.corpse.fixture.partner",
                 "faction": "delvers", "binding": "intellect", "hit_dice": [{"source": "racial"}],
                 "starting_skills": ["deception", "persuasion"], "restoration": "authored",
                 "nutrition": {"kind": "exempt"}}})
-        region["items"].append({"id": 101, "at": [1, 1, 0], "name": "carried token", "carried_by": 1})
+        region["items"].append({"id": 101, "at": [1, 1, 0], "name": "carried token", "identity": "item.misc.carried-token", "carried_by": 1})
         path.write_text(toml_source(region), encoding="utf-8", newline="\n")
         self.server(scenario=self.validate(package))
         peer, _ = self.client(actor=3, omit_memory=True)

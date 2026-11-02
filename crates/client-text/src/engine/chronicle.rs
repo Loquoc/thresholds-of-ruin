@@ -1082,7 +1082,7 @@ mod tests {
         state.observation.inventory.push(
             serde_json::from_value(serde_json::json!({
                 "known_currency":null,"known_supply":null,"quantity":"1","class":"weapon","appearance":"item",
-                "identified":true,"id":item,"name":"iron sword","description":""
+                "identified":true,"identity":"item.weapon.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":item,"name":"iron sword","description":""
             }))
             .unwrap(),
         );
@@ -1423,6 +1423,8 @@ mod tests {
                 quantity: 1,
                 appearance: "object".into(),
                 identified: true,
+                identity: "item.misc.fixture".parse().unwrap(),
+                knowledge: Default::default(),
                 description: String::new(),
                 id,
                 name: "object".into(),

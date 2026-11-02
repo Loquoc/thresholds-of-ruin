@@ -184,6 +184,8 @@ fn update(sequence: u64, names: &[&str], carrier: Carrier) -> ServerMessage {
                 quantity: 1,
                 appearance: "remains".into(),
                 identified: true,
+                identity: "item.corpse.fixture".parse().unwrap(),
+                knowledge: Default::default(),
                 description: String::new(),
                 id: ItemTarget::from_digest([3; 32]),
                 name: "remains".into(),

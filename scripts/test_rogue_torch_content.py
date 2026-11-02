@@ -13,7 +13,7 @@ def source(name):
 class RogueTorchContent(unittest.TestCase):
     def test_torch_is_one_hand_nonmagical_finite_light_without_weapon_attack(self):
         self.assertEqual(source("catalog/items.toml")["items"]["rogue.torch"], {
-            "name": "torch", "class": "tool", "stackable": False,
+            "identity": "item.tool.torch", "asset": "item.tool.torch", "name": "torch", "class": "tool", "stackable": False,
             "held_light": {"radius": 4, "fuel_ticks": 100000},
             "equipment": {"slot": "held_light", "modifiers": []}})
 
@@ -40,7 +40,7 @@ class RogueTorchContent(unittest.TestCase):
                 "choices": [{"archetype": "rogue.wand_" + kind, "weight": 1} for kind in
                     ("fire", "cold", "lightning", "invisibility", "haste", "slow", "teleport_away", "teleport_to")]}]})
         for character in manifest["characters"]:
-            self.assertNotIn("rogue.torch", character["known_identities"])
+            self.assertNotIn("item.tool.torch", character["known_identities"])
             self.assertNotIn("rogue.torch", [row["archetype"] for row in character["loadout"]])
 
 

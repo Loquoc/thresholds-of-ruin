@@ -34,10 +34,10 @@ fn snapshot() -> Snapshot {
         "state":{"snapshot":"fixture-snapshot","wizard_game":false,"revision":"5","observation":{"charts":[],"linked_holds":[],
             "actor":"1","self_target":super::actor_target(1),"tick":"100","position":{"x":0,"y":0,"z":0},
             "places":[],"visible_cells":cells,
-            "ground_items":[{"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"weapon","appearance":"sword","identified":true,"id":super::item_target(7),"name":"sword"},"position":{"x":-1,"y":0,"z":0}}],
+            "ground_items":[{"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"weapon","appearance":"sword","identified":true,"identity":"item.weapon.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(7),"name":"sword"},"position":{"x":-1,"y":0,"z":0}}],
             "inventory":[
-                {"known_currency":null,"known_supply":null,"quantity":"1","class":"potion","appearance":"red potion","identified":false,"id":super::item_target(1),"name":"red potion"},
-                {"known_currency":null,"known_supply":null,"quantity":"1","class":"armor","appearance":"mail","identified":true,"id":super::item_target(2),"name":"mail"}
+                {"known_currency":null,"known_supply":null,"quantity":"1","class":"potion","appearance":"red potion","identified":false,"identity":"item.potion.unknown","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(1),"name":"red potion"},
+                {"known_currency":null,"known_supply":null,"quantity":"1","class":"armor","appearance":"mail","identified":true,"identity":"item.armor.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(2),"name":"mail"}
             ],
             "visible_actors":[
                 {"id":super::actor_target(1),"name":"delver","position":{"x":0,"y":0,"z":1}},

@@ -16,6 +16,14 @@ FIXED_SOURCE_ROLE = "<!-- documentation-role: fixed-source -->"
 WIRE_EXAMPLE_SOURCE = ROOT / "docs" / "reference" / "protocol.md"
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 
+
+def without_historical_milestone_tables(text):
+    """Only explicitly labeled historical milestone tables are not current claims."""
+    return re.sub(
+        r"(?m)^\| Milestone \| Status \| Historical format change \|\n(?:\|[^\n]*\|(?:\n|$))+",
+        "", text)
+
+
 # Versioned identifiers that name benchmark workloads or fixtures, not rulesets.
 WORKLOAD_IDENTIFIERS = {
     "active-mobs-v1",
@@ -33,6 +41,7 @@ WORKLOAD_IDENTIFIERS = {
     "rogue-earned-baseline-v29",
     "tor-arena-run-v6",
     "performance-v1",
+    "performance-v2",
     "place-knowledge-v1",
     "structural-horizon-v1",
     "streaming-v1",
@@ -382,8 +391,9 @@ class DocumentationTests(unittest.TestCase):
         for source in current_guides():
             text = source.read_text(encoding="utf-8")
             name = source.relative_to(ROOT)
+            current_claims = without_historical_milestone_tables(text)
             for label, pattern, current in checks:
-                for value in pattern.findall(text):
+                for value in pattern.findall(current_claims):
                     if value != current:
                         failures.append(f"{name}: {label} {value} (current is {current})")
             for token in ruleset.findall(text):
@@ -393,6 +403,17 @@ class DocumentationTests(unittest.TestCase):
                         "(add benchmark workload names to WORKLOAD_IDENTIFIERS)"
                     )
         self.assertEqual([], failures, "Outdated version references:\n" + "\n".join(failures))
+
+    def test_historical_milestone_exemption_is_table_only_and_explicit(self):
+        table = ("| Milestone | Status | Historical format change |\n"
+                 "| --- | --- | --- |\n"
+                 "| 1 | Implemented | Protocol 67, save 65, scenario 36 |\n")
+        self.assertEqual(without_historical_milestone_tables(table), "")
+        self.assertEqual(without_historical_milestone_tables(table + "Protocol 0\n"), "Protocol 0\n")
+        unmarked = table.replace("Historical format change", "Format change")
+        self.assertEqual(without_historical_milestone_tables(unmarked), unmarked)
+        prose = "Historical milestone: Protocol 0\n"
+        self.assertEqual(without_historical_milestone_tables(prose), prose)
 
     def test_artifact_regression_runs_without_preexisting_local_directory(self):
         versions = current_versions()

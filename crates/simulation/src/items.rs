@@ -30,6 +30,36 @@ pub enum ItemClass {
     Coin,
     Gem,
 }
+impl ItemClass {
+    /// Public category hierarchy; never derived from a hidden true identity.
+    pub fn identity_family(self) -> crate::ItemIdentity {
+        let key = match self {
+            Self::Misc => "item.misc",
+            Self::Weapon => "item.weapon",
+            Self::Armor => "item.armor",
+            Self::Potion => "item.potion",
+            Self::Food => "item.food",
+            Self::Corpse => "item.corpse",
+            Self::Tool => "item.tool",
+            Self::Amulet => "item.amulet",
+            Self::Ring => "item.ring",
+            Self::Scroll => "item.scroll",
+            Self::Spellbook => "item.spellbook",
+            Self::Wand => "item.wand",
+            Self::Coin => "item.coin",
+            Self::Gem => "item.gem",
+        };
+        key.parse().expect("static public item category")
+    }
+    pub fn unknown_identity(self) -> crate::ItemIdentity {
+        if self == Self::Misc {
+            return "item.unknown".parse().expect("static generic sentinel");
+        }
+        format!("{}.unknown", self.identity_family())
+            .parse()
+            .expect("static public item sentinel")
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -133,7 +163,7 @@ pub struct ItemSpec {
     pub supply: Option<crate::content_ids::SupplyId>,
     pub class: ItemClass,
     pub archetype: String,
-    pub identity: String,
+    pub identity: crate::ItemIdentity,
     pub name: String,
     pub appearance: String,
     pub concealed: bool,
@@ -173,7 +203,7 @@ impl<'de> serde::Deserialize<'de> for ItemSpec {
             supply: Option<crate::content_ids::SupplyId>,
             class: ItemClass,
             archetype: String,
-            identity: String,
+            identity: crate::ItemIdentity,
             name: String,
             appearance: String,
             concealed: bool,
@@ -250,7 +280,7 @@ impl ItemSpec {
         self.equipment.is_some() || self.projectile.is_some() || self.ground_scare.is_some()
     }
 
-    pub fn ordinary(name: String) -> Self {
+    pub fn ordinary(identity: crate::ItemIdentity, name: String) -> Self {
         Self {
             magical: false,
             held_light: None,
@@ -265,8 +295,8 @@ impl ItemSpec {
             edible: None,
             supply: None,
             class: ItemClass::Misc,
-            archetype: name.clone(),
-            identity: name.clone(),
+            archetype: identity.to_string(),
+            identity,
             appearance: name.clone(),
             name,
             concealed: false,
@@ -416,14 +446,11 @@ impl ItemSpec {
             && self.edible.as_ref().is_none_or(|edible| {
                 edible.valid() && self.equipment.is_none() && self.consumable.is_none()
             })
-            && [
-                &self.archetype,
-                &self.identity,
-                &self.name,
-                &self.appearance,
-            ]
-            .iter()
-            .all(|s| !s.is_empty() && s.len() <= 80 && !s.chars().any(char::is_control))
+            && [&self.archetype, &self.name, &self.appearance]
+                .iter()
+                .all(|s| !s.is_empty() && s.len() <= 80 && !s.chars().any(char::is_control))
+            && !self.identity.is_unknown()
+            && self.identity.as_str().split('.').count() >= 3
             && self.properties.len() <= 32
             && self.properties.iter().all(|(k, v)| {
                 !k.is_empty()
@@ -764,7 +791,8 @@ impl Game {
             .as_ref()
             .map(|device| device.initial_charges.sample(&mut rng))
             .transpose()?;
-        let item = self.place_authored_item(id, at, spec.name.clone(), owner)?;
+        let item =
+            self.place_authored_item(id, at, spec.identity.clone(), spec.name.clone(), owner)?;
         self.items
             .edit(item, |entry| {
                 entry.relocation_elapsed = spec
@@ -784,15 +812,19 @@ impl Game {
     }
 
     /// Scenario/privileged operation; knowledge outlives all instances of an item.
-    pub fn learn_identity(&mut self, actor: ActorId, identity: &str) -> Result<(), GameError> {
-        if identity.is_empty() || identity.len() > 80 || identity.chars().any(char::is_control) {
+    pub fn learn_identity(
+        &mut self,
+        actor: ActorId,
+        identity: &crate::ItemIdentity,
+    ) -> Result<(), GameError> {
+        if identity.is_unknown() || identity.as_str().split('.').count() < 3 {
             return Err(GameError::ItemUnavailable);
         }
         self.actors
             .get_mut(&actor)
             .ok_or(GameError::UnknownActor)?
             .knowledge
-            .insert(identity.into());
+            .insert(identity.clone());
         Ok(())
     }
 
@@ -1134,6 +1166,18 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_item_authority_uses_explicit_key_not_localized_name() {
+        let identity: crate::ItemIdentity = "item.misc.copper-token".parse().unwrap();
+        let first = ItemSpec::ordinary(identity.clone(), "copper token".into());
+        let translated = ItemSpec::ordinary(identity.clone(), "translated token label".into());
+        assert_eq!(first.identity, translated.identity);
+        assert_eq!(first.archetype, identity.as_str());
+        assert_eq!(translated.archetype, first.archetype);
+        assert_ne!(first.name, translated.name);
+    }
+
     use std::num::NonZeroU64;
     use tor_world::{Position, RegionId};
 
@@ -1150,7 +1194,10 @@ mod tests {
             game.spawn_authored_actor(owner.0, relocation_at(1, 1), NonZeroU64::new(100).unwrap())
                 .unwrap();
         }
-        let mut spec = ItemSpec::ordinary("unique amulet".into());
+        let mut spec = ItemSpec::ordinary(
+            "item.test.unique-amulet".parse().unwrap(),
+            "unique amulet".into(),
+        );
         spec.class = ItemClass::Amulet;
         spec.properties.insert("material".into(), "gold".into());
         let item = game
@@ -1308,7 +1355,7 @@ mod tests {
                 1 => entry.quantity = 2,
                 2 => entry.spec.stackable = true,
                 3 => entry.spec.class = ItemClass::Misc,
-                4 => entry.spec.identity.clear(),
+                4 => entry.spec.identity = "item.unknown".parse().unwrap(),
                 5 => {
                     entry.spec.equipment = Some(crate::EquipmentSpec {
                         periodic_relocation: None,
@@ -1455,7 +1502,11 @@ mod tests {
 
     #[test]
     fn supplies_are_part_of_stack_identity_and_require_current_owned_field() {
-        let mut value = serde_json::to_value(ItemSpec::ordinary("bandage".into())).unwrap();
+        let mut value = serde_json::to_value(ItemSpec::ordinary(
+            "item.test.bandage".parse().unwrap(),
+            "bandage".into(),
+        ))
+        .unwrap();
         value["supply"] = serde_json::json!("bandage");
         value["stackable"] = serde_json::json!(true);
         let bandage: ItemSpec = serde_json::from_value(value.clone()).unwrap();
@@ -1475,7 +1526,11 @@ mod tests {
     #[test]
     fn equipment_cannot_also_be_finite_supply_content() {
         let rules = crate::test_creatures::content();
-        let mut value = serde_json::to_value(ItemSpec::ordinary("bandage shield".into())).unwrap();
+        let mut value = serde_json::to_value(ItemSpec::ordinary(
+            "item.test.bandage-shield".parse().unwrap(),
+            "bandage shield".into(),
+        ))
+        .unwrap();
         value["class"] = serde_json::json!("armor");
         value["supply"] = serde_json::json!("bandage");
         value["equipment"] = serde_json::json!({"slot":"shield", "periodic_relocation":null, "armor":null, "attack":null, "weapon_profile":null, "modifiers":[], "potency_modifiers":[]});
@@ -1498,7 +1553,10 @@ mod tests {
             };
             let actor = game.spawn_actor(at, NonZeroU64::new(100).unwrap()).unwrap();
             for id in 1..=count {
-                let mut spec = ItemSpec::ordinary(format!("token-{id}"));
+                let mut spec = ItemSpec::ordinary(
+                    format!("item.test.token-{id}").parse().unwrap(),
+                    format!("token-{id}"),
+                );
                 spec.stackable = true;
                 spec.properties.insert("material".into(), "stone".into());
                 game.place_item_stack(id, at, None, 2, spec).unwrap();
@@ -1533,7 +1591,7 @@ mod tests {
             position: Position { x: 1, y: 1, z: 0 },
         };
         let actor = game.spawn_actor(at, NonZeroU64::new(100).unwrap()).unwrap();
-        let mut spec = ItemSpec::ordinary("healing".into());
+        let mut spec = ItemSpec::ordinary("item.test.healing".parse().unwrap(), "healing".into());
         spec.appearance = "red potion".into();
         spec.concealed = true;
         game.place_item_stack(100, at, None, 1, spec.clone())

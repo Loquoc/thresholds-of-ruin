@@ -12,14 +12,91 @@ pub(super) struct Script {
     pub hz: u32,
     pub viewport: [u32; 2],
     pub actors: Vec<Actor>,
+    #[serde(default)]
+    pub ground_items: Vec<GroundProp>,
+    #[serde(default)]
+    pub ground_labels: bool,
+    #[serde(default = "default_floor")]
+    pub floor_color: [f32; 3],
+    #[serde(default)]
+    pub dungeon: bool,
+    #[serde(default)]
+    pub pile_picker: bool,
     pub cameras: Vec<CameraSpec>,
     pub events: Vec<Event>,
     #[serde(default)]
     pub captures: Vec<Capture>,
 }
+fn default_floor() -> [f32; 3] {
+    [0.2, 0.21, 0.23]
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct GroundProp {
+    #[serde(default)]
+    pub asset: Option<String>,
+    #[serde(default)]
+    pub disclosed_name: Option<String>,
+    #[serde(default = "default_quantity")]
+    pub quantity: u64,
+    pub model: String,
+    pub position: [f32; 3],
+    pub yaw: f32,
+}
+fn default_quantity() -> u64 {
+    1
+}
+pub(super) fn item_model(name: &str) -> Result<tor_client_3d_model::ItemModel, String> {
+    use tor_client_3d_model::ItemModel::*;
+    [
+        Placeholder,
+        Mace,
+        Greatsword,
+        ShortSword,
+        LongSword,
+        Dagger,
+        Shortbow,
+        Arrow,
+        Spear,
+        Dart,
+        Shuriken,
+        Fruit,
+        Torch,
+        Staff,
+        LeatherArmor,
+        StuddedLeather,
+        RingMail,
+        ScaleMail,
+        ChainMail,
+        SplintMail,
+        BandedMail,
+        PlateMail,
+        Bandage,
+        Ration,
+        Seal,
+        Coins,
+        Tablet,
+        Potion,
+        Ring,
+        Amulet,
+        Scroll,
+        Spellbook,
+        Wand,
+        Gem,
+        Pick,
+        Pouch,
+    ]
+    .into_iter()
+    .find(|m| format!("{m:?}") == name)
+    .ok_or_else(|| format!("unsupported ground model {name}"))
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Actor {
+    #[serde(default)]
+    pub held_item: Option<String>,
+    #[serde(default)]
+    pub held_asset: Option<String>,
     pub id: String,
     pub model: String,
     pub seed: u64,
@@ -183,6 +260,12 @@ impl Script {
         Ok(result)
     }
     fn validate(&self, timeline: Timeline) -> Result<(), String> {
+        if timeline == Timeline::Live && self.floor_color != default_floor() {
+            return Err("custom floor color is capture-only".into());
+        }
+        if timeline == Timeline::Live && (self.dungeon || self.pile_picker) {
+            return Err("dungeon fixture is capture-only".into());
+        }
         if self.version != 1 {
             return Err("unsupported scene script version".into());
         }
@@ -190,8 +273,9 @@ impl Script {
         if self.viewport.iter().any(|v| !(320..=2048).contains(v)) {
             return Err("viewport must be 320..2048".into());
         }
-        if self.actors.is_empty()
+        if (self.actors.is_empty() && self.ground_items.is_empty())
             || self.actors.len() > 32
+            || self.ground_items.len() > 128
             || self.cameras.is_empty()
             || self.cameras.len() > 16
             || self.events.len() > 4096
@@ -199,6 +283,51 @@ impl Script {
             || self.captures.len() > 256
         {
             return Err("scene record count outside limits".into());
+        }
+        if self
+            .floor_color
+            .iter()
+            .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        {
+            return Err("invalid floor color".into());
+        }
+        if timeline == Timeline::Live && (!self.ground_items.is_empty() || self.ground_labels) {
+            return Err("ground items and labels are capture-only".into());
+        }
+        for item in &self.ground_items {
+            if item
+                .asset
+                .as_deref()
+                .is_some_and(|asset| !review_asset(asset))
+            {
+                return Err("invalid ground appearance asset".into());
+            }
+            if item.quantity == 0 {
+                return Err("ground quantity must be positive".into());
+            }
+            if item.disclosed_name.as_ref().is_some_and(|name| {
+                name.trim().is_empty()
+                    || name.chars().count() > 120
+                    || name.chars().any(char::is_control)
+            }) {
+                return Err("invalid disclosed ground name".into());
+            }
+            if (self.ground_labels || self.pile_picker) && item.disclosed_name.is_none() {
+                return Err("ground labels require explicit disclosed names".into());
+            }
+            item_model(&item.model)?;
+            if !vector(item.position) || !item.yaw.is_finite() || item.yaw.abs() > 360.0 {
+                return Err("invalid ground item placement".into());
+            }
+        }
+        if self.pile_picker {
+            let mut cells = std::collections::BTreeMap::new();
+            for item in &self.ground_items {
+                *cells.entry(super::ground_cell(item.position)).or_insert(0) += 1;
+            }
+            if !cells.values().any(|count| *count > 4) {
+                return Err("pile picker requires a disclosed pile".into());
+            }
         }
         let mut actors = HashSet::new();
         for actor in &self.actors {
@@ -223,6 +352,20 @@ impl Script {
                 return Err("body variation outside supported bounds".into());
             }
             actor.look()?;
+            if actor
+                .held_asset
+                .as_deref()
+                .is_some_and(|asset| !review_asset(asset))
+                || (actor.held_asset.is_some() && actor.held_item.is_none())
+            {
+                return Err("invalid held appearance asset".into());
+            }
+            if let Some(kind) = &actor.held_item {
+                item_model(kind)?;
+                if timeline == Timeline::Live || actor.model != "Human" {
+                    return Err("held item review requires capture-only Human actor".into());
+                }
+            }
         }
         let mut cameras = HashSet::new();
         for c in &self.cameras {
@@ -306,4 +449,15 @@ impl Script {
         }
         Ok(())
     }
+}
+
+fn review_asset(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value.split('.').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
 }

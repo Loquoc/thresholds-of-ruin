@@ -24,8 +24,8 @@ fn sequence_arena() -> Scenario {
         "melee":{"skill":"heavy_weaponry","bonus":bonus,"wind_up":wind_up,"recovery":10000,"strikes":rows},
         "modifiers":[{"scope":"always","op":{"kind":"add","stat":{"kind":"health"},"value":200}}]})
     };
-    let creature = |species, faction| {
-        json!({"species":species,"name":species,"faction":faction,
+    let creature = |corpse_identity, species, faction| {
+        json!({"species":species,"name":species,"corpse_identity":corpse_identity,"faction":faction,
         "binding":"intellect","starting_skills":["heavy_weaponry","athletics"],
         "restoration":"authored", "nutrition": {"kind":"exempt"},"hit_dice":[{"source":"racial"}]})
     };
@@ -47,14 +47,15 @@ fn sequence_arena() -> Scenario {
         "attacker":species(10, 1000, vec![row(0,true),row(10,true),row(20,true)]),
         "defender":species(10000, 0, vec![row(0,false)])}}))
     .unwrap();
-    manifest.characters[0].creature =
-        Some(serde_json::from_value(creature("attacker", "blue")).unwrap());
+    manifest.characters[0].creature = Some(
+        serde_json::from_value(creature("item.corpse.test.attacker", "attacker", "blue")).unwrap(),
+    );
     manifest.characters[0].unselected = "ai".into();
     manifest.characters[0].ai = Some("duel".into());
     let region: RegionDef = serde_json::from_value(json!({"id":1,"name":"Duel","size":[5,3,2],
         "chamber":true,"gravity":[0,0,-1],"anchors":{"start":[1,1,0]},
         "actors":[{"id":2,"at":[2,1,0],"turn_ticks":100,"controller":"ai","ai":"duel",
-            "creature":creature("defender","red")}]}))
+            "creature":creature("item.corpse.test.defender", "defender","red")}]}))
     .unwrap();
     let package = Package::from_parts(
         manifest,

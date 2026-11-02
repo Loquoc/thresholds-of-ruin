@@ -29,11 +29,11 @@ class LivingDungeonProcesses(ProcessTestCase):
         path = package / "scenario.toml"
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
         manifest["archetypes"] = {
-            "scare": {"name": "ward page", "identity": "fixture.ward_page",
+            "scare": {"name": "ward page", "identity": "item.scroll.ward-page",
                       "class": "scroll", "stackable": True,
                       "readable": {"control": {"kind": "nothing"}, "discovery": "never"},
                       "ground_scare": {"condition": "fixture.scared", "duration": 1000}},
-            "uncurse": {"name": "cleansing page", "identity": "fixture.cleansing_page",
+            "uncurse": {"name": "cleansing page", "identity": "item.scroll.cleansing-page",
                         "class": "scroll", "stackable": True,
                         "readable": {"discovery": "never", "effects": [
                             {"kind": "alter_equipment", "selection": {"kind": "all"},
@@ -129,12 +129,12 @@ value = { id = "fixture.scared", family = "fixture.scared", name = "Scared", lif
         path = package / "scenario.toml"
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
         manifest["factions"] = {"reader": ["subjects"], "subjects": ["reader"]}
-        for name, mode, condition in [("binding page", "hold_nearby", "fixture.held"),
-                                       ("bewildering page", "arm_confusion", "fixture.confused")]:
+        for identity, name, mode, condition in [("item.scroll.binding", "binding page", "hold_nearby", "fixture.held"),
+                                       ("item.scroll.bewildering", "bewildering page", "arm_confusion", "fixture.confused")]:
             control = {"kind": mode, "condition": condition, "duration": 2000}
             if mode == "hold_nearby":
                 control["radius"] = 2
-            manifest["archetypes"][name.replace(" ", "_")] = {"name": name, "class": "scroll", "stackable": True,
+            manifest["archetypes"][name.replace(" ", "_")] = {"identity": identity, "name": name, "class": "scroll", "stackable": True,
                                             "readable": {"control": control, "discovery": "never"}}
         species = manifest["creatures"]["species"]["figure"]
         species["behavior"]["memory_ticks"] = 10000

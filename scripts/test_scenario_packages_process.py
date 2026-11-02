@@ -96,7 +96,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         shutil.copytree(ROOT / "scenarios/two-room", package)
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        build = ('creature = { species = "human", name = "arena trainee", '
+        build = ('creature = { species = "human", name = "arena trainee", corpse_identity = "item.corpse.fixture.arena-trainee", '
                  'faction = "neutral", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, '
                  'hit_dice = [{ source = "racial" }, { source = "warrior" }] }, ')
         source = source.replace('characters = [{ ', 'characters = [{ ' + build)
@@ -194,7 +194,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         self.assertIn("Objectives require declared creature builds", result.stderr)
         self.assertEqual(before, {p.relative_to(package): p.read_bytes()
                                   for p in package.rglob("*") if p.is_file()})
-        build = ('creature = { species = "figure", name = "figure", faction = "neutral", '
+        build = ('creature = { species = "figure", name = "figure", corpse_identity = "item.corpse.fixture.figure", faction = "neutral", '
                  'binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] }, ')
         source = source.replace('characters = [{ ', 'characters = [{ ' + build, 1)
         definitions = (ROOT / "scenarios/tests/interactions/scenario.toml").read_text(encoding="utf-8")
@@ -256,7 +256,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
     def test_region_and_generated_references_report_exact_source_values(self):
         cases = [
             ("portal", "two-room", "regions/1.toml", '"to" = "2/landing"', '"to" = "2/missing"', '"2/missing"', "portal anchor"),
-            ("known-identity", "tests/items", "scenario.toml", 'known_identities = ["healing"]', 'known_identities = ["healing", "missing"]', '"missing"', "initial item identity"),
+            ("known-identity", "tests/items", "scenario.toml", 'known_identities = ["item.potion.healing"]', 'known_identities = ["item.potion.healing", "item.potion.missing"]', '"item.potion.missing"', "initial item identity"),
             ("objective-anchor", "first-dungeon", "scenario.toml", 'objective = { anchor = "1/exit"', 'objective = { anchor = "1/missing"', '"1/missing"', "objective anchor"),
             ("objective-item", "first-dungeon", "scenario.toml", 'item = 100', 'item = 999', '999', "objective"),
             ("zone", "two-room", "regions/1.toml", 'zone = "entry"', 'zone = "missing"', '"missing"', "zone"),
@@ -676,7 +676,7 @@ class ScenarioPackageProcesses(ProcessTestCase):
         cases.extend([
             ('actor-faction', 'tests/generated-filler', 'regions/1.toml',
              'anchors = { start = [2, 2, 0], east = [19, 2, 0] }',
-             'anchors = { start = [2, 2, 0], east = [19, 2, 0] }\nactors = [{ id = 17, at = [4, 2, 0], creature = { species = "delver", name = "guard", faction = "missing", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] } }]',
+             'anchors = { start = [2, 2, 0], east = [19, 2, 0] }\nactors = [{ id = 17, at = [4, 2, 0], creature = { species = "delver", name = "guard", corpse_identity = "item.corpse.fixture.guard", faction = "missing", binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] } }]',
              '"missing"', 'faction'),
             ('default-character', 'tests/generated-filler', 'scenario.toml',
              'default_character = 1', 'default_character = 99', '99', 'selected character'),

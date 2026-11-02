@@ -66,8 +66,11 @@ fn fixture(effects: Vec<Effect>) -> (Game, ItemId) {
         document.conditions.extend([h, r, s]);
     });
     game.actors.get_mut(&PEER).unwrap().ready_at = 10_000;
-    let mut spec = crate::ItemSpec::ordinary("unmarked dose".into());
-    spec.identity = "fixture.haste_dose".into();
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.unmarked-dose".parse().unwrap(),
+        "unmarked dose".into(),
+    );
+    spec.identity = "item.test.fixture-haste-dose".parse().unwrap();
     spec.concealed = true;
     spec.class = crate::ItemClass::Potion;
     spec.stackable = true;
@@ -157,7 +160,11 @@ fn paid_haste_dose_uses_one_base_turn_draw_and_finite_actor_clock() {
         assert_eq!(game.rules_rng, seed);
         finish(&mut game, due);
         assert_eq!(game.items[&item].quantity, 2);
-        assert!(game.actors[&OWNER].knowledge.contains("fixture.haste_dose"));
+        assert!(game.actors[&OWNER].knowledge.contains(
+            &"item.test.fixture-haste-dose"
+                .parse::<crate::ItemIdentity>()
+                .unwrap()
+        ));
         assert_eq!(game.rules_rng, expected_rng);
         assert_eq!(
             published(&game),

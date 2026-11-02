@@ -41,6 +41,7 @@ fn ordinary_observations_share_the_compiled_counts_at_two_and_256_hit_dice() {
         game.configure_creature(
             actor,
             CreatureIdentity {
+                corpse_identity: "item.corpse.test.observed".parse().unwrap(),
                 name: "observed".into(),
                 faction: "neutral".into(),
             },
@@ -566,6 +567,9 @@ fn compiled_species_selected_natural_preparation_does_not_read_raw_species() {
             game.configure_creature(
                 actor,
                 CreatureIdentity {
+                    corpse_identity: format!("item.corpse.test.natural-subject-{x}")
+                        .parse()
+                        .unwrap(),
                     name: format!("natural subject {x}"),
                     faction: "neutral".into(),
                 },

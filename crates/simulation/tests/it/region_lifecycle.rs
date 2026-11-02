@@ -59,6 +59,7 @@ fn fighter(game: &mut Game, id: ActorId, faction: &str) {
     game.configure_creature(
         id,
         tor_simulation::CreatureIdentity {
+            corpse_identity: "item.corpse.test.figure".parse().unwrap(),
             name: "figure".into(),
             faction: faction.into(),
         },
@@ -367,7 +368,10 @@ fn active_item_work_and_equipment_survive_frozen_and_detached_checkpoints() {
                 Some(1),
             ),
         ] {
-            let mut spec = ItemSpec::ordinary(format!("gear {item}"));
+            let mut spec = ItemSpec::ordinary(
+                format!("item.test.gear-{item}").parse().unwrap(),
+                format!("gear {item}"),
+            );
             spec.class = class;
             spec.equipment = Some(EquipmentSpec {
                 periodic_relocation: None,
@@ -618,7 +622,13 @@ fn an_item_point_follows_its_carrier() {
     let (mut game, player) = corridor();
     let carrier = game.spawn_actor(at(3, 5, 1), ticks(100)).unwrap();
     let item = game
-        .place_authored_item(50, at(3, 5, 1), "lantern".into(), Some(carrier))
+        .place_authored_item(
+            50,
+            at(3, 5, 1),
+            "item.test.lantern".parse().unwrap(),
+            "lantern".into(),
+            Some(carrier),
+        )
         .unwrap();
     run(&mut game, player, &[]);
     game.add_reference_point(ReferencePoint {
@@ -680,14 +690,27 @@ fn detaching_and_reattaching_equals_only_freezing() {
     }
     game.configure_ai(hunter, AiProfile::general()).unwrap();
     game.configure_ai(prey, AiProfile::general()).unwrap();
-    let mut coin = tor_simulation::ItemSpec::ordinary("coin".into());
+    let mut coin =
+        tor_simulation::ItemSpec::ordinary("item.test.coin".parse().unwrap(), "coin".into());
     coin.class = tor_simulation::ItemClass::Coin;
     game.place_item_stack(60, at(3, 7, 1), None, 1, coin)
         .unwrap();
-    game.place_authored_item(61, at(3, 4, 2), "key".into(), Some(keeper))
-        .unwrap();
+    game.place_authored_item(
+        61,
+        at(3, 4, 2),
+        "item.test.key".parse().unwrap(),
+        "key".into(),
+        Some(keeper),
+    )
+    .unwrap();
     let relic = game
-        .place_authored_item(62, at(4, 8, 2), "relic".into(), None)
+        .place_authored_item(
+            62,
+            at(4, 8, 2),
+            "item.test.relic".parse().unwrap(),
+            "relic".into(),
+            None,
+        )
         .unwrap();
     game.place_authored_door(70, at(4, 5, 1), false, 1).unwrap();
     game.configure_run(

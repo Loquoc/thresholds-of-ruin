@@ -114,12 +114,12 @@ def public_plan_package(test, *, known=False, growth=False):
         "known_plan": {"priority": 0, "modifiers": [
             {"scope": "always", "op": {"kind": "grant_ability", "ability": "slow_plan"}}]}}}
 
-    def creature(name, knows):
-        return {"species": "reader", "name": name, "faction": "neutral", "binding": "intellect",
+    def creature(name, knows, corpse_identity):
+        return {"species": "reader", "name": name, "corpse_identity": corpse_identity, "faction": "neutral", "binding": "intellect",
                 "starting_skills": ["heavy_weaponry", "athletics"], "restoration": "authored", "nutrition": {"kind":"exempt"},
                 "hit_dice": [{"source": "racial"}], "templates": ["known_plan"] if knows else []}
 
-    manifest["characters"][0]["creature"] = creature("observer", known)
+    manifest["characters"][0]["creature"] = creature("observer", known, "item.corpse.fixture.observer")
     if growth:
         manifest["characters"][0]["creature"]["future_growth"] = {
             "kind": "selected", "source": {"kind": "class", "class": "warrior"}}
@@ -128,7 +128,7 @@ def public_plan_package(test, *, known=False, growth=False):
     region = tomllib.loads(path.read_text(encoding="utf-8"))
     region["items"] = []
     region["actors"] = [{"id": 2, "at": [2, 1, 0], "turn_ticks": 100,
-                         "controller": "external", "creature": creature("subject", True)}]
+                         "controller": "external", "creature": creature("subject", True, "item.corpse.fixture.subject")}]
     path.write_text(toml_source(region), encoding="utf-8", newline="\n")
     validated = subprocess.run([compiler, "validate", package], capture_output=True,
                                text=True, encoding="utf-8", timeout=30)

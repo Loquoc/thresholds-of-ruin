@@ -89,6 +89,8 @@ pub(super) fn state() -> ClientState {
         quantity: 2,
         appearance: "wrapped object".into(),
         identified: false,
+        identity: "item.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         asset: None,
         known_currency: None,
         known_supply: None,
@@ -132,6 +134,8 @@ fn own_body_and_corpses_use_disclosed_appearance_without_parsing_names() {
             description: String::new(),
             appearance: "remains".into(),
             identified: true,
+            identity: "item.corpse.fixture".parse().unwrap(),
+            knowledge: Default::default(),
             asset: Some("item.corpse".into()),
             known_currency: None,
             known_supply: None,
@@ -359,11 +363,15 @@ fn false_corpse_and_stair_models_keep_real_handles_and_item_mechanics() {
         quantity: 1,
         appearance: "true corpse".into(),
         identified: true,
+        identity: "item.corpse.fixture".parse().unwrap(),
+        knowledge: Default::default(),
         asset: Some("item.corpse".into()),
         known_currency: None,
         known_supply: None,
     };
     let mut sanitized = real.clone();
+    sanitized.identity = ItemClass::Misc.unknown_identity();
+    sanitized.knowledge = Default::default();
     sanitized.corpse = None;
     sanitized.name = "object".into();
     sanitized.appearance = "object".into();
@@ -631,4 +639,111 @@ fn hydrated_stair_art_repairs_with_palette_then_current_none_overrides_only_that
     assert_eq!(retained.object_presentation, Some(&sample));
     assert_eq!(retained.object_model, Some(ItemModel::Wand));
     assert!(current.items.is_empty());
+}
+
+#[test]
+fn persistent_public_appearance_survives_identification_and_sampled_disguise() {
+    use tor_client_3d_model::ItemSurface;
+    use tor_protocol::{
+        GroundItemView, ObjectPresentation, ObjectPresentationKind, PaletteBody, PaletteUpdate,
+    };
+    let mut palette = Palette::default();
+    palette.apply(&PaletteUpdate {
+        revision: 1,
+        body: PaletteBody::Full {
+            assets: [
+                "item.potion.amber".into(),
+                "item.potion.crimson".into(),
+                "item.potion.unknown".into(),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    });
+    let mut observed = observation();
+    observed.inventory.clear();
+    observed.ground_items.clear();
+    let item = ItemView {
+        corpse: None,
+        class: ItemClass::Potion,
+        quantity: 1,
+        id: ItemTarget::from_digest([91; 32]),
+        name: "amber potion".into(),
+        description: String::new(),
+        appearance: "amber potion".into(),
+        identified: false,
+        identity: "item.potion.unknown".parse().unwrap(),
+        knowledge: Default::default(),
+        asset: Some("item.potion.amber".into()),
+        known_supply: None,
+        known_currency: None,
+    };
+    observed.inventory.push(item.clone());
+    let mut ground_item = item;
+    ground_item.id = ItemTarget::from_digest([92; 32]);
+    observed.ground_items.push(GroundItemView {
+        presentation: None,
+        item: ground_item,
+        reachable: true,
+        supply_reachable: false,
+        position: observed.position,
+    });
+    let unknown = view(&from_observation(observed.clone()), &palette);
+    assert_eq!(unknown.items[0].surface, ItemSurface::Potion(0));
+    assert_eq!(unknown.inventory[0].surface, ItemSurface::Potion(0));
+    for (name, identity) in [
+        ("potion of healing", "item.potion.healing"),
+        ("potion of strength", "item.potion.strength"),
+        ("crimson potion", "item.potion.healing"),
+    ] {
+        observed.inventory[0].name = name.into();
+        observed.inventory[0].identified = true;
+        observed.inventory[0].identity = identity.parse().unwrap();
+        observed.ground_items[0].item.name = name.into();
+        observed.ground_items[0].item.identified = true;
+        observed.ground_items[0].item.identity = identity.parse().unwrap();
+        let known = view(&from_observation(observed.clone()), &palette);
+        assert_eq!(known.items[0].surface, unknown.items[0].surface);
+        assert_eq!(known.inventory[0].surface, unknown.inventory[0].surface);
+    }
+    observed.ground_items[0].item.name = "object".into();
+    // A sampled disguise blanks semantic identity without revoking known actions.
+    observed.ground_items[0].item.identity = "item.unknown".parse().unwrap();
+    observed.ground_items[0].item.knowledge = Default::default();
+    assert!(observed.ground_items[0].item.identified);
+    observed.ground_items[0].item.appearance = "object".into();
+    observed.ground_items[0].item.asset = None;
+    observed.ground_items[0].presentation = Some(ObjectPresentation {
+        name: "arbitrary sampled display".into(),
+        asset: Some("item.potion.crimson".into()),
+        kind: ObjectPresentationKind::Item {
+            class: ItemClass::Potion,
+        },
+    });
+    let sampled = view(&from_observation(observed.clone()), &palette);
+    assert_eq!(sampled.items[0].surface, ItemSurface::Potion(4));
+    observed.ground_items[0].item.appearance = "violet potion".into();
+    observed.ground_items[0].item.asset = Some("item.potion.amber".into());
+    assert!(
+        serde_json::from_value::<GroundItemView>(
+            serde_json::to_value(&observed.ground_items[0]).unwrap()
+        )
+        .is_err(),
+        "wire boundary rejects leaking real cosmetics behind a sampled disguise"
+    );
+    observed.ground_items[0].item.appearance = "object".into();
+    observed.ground_items[0].item.asset = None;
+    assert_eq!(
+        view(&from_observation(observed.clone()), &palette).items[0].surface,
+        sampled.items[0].surface
+    );
+    observed.ground_items[0]
+        .presentation
+        .as_mut()
+        .unwrap()
+        .asset = Some("item.potion.unknown".into());
+    assert_eq!(
+        view(&from_observation(observed), &palette).items[0].surface,
+        ItemSurface::Neutral
+    );
 }

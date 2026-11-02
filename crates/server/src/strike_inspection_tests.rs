@@ -80,7 +80,7 @@ pub(crate) fn scenario(abilities: usize, maximum_source: bool) -> crate::Scenari
     }}})).unwrap();
     manifest.characters[0].creature = Some(
         serde_json::from_value(json!({"species":"page_subject",
-        "name":"Page subject","faction":"neutral","binding":"intellect",
+        "name":"Page subject","corpse_identity":"item.corpse.test.page-subject","faction":"neutral","binding":"intellect",
         "starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},
         "hit_dice":[{"source":"racial"}]}))
         .unwrap(),
@@ -298,7 +298,7 @@ pub(crate) fn equipped_scenario() -> crate::Scenario {
     let package = scenario.package.as_ref().unwrap();
     let mut manifest = package.manifest.clone();
     manifest.archetypes.insert("page_blade".into(), serde_json::from_value(json!({
-        "class":"weapon","name":"Page blade","equipment":{"slot":"weapon","attack":{
+        "class":"weapon","name":"Page blade","identity":"item.weapon.page-blade","equipment":{"slot":"weapon","attack":{
             "skill":"light_weaponry","bonus":2,"wind_up":10,"recovery":10,
             "damage":{"primary":{"category":"impact","descriptor":null,"sides":null},
                 "components":[{"category":"impact","descriptor":null,"amount":{"type":"fixed","value":3}}]}

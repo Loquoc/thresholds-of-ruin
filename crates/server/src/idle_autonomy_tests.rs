@@ -543,7 +543,11 @@ fn default_enrolled_twins_ignore_unseen_player_and_item_changes_through_committe
         let mut changed = original.clone();
         changed.teleport(Actor(1), location(2, 6, 2)).unwrap();
         changed
-            .place_item(location(2, 4, 2), "unseen treasure".into())
+            .place_item(
+                location(2, 4, 2),
+                "item.misc.treasure".parse().unwrap(),
+                "unseen treasure".into(),
+            )
             .unwrap();
         for _ in 0..6 {
             assert_eq!(

@@ -286,7 +286,10 @@ fn currency_projection_preserves_identification_ownership_and_exact_stack_units(
         (84, None, true, true, 17),
         (85, Some(other), false, true, 19),
     ] {
-        let mut spec = s::ItemSpec::ordinary(format!("currency fixture {id}"));
+        let mut spec = s::ItemSpec::ordinary(
+            format!("item.coin.fixture-{id}").parse().unwrap(),
+            format!("currency fixture {id}"),
+        );
         spec.class = s::ItemClass::Coin;
         spec.stackable = true;
         spec.concealed = concealed;
@@ -339,7 +342,8 @@ fn currency_projection_preserves_identification_ownership_and_exact_stack_units(
     assert!(!wire
         .to_string()
         .contains(&scope.item(s::ItemId(85)).to_string()));
-    game.learn_identity(actor, "currency fixture 81").unwrap();
+    game.learn_identity(actor, &"item.coin.fixture-81".parse().unwrap())
+        .unwrap();
     let (learned, learned_scene) = game.observe_scene(actor).unwrap();
     let learned = projected(learned, learned_scene, &scope);
     let revealed = learned["inventory"]
@@ -362,6 +366,8 @@ fn real_ground_item_and_guise_with_equal_private_numbers_resolve_separately() {
     let (mut view, _, scope) = fixture();
     guise(&mut view);
     view.ground_items.push(s::GroundItemView {
+        identity: "item.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         presentation: None,
         corpse: None,
         class: s::ItemClass::Misc,
@@ -691,6 +697,8 @@ fn apparent_mundane_mace_matches_ordinary_ground_mace_except_opaque_identity() {
     let (mut view, scene, scope) = fixture();
     let real = s::ItemId(55);
     view.ground_items.push(s::GroundItemView {
+        identity: "item.weapon.mace".parse().unwrap(),
+        knowledge: Default::default(),
         presentation: None,
         corpse: None,
         class: s::ItemClass::Weapon,
@@ -751,9 +759,16 @@ fn apparent_mundane_mace_matches_ordinary_ground_mace_except_opaque_identity() {
     }
     let mut ordinary = ordinary.clone();
     let mut apparent = apparent.clone();
+    assert_eq!(ordinary["item"]["identity"], "item.weapon.mace");
+    assert_eq!(apparent["item"]["identity"], "item.unknown");
+    ordinary["item"]["identity"] = Value::Null;
+    apparent["item"]["identity"] = Value::Null;
     ordinary["item"]["id"] = Value::Null;
     apparent["item"]["id"] = Value::Null;
-    assert_eq!(apparent, ordinary, "only opaque item identity may differ");
+    assert_eq!(
+        apparent, ordinary,
+        "only opaque target and disclosed semantic identity may differ"
+    );
     assert!(wire["inventory"].as_array().unwrap().is_empty());
     assert!(wire["visible_actors"].as_array().unwrap().is_empty());
     withheld(&wire, &scope);
@@ -765,6 +780,8 @@ fn magic_choices_resolve_exact_owner_tokens_category_and_carried_incarnation() {
     let item = s::ItemId(700);
     let choice = s::IntentionId(80);
     view.inventory = vec![s::ItemView {
+        identity: "item.wand.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         corpse: None,
         class: s::ItemClass::Wand,
         description: String::new(),
@@ -887,6 +904,8 @@ fn equipped_weapon_selection_keeps_item_scope_socket_and_contact_authority_indep
     let item = s::ItemId(9_007_199_254_740_995);
     let socket = s::EquipmentSlotId(0);
     view.inventory.push(s::ItemView {
+        identity: "item.weapon.unknown".parse().unwrap(),
+        knowledge: Default::default(),
         corpse: None,
         class: s::ItemClass::Weapon,
         description: "An observed equipped item.".into(),
@@ -1037,6 +1056,8 @@ fn projectile_delivery_preserves_exact_owned_operands_without_hidden_profile_aut
             // Unknown appearance and no numeric/profile facts are sufficient for
             // identity resolution; actual delivery compatibility belongs simulation.
             view.inventory.push(s::ItemView {
+                identity: "item.unknown".parse().unwrap(),
+                knowledge: Default::default(),
                 corpse: None,
                 class: s::ItemClass::Misc,
                 description: "Unknown item".into(),
@@ -1318,6 +1339,18 @@ fn hallucination_adapter_flattens_cosmetics_without_changing_real_targets_or_cap
         asset: None,
     };
     view.ground_items.push(s::GroundItemView {
+        identity: "item.coin.private-fixture".parse().unwrap(),
+        knowledge: s::ItemKnowledge {
+            buc: s::BucStatus::Cursed,
+            enchantments: s::KnownEnchantments {
+                hit: Some(37),
+                ..Default::default()
+            },
+            condition: s::KnownItemCondition {
+                protected: Some(true),
+                ..Default::default()
+            },
+        },
         presentation: Some(ObjectPresentation {
             name: Arc::from("cosmetic stair"),
             asset: None,
@@ -1361,6 +1394,11 @@ fn hallucination_adapter_flattens_cosmetics_without_changing_real_targets_or_cap
         item["presentation"],
         json!({"name":"cosmetic stair", "asset":null, "kind":{"kind":"stairs"}})
     );
+    assert_eq!(item["item"]["identity"], "item.unknown");
+    assert_eq!(
+        item["item"]["knowledge"],
+        json!(p::ItemKnowledge::default())
+    );
     assert_eq!(item["item"]["class"], "coin");
     assert_eq!(item["item"]["known_currency"], "gold");
     assert_eq!(item["item"]["quantity"], "7");
@@ -1400,6 +1438,18 @@ fn hallucination_map_acquisition_freezes_payload_without_granting_stair_facts() 
         kind: ObjectPresentationKind::Stairs,
     };
     view.ground_items.push(s::GroundItemView {
+        identity: "item.coin.private-fixture".parse().unwrap(),
+        knowledge: s::ItemKnowledge {
+            buc: s::BucStatus::Cursed,
+            enchantments: s::KnownEnchantments {
+                hit: Some(37),
+                ..Default::default()
+            },
+            condition: s::KnownItemCondition {
+                protected: Some(true),
+                ..Default::default()
+            },
+        },
         presentation: Some(cosmetic.clone()),
         corpse: None,
         class: s::ItemClass::Coin,

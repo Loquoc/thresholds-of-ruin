@@ -38,7 +38,7 @@ def fixture(*, hidden=True, success=True):
     manifest["creatures"] = {"species": {"escape_subject": subject, "escape_holder": holder}}
 
     def creature(index):
-        return {"species": "escape_subject" if index == 0 else "escape_holder", "name": NAMES[index],
+        return {"species": "escape_subject" if index == 0 else "escape_holder", "name": NAMES[index], "corpse_identity": ("item.corpse.fixture.escape-subject", "item.corpse.fixture.first-holder", "item.corpse.fixture.second-holder")[index],
             "faction": "neutral", "binding": "intellect", "starting_skills": ["heavy_weaponry", "athletics"],
             "restoration": "authored", "nutrition": {"kind": "exempt"}, "hit_dice": [{"source": "racial"}]}
 

@@ -64,7 +64,7 @@ struct ItemDefinition {
     #[serde(default)]
     magical: bool,
     currency: Option<CurrencyKind>,
-    identity: Option<String>,
+    identity: Option<tor_simulation::ItemIdentity>,
     appearance_pool: Option<String>,
     #[serde(default)]
     forms: Vec<ItemForm>,
@@ -782,7 +782,7 @@ extra_connections = [0, 1]
     fn module_semantic_origins_use_verified_source_and_never_guess_changed_spans() {
         for catalog in ["archetypes", "items"] {
             let (root, package) = checked_module(&format!(
-                "namespace = \"demo\"\n[{catalog}.\"demo.bad\"]\nname = \"bad\"\nappearance_pool = \"missing\"\n"
+                "namespace = \"demo\"\n[{catalog}.\"demo.bad\"]\nname = \"bad\"\nappearance_pool = \"missing\"\nidentity = \"item.misc.fixture.bad\"\n"
             ));
             let failure = package.appearance_mapping(0).unwrap_err();
             assert!(

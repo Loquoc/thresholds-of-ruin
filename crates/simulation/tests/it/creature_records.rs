@@ -390,6 +390,7 @@ fn rules_attribute_cap_above_five_survives_build_and_game_restore() {
     game.configure_creature(
         actor,
         CreatureIdentity {
+            corpse_identity: "item.corpse.test.six".parse().unwrap(),
             name: "Six".into(),
             faction: "neutral".into(),
         },

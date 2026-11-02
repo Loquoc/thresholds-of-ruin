@@ -184,7 +184,7 @@ fn scenario(case: &Case, background: usize, seed: u64) -> Result<Scenario> {
         document["supplies"].as_array_mut().ok_or("supply catalog absent")?.push(
             json!({"id":format!("bench_supply_{ordinal}"),"name":format!("Benchmark supply {ordinal}")}));
         manifest.archetypes.insert(format!("bench_supply_{ordinal}"), serde_json::from_value(json!({
-            "name":format!("Benchmark supply {ordinal}"),"identity":format!("bench_supply_{ordinal}"),
+            "name":format!("Benchmark supply {ordinal}"),"identity":format!("item.misc.benchmark-supply-{ordinal}"),
             "supply":format!("bench_supply_{ordinal}"),"class":"misc","stackable":true}))?);
     }
     let rules: tor_simulation::rules::RulesetDocument = serde_json::from_value(document)?;
@@ -196,7 +196,7 @@ fn scenario(case: &Case, background: usize, seed: u64) -> Result<Scenario> {
         "kind":"humanoid", "behavior": {"disposition":"mean","idle":"explore","memory_ticks":1000},"attributes":{"strength":0,"speed":0,"intellect":0,"willpower":0,"awareness":0,"presence":0},
         "melee":{"skill":"heavy_weaponry","bonus":0,"wind_up":100,"recovery":100,"strikes":[natural]},
         "modifiers":[{"scope":"always","op":{"kind":"grant_ability","ability":"benchmark_claim"}}]}}}))?;
-    let creature = json!({"species":"benchmark_carer","name":"Benchmark carer","faction":"neutral",
+    let creature = json!({"species":"benchmark_carer","name":"Benchmark carer","corpse_identity":"item.corpse.test.benchmark-carer","faction":"neutral",
         "binding":"intellect","starting_skills":["heavy_weaponry","athletics"],"restoration":"authored", "nutrition": {"kind":"exempt"},
         "hit_dice":[{"source":"racial"}]});
     manifest.characters[0].creature = Some(serde_json::from_value(creature.clone())?);

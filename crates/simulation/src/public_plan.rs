@@ -580,6 +580,7 @@ mod tests {
         game.configure_creature(
             actor,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.observer".parse().unwrap(),
                 name: "observer".into(),
                 faction: "neutral".into(),
             },
@@ -684,6 +685,7 @@ mod tests {
         idle.configure_creature(
             subject,
             crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.visible-subject".parse().unwrap(),
                 name: "visible subject".into(),
                 faction: "neutral".into(),
             },
@@ -699,7 +701,10 @@ mod tests {
             .iter()
             .position(|slot| slot.as_str() == "body_armor")
             .unwrap();
-        let mut equipment = ItemSpec::ordinary("private mail".into());
+        let mut equipment = ItemSpec::ordinary(
+            "item.test.private-mail".parse().unwrap(),
+            "private mail".into(),
+        );
         equipment.class = ItemClass::Armor;
         equipment.equipment = Some(EquipmentSpec {
             periodic_relocation: None,
@@ -1134,11 +1139,16 @@ mod tests {
             )
             .unwrap();
         let build = crate::test_creatures::build(crate::test_creatures::species());
-        for name in ["   ", "  Guard  ", "Guard"] {
+        for (name, corpse_identity) in [
+            ("   ", "item.corpse.test.blank-persona"),
+            ("  Guard  ", "item.corpse.test.padded-guard"),
+            ("Guard", "item.corpse.test.guard"),
+        ] {
             let mut game = baseline.clone();
             game.configure_creature(
                 subject,
                 crate::CreatureIdentity {
+                    corpse_identity: corpse_identity.parse().unwrap(),
                     name: name.into(),
                     faction: "neutral".into(),
                 },

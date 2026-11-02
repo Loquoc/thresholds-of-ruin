@@ -819,7 +819,10 @@ fn self_defense_paid_supply_claims_survive_resume_and_spend_exactly_once() {
     let mut game = fixture(|doc, _| {
         ability(doc)["supply_costs"] = json!([{"supply":"bandage","quantity":1,"access":"carried_or_ground_touch","spend_at":"first_resolution"}]);
     });
-    let mut supply = crate::ItemSpec::ordinary("plain bandage".into());
+    let mut supply = crate::ItemSpec::ordinary(
+        "item.test.plain-bandage".parse().unwrap(),
+        "plain bandage".into(),
+    );
     supply.supply = Some(crate::content_ids::SupplyId::new("bandage").unwrap());
     game.place_item_stack(20, at(1, 2, 1), Some(OWNER), 1, supply)
         .unwrap();

@@ -30,7 +30,7 @@ def fixture():
     caster["creature"]["body_package"] = "fixture.body.utility_caster"
     caster["loadout"] = [{"archetype": "rogue.wand_" + kind, "quantity": 1}
                          for kind in ("haste", "slow", "invisibility")]
-    caster["known_identities"] = ["rogue.wand_haste", "rogue.wand_slow"]
+    caster["known_identities"] = ["item.wand.wand-haste", "item.wand.wand-slow"]
     data["regions"][0]["actors"] = [
         {"id": 3, "at": [3, 2, 0], "turn_ticks": 100, "controller": "external", "creature": target,
          "body": copy.deepcopy(caster["body"])},
@@ -43,11 +43,15 @@ def fixture():
 def initial_items(test, frame):
     inventory = observation(frame)["inventory"]
     test.assertEqual(len(inventory), 3)
-    # Independent fixed seed42 form vector: haste and slow are staves.
+    # Independent seed42 vector for canonical item.* identities. Form selection
+    # hashes the explicit identity; the versioned identity migration changes
+    # this vector without changing the selection algorithm.
     haste = next(row for row in inventory if row["name"] == "staff of haste monster")
-    slow = next(row for row in inventory if row["name"] == "staff of slow monster")
+    slow = next(row for row in inventory if row["name"] == "wand of slow monster")
     invisible = next(row for row in inventory if not row["identified"])
-    test.assertEqual(invisible["name"], "yew staff")
+    test.assertEqual(haste["appearance"], "cedar staff")
+    test.assertEqual(slow["appearance"], "nickel wand")
+    test.assertEqual(invisible["name"], "cherry staff")
     test.assertNotIn("invisibility", invisible["name"])
     return {"haste": haste["id"], "slow": slow["id"], "invisibility": invisible["id"]}
 

@@ -240,9 +240,9 @@ class AiInteractionProcesses(ProcessTestCase):
         package = self.save.parent / "unknown-ai"
         shutil.copytree(ROOT / "scenarios/tests/ai-interactions", package)
         region = package / "regions/1.toml"
-        region.write_text(region.read_text().replace('known_identities = ["healing"]', 'known_identities = []'))
+        region.write_text(region.read_text().replace('known_identities = ["item.potion.healing"]', 'known_identities = []'))
         manifest = package / "scenario.toml"
-        manifest.write_text(manifest.read_text().replace('characters = [{ id = 1,', 'characters = [{ id = 1, known_identities = ["healing"],'))
+        manifest.write_text(manifest.read_text().replace('characters = [{ id = 1,', 'characters = [{ id = 1, known_identities = ["item.potion.healing"],'))
         subprocess.run([self.bin / "tor-scenario", "validate", package], check=True, capture_output=True, text=True)
         self.server(scenario=package, wizard=True)
         observer, _ = self.client(WIZARD_TOKEN, observe=True, actor=2)

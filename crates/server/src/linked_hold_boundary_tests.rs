@@ -51,7 +51,8 @@ pub(super) fn scenario_with_confusion(confused: bool) -> crate::Scenario {
     manifest["creatures"] = json!({"species":{"escape_subject":subject,"escape_holder":holder}});
     let creature = |subject: bool| {
         json!({"species":if subject {"escape_subject"} else {"escape_holder"},
-        "name":if subject {"Subject"} else {"Holder"}, "faction":"neutral", "binding":"intellect",
+        "name":if subject {"Subject"} else {"Holder"},
+        "corpse_identity":if subject {"item.corpse.test.subject-capitalized"} else {"item.corpse.test.holder-capitalized"}, "faction":"neutral", "binding":"intellect",
         "starting_skills":["heavy_weaponry","athletics"], "restoration":"authored",
         "nutrition":{"kind":"exempt"}, "hit_dice":[{"source":"racial"}]})
     };

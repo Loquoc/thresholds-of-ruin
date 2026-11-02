@@ -26,7 +26,7 @@ class GroundScareControlProcesses(ProcessTestCase):
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
         manifest["id"] = "occupied-scare-process"
         manifest["archetypes"] = {"ward": {
-            "name": "ground ward", "identity": "fixture.ground_ward", "class": "scroll",
+            "name": "ground ward", "identity": "item.scroll.ground-ward", "class": "scroll",
             "stackable": True, "readable": {"control": {"kind": "nothing"}, "discovery": "never"},
             "ground_scare": {"condition": "fixture.flee", "duration": 1000}}}
         manifest["appearance_pools"] = {}

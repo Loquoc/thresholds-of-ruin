@@ -449,3 +449,173 @@ fn offscreen_has_no_window_and_waits_for_director_exit() {
         ExitCondition::OnAllClosed
     ));
 }
+
+#[test]
+fn ground_capture_defaults_preserve_old_scripts_and_require_explicit_label_names() {
+    let old = parse(fixture()).unwrap();
+    assert!(!old.ground_labels && old.ground_items.is_empty());
+    let mut value = fixture();
+    value["ground_items"] = json!([{"model":"Coins","position":[0,-0.5,0],"yaw":0}]);
+    let no_labels = parse(value.clone()).unwrap();
+    assert_eq!(no_labels.ground_items[0].quantity, 1);
+    assert!(no_labels.ground_items[0].disclosed_name.is_none());
+    value["ground_labels"] = json!(true);
+    assert!(parse(value.clone())
+        .unwrap_err()
+        .contains("explicit disclosed names"));
+    value["ground_items"][0]["disclosed_name"] = json!("gold pieces");
+    value["ground_items"][0]["quantity"] = json!(u64::MAX);
+    let labels = parse(value).unwrap();
+    assert!(labels.ground_labels);
+    assert_eq!(labels.ground_items[0].quantity, u64::MAX);
+}
+
+#[test]
+fn ground_capture_rejects_bad_names_quantities_and_live_ignored_fields() {
+    let mut value = fixture();
+    value["ground_items"] = json!([{"model":"Ring","position":[0,-0.5,0],"yaw":0,
+        "disclosed_name":"copper ring","quantity":2}]);
+    value["ground_labels"] = json!(true);
+    assert!(parse(value.clone()).is_ok());
+    for name in [
+        "".to_owned(),
+        " ".to_owned(),
+        "ring\nsecret".to_owned(),
+        "r".repeat(121),
+    ] {
+        let mut invalid = value.clone();
+        invalid["ground_items"][0]["disclosed_name"] = json!(name);
+        assert!(parse(invalid)
+            .unwrap_err()
+            .contains("disclosed ground name"));
+    }
+    let mut invalid = value.clone();
+    invalid["ground_items"][0]["quantity"] = json!(0);
+    assert!(parse(invalid).unwrap_err().contains("quantity"));
+    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap())
+        .unwrap_err()
+        .contains("capture-only"));
+    value["ground_labels"] = json!(false);
+    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap())
+        .unwrap_err()
+        .contains("capture-only"));
+    value["ground_items"] = json!([]);
+    value["ground_labels"] = json!(true);
+    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap())
+        .unwrap_err()
+        .contains("capture-only"));
+    value["ground_labels"] = json!(false);
+    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap()).is_ok());
+}
+
+#[test]
+fn ground_capture_grouping_uses_the_same_observer_cell_convention() {
+    let cell = ground_cell([2.16, -0.5, -1.12]);
+    assert_eq!(cell, tor_protocol::Position { x: 2, y: -1, z: 0 });
+    assert_eq!(crate::stand(crate::ivec(cell)), Vec3::new(2.0, -0.5, -1.0));
+    let groups = crate::loot_labels::disclosed_groups((0..7).map(|_| (cell, "copper ring", 2)));
+    assert_eq!(crate::loot_labels::pile_counts(groups)[0].text, "7 stacks");
+}
+
+#[test]
+fn dungeon_fixture_is_explicit_and_capture_only() {
+    let mut v = fixture();
+    assert!(!parse(v.clone()).unwrap().dungeon);
+    v["dungeon"] = json!(true);
+    assert!(parse(v.clone()).unwrap().dungeon);
+    assert!(Script::parse_live(&serde_json::to_vec(&v).unwrap()).is_err());
+    v["dungeon"] = json!("yes");
+    assert!(parse(v).is_err());
+}
+
+#[test]
+fn picker_fixture_requires_an_explicit_named_pile() {
+    let mut v = fixture();
+    v["pile_picker"] = json!(true);
+    assert!(parse(v.clone()).is_err());
+    v["ground_items"] = json!((0..5).map(|_| json!({"model":"Coins", "position":[0,-0.5,0], "yaw":0, "quantity":27, "disclosed_name":"gold pieces"})).collect::<Vec<_>>());
+    assert!(parse(v.clone()).unwrap().pile_picker);
+    assert!(Script::parse_live(&serde_json::to_vec(&v).unwrap()).is_err());
+    v["ground_items"][0]["disclosed_name"] = json!(null);
+    assert!(parse(v).is_err());
+}
+
+#[test]
+fn committed_dungeon_fixture_small_group_matches_production_slots() {
+    let script = Script::parse(include_bytes!(
+        "../../review-scripts/dungeon-ground-loot.json"
+    ))
+    .unwrap();
+    let cell = tor_protocol::Position { x: -1, y: 1, z: 0 };
+    let small: Vec<_> = script
+        .ground_items
+        .iter()
+        .filter(|item| ground_cell(item.position) == cell)
+        .collect();
+    assert_eq!(small.len(), 4);
+    for (index, item) in small.iter().enumerate() {
+        let expected =
+            crate::stand(crate::ivec(cell)) + crate::scene::ground_item_spread(index as u32, 4);
+        assert!(Vec3::from_array(item.position).distance(expected) < 0.00001);
+    }
+    assert!(
+        Script::parse(include_bytes!(
+            "../../review-scripts/dungeon-ground-loot-labels.json"
+        ))
+        .unwrap()
+        .ground_labels
+    );
+    assert!(
+        Script::parse(include_bytes!(
+            "../../review-scripts/dungeon-ground-loot-picker.json"
+        ))
+        .unwrap()
+        .pile_picker
+    );
+}
+#[test]
+fn live_review_rejects_ignored_floor_customization_but_accepts_default_stage() {
+    let mut v = fixture();
+    assert!(Script::parse_live(&serde_json::to_vec(&v).unwrap()).is_ok());
+    v["floor_color"] = json!([0.2, 0.21, 0.23]);
+    assert!(Script::parse_live(&serde_json::to_vec(&v).unwrap()).is_ok());
+    v["floor_color"] = json!([0.8, 0.7, 0.6]);
+    assert!(
+        parse(v.clone()).is_ok(),
+        "capture runner implements authored floor color"
+    );
+    assert!(
+        Script::parse_live(&serde_json::to_vec(&v).unwrap()).is_err(),
+        "live runner must not silently ignore authored floor color"
+    );
+}
+
+#[test]
+fn held_item_capture_is_explicit_human_only_and_never_ignored_live() {
+    let mut value = fixture();
+    value["actors"][0]["held_item"] = json!("Staff");
+    assert!(parse(value.clone()).is_ok());
+    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap()).is_err());
+    value["actors"][0]["held_item"] = json!("SecretTrueIdentity");
+    assert!(parse(value).is_err());
+}
+
+#[test]
+fn appearance_assets_are_bounded_capture_inputs_not_display_names() {
+    let mut v = fixture();
+    v["ground_items"] =
+        json!([{"model":"Potion", "asset":"item.potion.amber", "position":[0,0,0], "yaw":0}]);
+    assert!(parse(v.clone()).is_ok());
+    for invalid in ["potion of healing", "item..potion", "Item.Potion", ""] {
+        v["ground_items"][0]["asset"] = json!(invalid);
+        assert!(parse(v.clone()).is_err());
+    }
+    let mut v = fixture();
+    v["actors"][0]["held_asset"] = json!("item.wand.copper");
+    assert!(
+        parse(v.clone()).is_err(),
+        "appearance cannot silently imply a held item"
+    );
+    v["actors"][0]["held_item"] = json!("Wand");
+    assert!(parse(v).is_ok());
+}

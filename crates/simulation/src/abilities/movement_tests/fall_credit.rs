@@ -94,7 +94,12 @@ fn a_new_applied_push_replaces_the_fall_owner_but_a_blocked_push_preserves_it() 
     let other = game
         .spawn_actor(cell(5, 2, 3), NonZeroU64::new(100).unwrap())
         .unwrap();
-    configure_push_subject(&mut game, other, "pushing_source");
+    configure_push_subject(
+        &mut game,
+        other,
+        "item.corpse.test.pushing-source",
+        "pushing_source",
+    );
     push_as(&mut game, other);
     assert_eq!(game.actors[&TARGET].location, cell(5, 4, 3));
     let second = game.actors[&TARGET].motion.active_fall.unwrap();
@@ -263,7 +268,10 @@ fn teleport_and_body_reshape_retire_the_actor_fall_episode() {
 fn dropped_stacks_compare_kinematics_without_copying_actor_fall_ownership() {
     let mut game = falling_target(false);
     let at = game.actors[&TARGET].location;
-    let mut spec = crate::ItemSpec::ordinary("falling token".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.falling-token".parse().unwrap(),
+        "falling token".into(),
+    );
     spec.stackable = true;
     let carried = game
         .place_item_stack(100, at, Some(TARGET), 2, spec.clone())
@@ -280,7 +288,13 @@ fn dropped_stacks_compare_kinematics_without_copying_actor_fall_ownership() {
     assert!(game.items[&ground].motion.active_fall.is_none());
     assert_eq!(game.actors[&TARGET].motion, before);
     let loose = game
-        .place_authored_item(102, at, "loose token".into(), Some(TARGET))
+        .place_authored_item(
+            102,
+            at,
+            "item.test.loose-token".parse().unwrap(),
+            "loose token".into(),
+            Some(TARGET),
+        )
         .unwrap();
     game.apply_transfer(loose, loose, 1, ItemLocation::Ground(at))
         .unwrap();
@@ -296,7 +310,13 @@ fn death_clears_actor_ownership_before_transferring_motion_to_corpse_and_invento
     let mut game = falling_target(false);
     let at = game.actors[&TARGET].location;
     let carried = game
-        .place_authored_item(100, at, "keepsake".into(), Some(TARGET))
+        .place_authored_item(
+            100,
+            at,
+            "item.test.keepsake".parse().unwrap(),
+            "keepsake".into(),
+            Some(TARGET),
+        )
         .unwrap();
     let before = game.actors[&TARGET].motion.clone();
     crate::test_creatures::injure(&mut game, TARGET, 1000).unwrap();
@@ -515,7 +535,12 @@ fn reattaching_a_detached_fall_materializes_its_owner_without_thawing_it() {
             NonZeroU64::new(100).unwrap(),
         )
         .unwrap();
-    configure_push_subject(&mut game, waiting, "pushing_source");
+    configure_push_subject(
+        &mut game,
+        waiting,
+        "item.corpse.test.pushing-source",
+        "pushing_source",
+    );
     let cause = game.actors[&TARGET].motion.active_fall;
     let mut records = crate::MemoryRecords::default();
     game.transition_regions(
@@ -836,8 +861,14 @@ fn loaded_and_detached_item_and_corpse_records_reject_forged_fall_causes() {
                 .unwrap()
                 .0
         } else {
-            game.place_authored_item(100, cell(7, 3, 3), "ordinary token".into(), None)
-                .unwrap()
+            game.place_authored_item(
+                100,
+                cell(7, 3, 3),
+                "item.test.ordinary-token".parse().unwrap(),
+                "ordinary token".into(),
+                None,
+            )
+            .unwrap()
         };
         assert!(game.items[&item].motion.active_fall.is_none());
         let original = saved(&game);
@@ -1051,8 +1082,18 @@ fn frozen_falls_do_not_expand_the_active_victims_causal_owner_working_set() {
             let victim = game
                 .spawn_actor(at(4), NonZeroU64::new(100).unwrap())
                 .unwrap();
-            configure_push_subject(&mut game, owner, "pushing_source");
-            configure_push_subject(&mut game, victim, "pushed_target");
+            configure_push_subject(
+                &mut game,
+                owner,
+                "item.corpse.test.pushing-source",
+                "pushing_source",
+            );
+            configure_push_subject(
+                &mut game,
+                victim,
+                "item.corpse.test.pushed-target",
+                "pushed_target",
+            );
             (owner, victim)
         };
         // Tiny existing zero-gravity velocity keeps these ordinary admitted

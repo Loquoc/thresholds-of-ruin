@@ -491,6 +491,7 @@ fn compilation_freezes_source_turn_ticks_and_compiled_hit_dice_without_rng() {
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.source".parse().unwrap(),
             name: "source".into(),
             faction: "neutral".into(),
         },
@@ -888,6 +889,7 @@ fn persistent_condition_survives_inactive_region_unload_restore_and_thaw() {
     game.configure_creature(
         actor,
         crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.subject".parse().unwrap(),
             name: "subject".into(),
             faction: "neutral".into(),
         },

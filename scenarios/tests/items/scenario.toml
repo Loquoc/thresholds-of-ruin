@@ -1,14 +1,15 @@
-format = 36
+format = 37
 id = "items"
 version = "1.0"
 ruleset = "rules.toml"
 default_character = 1
 characters = [
   { id = 1, anchor = "1/start" },
-  { id = 2, anchor = "1/start", known_identities = ["healing"] }
+  { id = 2, anchor = "1/start", known_identities = ["item.potion.healing"] }
 ]
 
 [archetypes.arrow]
+identity = "item.weapon.arrow"
 class = "weapon"
 name = "arrow"
 stackable = true
@@ -16,17 +17,19 @@ stackable = true
 [archetypes.healing]
 class = "potion"
 name = "potion of healing"
-identity = "healing"
+identity = "item.potion.healing"
 appearance_pool = "potions"
 stackable = true
 
 [archetypes.poison]
 class = "potion"
 name = "potion of poison"
-identity = "poison"
+identity = "item.potion.poison"
 appearance_pool = "potions"
 stackable = true
 
 [appearance_pools.potions]
-appearances = ["red potion"]
+appearances = [
+  { name = "red potion" },
+]
 confounding = true

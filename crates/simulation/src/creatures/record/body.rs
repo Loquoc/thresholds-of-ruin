@@ -667,6 +667,7 @@ mod tests {
             position: tor_world::Position { x: 1, y: 1, z: 0 },
         };
         let identity = crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.catalog-witness".parse().unwrap(),
             name: "catalog witness".into(),
             faction: "fixture".into(),
         };

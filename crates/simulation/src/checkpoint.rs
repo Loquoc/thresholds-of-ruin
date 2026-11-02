@@ -1057,6 +1057,10 @@ impl Game {
     /// attaching a stored region gives its actors the same.
     pub(crate) fn actor_state_valid(&self, id: ActorId, actor: &Actor) -> bool {
         id.0 != 0
+            && actor
+                .knowledge
+                .iter()
+                .all(|identity| !identity.is_unknown() && identity.as_str().split('.').count() >= 3)
             && crate::hallucination_clock::valid_for(actor)
             && actor.periodic_relocations.valid_for(actor, &self.items)
             && actor
@@ -1306,6 +1310,51 @@ mod tests {
     use super::*;
     use std::num::NonZeroU64;
     use tor_world::{Location, Position, RegionId};
+
+    #[test]
+    fn restored_item_knowledge_requires_known_leaves_but_keeps_historical_identity() {
+        let mut game = Game::two_room_in_stone(42, crate::test_creatures::content());
+        let actor = game
+            .spawn_actor(
+                Location {
+                    region: RegionId(1),
+                    position: Position { x: 1, y: 1, z: 0 },
+                },
+                NonZeroU64::new(100).unwrap(),
+            )
+            .unwrap();
+        let historical: crate::ItemIdentity = "item.potion.historical-known-type".parse().unwrap();
+        assert!(game
+            .items
+            .iter()
+            .all(|(_, item)| item.spec.identity != historical));
+        game.learn_identity(actor, &historical).unwrap();
+        let mut shared = SharedState::default();
+        let snapshot = game.checkpoint(&mut shared);
+        let snapshot_value = serde_json::to_value(&snapshot).unwrap();
+        let good = serde_json::to_value(&shared).unwrap();
+        let decoded: SharedState = serde_json::from_value(good.clone()).unwrap();
+        let restored = Game::restore_checkpoint(
+            serde_json::from_value(snapshot_value.clone()).unwrap(),
+            &decoded,
+            game.content().clone(),
+        )
+        .unwrap();
+        assert!(restored.actors[&actor].knowledge.contains(&historical));
+        for invalid in ["item", "item.potion", "item.unknown", "item.potion.unknown"] {
+            let mut forged = good.clone();
+            forged["actors"][snapshot.actors]["1"]["knowledge"] =
+                serde_json::json!([historical.as_str(), invalid]);
+            let decoded: SharedState = serde_json::from_value(forged).unwrap();
+            assert!(
+                matches!(
+                    Game::restore_checkpoint(serde_json::from_value(snapshot_value.clone()).unwrap(), &decoded, game.content().clone()),
+                    Err(PersistError::ActorState { actor: rejected }) if rejected == actor
+                ),
+                "syntactically valid but nonconcrete knowledge {invalid} must reject"
+            );
+        }
+    }
 
     #[test]
     fn restored_actor_clocks_cannot_come_from_the_future() {
@@ -1581,7 +1630,8 @@ mod tests {
     fn ground_item_references_are_checked_at_runtime_checkpoint_and_detached_restore() {
         use crate::content_ids::{AbilityId, ConditionId, DescriptorId};
         use crate::rules::{Effect, Modifier, ModifierOp, RulesetError, Scope};
-        let mut modifier = crate::ItemSpec::ordinary("armor".into());
+        let mut modifier =
+            crate::ItemSpec::ordinary("item.test.armor".parse().unwrap(), "armor".into());
         modifier.class = crate::ItemClass::Armor;
         modifier.equipment = Some(crate::EquipmentSpec {
             periodic_relocation: None,
@@ -1598,7 +1648,8 @@ mod tests {
                 },
             }],
         });
-        let mut effect = crate::ItemSpec::ordinary("potion".into());
+        let mut effect =
+            crate::ItemSpec::ordinary("item.test.potion".parse().unwrap(), "potion".into());
         effect.class = crate::ItemClass::Potion;
         effect.consumable = Some(crate::ConsumableSpec {
             descriptors: vec![],
@@ -1608,7 +1659,8 @@ mod tests {
                 duration: 100,
             }],
         });
-        let mut attack = crate::ItemSpec::ordinary("weapon".into());
+        let mut attack =
+            crate::ItemSpec::ordinary("item.test.weapon".parse().unwrap(), "weapon".into());
         attack.class = crate::ItemClass::Weapon;
         attack.equipment = Some(crate::EquipmentSpec {
             periodic_relocation: None,
@@ -1630,7 +1682,10 @@ mod tests {
                 .unwrap(),
             ),
         });
-        let mut slot = crate::ItemSpec::ordinary("unknown slot armor".into());
+        let mut slot = crate::ItemSpec::ordinary(
+            "item.test.unknown-slot-armor".parse().unwrap(),
+            "unknown slot armor".into(),
+        );
         slot.class = crate::ItemClass::Armor;
         slot.equipment = Some(crate::EquipmentSpec {
             periodic_relocation: None,
@@ -1662,7 +1717,13 @@ mod tests {
             );
             assert_eq!(game, before, "invalid item insertion is atomic");
             let item = game
-                .place_item_stack(100, at, None, 1, crate::ItemSpec::ordinary("valid".into()))
+                .place_item_stack(
+                    100,
+                    at,
+                    None,
+                    1,
+                    crate::ItemSpec::ordinary("item.test.valid".parse().unwrap(), "valid".into()),
+                )
                 .unwrap();
             let content = game.content().clone();
             let mut shared = SharedState::default();
@@ -1743,7 +1804,8 @@ mod tests {
             game.creature(actor).is_some(),
             "checkpoint subjects own their builds"
         );
-        let mut spec = crate::ItemSpec::ordinary("token".into());
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.token".parse().unwrap(), "token".into());
         spec.stackable = true;
         let item = game.place_item_stack(100, at, None, 2, spec).unwrap();
         let mut shared = SharedState::default();
@@ -1801,7 +1863,9 @@ mod tests {
             position: Position { x: 1, y: 1, z: 0 },
         };
         let actor = game.spawn_actor(at, NonZeroU64::new(100).unwrap()).unwrap();
-        let item = game.place_item(at, "token".into()).unwrap();
+        let item = game
+            .place_item(at, "item.test.token".parse().unwrap(), "token".into())
+            .unwrap();
         game.refresh_navigation();
         let mut shared = SharedState::default();
         let before = game.checkpoint(&mut shared);

@@ -124,9 +124,12 @@ fn fixture_with(
     });
     game.actors.get_mut(&ActorId(1)).unwrap().ready_at = 0;
     game.actors.get_mut(&ActorId(2)).unwrap().ready_at = 1000;
-    let mut spec = crate::ItemSpec::ordinary("contact test stick".into());
+    let mut spec = crate::ItemSpec::ordinary(
+        "item.test.contact-test-stick".parse().unwrap(),
+        "contact test stick".into(),
+    );
     spec.class = crate::ItemClass::Tool;
-    spec.identity = "fixture.contact_device".into();
+    spec.identity = "item.test.fixture-contact-device".parse().unwrap();
     spec.concealed = true;
     spec.device = Some(crate::DeviceSpec {
         ability: AbilityId::new("fixture_ray").unwrap(),

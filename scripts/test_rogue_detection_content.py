@@ -1,3 +1,4 @@
+from rogue_identity_contracts import IDENTITIES
 """Opt-in detection contracts: source-owned labels, closed effects and no stock changes."""
 from pathlib import Path
 import tomllib
@@ -24,7 +25,7 @@ class RogueDetectionContent(unittest.TestCase):
                 item_class = "scroll" if kind == "food_detection" else "potion"
                 delivery = "readable" if item_class == "scroll" else "consumable"
                 self.assertEqual(items.get("rogue." + kind), {
-                    "name": item_class + " of " + kind.replace("_", " "), "identity": "rogue." + kind,
+                    "name": item_class + " of " + kind.replace("_", " "), "identity": IDENTITIES["rogue." + kind],
                     "asset": "item." + item_class, "magical": True, "class": item_class, "stackable": True,
                     "appearance_pool": "rogue." + item_class + "s",
                     delivery: {"discovery": "self_effect", "effects": [effect]}})
@@ -55,7 +56,7 @@ class RogueDetectionContent(unittest.TestCase):
 
     def test_two_potion_labels_preserve_old_appearances_and_exact_identity_capacity(self):
         catalog = source("catalog/items.toml")
-        labels = catalog["appearance_pools"]["rogue.potions"]["appearances"]
+        labels = [entry["name"] for entry in catalog["appearance_pools"]["rogue.potions"]["appearances"]]
         self.assertEqual(labels, OLD_LABELS + ["saffron potion", "cerulean potion"])
         identities = [name for name, item in catalog["items"].items() if item.get("appearance_pool") == "rogue.potions"]
         self.assertEqual(len(identities), 14)
@@ -71,7 +72,7 @@ class RogueDetectionContent(unittest.TestCase):
         for kind in KINDS:
             self.assertIn("rogue." + kind, repr(manifest["floor_activation"]))
             for character in manifest["characters"]:
-                self.assertNotIn("rogue." + kind, character["known_identities"])
+                self.assertNotIn(IDENTITIES["rogue." + kind], character["known_identities"])
                 self.assertNotIn("rogue." + kind, [row["archetype"] for row in character["loadout"]])
 
 
