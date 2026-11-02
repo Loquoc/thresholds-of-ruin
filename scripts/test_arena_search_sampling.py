@@ -36,6 +36,23 @@ class SearchSamplingTests(unittest.TestCase):
                 validate_state(state)
             self.assertEqual(state, original)
 
+    def test_environment_rejects_previous_alembic_before_loading_the_sampler(self):
+        old = {**PINNED, "alembic": "1.20.0"}
+        with patch("arena_search_sampling.importlib.metadata.version", side_effect=old.__getitem__):
+            with self.assertRaisesRegex(ValueError, "pinned environment"):
+                environment()
+
+    def test_history_rejects_previous_alembic_even_with_valid_integrity_hash(self):
+        with patch("arena_search_sampling.importlib.metadata.version", side_effect=PINNED.__getitem__):
+            state = initial_state(SPACE, "42")
+            state["environment"]["packages"]["alembic"] = "1.20.0"
+            state["header_sha256"] = hash_json({key: state[key] for key in
+                                               ("format", "seed", "space", "environment")})
+            original = copy.deepcopy(state)
+            with self.assertRaisesRegex(ValueError, "environment differs from retained history"):
+                validate_state(state)
+            self.assertEqual(state, original)
+
     def test_environment_rejects_old_sqlalchemy_before_loading_the_sampler(self):
         old = {**PINNED, "sqlalchemy": "2.1.4"}
         with patch("arena_search_sampling.importlib.metadata.version", side_effect=old.__getitem__):
@@ -46,6 +63,23 @@ class SearchSamplingTests(unittest.TestCase):
         with patch("arena_search_sampling.importlib.metadata.version", side_effect=PINNED.__getitem__):
             state = initial_state(SPACE, "42")
             state["environment"]["packages"]["sqlalchemy"] = "2.1.4"
+            state["header_sha256"] = hash_json({key: state[key] for key in
+                                               ("format", "seed", "space", "environment")})
+            original = copy.deepcopy(state)
+            with self.assertRaisesRegex(ValueError, "environment differs from retained history"):
+                validate_state(state)
+            self.assertEqual(state, original)
+
+    def test_environment_rejects_previous_sqlalchemy_before_loading_the_sampler(self):
+        old = {**PINNED, "sqlalchemy": "2.1.5"}
+        with patch("arena_search_sampling.importlib.metadata.version", side_effect=old.__getitem__):
+            with self.assertRaisesRegex(ValueError, "pinned environment"):
+                environment()
+
+    def test_history_rejects_previous_sqlalchemy_even_with_valid_integrity_hash(self):
+        with patch("arena_search_sampling.importlib.metadata.version", side_effect=PINNED.__getitem__):
+            state = initial_state(SPACE, "42")
+            state["environment"]["packages"]["sqlalchemy"] = "2.1.5"
             state["header_sha256"] = hash_json({key: state[key] for key in
                                                ("format", "seed", "space", "environment")})
             original = copy.deepcopy(state)
