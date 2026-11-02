@@ -3188,3 +3188,18 @@ all accepted outcome labels and the misspelled-outcome rejection. This is a
 separate stale version oracle, not a performance or gameplay change.
 The focused shared-support owner then passed all 26 tests with the corrected
 version oracle; formatting and documentation checks also passed.
+
+A later Linux debug process shard exposed one independent driver race in the
+owned-hit-die paid-preparation test: `wizard arena step` acknowledged the step
+budget before the AI executed its action. An immediate Observe on another socket
+returned revision 2 without preparation, while the retained text stream then
+reported Spark Lance starting with 72 ticks remaining. The driver now waits for
+the committed ability-start event and settles its visual projection; it does not
+wait for the expected reserved-mana value. Exact payment, reservation, ability,
+unrelated-hit-die preservation, owning-hit-die cancellation and restart/rewind
+assertions remain unchanged. A deterministic ordered-frame regression failed
+with the original immediate-Observe behavior and passes with the event barrier;
+the two hit-die process cases and adjacent paid-preparation restart case also
+passed. The unchanged original passed locally, so this is a CI-evidenced race
+with a deterministic driver regression, not a claim of a locally reproduced
+scheduler failure or a gameplay defect.

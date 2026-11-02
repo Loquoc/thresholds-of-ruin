@@ -4,9 +4,53 @@ from rogue_test_support import disclosed_frames, ordered_combat_events
 from process_harness import content_ids, hit_die_counts, read_capture
 import shutil
 import subprocess
+import unittest
 
 from process_harness import ProcessTestCase, ROOT, SPECTATOR_TOKEN, WIZARD_TOKEN, ascii_input_completion, creature_package, resource, settle_rogue_action
 
+
+
+def arena_preparation_frame(case, observer):
+    # Arena control acknowledges a step budget before the AI executes it.
+    # Observe on another socket can still return the pre-action picture. Wait
+    # for the committed ability-start event, then finish its visual projection.
+    started = case.frame(observer, lambda frame: any(
+        entry.get("content", {}).get("event", {}).get("type") == "ability_started"
+        for entry in frame.get("history", [])))
+    return case.picture_after(observer, started)
+
+
+class ArenaPreparationSynchronization(unittest.TestCase):
+    def test_waits_for_ability_start_not_early_ready_or_old_snapshot(self):
+        early = {"type": "ready", "state": {"revision": "2"}, "history": []}
+        snapshot = {"type": "response", "state": {"revision": "2"}, "history": []}
+        scheduled = {"type": "update", "history": [{"content": {"type": "wizard"}}]}
+        started = {"type": "update", "history": [{"content": {"event": {
+            "type": "ability_started", "ability": {"id": "spark_lance_fire"}}}}]}
+        # No resource or preparation fields appear in these causal frames:
+        # the barrier must not wait for the very values the process test checks.
+        frames = iter((early, snapshot, scheduled, started))
+        accepted = []
+        settled = {"state": {"revision": "3"}}
+
+        class Driver:
+            def request(self, observer, request):
+                return early
+
+            def frame(self, observer, predicate):
+                for frame in frames:
+                    accepted.append(predicate(frame))
+                    if accepted[-1]:
+                        return frame
+                raise AssertionError("ability-start barrier not reached")
+
+            def picture_after(self, observer, frame):
+                self_case.assertIs(frame, started)
+                return settled
+
+        self_case = self
+        self.assertIs(arena_preparation_frame(Driver(), object()), settled)
+        self.assertEqual(accepted, [False, False, False, True])
 
 
 class CreatureAbilityProcesses(ProcessTestCase):
@@ -520,7 +564,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         self.assertEqual(u64(initial["hit_dice"]["total"]), 3)
         initial_mana = resource(original, "mana")["balance"]
         self.assertNotIn("Server error", wizard.command("wizard arena step"))
-        prepared = self.request(observer, {"type": "observe"})
+        prepared = arena_preparation_frame(self, observer)
         self.assertIsNone(prepared["error"])
         self.assertEqual(resource(prepared, "mana")["reserved"], 1)
         self.assertTrue(prepared["state"]["observation"]["combat"]["preparation_active"])
