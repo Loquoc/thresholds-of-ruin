@@ -2967,3 +2967,22 @@ failure, not an additional production defect or failed test-method execution.
 The subsequently interrupted application build was resumed separately; its
 verified binaries passed all nine background-save process checks. Interruption
 without an exit receipt is incomplete evidence, not a pass or behavioral failure.
+
+### Arena sampling dependency pins diverged during Alembic maintenance, 31 October 2026
+
+Dependabot PR216 updated the hash-pinned Alembic requirement from 1.20.0 to
+1.20.1 without updating the sampler's explicit environment contract. The
+[Linux debug Python shard](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41133334551/job/124329687533)
+reported five distinct arena sampling/campaign methods failing, including the
+requirements/allowlist consistency check. These are manifestations of one stale
+dependency-contract root, not five independent production defects. The local
+consistency test reproduced the mismatch before repair; no acceptance threshold,
+history-integrity check, or environment equality guard was relaxed.
+
+The Alembic pin now agrees with the hash-locked environment. Independent tests
+reject an installed 1.20.0 environment and an otherwise integrity-valid history
+from 1.20.0, preserving that history unchanged. Both new rejection witnesses
+failed before the pin correction and passed afterward. Existing older NumPy and
+SQLAlchemy rejection witnesses remain intact. Sampling histories remain bound
+to their exact environment; this maintenance does not introduce cross-version
+history compatibility. Fresh integrated hosted qualification remains required.
