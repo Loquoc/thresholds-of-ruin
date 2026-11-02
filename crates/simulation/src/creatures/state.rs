@@ -70,6 +70,8 @@ pub struct ActiveTimeOutcome {
     /// An observation overflow invalidates diagnostics without changing gameplay.
     pub diagnostics_incomplete: bool,
     pub(crate) empty_time_depletion: bool,
+    /// The reserve reached its starvation limit and exhausted Health.
+    pub(crate) starved: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -355,17 +357,21 @@ impl CreatureState {
     /// Commit only the final body/equipment combination to sticky Health.
     pub(crate) fn stage_body_rebuild_with_equipment(
         &mut self,
-        build: CreatureBuild,
+        replacement: super::body::ValidatedBodyReplacement,
         equipment: Vec<EquipmentSource>,
     ) -> Result<RebuildOutcome, CreatureStateError> {
         let mut candidate = self.clone();
         candidate.extra_sources = equipment_sources(&equipment)?;
         candidate.equipment = equipment;
         let base_period = candidate.health_recovery.base_period();
-        let result = candidate.rebuild_one_with_recovery_context(
+        let (build, permanent) = replacement.into_parts();
+        let result = candidate.rebuild_one_with_compilation(
             build,
             ConditionReconciliation::Explicit,
             || Ok(RecoveryContext::Pending { base_period }),
+            // These operands came from one owned validation result; callers
+            // cannot pair an arbitrary build with another body's compilation.
+            |_| Ok(permanent),
         )?;
         candidate.polymorph_return_pending = false;
         *self = candidate;
@@ -1252,6 +1258,21 @@ impl CreatureState {
         conditions: ConditionReconciliation,
         context: impl FnOnce() -> Result<RecoveryContext, CreatureStateError>,
     ) -> Result<RebuildOutcome, CreatureStateError> {
+        self.rebuild_one_with_compilation(
+            build,
+            conditions,
+            context,
+            super::derive::PermanentCreature::compile,
+        )
+    }
+
+    fn rebuild_one_with_compilation(
+        &mut self,
+        build: CreatureBuild,
+        conditions: ConditionReconciliation,
+        context: impl FnOnce() -> Result<RecoveryContext, CreatureStateError>,
+        compile: impl FnOnce(&CreatureBuild) -> Result<super::derive::PermanentCreature, BuildError>,
+    ) -> Result<RebuildOutcome, CreatureStateError> {
         // Nutrition enrollment and both immutable policies survive every rebuild.
         if matches!(self.nutrition, crate::nutrition::Nutrition::Required { .. })
             && (self.build.ruleset().document().nutrition != build.ruleset().document().nutrition
@@ -1286,9 +1307,7 @@ impl CreatureState {
         self.cooldowns
             .validate_ruleset(build.ruleset())
             .map_err(CreatureStateError::Cooldown)?;
-        let permanent = Shared::new(
-            super::derive::PermanentCreature::compile(&build).map_err(CreatureStateError::Build)?,
-        );
+        let permanent = Shared::new(compile(&build).map_err(CreatureStateError::Build)?);
         let sources = condition_sources(&build, &self.extra_sources, &ConditionState::default());
         let baseline = permanent
             .fold(
@@ -1905,6 +1924,7 @@ impl CreatureState {
         let mut nutrition_time_demand = 0;
         let mut nutrition_regeneration_demand = 0;
         let mut empty_time_depletion = false;
+        let mut starved_to_death = false;
         while ticks > 0 && !self.health.dead() {
             let policy = self.build.ruleset().document().nutrition;
             let nutrition_rate = self.derived.nutrition_rate_thirtieths;
@@ -2032,6 +2052,7 @@ impl CreatureState {
                 // The shared injury/death primitive has no attacker. The actor
                 // lifecycle later publishes ordinary death with no FatalCause.
                 self.health.deplete();
+                starved_to_death = true;
                 self.received_health_loss_remaining = self
                     .build
                     .ruleset()
@@ -2049,6 +2070,7 @@ impl CreatureState {
             nutrition_regeneration_demand,
             regenerated,
             empty_time_depletion,
+            starved: starved_to_death,
             nutrition_spent: match (nutrition_before, self.nutrition) {
                 (
                     crate::nutrition::Nutrition::Required {

@@ -33,6 +33,111 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Cross-region retreat and save-anchor boundaries, 30 October 2026
+
+The documentation review's mixed flee-distance candidate was reproduced against
+unchanged production AI before repair. In
+`ai::flee_tests::cornered_flee_does_not_approach_a_threat_across_region_partitions`,
+the split six-cell corridor chose `Move(East)` toward a visible threat instead of
+`Wait`; its unsplit control and the separate positive rotated-retreat method
+passed. This is **one production root, one distinct intended failing method and
+one failed execution** in this first-red window. Before that reproduction, a new
+fixture's customized species was absent from its Game catalog: one fixture-setup
+root caused two failed methods/executions. Those failures are not flee evidence.
+
+The correction uses the same remembered-route step-count policy from actual
+post-step frames. Six dedicated methods cover split/unsplit and rotated joins,
+one-way escape, missing remembered connections, blocked movement, decision purity
+and checkpointed autonomous execution. The affected AI owner passes 76 methods;
+the remembered-route unit owner passes 10. These are targeted local results, not
+full workspace, platform/release or performance qualification.
+
+Save-owned note-anchor adapters separately preserve current string/null encoding
+and validation. The save-schema owner passes 21 methods, including independent
+shape/rejection fixtures for snapshots and private optional entry boundaries.
+Two journal-boundary tests, eleven history integration tests, two AI execution/
+recovery tests and the actual-server action/annotation restart witness also pass.
+These characterize compatibility hardening; no prior data-corruption failure is
+claimed. Deterministic AI replay compatibility requires its own explicit rules
+identity decision, independent of unchanged serialized shapes.
+
+
+## Uninitialized-navigation retreat regression, 30 October 2026
+
+The first v57 draft made a known current route a prerequisite for every retreat.
+Full CI caught a **production policy regression**, not stale fixture expectations:
+current visibility and public AI decisions do not require prior navigation
+initialization. Four `abilities::movement_tests::autonomous` methods lost their
+typed self-step/ordinary-retreat selection; two `abilities::strike_tests` methods
+lost atomic escape from a retained paid prefix. Their original assertions remain.
+
+The bounded evidence window is PR209's initial four Linux/Windows debug/release
+Rust jobs plus a local reproduction with the retained, hash-verified same-source
+executable: **one root, six distinct methods, thirty failed method executions**.
+Platform/profile repeats are executions, not additional roots or methods. Standard
+server boundaries refresh navigation, so these failures alone do not establish
+frequency in an initialized live server. Targeted earlier AI/travel tests missed
+the cross-feature public-Game boundary; the validation set now includes the
+existing autonomous movement and paid-strike owners.
+
+The repair chooses one metric per decision. Known routes retain route-hop
+comparison; absent routes permit a consistent local-coordinate heuristic only in
+an already-disclosed unwrapped physical chart within the actor/threat region
+and for ordinary same-region steps. Other visible regions do not veto those
+local steps; disclosed folds back into the actor’s region do.
+Same-region wrapped/rotated portal controls prevent region identity from being
+mistaken for an ordinary coordinate chart. No navigation mutation, hidden-link
+query or assertion weakening is used. A first correction restored the four movement cases but still rejected the two
+paid-prefix cases because their ordinary local retreat coexisted with a visible
+second room. That focused attempt adds two failed executions of the same methods
+(**thirty-two across both windows**); the region-scoped chart gate
+corrects that over-conservative branch. The final focused checkpoint passes
+AI 80, travel 10, autonomous movement 5 and both paid-prefix methods, with the
+six original assertions untouched. Hosted and local optimized results remain
+separate; the initial failed run is not relabeled green.
+
+## Earned-route confirmed-picture recovery, 30 October 2026
+
+PR 210's Windows debug process partition exposed one controller synchronization
+root cause in the fixed-seed earned-route method. A causal completion and admission
+update retained an older ready picture. The explicit Observe correctly returned
+a newer picture with movement recovery still pending, but the route caller
+returned it without rechecking settlement. The controller's nonready guard then
+failed as intended. The retained frame sequence includes the later ready picture;
+this is a driver defect, not evidence of a body-compilation or gameplay defect.
+Count one observed failed method and execution, separately from deliberate local
+first-red work and later runs.
+
+The caller now settles again against the confirmed picture before returning.
+The transport-only regression reproduces the old-ready → confirmed-recovering →
+later-ready order and fails before the correction. It checks both returned and
+stored state, unchanged command budget, and a single Observe without Wait,
+readmission or retry. A terminal-picture control and existing refusal, paid-tail
+resume and budget controls remain. Full hosted qualification remains required;
+the deterministic caller witness does not measure scheduling frequency.
+
+Local qualification separately retained an interrupted process attempt with no
+terminal receipt and one setup error before gameplay: the restored shell omitted
+the installed Rust toolchain from `PATH`, so campaign provenance could not run
+`rustc --version`. Restoring that environment, without changing assertions or
+rebuilding the verified binaries, passed the complete fixed-seed earned-HD,
+repeated-execution and source-free-restore method. The setup error is one separate
+infrastructure root and execution, not an additional gameplay failure; the
+interrupted attempt is neither a pass nor a demonstrated behavioral failure.
+
+## Body-refactor process binary inventory, 30 October 2026
+
+The focused text Polymorph reopen/retry check first failed before gameplay:
+its helper also launches a headless observer, but the local binary inventory
+included only server, scenario compiler and text client. The missing
+`tor-client-headless` produced `FileNotFoundError`. This is one local setup/
+inventory root, one failed method and one failed execution, not a gameplay or
+persistence defect. Building the omitted executable and rerunning the exact
+method passed without weakening assertions or changing runtime source; the
+failed receipt remains separate. Select process binaries from helper dependencies,
+not only the client named in the method. The owner is
+[`MagicItemProcesses.test_text_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger`](../../scripts/test_magic_items_process.py).
+
 ## Projected limb surface investigation, 28 October 2026
 
 Two existing source-contract defects were confirmed while developing the new
@@ -756,6 +861,44 @@ changes did not cause it.
   client: a harness/environment limit, not a result). Exact-head hosted CI
   remains their qualification.
 
+## Rogue tuning branch, 29 October 2026
+
+Local `feat/rogue-mechanics-profile`, before publication. Window: this
+branch's development runs only.
+
+- **Production defect, caught in development (not by a test).** Seeded birth of
+  a body-package character rebuilt its authored plan from the birth rows only,
+  dropping the growth schedule, so the Rogue adventurer earned XP without
+  growing. The seeded-descent campaign exposed it (360 XP at level 1); the
+  existing unit and process tests built schedules without seeded birth or only
+  checked the starting state. Intended red:
+  `creatures::body_tests::seeded_birth_keeps_the_growth_schedule` failed with
+  `None` for the next scheduled source; green after the birth path carries the
+  unowned future rows. A real-process witness,
+  `test_scenario_capabilities_process...test_rogue_adventurer_grows_its_scheduled_row_through_ordinary_play`,
+  now drinks Raise Level in the Rogue package. One root, one method, one failed
+  execution.
+- **Stale/unupdated tests, approved shape change.** Adding scenario capabilities
+  and an optional choice quantity left
+  `engine::floor_activation_tests::checkpoint_cannot_inject_scenario_policy_into_a_nonpackage_game`,
+  `scenario_package::tests::authoring_explicit_actor_values_preserve_canonical_shape`,
+  `scenario_package::tests::rogue_magic_catalog_uses_explicit_capabilities_and_appends_finite_stock`
+  and `wire::current_wire_protocol_revision_is_explicitly_pinned` expecting the
+  prior shapes. The capability and growth-schedule fields were updated in the
+  tests; the absent choice quantity is now omitted from authored output instead.
+  Two roots (format additions, an absent optional serialized as null), four
+  methods, four failed executions.
+- **Stale/unupdated tests after merging main, 30 October 2026.** The quick tier
+  failed `engine::floor_activation_tests::checkpoint_cannot_inject_scenario_policy_into_a_nonpackage_game`
+  (its injected capabilities lacked the new `low_health_flight` switch),
+  `runner::backpressure_tests::overdue_saving_holds_commands_in_order_and_nothing_else`
+  (a hand-written command kept the pre-merge `expected_revision` field),
+  `test_process_module_boundaries` (a process test imported another test module;
+  the helper moved to `advancement_package.py`) and
+  `test_save_backpressure_process` (its final save assumed durability under full-suite
+  load; it now uses the retrying barrier). Four roots, four methods, four failed
+  executions. Environment-only failures in the same run (missing `optuna`, a full
+  disk, load timeouts) passed or were confirmed environmental when rerun alone.
 ## Live interface shell checkpoint, 29 October 2026
 
 The new native dock test first failed at the intended missing-HUD assertion
@@ -2710,3 +2853,136 @@ regression still requires nonzero failure and retained diagnostics when the
 suite deadline expires. Individual frame waits, quit deadlines, test selection,
 native assertions and hosted no-waiver rules are unchanged. Fresh final-head
 hosted native and core qualification remain required after this control change.
+
+### Portrait scale measured colored clothing instead of the figure, 30 October 2026
+
+The documentation-only PR208 passed its exact-head core and independent 3D gates
+before merge. On the identical merged tree, the independent
+[Windows release job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41085519415/job/124165532111)
+failed only
+`Native3DProcesses.test_character_screen_shares_the_live_portrait_and_keeps_command_keys`,
+in its `character_scale` subtest: 0.5084745603469354 was not greater than 0.52.
+The suite completed 57 methods with one failure and 29 existing skips; the other
+three independent 3D jobs and core post-merge checks passed. This is one
+demonstrated screenshot-oracle root, one distinct method and one failed hosted
+execution, not a newly demonstrated renderer defect or a waived failure.
+
+The retained screenshot visibly contains the full figure from hair to boots.
+The old pixel predicate required both brightness above 55 and RGB spread above
+10; dark, nearly neutral trousers and boots therefore did not count. Replaying
+the exact predicate on retained shots 06 and 07 reproduces 0.508474560, ending at
+the colored cloak rather than the feet. The connected visible figure occupies
+0.696798472 of the same image pane. All 17 retained unrotated active captures
+show the old false negative; all four rotated captures pass the old predicate.
+This does not establish why the prior hosted execution passed, and does not
+support repairing the test with an arbitrary settling delay.
+
+The corrected scale oracle remains inside the disclosed portrait image bounds.
+It estimates the near-black clear background from the inset perimeter, then
+measures one connected contrasting component with more than 1,000 of the
+existing bright/color samples. Dark neutral pixels can extend that same body;
+unrelated marks cannot be unioned into a larger figure. Edge-touching components
+and non-dark uniform backgrounds are rejected. The strict height requirement
+remains **greater than 0.52**. The independent nonempty-render, actor identity,
+actor-count reuse, texture-limit and heading-spacing assertions remain intact;
+no renderer, camera, fixture model, timeout or waiver was changed.
+
+An independently drawn tall figure with dark legs first failed the unchanged
+native assertion at 0.395, then passed after the oracle correction. Nine
+`test_verification.PortraitSilhouette` methods cover known RGB/RGBA extents,
+neutral/dark clothing, translated panes, empty and uniform images, borders,
+captions, disconnected noise and marks, undersized figures, invalid bounds, and
+the exact/below/above 0.52 boundary through the actual native assertion helper.
+Exact background, contrast and connected-seed cutoffs are also covered; two
+independently eligible small components must not combine into a large figure.
+The complete 34-method 3D tooling owner and all 21 retained active captures pass
+the corrected measurement. Synthetic tests and retained-image replays are not
+fresh native executions and do not inflate the hosted failure count. The
+existing real equipment and character native methods remain the live boundary;
+fresh final-head hosted qualification is still required.
+
+Integrated qualification later encountered one runner setup failure, not a test
+failure: [Linux debug Python shard 2](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41152209718/job/124391616165)
+had only the Microsoft package feed in its updated index, then could not locate
+`libx11-dev`, `libxcursor-dev` or `libxrandr-dev`. No tests ran in that attempt.
+A targeted retry passed, but the [aggregate](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41152209718/job/124414302702)
+correctly rejected Linux shard origin attempts 1 and 2. This is one separate
+retry-procedure error, not another failing gameplay method. Both Linux debug
+shards must execute in the same attempt; an isolated sibling retry cannot qualify
+the cohort. Complete final-head qualification was restarted without changing
+assertions or weakening the cohort guard. Native passes from prior heads remain
+historical evidence, not substitutes for the final integration's checks.
+
+### Measurement-witness setup and rules-source inventory
+
+The local rules-identity and count-witness checkpoint exposed two test-fixture
+causes, not additional gameplay defects. The new source-only comparator name
+was missing from the documentation workload allowlist (one failing method in a
+39-test Python checkpoint); adding that name preserved historical identifiers,
+and all 19 documentation tests then passed. The new scaled Polymorph fixture
+attempted to configure an actor already owning combat and correctly received
+`ActorBusy` before its measurement (one failing method/execution). Constructing
+2/16/64 HD in the original birth builder instead retained every semantic
+assertion; all four count tests then passed and produced 16 rows. Existing
+ordinary fixtures still construct exactly two HD.
+
+An earlier outcome-test preflight tried to serialize the deliberately non-wire
+compact observation type: two compiler diagnostics from one scaffolding error,
+not two failing behavioral methods. The correction compares complete typed
+inputs and serializes actual eventful outcome facts, without changing any wire
+type. Four outcome-adapter tests pass before and after the per-call index,
+preserving privacy, occurrence/list ordering and required matched-row emissions.
+The count reductions do not establish a release timing improvement. Focused
+local feedback is not full or hosted qualification; failed evidence remains
+separate from subsequent passing checks.
+
+## Checkpoint failure classification, 30 October 2026
+
+A scoped reduced encoder limit reproduced the explicit-Save retry policy on an
+otherwise valid ordinary checkpoint. The new
+`storage::checkpoint_failure_tests::unchanged_capacity_failure_keeps_work_and_explicit_save_does_not_reencode`
+failed at the intended assertion: the second Save encoded the identical retained
+snapshot again (two attempts rather than one). This is deliberate first-red work
+for the approved failure-classification policy, not evidence that gameplay has
+reached the real capacity ceiling. The SQLite lock/retry and concurrently retained
+newer-checkpoint controls passed in that same run.
+
+An earlier preflight failed before behavioral tests: a wrapper made test-only by
+the refactor still compiled in production, and new SQLite count assertions asked
+for an unsupported Rust unsigned result type. These are two local scaffolding
+roots in one failed preflight, with no failed test-method executions. The wrapper
+is now test-only and the zero-count assertions use SQLite's signed type; no
+behavioral assertion was weakened. Typed encoder controls also distinguish
+serializer/resource/writer failures from explicit bounds, preserve the first
+failure during buffered cleanup, and recover Interrupted writes without masking
+a later real bound failure. Runtime validation and qualification are reported
+separately from these failures.
+
+Recovery of an interrupted incremental build later failed in the linker with
+undefined hidden LLVM symbols before executing any tests. Isolating only the
+affected server-test incremental cache, while retaining the application and
+dependency caches, allowed the unchanged implementation to pass all 219 storage
+checks on the current main baseline. This is one local build-infrastructure
+failure, not an additional production defect or failed test-method execution.
+The subsequently interrupted application build was resumed separately; its
+verified binaries passed all nine background-save process checks. Interruption
+without an exit receipt is incomplete evidence, not a pass or behavioral failure.
+
+### Arena sampling dependency pins diverged during Alembic maintenance, 31 October 2026
+
+Dependabot PR216 updated the hash-pinned Alembic requirement from 1.20.0 to
+1.20.1 without updating the sampler's explicit environment contract. The
+[Linux debug Python shard](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41133334551/job/124329687533)
+reported five distinct arena sampling/campaign methods failing, including the
+requirements/allowlist consistency check. These are manifestations of one stale
+dependency-contract root, not five independent production defects. The local
+consistency test reproduced the mismatch before repair; no acceptance threshold,
+history-integrity check, or environment equality guard was relaxed.
+
+The Alembic pin now agrees with the hash-locked environment. Independent tests
+reject an installed 1.20.0 environment and an otherwise integrity-valid history
+from 1.20.0, preserving that history unchanged. Both new rejection witnesses
+failed before the pin correction and passed afterward. Existing older NumPy and
+SQLAlchemy rejection witnesses remain intact. Sampling histories remain bound
+to their exact environment; this maintenance does not introduce cross-version
+history compatibility. Fresh integrated hosted qualification remains required.
