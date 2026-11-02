@@ -1,8 +1,9 @@
-from rogue_identity_contracts import IDENTITIES
 """Independent authored contracts for ordinary escape and levitation items."""
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 PACKAGE = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 

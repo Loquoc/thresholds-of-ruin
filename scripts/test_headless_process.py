@@ -37,7 +37,7 @@ class HeadlessProcesses(ProcessTestCase):
         for client in (full, projected):
             synced = self.request(client, {"type": "snapshot"})
             self.assertIsNone(synced["error"])
-            self.assertDisclosedStateEqual(synced["state"], moved["state"])
+            self.assertSpectatorStateEqual(synced["state"], moved["state"])
             self.hydrated(client, synced)
         full_frame = self.command(full, {"type": "inspect"})
         full_line = full.transcript[-1].encode("utf-8")
@@ -353,16 +353,16 @@ class HeadlessProcesses(ProcessTestCase):
         first = self.act(player, {"type": "move", "direction": "east"})
         self.assertIsNone(first["error"])
         for watcher in watchers:
-            seen = self.frame(watcher, lambda f: f["state"]["observation"] == first["state"]["observation"])
-            self.assertDisclosedStateEqual(seen["state"], first["state"])
+            seen = self.frame(watcher, lambda f: f["state"]["observation"] == self.spectatorObservation(first["state"]["observation"]))
+            self.assertSpectatorStateEqual(seen["state"], first["state"])
         late, attached = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(attached["state"], first["state"])
+        self.assertSpectatorStateEqual(attached["state"], first["state"])
         second = self.act(player, {"type": "move", "direction": "east"})
         self.assertIsNone(second["error"])
         sequences = []
         for watcher in [*watchers, late]:
-            seen = self.frame(watcher, lambda f: f["state"]["observation"] == second["state"]["observation"])
-            self.assertDisclosedStateEqual(seen["state"], second["state"])
+            seen = self.frame(watcher, lambda f: f["state"]["observation"] == self.spectatorObservation(second["state"]["observation"]))
+            self.assertSpectatorStateEqual(seen["state"], second["state"])
             sequences.append(seen["message"]["update"]["cursor"]["sequence"])
         self.assertEqual(sequences[:3], [sequences[0]] * 3)
         self.assertGreater(sequences[0], sequences[-1])
@@ -379,8 +379,8 @@ class HeadlessProcesses(ProcessTestCase):
         self.assertIn("stone tablet", json.dumps(initial))
         token = initial["state"]["observation"]["ground_items"][0]["item"]["id"]
         taken = self.act(player, {"type": "take", "item": token})
-        seen = self.frame(spectator, lambda f: f["state"]["observation"] == taken["state"]["observation"])
-        self.assertDisclosedStateEqual(seen["state"], taken["state"])
+        seen = self.frame(spectator, lambda f: f["state"]["observation"] == self.spectatorObservation(taken["state"]["observation"]))
+        self.assertSpectatorStateEqual(seen["state"], taken["state"])
         # Outcomes retain ordered event-time facts independently of later pictures.
         outcomes = []
         for line in spectator.transcript:

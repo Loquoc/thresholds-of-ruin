@@ -13,7 +13,7 @@ class LightingProcesses(ProcessTestCase):
         player, initial = self.client()
         spectator, watched = self.client(SPECTATOR_TOKEN)
         view = initial["state"]["observation"]
-        self.assertEqual(view, watched["state"]["observation"])
+        self.assertSpectatorStateEqual(watched["state"], initial["state"])
         self.assertEqual(
             {i["item"]["name"] for i in view["ground_items"]}, {"lit tablet"}
         )
@@ -32,7 +32,7 @@ class LightingProcesses(ProcessTestCase):
         self.assertIn("lit tablet", welcome)
         self.assertNotIn("hidden token", welcome)
         window, frame = self.window(token=SPECTATOR_TOKEN, observe=True)
-        self.assertDisclosedStateEqual(frame["state"], initial["state"])
+        self.assertSpectatorStateEqual(frame["state"], initial["state"])
         for _ in range(5):
             moved = self.act(player, {"type": "move", "direction": "east"})
             self.assertIsNone(moved.get("error"))

@@ -298,9 +298,8 @@ class AsciiHudPickupProcesses(ProcessTestCase):
         self.assertEqual(actions[0]["event"],
                          {"type": "taken", "item": tender["id"],
                           "result": carried["id"], "quantity": "7"})
-        authoritative = self.request(observer, {"type": "snapshot"})["state"]["observation"]
-        for field in ("tick", "inventory", "ground_items"):
-            self.assertEqual(authoritative[field], after[field])
+        authoritative = self.request(observer, {"type": "snapshot"})["state"]
+        self.assertSpectatorStateEqual(authoritative, picked["state"])
 
         # The acknowledged native release plus durable admission count catches repeats.
         self.flush_save()

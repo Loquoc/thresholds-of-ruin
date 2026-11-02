@@ -1,8 +1,9 @@
-from rogue_identity_contracts import IDENTITIES
 """Source-backed poison/sight bindings and bounded generated-stock contracts."""
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scenarios/rogue-exploration"

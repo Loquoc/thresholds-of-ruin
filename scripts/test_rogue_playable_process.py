@@ -1339,7 +1339,7 @@ class RoguePlayableProcesses(RogueChecks, ProcessTestCase):
         self.assertEqual(ledger[0]["value"]["selection"], {
             "kind": "talent_form", "talent": "evocation_initiate", "form": "spark_lance_cold"})
         spectator, watched = self.client(SPECTATOR_TOKEN, observe=True, actor=2)
-        self.assertDisclosedStateEqual(watched["state"], current["state"])
+        self.assertSpectatorStateEqual(watched["state"], current["state"])
         denied = self.command(spectator, {"type": "advancement", "command": "overview"})
         self.assertIsNotNone(denied["error"])
         self.flush_save(actor=2)

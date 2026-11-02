@@ -1,8 +1,9 @@
-from rogue_identity_contracts import IDENTITIES
 """Finite equipment birth/content contracts; no compiler or runtime invocation."""
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 ROOT = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 

@@ -52,8 +52,10 @@ recipe = "exploration"
 kind = "open"
 max_depth = 1000000
 [archetypes.marker]
+identity = "item.misc.fixture.activation-marker"
 name = "activation marker"
 [archetypes.alternate]
+identity = "item.misc.fixture.alternate-activation-marker"
 name = "alternate activation marker"
 [floor_activation]
 version = 1

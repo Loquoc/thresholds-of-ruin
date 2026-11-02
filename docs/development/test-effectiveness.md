@@ -3095,3 +3095,87 @@ integrity-valid-history rejection witnesses while retaining the older 2.1.4
 controls. Both immediate-prior witnesses failed before its pin correction and
 passed afterward. Alembic and SQLAlchemy remain separately scoped maintenance
 changes; each final integration needs its own qualification.
+
+### Item migration hosted qualification, 2 November 2026
+
+The first PR221 tooling run reported 45 E402 diagnostics across 13 content-test
+modules: the new identity-contract import preceded each module docstring. This
+was one structural fixture-edit root, not 45 behavioral failures. Moving the
+imports below the docstrings preserved every assertion; pinned Ruff and all 71
+checks in those modules passed locally.
+
+The first Linux debug Python process shard independently caught a benchmark
+version-oracle mistake: the item geometry fixture advanced to version 2, but the
+unrelated place-discovery fixture remained version 1. `place_bench` incorrectly
+required version 2 and panicked before running its workload. Its assertion now
+again names the unchanged place-fixture version. The existing actual-producer
+acceptance test is the first-red witness; its post-fix hosted execution remains
+required, not inferred from static checks.
+
+Both Linux Rust profiles reached the same two ASCII fixture rejections (176
+other methods passed): a class-changing clone retained the original class's
+unknown identity, and a sampled ground-item fixture retained its true identity.
+The fixtures now match the already-enforced public disclosure contract. The
+validator and all equipment, opaque-target, naming and action assertions remain
+unchanged; repeated profile failures are not counted as new roots.
+
+Actual protected-binary checks of the scenario package, source and compiled-input
+process modules reproduced 15 failures and one error across 33 methods. Repairs
+supply explicit fixture identities/persona corpse keys, replace selectors that
+matched pre-migration TOML spelling, and check the actual current region format
+10 and its immediately previous format 9. All 33 methods then passed, including
+source-location, UTF-8 byte-boundary, source-free restart and no-rewrite checks.
+
+The process partitions exposed outdated comparisons between Player and Spectator
+pictures. Directional test oracles now redact only the *expected* Player item's
+identity and knowledge and require exact Spectator unknown values; they do not
+normalize away leaked actual values. Same-role comparisons remain strict. New
+mutants reject known identity, learned zero/false, missing fields and changes to
+legacy public fields. Role-proven call sites include readiness predicates,
+stream recovery and graphical observations; history, sequence, frozen-state and
+no-partial-publication checks remain. Focused units and ten actual non-graphical
+cross-role/streaming methods passed. Four retained graphical traces independently
+satisfy the corrected predicate and reject injected identity leakage; those
+replays do not replace fresh hosted graphical process execution.
+
+Adversarial relay fixtures also lacked the newly required identity/knowledge
+fields, causing decode rejection before the intended duplicate, invalid quantity
+or retained-state-size boundary. Their valid premises now include explicit
+unknown metadata while the original corruptions and byte bounds are unchanged.
+Ten relay unit checks and three actual text-client repair cases passed. Separately,
+the generated 3D fallback package omitted its new relic identity: eight native
+methods failed the shared package validator before rendering. The exact package
+helper now validates with an explicit cosmetic-fixture identity; all native
+assertions remain for the next hosted run.
+
+Further generated item fixtures needed explicit canonical identities; bounded
+compiler checks reproduced and resolved thirteen failing authored copies without
+changing mechanics. Fourteen focused runtime methods subsequently passed across
+the repaired fixtures, including source-free state and privacy assertions. A
+Rogue staff fixture's canonical-key seeded permutation now expects electrum rather
+than nickel, verified by an independent SHA-domain/seed oracle and the actual
+text/charge/restart process. Restoration's saved-knowledge oracle now uses the
+canonical identity, while birth continues to use the archetype. Neither repair
+changes the seed, effect or balance.
+
+The earned-route acceptance fixture followed its established append-only format
+transition: baseline v30 adds current-schema fields while v29 remains byte-exact.
+Independent reverse-normalization checks preserve all non-schema authored values;
+this is not a new tuning result. All three actual acceptance methods passed with
+frozen source inputs, including exact source-free reexecution and the zero/one
+command-budget cases. Previously unrun measurement slots remain unrun.
+
+After the ASCII barrier was repaired, a broader local client check found one
+additional sampled-item fixture in client-common carrying a true identity into
+a disguised projection. The original acquisition, hydration, stale-memory and
+non-authority assertions remain; only its disclosure metadata is corrected.
+The independent place benchmark also completed its actual workload and exact
+save recovery after its version-oracle repair. Fresh hosted qualification of the
+coherent follow-up remains required; the first failed matrices are not passes.
+
+The repaired client checkpoints passed all 178 ASCII integration methods, 188
+client-common unit methods and 103 client-common integration methods, plus 300
+text/headless methods. An intermediate isolated client-common invocation omitted
+its required `test-support` feature and failed compilation; that command is a
+harness configuration error, not regression evidence. The correctly configured
+owner passed without changing feature gates or production code.

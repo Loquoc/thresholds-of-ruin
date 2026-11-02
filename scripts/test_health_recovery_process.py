@@ -13,7 +13,7 @@ class HealthRecoveryProcesses(ProcessTestCase):
         package = creature_package(self, "health-recovery", abilities=())
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source = source.replace('archetypes = { ', 'archetypes = { injury = { class = "potion", name = "injury potion", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 3 } }] } }] } }, ', 1)
+        source = source.replace('archetypes = { ', 'archetypes = { injury = { class = "potion", identity = "item.potion.fixture.injury", name = "injury potion", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 3 } }] } }] } }, ', 1)
         source = source.replace('bonus = 0, wind_up = 60', 'bonus = 100, wind_up = 60')
         manifest.write_text(source, encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"

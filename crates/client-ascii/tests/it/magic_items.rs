@@ -628,6 +628,7 @@ fn equipment_keys_filter_public_classes_and_reuse_exact_equip_remove_actions() {
             .map(|(index, class)| ItemView {
                 id: super::item_target(index as u64 + 10),
                 class,
+                identity: class.unknown_identity(),
                 name: format!("fixture item {index}"),
                 ..prototype.clone()
             })

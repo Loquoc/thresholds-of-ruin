@@ -20,6 +20,7 @@ Native process launches also check the display regardless of test classification
 Use the headless client for setup and driving unless the behavior under test is
 another client's input or presentation (see docs/development/testing.md).
 """
+import copy
 import gzip
 import hashlib
 import json
@@ -1093,6 +1094,33 @@ class ProcessTestCase(unittest.TestCase):
             # Observe preserves the stream epoch, unlike a repair Snapshot.
             return self.request(client, {"type": "observe"})
         return current
+
+    @staticmethod
+    def spectatorObservation(player_observation):
+        """Independent expected projection; never erase leaks from actual output.
+
+        Only machine item identity and learned instance facts are private here.
+        Legacy public names, identified flags, capabilities and every other
+        field remain exact; same-role callers must use the strict assertion.
+        """
+        expected = copy.deepcopy(player_observation)
+        items = list(expected.get("inventory", [])) + [row["item"] for row in expected.get("ground_items", [])]
+        for item in items:
+            # Real wire items require both fields; no legacy-shape fallback.
+            if "identity" not in item or "knowledge" not in item:
+                raise AssertionError("expected complete owner item disclosure")
+            item["identity"] = "item.unknown"
+            item["knowledge"] = {
+                "buc": "item.buc.unknown",
+                "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+                "condition": {"corrosion": None, "armor_deterioration": None, "protected": None},
+            }
+        return expected
+
+    def assertSpectatorStateEqual(self, spectator, player, message=None):
+        """Directional spectator-versus-owner assertion with exact redaction."""
+        expected = {**player, "observation": self.spectatorObservation(player["observation"])}
+        self.assertDisclosedStateEqual(spectator, expected, message)
 
     def assertDisclosedStateEqual(self, actual, expected, message=None):
         """Picture capabilities are local; every disclosed payload field is exact."""

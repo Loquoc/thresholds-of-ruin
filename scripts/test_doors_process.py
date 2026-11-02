@@ -59,7 +59,7 @@ class DoorProcesses(ProcessTestCase):
         key("Right", False)
         self.assertFalse(door(closed_again)["open"])
         watched = self.request(observer, {"type":"snapshot"})
-        self.assertDisclosedStateEqual(watched["state"], closed_again["state"])
+        self.assertSpectatorStateEqual(watched["state"], closed_again["state"])
         self.assertEqual(watched["history"][-1]["content"]["event"]["type"], "door_changed")
         # Native S saves and closes; successful exit destroys the key target.
         key("Shift_L", True)
@@ -69,7 +69,7 @@ class DoorProcesses(ProcessTestCase):
         player.stop(); observer.stop(); server.stop()
         self.server()
         _, resumed = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(resumed["state"], closed_again["state"])
+        self.assertSpectatorStateEqual(resumed["state"], closed_again["state"])
         self.assertFalse(resumed["state"]["wizard_game"])
 
     @non_graphical

@@ -52,7 +52,7 @@ class SelfAllyTargetProcesses(ProcessTestCase):
                                 and entry["content"]["action"].get("id") == "mend"
                                 for entry in current["history"]))
         spectator, watched = self.client(SPECTATOR_TOKEN)
-        self.assertDisclosedStateEqual(watched["state"], current["state"])
+        self.assertSpectatorStateEqual(watched["state"], current["state"])
         denied = self.act(spectator, {"type": "use_ability", "id": "mend", "invocation": {"aim": {"kind": "actor_target", "target": own}, "weapon": {"kind": "default"}}, "supplies": {"kind": "carried"}})
         self.assertEqual(denied["error"], "Spectator access is read-only")
         saved = self.request(player, {"type": "save"})

@@ -34,6 +34,12 @@ class CorruptedItemShapes(unittest.TestCase):
         self.assertIn('known_currency', tuple(item))
         self.assertIsNone(item['known_currency'])
         self.assertFalse(item['identified'])
+        self.assertEqual(item['identity'], 'item.unknown')
+        self.assertEqual(item['knowledge'], {
+            'buc': 'item.buc.unknown',
+            'enchantments': {'hit': None, 'damage': None, 'armor': None, 'potency': None},
+            'condition': {'corrosion': None, 'armor_deterioration': None, 'protected': None},
+        })
 
     def test_invalid_quantity_preserves_current_item_metadata(self):
         item = self.delta('invalid_inventory')['inventory'][0]['insert'][0]

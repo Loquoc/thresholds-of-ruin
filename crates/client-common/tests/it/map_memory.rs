@@ -1119,7 +1119,7 @@ fn sampled_cosmetics_survive_acquisition_hydration_and_stale_memory_without_auth
             quantity: 3,
             appearance: "object".into(),
             identified: true,
-            identity: "item.coin.fixture".parse().unwrap(),
+            identity: ItemClass::Misc.unknown_identity(),
             knowledge: Default::default(),
             description: String::new(),
             id: ItemTarget::from_digest([67; 32]),

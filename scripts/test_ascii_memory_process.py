@@ -59,7 +59,7 @@ class AsciiMemoryProcesses(ProcessTestCase):
         if os.environ.get("TOR_MEMORY_CAPTURE"):
             Path(os.environ["TOR_MEMORY_CAPTURE"]).write_bytes(read_capture(self.capture))
         self.assertNotIn("stone tablet",json.dumps(closed["state"]))
-        self.assertDisclosedStateEqual(self.request(observer,{"type":"snapshot"})["state"],closed["state"])
+        self.assertSpectatorStateEqual(self.request(observer,{"type":"snapshot"})["state"],closed["state"])
         shifted = self.key(window, "left", wait_for_admission=True)
         self.assertTrue(self.tile(shifted,5)["remembered"])
         self.assertEqual(self.tile(shifted,5)["glyph"],"(")

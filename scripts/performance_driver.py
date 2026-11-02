@@ -30,11 +30,51 @@ def same_disclosed_state(actual, expected):
     return payload(actual) == payload(expected)
 
 
+def same_spectator_state(actual, expected_player):
+    """Compare spectator output to the owner picture, enforcing exact redaction.
+
+    Only the two observer-owned item fields differ. Legacy public names, class,
+    identified flags, quantities, affordances, and every other field stay exact.
+    Project the expected picture, never normalize away a leak in actual output.
+    """
+    if not isinstance(expected_player, dict):
+        return False
+    observation = expected_player.get("observation")
+    if not isinstance(observation, dict):
+        return False
+
+    def public_item(item):
+        if not isinstance(item, dict) or not {"identity", "knowledge"} <= item.keys():
+            return None
+        return {**item, "identity": "item.unknown", "knowledge": {
+            "buc": "item.buc.unknown",
+            "enchantments": {"hit": None, "damage": None, "armor": None, "potency": None},
+            "condition": {"corrosion": None, "armor_deterioration": None, "protected": None},
+        }}
+
+    projected = dict(observation)
+    for collection in ("inventory", "ground_items"):
+        if collection not in observation:
+            continue
+        rows = observation[collection]
+        if not isinstance(rows, list):
+            return False
+        projected[collection] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                return False
+            item = public_item(row.get("item") if collection == "ground_items" else row)
+            if item is None:
+                return False
+            projected[collection].append({**row, "item": item} if collection == "ground_items" else item)
+    return same_disclosed_state(actual, {**expected_player, "observation": projected})
+
+
 def presented_action(frame, expected, action):
     """Pictures verify visual actions; causal-only Wait is shown by ordered history."""
     actual = frame.get("state")
     if action["type"] != "wait":
-        return same_disclosed_state(actual, expected["state"])
+        return same_spectator_state(actual, expected["state"])
     if (not isinstance(actual, dict) or not frame.get("history")
             or frame["history"][-1] != expected["history"][-1]):
         return False
@@ -45,7 +85,7 @@ def presented_action(frame, expected, action):
     if int(old["tick"]) > int(new["tick"]):
         return False
     comparable = {**actual, "observation": {**old, "tick": new["tick"]}}
-    return same_disclosed_state(comparable, expected["state"])
+    return same_spectator_state(comparable, expected["state"])
 
 
 @functools.lru_cache(maxsize=1)

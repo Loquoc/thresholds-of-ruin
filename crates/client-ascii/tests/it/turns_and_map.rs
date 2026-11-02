@@ -1730,6 +1730,8 @@ fn cosmetic_items_and_unknown_stairs_change_art_not_map_authority() {
     o.ground_items[0].item.appearance = "object".into();
     o.ground_items[0].item.description.clear();
     o.ground_items[0].item.asset = None;
+    o.ground_items[0].item.identity = ItemClass::Misc.unknown_identity();
+    o.ground_items[0].item.knowledge = ItemKnowledge::default();
     o.ground_items[0].presentation = Some(ObjectPresentation {
         name: "stairs".into(),
         asset: None,
@@ -1778,6 +1780,8 @@ fn cosmetic_items_and_unknown_stairs_change_art_not_map_authority() {
 fn cosmetic_look_picker_and_take_use_display_name_but_original_opaque_item() {
     let mut snap = snapshot();
     let o = &mut Arc::make_mut(&mut snap.state).observation;
+    o.ground_items[0].item.identity = ItemClass::Misc.unknown_identity();
+    o.ground_items[0].item.knowledge = ItemKnowledge::default();
     o.ground_items[0].item.name = "object".into();
     o.ground_items[0].item.appearance = "object".into();
     o.ground_items[0].item.description.clear();

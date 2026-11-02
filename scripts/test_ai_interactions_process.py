@@ -116,9 +116,9 @@ class AiInteractionProcesses(ProcessTestCase):
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         weapons = []
-        for name, skill, bonus in [("light_blade", "light_weaponry", 1),
-                                   ("heavy_blade", "heavy_weaponry", 0)]:
-            weapons.append(name + ' = { class = "weapon", name = "' + name + '", '
+        for name, identity, skill, bonus in [("light_blade", "item.weapon.fixture.light-blade", "light_weaponry", 1),
+                                             ("heavy_blade", "item.weapon.fixture.heavy-blade", "heavy_weaponry", 0)]:
+            weapons.append(name + ' = { class = "weapon", identity = "' + identity + '", name = "' + name + '", '
                            'equipment = { slot = "weapon", attack = { skill = "' + skill + '", '
                            'bonus = ' + str(bonus) + ', wind_up = 60, recovery = 40, damage = { '
                            'primary = { category = "impact", sides = 6 }, components = [{ '

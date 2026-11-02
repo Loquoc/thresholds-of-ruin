@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 import uuid
-from performance_driver import JsonProcess, ROOT, stop_all, same_disclosed_state, presented_action
+from performance_driver import JsonProcess, ROOT, stop_all, same_spectator_state, presented_action
 from client_performance_report import validate_presentation_profile
 from place_performance_report import SPEC, validate_client
 
@@ -81,7 +81,7 @@ def run(binary_dir, output, rooms, fresh_player=False):
         places = state["state"]["observation"]["places"]
         assert len(places) == 2 + rooms * len(SPEC["hints"])
         native = launch("tor-client-ascii", ["--connect", ready["address"], "--automation"], "native", env["TOR_SPECTATOR_TOKEN"])
-        native.until(lambda f: same_disclosed_state(f.get("state"), state["state"]) and not f["busy"])
+        native.until(lambda f: same_spectator_state(f.get("state"), state["state"]) and not f["busy"])
         native.child.stdin.write(json.dumps(dict(type="key", key="places")) + "\n")
         native.child.stdin.flush()
         native.until(lambda f: f.get("places_open") is True)

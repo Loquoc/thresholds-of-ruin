@@ -17,13 +17,13 @@ class ScenarioSourceProcesses(ProcessTestCase):
         shutil.copytree(ROOT / "scenarios/two-room", package)
         manifest = package / "scenario.toml"
         text = manifest.read_text(encoding="utf-8")
-        text = text.replace('archetypes = { "token" = { "name" = "copper token" }, "tablet" = { "name" = "stone tablet" } }',
-                            'modules = ["catalog/items.toml"]')
+        archetypes = next(line for line in text.splitlines() if line.startswith("archetypes = "))
+        text = text.replace(archetypes, 'modules = ["catalog/items.toml"]', 1)
         manifest.write_text(text, encoding="utf-8")
         (package / "catalog").mkdir()
         (package / "catalog/items.toml").write_text(
-            'namespace = "demo"\n[items."demo.token"]\nname = "copper token"\n'
-            '[items."demo.tablet"]\nname = "stone tablet"\n', encoding="utf-8")
+            'namespace = "demo"\n[items."demo.token"]\nname = "copper token"\nidentity = "item.misc.token"\n'
+            '[items."demo.tablet"]\nname = "stone tablet"\nidentity = "item.misc.tablet"\n', encoding="utf-8")
         for region in (package / "regions").glob("*.toml"):
             region.write_text(region.read_text(encoding="utf-8").replace('"token"', '"demo.token"')
                               .replace('"tablet"', '"demo.tablet"'), encoding="utf-8")
@@ -115,9 +115,9 @@ lower = "100/up"
 
     def test_module_semantic_failures_name_their_actual_definition_source(self):
         declarations = (
-            ('[items."demo.bad"]\nname="bad"\nappearance_pool="missing"\n', 'archetype "demo.bad"'),
+            ('[items."demo.bad"]\nname="bad"\nidentity="item.misc.fixture.bad"\nappearance_pool="missing"\n', 'archetype "demo.bad"'),
             ('[creatures.templates."demo.bad"]\npriority=0\nkind="missing_type"\n', 'template "demo.bad"'),
-            ('[actors."demo.bad"]\ncreature={species="missing",name="Bad",faction="neutral",binding="intellect",starting_skills=["heavy_weaponry","athletics"],restoration="authored", nutrition = { kind = "exempt" },hit_dice=[{source="racial"}]}\n', 'archetype "demo.bad"'),
+            ('[actors."demo.bad"]\ncreature={species="missing",name="Bad",corpse_identity="item.corpse.fixture.bad",faction="neutral",binding="intellect",starting_skills=["heavy_weaponry","athletics"],restoration="authored", nutrition = { kind = "exempt" },hit_dice=[{source="racial"}]}\n', 'archetype "demo.bad"'),
         )
         for index, (declaration, identity) in enumerate(declarations):
             with self.subTest(identity=identity):

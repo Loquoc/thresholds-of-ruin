@@ -1,10 +1,11 @@
-from rogue_identity_contracts import IDENTITIES
 """Authored Rogue content contracts, independent of generated certificates."""
 import hashlib
 import json
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 
 ROOT = Path(__file__).resolve().parents[1]

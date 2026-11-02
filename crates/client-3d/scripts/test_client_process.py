@@ -1612,7 +1612,7 @@ class Native3DProcesses(ProcessTestCase):
             path.write_text(text, encoding="utf-8", newline="\n")
         path = package / "catalog/items.toml"
         with path.open("a", encoding="utf-8", newline="\n") as output:
-            output.write('\n[items."rogue.unknown_object"]\nname = "unfamiliar relic"\nclass = "misc"\n')
+            output.write('\n[items."rogue.unknown_object"]\nname = "unfamiliar relic"\nclass = "misc"\nidentity = "item.misc.unfamiliar-relic"\n')
         path = package / "regions/1.toml"
         path.write_text(path.read_text(encoding="utf-8").replace(
             "items = [", 'items = [\n  { id = 104, at = [2,4,0], archetype = "rogue.unknown_object" },',

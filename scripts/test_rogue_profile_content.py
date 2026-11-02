@@ -1,4 +1,3 @@
-from rogue_identity_contracts import IDENTITIES
 """The Rogue-only package: one locked build and Rogue's mechanics only.
 
 It shares the rogue-exploration catalog by copy. Divergence is deliberate per
@@ -7,6 +6,8 @@ tuning milestone, so any catalog difference must be listed here.
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scenarios/rogue"

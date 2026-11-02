@@ -1,8 +1,9 @@
-from rogue_identity_contracts import IDENTITIES
 """Opt-in permanent growth doses preserve existing stock and restoration."""
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 PRODUCTION = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 

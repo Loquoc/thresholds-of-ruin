@@ -501,7 +501,7 @@ class CreatureInspectionProcesses(ProcessTestCase):
         package = creature_package(self, "braced-edge", hostile=True, abilities=())
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source = source.replace('archetypes = { ', 'archetypes = { brace = { class = "potion", name = "brace draught", consumable = { effects = [{ kind = "apply_condition", condition = "braced", duration = 2000 }] } }, ')
+        source = source.replace('archetypes = { ', 'archetypes = { brace = { class = "potion", identity = "item.potion.fixture.brace", name = "brace draught", consumable = { effects = [{ kind = "apply_condition", condition = "braced", duration = 2000 }] } }, ')
         manifest.write_text(source, encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"
         with region.open("a", encoding="utf-8", newline="\n") as output:
@@ -537,7 +537,7 @@ class CreatureInspectionProcesses(ProcessTestCase):
                 self.save = self.directory / (token + ".db")
                 manifest = package / "scenario.toml"
                 source = manifest.read_text(encoding="utf-8")
-                potion = ('draught = { class = "potion", name = "check draught", consumable = '
+                potion = ('draught = { class = "potion", identity = "item.potion.fixture.check-draught", name = "check draught", consumable = '
                           '{ effects = [{ kind = "apply_condition", condition = "' + token + '", duration = 2000 }] } }, ')
                 source = source.replace('archetypes = { ', 'archetypes = { ' + potion)
                 manifest.write_text(source, encoding="utf-8", newline="\n")
@@ -1042,7 +1042,7 @@ class CreatureInspectionProcesses(ProcessTestCase):
                 source = manifest.read_text(encoding="utf-8")
                 source = "\n".join(attack if line.startswith("melee = ") else line
                                     for line in source.splitlines()) + "\n"
-                source = source.replace('archetypes = { ', 'archetypes = { "warded_mail" = { class = "armor", name = "warded mail", equipment = { slot = "body_armor", modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "defense", defense = "physical" }, value = 0 } }, { scope = "always", op = { kind = "reduction", selector = { kind = "category", category = "energy" }, amount = 2 } }] } }, ', 1)
+                source = source.replace('archetypes = { ', 'archetypes = { "warded_mail" = { class = "armor", identity = "item.armor.fixture.warded-mail", name = "warded mail", equipment = { slot = "body_armor", modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "defense", defense = "physical" }, value = 0 } }, { scope = "always", op = { kind = "reduction", selector = { kind = "category", category = "energy" }, amount = 2 } }] } }, ', 1)
                 grants = [
                     '{ scope = "always", op = { kind = "add", stat = { kind = "health" }, value = 200 } }',
                     '{ scope = "always", op = { kind = "reduction", selector = { descriptor = "fire", kind = "descriptor" }, amount = 3 } }',
@@ -1374,7 +1374,7 @@ class CreatureInspectionProcesses(ProcessTestCase):
         package = creature_package(self, "equipped-creature", abilities=("fixture_stamina_strike",))
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        blade = ('fire_blade = { class = "weapon", name = "fire blade", equipment = { slot = "weapon", attack = { skill = "light_weaponry", bonus = 100, wind_up = 90, recovery = 70, damage = { primary = { category = "energy", descriptor = "fire", sides = 6 }, components = [{ category = "energy", descriptor = "fire", amount = { type = "rolled", count = 2, sides = 6, bonus = -1 } }, { category = "keen", amount = { type = "fixed", value = 3 } }] } }, modifiers = [] } }, ')
+        blade = ('fire_blade = { class = "weapon", identity = "item.weapon.fixture.fire-blade", name = "fire blade", equipment = { slot = "weapon", attack = { skill = "light_weaponry", bonus = 100, wind_up = 90, recovery = 70, damage = { primary = { category = "energy", descriptor = "fire", sides = 6 }, components = [{ category = "energy", descriptor = "fire", amount = { type = "rolled", count = 2, sides = 6, bonus = -1 } }, { category = "keen", amount = { type = "fixed", value = 3 } }] } }, modifiers = [] } }, ')
         self.assertIn('archetypes = { ', source)
         source = source.replace('archetypes = { ', 'archetypes = { ' + blade, 1)
         manifest.write_text(source, encoding="utf-8", newline="\n")

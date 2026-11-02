@@ -331,7 +331,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         package = creature_package(self, "arena-selected-death")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source = source.replace('archetypes = { ', 'archetypes = { poison = { class = "potion", name = "test poison", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 100000 } }] } }] } }, ')
+        source = source.replace('archetypes = { ', 'archetypes = { poison = { class = "potion", identity = "item.potion.fixture.poison", name = "test poison", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 100000 } }] } }] } }, ')
         source = source.replace('ai_profiles = ', 'arena = { participants = [1, 2, 3], control = "manual", ticks = 700, actions = 100 }\nfactions = { neutral = ["foe"], foe = ["neutral"] }\nai_profiles = ')
         manifest.write_text(source, encoding="utf-8", newline="\n")
         region = package / "regions/1.toml"

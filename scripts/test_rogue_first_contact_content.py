@@ -1,10 +1,11 @@
-from rogue_identity_contracts import IDENTITIES
 """Opt-in first-body devices preserve original profiles and unchanged live stock."""
 from pathlib import Path
 import tomllib
 import unittest
 
 from rogue_staves_package import expected_forms
+
+from rogue_identity_contracts import IDENTITIES
 
 PRODUCTION = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 

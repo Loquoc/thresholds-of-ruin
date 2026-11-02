@@ -1,10 +1,11 @@
-from rogue_identity_contracts import IDENTITIES
 """Exact persistent utility wand definitions and finite stock bindings."""
 import unittest
 
 from rogue_staves_package import expected_forms
 
 from test_rogue_utility_potions_content import source
+
+from rogue_identity_contracts import IDENTITIES
 
 
 class RogueUtilityWandsContent(unittest.TestCase):

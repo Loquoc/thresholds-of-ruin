@@ -309,11 +309,14 @@ class TravelProcesses(ProcessTestCase):
         destination = next(c["key"] for c in initial["state"]["observation"]["visible_cells"] if c["position"] == {"x":7,"y":0,"z":0})
         self.request(player, {"type":"command", "context": initial["input_context"], "branch":initial["branch"], "command":{"type":"travel", "expected_revision":initial["state"]["revision"], "destination":destination}})
         stopped = self.terminal(player)
+        # ASCII is attached as Spectator: wait for the exact role-projected
+        # terminal picture, not the owner's private machine item disclosures.
+        expected_observation = self.spectatorObservation(stopped["state"]["observation"])
         shown = self.ascii_frame(ascii_client, lambda f: f.get("travel")
                                 and f["travel"] == stopped["travel"]
-                                and f["state"]["observation"] == stopped["state"]["observation"])
+                                and f["state"]["observation"] == expected_observation)
         self.assertEqual(shown["travel"], stopped["travel"])
-        self.assertDisclosedStateEqual(shown["state"], stopped["state"])
+        self.assertSpectatorStateEqual(shown["state"], stopped["state"])
         self.assertFalse(shown["has_control"])
         return player, initial, stopped
 

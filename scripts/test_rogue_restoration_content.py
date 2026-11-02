@@ -1,4 +1,3 @@
-from rogue_identity_contracts import IDENTITIES
 """Production R/VN1 and ordinary finite restoration binding contracts."""
 from pathlib import Path
 import re
@@ -6,6 +5,8 @@ import tomllib
 import unittest
 
 from rogue_activation_candidate import conditional_bands
+
+from rogue_identity_contracts import IDENTITIES
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scenarios/rogue-exploration"

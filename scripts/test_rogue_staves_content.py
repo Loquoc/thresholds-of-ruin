@@ -1,10 +1,11 @@
-from rogue_identity_contracts import IDENTITIES
 """Independent physical-form and unchanged effect-family authoring contracts."""
 from pathlib import Path
 import tomllib
 import unittest
 
 from rogue_staves_package import METALS, WOODS, expected_forms
+
+from rogue_identity_contracts import IDENTITIES
 
 PRODUCTION = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 EFFECTS = {

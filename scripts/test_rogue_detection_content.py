@@ -1,8 +1,9 @@
-from rogue_identity_contracts import IDENTITIES
 """Opt-in detection contracts: source-owned labels, closed effects and no stock changes."""
 from pathlib import Path
 import tomllib
 import unittest
+
+from rogue_identity_contracts import IDENTITIES
 
 PRODUCTION = Path(__file__).resolve().parents[1] / "scenarios/rogue-exploration"
 KINDS = ("monster_detection", "food_detection", "magic_detection")
