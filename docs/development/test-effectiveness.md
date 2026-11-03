@@ -3216,3 +3216,86 @@ sync-before-removal boundaries, rejected-sync termination without mutation or
 retry, and exact remaining snapshot requests are retained. A repository-wide
 caller search identified both driver owners; all six affected unit/process
 methods passed together after adaptation. No production behavior changed.
+
+## Exact-change pose publication, 2 November 2026
+
+A bounded renderer optimization exposed redundant Bevy change notifications:
+repeating the same explicit pose on a real articulated Human produced identical
+joint values but marked all 16 joint transforms changed. Two primitive publication
+checks and one actual-rig check failed at that boundary before the fix; these are
+three deliberate optimization regressions, not three newly discovered gameplay
+bugs. Exact equality now gates publication without skipping pose/contact work,
+advancing time differently, suppressing tiny changes or changing composition scale.
+
+The extended actual-rig witness covers five independent humanoid outfits, a native
+robe, Emu, Quagga and Centaur: 146 joint publications leave zero transforms dirty
+when values are unchanged. Positive controls still publish a changed pose and
+1e-8 translation/rotation. The renderer library passes (611 tests; its existing
+subprocess-only fixture remains exercised by its owning lifecycle test). Five
+same-adapter software-rendered wardrobe-motion captures, including walking,
+jumping and armor replacement, retain identical decoded pixels. This establishes
+avoided writes and visual preservation, not an FPS, hardware-GPU or release-time
+speedup; no separate release comparison was run under the VM's disk constraint.
+
+
+### Independent humanoid walking carriage (2026-11-02)
+
+The shared animation owner now exposes optional Native, Grounded and Poised
+carriage independently of body, outfit and gameplay identity. Before implementation,
+two intended feature witnesses failed: explicit profiles resolved to the same
+coefficients and produced the same hip pose. Native coefficient parity and strict
+review-schema controls were already green. An initial new contact fixture also
+failed on unchanged Native because it applied the straight-path sliding-share
+bound to an abrupt turn; that fixture was corrected to the existing canonical
+straight/curved/stop paths and their respective bounds, not counted as a production
+regression. Existing contact assertions were not relaxed.
+
+Six focused contracts cover Native parity, sex/body-independent explicit profiles,
+actual joint/stance differences without clock or arm-cadence changes, strict
+selection and teleport retention, all 32 adult-female wardrobe selections, and
+real planted-foot movement across five body/outfit combinations on three paths.
+Specialized non-humanoid/Guardian/Yeti/Zombie locomotion rejects explicit review
+profiles. Grounded and Poised steer future landings without relocating planted
+feet; defaults retain their historical path.
+
+The full renderer library passes 617 tests (one existing lifecycle-owned ignored
+fixture), and Clippy passes with warnings denied. The built renderer completed
+five Native wardrobe-motion captures with identical decoded pixels against the
+frozen pose-publication baseline. Fifteen additional matched-body comparison
+captures cover Ranger, Knight and Sylvan Duelist at rest, walking from two angles,
+turning and settling. Front/three-quarter walking and Ranger turning were visually
+inspected; the real contact tests, not screenshots or generated concept art,
+establish planted-foot behavior. No outfit geometry, network/gameplay contract,
+mesh-cache identity or automatic sex-based profile selection was added. Native
+remains the live/default choice; these optional profiles are reusable art controls,
+not a claim that every character now uses a different gait. Hosted qualification
+and hardware performance measurements remain separate from this local checkpoint.
+
+### Ordinary skirt pelvis clearance (2026-11-02)
+
+Actual Courtier, Tavern and Juliet captures showed an underlayer-colored oval
+through cloth immediately below the waist. The first-red actual-mesh regression
+measured 0.02284 model units of pelvis penetration for a slender Courtier. It
+samples emitted cloth triangle vertices and interiors against the pelvis support,
+not image colors or the fitter's own cached offsets. Coverage now spans those
+three outfits, both sexes, all three builds and all three figure choices (54
+compositions), with a nonempty geometric witness requirement.
+
+The shared skirt builder now applies the existing pelvis-fit stage to ordinary
+skirts too. Its first draft correctly cleared the pelvis but failed the existing
+Medusa waist stand-off limit; that assertion was preserved. The final fitter keeps
+ordinary attachment rings exact and fits the first free triangle interior as well
+as its lower ring. This avoids both widening the waistband and leaving a small
+near-seam intersection. Authored hems, splits, materials and body dimensions are
+unchanged. Raised/paired waist fitting retains its existing path.
+
+Seven focused skirt contracts pass, including existing thigh/waist, embroidery,
+layer-order and cloth-motion witnesses. The final full renderer library passes
+618 tests (one existing lifecycle-owned ignored fixture), Clippy passes, and the
+actual renderer builds. Matched front/low/high captures remove the static oval in
+all three affected outfits without changing necklines or inflating the skirt hem.
+Walking/turning/settling captures were retained before and after as well: they
+expose a separate pre-existing moving-thigh intersection in ordinary rigid-sway
+skirts, which this static fit does not claim to repair. That dynamic cloth/contact
+gap remains follow-up work; passing sway/layer tests is not proof of dynamic leg
+clearance. Hosted CI qualification is still required before merge.

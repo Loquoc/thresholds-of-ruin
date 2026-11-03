@@ -2,6 +2,9 @@ use super::anatomy::{BirdBody, FOOT_SCALE, HIP_SCALE};
 use super::geometry::{snake_segment_radius, BIRD_ANKLE, SNAKE};
 use super::*;
 
+mod carriage;
+pub use carriage::WalkingCarriage;
+mod publication;
 mod rogue;
 
 // ---------------------------------------------------------------------------
@@ -322,15 +325,14 @@ fn present_pose(
     for j in 0..JOINTS {
         if let Some(e) = rig.joints[j] {
             if let Ok(mut transform) = joints.get_mut(e) {
-                if j == J::Lift as usize {
+                let (translation, rotation) = if j == J::Lift as usize {
                     // Lunges and falls are in the creature's own frame.
                     let facing = Quat::from_rotation_y(anim.yaw);
-                    transform.translation = facing * pose.off[j] * rig.scale;
-                    transform.rotation = facing * pose.rot[j];
+                    (facing * pose.off[j] * rig.scale, facing * pose.rot[j])
                 } else {
-                    transform.translation = rig.rest[j] + pose.off[j];
-                    transform.rotation = pose.rot[j];
-                }
+                    (rig.rest[j] + pose.off[j], pose.rot[j])
+                };
+                publication::joint(&mut transform, translation, rotation);
             }
         }
     }
@@ -440,7 +442,8 @@ fn swing_drapes(rig: &Rig, a: &Anim, dt: f32, joints: &mut Query<&mut Transform,
         if let Ok(mut transform) = joints.get_mut(e) {
             // Its own inertia: a seventh of a second or so to follow.
             let follow = 1.0 - (-dt * 7.0).exp();
-            transform.rotation = transform.rotation.slerp(rotation, follow);
+            let rotation = transform.rotation.slerp(rotation, follow);
+            publication::rotation(&mut transform, rotation);
         }
     }
 }
@@ -495,7 +498,7 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     }
     let world_walk = supported && (moving || a.contacts.rig.is_some());
     match rig.plan {
-        Plan::Biped => biped_pose(&mut p, rig, s, w, breath, m, t),
+        Plan::Biped => biped_pose(&mut p, rig, s, w, breath, m.map(|m| (m, t)), a.carriage),
         Plan::Bird if rig.style.flies() => rogue::flier_pose(&mut p, rig, a, s, breath, m, t),
         Plan::Bird => bird_pose(&mut p, s, w, breath, m, t, !world_walk),
         Plan::Quadruped | Plan::Centaur => quad_pose(&mut p, rig, s, w, breath, m, t, !world_walk),
@@ -590,11 +593,15 @@ fn biped_walk_contacts(rig: &Rig, a: &Anim) -> [Vec3; 2] {
         let (z, lift) = beast_step(phase, stance, span, clearance);
         contacts[i] += Vec3::new(0.0, lift, z) * blend;
     }
-    if rig.humanoid.is_some_and(|body| body.bust.is_some()) && rig.style != Style::Zombie {
-        // She places each foot near the line she walks along, which swings
-        // her hips over it.
+    let selection = if a.action.is_some() {
+        WalkingCarriage::Native
+    } else {
+        a.carriage
+    };
+    let carriage = carriage::resolve(rig, selection);
+    if carriage.narrowing > 0.0 {
         for contact in &mut contacts {
-            contact.x *= 1.0 - 0.3 * blend;
+            contact.x *= 1.0 - carriage.narrowing * blend;
         }
     }
     contacts
@@ -731,6 +738,17 @@ fn walk_legs(rig: &Rig, a: &Anim) -> [Option<WalkLeg>; 4] {
             }
         }
         _ => {}
+    }
+    if rig.plan == Plan::Biped
+        && !matches!(rig.style, Style::Zombie | Style::Guardian | Style::Yeti)
+        && a.carriage != WalkingCarriage::Native
+    {
+        // Explicit profiles guide future landings; already planted feet keep
+        // their world-space ownership. Native retains the historical path.
+        let narrowing = carriage::resolve(rig, a.carriage).narrowing * ease(a.speed * 4.0);
+        for leg in legs.iter_mut().flatten() {
+            leg.rest.x *= 1.0 - narrowing;
+        }
     }
     legs
 }
@@ -1850,7 +1868,16 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn biped_pose(p: &mut Pose, rig: &Rig, s: f32, w: f32, breath: f32, m: Option<Move>, t: f32) {
+fn biped_pose(
+    p: &mut Pose,
+    rig: &Rig,
+    s: f32,
+    w: f32,
+    breath: f32,
+    action: Option<(Move, f32)>,
+    selection: WalkingCarriage,
+) {
+    let (m, t) = action.map_or((None, 0.0), |(m, t)| (Some(m), t));
     let zombie = rig.style == Style::Zombie;
     let lumber = matches!(rig.style, Style::Guardian | Style::Yeti);
     let stride = if zombie { 0.38 } else { 0.55 };
@@ -1904,16 +1931,13 @@ fn biped_pose(p: &mut Pose, rig: &Rig, s: f32, w: f32, breath: f32, m: Option<Mo
         p.r(J::Torso, bow(-0.1));
         p.r(J::Head, bow(0.04));
     }
-    if walking
-        && rig.humanoid.is_some_and(|body| body.woman)
-        && !matches!(rig.style, Style::Zombie | Style::Guardian)
-    {
-        // Her hips sway over each planted foot as she walks, the shoulders
-        // countering, as the women carry themselves on the concept sheets.
+    let carriage = carriage::resolve(rig, selection);
+    if walking && carriage.hips != 0.0 {
+        // The shoulders and head counter the pelvis without changing cadence.
         let sway = cycle.sin() * blend;
-        p.r(J::Hips, Quat::from_rotation_z(0.075 * sway));
-        p.r(J::Torso, Quat::from_rotation_z(-0.06 * sway));
-        p.r(J::Head, Quat::from_rotation_z(-0.02 * sway));
+        p.r(J::Hips, Quat::from_rotation_z(carriage.hips * sway));
+        p.r(J::Torso, Quat::from_rotation_z(carriage.torso * sway));
+        p.r(J::Head, Quat::from_rotation_z(carriage.head * sway));
     }
     if lumber {
         let roll = if walking {
@@ -3163,6 +3187,93 @@ mod support_tests {
     }
 
     #[test]
+    fn repeated_explicit_pose_refresh_preserves_joints_without_dirtying_them() {
+        // Costume names are cosmetic recipes, never mechanical classes.
+        for (model, wardrobe) in [
+            (CreatureModel::Human, Wardrobe::Leotard),
+            (CreatureModel::Human, Wardrobe::Commoner),
+            (CreatureModel::Human, Wardrobe::Knight),
+            (CreatureModel::Human, Wardrobe::RoyalPrincess),
+            (CreatureModel::Human, Wardrobe::SylvanDuelist),
+            (CreatureModel::Mage, Wardrobe::Native),
+            (CreatureModel::Emu, Wardrobe::Native),
+            (CreatureModel::Quagga, Wardrobe::Native),
+            (CreatureModel::Centaur, Wardrobe::Native),
+        ] {
+            let look = Look::with_choice(
+                model,
+                7,
+                Some(Variant {
+                    woman: true,
+                    ..default()
+                }),
+            )
+            .dressed(wardrobe);
+            let (mut world, rig, _, meshes) = spawn_one(&look);
+            let root = world
+                .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+                .unwrap()
+                .parent();
+            let entities: Vec<_> = rig.joints.iter().flatten().copied().collect();
+            assert!(
+                !entities.is_empty(),
+                "real articulated rig, not an empty query"
+            );
+            let mut anim = Anim::new(7, Vec3::ZERO);
+            anim.time = 3.0;
+            anim.action = Some((Move::Jump, 0.4));
+            world.entity_mut(root).insert((rig, anim, PoseRefresh));
+            world.insert_resource(meshes);
+            let mut refresh = Schedule::default();
+            refresh.add_systems(refresh_pose);
+            refresh.run(&mut world);
+            let before: Vec<_> = entities
+                .iter()
+                .map(|&e| *world.get::<Transform>(e).unwrap())
+                .collect();
+            world.increment_change_tick();
+            world.clear_trackers();
+            world.entity_mut(root).insert(PoseRefresh);
+            refresh.run(&mut world);
+            let after: Vec<_> = entities
+                .iter()
+                .map(|&e| *world.get::<Transform>(e).unwrap())
+                .collect();
+            assert_eq!(
+                before, after,
+                "same timestamp must preserve every joint value"
+            );
+            let changed = entities
+                .iter()
+                .filter(|&&e| world.entity(e).get_ref::<Transform>().unwrap().is_changed())
+                .count();
+            assert_eq!(
+                changed,
+                0,
+                "identical explicit pose dirtied {changed}/{} joints",
+                entities.len()
+            );
+            eprintln!(
+                "{model:?}/{wardrobe:?}: {} joint publications, {changed} changed",
+                entities.len()
+            );
+            assert_eq!(world.get::<Anim>(root).unwrap().time, 3.0);
+            world.get_mut::<Anim>(root).unwrap().action = Some((Move::Jump, 0.6));
+            world.entity_mut(root).insert(PoseRefresh);
+            refresh.run(&mut world);
+            if model == CreatureModel::Human {
+                assert!(
+                    entities
+                        .iter()
+                        .zip(before)
+                        .any(|(&e, t)| *world.get::<Transform>(e).unwrap() != t),
+                    "a different requested phase must still publish its changed pose"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn jump_crouch_has_bounded_speed_at_phase_boundaries() {
         for boundary in [0.0_f32, JUMP_TAKEOFF, JUMP_LANDING, 1.0] {
             let start = (boundary - 0.0001).max(0.0);
@@ -3189,7 +3300,15 @@ mod support_tests {
         let (_, rig, _, _) = spawn_one(&look);
         let arms = |t| {
             let mut p = Pose::new();
-            biped_pose(&mut p, &rig, 0.0, 0.0, 0.0, Some(Move::Jump), t);
+            biped_pose(
+                &mut p,
+                &rig,
+                0.0,
+                0.0,
+                0.0,
+                Some((Move::Jump, t)),
+                WalkingCarriage::Native,
+            );
             [J::ArmL, J::ArmR, J::ForeL, J::ForeR].map(|j| p.rot[j as usize])
         };
         // Limit angular travel per real second at supported review rates,

@@ -699,6 +699,14 @@ fn leather_jerkins_hang_free_below_the_belt_and_stay_shorter_than_the_tunic() {
 /// frames while it is planted (within 3 mm of its lowest height), and the
 /// share of those frames that slide more than a millimetre.
 fn planted_foot_slide(model: CreatureModel, path: &dyn Fn(usize) -> Vec3) -> Vec<(J, f32, f32)> {
+    planted_foot_slide_with(Look::of(model, 21), WalkingCarriage::Native, path)
+}
+
+fn planted_foot_slide_with(
+    look: Look,
+    carriage: WalkingCarriage,
+    path: &dyn Fn(usize) -> Vec3,
+) -> Vec<(J, f32, f32)> {
     use bevy::time::TimeUpdateStrategy;
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin))
@@ -709,14 +717,11 @@ fn planted_foot_slide(model: CreatureModel, path: &dyn Fn(usize) -> Vec3) -> Vec
         .add_systems(Update, animate);
     let mut materials = Assets::<StandardMaterial>::default();
     let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
-    let look = Look::of(model, 21);
+    let mut anim = Anim::new(21, Vec3::ZERO);
+    anim.carriage = carriage;
     let root = app
         .world_mut()
-        .spawn((
-            Anim::new(21, Vec3::ZERO),
-            Transform::default(),
-            Visibility::default(),
-        ))
+        .spawn((anim, Transform::default(), Visibility::default()))
         .id();
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let rig = {
@@ -3780,6 +3785,132 @@ fn shared_head_cache_matches_fresh_components_in_both_outfit_orders() {
                     false,
                 ));
                 assert!(actual == expected[index], "{model:?}: head composition must not depend on cache history, order={order:?}, outfit={index}");
+            }
+        }
+    }
+}
+
+#[test]
+fn explicit_walking_carriage_retains_contact_across_outfits_and_turns() {
+    for carriage in [WalkingCarriage::Grounded, WalkingCarriage::Poised] {
+        for (model, wardrobe, woman) in [
+            (CreatureModel::Human, Wardrobe::Ranger, true),
+            (CreatureModel::Human, Wardrobe::Knight, true),
+            (CreatureModel::Human, Wardrobe::SylvanDuelist, true),
+            (CreatureModel::Human, Wardrobe::Commoner, false),
+            (CreatureModel::Orc, Wardrobe::Ranger, true),
+        ] {
+            let look = Look::with_choice(model, 21, Some(Variant { woman, ..default() }))
+                .dressed(wardrobe);
+            let straight = |frame: usize| Vec3::Z * frame as f32 * 0.03;
+            let turn = |frame: usize| {
+                let angle = frame as f32 * 0.02;
+                Vec3::new(1.5 - 1.5 * angle.cos(), 0.0, 1.5 * angle.sin())
+            };
+            let stop =
+                |frame: usize| Vec3::Z * (frame.min(90) + frame.saturating_sub(140)) as f32 * 0.03;
+            for (name, path) in [
+                ("straight", &straight as &dyn Fn(usize) -> Vec3),
+                ("turn", &turn),
+                ("stop", &stop),
+            ] {
+                let result = planted_foot_slide_with(look.clone(), carriage, path);
+                assert_eq!(
+                    result.len(),
+                    2,
+                    "{model:?}/{wardrobe:?}: actual supported biped feet"
+                );
+                for (foot, median, sliding) in result {
+                    // Same owners/limits as the existing straight and curved
+                    // walk contracts; a turn's settling frames are not straight stance.
+                    assert!(
+                        median.is_finite()
+                            && median < if name == "straight" { 0.001 } else { 0.0025 },
+                        "{name}/{carriage:?}/{model:?}/{wardrobe:?}/{foot:?}: median={median}"
+                    );
+                    if name == "straight" {
+                        assert!(
+                            sliding < 0.2,
+                            "{carriage:?}/{model:?}/{wardrobe:?}/{foot:?}: sliding={sliding}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn ordinary_skirts_clear_the_pelvis_between_waist_and_thighs() {
+    use bevy::render::mesh::VertexAttributeValues;
+    for wardrobe in [Wardrobe::Courtier, Wardrobe::Tavern, Wardrobe::Juliet] {
+        for woman in [false, true] {
+            for build in 0..3 {
+                for figure in 0..3 {
+                    let look = Look::with_choice(
+                        CreatureModel::Human,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            figure,
+                            ..default()
+                        }),
+                    )
+                    .composed(wardrobe, Equipment::default())
+                    .unwrap();
+                    let body = anatomy::HumanoidBody::resolve(&look);
+                    let pelvis = geometry::pelvis_shape(body);
+                    let (world, rig, _, meshes) = spawn_one(&look);
+                    let mut witnesses = 0;
+                    let mut lowest = f32::INFINITY;
+                    for &root in &rig.skirt_layers {
+                        let root_at = world.get::<Transform>(root).unwrap().compute_affine();
+                        let mut pending = vec![(root, root_at)];
+                        while let Some((entity, at)) = pending.pop() {
+                            if let Some(mesh) =
+                                world.get::<Mesh3d>(entity).and_then(|m| meshes.get(&m.0))
+                            {
+                                let Some(VertexAttributeValues::Float32x3(vertices)) =
+                                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                                else {
+                                    panic!("cloth positions")
+                                };
+                                let indices: Vec<_> =
+                                    mesh.indices().expect("cloth triangles").iter().collect();
+                                for tri in indices.as_chunks::<3>().0 {
+                                    let points = [tri[0], tri[1], tri[2]].map(|i| {
+                                        at.transform_point3(Vec3::from(vertices[i]))
+                                            / anatomy::HIP_SCALE
+                                    });
+                                    // Witness actual emitted triangle interiors, not just fitted rings.
+                                    for point in
+                                        [points[0], (points[0] + points[1] + points[2]) / 3.0]
+                                    {
+                                        if (-0.09..0.035).contains(&point.y) {
+                                            witnesses += 1;
+                                            lowest = lowest.min(pelvis.distance(point));
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(children) = world.get::<Children>(entity) {
+                                for child in children.iter() {
+                                    let child_at = world
+                                        .get::<Transform>(child)
+                                        .map_or(Affine3A::IDENTITY, |t| t.compute_affine());
+                                    pending.push((child, at * child_at));
+                                }
+                            }
+                        }
+                    }
+                    assert!(witnesses > 100, "exercise actual cloth below waist");
+                    assert!(
+                    lowest > 0.0,
+                    "{wardrobe:?} woman {woman} build {build} figure {figure}: cloth penetrates pelvis by {}",
+                    -lowest
+                );
+                }
             }
         }
     }

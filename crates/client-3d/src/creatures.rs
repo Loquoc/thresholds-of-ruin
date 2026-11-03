@@ -380,6 +380,12 @@ impl Look {
         }
     }
 
+    /// Explicit presentation carriage leaves specialized locomotion native.
+    pub(crate) fn supports_carriage(&self) -> bool {
+        self.plan == Plan::Biped
+            && !matches!(self.style, Style::Guardian | Style::Yeti | Style::Zombie)
+    }
+
     /// Whether this look can be redressed from the wardrobe.
     pub fn dresses(&self) -> bool {
         outfit::dresses(self)
@@ -1443,6 +1449,8 @@ pub struct Anim {
     rest: f32,
     /// Hold the rest pose without fidgets, for portraits.
     pub quiet: bool,
+    /// Cosmetic walking expression, independent of body and outfit identity.
+    pub carriage: WalkingCarriage,
     /// Play this antic from the start of the clock, for studies.
     pub antic: Option<u32>,
 }
@@ -1465,6 +1473,7 @@ impl Anim {
             fallen: 0.0,
             rest: 1.0,
             quiet: false,
+            carriage: WalkingCarriage::Native,
             antic: None,
         }
     }
@@ -1514,7 +1523,7 @@ mod soft_tests;
 mod visual_contact;
 
 pub(crate) use animation::MotionProfile;
-pub use animation::{animate, soften, Boredom, BORED_AFTER};
+pub use animation::{animate, soften, Boredom, WalkingCarriage, BORED_AFTER};
 pub(crate) use animation::{refresh_pose, PoseRefresh};
 pub use corpse::{snuff, spawn_corpse, Snuffed};
 pub use effects::{effects, stage, Bolt, Fade};
