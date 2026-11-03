@@ -3533,3 +3533,26 @@ All 34 pure Python 3D verification methods pass after both updates. Native
 window/OS-input execution was not repeated locally; hosted final-head execution
 must qualify that boundary. Existing geometry, no-world-action and exact-action
 assertions are preserved. No Rust or production behavior changed.
+
+## Throwing disconnect picture barrier, 3 November 2026
+
+PR 224's Python process shard exposed one stale-picture fixture race in
+`RogueThrowingProcesses.test_text_carried_dart_and_shuriken_preserve_exact_pending_payload_after_source_deletion`.
+The retained probe stream publishes a visual-changing outcome at sequence 16,
+then the paused intention at 17 while the observation still says preparation is
+active, and finally the observation delta at 19 with preparation inactive.
+The saved pending action and restored observation were correctly paused, with
+43 preparation ticks remaining. The fixture compared the intermediate causal
+frame's old picture against that restored state.
+
+The pause barrier now uses the existing `picture_after` helper after observing
+the paused intention. It does not advance the world or relax state equality,
+intentions, frozen plan, item holds, RNG, or source-free restart assertions.
+A deterministic ordered-stream regression fails against the old barrier in two
+subcases: pause arrives before its picture, and pause is already seen while the
+picture is still dirty. Both pass with the shared picture barrier. This is one
+fixture-race root, one naturally failing hosted method, and one deliberate unit
+regression with two failing subcases, not three production defects. The original
+strict real-process witness remains a final-head hosted CI gate; protected local
+process binaries predate later capture changes and are not claimed as current
+runtime qualification.
