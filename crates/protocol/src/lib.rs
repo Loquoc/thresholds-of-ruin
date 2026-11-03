@@ -1,5 +1,11 @@
 //! Public observation types. Never expose internal world state through this crate.
 
+#[cfg(test)]
+#[path = "../tests/support/fixture.rs"]
+mod fixture;
+
+mod attachments;
+pub use attachments::*;
 mod item_identity;
 pub use item_identity::{InvalidItemIdentity, ItemIdentity};
 mod item_knowledge;

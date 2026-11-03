@@ -22,6 +22,9 @@ pub(super) fn receive(
     effects: Query<Entity, TransientEffects>,
     assets: SceneAssets,
 ) {
+    if game.capture.is_some() {
+        return;
+    }
     let SceneAssets {
         palette,
         mut meshes,

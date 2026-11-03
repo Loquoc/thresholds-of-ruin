@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tor_client_common::annotations::{play_test_report, MAX_PLAY_TEST_REPORT_BYTES};
 use tor_client_common::holds::{hold_choices, render_holds, HoldChoice};
 use tor_client_common::items::{
     identification_action, item_action, item_choices, zap_action, ItemOperation,
@@ -59,6 +60,8 @@ pub enum Key {
     ResumeIntention,
     CancelIntention,
     Note,
+    PlayTestReport,
+    Screenshot,
     /// Open the authenticated wizard command editor.
     Wizard,
     Enter,
@@ -106,6 +109,8 @@ pub enum Input {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
+    /// Capture only the next genuinely presented game framebuffer.
+    Screenshot,
     /// Stop only chart hydration; never a gameplay request.
     CancelCharts,
     /// A fresh, basis-free overview. The worker presents Observe before querying.
@@ -126,6 +131,7 @@ pub const PACES_MS: [u64; 9] = [0, 25, 50, 75, 100, 150, 200, 300, 500];
 pub const DEFAULT_PACE_MS: u64 = 75;
 
 pub struct NoteDraft {
+    pub report: bool,
     pub text: String,
     pub audience: Audience,
     snapshot: SnapshotId,
@@ -2437,7 +2443,13 @@ impl App {
             match input {
                 Input::Text { text } => {
                     for ch in text.chars().filter(|ch| !ch.is_control()) {
-                        if draft.text.len() + ch.len_utf8() <= MAX_NOTE_BYTES {
+                        if draft.text.len() + ch.len_utf8()
+                            <= if draft.report {
+                                MAX_PLAY_TEST_REPORT_BYTES
+                            } else {
+                                MAX_NOTE_BYTES
+                            }
+                        {
                             draft.text.push(ch);
                         }
                     }
@@ -2455,11 +2467,22 @@ impl App {
                     }
                 }
                 Input::Key { key: Key::Enter } if !draft.text.trim().is_empty() => {
+                    let text = if draft.report {
+                        match play_test_report(&draft.text) {
+                            Ok(text) => text,
+                            Err(error) => {
+                                self.status = error;
+                                return Effect::None;
+                            }
+                        }
+                    } else {
+                        draft.text.clone()
+                    };
                     let command = Command::Annotate {
                         anchor: Anchor::State {
                             snapshot: draft.snapshot.clone(),
                         },
-                        text: draft.text.clone(),
+                        text,
                         audience: draft.audience,
                         source: ClientSource::User,
                         category: AnnotationCategory::Note,
@@ -3129,9 +3152,18 @@ impl App {
                 }
                 Effect::None
             }
-            Key::Note => {
+            Key::Screenshot => {
+                if self.state.is_none() {
+                    return Effect::None;
+                }
+                self.busy = true;
+                self.running = None;
+                Effect::Screenshot
+            }
+            Key::Note | Key::PlayTestReport => {
                 if let Some(state) = &self.state {
                     self.note = Some(NoteDraft {
+                        report: key == Key::PlayTestReport,
                         text: String::new(),
                         audience: Audience::Private,
                         snapshot: state.state().snapshot.clone(),

@@ -250,6 +250,7 @@ pub(super) fn capture(
         "captures_in_flight": diagnostics.pending_shots,
         "mouse": pressed_mouse,
         "status": game.as_ref().map(|game| &game.status),
+        "shown_snapshot": view.map(|view| &view.shown.snapshot),
         "world_feet": game.as_ref().map(|game| game.feet_world.to_array()),
         "foot_cell": view.and_then(|view| view.visible.iter().find(|cell| cell.position == view.feet).map(|cell| &cell.key)),
         "doors": view.map(|view| view.visible.iter().filter_map(|cell| cell.door.as_ref()).map(|door| serde_json::json!({

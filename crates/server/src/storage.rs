@@ -22,6 +22,9 @@ pub(crate) use journal_lock::JournalLock;
 #[path = "save_schema.rs"]
 pub(crate) mod schema;
 pub(crate) use codec::frame;
+#[path = "storage_attachments.rs"]
+mod attachments;
+use attachments::AttachmentWrite;
 use codec::region_frame;
 
 pub(crate) fn encode_region(
@@ -287,7 +290,8 @@ impl Default for SavePolicy {
             target_interval: Duration::from_secs(30),
             max_unsaved_age: Duration::from_secs(60),
             idle_interval: Duration::from_millis(750),
-            max_pending_bytes: 8 * MAX_PAYLOAD,
+            // One maximum PNG plus its bounded journal envelope must fit.
+            max_pending_bytes: 16 * MAX_PAYLOAD,
         }
     }
 }
@@ -559,6 +563,7 @@ fn commit_batch(
 ) -> Result<(), Failure> {
     let tx = conn.transaction().map_err(|_| storage_failure())?;
     for entry in entries {
+        attachments::write(&tx, entry.attachment.as_ref())?;
         write_sources(&tx, &entry.sources)?;
         write_region_rows(&tx, &entry.regions)?;
     }
@@ -770,6 +775,7 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
         "checkpoint",
         "package",
         "region_sources",
+        "attachments",
     ]
     .iter()
     .map(|table| {
@@ -788,6 +794,7 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
     {
         return Err(invalid_archive());
     }
+    attachments::preflight_saved_size(&conn)?;
     let checkpoint = read_checkpoint(&conn)?;
     let checkpoint_sequence = checkpoint.as_ref().map(|c| c.sequence).unwrap_or(0);
     let mut checkpoint_records = 0;
@@ -801,6 +808,7 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
     let mut archive = None;
     let mut save_id = String::new();
     let mut next = 0u64;
+    let mut attachment_bytes = 0usize;
     while let Some(row) = rows.next().map_err(|_| invalid_archive())? {
         let sequence: u64 = u64::try_from(row.get::<_, i64>(0).map_err(|_| invalid_archive())?)
             .map_err(|_| invalid_archive())?;
@@ -828,7 +836,9 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
                 archive = Some(base.archive);
             }
             1 => {
-                let envelope: Envelope<Record> = strict(payload)?;
+                let mut envelope: Envelope<Record> = strict(payload)?;
+                attachments::account_declared(&envelope.record, &mut attachment_bytes)?;
+                attachments::hydrate(&conn, &mut envelope.record)?;
                 if envelope.save_id != save_id || envelope.generation != 0 {
                     return Err(invalid_archive());
                 }
@@ -867,6 +877,7 @@ fn load(path: &Path) -> Result<Loaded, Failure> {
         return Err(invalid_archive());
     }
     let mut archive = archive.ok_or_else(invalid_archive)?;
+    attachments::validate_inventory(&conn, &archive.records)?;
     let saved = attach_package(&conn, &mut archive)?;
     Ok((conn, archive, save_id, next - 1, checkpoint, saved))
 }
@@ -946,6 +957,7 @@ fn attach_package(conn: &Connection, archive: &mut Archive) -> Result<BTreeSet<u
 
 #[derive(Debug)]
 struct Pending {
+    attachment: Option<AttachmentWrite>,
     regions: Vec<(u64, Vec<u8>)>,
     sequence: u64,
     bytes: Vec<u8>,
@@ -1054,6 +1066,7 @@ impl Store {
             load(path)?
         } else {
             let (initial, sources, records) = initial()?;
+            attachments::preflight_initial(&initial.records)?;
             // Every creation route, including detached profiling fixtures, pins
             // the same immutable input closure before the database is opened.
             let sources = if let Some(package) = &initial.scenario.package {
@@ -1075,7 +1088,7 @@ impl Store {
                 },
             )?;
             let tx = conn.transaction().map_err(|_| storage_failure())?;
-            tx.execute_batch(&format!("PRAGMA application_id=1414484554; PRAGMA user_version={SAVE_FORMAT}; CREATE TABLE journal(sequence INTEGER PRIMARY KEY,frame BLOB NOT NULL) STRICT; CREATE TABLE history(sequence INTEGER PRIMARY KEY,frame BLOB NOT NULL) STRICT; CREATE TABLE checkpoint(slot INTEGER PRIMARY KEY CHECK(slot=1), sequence INTEGER NOT NULL, payload BLOB NOT NULL, checksum INTEGER NOT NULL) STRICT; CREATE TABLE regions(record INTEGER PRIMARY KEY,frame BLOB NOT NULL) STRICT; CREATE TABLE package(chunk INTEGER PRIMARY KEY,bytes BLOB NOT NULL) STRICT; CREATE TABLE region_sources(region INTEGER PRIMARY KEY,source TEXT NOT NULL) STRICT;")).map_err(|_| storage_failure())?;
+            tx.execute_batch(&format!("PRAGMA application_id=1414484554; PRAGMA user_version={SAVE_FORMAT}; CREATE TABLE journal(sequence INTEGER PRIMARY KEY,frame BLOB NOT NULL) STRICT; CREATE TABLE history(sequence INTEGER PRIMARY KEY,frame BLOB NOT NULL) STRICT; CREATE TABLE checkpoint(slot INTEGER PRIMARY KEY CHECK(slot=1), sequence INTEGER NOT NULL, payload BLOB NOT NULL, checksum INTEGER NOT NULL) STRICT; CREATE TABLE regions(record INTEGER PRIMARY KEY,frame BLOB NOT NULL) STRICT; CREATE TABLE package(chunk INTEGER PRIMARY KEY,bytes BLOB NOT NULL) STRICT; CREATE TABLE region_sources(region INTEGER PRIMARY KEY,source TEXT NOT NULL) STRICT; CREATE TABLE attachments(entry TEXT PRIMARY KEY,bytes BLOB NOT NULL) STRICT;")).map_err(|_| storage_failure())?;
             tx.execute("INSERT INTO journal VALUES (0,?1)", [bytes])
                 .map_err(|_| storage_failure())?;
             if let Some(package) = &initial.scenario.package {
@@ -1093,6 +1106,8 @@ impl Store {
             write_sources(&tx, &sources)?;
             write_region_rows(&tx, &records)?;
             for (index, record) in initial.records.iter().enumerate() {
+                let attachment = attachments::from_record(record)?;
+                attachments::write(&tx, attachment.as_ref())?;
                 let seq = index as u64 + 1;
                 let bytes = frame(
                     1,
@@ -1202,7 +1217,15 @@ impl Store {
             .iter()
             .map(|(id, record)| Ok((id.0, region_frame(id.0, record)?)))
             .collect::<Result<Vec<_>, Failure>>()?;
-        self.push_with_history_admission(1, record, sources, rows, Some(capture), admit_checkpoint)
+        let attachment = attachments::from_record(record)?;
+        self.push_with_history_admission(
+            1,
+            record,
+            sources,
+            rows,
+            Some(capture),
+            (admit_checkpoint, attachment),
+        )
     }
     fn push<T: Serialize>(
         &self,
@@ -1212,7 +1235,7 @@ impl Store {
         regions: Vec<(u64, Vec<u8>)>,
         capture: Option<impl FnOnce() -> Checkpoint>,
     ) -> Result<usize, Failure> {
-        self.push_with_history_admission(kind, record, sources, regions, capture, false)
+        self.push_with_history_admission(kind, record, sources, regions, capture, (false, None))
     }
     fn push_with_history_admission<T: Serialize>(
         &self,
@@ -1221,8 +1244,9 @@ impl Store {
         sources: Vec<(u64, Arc<str>)>,
         regions: Vec<(u64, Vec<u8>)>,
         capture: Option<impl FnOnce() -> Checkpoint>,
-        admit_checkpoint: bool,
+        admission: (bool, Option<AttachmentWrite>),
     ) -> Result<usize, Failure> {
+        let (admit_checkpoint, attachment) = admission;
         let _admission = self.0.admission.lock().unwrap();
         let shared = &self.0.shared;
         let s = shared.state.lock().unwrap();
@@ -1264,11 +1288,16 @@ impl Store {
         };
         let copied = sources.iter().map(|(_, text)| text.len()).sum::<usize>()
             + regions.iter().map(|(_, frame)| frame.len()).sum::<usize>();
-        let len = bytes.len() + copied;
+        let attachment_bytes = attachment.as_ref().map_or(0, |(_, bytes)| bytes.len());
+        let mandatory_bytes = bytes
+            .len()
+            .checked_add(attachment_bytes)
+            .ok_or_else(storage_failure)?;
+        let len = mandatory_bytes + copied;
         Self::check_admission(
             &mut shared.state.lock().unwrap(),
             shared,
-            bytes.len(),
+            mandatory_bytes,
             copied,
         )?;
         let checkpoint = if needs_checkpoint || admit_checkpoint {
@@ -1291,7 +1320,7 @@ impl Store {
         let mut s = shared.state.lock().unwrap();
         // A worker failure or shutdown during preparation must reject without
         // publishing the prepared record or checkpoint.
-        Self::check_admission(&mut s, shared, bytes.len(), copied)?;
+        Self::check_admission(&mut s, shared, mandatory_bytes, copied)?;
         debug_assert_eq!(s.status.accepted_sequence.checked_add(1), Some(sequence));
         if let Some(checkpoint) = checkpoint {
             s.checkpoint = Some((sequence, checkpoint));
@@ -1302,6 +1331,7 @@ impl Store {
         // InputOwnership, briefly, and never acquire State or perform I/O there.
         shared.inputs.lock().unwrap().admit(sequence, &sources);
         s.pending.push_back(Pending {
+            attachment,
             regions,
             sequence,
             bytes,
@@ -1572,7 +1602,13 @@ fn run_worker(shared: Arc<Shared>, conn: Connection, path: PathBuf) {
                 // Both frames and copied sources consume admission capacity.
                 // Release it only after their shared transaction commits;
                 // journal_bytes continues to describe journal frames alone.
-                s.status.pending_bytes -= journal_bytes + source_bytes + region_bytes;
+                let attachment_bytes = batch
+                    .iter()
+                    .filter_map(|p| p.attachment.as_ref())
+                    .map(|(_, bytes)| bytes.len())
+                    .sum::<usize>();
+                s.status.pending_bytes -=
+                    journal_bytes + source_bytes + region_bytes + attachment_bytes;
                 s.status.journal_bytes += journal_bytes as u64;
                 s.status.durable_sequence = batch.last().unwrap().sequence;
                 s.status.batches += 1;
@@ -1633,6 +1669,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE journal(sequence INTEGER PRIMARY KEY,frame BLOB); CREATE TABLE history(sequence INTEGER PRIMARY KEY,frame BLOB); CREATE TABLE regions(record INTEGER PRIMARY KEY,frame BLOB);").unwrap();
         let entry = Pending {
+            attachment: None,
             sequence: 1,
             bytes: vec![1],
             sources: vec![],
@@ -1752,6 +1789,7 @@ mod tests {
                  CREATE TABLE checkpoint(slot INTEGER PRIMARY KEY, sequence INTEGER, payload BLOB, checksum INTEGER);",
             ).unwrap();
             let pending = Pending {
+                attachment: None,
                 regions: vec![],
                 sequence: 1,
                 bytes: vec![0],
@@ -2730,6 +2768,7 @@ mod tests {
         )
         .unwrap();
         let mut batch = vec![Pending {
+            attachment: None,
             regions: vec![],
             sources: Vec::new(),
             sequence: 1,
@@ -2766,6 +2805,7 @@ mod tests {
     /// never decoded here; these tests look at the tables.
     fn copying_record(text: &str) -> Pending {
         Pending {
+            attachment: None,
             regions: vec![],
             sequence: 5,
             bytes: b"record".to_vec(),
@@ -2922,7 +2962,7 @@ mod historical_admission_guard_tests {
             vec![],
             vec![],
             Some(|| -> Checkpoint { panic!("unchanged history must not capture a checkpoint") }),
-            false,
+            (false, None),
         );
         HISTORY_ADMISSION_TEST_LIMIT.with(|limit| limit.set(None));
         assert!(result.is_ok());
@@ -2956,7 +2996,7 @@ mod historical_admission_guard_tests {
                 captures.set(captures.get() + 1);
                 Checkpoint::capture(&engine)
             }),
-            true,
+            (true, None),
         );
         HISTORY_ADMISSION_TEST_LIMIT.with(|limit| limit.set(None));
         assert_eq!(

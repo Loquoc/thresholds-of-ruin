@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use tor_protocol as wire;
 #[path = "save_advancement.rs"]
 mod advancement;
+#[path = "save_attachments.rs"]
+pub(crate) mod attachments;
 
 #[path = "save_scenario.rs"]
 pub(crate) mod scenario;
@@ -1657,6 +1659,7 @@ mod tests {
             "é".repeat(64),
         ] {
             let command = Command::Annotate {
+                attachments: Vec::new(),
                 anchor: wire::Anchor::State {
                     snapshot: wire::SnapshotId(snapshot.clone()),
                 },

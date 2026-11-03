@@ -199,7 +199,7 @@ menus, including tools; the letter shortcuts above filter by item class.
 `#slower` and `#faster` adjust journey presentation speed (`--pace <ms>` sets the
 start, default 75); `[` and `]` are reserved for pagination inside strike details.
 Other listed commands include abilities, search, throw, fire, stats, inventory,
-look, travel, places, note, control, release, advancement, escape-hold, resume,
+look, travel, places, note, report, screenshot, control, release, advancement, escape-hold, resume,
 cancel, help and save. These select the same existing actions and menus, with
 the same server authority checks. Opening or cancelling the command editor is
 free; confirming a paid command is not.
@@ -274,6 +274,24 @@ a later strike or miss, but never reveal how many strikes remain.
 
 Refusals are said plainly: a move the server refuses reads "You can't go that
 way.", travel without a known route "You don't know a way there."
+
+Use `#report` to write a play-test report through the same note editor. It saves
+`PLAY TEST REPORT` followed by a blank line and your text as an ordinary
+user-source note. The report starts private; Tab changes the audience, Enter
+saves it, and Esc cancels. Its anchor is the state where composition began.
+The heading reserves 18 bytes, leaving 4078 UTF-8 bytes for a nonblank body.
+Reports do not capture a screenshot; screenshot capture is a separate command.
+F4 and `#note` continue to save your text without adding a heading.
+
+Use `#screenshot` to capture the next presented game window as a PNG attachment
+in a private frontend note in game history. It captures only this application's
+1200 × 800 framebuffer, never the desktop or other windows, and anchors it to
+that exact displayed snapshot. Only one upload is admitted at a time. Spectators
+cannot upload captures. Reports and ordinary notes do not trigger it.
+A successful upload means the server accepted it; normal background save flushing
+and save-and-close still apply. If the outcome is uncertain, inspect history
+before trying again. The existing diagnostic `--capture` file option remains
+separate and does not upload anything.
 
 Notes are user-source notes, limited to 4096 UTF-8 bytes. Advanced source/category
 and historical-anchor commands remain available in the text client. The bitmap
@@ -464,3 +482,16 @@ state on reconnect. Selection clears on changed observations or control loss.
 Only the owning player sees the choice and explicitly learned instance charges;
 spectators see neither. `#release` gives up actor control, `R` removes an accessory,
 and `Z` opens the ability menu.
+
+### Saved screenshot acceptance
+
+The native process witness for saved captures should invoke `#screenshot` through
+`--automation` after a reported frame, wait for its completion, then read the
+attachment through the authenticated server API. Decode the returned PNG and
+compare dimensions and RGB pixels to the same presented diagnostic framebuffer.
+Assert that the entry is private, frontend-sourced, and anchored to the captured
+snapshot, and remains readable after save-and-close and restart. Include a live
+update during upload, repeated capture input while busy, spectator refusal, and
+an interrupted upload that leaves no published partial attachment. Report and
+ordinary-note submissions must not create screenshot attachments. These are
+additional saved-capture witnesses, not replacements for diagnostic frame tests.

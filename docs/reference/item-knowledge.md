@@ -1,6 +1,6 @@
 # Item identity, appearance, and remembered facts
 
-An item's public appearance is not its true identity. Protocol 68 keeps them
+An item's public appearance is not its true identity. The protocol keeps them
 separate, and does not derive either machine key from a translated display name.
 
 ```json
@@ -108,8 +108,7 @@ its display name or current polymorphed body. Intended corpse knowledge groups
 share an authored key; distinct personas do not collapse merely because they
 share a species. The normal corpse disclosure gates still apply.
 
-The combined change uses protocol 68, scenario format 37, validator 49, and save
-format 66. Its internal compiled-content and region envelopes advance to 34 and
-10 respectively; rules input remains 26. Older clients and saves are explicitly rejected, not silently
+See [current formats](../status.md) for supported protocol, save, scenario, and
+validator identities. Older clients and saves are explicitly rejected, not silently
 migrated. No gameplay numeric tuning or new knowledge-learning event is part of
 this format change.

@@ -1,5 +1,7 @@
 //! Same-build diagnostic: typed Serde parsing versus the bounded wire decoder.
 //! Includes parsing/DTO construction, excludes validation, drop, network and UI.
+#[path = "../tests/support/fixture.rs"]
+mod fixture;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use std::{fmt::Debug, hint::black_box, time::Instant};
@@ -42,14 +44,11 @@ fn measure<T: DeserializeOwned + Serialize + PartialEq + Debug>(
 }
 
 fn snapshot(cells: usize) -> ServerMessage {
-    let fixtures: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/wire-v68.json"
-        ))
-        .expect("regenerate current wire samples"),
+    let fixtures = crate::fixture::load(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+        tor_protocol::PROTOCOL_VERSION,
     )
-    .unwrap();
+    .expect("regenerate current wire samples");
     assert_eq!(fixtures["protocol"], PROTOCOL_VERSION);
     let fixture = fixtures["server"]
         .as_array()

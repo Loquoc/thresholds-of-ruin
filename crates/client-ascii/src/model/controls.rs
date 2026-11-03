@@ -73,6 +73,11 @@ commands![
     ("read", "read a carried item (r / F6)", Read),
     ("release", "release actor control", Release),
     (
+        "report",
+        "write a PLAY TEST REPORT annotation",
+        PlayTestReport
+    ),
+    (
         "remove",
         "remove any equipped item, including tools",
         Unequip
@@ -86,6 +91,11 @@ commands![
         "save",
         "save pending work and close this window (S)",
         SaveQuit
+    ),
+    (
+        "screenshot",
+        "save this game window in the save game",
+        Screenshot
     ),
     ("search", "use your disclosed Search ability (s)", Search),
     ("slower", "show journeys more slowly", Slower),

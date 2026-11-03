@@ -1,7 +1,13 @@
 //! Client-side validation of server-pushed observation ordering.
 
+#[cfg(test)]
+#[path = "../../protocol/tests/support/fixture.rs"]
+mod fixture;
+
 pub mod abilities;
 pub mod advancement;
+pub mod annotations;
+pub mod captures;
 pub mod charts;
 mod connection;
 pub mod history;
@@ -25,7 +31,7 @@ mod state;
 pub mod stats;
 pub mod status;
 pub mod surfaces;
-pub use connection::Connection;
+pub use connection::{Connection, ConnectionError};
 pub use palette::{observation_assets, AssetTable, Palette};
 pub use pending_request::{ConfirmedReply, PendingRequest, RequestCompletion};
 pub use state::{ClientSessionState, ClientState, RememberedCell};

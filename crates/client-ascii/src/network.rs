@@ -56,6 +56,7 @@ pub enum Event {
 
 /// What the window asks of the network worker.
 pub enum Command {
+    Capture(tor_client_common::captures::CapturedAttachment),
     CancelCharts,
     OpenOverview(Box<tor_client_common::advancement::OpenOverview>),
     Request {
@@ -187,6 +188,25 @@ async fn run(
                 None => {
                     connection.close().await?;
                     return Ok(());
+                }
+                Some(Command::Capture(capture)) => {
+                    let mut charts_loading = connection.charts.loading();
+                    let result = tor_client_common::captures::upload(&mut connection, capture, |connection, message| {
+                        if matches!(message, ServerMessage::MapPage { page, .. } if page.next.is_none()) {
+                            if let Some(update) = connection.state.map_memory_update() {
+                                publish(tx, Event::MapMemory(Box::new(update)))?;
+                            }
+                        }
+                        publish_chart_result(charts_loading, &connection.charts, message, tx)?;
+                        charts_loading = connection.charts.loading();
+                        publish_palette_change(&mut shown_palette, &connection.palette, tx)?;
+                        present(message.clone(), tx)
+                    }).await;
+                    match result {
+                        Ok(()) => publish(tx, Event::Status("Screenshot accepted into game history; normal save flushing still applies.".into()))?,
+                        Err(error) => publish(tx, Event::Refused(format!("Screenshot upload: {error}")))?,
+                    }
+                    publish(tx, Event::Ready)?;
                 }
                 Some(Command::OpenOverview(plan)) => {
                     if !connection.is_synchronized() {
@@ -563,7 +583,9 @@ fn present(message: ServerMessage, tx: &SyncSender<Event>) -> Result<(), Error> 
         | ServerMessage::MapPage { .. }
         | ServerMessage::ChartPage { .. } => Ok(()),
         // Input permissions arrive through ordered readiness updates.
-        ServerMessage::Waiting { .. } => Ok(()),
+        ServerMessage::Waiting { .. }
+        | ServerMessage::AttachmentUpload { .. }
+        | ServerMessage::AttachmentData { .. } => Ok(()),
     }
 }
 
@@ -842,13 +864,14 @@ mod tests {
         );
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let samples: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-                format!("../protocol/tests/fixtures/wire-v{PROTOCOL_VERSION}.json"),
-            ))
-            .unwrap(),
+        let samples = crate::fixture::load(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                "../protocol/tests/fixtures/wire-v{PROTOCOL_VERSION}.json"
+            )),
+            PROTOCOL_VERSION,
         )
-        .unwrap();
+        .expect("regenerate current wire samples");
+        assert_eq!(samples["protocol"], PROTOCOL_VERSION);
         let mut overview: AdvancementPage = serde_json::from_value(
             samples["server"]
                 .as_array()
@@ -1244,13 +1267,14 @@ mod tests {
     #[tokio::test]
     async fn a_confirmed_reply_during_recovery_is_retained_until_the_snapshot() {
         for rejected in [false, true] {
-            let samples: serde_json::Value = serde_json::from_str(
-                &std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-                    format!("../protocol/tests/fixtures/wire-v{PROTOCOL_VERSION}.json"),
-                ))
-                .unwrap(),
+            let samples = crate::fixture::load(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+                    "../protocol/tests/fixtures/wire-v{PROTOCOL_VERSION}.json"
+                )),
+                PROTOCOL_VERSION,
             )
-            .unwrap();
+            .expect("regenerate current wire samples");
+            assert_eq!(samples["protocol"], PROTOCOL_VERSION);
             let initial: Snapshot = serde_json::from_value(
                 samples["server"]
                     .as_array()

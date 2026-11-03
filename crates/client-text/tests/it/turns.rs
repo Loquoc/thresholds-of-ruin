@@ -4524,3 +4524,27 @@ async fn portable_light_engine_sends_one_current_action_and_narrates_paid_comple
         .await
         .contains("fuel: 99900 ticks"));
 }
+
+#[tokio::test]
+async fn report_body_is_not_executed_as_a_command_chain() {
+    let mut link = Scripted::new(state(), |request, _| {
+        assert!(matches!(
+            request,
+            Request::Command {
+                command: Command::Annotate { .. },
+                ..
+            }
+        ));
+        vec![Frame::Ack]
+    });
+    play(
+        &mut link,
+        &mut Engine::default(),
+        "report Door stuck. Then wait; and LOOK!",
+    )
+    .await;
+    assert_eq!(link.sent.len(), 1);
+    assert!(matches!(&link.sent[0], Request::Command {
+        command: Command::Annotate { text, category: AnnotationCategory::Note, audience: Audience::Actor, .. }, ..
+    } if text == "PLAY TEST REPORT\n\nDoor stuck. Then wait; and LOOK!"));
+}

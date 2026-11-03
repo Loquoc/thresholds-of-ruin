@@ -38,6 +38,7 @@ pub struct Network {
     commands: async_mpsc::Sender<Input>,
     events: Receiver<Event>,
     ready: bool,
+    capturing: bool,
     closed: bool,
     fatal_reported: bool,
     failure: Option<String>,
@@ -53,6 +54,7 @@ impl Network {
                 commands,
                 events,
                 ready: false,
+                capturing: false,
                 closed: false,
                 fatal_reported: false,
                 failure: None,
@@ -63,7 +65,22 @@ impl Network {
         )
     }
 
+    pub(crate) fn reserve_capture(&mut self) -> Result<(), &'static str> {
+        if self.closed || !self.ready || self.capturing {
+            return Err("Wait for the current request before capturing.");
+        }
+        self.capturing = true;
+        Ok(())
+    }
+
+    pub(crate) fn release_capture(&mut self) {
+        self.capturing = false;
+    }
+
     pub fn try_command(&mut self, command: Input) -> Result<(), &'static str> {
+        if self.capturing {
+            return Err("Screenshot readback pending; Escape cancels.");
+        }
         if self.closed {
             return Err("Connection closed");
         }
@@ -92,6 +109,11 @@ impl Network {
     /// Preserve ordering, limit work, and let deferred scene entities materialize
     /// before another view can refer to them.
     pub fn frame_events(&mut self) -> Vec<Event> {
+        // Do not consume even one newer View while GPU pixels retain the
+        // previous disclosure. Bounded channel backpressure preserves ordering.
+        if self.capturing {
+            return Vec::new();
+        }
         let started = Instant::now();
         let mut batch = Vec::new();
         for _ in 0..EVENTS_PER_FRAME {
@@ -251,6 +273,15 @@ async fn session(
             biased;
             command = rx.recv() => match command {
                 None => return Ok(()),
+                Some(Input { command: Cmd::Capture(capture), .. }) => {
+                    let result = tor_client_common::captures::upload(connection, capture,
+                        |connection, message| present(connection, message, tx)).await;
+                    publish(tx, Event::Status(match result {
+                        Ok(()) => "Screenshot attached privately. Save a checkpoint to retain it on disk.".into(),
+                        Err(error) => format!("Screenshot: {error}"),
+                    }))?;
+                    publish(tx, Event::Ready)?;
+                }
                 Some(Input { shown, command: Cmd::Projectile(step) }) => {
                     if connection.state.validate_reply_context(&shown).is_err() {
                         publish(tx, Event::Status("State changed; request was not sent. Review the new state.".into()))?;
@@ -426,6 +457,31 @@ pub(crate) fn test_channel() -> (crate::Net, async_mpsc::Receiver<Input>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screenshot_reservation_retains_new_views_until_readback_or_cancel() {
+        let (mut network, _commands, events) = Network::channels();
+        events.send(Event::Ready).unwrap();
+        network.frame_events();
+        network.reserve_capture().unwrap();
+        let later = crate::test_support::view(8);
+        let shown = later.shown.clone();
+        events.send(Event::View(Box::new(later))).unwrap();
+        events
+            .send(Event::Status("after newer view".into()))
+            .unwrap();
+        assert!(network.frame_events().is_empty());
+        assert!(
+            network.frame_events().is_empty(),
+            "readback must not drain or discard incoming views"
+        );
+        network.release_capture();
+        let batch = network.frame_events();
+        assert!(matches!(batch.as_slice(), [Event::View(view)] if view.shown == shown));
+        assert!(
+            matches!(network.frame_events().as_slice(), [Event::Status(text)] if text == "after newer view")
+        );
+    }
 
     #[test]
     fn ui_input_keeps_its_presented_context_after_the_view_advances() {

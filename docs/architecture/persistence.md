@@ -49,10 +49,11 @@ validation. None of these logical changes alters physical storage framing.
 
 The [CLI reference](../reference/cli.md) owns save-policy flags and defaults. The
 policy combines oldest-record age, quiet time and queue pressure. Queue accounting
-includes encoded journal records, copied region sources and the batch being written.
+includes encoded journal records, attachment payloads, copied region sources and
+the batch being written.
 It is not a strict bound on total pending memory: when the queue is empty, copied
-region sources may exceed `--save-queue-bytes`, provided the journal record itself
-fits. This permits first acquisition of a large source without permanently blocking
+region sources may exceed `--save-queue-bytes`, provided the journal record and
+its attachment payload fit together. This permits first acquisition of a large source without permanently blocking
 play; the worker is prompted to drain the admitted prefix. Checkpoint and other
 runtime allocations have separate bounds.
 
@@ -69,7 +70,10 @@ queued. A process test holds an exclusive SQLite lock as a slow disk to check bo
 
 The maximum age must be at least the positive target, and at most one day. Idle
 time must not exceed maximum age. Queue capacity is between one byte and 1 GiB;
-it must be large enough for an individual record to be accepted.
+it must be large enough for an individual record and its attachment to be accepted.
+The default 16 MiB queue accommodates a maximum 8 MiB PNG together with its
+bounded journal envelope. Explicitly smaller queue policies can reject larger
+captures atomically; waiting cannot make an individually oversized record fit.
 
 `save` in the text command interface, or protocol `{"type":"save"}`, waits for
 all records accepted before that request. Normal exit from all player clients
@@ -112,6 +116,32 @@ The engine and background worker share one exclusive journal lease. Its final
 owner explicitly unlocks the sidecar file after the worker finishes. A copied
 file descriptor cannot extend ownership beyond shutdown; an immediate reopen
 can acquire the journal while a second live owner remains excluded.
+
+## Capture attachments
+
+Explicit capture commands create private frontend notes whose attachment descriptor
+names the media type, byte length and SHA-256 digest. Their snapshot anchor is
+normalized before upload, so later visual-capability eviction cannot retarget a
+capture. Capture notes do not advance simulation time or turn ordinary notes into
+reports. Reads require visibility of the owning history entry.
+
+The `attachments` table stores raw payload bytes keyed by the owning entry, not
+an external filename or an encoded journal string. The payload and ordinary
+annotation receipt commit in the same SQLite transaction. Exact retries reconcile
+both rows; conflicting bytes cannot replace a saved capture. Queue admission
+charges payload bytes with the journal frame, including when the queue is empty,
+and failure publishes neither the annotation nor the attachment. The ordinary
+save barrier covers both. Checkpoint rotation preserves attachment rows because
+retained history still owns them.
+
+Opening a save checks each descriptor, bounded payload, checksum and media format,
+and rejects missing or orphan payload rows. A copied closed database retains its
+captures without the original frontend or capture files. Current reads retain
+payloads with the in-memory history. Each save is limited to 256 MiB of attachment
+payloads, independently of staging and queue limits. Admission rejects captures
+that would exceed that total. Restore checks the database total before reading
+payloads, then accounts journal-declared lengths before allocating each payload;
+initial save creation checks the same total before creating the database.
 
 ## Save file format
 

@@ -465,7 +465,7 @@ Objects:
 - M or the Map dock button opens a combined map and journal. The large north-up
   map fits the disclosed current-level terrain: bright cells are visible, dim
   cells remembered, and dark areas unexplored. The exploration mini-map remains.
-  Places, History and Write note tabs share this screen; Page Up / Down and the
+  Places, History, Write note and Report tabs share this screen; Page Up / Down and the
   mouse wheel scroll the journal. Narrow windows stack the two panes.
   Click a known tile or use Up/Down to select a destination; Enter or the
   Travel button submits its exact disclosed key. Selection is local, and stale
@@ -473,6 +473,23 @@ Objects:
   known traps, occupied tiles and other levels are excluded. The server chooses
   the route and interruption policy.
 - F2 shows the latest retained history, oldest first, beside the map.
+- **Report** in the map/journal opens the note editor in play-test report mode.
+  It saves an ordinary user-source note prefixed with `PLAY TEST REPORT` and a
+  blank line. The nonblank body can use 4078 UTF-8 bytes; the heading uses the
+  remaining 18 bytes of the note limit. Tab changes private / actor-visible
+  audience, Enter saves, and Esc or Close cancels. The anchor remains the state
+  where editing began. Clicking Report again preserves the draft. Reports do not
+  capture screenshots; screenshot capture is a separate command. Ordinary notes
+  keep their original text without an added heading.
+- **Screenshot** (F12, or the HUD/map-journal button) captures this game window,
+  including its current UI, as a private PNG attachment at the shown snapshot.
+  It never captures the OS desktop and is separate from Report and Write note.
+  Player observers may capture without taking gameplay control; spectator access
+  cannot upload attachments. While GPU readback is pending, new server views are
+  held so later pixels cannot be attached to an earlier state. Escape cancels
+  before upload, and stalled readback expires after 15 seconds. One capture is
+  allowed at a time; maximum dimensions are 4096×4096 and encoded size is 8 MiB.
+  An upload acknowledgement is not a disk checkpoint: save normally to persist.
 - F4 opens a note anchored to the current issued snapshot. It starts private; Tab makes it
   visible to everyone who observes the actor. Enter saves it. F4 also opens
   note editing from Places or History. M stays part of a note or rename draft.

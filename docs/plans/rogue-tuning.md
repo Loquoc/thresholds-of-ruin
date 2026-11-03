@@ -365,7 +365,7 @@ needs a bot that kills more efficiently.
 
 The table records the format changes at each original milestone, not current
 compatibility. The subsequent [item appearance and identity migration](../art/rogue-item-model-coverage.md)
-uses protocol 68, archive 66, and scenario 37; it does not retune these mechanics.
+did not retune these mechanics. See [current formats](../status.md) for compatibility.
 
 | Milestone | Status | Historical format change |
 | --- | --- | --- |

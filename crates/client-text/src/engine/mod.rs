@@ -110,6 +110,10 @@ pub struct Engine {
 /// notes keep their capitals.
 fn sentences(line: &str) -> Vec<String> {
     let tokens = parser::tokenize(line);
+    // Report prose can itself contain commands, punctuation and "then".
+    if tokens.first().and_then(Token::as_word) == Some("report") {
+        return vec![line.trim().to_owned()];
+    }
     if parser::split_sentences(&tokens).len() <= 1 {
         return split_commands(line.trim());
     }
@@ -178,7 +182,7 @@ fn split_commands(sentence: &str) -> Vec<String> {
     if tokens.iter().any(|t| matches!(t, Token::Quoted(_)))
         || matches!(
             first,
-            "say" | "note" | "bookmark" | "name" | "annotate" | "wizard"
+            "say" | "note" | "bookmark" | "report" | "name" | "annotate" | "wizard"
         )
     {
         return vec![sentence.to_owned()];
@@ -236,6 +240,7 @@ fn commands(line: &str, observation: &Observation) -> bool {
                 | "history"
                 | "note"
                 | "bookmark"
+                | "report"
                 | "name"
                 | "annotate"
                 | "wizard"

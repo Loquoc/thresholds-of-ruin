@@ -267,6 +267,7 @@ const VERBATIM: &[&str] = &[
     "say",
     "note",
     "bookmark",
+    "report",
     "name",
     "annotate",
     "wizard",

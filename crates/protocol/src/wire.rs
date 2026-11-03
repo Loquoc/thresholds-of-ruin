@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 68;
+pub const PROTOCOL_VERSION: u32 = 69;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -84,6 +84,7 @@ impl AccessRole {
                     | Request::Chart { .. }
                     | Request::History { .. }
                     | Request::HistoryBranch { .. }
+                    | Request::ReadAttachment { .. }
             )
     }
 }
@@ -1593,6 +1594,24 @@ pub enum Anchor {
     Entry { id: EntryId },
 }
 
+/// Save-owned capture format. Bytes are never interpreted as game authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentMediaType {
+    Png,
+    Text,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct AttachmentMetadata {
+    pub media_type: AttachmentMediaType,
+    pub byte_len: u32,
+    pub sha256: String,
+}
+pub const MAX_ATTACHMENT_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_TEXT_ATTACHMENT_BYTES: usize = 1024 * 1024;
+pub const ATTACHMENT_CHUNK_BYTES: usize = 8192;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
@@ -1735,6 +1754,12 @@ pub enum HistoryContent {
         anchor: Anchor,
         category: AnnotationCategory,
         text: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            deserialize_with = "crate::attachments::read_metadata_list"
+        )]
+        attachments: Vec<AttachmentMetadata>,
     },
 }
 
@@ -1787,6 +1812,28 @@ pub enum ClientMessage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
+    BeginAttachment {
+        context: InputContext,
+        branch: BranchId,
+        anchor: Anchor,
+        metadata: AttachmentMetadata,
+    },
+    AttachmentChunk {
+        upload_id: String,
+        offset: u32,
+        data: String,
+    },
+    CommitAttachment {
+        upload_id: String,
+    },
+    AbortAttachment {
+        upload_id: String,
+    },
+    ReadAttachment {
+        entry: EntryId,
+        index: u16,
+        offset: u32,
+    },
     /// Resume autonomous recovery after fresh controller input; never starts a new action.
     Continue,
     /// Acknowledged only after all earlier accepted records are durable.
@@ -2006,6 +2053,21 @@ pub enum ErrorCode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
+    AttachmentUpload {
+        context: ReplyContext,
+        request_id: String,
+        upload_id: String,
+        next_offset: u32,
+    },
+    AttachmentData {
+        context: ReplyContext,
+        request_id: String,
+        entry: EntryId,
+        index: u16,
+        metadata: AttachmentMetadata,
+        offset: u32,
+        data: String,
+    },
     #[serde(deserialize_with = "crate::projectile_choices::read_reply")]
     ProjectileChoices {
         context: ReplyContext,
@@ -2108,7 +2170,9 @@ pub enum ServerMessage {
 impl ServerMessage {
     pub fn reply_context(&self) -> Option<&ReplyContext> {
         match self {
-            Self::ProjectileChoices { context, .. }
+            Self::AttachmentUpload { context, .. }
+            | Self::AttachmentData { context, .. }
+            | Self::ProjectileChoices { context, .. }
             | Self::AbilityWeaponPreview { context, .. }
             | Self::MapPage { context, .. }
             | Self::ChartPage { context, .. }

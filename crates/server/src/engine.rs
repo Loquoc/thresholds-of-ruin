@@ -1,3 +1,8 @@
+#[path = "attachment_engine.rs"]
+mod attachment_engine;
+#[cfg(test)]
+#[path = "capture_checkpoint_tests.rs"]
+mod capture_checkpoint_tests;
 #[path = "survival_diagnostics.rs"]
 mod survival_diagnostics;
 #[cfg(test)]
@@ -22,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 66;
+pub(crate) const ARCHIVE_VERSION: u32 = 67;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -685,6 +690,7 @@ mod observation_reuse_tests {
             request_id: "note".into(),
             branch: engine.branch().clone(),
             command: Command::Annotate {
+                attachments: Vec::new(),
                 anchor: Anchor::State {
                     snapshot: snapshot.clone(),
                 },
@@ -1164,6 +1170,9 @@ fn required_retrieval_boundary<'de, D: serde::Deserializer<'de>>(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Record {
+    /// Save-owned binary payload; stored outside journal JSON in the same transaction.
+    #[serde(skip)]
+    pub(crate) attachment: Option<Arc<[u8]>>,
     /// Required private transaction clocks; wizard public ticks describe results.
     pub(crate) before_tick: u64,
     pub(crate) after_tick: u64,
@@ -1381,9 +1390,42 @@ impl Record {
         {
             return false;
         }
-        if let JournalContent::Annotation { anchor, .. } = &self.entry.content {
+        if let JournalContent::Annotation {
+            anchor,
+            attachments,
+            text,
+            category,
+        } = &self.entry.content
+        {
+            if !attachments.is_empty() {
+                let Some(receipt) = &self.receipt else {
+                    return false;
+                };
+                if attachments.len() != 1
+                    || receipt.branch != self.entry.branch
+                    || self.attachment.is_none()
+                    || !tor_protocol::valid_attachment_metadata(&attachments[0])
+                    || self.entry.audience != Audience::Private
+                    || *category != AnnotationCategory::Note
+                    || self.entry.author
+                        != (Author::Frontend {
+                            user: receipt.user.clone(),
+                            component: receipt.frontend.clone(),
+                        })
+                    || !matches!(&receipt.command, Command::Annotate { text: declared, source: ClientSource::Frontend, audience: Audience::Private, category: AnnotationCategory::Note, .. } if declared == text)
+                    || text
+                        != match attachments[0].media_type {
+                            AttachmentMediaType::Png => "Screenshot",
+                            AttachmentMediaType::Text => "Text capture",
+                        }
+                {
+                    return false;
+                }
+            } else if self.attachment.is_some() {
+                return false;
+            }
             if let Some(receipt) = &self.receipt {
-                if !matches!(&receipt.command, Command::Annotate { anchor: raw, .. } if *raw == anchor.to_public())
+                if !matches!(&receipt.command, Command::Annotate { anchor: raw, attachments: declared, .. } if *raw == anchor.to_public() && declared == attachments)
                 {
                     return false;
                 }
@@ -2586,6 +2628,16 @@ impl Engine {
                 engine
                     .admit_ai_inner(record.entry.actor, Some(record.entry.id.clone()), None)
                     .map(|result| result.entry)
+            } else if let Some(bytes) = record.attachment.clone() {
+                let receipt = record.receipt.as_ref().ok_or_else(invalid_archive)?;
+                engine
+                    .command_with_attachment(
+                        receipt,
+                        recorded_annotation.clone().ok_or_else(invalid_archive)?,
+                        bytes,
+                        Some(record.entry.id.clone()),
+                    )
+                    .map(|result| result.entry)
             } else if let Some(receipt) = record.receipt {
                 engine
                     .apply_command_with_annotation(
@@ -2600,9 +2652,13 @@ impl Engine {
                     anchor,
                     category,
                     text,
+                    attachments,
                 },
             ) = (&record.entry.author, &record.entry.content)
             {
+                if !attachments.is_empty() {
+                    return Err(invalid_archive());
+                }
                 engine.backend_note(
                     record.entry.actor,
                     component,
@@ -3660,6 +3716,7 @@ impl Engine {
                 },
             };
             self.append_record(Record {
+                attachment: None,
                 retrieval_before,
                 retrieval_after: RetrievalBoundaryState::capture(&self.game),
                 retrievals: self.game.retrieval_entries().to_vec(),
@@ -4194,7 +4251,11 @@ impl Engine {
                 source,
                 audience,
                 category,
+                attachments,
             } => {
+                if !attachments.is_empty() {
+                    return Err(invalid_archive());
+                }
                 let anchor = annotation.as_ref().ok_or_else(invalid_anchor)?;
                 self.validate_note(receipt.actor, &receipt.user, *audience, anchor, text)?;
                 // An annotation owns no gameplay boundary. Keep the preceding
@@ -4216,6 +4277,7 @@ impl Engine {
                         anchor: anchor.clone(),
                         category: *category,
                         text: text.clone(),
+                        attachments: Vec::new(),
                     },
                 )
             }
@@ -4324,6 +4386,7 @@ impl Engine {
             candidate.game.begin_retrieval_transaction();
         }
         let record = Record {
+            attachment: None,
             retrieval_before: RetrievalBoundaryState::capture(&self.game),
             retrieval_after: RetrievalBoundaryState::capture(&candidate.game),
             retrievals: if matches!(entry.content, JournalContent::Annotation { .. }) {
@@ -4455,9 +4518,11 @@ impl Engine {
                 anchor,
                 category,
                 text: text.into(),
+                attachments: Vec::new(),
             },
         };
         let record = Record {
+            attachment: None,
             retrieval_before: RetrievalBoundaryState::capture(&self.game),
             retrieval_after: RetrievalBoundaryState::capture(&self.game),
             before_tick: self.game.tick(),
@@ -5315,6 +5380,7 @@ mod scaling_tests {
                     request_id: request.into(),
                     branch: engine.branch().clone(),
                     command: Command::Annotate {
+                        attachments: Vec::new(),
                         anchor: Anchor::State {
                             snapshot: snapshot.clone(),
                         },
@@ -5899,6 +5965,7 @@ mod presentation_boundary_tests {
             request_id: "note".into(),
             branch: engine.branch().clone(),
             command: Command::Annotate {
+                attachments: Vec::new(),
                 anchor: Anchor::State {
                     snapshot: snapshot.clone(),
                 },

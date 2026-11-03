@@ -6,6 +6,7 @@ use crate::{net::Cmd, Game, Net};
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use tor_client_3d_model::MAX_PLACE_NAME;
+use tor_client_common::annotations::{play_test_report, MAX_PLAY_TEST_REPORT_BYTES};
 use tor_protocol::MAX_NOTE_BYTES;
 
 /// Advancement commands are short; this bounds what a stuck key can type.
@@ -28,6 +29,7 @@ pub(crate) enum Screen {
     Note {
         snapshot: tor_protocol::SnapshotId,
         private: bool,
+        report: bool,
     },
 }
 
@@ -143,13 +145,17 @@ pub(crate) fn typing(
     let limit = match &screen {
         Screen::Advancement => MAX_COMMAND,
         Screen::Places { .. } => MAX_PLACE_NAME,
-        Screen::Note { .. } => MAX_NOTE_BYTES,
+        Screen::Note { report: true, .. } => MAX_PLAY_TEST_REPORT_BYTES,
+        Screen::Note { report: false, .. } => MAX_NOTE_BYTES,
         Screen::Charts | Screen::History => 0,
     };
     for event in input.read() {
         if !event.state.is_pressed() {
             continue;
         }
+        let Some(screen) = game.screen.clone() else {
+            break;
+        };
         if screen == (Screen::Places { renaming: None }) {
             if let Key::Character(text) = &event.logical_key {
                 let places = game.view.as_ref().map_or(0, |view| view.places.len());
@@ -168,11 +174,19 @@ pub(crate) fn typing(
             }
             continue;
         }
-        if let (Screen::Note { snapshot, private }, Key::Tab) = (screen.clone(), &event.logical_key)
+        if let (
+            Screen::Note {
+                snapshot,
+                private,
+                report,
+            },
+            Key::Tab,
+        ) = (screen.clone(), &event.logical_key)
         {
             game.screen = Some(Screen::Note {
                 snapshot,
                 private: !private,
+                report,
             });
             continue;
         }
@@ -195,13 +209,36 @@ pub(crate) fn typing(
                 game.send(&net, Cmd::Advancement(command.into()));
             }
             Key::Enter => {
+                // Screenshot readback reserves the shown frame; upload then
+                // occupies the ordinary request slot. Do not consume an editor
+                // draft before either state can admit its annotation.
+                if matches!(screen, Screen::Note { .. }) && (game.capture.is_some() || game.busy) {
+                    game.status = "Wait for the pending capture or request before saving.".into();
+                    continue;
+                }
                 let line = std::mem::take(&mut game.typed);
                 if line.trim().is_empty() {
                     continue;
                 }
                 let command = match screen.clone() {
                     Screen::Charts | Screen::History => None,
-                    Screen::Note { snapshot, private } => {
+                    Screen::Note {
+                        snapshot,
+                        private,
+                        report,
+                    } => {
+                        let line = if report {
+                            match play_test_report(&line) {
+                                Ok(text) => text,
+                                Err(error) => {
+                                    game.typed = line;
+                                    game.status = error;
+                                    continue;
+                                }
+                            }
+                        } else {
+                            line
+                        };
                         game.screen = None;
                         Some(Cmd::Note {
                             snapshot,
@@ -287,8 +324,13 @@ pub(crate) fn lines(game: &Game) -> Vec<String> {
             lines.push(String::new());
             lines.push("Esc or F2 closes.".into());
         }
-        Some(Screen::Note { private, .. }) => {
-            lines.extend(["Note".to_string(), String::new()]);
+        Some(Screen::Note {
+            private, report, ..
+        }) => {
+            lines.extend([
+                if report { "PLAY TEST REPORT" } else { "Note" }.to_string(),
+                String::new(),
+            ]);
             lines.push(format!(
                 "Audience: {} (Tab switches)",
                 if private {
@@ -299,7 +341,9 @@ pub(crate) fn lines(game: &Game) -> Vec<String> {
             ));
             lines.push(format!("> {}_", game.typed));
             lines.push(String::new());
-            lines.push("Enter saves the note on the current state. Esc or F4 closes.".into());
+            lines.push(
+                "Enter saves the note on the state where editing began. Esc or F4 closes.".into(),
+            );
         }
         Some(Screen::Places { renaming }) => {
             lines.extend(["Places".to_string(), String::new()]);
@@ -470,6 +514,7 @@ mod tests {
         app.world_mut().resource_mut::<Game>().screen = Some(Screen::Note {
             snapshot: tor_protocol::SnapshotId("opened-note-snapshot".into()),
             private: true,
+            report: false,
         });
         // A later display must not silently retarget the open note.
         app.world_mut()
@@ -490,6 +535,109 @@ mod tests {
             Cmd::Note { snapshot, text, private: false } if text == "ok" && snapshot.0 == "opened-note-snapshot"
         ));
         assert_eq!(app.world().resource::<Game>().screen, None, "saving closes");
+    }
+
+    #[test]
+    fn reports_use_the_note_command_with_bounded_body_and_opened_anchor() {
+        let (mut app, mut commands) = app(crate::test_support::view(0));
+        app.world_mut().resource_mut::<Game>().screen = Some(Screen::Note {
+            snapshot: tor_protocol::SnapshotId("report-anchor".into()),
+            private: true,
+            report: true,
+        });
+        press(&mut app, Key::Enter);
+        assert!(commands.try_recv().is_err());
+        assert!(lines(app.world().resource::<Game>())
+            .iter()
+            .any(|line| line == "PLAY TEST REPORT"));
+        press(&mut app, Key::Character("é".repeat(3000).into()));
+        assert_eq!(app.world().resource::<Game>().typed.len(), 4078);
+        press(&mut app, Key::Backspace);
+        // Audience changes and submit may arrive in one frame.
+        app.world_mut().send_event(key(Key::Tab));
+        app.world_mut().send_event(key(Key::Enter));
+        app.update();
+        assert!(matches!(commands.try_recv().unwrap().command,
+            Cmd::Note { snapshot, text, private: false }
+                if snapshot.0 == "report-anchor" && text == format!("PLAY TEST REPORT\n\n{}", "é".repeat(2038))));
+        assert!(app.world().resource::<Game>().screen.is_none());
+        assert!(
+            commands.try_recv().is_err(),
+            "a report emits only an annotation"
+        );
+    }
+
+    fn blocked_note_submit_preserves_draft(readback: bool) {
+        for report in [false, true] {
+            for private in [false, true] {
+                let (mut app, mut commands) = app(crate::test_support::view(0));
+                let editor = Screen::Note {
+                    snapshot: tor_protocol::SnapshotId("opened-anchor".into()),
+                    private,
+                    report,
+                };
+                {
+                    let mut game = app.world_mut().resource_mut::<Game>();
+                    game.screen = Some(editor.clone());
+                    game.typed = "Visible issue é".into();
+                    game.busy = !readback;
+                }
+                if readback {
+                    app.world_mut()
+                        .resource_scope(|world, mut game: Mut<Game>| {
+                            crate::playtest_capture::request(world.resource::<Net>(), &mut game);
+                        });
+                    assert!(app.world().resource::<Game>().capture.is_some());
+                }
+                press(&mut app, Key::Enter);
+                let game = app.world().resource::<Game>();
+                assert_eq!(
+                    game.typed, "Visible issue é",
+                    "blocked submit preserves draft"
+                );
+                assert_eq!(
+                    game.screen,
+                    Some(editor),
+                    "mode, audience and anchor survive"
+                );
+                assert!(commands.try_recv().is_err(), "blocked submit sends nothing");
+
+                // Completion/cancellation leaves the original editor usable.
+                app.world()
+                    .resource::<Net>()
+                    .0
+                    .lock()
+                    .unwrap()
+                    .release_capture();
+                {
+                    let mut game = app.world_mut().resource_mut::<Game>();
+                    game.capture = None;
+                    game.busy = false;
+                }
+                press(&mut app, Key::Enter);
+                let expected = if report {
+                    "PLAY TEST REPORT\n\nVisible issue é"
+                } else {
+                    "Visible issue é"
+                };
+                assert!(matches!(commands.try_recv().unwrap().command,
+                    Cmd::Note {snapshot, text, private: sent_private}
+                    if snapshot.0 == "opened-anchor" && text == expected && sent_private == private));
+                assert!(app.world().resource::<Game>().screen.is_none());
+                assert!(app.world().resource::<Game>().typed.is_empty());
+                assert!(commands.try_recv().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn capture_readback_preserves_note_and_report_drafts_on_enter() {
+        blocked_note_submit_preserves_draft(true);
+    }
+
+    #[test]
+    fn pending_upload_request_preserves_note_and_report_drafts_on_enter() {
+        blocked_note_submit_preserves_draft(false);
     }
 
     #[test]

@@ -17,6 +17,18 @@ from process_work_budget import ProcessBudgetExceeded, ProcessWorkBudget
 from record_wire_samples import has_condition_event
 
 
+def read_fixture(output):
+    """Independent test reader, deliberately not the recorder's packing code."""
+    manifest = json.loads(output.read_bytes())
+    result = {"protocol": manifest["protocol"]}
+    for side in ("client", "server"):
+        result[side] = [sample for name in manifest[side + "_parts"]
+                        for sample in json.loads((output.parent / name).read_bytes())]
+        if len(result[side]) != manifest[side + "_count"]:
+            raise AssertionError("Fixture sample count mismatch")
+    return result
+
+
 ESCAPE_SAMPLE = {
     "type": "snapshot", "request_id": "exact-response-request",
     "snapshot": {"state": {"observation": {
@@ -65,6 +77,64 @@ def recording_case(failure=None):
 
 
 class CompleteRecordingContracts(unittest.TestCase):
+    def test_sharded_manifest_failure_preserves_existing_parts_and_removes_new_parts(self):
+        before = {"protocol": 69, "client": [{"text": "before"}], "server": [{"id": 1}]}
+        after = {"protocol": 69, "client": [{"text": "after"}], "server": [{"id": 1}]}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "wire-v69.json"
+            record_wire_samples.publish_fixture(output, before)
+            retained = {p.relative_to(directory): p.read_bytes()
+                        for p in Path(directory).rglob("*") if p.is_file()}
+            replace = record_wire_samples.os.replace
+
+            def fail_manifest(source, target):
+                if Path(target) == output:
+                    raise OSError("manifest write failed")
+                replace(source, target)
+
+            with patch("record_wire_samples.os.replace", side_effect=fail_manifest):
+                with self.assertRaisesRegex(OSError, "manifest write failed"):
+                    record_wire_samples.publish_fixture(output, after)
+            self.assertEqual(read_fixture(output), before)
+            self.assertEqual({p.relative_to(directory): p.read_bytes()
+                              for p in Path(directory).rglob("*") if p.is_file()}, retained)
+
+    def test_sharded_fixture_default_limit_covers_every_byte_and_content_digest(self):
+        import hashlib
+        document = {"protocol": 69, "client": [], "server": ["é" * 24000] * 5}
+        manifest, parts = record_wire_samples.fixture_parts(document, "wire-v69")
+        self.assertEqual(len(parts), 3)
+        self.assertEqual([sample for name in manifest["server_parts"]
+                          for sample in json.loads(parts[name])], document["server"])
+        for name, payload in parts.items():
+            self.assertLessEqual(len(payload), 100000)
+            self.assertTrue(name.endswith("-" + hashlib.sha256(payload).hexdigest() + ".json"))
+
+    def test_sharded_fixture_preserves_values_order_counts_and_utf8_boundary(self):
+        document = {"protocol": 69, "client": [{"text": "é"}, {"text": "界"}],
+                    "server": [{"id": 3}, {"id": 1}, {"id": 3}]}
+        manifest, parts = record_wire_samples.fixture_parts(document, "wire-v69", max_bytes=28)
+        self.assertEqual(manifest["fixture_format"], "wire-parts-v1")
+        self.assertEqual(manifest["protocol"], 69)
+        for side in ("client", "server"):
+            self.assertEqual(manifest[side + "_count"], len(document[side]))
+            recovered = []
+            for index, name in enumerate(manifest[side + "_parts"]):
+                self.assertTrue(name.startswith(f"wire-v69/{side}-{index:03}-"))
+                self.assertLessEqual(len(parts[name]), 28)
+                recovered.extend(json.loads(parts[name]))
+            self.assertEqual(recovered, document[side])
+        self.assertEqual(record_wire_samples.fixture_parts(document, "wire-v69", max_bytes=28),
+                         (manifest, parts))
+
+    def test_sharded_fixture_exact_limit_and_oversized_sample_fail_without_splitting(self):
+        document = {"protocol": 69, "client": ["é"], "server": []}
+        manifest, parts = record_wire_samples.fixture_parts(document, "wire-v69", max_bytes=6)
+        self.assertEqual(list(parts.values()), [b'["\xc3\xa9"]'])
+        self.assertEqual(manifest["server_parts"], [])
+        with self.assertRaisesRegex(ValueError, "sample.*limit"):
+            record_wire_samples.fixture_parts(document, "wire-v69", max_bytes=5)
+
     def test_noticed_adapter_uses_only_the_genuine_case_artifact(self):
         # The adapter's artifact gate owns setup, assertions, and all cleanup.
         raw = {"type": "update", "update": {"body": {"type": "outcome", "marker": "raw"}}}
@@ -362,7 +432,7 @@ class CompleteRecordingContracts(unittest.TestCase):
             case, trace = recording_case()
             with patch("record_wire_samples.Recorder", return_value=case), patch("builtins.print"):
                 record_wire_samples.record_samples(output=output)
-            document = json.loads(output.read_text(encoding="utf-8"))
+            document = read_fixture(output)
             self.assertEqual(document["protocol"], record_wire_samples.PROTOCOL)
             self.assertEqual(document["server"], [ESCAPE_SAMPLE])
             self.assertEqual(trace[-1], "class_cleanup")
@@ -514,7 +584,7 @@ class DetectionRecordingContracts(unittest.TestCase):
             output = Path(directory) / "wire-unit-only.json"
             with patch("record_wire_samples.Recorder", return_value=case), patch("builtins.print"):
                 record_wire_samples.record_samples(output=output)
-            document = json.loads(output.read_text())
+            document = read_fixture(output)
         self.assertEqual(trace[-1], "class_cleanup")
         self.assertEqual(document["client"], [*record_wire_samples.CLIENT, samples["query"]])
 

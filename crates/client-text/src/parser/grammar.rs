@@ -29,6 +29,9 @@ pub enum SessionCommand {
         text: String,
         is_bookmark: bool,
     },
+    Report {
+        text: String,
+    },
     Name {
         target: String,
         name: String,
@@ -215,7 +218,7 @@ pub fn match_sentence_with_raw(
                     before,
                 }));
             }
-            "note" | "bookmark" => {
+            "note" | "bookmark" | "report" => {
                 let text = if let Some(raw) = raw_line {
                     let (_, rest) = crate::word(raw.trim());
                     rest.to_string()
@@ -228,6 +231,9 @@ pub fn match_sentence_with_raw(
                 };
                 if text.trim().is_empty() {
                     return Err(format!("What {} would you like to make?", word));
+                }
+                if word == "report" {
+                    return Ok(ParsedCommand::Session(SessionCommand::Report { text }));
                 }
                 return Ok(ParsedCommand::Session(SessionCommand::Note {
                     text,

@@ -989,6 +989,7 @@ impl Connection {
                     && matches!(
                         message,
                         ServerMessage::History { .. }
+                            | ServerMessage::AttachmentData { .. }
                             | ServerMessage::Palette { .. }
                             | ServerMessage::CreatureCatalog { .. }
                             | ServerMessage::CreatureInspection { .. }

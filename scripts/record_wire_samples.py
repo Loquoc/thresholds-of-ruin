@@ -1,14 +1,17 @@
 """Record one real server message of each kind for the protocol's wire samples.
 
 Plays a short game through the real server and headless clients and writes
-`crates/protocol/tests/fixtures/wire-v<protocol>.json`: the server messages as
-the server sent them, and client messages written here. The protocol crate's
+`crates/protocol/tests/fixtures/wire-v<protocol>.json`: a manifest referencing
+content-addressed JSON-array parts of at most 100,000 UTF-8 bytes. Parts preserve
+the server messages as sent and client messages written here, in exact order.
+Samples are never split across parts. The protocol crate's
 `wire_samples` test round-trips every sample and requires one of each kind.
 Rerun this when the protocol version changes and review the diff:
 
     python scripts/record_wire_samples.py
 """
 import argparse
+import base64
 import copy
 from functools import partial
 import hashlib
@@ -215,6 +218,15 @@ CLIENT = [
     *({"type": "request", "request_id": f"sample-{i}", "request": request} for i, request in enumerate([
         {"type": "continue"},
         {"type": "save"},
+        {"type": "begin_attachment", "context": {
+            "stream": {"stream": "sample-attachment", "epoch": "1"}, "readiness_revision": "3"},
+            "branch": "branch-1", "anchor": {"type": "state", "snapshot": "sample-issued-snapshot"},
+            "metadata": {"media_type": "text", "byte_len": 6, "sha256": hashlib.sha256(b"Room\n>").hexdigest()}},
+        {"type": "attachment_chunk", "upload_id": "sample-upload", "offset": 0, "data": "Um9vbQo+"},
+        {"type": "commit_attachment", "upload_id": "sample-upload"},
+        {"type": "abort_attachment", "upload_id": "sample-upload"},
+        {"type": "read_attachment", "entry": "entry-1", "index": 0, "offset": 0},
+
         {"type": "history_branch", "branch": "branch-1", "before": None, "limit": 50},
         {"type": "attach", "actor": "1"},
         {"type": "acquire_control"},
@@ -877,6 +889,33 @@ class Recorder(ProcessTestCase):
             "type": "annotate", "anchor": {"type": "state", "snapshot": state["state"]["snapshot"]},
             "text": "Shared sample note", "audience": "actor"}})
         self.assertIsNone(state["error"])
+        # Capture real bounded attachment replies and saved bytes, never synthesize
+        # server DTOs. Text is frontend evidence, not another simulation action.
+        capture_bytes = b"Room\n  north\twall\n> "
+        capture_metadata = {"media_type": "text", "byte_len": len(capture_bytes),
+                            "sha256": hashlib.sha256(capture_bytes).hexdigest()}
+        state = self.request(player, {"type": "begin_attachment", "context": state["input_context"],
+            "branch": state["branch"], "anchor": {"type": "state", "snapshot": state["state"]["snapshot"]},
+            "metadata": capture_metadata})
+        self.assertIsNone(state["error"])
+        upload = next(json.loads(line)["message"] for line in reversed(player.transcript)
+                      if line.startswith("{") and (json.loads(line).get("message") or {}).get("type") == "attachment_upload")
+        state = self.request(player, {"type": "attachment_chunk", "upload_id": upload["upload_id"],
+            "offset": 0, "data": base64.b64encode(capture_bytes).decode("ascii")})
+        self.assertIsNone(state["error"])
+        state = self.request(player, {"type": "commit_attachment", "upload_id": upload["upload_id"]})
+        self.assertIsNone(state["error"])
+        capture_entry = next(entry for entry in reversed(state["history"])
+                             if entry["content"].get("attachments"))
+        state = self.request(player, {"type": "read_attachment", "entry": capture_entry["id"], "index": 0, "offset": 0})
+        self.assertIsNone(state["error"])
+        attachment = next(json.loads(line)["message"] for line in reversed(player.transcript)
+                          if line.startswith("{") and (json.loads(line).get("message") or {}).get("type") == "attachment_data")
+        self.assertEqual(attachment["entry"], capture_entry["id"])
+        self.assertEqual(attachment["index"], 0)
+        self.assertEqual(attachment["offset"], 0)
+        self.assertEqual(attachment["metadata"], capture_metadata)
+        self.assertEqual(base64.b64decode(attachment["data"], validate=True), capture_bytes)
         # Simulation effects may arrive between the snapshot and note receipt.
         # Build travel from the latest applied frame, not the earlier snapshot.
         destination = state["state"]["observation"]["visible_cells"][0]["key"]
@@ -1111,15 +1150,85 @@ def publish_bytes(output, payload):
             staged.unlink(missing_ok=True)
 
 
+MAX_FIXTURE_PART_BYTES = 100_000
+
+
+def fixture_parts(document, stem, *, max_bytes=MAX_FIXTURE_PART_BYTES):
+    """Pack intact samples in deterministic order; byte bounds include JSON framing."""
+    if Path(stem).name != stem or stem in ("", ".", ".."):
+        raise ValueError("Fixture stem must be a single relative path component")
+    manifest = {"fixture_format": "wire-parts-v1", "protocol": document["protocol"]}
+    parts = {}
+    for side in ("client", "server"):
+        samples = document[side]
+        manifest[side + "_count"] = len(samples)
+        paths = manifest[side + "_parts"] = []
+        current, size = [], 2
+
+        def flush():
+            if not current:
+                return
+            if len(paths) >= 1000:
+                raise ValueError("Fixture exceeds part count limit")
+            payload = b"[" + b",".join(current) + b"]"
+            digest = hashlib.sha256(payload).hexdigest()
+            name = f"{stem}/{side}-{len(paths):03}-{digest}.json"
+            paths.append(name)
+            parts[name] = payload
+
+        for sample in samples:
+            encoded = json.dumps(sample, ensure_ascii=False, sort_keys=True,
+                                 separators=(",", ":"), allow_nan=False).encode("utf-8")
+            if len(encoded) + 2 > max_bytes:
+                raise ValueError(f"{side} sample exceeds part byte limit {max_bytes}")
+            extra = len(encoded) + bool(current)
+            if size + extra > max_bytes:
+                flush()
+                current, size = [], 2
+                extra = len(encoded)
+            current.append(encoded)
+            size += extra
+        flush()
+    return manifest, parts
+
+
+def publish_fixture(output, document):
+    """Publish immutable parts first and the manifest last; failed writes preserve prior data."""
+    output = Path(output)
+    manifest, parts = fixture_parts(document, output.stem)
+    payload = (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8")
+    if len(payload) > MAX_FIXTURE_PART_BYTES:
+        raise ValueError("Fixture manifest exceeds byte limit")
+    created = []
+    part_directory = output.parent / output.stem
+    directory_existed = part_directory.exists()
+    try:
+        for name, data in parts.items():
+            target = output.parent / name
+            if target.exists():
+                if target.read_bytes() != data:
+                    raise ValueError("Content-addressed fixture part differs from its digest")
+            else:
+                publish_bytes(target, data)
+                created.append(target)
+        publish_bytes(output, payload)
+    except BaseException:
+        for target in created:
+            target.unlink(missing_ok=True)
+        if not directory_existed and part_directory.exists():
+            part_directory.rmdir()
+        raise
+
+
 def record_samples(*, output=None, detection_checkpoint=None):
     """Publish only complete recordings, including successful process cleanup."""
     case = Recorder()
     server_samples = run_recording_case(case, "server_samples")
     client_samples = [*CLIENT, *copy.deepcopy(case.recorded_client_samples)]
-    document = json.dumps({
+    document = {
         "protocol": PROTOCOL, "client": client_samples,
         "server": [server_samples[k] for k in sorted(server_samples)],
-    }, indent=1, sort_keys=True) + "\n"
+    }
     output = Path(output) if output is not None else ROOT / f"crates/protocol/tests/fixtures/wire-v{PROTOCOL}.json"
     exports = []
     if detection_checkpoint is not None:
@@ -1139,8 +1248,11 @@ def record_samples(*, output=None, detection_checkpoint=None):
     # Each file is atomically replaced. Every case and class cleanup, all book
     # checks and export decoding precede publication; no partial lifecycle earns
     # a fixture. A filesystem failure is reported, never called a recording pass.
-    for target, payload in [*exports, (output, document.encode("utf-8"))]:
+    # Validate all sample bounds before publishing any optional export.
+    fixture_parts(document, output.stem)
+    for target, payload in exports:
         publish_bytes(target, payload)
+    publish_fixture(output, document)
     shown = output.relative_to(ROOT) if output.is_relative_to(ROOT) else output
     print(f"{shown}: {len(CLIENT)} client schema examples, {len(case.recorded_client_samples)} captured client queries and {len(server_samples)} captured server samples: "
           + ", ".join(sorted(server_samples)))

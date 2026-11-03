@@ -12,6 +12,7 @@ mod intention_admission_tests {
         let branch = engine.branch().clone();
         let issued = engine.presentation_boundary();
         let command = Command::Annotate {
+            attachments: Vec::new(),
             anchor: Anchor::State {
                 snapshot: tor_protocol::SnapshotId("issued-original-note".into()),
             },

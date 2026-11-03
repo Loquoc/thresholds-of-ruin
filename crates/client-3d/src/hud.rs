@@ -16,16 +16,18 @@ pub(crate) enum Action {
     Map,
     Places,
     Journal,
+    Screenshot,
     Wait,
 }
 
-const ACTIONS: [(Action, &str); 7] = [
+const ACTIONS: [(Action, &str); 8] = [
     (Action::Inventory, "I\nInventory"),
     (Action::Equipment, "F6\nEquipment"),
     (Action::Character, "F10\nCharacter"),
     (Action::Map, "M\nMap"),
     (Action::Places, "F5\nPlaces"),
     (Action::Journal, "F2\nJournal"),
+    (Action::Screenshot, "F12\nScreenshot"),
     (Action::Wait, "Space\nWait"),
 ];
 
@@ -371,6 +373,7 @@ pub(crate) fn buttons(
             continue;
         }
         match action {
+            Action::Screenshot => crate::playtest_capture::request(&net, &mut game),
             Action::Inventory | Action::Equipment => {
                 if let Some(open) = game.screen.clone() {
                     screen::toggle(&net, &mut game, open);
@@ -465,6 +468,45 @@ mod tests {
             BackgroundColor(chrome::BUTTON),
         ));
         (app, receiver)
+    }
+
+    #[test]
+    fn screenshot_dock_reserves_pixels_without_submitting_or_erasing_a_report() {
+        for control in [true, false] {
+            let (mut app, mut receiver) = dock(Action::Screenshot);
+            {
+                let mut game = app.world_mut().resource_mut::<Game>();
+                game.view.as_mut().unwrap().has_control = control;
+                game.screen = Some(screen::Screen::Note {
+                    snapshot: game.view.as_ref().unwrap().shown.snapshot.clone(),
+                    private: true,
+                    report: true,
+                });
+                game.typed = "keep the report draft".into();
+            }
+            app.update();
+            assert!(app.world().resource::<Game>().capture.is_some());
+            assert_eq!(app.world().resource::<Game>().capture_serial, 1);
+            assert!(receiver.try_recv().is_err(), "pixels have not arrived yet");
+            let button = app
+                .world_mut()
+                .query_filtered::<Entity, With<Action>>()
+                .single(app.world())
+                .unwrap();
+            *app.world_mut().get_mut::<Interaction>(button).unwrap() = Interaction::Pressed;
+            app.update();
+            let game = app.world().resource::<Game>();
+            assert_eq!(
+                game.capture_serial, 1,
+                "repeated button presses must not allocate another screenshot"
+            );
+            assert_eq!(game.typed, "keep the report draft");
+            assert!(matches!(
+                game.screen,
+                Some(screen::Screen::Note { report: true, .. })
+            ));
+            assert!(receiver.try_recv().is_err());
+        }
     }
 
     #[test]

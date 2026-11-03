@@ -380,7 +380,22 @@ counts include locked strikes. A “Uses selected melee” ability marker links 
 Reopen the main inspection after changed state, reset, reconnect or a stale
 source error. Details stay private to the authenticated wizard connection.
 
-`note <text>` and `bookmark <text>` create annotations. For explicit provenance,
+`note <text>` and `bookmark <text>` create annotations. `report <text>` creates
+an ordinary note with `PLAY TEST REPORT` and a blank line prepended. It preserves
+the typed report body and consumes no action time. Neither notes nor reports
+capture screenshots. Reports use the same audience as notes in that interface:
+actor-visible in adventure mode, private in `--script`. The heading counts toward
+the 4096-byte annotation limit, leaving 4078 UTF-8 bytes for the report body.
+`screenshot` is a separate command. It saves the exact most recent 1 MiB of
+UTF-8 text emitted by this client, including whitespace and any formatting bytes,
+as a private game-history attachment. This retained tail is not a reconstruction
+of the world or a picture of the terminal. It excludes terminal-echoed keyboard
+input, terminal fonts/window layout, other applications and stderr. At the size
+limit it drops the oldest bytes on a UTF-8 boundary. The capture records the
+snapshot of the last presented game state; it does not advance time. Accepted
+captures follow the ordinary save policy; `save` waits for durable disk storage.
+
+For explicit provenance,
 audience and anchoring, use:
 
 ```text

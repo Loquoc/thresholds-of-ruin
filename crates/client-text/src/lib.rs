@@ -8,7 +8,7 @@ pub mod narrative;
 pub mod parser;
 pub mod projectiles;
 
-pub const HELP: &str = "Commands: charts, chart monsters|food|magic|mapping, chart next|previous|cancel, advancement (overview, ledger, balances, skills, talents, expertises, intellect-expertises, intellect-expertise, purchase, remove, replace, details, next, previous, supplies, confirm, resume, cancel), attack <actor> [with <equipped weapon>], <disclosed ability name> <actor> [with <equipped weapon>] [using <supplies>], places, name <place number> <new name>, look (l), inventory (i), stats, north/east/south/west/ne/se/sw/nw/up/down (n/e/s/w/ne/se/sw/nw/u/d), go <direction>, take/drop [quantity] <name or #id>, equip/remove/drink/eat/read <name or #id>, zap <name or #id> <direction>, identify <name or #id>, identify cancel, wait (.), control, release, resume, cancel [direction], escape [hold <number|#token|name>], escape <direction>, sync, save, history [before-id], note <text>, bookmark <text>, quit (q), branch-history <branch> [before-id].\nExplicit weapon and projectile choices preview exact cost, time to next strike and recovery, then require yes/no. For projectile abilities, enter the ability name, select a numbered server source (next/previous pages, cancel), ammunition if launching, then a direction. Other default choices act immediately.\nWizard credential: wizard <server developer command>; wizard creature list discovers named spawn recipes. After creature inspection, strikes natural, strikes selected, strikes ability <id>, strikes next, strikes previous.\nNotes/bookmarks are private user notes on the current state.\nannotate <user|frontend> <private|actor> <note|bookmark|explanation> <here|state:SNAPSHOT|entry:ID> <text>";
+pub const HELP: &str = "Commands: charts, chart monsters|food|magic|mapping, chart next|previous|cancel, advancement (overview, ledger, balances, skills, talents, expertises, intellect-expertises, intellect-expertise, purchase, remove, replace, details, next, previous, supplies, confirm, resume, cancel), attack <actor> [with <equipped weapon>], <disclosed ability name> <actor> [with <equipped weapon>] [using <supplies>], places, name <place number> <new name>, look (l), inventory (i), stats, north/east/south/west/ne/se/sw/nw/up/down (n/e/s/w/ne/se/sw/nw/u/d), go <direction>, take/drop [quantity] <name or #id>, equip/remove/drink/eat/read <name or #id>, zap <name or #id> <direction>, identify <name or #id>, identify cancel, wait (.), control, release, resume, cancel [direction], escape [hold <number|#token|name>], escape <direction>, sync, save, history [before-id], note <text>, bookmark <text>, report <text>, screenshot, quit (q), branch-history <branch> [before-id].\nExplicit weapon and projectile choices preview exact cost, time to next strike and recovery, then require yes/no. For projectile abilities, enter the ability name, select a numbered server source (next/previous pages, cancel), ammunition if launching, then a direction. Other default choices act immediately.\nWizard credential: wizard <server developer command>; wizard creature list discovers named spawn recipes. After creature inspection, strikes natural, strikes selected, strikes ability <id>, strikes next, strikes previous.\nNotes/bookmarks are private user notes on the current state. report adds a PLAY TEST REPORT heading to an ordinary note; it does not capture a screenshot.\nannotate <user|frontend> <private|actor> <note|bookmark|explanation> <here|state:SNAPSHOT|entry:ID> <text>";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input {
@@ -567,6 +567,10 @@ pub fn parse(line: &str, state: &StateView) -> Result<Input, String> {
         ("note" | "bookmark", text) => {
             annotation("user", "private", &verb, "here", text, &state.snapshot)
         }
+        ("report", text) => {
+            let text = tor_client_common::annotations::play_test_report(text)?;
+            annotation("user", "private", "note", "here", &text, &state.snapshot)
+        }
         ("annotate", rest) => {
             let (source, rest) = word(rest);
             let (audience, rest) = word(rest);
@@ -841,7 +845,16 @@ pub fn history(entry: &HistoryEntry) -> String {
             anchor,
             category,
             text,
-        } => format!("{category:?} {anchor:?}: {}", safe(text)),
+            attachments,
+        } => format!(
+            "{category:?} {anchor:?}: {}{}",
+            safe(text),
+            if attachments.is_empty() {
+                String::new()
+            } else {
+                format!(" [{} saved attachment(s)]", attachments.len())
+            }
+        ),
     };
     safe(&format!(
         "[{}] tick {} {:?} {:?}: {content} (branch {})",

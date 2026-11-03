@@ -391,6 +391,7 @@ fn rewind_targets_are_bounded_and_notes_keep_original_branch_anchors_and_privacy
     )
     .unwrap();
     let note = Command::Annotate {
+        attachments: Vec::new(),
         anchor: Anchor::Entry {
             id: first.entry.id.clone(),
         },

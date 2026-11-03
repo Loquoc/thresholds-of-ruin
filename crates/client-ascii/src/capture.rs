@@ -5,6 +5,30 @@ use std::{
 };
 use tor_client_ascii::render::{Canvas, HEIGHT, WIDTH};
 
+/// Encode exactly the application framebuffer, never the OS desktop.
+pub(crate) fn png_frame(
+    canvas: &Canvas,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    if canvas.pixels.len() != WIDTH * HEIGHT {
+        return Err("Incomplete screenshot framebuffer".into());
+    }
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, WIDTH as u32, HEIGHT as u32);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        let pixels: Vec<u8> = canvas
+            .pixels
+            .iter()
+            .flat_map(|pixel| [(pixel >> 16) as u8, (pixel >> 8) as u8, *pixel as u8])
+            .collect();
+        writer.write_image_data(&pixels)?;
+        writer.finish()?;
+    }
+    Ok(bytes)
+}
+
 pub(crate) fn save_frame(path: &Path, canvas: &Canvas) -> io::Result<()> {
     publish_frame(path, |output| {
         write!(output, "P6\n{WIDTH} {HEIGHT}\n255\n")?;
@@ -43,6 +67,29 @@ fn publish_frame(
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn game_screenshot_png_preserves_presented_pixels_and_dimensions() {
+        let mut canvas = Canvas::default();
+        canvas.pixels[0] = 0x123456;
+        canvas.pixels[WIDTH * HEIGHT - 1] = 0xfedcba;
+        let encoded = png_frame(&canvas).unwrap();
+        assert!(encoded.len() < 8 * 1024 * 1024);
+        let mut reader = png::Decoder::new(std::io::Cursor::new(encoded))
+            .read_info()
+            .unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut pixels).unwrap();
+        assert_eq!((info.width, info.height), (1200, 800));
+        assert_eq!(info.color_type, png::ColorType::Rgb);
+        assert_eq!(&pixels[..3], &[0x12, 0x34, 0x56]);
+        assert_eq!(
+            &pixels[info.buffer_size() - 3..info.buffer_size()],
+            &[0xfe, 0xdc, 0xba]
+        );
+        canvas.pixels.pop();
+        assert!(png_frame(&canvas).is_err());
+    }
 
     const FIRST: &[u8] = b"P6\n1 1\n255\n\x12\x34\x56";
     const SECOND: &[u8] = b"P6\n1 1\n255\n\x78\x9a\xbc";

@@ -100,7 +100,7 @@ fn holds(mail: &Mail, overdue: bool, held: usize) -> bool {
     matches!(
         mail,
         Mail::Request {
-            request: Request::Command { .. },
+            request: Request::Command { .. } | Request::CommitAttachment { .. },
             ..
         }
     ) && (overdue || held > 0)
@@ -291,6 +291,12 @@ mod backpressure_tests {
         assert!(holds(&mail(command.clone()), true, 0));
         // A later command never overtakes a held one.
         assert!(holds(&mail(command), false, 1));
+        let capture = Request::CommitAttachment {
+            upload_id: "upload".into(),
+        };
+        assert!(!holds(&mail(capture.clone()), false, 0));
+        assert!(holds(&mail(capture.clone()), true, 0));
+        assert!(holds(&mail(capture), false, 1));
         for other in [Request::Save, Request::Snapshot] {
             assert!(!holds(&mail(other.clone()), true, 0));
             assert!(!holds(&mail(other), true, 3));

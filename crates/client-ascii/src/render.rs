@@ -380,7 +380,15 @@ impl Canvas {
             self.text(
                 84,
                 206,
-                &format!("NEW NOTE / {:?}", draft.audience),
+                &format!(
+                    "{} / {:?}",
+                    if draft.report {
+                        "PLAY TEST REPORT"
+                    } else {
+                        "NEW NOTE"
+                    },
+                    draft.audience
+                ),
                 ACCENT,
                 2,
                 60,

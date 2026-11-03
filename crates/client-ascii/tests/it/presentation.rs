@@ -1344,6 +1344,8 @@ fn spectator_can_browse_but_cannot_create_any_mutation_or_note_draft() {
         Key::Control,
         Key::Release,
         Key::Note,
+        Key::PlayTestReport,
+        Key::Screenshot,
     ] {
         assert_eq!(app.input(Input::Key { key }), Effect::None);
         assert!(app.status.contains("read-only"));
@@ -2706,4 +2708,93 @@ fn running_stops_before_a_known_trap_even_when_an_item_covers_its_glyph() {
             ..
         })
     ));
+}
+
+#[test]
+fn report_command_preserves_annotation_anchor_audience_and_body_budget() {
+    let mut app = App::new();
+    app.role = AccessRole::Player;
+    app.set_state(state());
+    app.ready();
+    app.input(Input::Key { key: Key::Commands });
+    app.input(Input::Text {
+        text: "report".into(),
+    });
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+    assert!(app.note.is_some(), "#report opens the annotation editor");
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+    app.input(Input::Text {
+        text: "é".repeat(3000),
+    });
+    // 18 bytes of heading and separator leave 4078 UTF-8 bytes of body.
+    assert_eq!(app.note.as_ref().unwrap().text.len(), 4078);
+    app.input(Input::Key {
+        key: Key::Backspace,
+    });
+    app.input(Input::Key { key: Key::Tab });
+    let opened = state().state().snapshot.clone();
+    assert!(matches!(
+        super::request(app.input(Input::Key { key: Key::Enter })),
+        Some(Request::Command { command: Command::Annotate {
+            text, audience: Audience::Actor, anchor: Anchor::State { snapshot },
+            source: ClientSource::User, category: AnnotationCategory::Note,
+        }, .. }) if snapshot == opened && text == format!("PLAY TEST REPORT\n\n{}", "é".repeat(2038))
+    ));
+    app.ready();
+    app.input(Input::Key {
+        key: Key::PlayTestReport,
+    });
+    app.input(Input::Text {
+        text: "discard this".into(),
+    });
+    assert_eq!(app.input(Input::Key { key: Key::Escape }), Effect::None);
+    assert!(app.note.is_none());
+    app.input(Input::Key { key: Key::Note });
+    app.input(Input::Text {
+        text: "ordinary note".into(),
+    });
+    assert!(
+        matches!(super::request(app.input(Input::Key { key: Key::Enter })),
+        Some(Request::Command { command: Command::Annotate { text, .. }, .. }) if text == "ordinary note")
+    );
+}
+
+#[test]
+fn screenshot_is_explicit_bounded_and_not_an_annotation_submission() {
+    let mut app = App::new();
+    app.role = AccessRole::Player;
+    app.set_state(state());
+    app.ready();
+    app.input(Input::Key { key: Key::Commands });
+    app.input(Input::Text {
+        text: "screenshot".into(),
+    });
+    assert_eq!(
+        app.input(Input::Key { key: Key::Enter }),
+        Effect::Screenshot
+    );
+    assert!(app.busy);
+    assert_eq!(
+        app.input(Input::Key {
+            key: Key::Screenshot
+        }),
+        Effect::None
+    );
+    assert!(app.note.is_none());
+    app.ready();
+    app.input(Input::Key { key: Key::Note });
+    assert_eq!(
+        app.input(Input::Key {
+            key: Key::Screenshot
+        }),
+        Effect::None
+    );
+    app.input(Input::Key { key: Key::Escape });
+    app.disconnect("offline".into());
+    assert_eq!(
+        app.input(Input::Key {
+            key: Key::Screenshot
+        }),
+        Effect::None
+    );
 }

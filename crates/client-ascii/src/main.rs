@@ -1,4 +1,7 @@
 mod capture;
+#[cfg(test)]
+#[path = "../../protocol/tests/support/fixture.rs"]
+mod fixture;
 mod native_report;
 mod network;
 
@@ -238,7 +241,7 @@ fn run() -> Result<(), Error> {
                 println!(
                     "Ctrl-X: personal creature stats (Up/Down scroll, PgUp/PgDn page, Esc closes)."
                 );
-                println!("tor-client-ascii [--connect 127.0.0.1:4000] [--actor 1] [--observe] [--pace 75]\nSet TOR_SERVER_TOKEN to the server token. A native graphical display is required.\nNetHack-style non-numpad keys are case-sensitive. # opens TOR's extended commands, including attack, charts, control/release and journey pace.\nArrows/hjklyubn: move (Shift runs); g/G then direction: run with TOR stop rules; m then direction: move without bump attacking; </>: up/down; Space or .: wait; ,: pick up; d: drop; w/W/P: wield/wear/put on; T/R: take off/remove accessory; q: drink; e: eat; r: read; z: zap; a: apply portable light; s: search; t/f: throw/fire if granted.\ni: inventory; ; or /: look; ?: help; Ctrl-P: earlier messages; o/c then direction: open/close adjacent door; _: select travel destination (< > jump to stairs); left click: travel; F3: acquire control; #release: release control. F8/F9: resume/cancel queued work. Move after a completed strike to cancel the sequence and step; outstanding recovery is still owed.\nF7: wizard command editor (wizard accounts); F5/Ctrl-O: remembered places (Up/Down select, Enter rename); F4: note (Tab audience, Enter save, Esc cancel); F2: history (Up/Down scroll, PgUp older, PgDn live); F6/F12: read/zap; F10: advancement; F11: escape a hold.\n#slower/#faster: show journey steps more slowly/quickly (--pace <ms>, default 75); any key during a journey shows the rest at once. [/]: previous/next page only inside strike details.\nEsc: cancel or close, never quit. S: save and close through the normal flush-on-close path. Relaunch to reconnect after a disconnect.\nUnsupported NetHack commands (such as force-fight, weapon swap, two-weapon mode, autopickup and counts) are not implemented.\nProcess tests only: --automation reads JSON input events on stdin and reports presented frames.\n--report-frames reports frames while retaining native keyboard input.\n--capture <file.ppm> with either diagnostic option saves the last presented framebuffer.");
+                println!("tor-client-ascii [--connect 127.0.0.1:4000] [--actor 1] [--observe] [--pace 75]\nSet TOR_SERVER_TOKEN to the server token. A native graphical display is required.\nNetHack-style non-numpad keys are case-sensitive. # opens TOR's extended commands, including attack, charts, control/release, report, screenshot and journey pace.\nArrows/hjklyubn: move (Shift runs); g/G then direction: run with TOR stop rules; m then direction: move without bump attacking; </>: up/down; Space or .: wait; ,: pick up; d: drop; w/W/P: wield/wear/put on; T/R: take off/remove accessory; q: drink; e: eat; r: read; z: zap; a: apply portable light; s: search; t/f: throw/fire if granted.\ni: inventory; ; or /: look; ?: help; Ctrl-P: earlier messages; o/c then direction: open/close adjacent door; _: select travel destination (< > jump to stairs); left click: travel; F3: acquire control; #release: release control. F8/F9: resume/cancel queued work. Move after a completed strike to cancel the sequence and step; outstanding recovery is still owed.\nF7: wizard command editor (wizard accounts); F5/Ctrl-O: remembered places (Up/Down select, Enter rename); F4: note (Tab audience, Enter save, Esc cancel); F2: history (Up/Down scroll, PgUp older, PgDn live); F6/F12: read/zap; F10: advancement; F11: escape a hold.\n#slower/#faster: show journey steps more slowly/quickly (--pace <ms>, default 75); any key during a journey shows the rest at once. [/]: previous/next page only inside strike details.\nEsc: cancel or close, never quit. S: save and close through the normal flush-on-close path. Relaunch to reconnect after a disconnect.\nUnsupported NetHack commands (such as force-fight, weapon swap, two-weapon mode, autopickup and counts) are not implemented.\nProcess tests only: --automation reads JSON input events on stdin and reports presented frames.\n--report-frames reports frames while retaining native keyboard input.\n--capture <file.ppm> with either diagnostic option saves the last presented framebuffer.");
                 return Ok(());
             }
             "--connect" => address = args.next().ok_or("Missing --connect address")?.parse()?,
@@ -327,6 +330,7 @@ fn window_loop(
 ) -> Result<(), Error> {
     let mut canvas = Canvas::default();
     let mut frame = 0u64;
+    let mut redraw = false;
     let mut pending_input = None;
     let mut pending_native_input = None;
     let mut native_reports = native_report::NativeReport::new(report && input.is_none());
@@ -341,7 +345,7 @@ fn window_loop(
         let turn_interval_ms = turn.duration_since(last_turn).as_secs_f64() * 1000.;
         last_turn = turn;
         let mut network_events = 0;
-        let mut dirty = frame == 0;
+        let mut dirty = frame == 0 || std::mem::take(&mut redraw);
         // Bound each presentation turn so a continuous producer cannot starve input.
         for _ in 0..16 {
             if turn.elapsed() >= std::time::Duration::from_millis(4) {
@@ -587,8 +591,10 @@ fn window_loop(
             dirty |= effect != Effect::None || app.running.is_none();
             effects.push(effect);
         }
+        let mut screenshot = false;
         for effect in effects {
             match effect {
+                Effect::Screenshot => screenshot = true,
                 Effect::CancelCharts => {
                     let _ = network.commands.try_send(Command::CancelCharts);
                 }
@@ -649,6 +655,39 @@ fn window_loop(
             window.update();
         }
         let native_ms = native_started.elapsed().as_secs_f64() * 1000.;
+        // Freeze bytes and authority from the frame just presented, before any
+        // further network observation can replace the displayed snapshot.
+        if screenshot {
+            let capture = capture::png_frame(&canvas).and_then(|bytes| {
+                let state = app.state.as_ref().ok_or("No presented state to capture")?;
+                tor_client_common::captures::CapturedAttachment::new(
+                    state.input_context(),
+                    state.branch().clone(),
+                    state.state().snapshot.clone(),
+                    tor_protocol::AttachmentMediaType::Png,
+                    bytes,
+                )
+                .map_err(Into::into)
+            });
+            match capture {
+                Ok(capture) => {
+                    if network
+                        .commands
+                        .try_send(Command::Capture(capture))
+                        .is_err()
+                    {
+                        redraw = true;
+                        app.refused("Screenshot was not queued; try again when connected.".into());
+                        app.ready();
+                    }
+                }
+                Err(error) => {
+                    redraw = true;
+                    app.refused(format!("Screenshot was not captured: {error}"));
+                    app.ready();
+                }
+            }
+        }
         // This is intentionally after real native presentation. There is no
         // headless fallback; CI must supply a functioning display environment.
         if report && dirty {

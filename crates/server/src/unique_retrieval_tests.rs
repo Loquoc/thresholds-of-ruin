@@ -509,6 +509,7 @@ fn annotations_preserve_the_current_entry_snapshot_but_never_repeat_its_receipt(
             "note",
             &engine.branch().clone(),
             Command::Annotate {
+                attachments: Vec::new(),
                 anchor: tor_protocol::Anchor::State {
                     snapshot: tor_protocol::SnapshotId("issued-retrieval".into()),
                 },
@@ -1030,6 +1031,7 @@ fn missing_retrieval_receipt_is_rejected_before_candidate_and_store_publication(
             before_summary
         };
         let forged = Record {
+            attachment: None,
             retrieval_before: summary.clone(),
             retrieval_after: summary,
             retrievals: vec![],
