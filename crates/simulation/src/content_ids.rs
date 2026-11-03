@@ -2,6 +2,22 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
+/// Check content-ID syntax, not membership in any loaded catalog.
+///
+/// IDs are nonempty, at most [`crate::limits::ID_BYTES`] UTF-8 bytes, and contain
+/// only ASCII lowercase letters, digits, underscores, hyphens and periods.
+///
+/// ```
+/// use tor_simulation::content_ids::{AbilityId, TalentId, valid_id};
+/// assert!(valid_id("fixture.basic-melee"));
+/// assert!(!valid_id("Fixture basic melee"));
+/// let ability = AbilityId::new("fixture.shared").unwrap();
+/// let talent = TalentId::new("fixture.shared").unwrap();
+/// assert_eq!(ability.as_str(), talent.as_str()); // Separate typed namespaces.
+/// assert_eq!(serde_json::to_string(&ability).unwrap(), "\"fixture.shared\"");
+/// assert!(AbilityId::new("").is_err());
+/// // Successful construction does not establish that this ability is authored.
+/// ```
 pub fn valid_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= crate::limits::ID_BYTES
@@ -11,15 +27,26 @@ pub fn valid_id(value: &str) -> bool {
 }
 macro_rules! ids {
     ($($name:ident),+ $(,)?) => {$ (
+        #[doc = concat!("A syntactically validated `", stringify!($name), "` content identity.")]
+        ///
+        /// Uses the grammar checked by [`valid_id`] and serializes as text.
+        /// This typed value does not prove membership in a particular catalog.
         #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
         #[serde(transparent)]
         pub struct $name(Arc<str>);
         impl $name {
+            /// Construct an identity after checking [`valid_id`].
+            ///
+            /// # Errors
+            ///
+            /// Returns [`InvalidContentId`] with the rejected text for invalid
+            /// syntax or length. Catalog-reference checks are separate.
             pub fn new(value: impl AsRef<str>) -> Result<Self, InvalidContentId> {
                 let value = value.as_ref();
                 if !valid_id(value) { return Err(InvalidContentId(value.into())); }
                 Ok(Self(Arc::from(value)))
             }
+            /// Borrow the stable text used for comparison and serialization.
             pub fn as_str(&self) -> &str { &self.0 }
         }
         impl<'de> Deserialize<'de> for $name {
@@ -68,6 +95,7 @@ interned_ids!(
     SupplyId
 );
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Rejected text from a content identity's syntax/length check.
 pub struct InvalidContentId(pub String);
 #[derive(Default)]
 pub(crate) struct Interner(BTreeMap<String, Arc<str>>);
