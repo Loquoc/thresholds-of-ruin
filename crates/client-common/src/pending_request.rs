@@ -9,7 +9,10 @@ pub struct PendingRequest {
     reply: Option<ConfirmedReply>,
 }
 
+/// A request outcome that is safe to report after stream synchronization.
+/// `None` from [`PendingRequest::observe`] means continue consuming messages.
 pub enum RequestCompletion<'a> {
+    /// A correlated outcome, possibly retained while the stream was repaired.
     Reply(&'a ConfirmedReply),
     /// A valid recovery snapshot arrived without a correlated reply.
     Unknown,
@@ -19,18 +22,27 @@ pub enum RequestCompletion<'a> {
 /// already applied or presented by their owner and are not retained a second time.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfirmedReply {
+    /// The server's receipt; admission is not necessarily finished gameplay.
     Receipt(RequestReceipt),
+    /// A correlated server rejection, unlike an uncertain transport failure.
     Rejected { code: ErrorCode, message: String },
+    /// A non-receipt reply or fulfilled local observation demand.
+    /// Its payload has already been handled by the connection/presentation owner.
     Completed,
 }
 
 impl PendingRequest {
+    /// Track the identity returned by [`Connection::request`] without sending again.
     pub fn new(id: String) -> Self {
         Self { id, reply: None }
     }
 
     /// Call after `Connection::next` applies the message. A reply alone cannot
     /// make an unsynchronized frontend ready for subsequent input.
+    ///
+    /// Returns `None` while waiting or repairing the stream, a retained reply once
+    /// synchronized, or [`RequestCompletion::Unknown`] when recovery completes
+    /// without a correlated reply. Unknown does not mean rejected or safe to replay.
     pub fn observe<'a>(
         &'a mut self,
         connection: &Connection,

@@ -5,6 +5,8 @@ use tor_protocol::{
     ActorView, ItemClass, ItemView, ObjectPresentation, ObjectPresentationKind, WornView,
 };
 
+/// Cosmetic creature recipe chosen from a palette-approved asset.
+/// A recipe is not a species identifier or a source of gameplay capabilities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CreatureModel {
     Placeholder,
@@ -50,6 +52,8 @@ pub enum CreatureModel {
     Rattlesnake,
 }
 
+/// Cosmetic object recipe, with disclosed item class as the shape fallback.
+/// Recipe names do not reveal an unidentified item's effect or true identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ItemModel {
     Stairs,
@@ -313,6 +317,8 @@ pub fn actor_model(palette: &Palette, actor: &ActorView) -> CreatureModel {
     creature_model(palette, actor.asset.as_deref())
 }
 
+/// Resolve an approved asset through dotted parents, otherwise use a placeholder.
+/// The display name never participates in this lookup.
 pub fn creature_model(palette: &Palette, asset: Option<&str>) -> CreatureModel {
     palette
         .resolve(creatures(), asset)

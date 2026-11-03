@@ -8,6 +8,8 @@ use tor_protocol::*;
 use crate::connection::ConnectionError;
 use crate::{Connection, PendingRequest, RequestCompletion};
 
+/// Exact frontend-owned bytes pinned to the attachment, branch and displayed snapshot.
+/// This value performs no screen capture and is consumed by [`upload`].
 #[derive(Clone, Debug)]
 pub struct CapturedAttachment {
     context: InputContext,
@@ -18,6 +20,13 @@ pub struct CapturedAttachment {
 }
 
 impl CapturedAttachment {
+    /// Retain bytes and compute their length/hash without changing the picture anchor.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty or oversized bytes and invalid UTF-8 for text captures.
+    /// PNG structure and dimensions are validated by the server; constructing this
+    /// value alone does not establish that arbitrary bytes are a valid PNG.
     pub fn new(
         context: InputContext,
         branch: BranchId,
@@ -56,6 +65,18 @@ impl CapturedAttachment {
 /// Upload exactly the retained capture. Ordinary live messages continue through
 /// the caller's presentation path. A failure never retries a possibly committed
 /// request or reports acceptance as durable disk storage.
+///
+/// The callback receives ordinary messages after the connection applies them;
+/// it must keep the frontend's normal presentation path current. A new branch or
+/// attachment rejects the retained capture rather than moving its old anchor.
+/// Known pre-commit failures and confirmed commit rejections attempt to release
+/// staging. Uncertain commit outcomes require history inspection before retrying.
+///
+/// # Errors
+///
+/// Rejects spectator uploads and stale attachment/branch identity, and propagates
+/// callback, transport, timeout, malformed-response and server-rejection errors.
+/// Success means the commit was acknowledged, not that an ordinary save is durable.
 pub async fn upload(
     connection: &mut Connection,
     capture: CapturedAttachment,

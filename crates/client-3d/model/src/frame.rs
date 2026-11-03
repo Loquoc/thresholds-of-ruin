@@ -2,12 +2,51 @@
 use std::collections::BTreeMap;
 use tor_protocol::{BranchId, CellView, Position, StreamContext};
 
+/// Alignment of the newly observed picture with the current presentation scene.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameChange {
+    /// Translation to add to observer-frame coordinates before drawing them.
+    /// This is accumulated across aligned views and reset to zero on discontinuity.
     pub offset: Position,
+    /// No safe translation from the previous picture was established.
+    /// Consumers must not interpolate actors or effects across this boundary.
     pub discontinuous: bool,
 }
 
+/// Infer scene translation from cell keys that occur exactly once in both views.
+///
+/// Keys are disclosure identities, not globally usable world coordinates. A
+/// changed stream/reset or branch, absent shared anchor, conflicting translations
+/// or an offset outside `i32` starts a new scene. Duplicate keys cannot anchor it.
+///
+/// # Example
+///
+/// A stationary cell moves west in the observer frame when the player moves
+/// east. The presentation offset compensates; a new attachment cannot reuse it.
+///
+/// ```
+/// use tor_client_3d_model::SceneFrame;
+/// use tor_protocol::{BranchId, CellView, Position, StreamContext, StreamId};
+/// # fn cell(x: i32) -> CellView {
+/// #     CellView {
+/// #         key: "known-floor".into(), position: Position { x, y: 0, z: 0 },
+/// #         wall: false, material: String::new(), asset: None, lit: true,
+/// #         door: None, trap: None, object_presentation: None,
+/// #         stairs_up: false, stairs_down: false, place_hint: false,
+/// #     }
+/// # }
+/// let mut frame = SceneFrame::default();
+/// let mut context = StreamContext { stream: StreamId("view".into()), epoch: 0 };
+/// let branch = BranchId("play".into());
+/// assert!(frame.observe(&[cell(0)], &context, &branch).discontinuous);
+/// let moved = frame.observe(&[cell(-1)], &context, &branch);
+/// assert!(!moved.discontinuous);
+/// assert_eq!(moved.offset, Position { x: 1, y: 0, z: 0 });
+/// context.epoch += 1;
+/// let reset = frame.observe(&[cell(-1)], &context, &branch);
+/// assert!(reset.discontinuous);
+/// assert_eq!(reset.offset, Position { x: 0, y: 0, z: 0 });
+/// ```
 #[derive(Default)]
 pub struct SceneFrame {
     previous: BTreeMap<String, Position>,
@@ -16,6 +55,10 @@ pub struct SceneFrame {
 }
 
 impl SceneFrame {
+    /// Replace the previous anchor set and return this picture's alignment.
+    ///
+    /// The first call is discontinuous. Even a failed alignment retains this
+    /// call's unique keys, so the next picture can establish a new translation.
     pub fn observe(
         &mut self,
         cells: &[CellView],
