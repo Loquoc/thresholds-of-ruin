@@ -2,6 +2,7 @@ use super::anatomy::{BirdBody, FOOT_SCALE, HIP_SCALE};
 use super::geometry::{snake_segment_radius, BIRD_ANKLE, SNAKE};
 use super::*;
 
+mod publication;
 mod rogue;
 
 // ---------------------------------------------------------------------------
@@ -322,15 +323,14 @@ fn present_pose(
     for j in 0..JOINTS {
         if let Some(e) = rig.joints[j] {
             if let Ok(mut transform) = joints.get_mut(e) {
-                if j == J::Lift as usize {
+                let (translation, rotation) = if j == J::Lift as usize {
                     // Lunges and falls are in the creature's own frame.
                     let facing = Quat::from_rotation_y(anim.yaw);
-                    transform.translation = facing * pose.off[j] * rig.scale;
-                    transform.rotation = facing * pose.rot[j];
+                    (facing * pose.off[j] * rig.scale, facing * pose.rot[j])
                 } else {
-                    transform.translation = rig.rest[j] + pose.off[j];
-                    transform.rotation = pose.rot[j];
-                }
+                    (rig.rest[j] + pose.off[j], pose.rot[j])
+                };
+                publication::joint(&mut transform, translation, rotation);
             }
         }
     }
@@ -440,7 +440,8 @@ fn swing_drapes(rig: &Rig, a: &Anim, dt: f32, joints: &mut Query<&mut Transform,
         if let Ok(mut transform) = joints.get_mut(e) {
             // Its own inertia: a seventh of a second or so to follow.
             let follow = 1.0 - (-dt * 7.0).exp();
-            transform.rotation = transform.rotation.slerp(rotation, follow);
+            let rotation = transform.rotation.slerp(rotation, follow);
+            publication::rotation(&mut transform, rotation);
         }
     }
 }
@@ -3160,6 +3161,93 @@ mod support_tests {
             held,
             "unrequested refresh cannot alter joints or cloth/hair meshes"
         );
+    }
+
+    #[test]
+    fn repeated_explicit_pose_refresh_preserves_joints_without_dirtying_them() {
+        // Costume names are cosmetic recipes, never mechanical classes.
+        for (model, wardrobe) in [
+            (CreatureModel::Human, Wardrobe::Leotard),
+            (CreatureModel::Human, Wardrobe::Commoner),
+            (CreatureModel::Human, Wardrobe::Knight),
+            (CreatureModel::Human, Wardrobe::RoyalPrincess),
+            (CreatureModel::Human, Wardrobe::SylvanDuelist),
+            (CreatureModel::Mage, Wardrobe::Native),
+            (CreatureModel::Emu, Wardrobe::Native),
+            (CreatureModel::Quagga, Wardrobe::Native),
+            (CreatureModel::Centaur, Wardrobe::Native),
+        ] {
+            let look = Look::with_choice(
+                model,
+                7,
+                Some(Variant {
+                    woman: true,
+                    ..default()
+                }),
+            )
+            .dressed(wardrobe);
+            let (mut world, rig, _, meshes) = spawn_one(&look);
+            let root = world
+                .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+                .unwrap()
+                .parent();
+            let entities: Vec<_> = rig.joints.iter().flatten().copied().collect();
+            assert!(
+                !entities.is_empty(),
+                "real articulated rig, not an empty query"
+            );
+            let mut anim = Anim::new(7, Vec3::ZERO);
+            anim.time = 3.0;
+            anim.action = Some((Move::Jump, 0.4));
+            world.entity_mut(root).insert((rig, anim, PoseRefresh));
+            world.insert_resource(meshes);
+            let mut refresh = Schedule::default();
+            refresh.add_systems(refresh_pose);
+            refresh.run(&mut world);
+            let before: Vec<_> = entities
+                .iter()
+                .map(|&e| *world.get::<Transform>(e).unwrap())
+                .collect();
+            world.increment_change_tick();
+            world.clear_trackers();
+            world.entity_mut(root).insert(PoseRefresh);
+            refresh.run(&mut world);
+            let after: Vec<_> = entities
+                .iter()
+                .map(|&e| *world.get::<Transform>(e).unwrap())
+                .collect();
+            assert_eq!(
+                before, after,
+                "same timestamp must preserve every joint value"
+            );
+            let changed = entities
+                .iter()
+                .filter(|&&e| world.entity(e).get_ref::<Transform>().unwrap().is_changed())
+                .count();
+            assert_eq!(
+                changed,
+                0,
+                "identical explicit pose dirtied {changed}/{} joints",
+                entities.len()
+            );
+            eprintln!(
+                "{model:?}/{wardrobe:?}: {} joint publications, {changed} changed",
+                entities.len()
+            );
+            assert_eq!(world.get::<Anim>(root).unwrap().time, 3.0);
+            world.get_mut::<Anim>(root).unwrap().action = Some((Move::Jump, 0.6));
+            world.entity_mut(root).insert(PoseRefresh);
+            refresh.run(&mut world);
+            if model == CreatureModel::Human {
+                assert!(
+                    entities
+                        .iter()
+                        .zip(before)
+                        .any(|(&e, t)| *world.get::<Transform>(e).unwrap() != t),
+                    "a different requested phase must still publish its changed pose"
+                );
+            }
+        }
     }
 
     #[test]

@@ -3216,3 +3216,23 @@ sync-before-removal boundaries, rejected-sync termination without mutation or
 retry, and exact remaining snapshot requests are retained. A repository-wide
 caller search identified both driver owners; all six affected unit/process
 methods passed together after adaptation. No production behavior changed.
+
+## Exact-change pose publication, 2 November 2026
+
+A bounded renderer optimization exposed redundant Bevy change notifications:
+repeating the same explicit pose on a real articulated Human produced identical
+joint values but marked all 16 joint transforms changed. Two primitive publication
+checks and one actual-rig check failed at that boundary before the fix; these are
+three deliberate optimization regressions, not three newly discovered gameplay
+bugs. Exact equality now gates publication without skipping pose/contact work,
+advancing time differently, suppressing tiny changes or changing composition scale.
+
+The extended actual-rig witness covers five independent humanoid outfits, a native
+robe, Emu, Quagga and Centaur: 146 joint publications leave zero transforms dirty
+when values are unchanged. Positive controls still publish a changed pose and
+1e-8 translation/rotation. The renderer library passes (611 tests; its existing
+subprocess-only fixture remains exercised by its owning lifecycle test). Five
+same-adapter software-rendered wardrobe-motion captures, including walking,
+jumping and armor replacement, retain identical decoded pixels. This establishes
+avoided writes and visual preservation, not an FPS, hardware-GPU or release-time
+speedup; no separate release comparison was run under the VM's disk constraint.
