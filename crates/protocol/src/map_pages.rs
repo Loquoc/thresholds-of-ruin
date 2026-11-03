@@ -155,6 +155,19 @@ record!(MapWindow {
 impl Copy for MapWindow {}
 impl MapWindow {
     /// The complete ASCII footprint, including every ordinary height plane.
+    /// Bounds are inclusive. This is a requested display window, not proof that
+    /// any cell in it is known, visible or reachable.
+    ///
+    /// ```
+    /// use tor_protocol::{MapWindow, Position, MAX_MAP_TRANSFER_CELLS};
+    ///
+    /// let window = MapWindow::normal();
+    /// assert_eq!(window.volume(), Some(63 * 33 * 6));
+    /// assert_eq!(window.volume(), Some(MAX_MAP_TRANSFER_CELLS));
+    /// assert!(window.contains(Position { x: 31, y: 16, z: 3 }));
+    /// assert!(!window.contains(Position { x: 32, y: 16, z: 3 }));
+    /// assert!(window.validate().is_ok());
+    /// ```
     pub const fn normal() -> Self {
         Self {
             min: Position {
@@ -165,6 +178,21 @@ impl MapWindow {
             max: Position { x: 31, y: 16, z: 3 },
         }
     }
+    /// Count the inclusive rectangular volume without wrapping arithmetic.
+    /// A representable volume may still exceed the separate transfer limit.
+    ///
+    /// ```
+    /// use tor_protocol::{MapWindow, Position};
+    ///
+    /// let mut window = MapWindow {
+    ///     min: Position { x: 0, y: 0, z: 0 },
+    ///     max: Position { x: 1, y: 2, z: 3 },
+    /// };
+    /// assert_eq!(window.volume(), Some(24));
+    /// window.max.x = -1;
+    /// assert_eq!(window.volume(), None);
+    /// assert!(window.validate().is_err());
+    /// ```
     pub fn volume(&self) -> Option<usize> {
         let mut volume = 1usize;
         for (min, max) in [
@@ -180,6 +208,18 @@ impl MapWindow {
         }
         Some(volume)
     }
+    /// Require a nonempty, representable window within the transfer cell bound.
+    ///
+    /// ```
+    /// use tor_protocol::{MapWindow, Position};
+    ///
+    /// let window = MapWindow {
+    ///     min: Position { x: 0, y: 0, z: 0 },
+    ///     max: Position { x: 100, y: 100, z: 100 },
+    /// };
+    /// assert_eq!(window.volume(), Some(101 * 101 * 101));
+    /// assert!(window.validate().is_err());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if self
             .volume()
@@ -199,6 +239,19 @@ impl MapWindow {
             && position.z <= self.max.z
     }
     /// Translate relative bounds without wrapping near the coordinate endpoints.
+    /// The translated window must also satisfy [`Self::validate`]. Failure does
+    /// not change the source window.
+    ///
+    /// ```
+    /// use tor_protocol::{MapWindow, Position};
+    ///
+    /// let window = MapWindow::normal();
+    /// let moved = window.checked_translate(Position { x: 10, y: -4, z: 2 }).unwrap();
+    /// assert_eq!(moved.min, Position { x: -21, y: -20, z: 0 });
+    /// assert_eq!(moved.volume(), window.volume());
+    /// assert!(window.checked_translate(Position { x: i32::MAX, y: 0, z: 0 }).is_none());
+    /// assert_eq!(window, MapWindow::normal());
+    /// ```
     pub fn checked_translate(&self, by: Position) -> Option<Self> {
         let translate = |position: Position| {
             Some(Position {
@@ -264,6 +317,23 @@ record!(MapItemAppearance {
     asset: Option<String>,
 });
 impl MapItemAppearance {
+    /// Check a remembered appearance, not a current actionable item. In
+    /// particular, an ordinary named appearance needs a positive quantity.
+    ///
+    /// ```
+    /// use tor_protocol::{ItemClass, MapItemAppearance};
+    ///
+    /// let mut item = MapItemAppearance {
+    ///     presentation: None, class: ItemClass::Misc,
+    ///     description: "A smooth stone".into(), name: "stone".into(),
+    ///     appearance: "stone".into(), identified: false, quantity: 1, asset: None,
+    /// };
+    /// assert!(item.validate().is_ok());
+    /// item.quantity = 0;
+    /// assert!(item.validate().is_err());
+    /// let wire = serde_json::to_value(&item).unwrap();
+    /// assert!(serde_json::from_value::<MapItemAppearance>(wire).is_err());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if label(&self.name, 80)
             && label(&self.appearance, 80)
@@ -334,6 +404,18 @@ record!(MapPageCursor {
     page: u16,
 });
 impl MapPageCursor {
+    /// Check the continuation's bounded shape. It must still match the actual
+    /// transfer and outstanding query; callers must not invent a cursor from
+    /// these arithmetic constraints.
+    ///
+    /// ```
+    /// use tor_protocol::MapPageCursor;
+    ///
+    /// let mut cursor = MapPageCursor { transfer: "example-transfer".into(), next: 2, page: 1 };
+    /// assert!(cursor.validate().is_ok());
+    /// cursor.page = 0; // The first page is requested without a continuation.
+    /// assert!(cursor.validate().is_err());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         let next = self.next as usize;
         let page = usize::from(self.page);
@@ -362,6 +444,30 @@ record!(MapQuery {
     cursor: Option<MapPageCursor>,
 });
 impl MapQuery {
+    /// Validate identities, the requested window, and continuation bounds.
+    /// Use the attachment's current stream/branch/observation base in real code;
+    /// successful shape validation does not establish that they are current.
+    ///
+    /// ```
+    /// use tor_protocol::{BranchId, MapPageCursor, MapQuery, MapWindow, ObservationBase,
+    ///     Position, SnapshotId, StreamContext, StreamCursor, StreamId};
+    ///
+    /// let mut query = MapQuery {
+    ///     context: StreamContext { stream: StreamId("example-stream".into()), epoch: 1 },
+    ///     branch: BranchId("example-branch".into()),
+    ///     base: ObservationBase {
+    ///         snapshot: SnapshotId("example-snapshot".into()),
+    ///         cursor: StreamCursor { sequence: 0, tick: 0 }, revision: 0,
+    ///     },
+    ///     window: MapWindow {
+    ///         min: Position { x: 0, y: 0, z: 0 }, max: Position { x: 1, y: 0, z: 0 },
+    ///     },
+    ///     cursor: None,
+    /// };
+    /// assert!(query.validate().is_ok());
+    /// query.cursor = Some(MapPageCursor { transfer: "example-transfer".into(), next: 2, page: 1 });
+    /// assert!(query.validate().is_err()); // Nothing remains in this two-cell window.
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if !self.context.is_valid() || !label(&self.branch.0, 128) || !self.base.snapshot.is_valid()
         {
@@ -398,6 +504,34 @@ record!(MapPage {
     next: Option<MapPageCursor>,
 });
 impl MapPage {
+    /// Validate this page's structure, appearances, continuation and byte bound.
+    /// `complete` describes projection completeness, not whether this is the last
+    /// page: a complete projection may still have `next`. A limited projection
+    /// carries no prefix; the client must not present it as a complete empty map.
+    /// Cross-page correlation and installation belong to the attachment owner.
+    ///
+    /// ```
+    /// use tor_protocol::{ActorId, BranchId, MapPage, MapWindow, ObservationBase,
+    ///     SnapshotId, StreamCursor};
+    ///
+    /// let mut page = MapPage {
+    ///     transfer: "example-transfer".into(), actor: ActorId(1),
+    ///     branch: BranchId("example-branch".into()),
+    ///     base: ObservationBase {
+    ///         snapshot: SnapshotId("example-snapshot".into()),
+    ///         cursor: StreamCursor { sequence: 0, tick: 0 }, revision: 0,
+    ///     },
+    ///     window: MapWindow::normal(), start: 0, page: 0, total_cells: 0,
+    ///     complete: true, ambiguous: false, limited: false, cells: vec![], next: None,
+    /// };
+    /// assert!(page.validate().is_ok()); // A structurally valid complete empty projection.
+    /// page.limited = true;
+    /// assert!(page.validate().is_err()); // Limited cannot also mean complete.
+    /// page.complete = false;
+    /// assert!(page.validate().is_ok());
+    /// page.total_cells = 1;
+    /// assert!(page.validate().is_err()); // A limited response cannot claim a prefix.
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         self.window.validate()?;
         let start = self.start as usize;
