@@ -1,4 +1,30 @@
 //! Public observation types. Never expose internal world state through this crate.
+//!
+//! # Integration boundaries
+//!
+//! [`ClientMessage`] and [`ServerMessage`] describe complete JSON envelopes. Use
+//! [`decode_request`] or [`decode_response`] for the shared byte/depth checks;
+//! direct Serde decoding is not a substitute for those resource limits.
+//!
+//! A receiving client keeps one [`ResponseAssembler`] for its ordered connection,
+//! including across cancelled reads. Only complete messages may reach its model.
+//! Assembly and typed decoding do not authenticate a peer or establish authority:
+//! validate disclosed [`StateView`] contents and the connection's stream, branch,
+//! sequence and reply context before installing state. [`StateDelta`] additionally
+//! requires the exact previous picture, not merely the latest stream cursor.
+//!
+//! # Independent identities
+//!
+//! - [`StreamContext`] identifies an attachment and reset generation.
+//! - [`StreamCursor`] orders updates; its tick is not a unique message identity.
+//! - [`ObservationBase`] identifies the previous picture for delta reconstruction.
+//! - [`Readiness`] and [`InputContext`] govern offered input, independently of redraws.
+//! - [`RequestReceipt`] identifies accepted work, not a durable save or blanket
+//!   evidence that an admitted gameplay action has finished executing.
+//!
+//! Typed targets and [`SnapshotId`] are opaque references. Their validity depends
+//! on the server's disclosure and permission checks, not on a client's ability to
+//! construct a syntactically valid value.
 
 #[cfg(test)]
 #[path = "../tests/support/fixture.rs"]

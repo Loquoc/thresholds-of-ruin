@@ -9,19 +9,32 @@ use serde::{Deserialize, Serialize};
 /// This raises no individual frame limit and reserves no space within a state.
 pub const MAX_SNAPSHOT_BYTES: usize = 32 * 1024 * 1024;
 
+/// One ordered slice of an encoded snapshot envelope, never standalone authority.
+/// All parts must agree on request, stream context and total byte count.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotPart {
+    /// Correlation identity shared with the enclosed complete snapshot response.
     pub request_id: String,
+    /// Reset context shared with the enclosed complete snapshot.
     pub context: StreamContext,
     /// UTF-8 byte offsets in the complete encoded snapshot response, not frame bytes.
     pub offset: u32,
+    /// UTF-8 length of the whole encoded snapshot response before part escaping.
     pub total_bytes: u32,
+    /// Nonempty, contiguous UTF-8 slice beginning at `offset`.
     pub data: String,
 }
 
 /// Encode one logical recovery atomically. Ordinary snapshots retain their
 /// original envelope; oversized ones use ordered parts with exact frame sizing.
+///
+/// `limit` bounds each encoded envelope and cannot raise the protocol frame
+/// ceiling. `byte_budget` bounds the sum of all returned frame bytes, including
+/// part-envelope overhead and escaping. Neither is the logical snapshot limit or
+/// retained-state limit. Failure returns no partial transfer. The caller still
+/// owns semantic validation, ordered output admission and byte-lease accounting.
+/// Non-snapshot messages use one ordinary bounded envelope and the same budget.
 pub fn encode_snapshot(
     message: &ServerMessage,
     limit: usize,
@@ -161,6 +174,11 @@ impl Default for ResponseAssembler {
 }
 
 impl ResponseAssembler {
+    /// Create an empty assembler with a positive multipart snapshot ceiling no
+    /// greater than [`MAX_SNAPSHOT_BYTES`]. Invalid limits return
+    /// [`SnapshotAssemblyError::InvalidPart`]. This does not lower the limit for
+    /// ordinary envelopes passed through unchanged; their limits still belong to
+    /// [`decode_response`](crate::decode_response).
     pub fn with_limit(limit: usize) -> Result<Self, SnapshotAssemblyError> {
         if limit == 0 || limit > MAX_SNAPSHOT_BYTES {
             return Err(SnapshotAssemblyError::InvalidPart);
@@ -170,9 +188,37 @@ impl ResponseAssembler {
             limit,
         })
     }
+    /// Whether an incomplete multipart snapshot is retained for this connection.
     pub fn is_pending(&self) -> bool {
         self.pending.is_some()
     }
+    /// Consume the next decoded envelope from the same ordered connection.
+    ///
+    /// `Ok(None)` retains an incomplete snapshot; publish nothing. `Ok(Some(...))`
+    /// yields either a completed snapshot or an ordinary message when no transfer
+    /// was pending. Multipart identity, offsets, total length and the reconstructed
+    /// snapshot envelope are checked, but state and stream semantics remain the
+    /// consumer's responsibility.
+    ///
+    /// Invalid/interleaved input or allocation/decoding failure clears pending
+    /// data and returns an error. Treat that as a failed connection, not permission
+    /// to continue from a partially received reset. Keep this assembler outside
+    /// an individual read future so cancellation does not discard transfer state.
+    ///
+    /// # Example
+    ///
+    /// Ordinary envelopes pass through only when no snapshot is being assembled:
+    ///
+    /// ```
+    /// use tor_protocol::{decode_response, ResponseAssembler, ServerMessage, Waiting};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut assembly = ResponseAssembler::default();
+    /// let decoded = decode_response(r#"{"type":"waiting","on":"you"}"#)?;
+    /// assert!(matches!(assembly.push(decoded)?, Some(ServerMessage::Waiting { on: Waiting::You })));
+    /// assert!(!assembly.is_pending());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn push(
         &mut self,
         message: ServerMessage,
