@@ -47,6 +47,17 @@ impl ActionDuration {
 
     /// Scale an already-computed action duration, preserving zero-time work and
     /// rounding positive fractions upward. Ordinary actions use the u64 domain.
+    /// Returns `None` only when slowing would overflow that domain. This scales
+    /// action work, not condition, cooldown, nutrition or Health/resource clocks.
+    ///
+    /// ```
+    /// use tor_simulation::action_duration::ActionDuration::{Haste, Normal, Slow};
+    /// assert_eq!(Normal.apply(3), Some(3));
+    /// assert_eq!(Haste.apply(3), Some(2));
+    /// assert_eq!(Haste.apply(1), Some(1));
+    /// assert_eq!(Slow.apply(0), Some(0));
+    /// assert_eq!(Slow.apply(u64::MAX), None);
+    /// ```
     pub fn apply(self, duration: u64) -> Option<u64> {
         match self {
             Self::Normal => Some(duration),

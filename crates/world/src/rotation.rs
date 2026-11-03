@@ -103,6 +103,23 @@ const COMPOSE: [[u8; 24]; 24] = [
 const INVERSE: [u8; 24] = [
     0, 3, 2, 1, 4, 5, 6, 7, 9, 8, 10, 11, 18, 16, 17, 19, 13, 14, 12, 15, 20, 23, 22, 21,
 ];
+/// Apply a proper cube rotation to a vector in region-local coordinates.
+///
+/// Rotation IDs are in `0..24`. Zero is the identity; IDs `0..4` retain the
+/// planar quarter-turn convention. Other IDs can exchange vertical/horizontal
+/// axes. Components must remain representable when their signs are reversed.
+///
+/// # Panics
+///
+/// Panics if `rotation >= 24`. Sign reversal of `i64::MIN` also panics when
+/// overflow checks are enabled; callers must exclude that unrepresentable result.
+///
+/// ```
+/// use tor_world::{inverse_rotation, rotate_vector};
+/// let rotated = rotate_vector(1, [2, 3, 4]);
+/// assert_eq!(rotated, [-3, 2, 4]);
+/// assert_eq!(rotate_vector(inverse_rotation(1), rotated), [2, 3, 4]);
+/// ```
 #[inline]
 pub fn rotate_vector(rotation: u8, v: [i64; 3]) -> [i64; 3] {
     if rotation == 0 {
@@ -111,6 +128,25 @@ pub fn rotate_vector(rotation: u8, v: [i64; 3]) -> [i64; 3] {
     AXES[usize::from(rotation)]
         .map(|axis| v[usize::from(axis.unsigned_abs() - 1)] * i64::from(axis.signum()))
 }
+/// Compose two rotation IDs, applying `first` and then `second`.
+///
+/// Both inputs must be in `0..24`. Composition is generally not commutative.
+///
+/// # Panics
+///
+/// Invalid IDs may panic when the composition table is indexed. The identity
+/// fast paths do not validate IDs and do not make out-of-range inputs supported.
+///
+/// ```
+/// use tor_world::{compose_rotation, rotate_vector};
+/// let vector = [2, 3, 4];
+/// assert_eq!(rotate_vector(compose_rotation(1, 4), vector), [3, 2, -4]);
+/// assert_eq!(
+///     rotate_vector(compose_rotation(1, 4), vector),
+///     rotate_vector(4, rotate_vector(1, vector)),
+/// );
+/// assert_ne!(compose_rotation(1, 4), compose_rotation(4, 1));
+/// ```
 #[inline]
 pub fn compose_rotation(first: u8, second: u8) -> u8 {
     if second == 0 {
@@ -121,6 +157,11 @@ pub fn compose_rotation(first: u8, second: u8) -> u8 {
     }
     COMPOSE[usize::from(first)][usize::from(second)]
 }
+/// Return the inverse of a rotation ID in `0..24`.
+///
+/// # Panics
+///
+/// Panics if `rotation >= 24`.
 #[inline]
 pub fn inverse_rotation(rotation: u8) -> u8 {
     INVERSE[usize::from(rotation)]

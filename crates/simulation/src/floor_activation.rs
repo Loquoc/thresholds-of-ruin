@@ -1247,6 +1247,18 @@ impl Game {
             CandidateStep::Settled(value)
         }
     }
+    /// Execute an action inside the host's unpublished region-settlement candidate.
+    ///
+    /// [`CandidateStep::AwaitingRegions`] is provisional. The host must settle
+    /// the required residency without advancing time, call
+    /// [`Self::complete_region_transition`] and recompute the final decision
+    /// before publication. The host owns the enclosing retrieval transaction;
+    /// this entry joins it. Ordinary action restrictions still apply.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an already-pending transition or reentrant host continuation,
+    /// as well as ordinary [`Self::act`] failures.
     pub fn act_for_host(
         &mut self,
         id: ActorId,
@@ -1262,6 +1274,12 @@ impl Game {
         self.light_settled_witness = None;
         result.map(|value| self.candidate_step(value))
     }
+    /// Execute selected admitted work inside the host's unpublished candidate.
+    ///
+    /// Returns `None` when a prior transition/continuation is pending or when
+    /// no intention is selectable. `None` is not proof that the queue is empty.
+    /// A [`CandidateStep::AwaitingRegions`] result needs the same settlement
+    /// and publication sequence as [`Self::act_for_host`].
     pub fn execute_next_intention_for_host(
         &mut self,
     ) -> Option<CandidateStep<crate::IntentionExecution>> {
@@ -1275,6 +1293,16 @@ impl Game {
         self.light_settled_witness = None;
         result.map(|value| self.candidate_step(value))
     }
+    /// Cancel exact admitted work, optionally stepping, in a private host candidate.
+    ///
+    /// Follows [`Self::cancel_intention_with_step`] and the provisional-result
+    /// contract of [`Self::act_for_host`]. The host must complete requested
+    /// region settlement before treating the cancellation as externally final.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a pending/reentrant host transition and all ordinary cancellation
+    /// or step-admission failures.
     pub fn cancel_intention_with_step_for_host(
         &mut self,
         actor: ActorId,
@@ -1291,6 +1319,15 @@ impl Game {
         self.light_settled_witness = None;
         result.map(|value| self.candidate_step(value))
     }
+    /// Apply authorized setup relocation in an unpublished host candidate.
+    ///
+    /// Retains [`Self::teleport`]'s recovery semantics and
+    /// [`Self::act_for_host`]'s region-settlement/publication requirements.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a pending/reentrant host transition and all ordinary relocation
+    /// failures. This helper does not establish caller authorization.
     pub fn teleport_for_host(
         &mut self,
         actor: ActorId,
