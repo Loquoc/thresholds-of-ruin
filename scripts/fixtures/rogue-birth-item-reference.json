@@ -1,0 +1,548 @@
+{
+  "reference_commit": "c7c119f893bd2f8255f2ad78d58a32664ddb9a97",
+  "reference_url": "https://github.com/phs/rogue/tree/c7c119f893bd2f8255f2ad78d58a32664ddb9a97",
+  "source_anchors": {
+    "carry": "extern.c:190-218; monsters.c:218-222",
+    "categories_subtypes": "extern.c:223-342",
+    "food_quantity_buc": "things.c:217-299; weapons.c:init_weapon",
+    "charges": "sticks.c:fix_stick",
+    "birth_origins": "rooms.c:136-141; new_level.c:195-230; monsters.c:wanderer"
+  },
+  "carry_percent": {
+    "rogue.aquator": 0,
+    "rogue.bat": 0,
+    "rogue.centaur": 15,
+    "rogue.dragon": 100,
+    "rogue.emu": 0,
+    "rogue.venus_flytrap": 0,
+    "rogue.griffin": 20,
+    "rogue.hobgoblin": 0,
+    "rogue.ice_monster": 0,
+    "rogue.jabberwock": 70,
+    "rogue.kestrel": 0,
+    "rogue.leprechaun": 0,
+    "rogue.medusa": 40,
+    "rogue.nymph": 100,
+    "rogue.orc": 15,
+    "rogue.phantom": 0,
+    "rogue.quagga": 0,
+    "rogue.rattlesnake": 0,
+    "rogue.snake": 0,
+    "rogue.troll": 50,
+    "rogue.black_unicorn": 0,
+    "rogue.vampire": 20,
+    "rogue.wraith": 0,
+    "rogue.xeroc": 30,
+    "rogue.yeti": 30,
+    "rogue.zombie": 0
+  },
+  "categories": [
+    {
+      "id": "potion",
+      "weight": 26,
+      "choices": [
+        {
+          "archetype": "rogue.confusion",
+          "weight": 7,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.hallucination",
+          "weight": 8,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.poison",
+          "weight": 8,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.gain_strength",
+          "weight": 13,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.see_invisible",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.healing",
+          "weight": 13,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.monster_detection",
+          "weight": 6,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.magic_detection",
+          "weight": 6,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.raise_level",
+          "weight": 2,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.extra_healing",
+          "weight": 5,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.haste",
+          "weight": 5,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.restore_strength",
+          "weight": 13,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.blindness",
+          "weight": 5,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.levitation",
+          "weight": 6,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": "scroll",
+      "weight": 36,
+      "choices": [
+        {
+          "archetype": "rogue.monster_confusion",
+          "weight": 7,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.magic_mapping",
+          "weight": 4,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.hold_monster",
+          "weight": 2,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.sleep",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.enchant_armor",
+          "weight": 7,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.identify_potion",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.identify_scroll",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.identify_weapon",
+          "weight": 6,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.identify_armor",
+          "weight": 7,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.identify_wand",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.scare_monster",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.food_detection",
+          "weight": 2,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.teleportation",
+          "weight": 5,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.enchant_weapon",
+          "weight": 8,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.create_monster",
+          "weight": 4,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.remove_curse",
+          "weight": 7,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.aggravate_monster",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.protect_armor",
+          "weight": 2,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": "food",
+      "weight": 16,
+      "choices": [
+        {
+          "archetype": "rogue.ration",
+          "weight": 90,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.fruit",
+          "weight": 10,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": "weapon",
+      "weight": 7,
+      "choices": [
+        {
+          "archetype": "rogue.generated_mace",
+          "weight": 11,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.long_sword",
+          "weight": 11,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.shortbow",
+          "weight": 12,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.arrow",
+          "weight": 12,
+          "quantity": {
+            "kind": "uniform",
+            "minimum": 8,
+            "maximum": 15
+          }
+        },
+        {
+          "archetype": "rogue.dagger",
+          "weight": 8,
+          "quantity": {
+            "kind": "uniform",
+            "minimum": 2,
+            "maximum": 5
+          }
+        },
+        {
+          "archetype": "rogue.two_handed_sword",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.dart",
+          "weight": 12,
+          "quantity": {
+            "kind": "uniform",
+            "minimum": 8,
+            "maximum": 15
+          }
+        },
+        {
+          "archetype": "rogue.shuriken",
+          "weight": 12,
+          "quantity": {
+            "kind": "uniform",
+            "minimum": 8,
+            "maximum": 15
+          }
+        },
+        {
+          "archetype": "rogue.spear",
+          "weight": 12,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": "armor",
+      "weight": 7,
+      "choices": [
+        {
+          "archetype": "rogue.leather_armor",
+          "weight": 20,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.generated_ring_mail",
+          "weight": 15,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.studded_leather",
+          "weight": 15,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.scale_mail",
+          "weight": 13,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.chain_mail",
+          "weight": 12,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.splint_mail",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.banded_mail",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.plate_mail",
+          "weight": 5,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": "ring",
+      "weight": 4,
+      "choices": [
+        {
+          "archetype": "rogue.ring_protection",
+          "weight": 9,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_add_strength",
+          "weight": 9,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_sustain_strength",
+          "weight": 5,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_searching",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_see_invisible",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_adornment",
+          "weight": 1,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_aggravation",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_dexterity",
+          "weight": 8,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_increase_damage",
+          "weight": 8,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_regeneration",
+          "weight": 4,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_slow_digestion",
+          "weight": 9,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_teleportation",
+          "weight": 5,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_stealth",
+          "weight": 7,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.ring_maintain_armor",
+          "weight": 5,
+          "quantity": 1
+        }
+      ]
+    },
+    {
+      "id": "device",
+      "weight": 4,
+      "choices": [
+        {
+          "archetype": "rogue.wand_light",
+          "weight": 12,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_invisibility",
+          "weight": 6,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_lightning",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_fire",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_cold",
+          "weight": 3,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_polymorph",
+          "weight": 15,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_magic_missile",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_haste",
+          "weight": 10,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_slow",
+          "weight": 11,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_drain_life",
+          "weight": 9,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_nothing",
+          "weight": 1,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_teleport_away",
+          "weight": 6,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_teleport_to",
+          "weight": 6,
+          "quantity": 1
+        },
+        {
+          "archetype": "rogue.wand_cancellation",
+          "weight": 5,
+          "quantity": 1
+        }
+      ]
+    }
+  ],
+  "equipment_recipes": {
+    "weapon": {
+      "kind": "weapon",
+      "curse_percent": 10,
+      "enchant_percent": 5,
+      "minimum": 1,
+      "maximum": 3
+    },
+    "armor": {
+      "kind": "armor",
+      "curse_percent": 20,
+      "enchant_percent": 8,
+      "minimum": 1,
+      "maximum": 3
+    },
+    "signed_ring": {
+      "kind": "signed_potency",
+      "negative": 1,
+      "positive": 2
+    },
+    "cursed_ring": {
+      "kind": "cursed"
+    }
+  },
+  "signed_rings": [
+    "rogue.ring_protection",
+    "rogue.ring_add_strength",
+    "rogue.ring_dexterity",
+    "rogue.ring_increase_damage"
+  ],
+  "cursed_rings": [
+    "rogue.ring_aggravation",
+    "rogue.ring_teleportation"
+  ],
+  "device_charges": {
+    "light": {
+      "minimum": 10,
+      "maximum": 19
+    },
+    "other": {
+      "minimum": 3,
+      "maximum": 7
+    }
+  },
+  "leprechaun_gold_tor_adaptation": {
+    "archetype": "rogue.gold",
+    "weight": 1,
+    "quantity": {
+      "kind": "depth_scaled_uniform",
+      "minimum": 2,
+      "maximum_base": 51,
+      "per_depth": 10
+    }
+  }
+}

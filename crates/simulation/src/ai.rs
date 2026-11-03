@@ -428,6 +428,16 @@ impl Game {
                 return Some(AiDecision::ability(plan, ai, behavior));
             }
         }
+        if ai.profile.care && retained.is_none() {
+            let visible_threat = view
+                .visible_actors
+                .iter()
+                .find(|other| self.perceived_hostile(id, other.id, other.disclosure))
+                .map(|other| other.id);
+            if let Some(plan) = self.choose_ai_item_care(id, view, visible_threat) {
+                return Some(AiDecision::ability(plan, ai, behavior));
+            }
+        }
         if ai.profile.care
             && retained.is_none()
             && ai.state == State::Search
@@ -2463,3 +2473,7 @@ mod idle_tests;
 #[cfg(test)]
 #[path = "ai_ray_tests.rs"]
 mod ray_tests;
+
+#[cfg(test)]
+#[path = "ai_item_use_tests.rs"]
+mod item_use_tests;

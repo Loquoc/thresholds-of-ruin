@@ -385,9 +385,9 @@ impl ItemSpec {
         }
         Ok(())
     }
-    /// Only plain standalone thrown weapons can be equipment stacks. Effects,
+    /// Only plain standalone weapons can be equipment stacks. Effects,
     /// armor, launchers and unrelated equipment never gain per-stack semantics.
-    fn stackable_weapon_shape(&self) -> bool {
+    pub(crate) fn stackable_weapon_shape(&self) -> bool {
         self.class == ItemClass::Weapon
             && self.projectile.is_none()
             && self.device.is_none()

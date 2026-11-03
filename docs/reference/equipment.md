@@ -47,6 +47,15 @@ Selection clears on cancellation, changed observations, control loss and disconn
 Completion narration belongs to the owning actor, handles noncombat equipment
 and the last consumed unit, and does not repeat stale observations.
 
+For a supported homogeneous weapon stack, the same Equip work reserves one
+physical unit and extracts it only at completion. The remainder keeps its
+condition, ownership and unrelated claims; the equipped result is always a
+singleton. A new singleton ID receives only inherited owner knowledge, not
+newly revealed condition. Players and autonomous actors use this shared action
+and exact-unit reservation mechanism. Stack eligibility does not add throwing
+traits, expertise or a projectile payload, and does not make armor, devices or
+modifier-bearing equipment stackable.
+
 Anatomy is an ordered slot list; duplicate kinds provide distinct sockets, such
 as two rings. An authored anatomy supplies `slots`, named `capacities` and an
 explicit `primary_attack_socket` (`none` or a valid attack-capable socket index).
@@ -217,15 +226,23 @@ knowledge use the same inventory mechanisms as other instance-sensitive stacks.
 Both can appear in supplemental floor stock and treasure rooms, one unit per
 successful item attempt under the
 [provisional live policy](scenario-packages.md#live-rogue-content-policy).
-Starting kits and existing weapon mechanics remain unchanged. Authored quantity
-remains explicit; no source birth-stack range is silently adopted.
+Their quantities remain explicitly authored; this milestone does not adopt
+additional source stack ranges for darts or shuriken. Generic generated-quantity
+operands, rather than weapon-specific code, supply the dagger and arrow ranges.
 
 The shortbow uses LightWeaponry, a base TwoHanded requirement and expert-only
 Quickdraw. Its launcher range is 80/320 feet; incidental melee deals fixed
 1 Impact, without a damage die. The separate stackable arrow supplies 2d3 Keen
 from the pinned Rogue launched payload, replacing the bow's incidental melee
-base damage. Arrows have no equipment socket and begin mundane without a new
-birth-condition roll. One arrow is consumed on a successful hit; misses use the
+base damage. Arrows have no equipment socket. Generated arrows use the shared
+weapon birth recipe: 10% cursed with a negative hit enchantment, 5% with a
+positive hit enchantment, and otherwise ordinary; the signed magnitude is 1–3
+and damage enchantment remains zero. The homogeneous stack shares that one
+birth condition. The generated-arrow archetype shares the ordinary arrow identity
+and projectile profile, while starter and trap ammunition keep their mundane
+base archetype. This is the same authored generated/base separation used by
+other equipment, not a trap or weapon-name exception in the engine.
+One arrow is consumed on a successful hit; misses use the
 shared recoverable-landing policy, which may lose a unit when no legal landing
 exists. Shortbow birth conditions use the ordinary generated-weapon policy.
 
@@ -273,8 +290,9 @@ current builder, including supplemental stock and treasure stages, is specified
 by the [live Rogue content policy](scenario-packages.md#live-rogue-content-policy);
 this equipment catalog is not a second stage-count registry.
 Each makes one placement attempt per first-entered floor from depth 1, with no
-replenishment or retry after a recorded skip. Equipment and scroll attempts have
-quantity one; ammunition attempts place one finite six-arrow stack. The gear
+replenishment or retry after a recorded skip. Equipment and scroll attempts normally have
+quantity one; generated daggers use 2–5 units and arrows use 8–15 units from the
+pinned Rogue object-generation rules. Other floor-loot quantities are unchanged. The gear
 stage has fourteen equally weighted choices including shortbow; the scroll stage
 has enchant armor, protect armor, enchant weapon, remove curse, identify weapon
 and identify armor, also equally weighted.

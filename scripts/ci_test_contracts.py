@@ -131,6 +131,7 @@ REVIEWED_OWNERS = {
     'test_restorable_loss_process': ('LossFinishPeerTests', 'RestorableHitDieProcesses', 'RestorableLossAsciiProcesses', 'RestorableLossProcesses'),
     'test_rogue_activation_candidate': ('RogueActivationCandidateTests',),
     'test_rogue_activation_process': ('RogueActivationCandidateProcesses', 'RogueActivationSourceTests'),
+    'test_rogue_birth_inventory_content': ('RogueBirthInventoryContent',),
     'test_rogue_carrier_process': ('RogueCarrierObserverTests', 'RogueCarrierProcesses'),
     'test_rogue_chill_content': ('RogueChillContent',),
     'test_rogue_chill_process': ('ChillResumePeerTests', 'RogueChillProcesses'),

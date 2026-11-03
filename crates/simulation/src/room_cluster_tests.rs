@@ -567,3 +567,114 @@ fn room_cluster_rational_chance_is_replay_stable_and_has_both_outcomes() {
         "independent rational chance witnesses both outcomes: {hits}"
     );
 }
+
+#[test]
+fn room_cluster_ground_food_resets_carrier_clock_before_actor_selection_and_audit() {
+    for ground_food in [false, true] {
+        let content =
+            crate::creatures::Content::new(crate::test_support::test_ruleset(), Default::default())
+                .unwrap();
+        let mut game = Game::region_corridor(42, 5, content);
+        game.configure_scenario_policy(ScenarioCapabilities::default(), Some(ActorId(1)))
+            .unwrap();
+        game.spawn_actor(at(1, 0, 1), NonZeroU64::new(100).unwrap())
+            .unwrap();
+        let mut definition = carried_plan([1, 1]);
+        let pool = definition.carried_item_pools.get_mut("supplies").unwrap();
+        pool.choices[0].weight = 9_999;
+        pool.choices.push(food_choice("item.test.ration", "ration"));
+        let mut stage = cluster_stage();
+        let PopulationContent::RoomCluster {
+            item_bands,
+            actor_bands,
+            ..
+        } = &mut stage.population
+        else {
+            panic!()
+        };
+        let mut later_items = item_bands[0].clone();
+        item_bands[0].depth = DepthInterval::Finite {
+            minimum: 1,
+            maximum: 4,
+        };
+        later_items.depth = DepthInterval::Open { minimum: 5 };
+        if ground_food {
+            later_items.choices = vec![food_choice("item.test.ration", "ration")];
+        }
+        item_bands.push(later_items);
+        let mut later_actors = actor_bands[0].clone();
+        actor_bands[0].depth = DepthInterval::Finite {
+            minimum: 1,
+            maximum: 5,
+        };
+        actor_bands[0].choices[0]
+            .carried_loot
+            .as_mut()
+            .unwrap()
+            .chance
+            .numerator = 0;
+        later_actors.depth = DepthInterval::Open { minimum: 6 };
+        actor_bands.push(later_actors);
+        definition.profiles.get_mut("baseline").unwrap().stages = vec![stage, drought_stage(2)];
+        game.configure_population(definition).unwrap();
+        for depth in 1..=5 {
+            let mut prepared = scope(
+                depth,
+                vec![
+                    at(u64::from(depth), 2, 1),
+                    at(u64::from(depth), 3, 1),
+                    at(u64::from(depth), 4, 1),
+                ],
+            );
+            prepared.rooms = vec![PreparedRoomGroup {
+                id: 3,
+                cells: prepared.cells.clone(),
+            }];
+            game.register_activation_scope(prepared).unwrap();
+        }
+        for depth in 1..=5 {
+            if depth == 1 {
+                game.activate_initial_floor().unwrap();
+            } else {
+                game.teleport(ActorId(1), at(depth, 0, 1)).unwrap();
+            }
+            let record = game
+                .activations_since(usize::try_from(depth - 1).unwrap())
+                .unwrap()
+                .remove(0);
+            game.validate_activation_record(&record).unwrap();
+            let StageResult::RoomCluster {
+                selection: ClusterSelection::Selected { actors, .. },
+            } = &record.decisions[0].result
+            else {
+                panic!()
+            };
+            if depth < 5 {
+                assert!(actors.iter().all(|attempt| matches!(
+                    attempt,
+                    PlacementDecision::Placed {
+                        entity: PopulationEntity::Actor {
+                            carried_loot: Some(CarriedLootDecision::NotCarried),
+                            ..
+                        },
+                        ..
+                    }
+                )));
+            } else {
+                let PlacementDecision::Placed {
+                    entity:
+                        PopulationEntity::Actor {
+                            carried_loot: Some(CarriedLootDecision::Carried { content, .. }),
+                            ..
+                        },
+                    ..
+                } = &actors[0]
+                else {
+                    panic!()
+                };
+                assert_eq!(content, if ground_food { "marker" } else { "ration" });
+            }
+        }
+        assert!(game.activation_state_valid());
+    }
+}

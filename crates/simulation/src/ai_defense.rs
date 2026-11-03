@@ -1,8 +1,8 @@
 //! Narrow, data-shaped defensive candidates; ordinary plans own all execution.
 use crate::abilities::InvocationKind;
+use crate::ai_effect_safety::{condition_safety, modifier_improvement, ConditionSafety};
 use crate::rules::{
-    AbilityDef, ConditionDef, Effect, Eviction, ModifierOp, RangePreference, Reach, Ruleset, Scope,
-    Selector, Stacking, Stat, StrikeSource,
+    AbilityDef, ConditionDef, Effect, RangePreference, Reach, Ruleset, Selector, StrikeSource,
 };
 use crate::{ActorId, Game};
 use std::collections::BTreeSet;
@@ -29,22 +29,7 @@ fn defensive_condition<'a>(
         return None;
     };
     let condition = rules.condition(condition)?;
-    if condition.source_scoped
-        || matches!(condition.stacking, Stacking::Stack { .. })
-        || condition.capacity != Eviction::Reject
-        || condition.modifiers.is_empty()
-        || !condition.modifiers.iter().all(|modifier| {
-            modifier.scope == Scope::Always
-                && match modifier.op {
-                    ModifierOp::Add {
-                        stat: Stat::IncomingEdge { .. },
-                        value,
-                    } => value < 0,
-                    ModifierOp::TalentReduction { amount, .. } => amount > 0,
-                    _ => false,
-                }
-        })
-    {
+    if condition_safety(condition) != ConditionSafety::Defensive {
         return None;
     }
     Some(condition)
@@ -142,18 +127,11 @@ impl Game {
             let Some(mut improves) = incoming.improves(condition) else {
                 continue;
             };
-            let mut valid = true;
-            for modifier in &condition.modifiers {
-                if let ModifierOp::TalentReduction { category, amount } = modifier.op {
-                    let selector = Selector::Category { category };
-                    let current = derived.protection.talent_reduction(&selector);
-                    let total =
-                        derived.protection.reduction(&selector) - current + current.max(amount);
-                    valid &= total <= crate::limits::NUMERIC as u32;
-                    improves |= !derived.protection.has_immunity(&selector) && amount > current;
-                }
-            }
-            if !valid || !improves {
+            let Some(modifiers_improve) = modifier_improvement(derived, condition) else {
+                continue;
+            };
+            improves |= modifiers_improve;
+            if !improves {
                 continue;
             }
             if let Some(cost) = &definition.cost {

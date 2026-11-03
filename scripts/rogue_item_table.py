@@ -18,6 +18,7 @@ BEGIN = "# BEGIN generated Rogue item table (scripts/rogue_item_table.py)\n"
 END = "# END generated Rogue item table\n"
 # Rogue groups arrows, darts and shuriken: rnd(8) + 8.
 MISSILES = '{ kind = "uniform", minimum = 8, maximum = 15 }'
+DAGGERS = '{ kind = "uniform", minimum = 2, maximum = 5 }'
 
 CATEGORIES = {
     "potion": (26, {
@@ -69,8 +70,9 @@ def choices(categories=tuple(CATEGORIES)):
     for name in categories:
         category, subtypes = CATEGORIES[name]
         for subtype, weight in subtypes.items():
-            quantity = MISSILES if subtype in ("arrow", "dart", "shuriken") else None
-            rows.append(("rogue." + subtype, category * weight, quantity))
+            quantity = (MISSILES if subtype in ("arrow", "dart", "shuriken")
+                        else DAGGERS if subtype == "dagger" else None)
+            rows.append(("rogue." + ("generated_arrow" if subtype == "arrow" else subtype), category * weight, quantity))
     return rows
 
 

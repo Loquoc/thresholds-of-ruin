@@ -4,79 +4,11 @@ use super::{FrozenWeaponSelection, ProjectileSource, RuleError};
 use crate::combat::{CombatEvent, Preparation, SequenceEnd};
 use crate::lifecycle::ActorOutcome;
 use crate::projectile_profiles::HitRecovery;
-use crate::supplies::{ItemClaimKey, ItemPayment};
-use crate::{ActorId, Game, GameError, Item, ItemId, ItemLocation, ScheduleError};
+use crate::supplies::ExtractedItemUnit;
+use crate::{ActorId, Game, GameError, ItemLocation, ScheduleError};
 use tor_world::Location;
 
-struct ReleasedProjectile {
-    id: ItemId,
-    knowledge_source: ItemId,
-    item: Item,
-}
-
 impl Game {
-    fn extract_projectile_unit(
-        &mut self,
-        preparation: &mut Preparation,
-    ) -> Result<ReleasedProjectile, GameError> {
-        if !matches!(preparation.item_payment, ItemPayment::Held { .. })
-            || !self.preparation_items_valid(preparation, false)
-        {
-            return Err(GameError::ItemUnavailable);
-        }
-        let references = preparation.item_payment.refs();
-        let [reference] = references else {
-            return Err(GameError::ItemUnavailable);
-        };
-        let source = reference.item;
-        let key = ItemClaimKey {
-            lineage: preparation
-                .item_lineage()
-                .ok_or(GameError::ItemUnavailable)?,
-            cost_ordinal: reference.cost_ordinal,
-        };
-        let original = self.items.get(&source).ok_or(GameError::ItemUnavailable)?;
-        let index = original
-            .holds
-            .binary_search_by_key(&key, |hold| hold.key)
-            .map_err(|_| GameError::ItemUnavailable)?;
-        if original.holds[index].quantity != 1 {
-            return Err(GameError::ItemUnavailable);
-        }
-        let mut item = original.clone();
-        let id = if original.quantity == 1 {
-            if original.holds.len() != 1 {
-                return Err(GameError::ItemUnavailable);
-            }
-            self.items.remove(&source);
-            source
-        } else {
-            let next = self
-                .next_item_id
-                .checked_add(1)
-                .ok_or(GameError::IdentityExhausted)?;
-            self.items
-                .edit(source, |remaining| {
-                    remaining.quantity -= 1;
-                    remaining.holds.remove(index);
-                })
-                .ok_or(GameError::ItemUnavailable)?;
-            let id = ItemId(self.next_item_id);
-            self.next_item_id = next;
-            id
-        };
-        item.quantity = 1;
-        item.holds.clear();
-        item.motion = crate::MotionState::default();
-        item.orientation = 0;
-        preparation.item_payment = ItemPayment::Settled;
-        Ok(ReleasedProjectile {
-            id,
-            knowledge_source: source,
-            item,
-        })
-    }
-
     /// `completion` already owns resource settlement. Refresh that exact state
     /// when releasing equipped gear; never replace it with a fresh actor clone.
     pub(crate) fn complete_projectile_release(
@@ -130,7 +62,7 @@ impl Game {
             self.refresh_equipment_outcome(&mut completion, equipment)?;
         }
         completion.spent_items = preparation.item_lineage();
-        let released = self.extract_projectile_unit(&mut preparation)?;
+        let released = self.extract_reserved_item_unit(&mut preparation)?;
         self.apply_outcome(completion)?;
         let impact = self.trace_projectile_flight(
             actor,
@@ -244,7 +176,7 @@ impl Game {
     fn land_projectile_unit(
         &mut self,
         actor: ActorId,
-        mut released: ReleasedProjectile,
+        mut released: ExtractedItemUnit,
         location: Location,
     ) -> Result<(), GameError> {
         released.item.location = ItemLocation::Ground(location);

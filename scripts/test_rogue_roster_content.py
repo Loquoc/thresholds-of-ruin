@@ -2,6 +2,7 @@
 
 Catalog presence is not population activation or measured play/balance evidence.
 """
+from rogue_activation_oracle import reviewed_birth_item_pool
 from pathlib import Path
 import tomllib
 import unittest
@@ -398,8 +399,9 @@ class RogueRosterContent(unittest.TestCase):
                     with self.subTest(field=key), self.assertRaisesRegex(AssertionError, "first survived drain"):
                         drain_interval([contact], earned=160, **dict(arguments, **{key: value}))
 
-    def test_generated_carrier_fixture_preserves_production_policies_and_recipes(self):
+    def test_generated_carrier_fixture_preserves_species_policy_with_fixed_mechanism_stock(self):
         from rogue_vampire_package import generated_carrier_manifest
+        from rogue_activation_candidate import VAMPIRE_POOL
         manifest = source("scenario.toml")
         canonical = manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"][0]
         for name, depth in (("centaur", 7), ("yeti", 11), ("troll", 13), ("vampire", 27),
@@ -419,7 +421,7 @@ class RogueRosterContent(unittest.TestCase):
                 self.assertEqual(choice["carried_loot"], expected["carried_loot"])
                 pool = choice["carried_loot"]["pool"]
                 self.assertEqual(fixture["floor_activation"]["carried_item_pools"],
-                                 {pool: manifest["floor_activation"]["carried_item_pools"][pool]})
+                                 {pool: VAMPIRE_POOL})
                 self.assertEqual(fixture["characters"][0]["anchor"], f"dungeon/{depth}/up")
                 self.assertEqual(len(fixture["characters"][0]["creature"]["hit_dice"]), 16)
                 self.assertEqual(fixture["characters"][0]["loadout"], manifest["characters"][0]["loadout"])
@@ -445,7 +447,7 @@ class RogueRosterContent(unittest.TestCase):
         self.assertEqual({row["archetype"] for band in actor["bands"] for row in band["choices"]},
                          {"rogue." + name for name in (
                              "emu", "snake", "rattlesnake", "hobgoblin", "ice_monster", "zombie", "centaur", "quagga", "yeti", "troll", "wraith", "black_unicorn", "vampire", "jabberwock", "bat", "kestrel", "venus_flytrap", "griffin", "leprechaun", "nymph", "orc", "medusa", "phantom", "xeroc", "aquator", "dragon")})
-        chances = {"rogue.centaur": (3, 20), "rogue.yeti": (3, 10), "rogue.troll": (1, 2), "rogue.vampire": (1, 5), "rogue.griffin": (1, 5), "rogue.jabberwock": (7, 10), "rogue.medusa": (2, 5), "rogue.xeroc": (3, 10), "rogue.dragon": (1, 1)}
+        chances = {"rogue.nymph": (1, 1), "rogue.orc": (3, 20), "rogue.centaur": (3, 20), "rogue.yeti": (3, 10), "rogue.troll": (1, 2), "rogue.vampire": (1, 5), "rogue.griffin": (1, 5), "rogue.jabberwock": (7, 10), "rogue.medusa": (2, 5), "rogue.xeroc": (3, 10), "rogue.dragon": (1, 1)}
         for band in actor["bands"]:
             for row in band["choices"]:
                 if row["archetype"] in chances:
@@ -461,10 +463,7 @@ class RogueRosterContent(unittest.TestCase):
                     self.assertNotIn("carried_loot", row)
         self.assertEqual(set(activation["carried_item_pools"]),
                          {"rogue.vampire_supplies", "rogue.leprechaun_gold"})
-        self.assertEqual(activation["carried_item_pools"]["rogue.vampire_supplies"], {
-            "version": 1, "choices": [
-                {"archetype": "rogue.ration", "weight": 1, "quantity": 1},
-                {"archetype": "rogue.clean_bandage", "weight": 1, "quantity": 1}]})
+        self.assertEqual(activation["carried_item_pools"]["rogue.vampire_supplies"], reviewed_birth_item_pool())
         for stage, identity, quantity in zip(stages[1:4], ("clean_bandage", "ration", "restore_strength"), (2, 1, 1), strict=True):
             self.assertEqual(stage["kind"], "items")
             self.assertEqual(stage["bands"], [{"depth": {"kind": "open", "minimum": 1},

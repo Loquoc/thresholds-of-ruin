@@ -5,10 +5,15 @@ including the tuned Rogue scenario integrated by PR #219 (main `522e07af`).
 It is a **catalog-to-recipe contract**, not evidence that every entry has been
 rendered in ordinary gameplay. Rendering evidence is recorded separately.
 
+The birth-inventory milestone adds one intentional generated-arrow alias sharing
+the original arrow identity, appearance and shape. Earlier rendered contact-sheet
+receipts cover 85 definitions / 99 forms; they are not relabeled as 86 / 100.
+The added alias changes generation policy, not geometry.
+
 ## Scope and disclosure
 
-- **85 catalog definitions, 83 identity groups**, **99 physical forms**: fourteen device identities
-  each have a wand and staff form; the other 71 definitions have one form. Starter/generated mace and ring-mail
+- **86 catalog definitions, 83 identity groups**, **100 physical forms**: fourteen device identities
+  each have a wand and staff form; the other 72 definitions have one form. Starter/generated arrow, mace and ring-mail
   definitions deliberately share their respective identities.
 - **74 persistent appearance labels** in five pools: 14 potions, 18 scrolls,
   14 metal wands, 14 wooden staves, and 14 gemstone rings.
@@ -46,12 +51,12 @@ path. Rings and other small worn accessories are not disclosed in `WornView`.
 Torch ground art is covered, but the `held_light` attachment is **not** covered by
 the weapon attachment path. Catalog coverage must not imply otherwise.
 
-Tuned Rogue currently references 83 catalog definitions in its live manifest
-(clean bandage and torch are unreferenced); exploration references 84 (torch is
+Tuned Rogue currently references 84 catalog definitions in its live manifest
+(clean bandage and torch are unreferenced); exploration references 85 (torch is
 unreferenced). Both full catalogs remain covered, including opt-in items.
 Corpses are generated from actors rather than item catalog definitions. Tuned
 Rogue disables corpses; exploration uses disclosed creature-body rendering and
-an anonymous fallback, outside this 85-definition matrix.
+an anonymous fallback, outside this 86-definition matrix.
 
 ## Catalog matrix
 
@@ -91,6 +96,7 @@ items retain their physical form and appearance-surface selection.
 | `rogue.dagger` | `item.weapon.dagger` | `Dagger` |
 | `rogue.shortbow` | `item.weapon.bow.short` | `Shortbow` |
 | `rogue.arrow` | `item.weapon.arrow` | `Arrow` |
+| `rogue.generated_arrow` | `item.weapon.arrow` | `Arrow` |
 | `rogue.two_handed_sword` | `item.weapon.greatsword` | `Greatsword` |
 | `rogue.spear` | `item.weapon.spear` | `Spear` |
 | `rogue.leather_armor` | `item.armor.leather` | `LeatherArmor` |
@@ -281,7 +287,7 @@ compatibility is claimed across the approved version break.
 
 ## Reproducing real-render review captures
 
-Generate contact sheets for all 99 physical forms and all 74 public appearance
+Generate contact sheets for all 100 physical forms and all 74 public appearance
 leaves with `python crates/client-3d/scripts/generate_rogue_item_review.py OUTPUT`.
 The output index keeps template archetypes separate from canonical identity keys.
 Run each generated scene with the actual client:

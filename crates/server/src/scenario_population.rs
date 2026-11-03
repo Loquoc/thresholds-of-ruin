@@ -7,6 +7,7 @@ const MAX_PROFILES: usize = runtime::MAX_PROFILES;
 const MAX_STAGES: usize = runtime::MAX_STAGES;
 const MAX_DEPTH_BANDS: usize = runtime::MAX_DEPTH_BANDS;
 const MAX_CHOICES: usize = runtime::MAX_CHOICES;
+const MAX_CARRIED_ITEM_CHOICES: usize = runtime::MAX_CARRIED_ITEM_CHOICES;
 const MAX_ATTEMPTS: u16 = runtime::MAX_ATTEMPTS;
 const MAX_LOADOUT: usize = 64;
 const MAX_CARRIED_ITEM_POOLS: usize = runtime::MAX_CARRIED_ITEM_POOLS;
@@ -772,6 +773,7 @@ impl Package {
                     .iter()
                     .map(|choice| (choice.archetype.as_str(), choice.weight)),
                 pool.choices.len(),
+                MAX_CARRIED_ITEM_CHOICES,
             )?;
             for choice in &pool.choices {
                 choice.quantity.maximum()?;
@@ -979,6 +981,7 @@ impl Package {
             self.check_population_choices(
                 band.choices.iter().map(&choice_fields),
                 band.choices.len(),
+                MAX_CHOICES,
             )?;
         }
         Ok(())
@@ -988,9 +991,10 @@ impl Package {
         &self,
         choices: impl Iterator<Item = (&'a str, u32)>,
         count: usize,
+        maximum: usize,
     ) -> Result<(), Failure> {
         require(
-            count > 0 && count <= MAX_CHOICES,
+            count > 0 && count <= maximum,
             "Invalid population choice count",
         )?;
         let mut unique = BTreeSet::new();
@@ -1991,6 +1995,48 @@ mod tests {
     }
 
     #[test]
+    fn carried_pool_capacity_is_independent_of_population_band_capacity() {
+        for count in [79, 128, 129] {
+            let package = changed(&fixture(), |value| {
+                let choices: Vec<_> = (0..count)
+                    .map(|n| {
+                        let name = format!("stock{n}");
+                        value["archetypes"][&name] = json!({
+                            "name":name, "identity":format!("item.misc.stock{n}")
+                        });
+                        json!({"archetype":name,"weight":1,"quantity":1})
+                    })
+                    .collect();
+                value["floor_activation"]["carried_item_pools"] =
+                    json!({"supplies":{"version":1,"choices":choices}});
+            })
+            .unwrap();
+            assert_eq!(
+                package.check().is_ok(),
+                count <= 128,
+                "carried count {count}"
+            );
+        }
+        let package = changed(&fixture(), |value| {
+            let choices: Vec<_> = (0..65)
+                .map(|n| {
+                    let name = format!("marker{n}");
+                    value["archetypes"][&name] =
+                        json!({"name":name,"identity":format!("item.misc.marker{n}")});
+                    json!({"archetype":name,"weight":1})
+                })
+                .collect();
+            value["floor_activation"]["profiles"]["plain"]["stages"][0]["bands"][0]["choices"] =
+                json!(choices);
+        })
+        .unwrap();
+        assert!(
+            package.check().is_err(),
+            "ordinary bands remain limited to 64"
+        );
+    }
+
+    #[test]
     fn carried_stock_rejects_invalid_even_unreachable_and_zero_chance_declarations() {
         let package = carried_fixture();
         for case in 0..19 {
@@ -2567,6 +2613,96 @@ choices = [{ archetype = "marker", weight = 1, quantity = 1 }]
             package.build(42, false).is_err(),
             "non-equipment loadout cannot equip"
         );
+    }
+    // Insert inside scenario_population::tests. Independent Python fixture owns
+    // exact product weights; this checks the real compiler + source-free boundary.
+    #[test]
+    fn actual_rogue_birth_pools_compile_and_round_trip_without_source_files() {
+        for name in ["rogue", "rogue-exploration"] {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scenarios")
+                .join(name);
+            let package = read_package(&root).unwrap();
+            package.check().unwrap();
+            let index = package.index(42).unwrap();
+            let original = package.population_plan(&index).unwrap().unwrap();
+            let pool = &original.carried_item_pools["rogue.vampire_supplies"];
+            assert_eq!(pool.choices.len(), 79, "{name}");
+            assert!(pool.choices.iter().all(|choice| {
+                !choice.spec.identity.is_unknown()
+                    && choice.spec.identity.as_str().starts_with("item.")
+                    && choice.quantity.resolve(Some(1)).is_ok()
+            }));
+            let dagger = pool
+                .choices
+                .iter()
+                .find(|choice| choice.content == "rogue.dagger")
+                .unwrap();
+            assert_eq!(
+                dagger.quantity,
+                tor_simulation::quantity::QuantityExpr::Uniform {
+                    minimum: 2,
+                    maximum: 5
+                }
+            );
+            assert!(dagger.spec.stackable);
+            let arrow = pool
+                .choices
+                .iter()
+                .find(|choice| choice.content == "rogue.generated_arrow")
+                .unwrap();
+            assert_eq!(
+                arrow.quantity,
+                tor_simulation::quantity::QuantityExpr::Uniform {
+                    minimum: 8,
+                    maximum: 15
+                }
+            );
+            assert_eq!(
+                arrow.spec.equipment_generation,
+                Some(tor_simulation::EquipmentGeneration::Weapon {
+                    curse_percent: 10,
+                    enchant_percent: 5,
+                    minimum: 1,
+                    maximum: 3,
+                })
+            );
+            let bytes = crate::storage::schema::scenario::encode_content_package(&package).unwrap();
+            let restored =
+                crate::storage::schema::scenario::decode_content_package(&bytes).unwrap();
+            assert!(restored.directory.is_none());
+            assert!(restored.rules_source.is_empty());
+            let restored_index = restored.index(42).unwrap();
+            let decoded = restored.population_plan(&restored_index).unwrap().unwrap();
+            assert_eq!(
+                decoded.carried_item_pools, original.carried_item_pools,
+                "{name}"
+            );
+            assert_eq!(
+                crate::storage::schema::scenario::encode_content_package(&restored).unwrap(),
+                bytes
+            );
+            let encoded: Value = serde_json::from_slice(&bytes).unwrap();
+            let pool_shape = encoded["package"]["manifest"]["floor_activation"]
+                ["carried_item_pools"]["rogue.vampire_supplies"]
+                .as_object()
+                .unwrap();
+            assert_eq!(
+                pool_shape.keys().map(String::as_str).collect::<Vec<_>>(),
+                ["choices", "version"]
+            );
+            for choice in pool_shape["choices"].as_array().unwrap() {
+                assert_eq!(
+                    choice
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                    ["archetype", "quantity", "weight"]
+                );
+            }
+        }
     }
 }
 

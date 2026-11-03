@@ -139,6 +139,7 @@ impl HumanOperandBinding {
                     action,
                     Action::UseAbility { .. }
                         | Action::Respec { .. }
+                        | Action::Equip { .. }
                         | Action::Read { .. }
                         | Action::Drink { .. }
                         | Action::Eat { .. }
@@ -322,6 +323,76 @@ mod tests {
         };
         (game, owner, first, second, action)
     }
+    #[test]
+    fn equip_exact_unit_binding_is_valid_before_execution_and_survives_checkpoint() {
+        let (mut game, owner, _, _, _) = supply_fixture();
+        let mut spec =
+            ItemSpec::ordinary("item.armor.binding-fixture".parse().unwrap(), "mail".into());
+        spec.class = crate::ItemClass::Armor;
+        spec.equipment = Some(crate::EquipmentSpec {
+            slot: crate::EquipmentSlot::new("body_armor").unwrap(),
+            periodic_relocation: None,
+            armor: Some(crate::ArmorSpec {
+                physical_reduction: 1,
+                material: crate::armor::ArmorMaterial::Metal,
+                rustproof: false,
+            }),
+            attack: None,
+            weapon_profile: None,
+            modifiers: vec![],
+            potency_modifiers: vec![],
+        });
+        let item = game
+            .place_item_stack(12, game.actors[&owner].location, Some(owner), 1, spec)
+            .unwrap();
+        let slot = EquipmentSlotId(
+            game.actors[&owner]
+                .anatomy
+                .slots
+                .iter()
+                .position(|slot| slot.as_str() == "body_armor")
+                .unwrap() as u16,
+        );
+        let action = Action::Equip { item, slot };
+        game.admit_intention(owner, action.clone(), IntentionOrigin::Human)
+            .unwrap();
+        let binding = game
+            .pending_intention(owner)
+            .unwrap()
+            .human_operands
+            .clone()
+            .unwrap();
+        assert_eq!(
+            binding.items,
+            vec![ItemOperand {
+                cost_ordinal: 0,
+                item,
+                quantity: 1
+            }]
+        );
+        assert!(
+            binding.structurally_valid_for(&action),
+            "journal metadata must accept the captured exact-unit equip binding"
+        );
+        assert!(!binding.structurally_valid_for(&Action::Wait));
+        assert!(!binding.structurally_valid_for(&Action::Unequip { item }));
+        let encoded = serde_json::to_value(&binding).unwrap();
+        let decoded: HumanOperandBinding = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, binding);
+        assert!(decoded.structurally_valid_for(&action));
+        let mut shared = crate::checkpoint::SharedState::default();
+        let restored = Game::restore_checkpoint(
+            game.checkpoint(&mut shared),
+            &shared,
+            game.content().clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            restored, game,
+            "queued admission persists before a preparation owns the unit"
+        );
+    }
+
     #[test]
     fn lost_carried_operand_fails_without_spending_replacement_stack() {
         let (mut game, owner, first, second, action) = supply_fixture();

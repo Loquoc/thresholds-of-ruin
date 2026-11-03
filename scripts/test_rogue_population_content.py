@@ -9,7 +9,7 @@ from pathlib import Path
 import tomllib
 import unittest
 
-from rogue_activation_oracle import reviewed_live_activation
+from rogue_activation_oracle import reviewed_birth_inventory_activation, reviewed_birth_item_pool
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scenarios/rogue-exploration"
@@ -42,7 +42,7 @@ class RoguePopulationContent(unittest.TestCase):
     def test_full_policy_matches_separate_oracle_and_preserves_other_stage_streams(self):
         activation = source("scenario.toml")["floor_activation"]
         # Independent policy covers all fifteen stages, including unchanged legacy streams.
-        self.assertEqual(activation, reviewed_live_activation())
+        self.assertEqual(activation, reviewed_birth_inventory_activation())
         stages = activation["profiles"]["rogue.low_depth"]["stages"]
         self.assertEqual([row["id"] for row in stages], ["rogue.eight_species_foes",
             "rogue.bandages", "rogue.rations", "rogue.restore_strength", "rogue.room_gold", "rogue.magic_potions", "rogue.magic_scrolls",
@@ -98,10 +98,7 @@ class RoguePopulationContent(unittest.TestCase):
 
     def test_dragon_birth_stock_is_one_existing_finite_item_on_every_choice(self):
         activation = source("scenario.toml")["floor_activation"]
-        self.assertEqual(activation["carried_item_pools"]["rogue.vampire_supplies"], {
-            "version": 1, "choices": [
-                {"archetype": "rogue.ration", "weight": 1, "quantity": 1},
-                {"archetype": "rogue.clean_bandage", "weight": 1, "quantity": 1}]})
+        self.assertEqual(activation["carried_item_pools"]["rogue.vampire_supplies"], reviewed_birth_item_pool())
         for band in stage()["bands"]:
             for choice in band["choices"]:
                 if choice["archetype"] == "rogue.dragon":

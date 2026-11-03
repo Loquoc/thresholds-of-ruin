@@ -27,7 +27,8 @@ from arena_evaluation import MAX_BYTES, digest, files, write_json
 from arena_matrix import toml_source
 from ruleset_sources import resolve_with_dependencies
 from rogue_activation_oracle import (reviewed_twenty_four_activation, reviewed_twenty_one_activation,
-                                     reviewed_twenty_six_activation, reviewed_live_activation)
+                                     reviewed_twenty_six_activation, reviewed_live_activation,
+                                     reviewed_birth_inventory_activation)
 
 
 REFERENCE = "c7c119f893bd2f8255f2ad78d58a32664ddb9a97"
@@ -97,6 +98,7 @@ FORMAT = "tor-rogue-activation-inputs-v3"
 TRANSFORMATION_FORMAT = "tor-rogue-fixed-eighteen-transform-v1"
 # Package source is always injected. These are generator dependencies only.
 TOOL_INPUTS = ("scripts/rogue_activation_candidate.py", "scripts/rogue_activation_oracle.py",
+               "scripts/fixtures/rogue-birth-item-reference.json",
                "scripts/arena_recipes.json",
                "scripts/arena_matrix.py", "scripts/arena_evaluation.py", "scripts/ruleset_sources.py",
                "scripts/scalar_wire.py")
@@ -165,7 +167,8 @@ def population_shape(source):
         return "reviewed_twenty_one_species_input"
     if exact(activation) == exact(reviewed_twenty_four_activation()):
         return "reviewed_twenty_four_species_input"
-    if exact(activation) in (exact(reviewed_twenty_six_activation()), exact(reviewed_live_activation())):
+    if exact(activation) in (exact(reviewed_twenty_six_activation()), exact(reviewed_live_activation()),
+                             exact(reviewed_birth_inventory_activation())):
         return "reviewed_twenty_six_species_input"
     raise ValueError("Review changed population profile or carried-item pool before generating a candidate")
 

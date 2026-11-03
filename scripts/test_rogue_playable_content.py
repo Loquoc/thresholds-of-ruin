@@ -1,4 +1,5 @@
 """Authored Rogue content contracts, independent of generated certificates."""
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -71,7 +72,7 @@ class RoguePlayableContent(unittest.TestCase):
             {"archetype": "rogue.clean_bandage", "quantity": 3},
             {"archetype": "rogue.ration", "quantity": 1},
         ]
-        self.assertEqual(set(items), {'rogue.dart', 'rogue.shuriken', 'rogue.fruit', 'rogue.wand_polymorph', 'rogue.monster_detection', 'rogue.food_detection', 'rogue.magic_detection', 'rogue.magic_mapping', 'rogue.hallucination', 'rogue.gain_strength', 'rogue.raise_level', 'rogue.haste', 'rogue.torch', 'rogue.wand_cancellation', 'rogue.wand_magic_missile', 'rogue.wand_drain_life', 'rogue.wand_light', 'rogue.wand_nothing', 'rogue.clean_bandage', 'rogue.identify_armor', 'rogue.ration', 'rogue.dagger', 'rogue.banded_mail', 'rogue.healing', 'rogue.confusion', 'rogue.blindness', 'rogue.poison', 'rogue.see_invisible', 'rogue.extra_healing', 'rogue.wand_invisibility', 'rogue.wand_haste', 'rogue.wand_slow', 'rogue.generated_ring_mail', 'rogue.enchant_armor', 'rogue.long_sword', 'rogue.remove_curse', 'rogue.wand_lightning', 'rogue.wand_cold', 'rogue.studded_leather', 'rogue.two_handed_sword', 'rogue.splint_mail', 'rogue.identify_weapon', 'rogue.plate_mail', 'rogue.enchant_weapon', 'rogue.identify_wand', 'rogue.amulet_of_yendor', 'rogue.protect_armor', 'rogue.mace', 'rogue.restore_strength', 'rogue.identify_scroll', 'rogue.leather_armor', 'rogue.chain_mail', 'rogue.ring_mail', 'rogue.generated_mace', 'rogue.spear', 'rogue.gold', 'rogue.identify_potion', 'rogue.sleep', 'rogue.scale_mail', 'rogue.wand_fire', 'rogue.shortbow', 'rogue.arrow', 'rogue.ring_protection', 'rogue.ring_add_strength', 'rogue.ring_sustain_strength', 'rogue.ring_see_invisible', 'rogue.ring_adornment', 'rogue.ring_dexterity', 'rogue.ring_increase_damage', 'rogue.ring_regeneration', 'rogue.ring_slow_digestion', 'rogue.ring_maintain_armor', 'rogue.ring_searching', 'rogue.ring_teleportation', 'rogue.levitation', 'rogue.teleportation', 'rogue.wand_teleport_away', 'rogue.wand_teleport_to', 'rogue.ring_stealth', 'rogue.ring_aggravation', 'rogue.aggravate_monster', 'rogue.create_monster', 'rogue.hold_monster', 'rogue.monster_confusion', 'rogue.scare_monster'})
+        self.assertEqual(set(items), {'rogue.generated_arrow', 'rogue.dart', 'rogue.shuriken', 'rogue.fruit', 'rogue.wand_polymorph', 'rogue.monster_detection', 'rogue.food_detection', 'rogue.magic_detection', 'rogue.magic_mapping', 'rogue.hallucination', 'rogue.gain_strength', 'rogue.raise_level', 'rogue.haste', 'rogue.torch', 'rogue.wand_cancellation', 'rogue.wand_magic_missile', 'rogue.wand_drain_life', 'rogue.wand_light', 'rogue.wand_nothing', 'rogue.clean_bandage', 'rogue.identify_armor', 'rogue.ration', 'rogue.dagger', 'rogue.banded_mail', 'rogue.healing', 'rogue.confusion', 'rogue.blindness', 'rogue.poison', 'rogue.see_invisible', 'rogue.extra_healing', 'rogue.wand_invisibility', 'rogue.wand_haste', 'rogue.wand_slow', 'rogue.generated_ring_mail', 'rogue.enchant_armor', 'rogue.long_sword', 'rogue.remove_curse', 'rogue.wand_lightning', 'rogue.wand_cold', 'rogue.studded_leather', 'rogue.two_handed_sword', 'rogue.splint_mail', 'rogue.identify_weapon', 'rogue.plate_mail', 'rogue.enchant_weapon', 'rogue.identify_wand', 'rogue.amulet_of_yendor', 'rogue.protect_armor', 'rogue.mace', 'rogue.restore_strength', 'rogue.identify_scroll', 'rogue.leather_armor', 'rogue.chain_mail', 'rogue.ring_mail', 'rogue.generated_mace', 'rogue.spear', 'rogue.gold', 'rogue.identify_potion', 'rogue.sleep', 'rogue.scale_mail', 'rogue.wand_fire', 'rogue.shortbow', 'rogue.arrow', 'rogue.ring_protection', 'rogue.ring_add_strength', 'rogue.ring_sustain_strength', 'rogue.ring_see_invisible', 'rogue.ring_adornment', 'rogue.ring_dexterity', 'rogue.ring_increase_damage', 'rogue.ring_regeneration', 'rogue.ring_slow_digestion', 'rogue.ring_maintain_armor', 'rogue.ring_searching', 'rogue.ring_teleportation', 'rogue.levitation', 'rogue.teleportation', 'rogue.wand_teleport_away', 'rogue.wand_teleport_to', 'rogue.ring_stealth', 'rogue.ring_aggravation', 'rogue.aggravate_monster', 'rogue.create_monster', 'rogue.hold_monster', 'rogue.monster_confusion', 'rogue.scare_monster'})
         for character in manifest["characters"]:
             self.assertEqual(character["loadout"], expected)
             self.assertEqual(set(character["known_identities"]), {IDENTITIES[key] for key in ("rogue.mace", "rogue.ring_mail", "rogue.clean_bandage", "rogue.ration", "rogue.amulet_of_yendor")})
@@ -209,7 +210,19 @@ class RoguePlayableContent(unittest.TestCase):
         })
         # Independent before-batch oracle: existing IDs, versions, weights,
         # count/quantity policies and every depth band remain exactly unchanged.
-        canonical = json.dumps(stages[:13], sort_keys=True, separators=(",", ":")).encode()
+        prior = copy.deepcopy(stages[:13])
+        # Reverse only the separately approved birth policies/dagger quantity;
+        # retain the original historical hash for every other field.
+        for stage in prior:
+            for band in stage.get("bands", []):
+                for row in band["choices"]:
+                    if row["archetype"] in ("rogue.nymph", "rogue.orc"):
+                        row.pop("carried_loot", None)
+                    if row["archetype"] == "rogue.generated_arrow":
+                        row["archetype"] = "rogue.arrow"
+                    if row["archetype"] == "rogue.dagger":
+                        self.assertEqual(row.pop("quantity"), {"kind": "uniform", "minimum": 2, "maximum": 5})
+        canonical = json.dumps(prior, sort_keys=True, separators=(",", ":")).encode()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), "71e762a7f3d210c37c40349139268d2fb31e6132bca30f6d85e949654a13fde8")
         items = source("catalog/items.toml")["items"]
         self.assertEqual(len(set(EXPANDED_ITEMS)), 17)

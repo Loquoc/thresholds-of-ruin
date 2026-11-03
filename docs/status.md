@@ -7,7 +7,7 @@ fully optimized or qualified for every workload. Follow the
 [testing policy](development/testing.md).
 
 **Current formats:** protocol **68**, save format **66**, scenario format **37**,
-ruleset **`interactions-v57`**, scenario validator **`tor-scenario-49`**.
+ruleset **`interactions-v58`**, scenario validator **`tor-scenario-50`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
@@ -118,6 +118,14 @@ timeline, and explicit saves answer `save_behind` while play waits for a lagging
 writer. Broader HD storage, deep-run balance and pressured earned routes remain
 separate increments. Topology/recovery witnesses are not survival evidence;
 graphical waivers are never passes.
+
+The [monster birth inventory and capable item use](plans/rogue.md#monster-birth-inventory-and-capable-item-use)
+milestone replaces ration-only carrier stock with the reference distribution,
+retains leprechaun birth Gold, and uses ordinary equip-one and known-safe care
+without granting hidden knowledge. Unsupported utility items remain carried;
+this is not a claim that AI can use every item. Other floor-loot laws remain
+unchanged except the approved dagger quantities and generated-arrow conditions.
+Earlier numerical campaign receipts are historical, not new balance qualification.
 
 ### Other scoped extensions
 

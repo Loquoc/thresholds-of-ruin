@@ -28,7 +28,7 @@ class RogueItemModelCoverage(unittest.TestCase):
         self.assertEqual(len(new_to_old), 83)
         for package in ("rogue", "rogue-exploration"):
             catalog = tomllib.loads((ROOT / "scenarios" / package / "catalog/items.toml").read_text())["items"]
-            self.assertEqual({key: value["identity"] for key, value in catalog.items()},
+            self.assertEqual({key: value["identity"] for key, value in catalog.items() if key != "rogue.generated_arrow"},
                              {row["archetype"]: row["new_identity"] for row in rows})
 
     def test_seeded_names_have_explicit_paired_identity_records(self):
@@ -97,7 +97,7 @@ class RogueItemModelCoverage(unittest.TestCase):
                             self.assertEqual(recipes.get(key), expected["model"], (identity, asset))
                         actual.append({"pool": pool, "asset": expected["asset"] if pool else assets[0], "model": expected["model"]})
                     self.assertEqual(actual, EXPECTED["items"][identity], (package, identity))
-            self.assertEqual(forms, 99)
+            self.assertEqual(forms, 100)
             self.assertEqual({key: len(pool["appearances"]) for key, pool in catalog["appearance_pools"].items()},
                              EXPECTED["pool_label_counts"])
             self.assertEqual(sum(EXPECTED["pool_label_counts"].values()), 74)
@@ -110,15 +110,15 @@ class RogueItemModelCoverage(unittest.TestCase):
         spec.loader.exec_module(module)
         pages, index = module.reviews(ROOT)
         self.assertEqual((index["catalog_definitions"], index["physical_forms"],
-                          index["appearance_labels"], index["unique_recipes"]), (85, 99, 74, 28))
+                          index["appearance_labels"], index["unique_recipes"]), (86, 100, 74, 28))
         self.assertEqual(index["true_identity_groups"], 83)
-        self.assertEqual(len(index["forms"]), 99)
+        self.assertEqual(len(index["forms"]), 100)
         catalog = tomllib.loads((ROOT / "scenarios/rogue/catalog/items.toml").read_text())["items"]
         self.assertEqual({row.get("archetype") for row in index["forms"]}, set(catalog))
         for row in index["forms"]:
             self.assertEqual(row["identity"], catalog[row["archetype"]]["identity"])
         self.assertEqual(sum(len(v["ground_items"]) for k, v in pages.items()
-                             if k.startswith("all-forms-")), 99)
+                             if k.startswith("all-forms-")), 100)
         self.assertEqual(sum(len(v["ground_items"]) for k, v in pages.items()
                              if k.startswith("appearances-")), 74)
         for name, page in pages.items():

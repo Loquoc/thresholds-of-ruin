@@ -219,12 +219,12 @@ impl Plan {
                 selection: &plan.supplies,
                 spend_at: SupplySpendAt::ReplacementCommit,
             },
-            Self::Read { item, .. }
+            Self::Equip { item, .. }
+            | Self::Read { item, .. }
             | Self::Zap { item, .. }
             | Self::Drink { item, .. }
             | Self::Eat { item, .. } => ItemContract::ExactUnit { item: *item },
             Self::Escape(_)
-            | Self::Equip { .. }
             | Self::Unequip { .. }
             | Self::Ignite { .. }
             | Self::Extinguish { .. } => ItemContract::None,
@@ -387,6 +387,13 @@ impl Game {
                                 })
                         }
                         Plan::Eat { .. } => item.spec.edible.is_some(),
+                        Plan::Equip {
+                            actor,
+                            item,
+                            slot,
+                            allocation,
+                            ..
+                        } => self.frozen_equip_available(*actor, *item, *slot, allocation),
                         Plan::Projectile(projectile) => {
                             projectile.source.available(self, projectile.actor)
                         }
@@ -884,6 +891,77 @@ impl Game {
             self.apply_outcome(outcome)?;
         }
         Ok(())
+    }
+}
+
+/// A transient extracted physical unit, never a second persisted item ledger.
+/// Both projectile release and equip-one use the same exact reservation boundary.
+pub(crate) struct ExtractedItemUnit {
+    pub(crate) id: ItemId,
+    pub(crate) knowledge_source: ItemId,
+    pub(crate) item: Item,
+}
+impl Game {
+    pub(crate) fn extract_reserved_item_unit(
+        &mut self,
+        preparation: &mut Preparation,
+    ) -> Result<ExtractedItemUnit, GameError> {
+        if !matches!(preparation.item_payment, ItemPayment::Held { .. })
+            || !self.preparation_items_valid(preparation, false)
+        {
+            return Err(GameError::ItemUnavailable);
+        }
+        let references = preparation.item_payment.refs();
+        let [reference] = references else {
+            return Err(GameError::ItemUnavailable);
+        };
+        let source = reference.item;
+        let key = ItemClaimKey {
+            lineage: preparation
+                .item_lineage()
+                .ok_or(GameError::ItemUnavailable)?,
+            cost_ordinal: reference.cost_ordinal,
+        };
+        let original = self.items.get(&source).ok_or(GameError::ItemUnavailable)?;
+        let index = original
+            .holds
+            .binary_search_by_key(&key, |hold| hold.key)
+            .map_err(|_| GameError::ItemUnavailable)?;
+        if original.holds[index].quantity != 1 {
+            return Err(GameError::ItemUnavailable);
+        }
+        let mut item = original.clone();
+        let id = if original.quantity == 1 {
+            if original.holds.len() != 1 {
+                return Err(GameError::ItemUnavailable);
+            }
+            self.items.remove(&source);
+            source
+        } else {
+            let next = self
+                .next_item_id
+                .checked_add(1)
+                .ok_or(GameError::IdentityExhausted)?;
+            self.items
+                .edit(source, |remaining| {
+                    remaining.quantity -= 1;
+                    remaining.holds.remove(index);
+                })
+                .ok_or(GameError::ItemUnavailable)?;
+            let id = ItemId(self.next_item_id);
+            self.next_item_id = next;
+            id
+        };
+        item.quantity = 1;
+        item.holds.clear();
+        item.motion = crate::MotionState::default();
+        item.orientation = 0;
+        preparation.item_payment = ItemPayment::Settled;
+        Ok(ExtractedItemUnit {
+            id,
+            knowledge_source: source,
+            item,
+        })
     }
 }
 

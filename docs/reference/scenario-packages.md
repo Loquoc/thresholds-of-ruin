@@ -648,7 +648,7 @@ choices = [{ archetype = "ration", weight = 1, quantity = 2 }]
 ```
 
 Pools and carry policies currently require version 1. There may be at most 32
-named pools, each with 1–64 distinct ordinary item archetypes, positive weights
+named pools, each with 1–128 distinct ordinary item archetypes, positive weights
 with a checked u32 sum, and checked positive
 [quantity expressions](items.md#quantity-expressions). Non-stackable items
 require a range fixed at one. Depth-scaled birth quantities resolve using the
@@ -659,6 +659,10 @@ zero and certainty are valid. `carried_loot` belongs only to actor choices.
 Omission means no policy; compiled and saved current-format records retain an
 explicit nullable policy and an explicit pool map.
 
+The carried-pool bound is independent of the 64-choice limit on ordinary
+population bands. Quantities belong to loot-table entries, so the same item may
+have different ranges in different sources without an item-specific engine path.
+
 A legally placed actor receives zero or one ordinary carried stack, with its own
 item identity and exact sampled quantity, before the entry can publish. Chance
 uses exact bounded fraction sampling. A separate item-content stream uses the
@@ -666,8 +670,12 @@ same multiply-high weighted mapping as ordinary population. Both use a separate
 birth-stock domain keyed by seed, scope, profile/stage identities and versions,
 attempt ordinal, actor content key and policy version; only item-content includes
 the pool identity/version. Quantity sampling uses its own birth-quantity domain
-keyed by the selected pool and item. Existing chance, item-content, count,
-placement, build and combat streams are unchanged. A placement skip does not evaluate a carry policy.
+keyed by the selected pool and item. Selection does not consume the combat RNG
+or perturb actor placement/build streams. Materializing the selected item uses
+the ordinary item allocator, including its existing condition/charge draws; more
+real item births can therefore change later shared RNG outcomes and item IDs.
+Preserved floor-loot laws do not promise identical seeded worlds. A placement
+skip does not evaluate a carry policy.
 
 The actor's existing placement receipt retains a nullable nested result: no
 policy, an explicit chance miss, or the chosen content/quantity and ordinary item
@@ -677,6 +685,23 @@ receipts describe historical provenance, not current ownership: ordinary taking,
 splitting, merging, consumption and death drops remain authoritative. Carrying
 stock does not equip it, identify it or change the actor's resolved
 care/equipment/loot policy.
+When a profile has one unambiguous `food_drought` policy, carrier generation also
+uses its named food set. Its transient counter is reconstructed from immutable
+committed food births (ground or carried), not current inventory. Initial actor
+stages precede the first-entry increment; the increment occurs before the first
+non-actor stage (or at the end of an actor-only floor). The carrier limit is the
+policy's prior-floor threshold plus one. Above that limit, a successful carry roll
+chooses conditionally among food entries already present in its pool; it does not
+grant a missed carry roll or alter pools without food. A committed food birth
+resets the clock, even if that item is later consumed or dropped. Failed placement
+does not reset it. Room-cluster items precede their actors in both evaluation and
+receipt audit. Conflicting independent food policies leave normal carrier selection.
+The existing **ground-only** food safety stage and its placement/count semantics
+are unchanged: this is a bounded persistent-floor adaptation, not exact source
+floor-order or global-counter parity. Explicit named wizard births do not advance
+this first-entry history; wandering/create-monster births remain without stock.
+No new counter or inventory field is stored.
+
 No death roll, replacement stock, species switch or extra inventory ledger exists.
 Initial and later entries both discard the whole candidate on construction,
 identity, decision-capacity or Store failure; legal-cell exhaustion alone remains
@@ -868,7 +893,7 @@ The manifest’s `ruleset = "rules.toml"` names a relative TOML file inside the
 package. Ordinary scenarios import the general rules rather than copy them:
 
 ```toml
-import = "interactions-v57"
+import = "interactions-v58"
 
 [[overrides]]
 op = "set"

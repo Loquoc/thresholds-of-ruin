@@ -605,9 +605,30 @@ pub(super) fn spatial_effect_enabled(package: &Package) -> Result<bool, Failure>
 }
 
 /// Negative source-closure fixtures must not start with an unrelated live root.
-/// Remove only the independently pinned supplemental stage, never its catalog.
+/// Remove the independently pinned supplemental stage and isolate birth stock
+/// to the existing neutral ration recipe, never deleting imported definitions.
+/// This is a source-reachability fixture, not production distribution evidence.
 #[cfg(test)]
 pub(crate) fn unroot_live_rogue_supplement(manifest: &mut Manifest) {
+    // Full production birth stock is now a legitimate route to imported spatial
+    // effects. Negative witnesses must deliberately isolate that unrelated root
+    // before testing one explicit item, actor grant, or carried-stock source.
+    let pool = manifest
+        .floor_activation
+        .as_mut()
+        .unwrap()
+        .carried_item_pools
+        .get_mut("rogue.vampire_supplies")
+        .unwrap();
+    assert_eq!(pool.choices.len(), 79);
+    assert_eq!(
+        pool.choices.iter().map(|choice| choice.weight).sum::<u32>(),
+        10_000
+    );
+    pool.choices
+        .retain(|choice| choice.archetype == "rogue.ration");
+    assert_eq!(pool.choices.len(), 1);
+    assert_eq!(pool.choices[0].quantity, QuantityExpression::Fixed(1));
     let stages = &mut manifest
         .floor_activation
         .as_mut()

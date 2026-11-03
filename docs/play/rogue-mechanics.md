@@ -535,14 +535,18 @@ and Third Strike to its fourth (HD 5 overall); its natural sequence is 1d2/1d5/1
 actual racial HD, purchases Second Strike on HD 2 and uses 1d6/1d6; its cold
 subtype retains descriptor immunity. Both explore while retaining passive
 acquisition until actual hostile provocation. Their 15%/30% birth carry chances
-follow the pinned reference, while the equal ration/bandage pool is provisional TOR scenario tuning, not original
-loot equivalence. Birth creates one ordinary finite item, which drops with the
+follow the pinned reference. The shared ordinary birth pool contains 79 subtypes:
+potion/scroll/food/weapon/armor/ring/device category masses are
+26/36/16/7/7/4/4, with the reference conditional subtype weights. One result may
+be a homogeneous stack; dagger entries generate 2–5, while arrow/dart/shuriken
+entries generate 8–15. Arrows use the ordinary weapon curse/enchantment recipe.
+Birth creates ordinary finite inventory, which drops with the
 same identity on death and never restocks on revisit or restart. Tool permissions
 come from the [species policy](#species-idle-policy), independently of birth stock.
 Troll adds six actual racial HD with RG1 Regeneration on HD 1, Second Strike on HD 2 and Third Strike on HD 4; its other points remain
 unspent. Its separately checked 1d8/1d8/2d6 sequence follows ordinary mean
 acquisition, with exploration and 1,000-tick memory. Its reference 50% carry chance
-uses that same provisional pool. The regenerative flag only permits RG1, which
+uses that same ordinary birth pool. The regenerative flag only permits RG1, which
 supplies the existing −50% Health-recovery-period modifier; no RG2 is selected.
 Troll's giant attributes (2/1/0/1/1/0), Physical defense +3, two-cell body of mass
 250 and 100/100-tick melee reuse provisional authoring choices, without a

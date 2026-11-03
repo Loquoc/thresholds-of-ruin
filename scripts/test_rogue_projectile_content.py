@@ -72,14 +72,17 @@ class RogueProjectileContent(unittest.TestCase):
             "base_traits": [{"kind": "two_handed"}], "expert_traits": {
                 "add": [{"kind": "quickdraw"}], "remove": []}})
 
-    def test_arrows_supply_exact_payload_and_recovery_without_equipment_or_birth_roll(self):
+    def test_arrows_supply_exact_payload_recovery_and_source_birth_roll_without_equipment(self):
         items = source("catalog/items.toml")["items"]
         self.assertIn("rogue.arrow", items)
         item = items["rogue.arrow"]
         self.assertEqual(item["class"], "weapon")
         self.assertIs(item["stackable"], True)
-        for field in ("equipment", "equipment_generation", "supply", "edible", "consumable"):
+        for field in ("equipment", "supply", "edible", "consumable"):
             self.assertNotIn(field, item)
+        self.assertNotIn("equipment_generation", item)
+        self.assertEqual(items["rogue.generated_arrow"]["equipment_generation"], {"kind": "weapon", "curse_percent": 10,
+                         "enchant_percent": 5, "minimum": 1, "maximum": 3})
         self.assertEqual(item["projectile"], {"family": "rogue.bow", "recovery": "consumed_on_hit",
             "damage": {"primary": {"category": "keen", "sides": 3}, "components": [
                 {"category": "keen", "amount": {"type": "rolled", "count": 2,

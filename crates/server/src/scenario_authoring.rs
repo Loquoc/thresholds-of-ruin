@@ -2359,8 +2359,13 @@ mod weapon_profile_authoring_tests {
             error.message.contains("Invalid equipment definition"),
             "currency cannot share an equipment stack: {error:?}"
         );
+        // A homogeneous melee-only weapon stack is now supported too;
+        // stacking must not invent a thrown payload or other capability.
+        let mut melee_only = authored.clone();
+        melee_only["equipment"]["weapon_profile"]["thrown_payload"] = json!(null);
+        package(melee_only.clone(), 3).check().unwrap();
+        package(melee_only, 3).build(42, false).unwrap();
         for (pointer, replacement) in [
-            ("/equipment/weapon_profile/thrown_payload", json!(null)),
             (
                 "/equipment/weapon_profile/launcher",
                 json!({"family":"fixture.arrow","range":{"short_feet":20,"long_feet":60}}),

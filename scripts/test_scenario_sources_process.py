@@ -131,10 +131,10 @@ lower = "100/up"
                 self.assertIn(identity, message)
 
     def test_rules_resolution_uses_the_same_stable_id_override_engine(self):
-        result = self.compiler("resolve-rules", source='import = "interactions-v57"\n'
+        result = self.compiler("resolve-rules", source='import = "interactions-v58"\n'
                                'overrides = [{op="set", path=["resources","mana","recovery_period"], value=997}]\n')
         self.assertEqual(result.returncode, 0, result.stderr)
         resolved = json.loads(result.stdout)
         mana = next(value for value in resolved["document"]["resources"] if value["resource"] == "mana")
         self.assertEqual(mana["recovery_period"], 997)
-        self.assertIn("interactions-v57", resolved["dependencies"])
+        self.assertIn("interactions-v58", resolved["dependencies"])

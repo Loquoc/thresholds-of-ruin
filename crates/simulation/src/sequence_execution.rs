@@ -160,6 +160,34 @@ impl Game {
                     self.complete_projectile_release(resolved, completion, due)?;
                     break;
                 }
+                if let crate::abilities::Plan::Equip {
+                    item,
+                    slot,
+                    allocation,
+                    ..
+                } = &resolved.plan
+                {
+                    if !self.frozen_equip_available(id, *item, *slot, allocation) {
+                        return Err(GameError::ItemUnavailable);
+                    }
+                    completion.spent_items = resolved.item_lineage();
+                    let unit = self.extract_reserved_item_unit(&mut resolved)?;
+                    if let Some(facts) = completion.state.known_equipment.inherited_transfer(
+                        unit.knowledge_source,
+                        None,
+                        unit.id,
+                    ) {
+                        completion.state.known_equipment.remember_inherited(facts);
+                    }
+                    let singleton = unit.id;
+                    self.items.insert(singleton, unit.item);
+                    // Only this local resolved work names the extracted unit.
+                    // The admitted/persisted plan continues to name its source.
+                    let crate::abilities::Plan::Equip { item, .. } = &mut resolved.plan else {
+                        unreachable!("equip work remains equip work");
+                    };
+                    *item = singleton;
+                }
                 // Capture identification before an exact last unit disappears. Effects
                 // may kill the drinker and drop only the unconsumed remainder.
                 let consumed_identity = match &resolved.plan {

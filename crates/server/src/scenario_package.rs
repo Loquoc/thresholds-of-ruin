@@ -73,8 +73,8 @@ pub use tor_simulation::EdibleSpec;
 use tor_simulation::Game;
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
-pub const RULESET: &str = "interactions-v57";
-const VALIDATOR: &str = "tor-scenario-49";
+pub const RULESET: &str = "interactions-v58";
+const VALIDATOR: &str = "tor-scenario-50";
 /// The manifest and the validator's files are bounded to this.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// The package layout this version reads: `scenario.toml`, one file per
@@ -3273,7 +3273,11 @@ impl Package {
                 && (0..target.size[1]).contains(&position[1]),
             "Trapdoor destination must be a supported chamber ceiling endpoint",
         )?;
-        require((0..target.size[2]).all(|z| !target.walls.contains(&[position[0], position[1], z])) && !target.openings.contains(&[position[0], position[1], -1]), "Trapdoor destination column must have clear upright-body clearance and real floor support")
+        require(
+            (0..target.size[2]).all(|z| !target.walls.contains(&[position[0], position[1], z]))
+                && !target.openings.contains(&[position[0], position[1], -1]),
+            "Trapdoor destination column must have clear upright-body clearance and real floor support",
+        )
     }
     fn check_region(&self, r: &RegionDef) -> Result<(), Failure> {
         self.check_retrieval_region(r)?;
@@ -5391,8 +5395,8 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
         let original = read_package(&root).unwrap();
         original.check_identity().unwrap();
-        assert_eq!(original.certificate.validator, "tor-scenario-49");
-        assert_eq!(original.certificate.ruleset, "interactions-v57");
+        assert_eq!(original.certificate.validator, "tor-scenario-50");
+        assert_eq!(original.certificate.ruleset, "interactions-v58");
         let current_artifact = artifact::relative_root(&original);
         for (boundary, identity) in [
             ("validator", "tor-scenario-27"),
@@ -7231,7 +7235,7 @@ mod tests {
 
     #[test]
     fn shared_rules_import_accepts_validated_scenario_override() {
-        let source = r#"import = "interactions-v57"
+        let source = r#"import = "interactions-v58"
 [[overrides]]
 op = "set"
 path = ["constants", "base_defense"]

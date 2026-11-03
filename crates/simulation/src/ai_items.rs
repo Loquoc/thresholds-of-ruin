@@ -361,7 +361,13 @@ impl Game {
         *self.actors.get_mut(&actor)? = source.actors.get(&actor)?.clone();
         for id in equipment.values() {
             let condition = source.gear_condition_estimate(actor, *id)?;
+            if !source.item_equip_unit_available(*id) {
+                return None;
+            }
             self.items.edit(*id, |item| {
+                // A private loadout estimates the same single physical unit
+                // that ordinary Equip reserves and extracts at completion.
+                item.quantity = 1;
                 item.condition = condition;
                 item.location = crate::ItemLocation::Carried(actor);
             })?;
