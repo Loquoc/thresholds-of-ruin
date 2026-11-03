@@ -1,4 +1,17 @@
 //! Stable, typed content identities. Runtime loading interns strings; persistence uses text.
+//!
+//! Construction proves syntax only. A valid [`AbilityId`] still needs an
+//! entry in the attached [`crate::rules::Ruleset`]. These IDs are not the
+//! hierarchical [`crate::ItemIdentity`] grammar and are not normalized.
+//!
+//! Each generated type is a distinct namespace even when the text matches.
+//! Converting an ID to text does not authorize a cross-category reference:
+//!
+//! ```compile_fail,E0308
+//! use tor_simulation::content_ids::{AbilityId, TalentId};
+//! let ability = AbilityId::new("fixture.shared").unwrap();
+//! let talent: TalentId = ability; // A matching spelling is not a type conversion.
+//! ```
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
