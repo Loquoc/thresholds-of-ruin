@@ -1,11 +1,16 @@
 //! Authoritative sessions, durable action/annotation history, and WebSocket transport.
 
+#[cfg(test)]
+#[path = "../../protocol/tests/support/fixture.rs"]
+mod fixture;
+
 mod actions;
 mod adapt;
 mod advancement_adapter;
 mod advancement_page;
 #[cfg(test)]
 mod advancement_test_support;
+mod attachments;
 mod chart_view;
 pub mod creature_authoring;
 mod creature_view;

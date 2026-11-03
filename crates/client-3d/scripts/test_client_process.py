@@ -241,7 +241,7 @@ class Native3DProcesses(ProcessTestCase):
         self.assertTrue("hud" in initial, "the live frame must present the framed action dock")
         self.assertEqual(initial["hud"]["readiness"], "READY")
         self.assertEqual({button["action"] for button in initial["hud"]["buttons"]},
-                         {"Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Wait"})
+                         {"Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Screenshot", "Wait"})
         for button in initial["hud"]["buttons"]:
             self.assertTrue(all(0 < value < 1 for value in button["screen"]), button)
             self.assertTrue(all(value > 20 for value in button["size"]), button)
@@ -1452,7 +1452,7 @@ class Native3DProcesses(ProcessTestCase):
                 vk = ord(name.upper()) if len(name) == 1 and name.isascii() and name.isalnum() else {
                     "Escape": 0x1B, "space": 0x20, "Return": 0x0D, "Tab": 0x09, "Control_L": 0x11,
                     "Up": 0x26, "Down": 0x28, "Left": 0x25, "Right": 0x27,
-                    "PageUp": 0x21, "PageDown": 0x22, "Home": 0x24, "End": 0x23, "F2": 0x71, "F4": 0x73, "F5": 0x74, "F6": 0x75, "F7": 0x76, "F10": 0x79,
+                    "PageUp": 0x21, "PageDown": 0x22, "Home": 0x24, "End": 0x23, "F2": 0x71, "F4": 0x73, "F5": 0x74, "F6": 0x75, "F7": 0x76, "F10": 0x79, "F12": 0x7B,
                     "bracketleft": 0xDB, "bracketright": 0xDD,
                 }[name]
                 scan = user32.MapVirtualKeyW(vk, 0)
@@ -1973,6 +1973,37 @@ class Native3DProcesses(ProcessTestCase):
         finally:
             if window.child.poll() is None:
                 native("Escape", False)
+
+    def test_native_screenshot_command_attaches_game_pixels_to_the_shown_private_snapshot(self):
+        from test_capture_process import CaptureEvidence, png_rgb
+        self.server()
+        owner, _ = self.client()
+        executable = Path(os.environ.get("TOR_3D_TEST_BINARY", CLIENT / "target/debug" / ("tor-client-3d" + self.suffix)))
+        window = self.launch("tor-client-3d", [
+            "--connect", self.address, "--observe", "--capture", self.directory / "captures", "--capture-every", "0.4",
+            "--quit-after", "600",
+        ], executable=executable)
+        self.captured(window, lambda frame: not frame["has_control"] and not frame["busy"])
+        spectator, _ = self.client(token=SPECTATOR_TOKEN, observe=True)
+        native = self.native_keys(window)
+        before = self.captured(window, lambda frame: not frame["has_control"] and not frame["busy"])
+        captured = self.tap(window, native, "F12", lambda frame: "Screenshot attached privately" in (frame["status"] or ""))
+        entries = CaptureEvidence.annotations(self, owner)
+        screenshots = [row for row in entries if row["content"]["text"] == "Screenshot"]
+        self.assertEqual(len(screenshots), 1, "one explicit keypress creates exactly one attachment")
+        entry = screenshots[0]
+        self.assertEqual(entry["content"]["anchor"], {"type": "state", "snapshot": before["shown_snapshot"]})
+        payload = CaptureEvidence.attachment(self, owner, entry)
+        metadata, = entry["content"]["attachments"]
+        self.assertEqual(metadata["media_type"], "png")
+        width, height, pixels = png_rgb(payload)
+        reference_width, reference_height, _ = png_rgb(Path(captured["png"]).read_bytes())
+        self.assertEqual((width, height), (reference_width, reference_height), "capture is the game render target, not a desktop reconstruction")
+        self.assertGreater(len(set(zip(pixels[::3], pixels[1::3], pixels[2::3]))), 20, "actual scene/UI pixels must not be a blank placeholder")
+        self.assertEqual(captured["world_feet"], before["world_feet"], "capturing never moves the character")
+        self.assertFalse(any(row["id"] == entry["id"] for row in CaptureEvidence.annotations(self, spectator)), "private screenshot is not spectator history")
+        self.assertFalse(any(row["content"]["text"].startswith("PLAY TEST REPORT") for row in entries), "screenshot command is separate from reports")
+        window.stop()
 
     def test_native_screens_rename_a_place_save_a_note_and_read_both_in_history(self):
         """F5 renames a known place and F4 saves a note through the real

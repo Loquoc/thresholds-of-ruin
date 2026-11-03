@@ -434,6 +434,7 @@ fn checkpoints_preserve_private_notes_forks_and_the_complete_rewind_window() {
             "secret",
             &engine.branch().clone(),
             Command::Annotate {
+                attachments: Vec::new(),
                 anchor: Anchor::State {
                     snapshot: tor_protocol::SnapshotId("issued-checkpoint-note".into()),
                 },

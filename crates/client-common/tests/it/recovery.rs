@@ -915,3 +915,6 @@ async fn fragmented_response_depth_limit_rejects_before_state_changes_or_repair(
             .unwrap();
     }
 }
+
+#[path = "capture_upload.rs"]
+mod capture_upload;

@@ -30,6 +30,8 @@ pub(crate) enum Action {
     Places,
     History,
     Note,
+    Report,
+    Screenshot,
     Rename(String),
     Close,
 }
@@ -104,7 +106,7 @@ pub(crate) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
   });
   root.spawn((JournalPane,Node {flex_grow:1.,width:Val::Percent(38.),height:Val::Percent(100.),min_width:Val::Px(0.),flex_direction:FlexDirection::Column,row_gap:Val::Px(12.),..default()})).with_children(|journal|{
    text(journal,"MAP & JOURNAL",25.);
-   journal.spawn(Node {flex_wrap:FlexWrap::Wrap,column_gap:Val::Px(6.),row_gap:Val::Px(6.),flex_shrink:0.,..default()}).with_children(|tabs|{button(tabs,"F5 · Places",Action::Places);button(tabs,"F2 · History",Action::History);button(tabs,"F4 · Write note",Action::Note);button(tabs,"Close",Action::Close);});
+   journal.spawn(Node {flex_wrap:FlexWrap::Wrap,column_gap:Val::Px(6.),row_gap:Val::Px(6.),flex_shrink:0.,..default()}).with_children(|tabs|{button(tabs,"F5 · Places",Action::Places);button(tabs,"F2 · History",Action::History);button(tabs,"F4 · Write note",Action::Note);button(tabs,"Report",Action::Report);button(tabs,"F12 · Screenshot",Action::Screenshot);button(tabs,"Close",Action::Close);});
    journal.spawn((Scroll,chrome::ScrollArea,ScrollPosition::default(),Node {flex_grow:1.,min_height:Val::Px(0.),width:Val::Percent(100.),overflow:Overflow::scroll_y(),..default()})).with_child((Body,Node {width:Val::Percent(100.),flex_direction:FlexDirection::Column,row_gap:Val::Px(10.),flex_shrink:0.,..default()}));
    journal.spawn((route::Root,Node{width:Val::Percent(100.),flex_direction:FlexDirection::Column,row_gap:Val::Px(6.),flex_shrink:0.,..default()}));
    text(journal,"Page Up / Down: scroll · Esc closes\nBrowsing takes no game time",16.);
@@ -126,6 +128,7 @@ pub(crate) fn buttons(
             continue;
         }
         match action {
+            Action::Screenshot => crate::playtest_capture::request(&net, &mut game),
             Action::Close => {
                 if let Some(open) = game.screen.clone() {
                     screen::toggle(&net, &mut game, open);
@@ -139,11 +142,16 @@ pub(crate) fn buttons(
                 game.screen = Some(Screen::History);
                 game.typed.clear();
             }
-            Action::Note => {
+            Action::Note | Action::Report => {
+                let report = matches!(action, Action::Report);
+                if report && matches!(game.screen, Some(Screen::Note { report: true, .. })) {
+                    continue;
+                }
                 if let Some(snapshot) = game.view.as_ref().map(|v| v.shown.snapshot.clone()) {
                     game.screen = Some(Screen::Note {
                         snapshot,
                         private: true,
+                        report,
                     });
                     game.typed.clear();
                 }
@@ -355,9 +363,34 @@ mod tests {
             app.world().resource::<Game>().screen,
             Some(Screen::Note {
                 snapshot: tor_protocol::SnapshotId("fixture-display-7".into()),
-                private: true
+                private: true,
+                report: false,
             })
         );
+        app.world_mut()
+            .entity_mut(button)
+            .insert((Action::Report, Interaction::Pressed));
+        app.update();
+        assert_eq!(
+            app.world().resource::<Game>().screen,
+            Some(Screen::Note {
+                snapshot: tor_protocol::SnapshotId("fixture-display-7".into()),
+                private: true,
+                report: true,
+            })
+        );
+        app.world_mut().resource_mut::<Game>().typed = "keep my draft".into();
+        app.world_mut()
+            .entity_mut(button)
+            .insert(Interaction::Pressed);
+        app.update();
+        assert_eq!(app.world().resource::<Game>().typed, "keep my draft");
+        app.world_mut()
+            .entity_mut(button)
+            .insert((Action::Close, Interaction::Pressed));
+        app.update();
+        assert!(app.world().resource::<Game>().screen.is_none());
+        assert!(app.world().resource::<Game>().typed.is_empty());
         assert!(rx.try_recv().is_err());
         app.world_mut().resource_mut::<Game>().screen = None;
         app.world_mut()

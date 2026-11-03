@@ -376,6 +376,25 @@ impl DiskCheckpoint {
                     return Err(invalid_archive());
                 }
             }
+            // Captures may pin an entry before upload. A checkpoint must enforce
+            // the same earlier, visible, same-branch entry contract as live
+            // admission and full replay; it cannot trust a forged stored anchor.
+            if let JournalContent::Annotation {
+                anchor: crate::journal::RecordedAnchor::Entry { id },
+                attachments,
+                ..
+            } = &record.entry.content
+            {
+                if !attachments.is_empty() {
+                    let receipt = record.receipt.as_ref().ok_or_else(invalid_archive)?;
+                    let previous = records_by_id.get(id).ok_or_else(invalid_archive)?;
+                    if previous.entry.branch != record.entry.branch
+                        || !previous.entry.visible_to(record.entry.actor, &receipt.user)
+                    {
+                        return Err(invalid_archive());
+                    }
+                }
+            }
             if !record.valid_admission()
                 || Uuid::parse_str(&record.entry.id.0).is_err()
                 || Uuid::parse_str(&record.entry.branch.0).is_err()

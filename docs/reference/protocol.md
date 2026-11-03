@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":68,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":69,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -1697,6 +1697,59 @@ does not reveal private equipment knowledge or hidden item definitions.
 
 ## Item machine identity and remembered facts
 
-Protocol 68 adds the independent identity and item-knowledge fields described in
+The protocol includes the independent identity and item-knowledge fields described in
 [the item contract](item-knowledge.md), while `asset` remains the persistent
 public appearance key. Appearance never switches to true identity on discovery.
+
+## Save-owned capture attachments
+
+A screenshot is a separate frontend command, never an automatic side effect of a
+note or playtest report. PNG images and exact UTF-8 text use one attachment
+transport. Bytes live inside the save database, not in client paths or external
+URLs. They grant no gameplay authority and do not advance simulation time.
+
+`begin_attachment` takes the disclosed `context`, `branch`, an annotation `anchor`
+and `metadata` (`media_type`: `png` or `text`, `byte_len`, lowercase SHA-256).
+The server checks actor/user/branch authority and normalizes an issued snapshot
+immediately, before later snapshots can evict that capability. The reply is
+`attachment_upload` with `upload_id` and `next_offset`. One upload per connection
+is allowed, with 32 MiB reserved staging across connections and 60 seconds of
+idle lifetime. Disconnect discards uncommitted bytes. A save retains at most
+256 MiB of attachment bytes; reaching that limit rejects new captures without
+dropping existing ones.
+
+`attachment_chunk` carries `upload_id`, byte `offset` and canonical base64 `data`.
+Chunks contain at most 8 KiB of raw data, inside the existing 16 KiB request cap.
+Only contiguous append or an exact retry of already accepted bytes is accepted.
+Each acknowledgement returns the next byte offset. `abort_attachment` drops the
+connection's matching upload and returns an ordinary acknowledgement. It never
+removes an accepted history entry or its bytes. After an explicit correlated
+commit rejection and stream synchronization, clients make a bounded best-effort
+abort of that exact staging ID and retain the original error. A fresh capture
+can then start without waiting for idle expiry. Timeout, disconnect, malformed
+commit replies and recovery without a confirmed reply remain unknown outcomes:
+clients do not automatically abort or retry those commits; inspect history
+before deciding to retry. Failed cleanup may still leave staging until expiry.
+
+`commit_attachment` validates the length, checksum and format, then atomically
+admits an ordinary private frontend note titled `Screenshot` or `Text capture`
+with its attachment. It replies with the normal history receipt. The
+upload ID is the commit's stable idempotency identity. For a retained commit,
+retrying that ID recovers the same receipt, including after reconnect or restart. Request IDs still
+correlate individual transfer replies. Acceptance is distinct from durability;
+`save` flushes these bytes along with the owning note.
+
+Annotation history exposes an `attachments` metadata list, omitted when empty.
+`read_attachment` names the visible owning `entry`, attachment `index` (currently
+zero), and byte `offset`. Its `attachment_data` reply contains that identity,
+metadata, offset and a base64 encoding of up to 8 KiB of payload bytes, reduced
+when required by the connection's response-frame limit. Read access follows the owning
+entry's actor/user visibility, including for read-only spectators. Spectators
+cannot begin, modify, abort or commit uploads.
+
+PNG payloads are limited to 8 MiB, 4096 by 4096 pixels and 16 Mi pixels. The
+supported subset is 8-bit, noninterlaced grayscale, RGB, grayscale-alpha or RGBA;
+chunk checksums, bounded decompression and scanline filters are validated. Text
+is at most 1 MiB of valid UTF-8 and preserves whitespace and formatting escape
+sequences exactly. The server validates bytes and authority, but cannot prove
+that a client-authored image depicts its claimed snapshot.

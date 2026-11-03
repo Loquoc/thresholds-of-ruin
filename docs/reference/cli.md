@@ -22,7 +22,7 @@ cargo run -p tor-server -- [options]
 | `--save-target-ms <ms>` | `30000` | Prefer saving once the oldest unsaved record reaches this age. |
 | `--save-max-ms <ms>` | `60000` | Start saving even if activity continues. |
 | `--save-idle-ms <ms>` | `750` | Quiet time before a target-age save. |
-| `--save-queue-bytes <n>` | `8388608` | Encoded pending-data budget; copied-source empty-queue exception applies (below). |
+| `--save-queue-bytes <n>` | `16777216` | Encoded pending-data budget; copied-source empty-queue exception applies (below). |
 | `--checkpoint-interval <n>` | `1024` | Journal entries between [checkpoints](../architecture/persistence.md); `0` disables them (for diagnostics), maximum 1,000,000. |
 | `--outbound-frame-bytes <n>` | `16777216` | Maximum encoded response frame size; must not exceed the protocol response limit. |
 | `--outbound-client-bytes <n>` | `67108864` | Per-client queued/inflight output byte budget. |

@@ -900,6 +900,15 @@ fn validate_entry(
     if entry.actor != actor || &entry.branch != branch || entry.tick > tick {
         return Err(StreamError::InconsistentState);
     }
+    if let HistoryContent::Annotation { attachments, .. } = &entry.content {
+        if attachments.len() > 1
+            || attachments
+                .iter()
+                .any(|metadata| !valid_attachment_metadata(metadata))
+        {
+            return Err(StreamError::InconsistentState);
+        }
+    }
     Ok(())
 }
 

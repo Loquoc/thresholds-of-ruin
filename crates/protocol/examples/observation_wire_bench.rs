@@ -1,5 +1,7 @@
 //! Same-build full-versus-selected observation diagnostic. Synthetic disclosed
 //! collections vary individually; this does not measure world topology or UI.
+#[path = "../tests/support/fixture.rs"]
+mod fixture;
 use std::sync::Arc;
 use std::{hint::black_box, time::Instant};
 use tor_protocol::*;
@@ -12,14 +14,11 @@ fn synthetic_digest(index: u64) -> [u8; 32] {
 }
 
 fn views(count: usize, case: &str) -> (StateView, StateView) {
-    let fixture: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/wire-v68.json"
-        ))
-        .expect("regenerate current wire samples"),
+    let fixture = crate::fixture::load(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+        tor_protocol::PROTOCOL_VERSION,
     )
-    .unwrap();
+    .expect("regenerate current wire samples");
     assert_eq!(fixture["protocol"], PROTOCOL_VERSION);
     let message = fixture["server"]
         .as_array()

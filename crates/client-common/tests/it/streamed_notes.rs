@@ -36,6 +36,7 @@ fn note(sequence: u64) -> StreamUpdate {
                     },
                     category: AnnotationCategory::Note,
                     text: "A note".into(),
+                    attachments: vec![],
                 },
             }),
         },
@@ -82,4 +83,43 @@ fn gaps_wrong_branches_and_inconsistent_payloads_leave_the_client_unchanged() {
         Err(StreamError::InconsistentState)
     );
     assert_eq!(model, before);
+}
+
+#[test]
+fn typed_capture_metadata_is_validated_before_history_publication() {
+    let metadata = AttachmentMetadata {
+        media_type: AttachmentMediaType::Text,
+        byte_len: 3,
+        sha256: "a".repeat(64),
+    };
+    let mut capture = note(1);
+    let UpdateBody::Annotation { entry } = &mut capture.body else {
+        unreachable!()
+    };
+    let HistoryContent::Annotation { attachments, .. } = &mut entry.content else {
+        unreachable!()
+    };
+    attachments.push(metadata.clone());
+    let mut model = ClientState::from_snapshot(snapshot()).unwrap();
+    model.apply(capture.clone()).unwrap();
+    for invalid in [
+        vec![AttachmentMetadata {
+            byte_len: 0,
+            ..metadata.clone()
+        }],
+        vec![metadata.clone(), metadata],
+    ] {
+        let mut capture = capture.clone();
+        let UpdateBody::Annotation { entry } = &mut capture.body else {
+            unreachable!()
+        };
+        let HistoryContent::Annotation { attachments, .. } = &mut entry.content else {
+            unreachable!()
+        };
+        *attachments = invalid;
+        let mut model = ClientState::from_snapshot(snapshot()).unwrap();
+        let before = model.clone();
+        assert_eq!(model.apply(capture), Err(StreamError::InconsistentState));
+        assert_eq!(model, before);
+    }
 }

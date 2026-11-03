@@ -205,6 +205,7 @@ mod tests {
                                 author: author.clone(),
                                 audience,
                                 content: JournalContent::Annotation {
+                                    attachments: Vec::new(),
                                     anchor: crate::journal::RecordedAnchor::State {
                                         snapshot: tor_protocol::SnapshotId("fixture".into()),
                                         boundary: None,

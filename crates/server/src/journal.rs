@@ -111,6 +111,12 @@ pub enum Command {
         #[serde(with = "crate::storage::schema::Anchor")]
         anchor: Anchor,
         text: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            with = "crate::storage::schema::attachments"
+        )]
+        attachments: Vec<tor_protocol::AttachmentMetadata>,
         #[serde(default)]
         #[serde(with = "crate::storage::schema::ClientSource")]
         source: ClientSource,
@@ -505,6 +511,12 @@ pub enum JournalContent {
         #[serde(with = "crate::storage::schema::AnnotationCategory")]
         category: AnnotationCategory,
         text: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            with = "crate::storage::schema::attachments"
+        )]
+        attachments: Vec<tor_protocol::AttachmentMetadata>,
     },
 }
 

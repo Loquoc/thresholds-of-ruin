@@ -15,10 +15,9 @@ fn samples() -> Value {
         "{}/tests/fixtures/wire-v{PROTOCOL_VERSION}.json",
         env!("CARGO_MANIFEST_DIR")
     );
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        panic!("{path} is missing: record it with scripts/record_wire_samples.py")
-    });
-    serde_json::from_str(&text).unwrap()
+    crate::fixture::load(&path, PROTOCOL_VERSION).unwrap_or_else(|error| {
+        panic!("{path} is invalid ({error}): record it with scripts/record_wire_samples.py")
+    })
 }
 
 /// Decode, encode, and require the same JSON back.
@@ -31,6 +30,11 @@ fn round_trip<T: Serialize + DeserializeOwned>(sample: &Value) -> T {
 
 fn request_kind(request: &Request) -> &'static str {
     match request {
+        Request::BeginAttachment { .. } => "begin_attachment",
+        Request::AttachmentChunk { .. } => "attachment_chunk",
+        Request::CommitAttachment { .. } => "commit_attachment",
+        Request::AbortAttachment { .. } => "abort_attachment",
+        Request::ReadAttachment { .. } => "read_attachment",
         Request::Continue => "continue",
         Request::Save => "save",
         Request::HistoryBranch { .. } => "history_branch",
@@ -82,6 +86,11 @@ fn request_kind(request: &Request) -> &'static str {
 }
 
 const CLIENT_KINDS: &[&str] = &[
+    "begin_attachment",
+    "attachment_chunk",
+    "commit_attachment",
+    "abort_attachment",
+    "read_attachment",
     "act.choose_intellect_expertise",
     "command.projectile_choices",
     "command.preview_ability_weapon",
@@ -147,6 +156,8 @@ macro_rules! server_sample_kinds {
 }
 
 server_sample_kinds! {
+    AttachmentUpload => ("attachment_upload", None),
+    AttachmentData => ("attachment_data", None),
     Welcome => ("welcome", None),
     Snapshot => ("snapshot", None),
     SnapshotPart => ("snapshot_part", None),
@@ -181,6 +192,8 @@ server_sample_kinds! {
 fn server_kind(message: &ServerMessage) -> ServerSampleKind {
     use ServerSampleKind as Kind;
     match message {
+        ServerMessage::AttachmentUpload { .. } => Kind::AttachmentUpload,
+        ServerMessage::AttachmentData { .. } => Kind::AttachmentData,
         ServerMessage::Welcome { .. } => Kind::Welcome,
         ServerMessage::Snapshot { .. } => Kind::Snapshot,
         ServerMessage::SnapshotPart { .. } => Kind::SnapshotPart,

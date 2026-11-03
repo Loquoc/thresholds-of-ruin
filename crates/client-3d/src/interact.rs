@@ -621,6 +621,7 @@ pub fn keys(
                 Screen::Note {
                     snapshot,
                     private: true,
+                    report: false,
                 },
             );
         }

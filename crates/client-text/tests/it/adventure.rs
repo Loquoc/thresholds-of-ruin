@@ -2476,3 +2476,45 @@ fn examining_a_figure_names_only_its_disclosed_visible_equipment() {
     let text = said("x goblin", &s);
     assert!(!text.contains("wears") && !text.contains("holds"), "{text}");
 }
+
+#[test]
+fn play_test_report_preserves_body_and_uses_ordinary_actor_note() {
+    let s = state();
+    assert_eq!(
+        meaning("report Door stuck, and LOOK again!", &s),
+        Interpretation::Tool(Input::Command(Command::Annotate {
+            anchor: Anchor::State {
+                snapshot: s.snapshot.clone()
+            },
+            text: "PLAY TEST REPORT\n\nDoor stuck, and LOOK again!".into(),
+            source: ClientSource::User,
+            audience: Audience::Actor,
+            category: AnnotationCategory::Note,
+        }))
+    );
+    for text in ["", "   ", "bad\u{1b}[2J"] {
+        let line = format!("report {text}");
+        let parsed = tor_client_text::parser::match_disclosed_sentence(
+            &tokenize(&line),
+            &line,
+            &s.observation,
+        );
+        assert!(!parsed.is_ok_and(|command| matches!(
+            understand(
+                &command,
+                &Scene::new(&s, &Palette::default()),
+                &mut Referents::default()
+            ),
+            Interpretation::Tool(_)
+        )));
+    }
+    let body = "é".repeat((MAX_NOTE_BYTES - "PLAY TEST REPORT\n\n".len()) / 2);
+    assert!(matches!(
+        meaning(&format!("report {body}"), &s),
+        Interpretation::Tool(_)
+    ));
+    assert!(!matches!(
+        meaning(&format!("report {body}é"), &s),
+        Interpretation::Tool(_)
+    ));
+}

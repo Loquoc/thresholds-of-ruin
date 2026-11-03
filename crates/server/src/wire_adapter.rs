@@ -983,6 +983,7 @@ pub fn decode_command(command: &tor_protocol::Command) -> Result<DecodedCommand,
             category,
         } => DecodedCommand::Backend(Command::Annotate {
             anchor: anchor.clone(),
+            attachments: Vec::new(),
             text: text.clone(),
             source: *source,
             audience: *audience,
@@ -1039,18 +1040,20 @@ pub fn encode_command(
             })
         }
         Command::Annotate {
+            attachments,
             anchor,
             text,
             source,
             audience,
             category,
-        } => Ok(tor_protocol::Command::Annotate {
+        } if attachments.is_empty() => Ok(tor_protocol::Command::Annotate {
             anchor,
             text,
             source,
             audience,
             category,
         }),
+        Command::Annotate { .. } => Err("Attachments use the dedicated upload protocol"),
     }
 }
 
@@ -1179,10 +1182,12 @@ pub fn disclose_entry(
             }),
         },
         JournalContent::Annotation {
+            attachments,
             anchor,
             category,
             text,
         } => Content::Annotation {
+            attachments: attachments.clone(),
             anchor: anchor.to_public(),
             category: *category,
             text: text.clone(),

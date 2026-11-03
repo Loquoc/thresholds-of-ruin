@@ -7,6 +7,7 @@ use tor_server::{Engine, Scenario};
 
 fn note(anchor: Anchor, text: &str, audience: Audience) -> Command {
     Command::Annotate {
+        attachments: Vec::new(),
         anchor,
         text: text.into(),
         audience,

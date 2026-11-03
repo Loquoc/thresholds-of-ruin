@@ -6,7 +6,7 @@ work from implemented design records. “Implemented” does not mean balanced,
 fully optimized or qualified for every workload. Follow the
 [testing policy](development/testing.md).
 
-**Current formats:** protocol **68**, save format **66**, scenario format **37**,
+**Current formats:** protocol **69**, save format **67**, scenario format **37**,
 ruleset **`interactions-v58`**, scenario validator **`tor-scenario-50`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
@@ -25,7 +25,7 @@ grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 | Area | Current capability | Exact owner |
 | --- | --- | --- |
 | Default adventure | Five-chamber retrieval/escape dungeon, persistent death, shared Text/ASCII play | [Gameplay](play/gameplay.md) |
-| Clients | Text parsing/clarification, graphical ASCII with NetHack-shaped controls, headless JSON-lines automation, spectators and explicit control transfer | [Clients](architecture/clients.md), [Text](play/text.md), [ASCII](play/ascii.md), [headless](reference/headless.md) |
+| Clients | Text parsing/clarification, graphical ASCII with NetHack-shaped controls, headless JSON-lines automation, private save-owned image/text captures, playtest report notes, spectators and explicit control transfer | [Clients](architecture/clients.md), [Text](play/text.md), [ASCII](play/ascii.md), [headless](reference/headless.md) |
 | Simulation | One mutation owner, admitted intentions, deterministic scheduling, private candidates, paid immutable plans, pause/resume/cancel and partial-sequence debt | [Cycle](architecture/simulation-cycle.md), [actions](architecture/simulation.md) |
 | Combat | Shared 3d6/edge, source/modifier folds, ordered primary/rider effects, finite supplies/resources, cooldowns, protection, death and causal fall credit | [Combat](reference/combat.md), [creature rules](reference/creature-rules.md) |
 | Advancement | Ordinary purchases/respec, fixed choices, expertise and retained Intellect learning, earned XP, body/personal ownership, drain/restoration | [Progression](reference/progression.md), [player controls](play/advancement.md) |

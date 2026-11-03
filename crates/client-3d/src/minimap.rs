@@ -389,6 +389,7 @@ mod cosmetic_tests {
                 Some(crate::screen::Screen::Note {
                     snapshot: tor_protocol::SnapshotId("draft-snapshot".into()),
                     private: true,
+                    report: false,
                 }),
                 false,
                 false,

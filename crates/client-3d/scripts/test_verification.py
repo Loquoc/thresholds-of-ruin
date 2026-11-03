@@ -274,7 +274,7 @@ class NativeMouseContract(unittest.TestCase):
         native = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(native)
         actor = native.Native3DProcesses('test_framed_hud_dock_opens_inventory_without_a_world_action')
-        actions = ['Inventory', 'Equipment', 'Character', 'Map', 'Places', 'Journal', 'Wait']
+        actions = ['Inventory', 'Equipment', 'Character', 'Map', 'Places', 'Journal', 'Screenshot', 'Wait']
         buttons = [{'action': action, 'screen': [0.2 + i * 0.08, 0.9], 'size': [80, 54]}
                    for i, action in enumerate(actions)]
         initial = {'has_control': True, 'busy': False, 'revision': '7', 'world_feet': [2, 3, 0],

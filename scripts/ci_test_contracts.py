@@ -47,6 +47,7 @@ REVIEWED_OWNERS = {
     'test_ascii_process': ('AsciiHudPickupProcesses', 'AsciiProcesses', 'DetectionChartAsciiProcesses'),
     'test_asset_presentation_process': ('AssetPresentationProcesses',),
     'test_background_save_process': ('BackgroundSaveProcesses',),
+    'test_capture_process': ('AsciiCaptureProcesses', 'TextCaptureProcesses'),
     'test_check_architecture': ('ArchitectureTests', 'FixtureBoundaryTests'),
     'test_checkpoint_payload': ('CheckpointPayload',),
     'test_checkpoint_process': ('CheckpointProcesses', 'NativeCheckpointProcesses'),

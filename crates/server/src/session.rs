@@ -1,3 +1,5 @@
+#[path = "attachment_session.rs"]
+mod attachment_session;
 use crate::engine::valid_label;
 use crate::{Engine, Failure};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -329,6 +331,7 @@ enum TravelExecution {
 
 /// Serialized session operations keep snapshots and streamed updates consistent.
 pub struct Service {
+    attachments: BTreeMap<u64, attachment_session::Upload>,
     outbound: crate::outbound::Pool,
     diagnostics: Option<crate::diagnostics::Diagnostics>,
     pending_pauses: BTreeSet<ActorId>,
@@ -390,6 +393,7 @@ impl Service {
             }
         }
         Ok(Self {
+            attachments: BTreeMap::new(),
             outbound: crate::outbound::Pool::new(limits),
             diagnostics: None,
             pending_pauses: BTreeSet::new(),
@@ -635,7 +639,13 @@ impl Service {
             .ok_or_else(|| Failure::new(ErrorCode::NotAttached, "Attach an actor first"))?;
         let user = client.user.clone();
         let frontend = client.frontend.clone();
+        self.expire_attachments();
         match request {
+            request @ (Request::BeginAttachment { .. }
+            | Request::AttachmentChunk { .. }
+            | Request::CommitAttachment { .. }
+            | Request::AbortAttachment { .. }
+            | Request::ReadAttachment { .. }) => self.process_attachment(id, request_id, request),
             Request::Chart { query } => self
                 .prepare_chart_page(id, query)
                 .map(|transfer| ProcessedRequest::Chart(Box::new(transfer))),
@@ -2528,6 +2538,7 @@ impl Service {
     }
 
     fn disconnect_with(&mut self, id: u64, mode: DisconnectMode) {
+        self.attachments.remove(&id);
         let Some(client) = self.clients.remove(&id) else {
             return;
         };
@@ -2563,6 +2574,7 @@ impl Service {
     }
 
     pub(crate) fn poll_saves(&mut self) {
+        self.expire_attachments();
         let clients_before_warnings = self.clients.len();
         let status = self.engine.save_status();
         let warning = status.error.clone().or_else(|| {

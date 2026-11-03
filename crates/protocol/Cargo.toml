@@ -13,6 +13,9 @@ workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+sha2 = "0.11.0"
+
 [[example]]
 name = "wire_decode_bench"
 test = true

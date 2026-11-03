@@ -7,6 +7,8 @@ use tor_protocol::*;
 
 /// What the window asks of the worker.
 pub enum Cmd {
+    /// Immutable pixels and shown-state anchor; only the session uploads them.
+    Capture(tor_client_common::captures::CapturedAttachment),
     Move(Direction),
     Attack(ActorTarget),
     Wait,
@@ -102,6 +104,9 @@ pub fn request_from(
 /// client builds it: a step cancels a finished strike sequence, a step into a
 /// hostile creature attacks it, and waiting mid-combat continues.
 pub fn request(state: &ClientState, command: Cmd) -> Result<Request, String> {
+    if matches!(command, Cmd::Capture(_)) {
+        return Err("Captures are uploaded by the session, not gameplay actions.".into());
+    }
     if matches!(command, Cmd::Control) {
         return Ok(Request::AcquireControl);
     }
@@ -239,6 +244,7 @@ pub fn request(state: &ClientState, command: Cmd) -> Result<Request, String> {
             }
         }
         Cmd::Control
+        | Cmd::Capture(_)
         | Cmd::Projectile(_)
         | Cmd::Advancement(_)
         | Cmd::Chart(_)

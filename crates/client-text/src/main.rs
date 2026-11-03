@@ -8,7 +8,16 @@ use tor_client_common::Connection;
 use tor_client_text::{describe, history, inventory, parse, safe, Input, HELP};
 use tor_protocol::*;
 
+// Keep the exact bytes emitted by this client, not a reconstruction of state.
+macro_rules! print {
+    ($($arg:tt)*) => { crate::output::emit(format_args!($($arg)*)) };
+}
+macro_rules! println {
+    () => { crate::output::emit(format_args!("\n")) };
+    ($($arg:tt)*) => { crate::output::emit(format_args!("{}\n", format_args!($($arg)*))) };
+}
 mod adventure_ui;
+mod output;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -68,6 +77,7 @@ async fn run() -> Result<(), Error> {
     } else if !observe {
         transact(&mut connection, Request::AcquireControl).await?;
     }
+    output::presented(&connection);
     ready()?;
 
     // A dedicated blocking reader avoids keeping Tokio's runtime alive on stdin
@@ -101,6 +111,23 @@ async fn run() -> Result<(), Error> {
                         if !connection.is_synchronized() {
                             if matches!(parse(&line, connection.state.state()), Ok(Input::Quit)) { break; }
                             println!("Resynchronizing; input was not sent.");
+                            ready()?;
+                            continue;
+                        }
+                        // Capture is a frontend command, not part of the gameplay
+                        // parser or a response to a pending gameplay choice.
+                        if output::is_capture_command(&line) {
+                            match output::capture() {
+                                Ok(capture) => {
+                                    match tor_client_common::captures::upload(
+                                        &mut connection, capture, present,
+                                    ).await {
+                                        Ok(()) => println!("Text capture accepted into the game history. Use save to wait for disk storage."),
+                                        Err(error) => println!("Text capture: {}", safe(&error.to_string())),
+                                    }
+                                }
+                                Err(error) => println!("Text capture: {}", safe(&error)),
+                            }
                             ready()?;
                             continue;
                         }
@@ -420,7 +447,9 @@ fn present(connection: &Connection, message: &ServerMessage) -> Result<(), Error
             }
         }
         ServerMessage::ProjectileChoices { .. } | ServerMessage::AbilityWeaponPreview { .. } => {} // Only the matching preview gate presents terms.
-        ServerMessage::Palette { .. }
+        ServerMessage::AttachmentUpload { .. }
+        | ServerMessage::AttachmentData { .. }
+        | ServerMessage::Palette { .. }
         | ServerMessage::Waiting { .. }
         | ServerMessage::MapPage { .. }
         | ServerMessage::ChartPage { .. } => {}
@@ -439,6 +468,13 @@ fn present(connection: &Connection, message: &ServerMessage) -> Result<(), Error
         ServerMessage::SnapshotPart { .. } => {
             return Err("Unexpected unassembled snapshot part".into())
         }
+    }
+    if matches!(message, ServerMessage::Snapshot { .. })
+        || matches!(message,
+        ServerMessage::Update { update } if matches!(&update.body,
+            UpdateBody::Observation { .. } | UpdateBody::ObservationDelta { .. }))
+    {
+        output::presented(connection);
     }
     Ok(())
 }

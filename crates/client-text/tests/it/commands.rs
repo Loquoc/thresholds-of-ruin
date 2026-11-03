@@ -813,3 +813,26 @@ fn known_dual_device_requires_explicit_self_or_direction() {
         Some(DeviceActivation::Direction);
     assert!(parse(&format!("zap #{item} self"), &view).is_err());
 }
+
+#[test]
+fn play_test_report_is_an_ordinary_private_annotation() {
+    let view = state();
+    assert_eq!(
+        parse("report Door stuck, and LOOK again!", &view).unwrap(),
+        Input::Command(Command::Annotate {
+            anchor: Anchor::State {
+                snapshot: view.snapshot.clone()
+            },
+            text: "PLAY TEST REPORT\n\nDoor stuck, and LOOK again!".into(),
+            source: ClientSource::User,
+            audience: Audience::Private,
+            category: AnnotationCategory::Note,
+        })
+    );
+    for text in ["", "   ", "bad\u{1b}[2J"] {
+        assert!(parse(&format!("report {text}"), &view).is_err());
+    }
+    let body = "x".repeat(MAX_NOTE_BYTES - "PLAY TEST REPORT\n\n".len());
+    assert!(parse(&format!("report {body}"), &view).is_ok());
+    assert!(parse(&format!("report {body}é"), &view).is_err());
+}

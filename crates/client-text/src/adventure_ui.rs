@@ -43,6 +43,7 @@ pub async fn run(mut connection: Connection, observe: bool) -> Result<(), Error>
     }
     engine.learn(&connection);
     println!("{}", engine.welcome(&connection));
+    super::output::presented(&connection);
     prompt()?;
     let (tx, mut rx) = mpsc::channel(16);
     std::thread::spawn(move || {
@@ -71,6 +72,7 @@ pub async fn run(mut connection: Connection, observe: bool) -> Result<(), Error>
                         if !passage.trim().is_empty() {
                             println!();
                             show(&passage);
+                            super::output::presented(&connection);
                             prompt()?;
                         }
                     }
@@ -81,7 +83,29 @@ pub async fn run(mut connection: Connection, observe: bool) -> Result<(), Error>
                             prompt()?;
                             continue;
                         }
-                        let outcome = engine.play(&mut connection, &line?).await?;
+                        let line = line?;
+                        if super::output::is_capture_command(&line) {
+                            match super::output::capture() {
+                                Ok(capture) => {
+                                    let result = tor_client_common::captures::upload(&mut connection, capture, |connection, message| {
+                                        let beats = engine.between_turns(connection, &shown, message);
+                                        shown = connection.state.state().clone();
+                                        let passage = engine.passage(connection, beats);
+                                        show(&passage);
+                                        if !passage.trim().is_empty() { super::output::presented(connection); }
+                                        Ok(())
+                                    }).await;
+                                    match result {
+                                        Ok(()) => show("Text capture accepted into the game history. Use save to wait for disk storage."),
+                                        Err(error) => show(&format!("Text capture: {}", tor_client_text::safe(&error.to_string()))),
+                                    }
+                                }
+                                Err(error) => show(&error),
+                            }
+                            prompt()?;
+                            continue;
+                        }
+                        let outcome = engine.play(&mut connection, &line).await?;
                         shown = connection.state.state().clone();
                         match outcome {
                             Outcome::Passage(passage) => show(&passage),
@@ -90,6 +114,7 @@ pub async fn run(mut connection: Connection, observe: bool) -> Result<(), Error>
                                 break;
                             }
                         }
+                        super::output::presented(&connection);
                         prompt()?;
                     }
                 }

@@ -31,6 +31,7 @@ mod net;
 mod pack;
 mod picking;
 mod pile_picker;
+mod playtest_capture;
 mod portrait;
 mod progression;
 mod props;
@@ -421,6 +422,11 @@ pub fn run() -> Result<(), Error> {
             .chain(),
     )
     .add_systems(
+        PreUpdate,
+        playtest_capture::keyboard.after(bevy::input::InputSystem),
+    )
+    .add_systems(Last, playtest_capture::capture)
+    .add_systems(
         Update,
         (
             (receive, creatures::loading::poll, startup::tick).chain(),
@@ -626,6 +632,8 @@ struct Net(Arc<Mutex<Network>>);
 /// What the window remembers between views.
 #[derive(Resource, Default)]
 struct Game {
+    capture: Option<playtest_capture::Pending>,
+    capture_serial: u64,
     /// Added to observer-frame positions to give steady world positions.
     offset: IVec3,
     frame: tor_client_3d_model::SceneFrame,

@@ -3409,3 +3409,150 @@ before testing rejection. No production code, historical baseline or verificatio
 gate changed in this repair. A disk-exhausted local test build was stopped and
 retained as infrastructure evidence, then the complete integration target passed
 after bounded obsolete-cache cleanup. Fresh final-head CI remains required.
+
+## Save-owned client captures and report notes, 3 November 2026
+
+During development, review found that the advertised 8 MiB PNG limit did not
+fit the previous 8 MiB default save queue once its journal envelope was included.
+The independent exact-size PNG fixture passed production image validation, then
+`storage::attachments::tests::maximum_png_payload_is_admitted_flushed_and_reopened_with_default_queue`
+failed at ordinary default-queue admission with `StorageFailure`. This is one
+development production root, one distinct failing method and one failed execution,
+not a released-data corruption claim. Raising the bounded default to 16 MiB made
+the same admission, unchanged game state, durable flush and byte-identical reopen
+witness pass. Explicitly smaller policies still reject oversized records atomically.
+
+A separate development UI defect consumed and closed a 3D Note/Report draft
+before a busy screenshot/readback or upload slot rejected Enter. Two distinct
+regression methods each failed at the preserved-text assertion before the fix
+(one root, two methods, two failed executions; audience/report subcases do not
+multiply those counts). The narrow editor guard preserves text, mode, audience
+and snapshot while blocked. Positive release/retry controls still send the exact
+ordinary annotation once and close the editor afterward.
+
+Dedicated server witnesses cover immutable private bytes and snapshot anchors,
+exact retry and interrupted/expired uploads, spectator denial, global staging and
+per-save totals, small response-frame retrieval, journal/blob transaction rollback,
+checkpoint parity and source-free archive copies. Adjacent ordinary-note, receipt,
+queue and checkpoint-retry regressions pass without changing annotation semantics.
+The real Text client saves its exact emitted UTF-8 tail, preserves earlier captures,
+prepends `PLAY TEST REPORT` through ordinary annotations, and reopens after deleting
+the scenario source; its spectator case rejects both capture and report submission.
+
+The first common-client library run preceded the mandatory real wire recording:
+one missing-fixture setup cause affected 23 methods/executions, while 167 passed.
+Recording the complete protocol 69 fixture through real server/client processes,
+including independent returned attachment metadata and decoded-byte equality,
+resolved those setup failures; all 190 common library methods then passed. The
+fixture is not a mechanically relabelled older recording. One documentation method
+also caught four stale protocol references; current-identity links repaired that
+single documentation cause. A wider server-unit pass additionally exposed six
+setup failures from the missing save-67 scenario fixture; recording it with the
+actual current writer and independently matching that writer repaired this second
+fixture-setup cause. Three methods across protocol and server retained explicit
+old version pins after the approved transition. These are stale test expectations,
+not compatibility regressions; the assertions remain explicit at 69/67. The
+first wider server pass had 1,313 passing methods and only these eight setup/pin
+failures. Deliberate report/3D feature first-red checks are not additional
+production-defect counts.
+
+The standalone common integration invocation also initially omitted its required
+`test-support` feature and stopped at compilation. Correcting the invocation ran
+all 108 methods successfully; that setup error is not a failing behavior method.
+
+Disk-exhausted compilation attempts are infrastructure failures, not failed
+behavior assertions. Their original results were retained and retried only after
+bounded, owner-coordinated regenerable-cache cleanup. The approved isolated Xvfb
+packages could not start in this environment: Unix-socket creation was blocked,
+and the supported escalated launcher failed before executing the display server.
+No network/display-policy workaround was used. Native ASCII/3D window capture
+acceptance remains required hosted-platform coverage, not established by unit PNG
+or offscreen rendering tests. Local checks do not replace final-head CI.
+
+Final local qualification passed all 1,321 server unit methods, 79 protocol unit
+and 299 integration methods, 190 common-client unit and 108 integration methods,
+180 ASCII integration methods plus six model and six capture/PNG unit methods,
+and six selected Text report methods plus three exact-output methods. The 3D
+checkpoint passed 43 affected renderer methods and 77 model methods, including
+the two draft-retention repairs, with all-target Clippy. These totals include the
+focused witnesses above rather than adding repeated executions to them. Two real
+Text capture processes and eleven combined-runtime Rogue process regressions
+passed; the longer Rogue playable run retains its separate owner qualification.
+The complete wire recording contains 77 actual server sample kinds, not 77 test
+methods. Required final-head CI owns the wider integration, release and native
+window matrix; none of the local results claims that matrix passed.
+
+
+A follow-up review found one recoverable client-side capture cleanup defect:
+a known commit rejection left the connection's staged upload until its 60-second
+expiry. The explicit rejected-commit witness first received a fresh Begin instead
+of the required exact-ID Abort, failing that behavioral assertion. A second
+cleanup-error witness timed out because no Abort was sent; it is supporting
+evidence for the same cause, not a second defect. The client now preserves the
+confirmed rejection through synchronized request completion, best-effort aborts
+only that staging identity, and returns the original error. Server commit,
+privacy, persistence and idempotency semantics are unchanged. Four new scripted
+wire methods cover fresh capture after cleanup, cleanup-error preservation,
+disconnect and malformed-response unknown outcomes; all 112 common integration
+methods pass. No uncertain commit is retried or interpreted as a known failure.
+
+The generated protocol-69 recording was subsequently split into bounded,
+content-addressed JSON parts for publication. Independent Python and Rust
+reconstruction both matched every original value and ordering: 67 client samples
+and 77 server samples, with no new or omitted samples. The manifest references
+21 parts, each at most 100,000 bytes. The recorder writes immutable parts before
+atomically replacing the manifest; failure-path tests preserve the prior fixture.
+The shared test/example-only Rust reader validates protocol, part ordering,
+counts, paths, digests and byte limits. Its intended first-red failed at the
+reconstructed-value assertion, then all six helper tests passed; 77 recorder
+methods and pinned Ruff checks passed. An earlier full protocol test compile
+failed with disk exhaustion before running tests and is not behavioral evidence.
+Check-only consumer qualification is recorded separately from normal Cargo test
+execution, which remains a final-head CI gate. This representation change creates
+a new tree; prior exact-tree qualification is not claimed for changed fixture
+readers. Review additionally found four server/ASCII reader sites outside the
+initial protocol/common edit scope; they were included before publication rather
+than leaving their old whole-file assumptions behind.
+
+## Screenshot HUD expectation maintenance, 3 November 2026
+
+PR 224's hosted Linux 3D debug run exposed a **stale test/oracle**, not a
+production defect: `test_client_process.Native3DProcesses.test_framed_hud_dock_opens_inventory_without_a_world_action`
+expected the seven pre-capture dock actions and rejected the newly supported
+`Screenshot` action. The assertion remains an exact set; its expectation now
+includes Screenshot. The related synthetic dock fixture in
+`test_verification.NativeMouseContract.test_hud_background_target_remains_reachable_on_the_default_xvfb_desktop`
+needed the same update. After correcting the native expectation, that focused
+fixture failed specifically because Screenshot was missing, then passed after
+its action list was corrected. This bounded evidence window has one stale
+expectation root, two distinct failing methods and two failed executions (one
+hosted native failure and one deliberate local fixture-maintenance check).
+The deliberate local check is not an additional naturally detected defect.
+
+All 34 pure Python 3D verification methods pass after both updates. Native
+window/OS-input execution was not repeated locally; hosted final-head execution
+must qualify that boundary. Existing geometry, no-world-action and exact-action
+assertions are preserved. No Rust or production behavior changed.
+
+## Throwing disconnect picture barrier, 3 November 2026
+
+PR 224's Python process shard exposed one stale-picture fixture race in
+`RogueThrowingProcesses.test_text_carried_dart_and_shuriken_preserve_exact_pending_payload_after_source_deletion`.
+The retained probe stream publishes a visual-changing outcome at sequence 16,
+then the paused intention at 17 while the observation still says preparation is
+active, and finally the observation delta at 19 with preparation inactive.
+The saved pending action and restored observation were correctly paused, with
+43 preparation ticks remaining. The fixture compared the intermediate causal
+frame's old picture against that restored state.
+
+The pause barrier now uses the existing `picture_after` helper after observing
+the paused intention. It does not advance the world or relax state equality,
+intentions, frozen plan, item holds, RNG, or source-free restart assertions.
+A deterministic ordered-stream regression fails against the old barrier in two
+subcases: pause arrives before its picture, and pause is already seen while the
+picture is still dirty. Both pass with the shared picture barrier. This is one
+fixture-race root, one naturally failing hosted method, and one deliberate unit
+regression with two failing subcases, not three production defects. The original
+strict real-process witness remains a final-head hosted CI gate; protected local
+process binaries predate later capture changes and are not claimed as current
+runtime qualification.

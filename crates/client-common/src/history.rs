@@ -69,13 +69,22 @@ pub fn text(entry: &HistoryEntry) -> String {
                 _ => "Began preparation.".into(),
             },
         },
-        HistoryContent::Annotation { text, .. } => {
+        HistoryContent::Annotation {
+            text, attachments, ..
+        } => {
             let audience = if entry.audience == Audience::Private {
                 "Private note"
             } else {
                 "Note"
             };
-            format!("{audience}: {text}")
+            if attachments.is_empty() {
+                format!("{audience}: {text}")
+            } else {
+                format!(
+                    "{audience}: {text} [{} saved attachment(s)]",
+                    attachments.len()
+                )
+            }
         }
     }
 }
