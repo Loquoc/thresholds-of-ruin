@@ -22,7 +22,7 @@ class RogueEquipmentContent(unittest.TestCase):
                  "banded_mail": 5, "plate_mail": 6}
         generated = {key for key, value in items.items()
                      if value.get("equipment_generation", {}).get("kind") in ("weapon", "armor")}
-        self.assertEqual(generated, {"rogue." + key for key in weapons | armor} | {"rogue.shortbow", "rogue.dart", "rogue.shuriken"})
+        self.assertEqual(generated, {"rogue." + key for key in weapons | armor} | {"rogue.shortbow", "rogue.generated_arrow", "rogue.dart", "rogue.shuriken"})
         for key, dice in weapons.items():
             item = items["rogue." + key]
             self.assertEqual(item["class"], "weapon")
@@ -93,7 +93,7 @@ class RogueEquipmentContent(unittest.TestCase):
         for stage, names in zip(stages[5:10], expected, strict=True):
             self.assertEqual(stage, {"id": stage["id"], "version": 1, "kind": "items", "count": [1, 1], "quantity": 1,
                              "bands": [{"depth": {"kind": "open", "minimum": 1}, "choices": [
-                                 {"archetype": "rogue." + name, "weight": 1} for name in names]}]})
+                                 {"archetype": "rogue." + name, "weight": 1, **({"quantity": {"kind": "uniform", "minimum": 2, "maximum": 5}} if name == "dagger" else {})} for name in names]}]})
 
 
     def test_ammunition_is_one_finite_six_arrow_stack_after_existing_stages(self):
@@ -101,7 +101,7 @@ class RogueEquipmentContent(unittest.TestCase):
         self.assertEqual(stages[10], {
             "id": "rogue.ammunition", "version": 1, "kind": "items", "count": [1, 1],
             "quantity": 6, "bands": [{"depth": {"kind": "open", "minimum": 1},
-            "choices": [{"archetype": "rogue.arrow", "weight": 1}]}]})
+            "choices": [{"archetype": "rogue.generated_arrow", "weight": 1}]}]})
 
 
     def test_fourteen_concealed_rings_have_exact_generation_weights_and_food_rates(self):

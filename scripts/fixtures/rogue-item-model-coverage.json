@@ -664,6 +664,13 @@
         "asset": "item.weapon.shuriken",
         "model": "Shuriken"
       }
+    ],
+    "rogue.generated_arrow": [
+      {
+        "pool": null,
+        "asset": "item.weapon.arrow",
+        "model": "Arrow"
+      }
     ]
   },
   "pool_label_counts": {

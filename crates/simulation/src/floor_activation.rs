@@ -8,6 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 use tor_world::{Location, RegionId, Shared};
 
+#[path = "birth_food.rs"]
+mod birth_food;
+use birth_food::BirthFoodClock;
 #[path = "spawn_carried_loot.rs"]
 mod carried_loot;
 #[path = "room_cluster.rs"]
@@ -16,7 +19,8 @@ mod room_cluster;
 mod wandering_population;
 use carried_loot::{read_pools, BirthStockContext};
 pub use carried_loot::{
-    CarriedLoot, CarriedLootDecision, CarryChance, PreparedCarriedItemPool, MAX_CARRIED_ITEM_POOLS,
+    CarriedLoot, CarriedLootDecision, CarryChance, PreparedCarriedItemPool,
+    MAX_CARRIED_ITEM_CHOICES, MAX_CARRIED_ITEM_POOLS,
 };
 pub use wandering_population::WanderingPolicy;
 pub(crate) use wandering_population::WanderingPopulation;
@@ -1810,13 +1814,24 @@ impl Game {
         let ordinal = state.order.len() as u64;
         let mut decisions = Vec::new();
         let mut newborn = Vec::new();
+        let mut food_clock = self.birth_food_clock(&profile, ordinal)?;
         for stage in &profile.stages {
+            if let Some(clock) = &mut food_clock {
+                clock.before_stage(stage);
+            }
             let result = if !stage.population.eligible(scope.depth) {
                 StageResult::Skipped {
                     reason: SkipReason::NoEligibleContent,
                 }
             } else if matches!(stage.population, PopulationContent::RoomCluster { .. }) {
-                self.evaluate_room_cluster(id, &scope, &profile, stage, &mut newborn)?
+                self.evaluate_room_cluster(
+                    id,
+                    &scope,
+                    &profile,
+                    stage,
+                    &mut newborn,
+                    &mut food_clock,
+                )?
             } else if matches!(stage.population, PopulationContent::RoomItems { .. }) {
                 self.evaluate_room_items(id, &scope, &profile, stage)?
             } else {
@@ -1836,12 +1851,16 @@ impl Game {
                     requested,
                     &mut newborn,
                     false,
+                    &mut food_clock,
                 )?;
                 StageResult::Evaluated {
                     requested,
                     attempts,
                 }
             };
+            if let Some(clock) = &mut food_clock {
+                clock.observe_result(&result);
+            }
             decisions.push(StageDecision {
                 id: stage.id.clone(),
                 version: stage.version,
@@ -1893,6 +1912,7 @@ impl Game {
         requested: u16,
         newborn: &mut Vec<ActorId>,
         restrict_room: bool,
+        food_clock: &mut Option<BirthFoodClock>,
     ) -> Result<Vec<PlacementDecision>, GameError> {
         let plan = self
             .floor_activation
@@ -2044,7 +2064,11 @@ impl Game {
                             ordinal: u64::from(attempt),
                             depth: Some(scope.depth),
                         }
-                        .select(choice, &plan.carried_item_pools)?;
+                        .select_with_food(
+                            choice,
+                            &plan.carried_item_pools,
+                            food_clock.as_ref().and_then(BirthFoodClock::forced_food),
+                        )?;
                         let (actor, item) = self.spawn_prepared_actor_in_candidate(
                             &choice.actor,
                             location,
@@ -2077,6 +2101,9 @@ impl Game {
                     }
                 }
             };
+            if let Some(clock) = food_clock {
+                clock.observe(&decision);
+            }
             attempts.push(decision);
         }
         Ok(attempts)
@@ -2277,9 +2304,13 @@ impl Game {
         {
             return Err(invalid());
         }
+        let mut food_clock = self.birth_food_clock(profile, record.ordinal)?;
         for (position, (decision, stage)) in
             record.decisions.iter().zip(&profile.stages).enumerate()
         {
+            if let Some(clock) = &mut food_clock {
+                clock.before_stage(stage);
+            }
             if decision.id != stage.id || decision.version != stage.version {
                 return Err(invalid());
             }
@@ -2288,7 +2319,14 @@ impl Game {
                     reason: SkipReason::NoEligibleContent,
                 } if !stage.population.eligible(depth) => {}
                 StageResult::RoomCluster { selection } if stage.population.eligible(depth) => {
-                    self.validate_room_cluster(record, profile, stage, depth, selection)?;
+                    self.validate_room_cluster(
+                        record,
+                        profile,
+                        stage,
+                        depth,
+                        selection,
+                        &mut food_clock,
+                    )?;
                 }
                 StageResult::RoomsEvaluated { rooms } if stage.population.eligible(depth) => {
                     self.validate_room_decisions(record, profile, stage, depth, rooms)?;
@@ -2315,9 +2353,19 @@ impl Game {
                     if *requested != expected {
                         return Err(invalid());
                     }
-                    self.validate_population_attempts(record, profile, stage, depth, attempts)?;
+                    self.validate_population_attempts(
+                        record,
+                        profile,
+                        stage,
+                        depth,
+                        attempts,
+                        &mut food_clock,
+                    )?;
                 }
                 _ => return Err(invalid()),
+            }
+            if let Some(clock) = &mut food_clock {
+                clock.observe_result(&decision.result);
             }
         }
         Ok(())
@@ -2384,6 +2432,7 @@ impl Game {
         stage: &PopulationStage,
         depth: u32,
         attempts: &[PlacementDecision],
+        food_clock: &mut Option<BirthFoodClock>,
     ) -> Result<(), GameError> {
         let state = self.floor_activation.as_ref().ok_or_else(invalid)?;
         for (ordinal, attempt) in attempts.iter().enumerate() {
@@ -2445,7 +2494,11 @@ impl Game {
                             ordinal: ordinal as u64,
                             depth: Some(depth),
                         }
-                        .select(choice, &state.plan.carried_item_pools)?;
+                        .select_with_food(
+                            choice,
+                            &state.plan.carried_item_pools,
+                            food_clock.as_ref().and_then(BirthFoodClock::forced_food),
+                        )?;
                         let valid = match (&choice.carried_loot, stock, carried_loot) {
                             (None, None, None) => true,
                             (Some(_), None, Some(CarriedLootDecision::NotCarried)) => true,
@@ -2527,11 +2580,14 @@ impl Game {
                     &choice.content
                 }
                 PopulationContent::RoomItems { .. } | PopulationContent::RoomCluster { .. } => {
-                    return Err(invalid())
+                    return Err(invalid());
                 }
             };
             if expected != content {
                 return Err(invalid());
+            }
+            if let Some(clock) = food_clock {
+                clock.observe(attempt);
             }
         }
         Ok(())

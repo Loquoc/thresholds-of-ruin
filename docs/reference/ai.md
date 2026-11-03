@@ -10,7 +10,8 @@ Implementation entry points: [choice](../../crates/simulation/src/ai.rs),
 [execution](../../crates/simulation/src/actions.rs),
 [item tactics](../../crates/simulation/src/ai_items.rs),
 [projectile choice](../../crates/simulation/src/ai_projectiles.rs),
-[self-defense](../../crates/simulation/src/ai_defense.rs).
+[self-defense](../../crates/simulation/src/ai_defense.rs),
+[known-item care](../../crates/simulation/src/ai_item_use.rs).
 
 ## Admission, choice and commit are different stages
 
@@ -87,19 +88,20 @@ because they might appear tactically better to an observer with hidden knowledge
 | 1 | Intact readied-touch guise, no retained work | With voluntary input and an actual toucher, try the qualifying touch plan; otherwise Wait. Adjacency/private recognition is not a touch attack |
 | 2 | Reconcile engagement and state | Retained work does not acquire a fresh opponent or refresh its engagement |
 | 3 | Resume available paused work outside Flee | Return the retained plan before new care, gear or attacks |
-| 4 | Healing care, no retained work, Health at/below 50% | Known safe carried healing item first, otherwise eligible harmless healing plan; no unknown-potion experiments |
-| 5 | Food care | Search, no visible hostile exposure, required nutrition not Nourished, no retained work and known carried food |
-| 6 | Erratic movement | No retained work and movement allowed: copied actor RNG selects only among disclosed legal translations |
-| 7 | Flee | Select a legal disclosed retreat using the current heuristic. Without a committed prefix, a qualifying step ability may implement it; otherwise ordinary Move owns abandonment/debt |
-| 8 | Resume committed paused prefix when no retreat chosen | Do not replace it with new gear/healing/attacks or repeat its first strike |
-| 9 | Proactive self-defense | Requires a current sensed engaged target and a narrowly recognized useful self-condition plan |
-| 10 | Engaged attack | Current matching visible target; normal hostile ability choice outside Flee, basic attacks only when cornered in Flee |
-| 11 | Remembered pursuit | Outside Flee, first legal route step toward last seen; unusable pursuit clears engagement and returns to Search |
-| 12 | Anonymous-alert investigation | Outside Flee and without engagement, route to licensed alert location; do not invent a target attack |
-| 13 | Safe Search items | Equipment improvement, then useful nearby loot, then known Gold; each has policy and visible-hostile gates |
-| 14 | Doors | Search plus door permission and voluntary input: first disclosed reachable closed door |
-| 15 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits then stable location order |
-| 16 | Fallback | Wait through ordinary action execution |
+| 4 | Healing care, no retained work, Health at/below 50% | Known pure-healing carried item first, otherwise eligible harmless healing plan; no unknown-potion experiments |
+| 5 | Additional known-item care | No retained work; supported safe effects with a recorded useful outcome, using an ordinary Drink/Read plan |
+| 6 | Food care | Search, no visible hostile exposure, required nutrition not Nourished, no retained work and known carried food |
+| 7 | Erratic movement | No retained work and movement allowed: copied actor RNG selects only among disclosed legal translations |
+| 8 | Flee | Select a legal disclosed retreat using the current heuristic. Without a committed prefix, a qualifying step ability may implement it; otherwise ordinary Move owns abandonment/debt |
+| 9 | Resume committed paused prefix when no retreat chosen | Do not replace it with new gear/healing/attacks or repeat its first strike |
+| 10 | Proactive self-defense | Requires a current sensed engaged target and a narrowly recognized useful self-condition plan |
+| 11 | Engaged attack | Current matching visible target; normal hostile ability choice outside Flee, basic attacks only when cornered in Flee |
+| 12 | Remembered pursuit | Outside Flee, first legal route step toward last seen; unusable pursuit clears engagement and returns to Search |
+| 13 | Anonymous-alert investigation | Outside Flee and without engagement, route to licensed alert location; do not invent a target attack |
+| 14 | Safe Search items | Equipment improvement, then useful nearby loot, then known Gold; each has policy and visible-hostile gates |
+| 15 | Doors | Search plus door permission and voluntary input: first disclosed reachable closed door |
+| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits then stable location order |
+| 17 | Fallback | Wait through ordinary action execution |
 
 An idle Wait profile forbids roaming and detours, not retaliation or every useful
 underfoot action. Tool permissions remain independent. One decision does not
@@ -146,6 +148,51 @@ its stable tie-breaks. See [item tactics](../../crates/simulation/src/ai_items.r
 These bounds are selection policies/capacity limits, not guarantees that every
 eligible item deep in inventory will be found or that a chosen request will still
 be valid at execution. Exact item ownership, holds and contact remain authoritative.
+
+### Known consumable and scroll care
+
+The independent `care` permission permits a bounded scan of at most 128 carried
+inventory rows after the existing pure-healing priority and before food care.
+It does not grant `equipment`, `loot`, anatomy, skills or interaction capabilities.
+Items assigned at birth use the same decision path as items acquired later. Birth
+possession never automatically identifies a type, reveals instance curses or
+protection, or teaches device charges. Knowledge belonging to another observer
+does not license the owner's choice.
+
+The actor must know the item type and have a disclosed usable Drink/Read
+interaction. Selection classifies its known authored effects, never its display
+name or Rogue catalog identity. Every effect must have a supported safe shape;
+one harmful or unsupported effect rejects the whole candidate. At least one
+supported effect must also be useful now:
+
+| Effect shape | Usefulness and safety gate |
+| --- | --- |
+| Positive Heal / HealPerHitDie | Health at or below 50%; a safe cure in the same payload may independently make it useful |
+| RemoveCondition | The exact active condition has only recognized harmful mechanics, such as blindness, slow timing, action restrictions or hallucination; mixed beneficial modifiers are not discarded |
+| RestoreAttribute / RestoreMaximumHealth | A positive amount and a matching actor-owned recorded deficit; a low stat alone is not a deficit |
+| Timed safe condition / positive actor-turn duration | A currently visible hostile, an actual improvement over existing capabilities, no same-family or within-payload duplicate, enough condition capacity, no immunity-blocked descriptors or unsafe side effects |
+| RemoveCurse on all equipment | An equipped item's remembered curse fact is true; hidden actual curse state is not a decision input |
+| ProtectArmor on a selected armor socket | The selected eligible armor and its profile are understood, and its remembered protection is false; slot order is the ordinary first/last order |
+
+Condition-shape and modifier-improvement analysis is shared with ability defense
+in [ai_effect_safety](../../crates/simulation/src/ai_effect_safety.rs). Previewing
+does not roll effect amounts, consume a unit, mutate knowledge or reserve resources.
+An eligible candidate still goes through the ordinary planner and physical-source
+checks. Ordinary work owns preparation, reservations, timing, interruption,
+checkpoint restoration and eventual finite consumption. A remembered useful fact
+may become stale; selection does not inspect hidden current facts to avoid that
+ordinary outcome.
+
+The currently supported live Rogue effect shapes include healing, extra healing,
+restore strength, remove curse and protect armor. This is **not universal item
+use**. Existing equipment, food and known-positive-charge hostile-device choices
+remain separate policies. Unknown items are retained; identification prompts,
+control/summoning scrolls, enchantment optimization, sensing/mapping/light utility,
+relocation, polymorph, growth/hit-die restoration, risky haste doses and levitation
+remain unsupported choices. See-invisible potions also remain unsupported because
+their combined sensory effect is outside this conservative classifier, even when
+another effect in that payload could cure blindness. A legally executable item
+need not have a safe, useful autonomous decision policy yet.
 
 ## Execution-only refusal and recovery
 
@@ -229,5 +276,6 @@ Source/test witnesses are static evidence here, not newly executed results.
 | Idle visits, routes and permissions | [idle tests](../../crates/simulation/src/ai_idle_tests.rs), [hobgoblin host tests](../../crates/server/src/hobgoblin_roaming_tests.rs) |
 | Awareness, normal contact and Stealth | [awareness](../../crates/simulation/src/awareness.rs) |
 | Safe item/source selection | [ai_items](../../crates/simulation/src/ai_items.rs), [ai_projectiles](../../crates/simulation/src/ai_projectiles.rs) |
-| Defense predicate | [ai_defense](../../crates/simulation/src/ai_defense.rs) |
+| Defense predicate | [ai_defense](../../crates/simulation/src/ai_defense.rs), [shared condition safety](../../crates/simulation/src/ai_effect_safety.rs) |
+| Known-item care, remembered facts and paid replay | [item-care tests](../../crates/simulation/src/ai_item_use_tests.rs); includes live Rogue effect/condition subsets, not a whole-scenario playthrough |
 | Candidate execution/fallback | [actions](../../crates/simulation/src/actions.rs), [intention ownership](../../crates/simulation/src/intention.rs) |

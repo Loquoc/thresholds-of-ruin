@@ -36,14 +36,23 @@ and unauthorized requests do not partially mutate state or spend simulation time
 Only explicitly stackable items merge. The complete immutable definition, exact
 per-unit condition and charge state must match. Corpse provenance is never
 interchangeable stack state. Devices, armor, rings and other equipment remain
-nonstackable. Plain weapon equipment with an explicit standalone thrown payload may be a homogeneous stack;
-independent ammunition remains stackable without acquiring equipment sockets.
-A weapon stack must be split to exactly one unit before wielding: drop the
-whole stack, take one, equip that singleton, then take the remainder. Taking a
-unit back before equipping would merge it with an identical carried stack.
-Carried Throw
-uses one free unit directly, without equipping the stack, multiplying modifiers
-or reserving extra sockets. Equipped units never merge with a carried stack.
+nonstackable. Plain weapon equipment with an explicit nonlauncher weapon profile
+may be a homogeneous stack, including a melee-only profile. Armor, extra modifiers,
+scaled potency, periodic relocation and unrelated item capabilities do not gain
+stack semantics. Independent ammunition remains stackable without acquiring
+equipment sockets.
+
+Ordinary Equip reserves exactly one unit when work starts. On completion it
+extracts a singleton and equips that unit; the remaining stack stays carried.
+The split preserves condition and only the owner's already-remembered instance
+facts. Pausing retains the exact claim, and failed completion cannot leave a
+partial split. Equipped items remain singletons and never merge with a carried
+stack. There is no special dagger or autonomous-actor equip path.
+
+Stackability does not grant Throw. When the weapon's independently authored
+profile and the actor's expertise permit it, Carried Throw uses one free unit
+directly, without equipping the stack, multiplying modifiers or reserving extra
+sockets. A melee-only stack remains melee-only.
 
 Ordinary fungible stacks retain the lowest matching destination ID. Instance-sensitive
 stacks, such as ammunition with hit/damage enchantments, instead retire the matching
@@ -156,7 +165,14 @@ is separate from sampling it. A fixed range consumes no random word; random
 sampling and state changes belong to the consumer's atomic transaction.
 Population authoring also accepts an integer as fixed-quantity shorthand. That
 source convenience is not a compatibility reader or an alias for strict compiled
-and saved records. Ordinary materialized stacks retain one concrete u64 quantity.
+and saved records. Ordinary materialized stacks retain one concrete u64 quantity. Generated
+loot entries carry these generic quantity operands; an archetype's authored
+generation default is lowered into the same mechanism, not interpreted by a
+weapon-specific runtime branch. Materialization, splitting and equipping never
+reroll an existing stack's count. Authored generated/base variants can share an
+identity while choosing different birth policies: generated Rogue arrows use the
+weapon condition roll, while mundane starter and trap arrows retain the base
+archetype without that roll.
 
 ## Theft and gold
 

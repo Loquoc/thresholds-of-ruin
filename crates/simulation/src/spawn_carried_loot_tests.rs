@@ -605,7 +605,7 @@ fn maximum_birth_stock_pools_and_attempt_receipts_fit_the_unchanged_checkpoint_e
     let template = plan.carried_item_pools["supplies"].clone();
     for pool_index in 0..MAX_CARRIED_ITEM_POOLS {
         let mut pool = template.clone();
-        pool.choices = (0..MAX_CHOICES)
+        pool.choices = (0..MAX_CARRIED_ITEM_CHOICES)
             .map(|index| {
                 let mut choice = template.choices[0].clone();
                 choice.content = format!("stock-{index}");
@@ -670,7 +670,7 @@ fn compiled_birth_stock_pool_decoders_reject_excess_entries_and_duplicate_keys()
     let mut too_many = plan.clone();
     let choice = too_many["carried_item_pools"]["supplies"]["choices"][0].clone();
     too_many["carried_item_pools"]["supplies"]["choices"] =
-        serde_json::json!(vec![choice; MAX_CHOICES + 1]);
+        serde_json::json!(vec![choice; MAX_CARRIED_ITEM_CHOICES + 1]);
     assert!(serde_json::from_value::<PopulationPlan>(too_many).is_err());
     let encoded = serde_json::to_string(&plan).unwrap();
     let pools = serde_json::to_string(&plan["carried_item_pools"]).unwrap();
@@ -843,4 +843,88 @@ fn retired_and_consumed_nested_origin_remains_valid_without_live_ownership() {
         Game::restore_checkpoint(snapshot, &shared, game.content.clone()).unwrap(),
         game
     );
+}
+
+#[test]
+fn ordinary_birth_pool_accepts_all_reference_subtypes_without_widening_stage_choices() {
+    let mut value = serde_json::to_value(carried_plan([1, 1])).unwrap();
+    let template = value["carried_item_pools"]["supplies"]["choices"][0].clone();
+    value["carried_item_pools"]["supplies"]["choices"] = serde_json::Value::Array(
+        (0..79)
+            .map(|index| {
+                let mut choice = template.clone();
+                choice["content"] = format!("reference-{index}").into();
+                choice
+            })
+            .collect(),
+    );
+    let compiled: PopulationPlan = serde_json::from_value(value.clone())
+        .expect("all 79 ordinary subtypes fit the dedicated carried pool bound");
+    let mut game = game();
+    game.configure_population(compiled).unwrap();
+    assert_eq!(
+        MAX_CHOICES, 64,
+        "ordinary stage admission stays bounded as before"
+    );
+    let choices = value["carried_item_pools"]["supplies"]["choices"]
+        .as_array_mut()
+        .unwrap();
+    while choices.len() <= 128 {
+        let mut choice = template.clone();
+        choice["content"] = format!("reference-{}", choices.len()).into();
+        choices.push(choice);
+    }
+    assert!(serde_json::from_value::<PopulationPlan>(value).is_err());
+}
+
+#[test]
+fn carrier_food_override_preserves_chance_and_pools_without_food() {
+    for chance in [[0, 1], [1, 5], [1, 1]] {
+        let mut plan = carried_plan(chance);
+        plan.carried_item_pools
+            .get_mut("supplies")
+            .unwrap()
+            .choices
+            .push(food_choice("item.test.ration", "ration"));
+        let profile = &plan.profiles["baseline"];
+        let stage = &profile.stages[0];
+        let PopulationContent::Actors { bands, .. } = &stage.population else {
+            panic!()
+        };
+        let choice = &bands[0].choices[0];
+        for seed in 0..32 {
+            let context = BirthStockContext {
+                seed,
+                scope: "dungeon/1",
+                profile_id: "baseline",
+                profile,
+                stage,
+                ordinal: 0,
+                depth: Some(1),
+            };
+            let ordinary = context.select(choice, &plan.carried_item_pools).unwrap();
+            let forced = context
+                .select_with_food(choice, &plan.carried_item_pools, Some(&["ration".into()]))
+                .unwrap();
+            assert_eq!(
+                ordinary.is_some(),
+                forced.is_some(),
+                "food cannot grant a missed carry roll"
+            );
+            if let Some(stock) = forced {
+                assert_eq!(stock.content, "ration");
+            }
+            let no_matching_food = context
+                .select_with_food(
+                    choice,
+                    &plan.carried_item_pools,
+                    Some(&["unavailable-food".into()]),
+                )
+                .unwrap();
+            assert_eq!(
+                ordinary.map(|stock| (stock.content, stock.quantity)),
+                no_matching_food.map(|stock| (stock.content, stock.quantity))
+            );
+        }
+    }
 }

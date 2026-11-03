@@ -3299,3 +3299,113 @@ expose a separate pre-existing moving-thigh intersection in ordinary rigid-sway
 skirts, which this static fit does not claim to repair. That dynamic cloth/contact
 gap remains follow-up work; passing sway/layer tests is not proof of dynamic leg
 clearance. Hosted CI qualification is still required before merge.
+
+### Rogue birth-inventory authoring and retained baseline rules identity
+
+The pinned `scripts/fixtures/rogue-birth-item-reference.json` independently records
+26 species carry chances and 79 subtype weights across seven categories from
+Rogue 5.4.4. Content acceptance checks both Rogue packages; they do not substitute
+for runtime birth, ownership, replay or AI qualification. Existing floor policies
+remain unchanged apart from the explicitly approved dagger quantities and arrow
+equipment-generation recipe. The floor safety-food stage remains a separate TOR
+adaptation, not a claim of exact source-wide food-counter parity.
+
+Baseline v31 is an append-only source snapshot of v30 with only the
+rules import changed from identity 57 to `interactions-v58`. Its receipt
+retains the previous source/dependency hashes. Tests reverse only this import and
+the bundled rules identity, then compare every remaining byte to v30; no roster,
+stock, quantity or numerical policy is refreshed. Historical v30 and earlier
+source/result receipts remain untouched. The current process selector uses v31,
+but these source tests do **not** requalify historical outcomes or establish a new
+successful route. Compiler validation and ordinary-process qualification remain
+separate evidence.
+
+### Rogue carrier generation, shared equip-one and observer-safe item care
+
+The existing carried-pool representation now accepts up to 128 entries independently
+of the unchanged 64-entry population-band bound. Both actual Rogue packages
+compile 79 canonical subtypes and round-trip through source-free compiled content.
+Exact category/subtype weights and all species carry policies are checked against
+an independent pinned reference, not probabilistic sampling. Loot-entry quantities
+remain the sole authoring mechanism. The generated-arrow alias preserves mundane
+starter/trap ammunition; only generated loot receives its condition recipe.
+
+Carrier food history reconstructs committed ground/carried food generation from
+immutable activation receipts, including retired food. Unit and actual activation
+witnesses distinguish initial actor births before the floor increment from later
+room-cluster items/actors, skipped generation, policy changes, absent food choices,
+and unchanged carry chance. Existing ground-food safety and all unrelated floor
+placement laws remain untouched. These adaptations do not claim an identical
+Rogue RNG stream or a single source-wide food counter.
+
+The equip-one change reuses ordinary exact-unit reservations and transactional
+extraction; it does not grant throwing or permit modifier/launcher stacks.
+Actual processes show an eligible passive actor transition from no equipment to
+one equipped member of its three-unit birth stack, preserve the two-unit remainder
+through source-deleted restart, and drop all three units on death. The same AI
+profile without compatible anatomy leaves the full stack unequipped. Independent
+known-item care uses shared effect safety and normal action admission; unsupported
+or unidentified items remain carried rather than acquiring hidden knowledge.
+
+Full server and actual carrier restart qualification exposed a real omitted
+journal gate: captured exact-unit Equip operands were absent from the persisted
+human-admission action allowlist. The correction admits that existing legitimate
+action without weakening operand shape checks or changing the archive schema.
+A queued armor-Equip regression checks the exact captured unit, serialization,
+checkpoint before execution, and rejection when the same binding is attached to
+Wait or Unequip. The original server/source-free restart failures are retained as
+integration first-red evidence. Tests that saved only after execution had missed
+this boundary; the qualification did not classify the failure as stale output.
+
+Separate fixture repairs isolate newly legitimate magical birth-stock roots in
+the existing source-reachability helper, retaining its explicit negative/positive
+capability witnesses and the full production catalog. The authoring stack test now
+accepts a homogeneous melee-only stack while retaining currency, launcher,
+modifier, potency and relocation rejection cases. No production reachability
+check was relaxed.
+
+Local final-source qualification passed 2,353 simulation tests, 1,301 server
+unit tests, eight selected integration boundaries, three encoded Service
+contracts, and seven real server/client process methods. The process set includes
+known-versus-concealed born medicine and formerly failing centaur/yeti source-free
+restart. Clippy, changed-file formatting and pinned Python lint passed. All 47
+current scenario packages validated, and the current archive fixture was produced
+by the real writer without an archive-format change. Distribution/authoring,
+retained-baseline, documentation and CI-owner registration checks remain separate
+source/tooling evidence. The full platform/native matrix and extended campaign
+suite are deferred to required final-head CI, not represented by these local
+checks. Disk-exhausted build attempts were retained and retried after bounded
+obsolete-cache cleanup; they were not gameplay failures or waived tests.
+
+### Rogue birth inventory CI fixture admission and receipt follow-through
+
+The first hosted full run found one stale simulation integration fixture pattern
+across three methods: successful Equip calls bypassed ordinary intention admission
+and therefore lacked the exact-unit reservation now required by shared equip-one.
+Those methods now use the existing admission/execution path, retaining hostility
+pause/resume, authored timing and custom-slot checkpoint assertions. The adjacent
+overflow and capacity negatives also enter through admission; overflow pins the
+actual TimeExhausted error rather than passing for a missing reservation. The
+initial local checkpoint had covered simulation unit tests and selected server
+integration, but missed this simulation integration owner.
+
+Hosted process checks also exposed current-source fixture drift: the shared
+equipment-receipt helper still expected the mundane arrow instead of the generated
+alias; a production carrier assertion still expected historical ration/bandage
+stock; an inverted-range mutation targeted a row that no longer existed; and a
+throwing test still expected multi-unit Equip rejection. These are distinct
+fixture causes, not additional gameplay defects or platform-multiplied counts.
+Historical baseline bytes and candidate oracles remain separate from current
+production expectations.
+
+The repaired checkpoint passed all 815 simulation integration methods and their
+Clippy target, 12 selected real-process methods, the directly affected helper and
+source-unit suites, pinned Python lint and documentation checks. The process
+selection includes the original exact thrown-payload/source-deleted restart and
+full earned-second-HD, finite-stock and floor-revisit witness; a separate new
+process checks accepted Equip-one with conserved remainder and source-free
+restart. The corrected range mutation asserts that it changes exactly one row
+before testing rejection. No production code, historical baseline or verification
+gate changed in this repair. A disk-exhausted local test build was stopped and
+retained as infrastructure evidence, then the complete integration target passed
+after bounded obsolete-cache cleanup. Fresh final-head CI remains required.

@@ -77,7 +77,10 @@ fn floor_record(depth: u32, ordinal: u64, placed: Option<&str>) -> FloorActivati
 }
 
 /// A game whose retained first-entry history is exactly `history`.
-fn with_history(stages: Vec<PopulationStage>, history: &[Option<&str>]) -> (Game, PopulationProfile) {
+fn with_history(
+    stages: Vec<PopulationStage>,
+    history: &[Option<&str>],
+) -> (Game, PopulationProfile) {
     let mut game = game();
     game.configure_population(plan(stages)).unwrap();
     let state = game.floor_activation.as_mut().unwrap();
@@ -115,9 +118,16 @@ fn drought_places_food_only_after_more_than_threshold_foodless_floors() {
     assert_eq!(drought_request(&[None; 4], &[], 3), 1);
     assert_eq!(drought_request(&[None; 9], &[], 3), 1);
     // Food on any later floor resets the run, whichever food content it was.
-    assert_eq!(drought_request(&[None, None, None, None, Some("fruit")], &[], 3), 0);
     assert_eq!(
-        drought_request(&[None, None, None, None, Some("ration"), None, None], &[], 3),
+        drought_request(&[None, None, None, None, Some("fruit")], &[], 3),
+        0
+    );
+    assert_eq!(
+        drought_request(
+            &[None, None, None, None, Some("ration"), None, None],
+            &[],
+            3
+        ),
         0
     );
     // Non-food placements do not count as food.
@@ -136,13 +146,27 @@ fn drought_count_uses_only_floors_entered_before_the_audited_record() {
     let (game, profile) = with_history(vec![drought_stage(3)], &history);
     // Auditing the fifth record (ordinal 4) sees only the four floors before it.
     let request = |ordinal| {
-        game.requested_count("dungeon/5", "baseline", &profile, &profile.stages[0], ordinal, &[])
-            .unwrap()
+        game.requested_count(
+            "dungeon/5",
+            "baseline",
+            &profile,
+            &profile.stages[0],
+            ordinal,
+            &[],
+        )
+        .unwrap()
     };
     assert_eq!(request(4), 1);
     assert_eq!(request(3), 0);
     assert!(game
-        .requested_count("dungeon/9", "baseline", &profile, &profile.stages[0], 9, &[])
+        .requested_count(
+            "dungeon/9",
+            "baseline",
+            &profile,
+            &profile.stages[0],
+            9,
+            &[]
+        )
         .is_err());
 }
 
@@ -152,13 +176,23 @@ fn chance_items_count_successes_of_exact_attempts_deterministically() {
     let stage = &profile.stages[0];
     let counts: Vec<u16> = (1..=200)
         .map(|depth| {
-            game.requested_count(&format!("dungeon/{depth}"), "baseline", &profile, stage, 0, &[])
-                .unwrap()
+            game.requested_count(
+                &format!("dungeon/{depth}"),
+                "baseline",
+                &profile,
+                stage,
+                0,
+                &[],
+            )
+            .unwrap()
         })
         .collect();
     assert!(counts.iter().all(|count| *count <= 9));
     let mean = counts.iter().map(|count| f64::from(*count)).sum::<f64>() / counts.len() as f64;
-    assert!((2.5..4.0).contains(&mean), "9 x 36% averages 3.24, got {mean}");
+    assert!(
+        (2.5..4.0).contains(&mean),
+        "9 x 36% averages 3.24, got {mean}"
+    );
     // The same scope and stage always request the same count.
     assert_eq!(
         game.requested_count("dungeon/7", "baseline", &profile, stage, 0, &[]),
@@ -167,7 +201,14 @@ fn chance_items_count_successes_of_exact_attempts_deterministically() {
     let (never, profile) = with_history(vec![chance_stage(9, 0, 1)], &[]);
     assert_eq!(
         never
-            .requested_count("dungeon/1", "baseline", &profile, &profile.stages[0], 0, &[])
+            .requested_count(
+                "dungeon/1",
+                "baseline",
+                &profile,
+                &profile.stages[0],
+                0,
+                &[]
+            )
             .unwrap(),
         0
     );
@@ -187,8 +228,12 @@ fn invalid_drought_and_chance_stages_are_rejected() {
     let mut ranged = chance_stage(9, 36, 100);
     ranged.count = [0, 9];
     assert!(game.configure_population(plan(vec![ranged])).is_err());
-    assert!(game.configure_population(plan(vec![chance_stage(9, 101, 100)])).is_err());
-    assert!(game.configure_population(plan(vec![drought_stage(3), chance_stage(9, 36, 100)])).is_ok());
+    assert!(game
+        .configure_population(plan(vec![chance_stage(9, 101, 100)]))
+        .is_err());
+    assert!(game
+        .configure_population(plan(vec![drought_stage(3), chance_stage(9, 36, 100)]))
+        .is_ok());
 }
 
 #[test]
@@ -199,8 +244,11 @@ fn first_entry_evaluates_and_audits_chance_and_drought_stages() {
     // Threshold zero with no history: no earlier floor, so nothing is forced.
     game.configure_population(plan(vec![chance_stage(4, 1, 1), drought_stage(0)]))
         .unwrap();
-    game.register_activation_scope(scope(1, vec![at(1, 2, 1), at(1, 3, 1), at(1, 4, 1), at(1, 5, 1)]))
-        .unwrap();
+    game.register_activation_scope(scope(
+        1,
+        vec![at(1, 2, 1), at(1, 3, 1), at(1, 4, 1), at(1, 5, 1)],
+    ))
+    .unwrap();
     game.activate_initial_floor().unwrap();
     let records = game.activations_since(0).unwrap();
     assert!(matches!(
@@ -218,4 +266,115 @@ fn first_entry_evaluates_and_audits_chance_and_drought_stages() {
         *requested = 1;
     }
     assert!(game.validate_activation_record(&record).is_err());
+}
+
+#[test]
+fn floor_food_guarantee_is_unchanged_by_carried_food_history() {
+    let mut born = floor_record(99, 99, Some("ration")).decisions;
+    let StageResult::Evaluated { attempts, .. } = &mut born[0].result else {
+        panic!()
+    };
+    attempts[0] = PlacementDecision::Placed {
+        content: "carrier".into(),
+        location: at(1, 1, 1),
+        entity: PopulationEntity::Actor {
+            id: ActorId(2),
+            carried_loot: Some(CarriedLootDecision::Carried {
+                content: "ration".into(),
+                quantity: 1,
+                item: ItemId(99),
+            }),
+        },
+    };
+    // The bounded monster-loot milestone does not change the existing ground
+    // food guarantee. Carrier generation has a separate view of this history.
+    assert_eq!(drought_request(&[None; 4], &born, 3), 1);
+    let StageResult::Evaluated { attempts, .. } = &mut born[0].result else {
+        panic!()
+    };
+    let PlacementDecision::Placed {
+        entity: PopulationEntity::Actor { carried_loot, .. },
+        ..
+    } = &mut attempts[0]
+    else {
+        panic!()
+    };
+    *carried_loot = Some(CarriedLootDecision::NotCarried);
+    assert_eq!(drought_request(&[None; 4], &born, 3), 1);
+}
+
+#[test]
+fn carrier_drought_uses_initial_birth_before_floor_increment_and_resets_on_generation() {
+    let content =
+        crate::creatures::Content::new(crate::test_support::test_ruleset(), Default::default())
+            .unwrap();
+    let mut game = Game::region_corridor(42, 7, content);
+    game.configure_scenario_policy(ScenarioCapabilities::default(), Some(ActorId(1)))
+        .unwrap();
+    game.spawn_actor(at(1, 0, 1), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    let mut plan = carried_plan([1, 1]);
+    let pool = plan.carried_item_pools.get_mut("supplies").unwrap();
+    pool.choices[0].weight = 9_999;
+    pool.choices[0].quantity = QuantityExpr::Fixed { quantity: 1 };
+    pool.choices.push(food_choice("item.test.ration", "ration"));
+    plan.profiles
+        .get_mut("baseline")
+        .unwrap()
+        .stages
+        .push(drought_stage(2));
+    game.configure_population(plan).unwrap();
+    for depth in 1..=7 {
+        // The sole placement cell is consumed by the carrier, so the existing
+        // floor-food safety attempt cannot place food or reset generation.
+        game.register_activation_scope(scope(depth, vec![at(u64::from(depth), 2, 1)]))
+            .unwrap();
+    }
+    for depth in 1..=7 {
+        if depth == 1 {
+            game.activate_initial_floor().unwrap();
+        } else {
+            game.teleport(ActorId(1), at(depth, 0, 1)).unwrap();
+        }
+        let record = game
+            .activations_since(usize::try_from(depth - 1).unwrap())
+            .unwrap()
+            .remove(0);
+        let StageResult::Evaluated { attempts, .. } = &record.decisions[0].result else {
+            panic!()
+        };
+        let PlacementDecision::Placed {
+            entity:
+                PopulationEntity::Actor {
+                    carried_loot: Some(CarriedLootDecision::Carried { content, item, .. }),
+                    ..
+                },
+            ..
+        } = &attempts[0]
+        else {
+            panic!()
+        };
+        assert_eq!(
+            content,
+            if depth == 5 { "ration" } else { "marker" },
+            "birth floor {depth}"
+        );
+        game.validate_activation_record(&record).unwrap();
+        if depth == 5 {
+            // Retire the generated stack: the source-free receipt, not current
+            // inventory, must still reset subsequent birth generation.
+            game.items.remove(item).unwrap();
+            let mut shared = crate::checkpoint::SharedState::default();
+            let snapshot = game.checkpoint(&mut shared);
+            let restored =
+                Game::restore_checkpoint(snapshot, &shared, game.content.clone()).unwrap();
+            assert_eq!(restored, game);
+            game = restored;
+            game.validate_activation_record(&record).unwrap();
+        }
+    }
+    let before = game.clone();
+    game.teleport(ActorId(1), at(1, 0, 1)).unwrap();
+    assert_eq!(game.activation_count(), before.activation_count());
+    assert_eq!(game.next_item_id, before.next_item_id);
 }

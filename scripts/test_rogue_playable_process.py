@@ -28,7 +28,7 @@ from process_harness import (
 )
 from arena_matrix import toml_source
 from process_work_budget import ProcessOutputBudget, ProcessWorkBudget
-from rogue_activation_oracle import reviewed_live_activation
+from rogue_activation_oracle import reviewed_birth_inventory_activation
 from rogue_earned_route_process import read_authoritative_evidence
 from rogue_magic_receipts import (
     EQUIPMENT_ITEM_STAGE_IDS, CONTROL_ITEM_STAGE_IDS, MAGIC_ITEM_STAGE_IDS,
@@ -58,7 +58,7 @@ def carried_stock(frame, supply):
 def fixed_initial_population_manifest(manifest):
     """Reviewed current26 source, diagnostic-only fixed initial population."""
     actual = json.dumps(manifest.get("floor_activation"), sort_keys=True)
-    expected = json.dumps(reviewed_live_activation(), sort_keys=True)
+    expected = json.dumps(reviewed_birth_inventory_activation(), sort_keys=True)
     if actual != expected:
         raise ValueError("Fixed-initial diagnostic requires exact reviewed current26 population")
     fixture = copy.deepcopy(manifest)

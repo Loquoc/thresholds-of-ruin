@@ -5671,11 +5671,12 @@ mod earned_growth_identity_tests {
         let engine = Engine::memory(Scenario::two_room(42)).unwrap();
         Engine::replay(engine.archive.clone(), None, None).unwrap();
         assert_eq!(engine.archive.version, ARCHIVE_VERSION);
-        assert_eq!(engine.archive.ruleset, "interactions-v57");
+        assert_eq!(engine.archive.ruleset, "interactions-v58");
         for (version, ruleset) in [
             (ARCHIVE_VERSION - 1, RULESET),
             (ARCHIVE_VERSION, "interactions-v42"),
             (ARCHIVE_VERSION, "interactions-v56"),
+            (ARCHIVE_VERSION, "interactions-v57"),
         ] {
             let mut previous = engine.archive.clone();
             previous.version = version;

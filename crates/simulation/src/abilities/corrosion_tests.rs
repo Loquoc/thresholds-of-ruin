@@ -460,7 +460,15 @@ fn corrosion_survives_death_pickup_unequip_drop_and_re_equip() {
         },
         Action::Equip { item, slot },
     ] {
-        game.act(actor, action).unwrap();
+        // Equip now claims a physical unit, so this lifecycle exercise uses
+        // the normal intention owner rather than the unowned low-level API.
+        let intention = game
+            .admit_intention(actor, action.clone(), crate::IntentionOrigin::Human)
+            .unwrap();
+        let execution = game.execute_next_intention().unwrap();
+        assert_eq!(execution.intention.id, intention);
+        assert_eq!(execution.action, Some(action));
+        execution.outcome.unwrap();
         if let Some(preparation) = game.preparation(actor) {
             game.tick += preparation.remaining;
             game.resolve_preparations().unwrap();

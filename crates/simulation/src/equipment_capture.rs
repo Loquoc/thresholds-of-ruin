@@ -300,7 +300,7 @@ impl Game {
         item: ItemId,
         socket: EquipmentSlotId,
     ) -> Result<FrozenEquipAllocation, GameError> {
-        if self.items.get(&item).is_none_or(|item| item.quantity != 1) {
+        if !self.item_equip_unit_available(item) {
             return Err(GameError::ItemUnavailable);
         }
         self.capture_carried_weapon_allocation(actor, item, socket)
@@ -393,7 +393,7 @@ impl Game {
         socket: EquipmentSlotId,
         captured: &FrozenEquipAllocation,
     ) -> bool {
-        self.items.get(&item).is_some_and(|item| item.quantity == 1)
+        self.item_equip_unit_available(item)
             && self.frozen_weapon_allocation_available(actor, item, socket, captured)
     }
     pub(crate) fn frozen_weapon_allocation_available(

@@ -705,9 +705,10 @@ fn mixed_selected_cost_start_insufficiency_is_atomic_and_cancel_releases_both_po
     let natural = game.ability_plan(ActorId(1), &basic(), ActorId(2)).unwrap();
     start_plan(&mut game, &natural);
     let creature = game.creature(ActorId(1)).unwrap();
-    assert!(creature.costs().reservations().values().all(|cost| cost
-        .entries()
-        .all(|entry| entry.resource != Resource::Focus)));
+    assert!(creature.costs().reservations().values().all(|cost| {
+        cost.entries()
+            .all(|entry| entry.resource != Resource::Focus)
+    }));
     let ledger = creature.costs();
     let mut held = ledger.clone();
     let remaining = held.available(Resource::Focus);
@@ -838,7 +839,10 @@ fn insufficient_secondary_focus_fails_real_preparation_without_gameplay_mutation
         execution.outcome,
         Err(crate::GameError::Rule(RuleError::Unfunded))
     );
-    assert_eq!(game, expected, "failed preparation changes no Mana, holds, RNG, time, equipment, health or events; only the admitted intention is consumed");
+    assert_eq!(
+        game, expected,
+        "failed preparation changes no Mana, holds, RNG, time, equipment, health or events; only the admitted intention is consumed"
+    );
     assert!(game.pending_intention(ActorId(1)).is_none());
     assert!(game.preparation(ActorId(1)).is_none());
     assert_eq!(
@@ -4122,7 +4126,7 @@ fn standalone_thrown_payload_replaces_only_base_damage_and_preserves_melee() {
 }
 
 #[test]
-fn standalone_stack_is_not_equippable_but_paid_throw_holds_one_and_reopens() {
+fn standalone_authored_stack_is_not_equipped_whole_and_paid_throw_holds_one_and_reopens() {
     let (mut game, ability, item) =
         standalone_throw_fixture(3, crate::projectile_profiles::HitRecovery::ConsumedOnHit);
     let before = game.clone();
@@ -4137,7 +4141,7 @@ fn standalone_stack_is_not_equippable_but_paid_throw_holds_one_and_reopens() {
                 slot: EquipmentSlotId(0)
             }
         )
-        .is_err());
+        .is_ok());
     assert_eq!(game, before);
     assert_eq!(
         game.projectile_choice_for_item(
@@ -4357,15 +4361,7 @@ fn standalone_stack_contract_rejects_unrelated_equipment_capabilities() {
         let mut spec = good.clone();
         match variant {
             0 => spec.class = crate::ItemClass::Armor,
-            1 => {
-                spec.equipment
-                    .as_mut()
-                    .unwrap()
-                    .weapon_profile
-                    .as_mut()
-                    .unwrap()
-                    .thrown_payload = None
-            }
+            1 => spec.equipment.as_mut().unwrap().weapon_profile = None,
             2 => {
                 spec.equipment.as_mut().unwrap().armor = Some(crate::ArmorSpec {
                     physical_reduction: 1,
@@ -4647,4 +4643,382 @@ fn human_default_natural_operand_does_not_become_newly_equipped_weapon() {
         "admitted natural attack must not select the new item"
     );
     assert!(game.preparation(owner).is_none());
+}
+
+fn homogeneous_melee_stack_fixture(quantity: u64) -> (Game, AbilityId, ItemId) {
+    let (mut game, original, item) = paid_throw_fixture(false);
+    stow_fixture_weapon(&mut game, item);
+    let mut spec = (*game.items[&item].spec).clone();
+    spec.stackable = true;
+    let profile = spec
+        .equipment
+        .as_mut()
+        .unwrap()
+        .weapon_profile
+        .as_mut()
+        .unwrap();
+    profile.launcher = None;
+    profile.thrown_payload = None;
+    profile.base_traits.clear();
+    profile.expert_traits.add.clear();
+    profile.expert_traits.remove.clear();
+    assert!(
+        spec.valid(),
+        "plain profiled melee equipment supports homogeneous stacks"
+    );
+    spec.validate_rules(game.content.rules()).unwrap();
+    game.items
+        .edit(item, |item| {
+            item.spec = tor_world::Shared::new(spec);
+            item.quantity = quantity;
+        })
+        .unwrap();
+    assert!(game.item_state_valid(item, &game.items[&item]));
+    (game, original.ability_id().unwrap().clone(), item)
+}
+
+#[test]
+fn homogeneous_melee_stack_has_no_throw_and_splits_to_normal_equipped_singleton() {
+    for quantity in 2..=5 {
+        let (mut game, throw, item) = homogeneous_melee_stack_fixture(quantity);
+        let owner = ActorId(1);
+        let condition = game.items[&item].condition;
+        assert!(game
+            .projectile_choice_for_item(owner, &throw, ProjectileChoiceQuery::ThrowSources, item)
+            .is_none());
+        game.actors
+            .get_mut(&owner)
+            .unwrap()
+            .known_equipment
+            .learn_curse(item, true)
+            .unwrap();
+        let drop = game.prepare_transfer(owner, item, None, false).unwrap();
+        game.apply_prepared_transfer(&drop).unwrap();
+        let take = game.prepare_transfer(owner, item, Some(1), true).unwrap();
+        let single = take.result();
+        game.apply_prepared_transfer(&take).unwrap();
+        assert_eq!(game.items[&single].condition, condition);
+        assert_eq!(
+            game.actors[&owner].known_equipment.curse(single),
+            Some(true)
+        );
+        assert_eq!(game.actors[&ActorId(2)].known_equipment.curse(single), None);
+        game.equip_authored(owner, single, EquipmentSlotId(0))
+            .unwrap();
+        assert!(!game.merge_destination_available(single));
+        assert!(game
+            .projectile_choice_for_item(owner, &throw, ProjectileChoiceQuery::ThrowSources, single)
+            .is_none());
+        let rest = game.prepare_transfer(owner, item, None, true).unwrap();
+        assert_eq!(rest.result(), item);
+        game.apply_prepared_transfer(&rest).unwrap();
+        assert_eq!(game.items[&single].quantity, 1);
+        assert_eq!(game.items[&item].quantity, quantity - 1);
+        assert_eq!(game.items[&item].condition, condition);
+        let melee = game
+            .creature(owner)
+            .unwrap()
+            .derived()
+            .selected_attack
+            .clone();
+        assert_eq!(
+            melee.attack,
+            crate::attacks::SelectedMeleeAttack::Weapon(
+                game.items[&single]
+                    .equipment_view()
+                    .unwrap()
+                    .attack
+                    .unwrap()
+            )
+        );
+        let mut shared = crate::checkpoint::SharedState::default();
+        let restored = Game::restore_checkpoint(
+            game.checkpoint(&mut shared),
+            &shared,
+            game.content().clone(),
+        )
+        .unwrap();
+        assert_eq!(restored, game);
+    }
+}
+
+#[test]
+fn homogeneous_melee_stack_merge_keeps_all_per_instance_condition_boundaries() {
+    let (game, _, item) = homogeneous_melee_stack_fixture(3);
+    let original = &game.items[&item];
+    for field in 0..8 {
+        let mut other = original.clone();
+        match field {
+            0 => other.condition.corrosion += 1,
+            1 => other.condition.cursed = !other.condition.cursed,
+            2 => other.condition.protected = !other.condition.protected,
+            3 => other.condition.armor_penalty += 1,
+            4 => other.condition.armor_enchantment += 1,
+            5 => other.condition.hit_enchantment += 1,
+            6 => other.condition.damage_enchantment += 1,
+            7 => other.charges = Some(1),
+            _ => unreachable!(),
+        }
+        assert!(!original.stacks_with(&other), "condition field {field}");
+        assert!(
+            !other.stacks_with(original),
+            "symmetric condition field {field}"
+        );
+    }
+    assert!(original.stacks_with(&original.clone()));
+}
+
+#[test]
+fn homogeneous_melee_equip_reserves_one_reopens_and_keeps_remainder_and_knowledge() {
+    for (quantity, origin) in (2..=5).flat_map(|quantity| {
+        [
+            crate::IntentionOrigin::Human,
+            crate::IntentionOrigin::Autonomous,
+        ]
+        .into_iter()
+        .map(move |origin| (quantity, origin))
+    }) {
+        let (mut game, throw, source) = homogeneous_melee_stack_fixture(quantity);
+        let actor = ActorId(1);
+        let condition = game.items[&source].condition;
+        game.actors
+            .get_mut(&actor)
+            .unwrap()
+            .known_equipment
+            .learn_curse(source, true)
+            .unwrap();
+        let plan = game
+            .plan_work(
+                actor,
+                crate::Work::Equip {
+                    item: source,
+                    slot: EquipmentSlotId(0),
+                },
+            )
+            .unwrap();
+        game.actors.get_mut(&ActorId(2)).unwrap().ready_at = game.tick;
+        let intention = game
+            .admit_intention(actor, plan.work().action(), origin)
+            .unwrap();
+        let execution = game.execute_next_intention().unwrap();
+        assert_eq!(execution.intention.id, intention);
+        execution.outcome.unwrap();
+        assert_eq!(&game.preparation(actor).unwrap().plan, &plan);
+        assert_eq!(game.items[&source].holds.len(), 1);
+        assert_eq!(game.items[&source].holds[0].quantity, 1);
+        assert!(game.equipment(actor).unwrap().is_empty());
+        assert!(game
+            .prepare_owned_transfer(source, actor, ActorId(2), quantity)
+            .is_err());
+        let mut shared = crate::checkpoint::SharedState::default();
+        let mut restored = Game::restore_checkpoint(
+            game.checkpoint(&mut shared),
+            &shared,
+            game.content().clone(),
+        )
+        .unwrap();
+        assert_eq!(restored.preparation(actor).unwrap().plan, plan);
+        let next = ItemId(restored.next_item_id);
+        finish_fixture_preparation(&mut restored);
+        assert_eq!(
+            restored.equipment(actor).unwrap().get(&EquipmentSlotId(0)),
+            Some(&next)
+        );
+        assert_eq!(restored.items[&next].quantity, 1);
+        assert_eq!(restored.items[&source].quantity, quantity - 1);
+        assert_eq!(restored.items[&source].condition, condition);
+        assert_eq!(restored.items[&next].condition, condition);
+        assert!(restored.items[&source].holds.is_empty());
+        assert!(restored.items[&next].holds.is_empty());
+        assert_eq!(
+            restored.actors[&actor].known_equipment.curse(next),
+            Some(true)
+        );
+        assert_eq!(
+            restored.actors[&ActorId(2)].known_equipment.curse(next),
+            None
+        );
+        assert!(restored
+            .projectile_choice_for_item(actor, &throw, ProjectileChoiceQuery::ThrowSources, next)
+            .is_none());
+        let again = Game::restore_checkpoint(
+            restored.checkpoint(&mut shared),
+            &shared,
+            restored.content().clone(),
+        )
+        .unwrap();
+        assert_eq!(again, restored);
+    }
+}
+
+#[test]
+fn homogeneous_melee_equip_id_exhaustion_is_atomic_before_admission() {
+    let (mut game, _, source) = homogeneous_melee_stack_fixture(3);
+    game.next_item_id = u64::MAX;
+    let before = game.clone();
+    assert!(game
+        .plan_work(
+            ActorId(1),
+            crate::Work::Equip {
+                item: source,
+                slot: EquipmentSlotId(0)
+            }
+        )
+        .is_err());
+    assert_eq!(game, before);
+}
+
+#[test]
+fn homogeneous_melee_stack_keeps_armor_device_and_modifier_exclusions() {
+    let (game, _, item) = homogeneous_melee_stack_fixture(2);
+    let good = (*game.items[&item].spec).clone();
+    for variant in 0..7 {
+        let mut spec = good.clone();
+        match variant {
+            0 => spec.class = crate::ItemClass::Armor,
+            1 => spec.equipment.as_mut().unwrap().weapon_profile = None,
+            2 => {
+                spec.equipment.as_mut().unwrap().armor = Some(crate::ArmorSpec {
+                    physical_reduction: 1,
+                    material: crate::armor::ArmorMaterial::Metal,
+                    rustproof: false,
+                })
+            }
+            3 => {
+                spec.equipment.as_mut().unwrap().periodic_relocation =
+                    Some(crate::PeriodicRelocation {
+                        interval: 10,
+                        chance_denominator: 2,
+                    })
+            }
+            4 | 5 => {
+                let modifier = Modifier {
+                    cancellable: false,
+                    scope: Scope::Always,
+                    op: ModifierOp::Set {
+                        stat: Stat::ResourceMax {
+                            resource: Resource::Mana,
+                        },
+                        value: 20,
+                    },
+                };
+                if variant == 4 {
+                    spec.equipment.as_mut().unwrap().modifiers.push(modifier);
+                } else {
+                    spec.equipment
+                        .as_mut()
+                        .unwrap()
+                        .potency_modifiers
+                        .push(modifier);
+                }
+            }
+            6 => {
+                spec.device = Some(crate::magic_items::DeviceSpec {
+                    ability: basic(),
+                    initial_charges: crate::magic_items::ChargeRange {
+                        minimum: 1,
+                        maximum: 1,
+                    },
+                    discovery: crate::ItemDiscovery::OnUse,
+                })
+            }
+            _ => unreachable!(),
+        }
+        assert!(!spec.valid(), "unrelated capability variant {variant}");
+    }
+}
+#[test]
+fn existing_valid_thrown_stack_equip_one_reserves_and_splits_without_consuming() {
+    let (mut game, _, source) =
+        standalone_throw_fixture(3, crate::projectile_profiles::HitRecovery::ConsumedOnHit);
+    assert!(game.items[&source].spec.valid());
+    assert!(game.item_state_valid(source, &game.items[&source]));
+    let actor = ActorId(1);
+    let condition = game.items[&source].condition;
+    let plan = game
+        .plan_work(
+            actor,
+            crate::Work::Equip {
+                item: source,
+                slot: EquipmentSlotId(0),
+            },
+        )
+        .expect("a valid carried weapon stack admits ordinary equip-one");
+    start_plan(&mut game, &plan);
+    assert_eq!(game.items[&source].holds.len(), 1);
+    assert_eq!(game.items[&source].holds[0].quantity, 1);
+    assert_eq!(game.items[&source].quantity, 3);
+    assert!(game.equipment(actor).unwrap().is_empty());
+    assert!(game
+        .prepare_owned_transfer(source, actor, ActorId(2), 3)
+        .is_err());
+    let next = ItemId(game.next_item_id);
+    finish_fixture_preparation(&mut game);
+    assert_eq!(
+        game.equipment(actor).unwrap().get(&EquipmentSlotId(0)),
+        Some(&next)
+    );
+    assert_eq!(game.items[&next].quantity, 1);
+    assert_eq!(game.items[&source].quantity, 2);
+    assert_eq!(game.items[&next].condition, condition);
+    assert_eq!(game.items[&source].condition, condition);
+    assert!(game.items[&next].holds.is_empty());
+    assert!(game.items[&source].holds.is_empty());
+}
+
+#[test]
+fn homogeneous_melee_equip_late_id_exhaustion_rolls_back_claims_items_and_events() {
+    let (mut game, _, source) = homogeneous_melee_stack_fixture(3);
+    let actor = ActorId(1);
+    let plan = game
+        .plan_work(
+            actor,
+            crate::Work::Equip {
+                item: source,
+                slot: EquipmentSlotId(0),
+            },
+        )
+        .unwrap();
+    start_plan(&mut game, &plan);
+    game.next_item_id = u64::MAX;
+    game.tick += game
+        .preparation(actor)
+        .unwrap()
+        .remaining_at(game.actor_clock(actor));
+    for id in game.actors.keys().copied().collect::<Vec<_>>() {
+        game.actors.get_mut(&id).unwrap().ready_at = game.tick;
+    }
+    let before = game.clone();
+    assert_eq!(
+        game.with_effect_publication(|game| game.resolve_preparations()),
+        Err(crate::GameError::IdentityExhausted)
+    );
+    assert_eq!(game, before);
+}
+
+#[test]
+fn homogeneous_melee_equip_frozen_slot_change_cannot_extract_a_reserved_unit() {
+    let (mut game, _, source) = homogeneous_melee_stack_fixture(3);
+    let actor = ActorId(1);
+    let plan = game
+        .plan_work(
+            actor,
+            crate::Work::Equip {
+                item: source,
+                slot: EquipmentSlotId(0),
+            },
+        )
+        .unwrap();
+    start_plan(&mut game, &plan);
+    let Plan::Equip { allocation, .. } = &plan else {
+        unreachable!()
+    };
+    assert!(game.frozen_equip_available(actor, source, EquipmentSlotId(0), allocation));
+    let condition = game.items[&source].condition;
+    // An independently equipped singleton changes the frozen socket occupancy.
+    let other = equip(&mut game, 0, false);
+    assert!(!game.frozen_equip_available(actor, source, EquipmentSlotId(0), allocation));
+    assert_eq!(game.items[&source].condition, condition);
+    assert_eq!(game.equipment(actor).unwrap()[&EquipmentSlotId(0)], other);
+    assert_eq!(game.items[&source].quantity, 3);
 }

@@ -16,7 +16,8 @@ from arena_matrix import toml_source
 from rogue_activation_candidate import (COMPILER_DEPENDENCY_INPUTS, TOOL_INPUTS,
     candidate_manifest, conditional_bands, create_candidate, population_shape)
 from rogue_activation_oracle import (reviewed_twenty_four_activation, reviewed_twenty_one_activation,
-                                     reviewed_twenty_six_activation, reviewed_live_activation)
+                                     reviewed_twenty_six_activation, reviewed_live_activation,
+                                     reviewed_birth_inventory_activation)
 from rogue_roster_study import DEFAULT_RULES, PLAYABLE_SPECIES, PRODUCTION, ROOT, encounter_sources
 
 
@@ -235,7 +236,7 @@ class RogueActivationCandidateTests(unittest.TestCase):
     def test_reviewed_wandering_is_explicitly_omitted_from_fixed_eighteen_diagnostic(self):
         source = encounter_sources()["manifest"]
         original = copy.deepcopy(source)
-        self.assertEqual(source["floor_activation"], reviewed_live_activation())
+        self.assertEqual(source["floor_activation"], reviewed_birth_inventory_activation())
         self.assertEqual(population_shape(source), "reviewed_twenty_six_species_input")
         self.assertEqual(source["floor_activation"]["wandering"], {
             "stage_id": "rogue.eight_species_foes",
@@ -261,7 +262,7 @@ class RogueActivationCandidateTests(unittest.TestCase):
         source = encounter_sources()["manifest"]
         original = copy.deepcopy(source)
         self.assertEqual(population_shape(source), "reviewed_twenty_six_species_input")
-        self.assertEqual(source["floor_activation"], reviewed_live_activation())
+        self.assertEqual(source["floor_activation"], reviewed_birth_inventory_activation())
         candidate = candidate_manifest(source)
         self.assertEqual(candidate, candidate_manifest(preactivation_source()))
         self.assertEqual(source, original)
@@ -354,7 +355,7 @@ class RogueActivationCandidateTests(unittest.TestCase):
                 for check in (population_shape, candidate_manifest):
                     with self.assertRaisesRegex(ValueError, "Review changed population profile"):
                         check(changed)
-        self.assertEqual(source["floor_activation"], reviewed_live_activation())
+        self.assertEqual(source["floor_activation"], reviewed_birth_inventory_activation())
 
     def test_twenty_six_rejects_finite_stock_count_choice_boundary_and_order_drift(self):
         self.assertEqual(population_shape(encounter_sources()["manifest"]),
@@ -459,13 +460,13 @@ class RogueActivationCandidateTests(unittest.TestCase):
         current["carried_item_pools"]["rogue.vampire_supplies"]["choices"][0]["weight"] = 99
         self.assertEqual(reviewed_twenty_one_activation(), before)
         self.assertEqual(reviewed_twenty_four_activation(), twenty_four_source()["floor_activation"])
-        self.assertEqual(reviewed_live_activation(), encounter_sources()["manifest"]["floor_activation"])
+        self.assertEqual(reviewed_birth_inventory_activation(), encounter_sources()["manifest"]["floor_activation"])
         expanded = reviewed_live_activation()
         expanded["profiles"]["rogue.low_depth"]["stages"][-2]["bands"][0]["choices"][0]["weight"] = 99
         expanded["profiles"]["rogue.low_depth"]["stages"][1]["quantity"] = 99
         self.assertEqual(reviewed_twenty_one_activation(), before)
         self.assertEqual(reviewed_twenty_four_activation(), historical)
-        self.assertEqual(reviewed_live_activation(), encounter_sources()["manifest"]["floor_activation"])
+        self.assertEqual(reviewed_birth_inventory_activation(), encounter_sources()["manifest"]["floor_activation"])
         for activation in (before, historical):
             self.assertEqual([row["id"] for row in activation["profiles"]["rogue.low_depth"]["stages"]],
                              ["rogue.eight_species_foes", "rogue.bandages", "rogue.rations",

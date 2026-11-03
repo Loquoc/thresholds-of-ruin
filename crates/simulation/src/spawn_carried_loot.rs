@@ -3,6 +3,13 @@
 use super::*;
 
 pub const MAX_CARRIED_ITEM_POOLS: usize = 32;
+pub const MAX_CARRIED_ITEM_CHOICES: usize = 128;
+
+fn read_carried_choices<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<PreparedItemChoice>, D::Error> {
+    Ok(crate::bounded::Bounded::<PreparedItemChoice, MAX_CARRIED_ITEM_CHOICES>::deserialize(d)?.0)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -63,7 +70,7 @@ impl<'de> Deserialize<'de> for PreparedCarriedItemPool {
         #[serde(deny_unknown_fields)]
         struct Fields {
             version: u32,
-            #[serde(deserialize_with = "read_choices")]
+            #[serde(deserialize_with = "read_carried_choices")]
             choices: Vec<PreparedItemChoice>,
         }
         let fields: Fields = crate::bounded::named_map(d)?;
@@ -137,7 +144,7 @@ impl PreparedCarriedItemPool {
         let mut total = 0u32;
         self.version == 1
             && !self.choices.is_empty()
-            && self.choices.len() <= MAX_CHOICES
+            && self.choices.len() <= MAX_CARRIED_ITEM_CHOICES
             && self.choices.iter().all(|choice| {
                 label(&choice.content)
                     && names.insert(&choice.content)
@@ -248,6 +255,15 @@ impl BirthStockContext<'_> {
         choice: &PreparedActorChoice,
         pools: &'a BTreeMap<String, PreparedCarriedItemPool>,
     ) -> Result<Option<SelectedBirthStock<'a>>, GameError> {
+        self.select_with_food(choice, pools, None)
+    }
+
+    pub(super) fn select_with_food<'a>(
+        &self,
+        choice: &PreparedActorChoice,
+        pools: &'a BTreeMap<String, PreparedCarriedItemPool>,
+        forced_food: Option<&[String]>,
+    ) -> Result<Option<SelectedBirthStock<'a>>, GameError> {
         let Some(policy) = choice.carried_loot.as_ref() else {
             return Ok(None);
         };
@@ -264,7 +280,18 @@ impl BirthStockContext<'_> {
             return Ok(None);
         }
         let mut rng = self.stream(choice, policy, Some((&policy.pool, pool)));
-        let item = weighted_choice(&mut rng, &pool.choices, |item| item.weight);
+        let foods: Vec<_> = pool
+            .choices
+            .iter()
+            .filter(|item| {
+                forced_food.is_some_and(|food| food.binary_search(&item.content).is_ok())
+            })
+            .collect();
+        let item = if foods.is_empty() {
+            weighted_choice(&mut rng, &pool.choices, |item| item.weight)
+        } else {
+            *weighted_choice(&mut rng, &foods, |item| item.weight)
+        };
         let mut quantity_rng = self.quantity_stream(choice, policy, pool, item);
         let quantity = item
             .quantity

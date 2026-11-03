@@ -57,6 +57,7 @@ impl Game {
         profile: &PopulationProfile,
         stage: &PopulationStage,
         newborn: &mut Vec<ActorId>,
+        food_clock: &mut Option<BirthFoodClock>,
     ) -> Result<StageResult, GameError> {
         let PopulationContent::RoomCluster {
             chance,
@@ -125,6 +126,7 @@ impl Game {
                 item_requested.min(room_area),
                 newborn,
                 true,
+                food_clock,
             )?;
             local.depth = actor_depth;
             let actors = self.evaluate_population_attempts(
@@ -135,6 +137,7 @@ impl Game {
                 actor_requested.min(room_area),
                 newborn,
                 true,
+                food_clock,
             )?;
             ClusterSelection::Selected {
                 room: room.id,
@@ -156,6 +159,7 @@ impl Game {
         stage: &PopulationStage,
         depth: u32,
         selection: &ClusterSelection,
+        food_clock: &mut Option<BirthFoodClock>,
     ) -> Result<(), GameError> {
         let PopulationContent::RoomCluster {
             chance,
@@ -192,7 +196,7 @@ impl Game {
                 ClusterSelection::NoEligibleRoom {}
                     if chance_hit && scope.is_none_or(|scope| scope.rooms.is_empty()) =>
                 {
-                    return Ok(())
+                    return Ok(());
                 }
                 ClusterSelection::Selected {
                     room,
@@ -269,7 +273,14 @@ impl Game {
             (true, actors, actor_requested, actor_depth),
         ] {
             let role = role_stage(stage, room_id, requested.min(room_area), is_actor);
-            self.validate_population_attempts(record, profile, &role, effective_depth, attempts)?;
+            self.validate_population_attempts(
+                record,
+                profile,
+                &role,
+                effective_depth,
+                attempts,
+                food_clock,
+            )?;
             // Historical actors/items may be dead, consumed or elsewhere. Check only
             // immutable room and recipe facts, never present occupancy or ownership.
             for attempt in attempts {

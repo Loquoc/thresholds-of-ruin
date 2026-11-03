@@ -50,8 +50,11 @@ def vampire_package(test, *, character=1, carried_ration=False, opponent="vampir
 def generated_carrier_manifest(species="vampire"):
     """One unchanged autonomous carrier against a labeled authored arena build.
 
+    The ration/bandage pool is fixed mechanism stock, not the current 79-item
+    production distribution. Production birth chances are retained.
     The legal HD16 recipe is a mechanism witness, never earned-route or real-kit
-    evidence. Production species, stock chance/pool and AI remain unchanged.
+    evidence. Production species, stock chance and AI remain unchanged; the pool is
+    deliberately fixed historical mechanism stock.
     """
     glyph, depth = {"centaur": ("C", 7), "yeti": ("Y", 11), "troll": ("T", 13),
                     "vampire": ("V", 27), "jabberwock": ("J", 21)}[species]

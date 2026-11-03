@@ -66,6 +66,8 @@ mod test_support;
 pub mod unique_retrieval;
 pub use actor_creatures::{CreatureIdentity, CreatureInspection};
 pub mod ai;
+mod ai_effect_safety;
+mod ai_item_use;
 mod ai_items;
 mod ai_ranged_items;
 pub mod attacks;

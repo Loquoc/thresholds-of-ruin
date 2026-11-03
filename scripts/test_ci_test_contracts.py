@@ -28,6 +28,7 @@ class ContractSelectionTests(unittest.TestCase):
             'test_tooling.Tools.test_valid', 'test_example_process.PureHelpers.test_windows_paths'},
             'graphical': identity == 'test_paired_stairs_process.PairedStairsAsciiProcess.test_native_generated_pair_round_trip'}
             for identity in self.ids}
+        self.repository_owners = contracts.REVIEWED_OWNERS
         owners = {}
         for identity in self.ids:
             module, cls, _ = identity.split('.')
@@ -46,6 +47,20 @@ class ContractSelectionTests(unittest.TestCase):
         selected = self.ids if ids is None else ids
         metadata = {identity: self.metadata.get(identity, {'process': False, 'graphical': False}) for identity in selected}
         return contracts.select(list(paths), selected, root=self.root, test_metadata=metadata)
+
+    def test_birth_inventory_content_owner_covers_discovered_methods(self):
+        import test_rogue_birth_inventory_content as birth
+        module = 'test_rogue_birth_inventory_content'
+        self.assertEqual(self.repository_owners[module], ('RogueBirthInventoryContent',))
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(birth.RogueBirthInventoryContent)
+        ids = [test.id() for test in suite]
+        self.assertEqual(len(ids), 8)
+        self.assertTrue(all(identity.startswith(module + '.RogueBirthInventoryContent.test_') for identity in ids))
+        with patch.dict(contracts.REVIEWED_OWNERS, {module: ('RogueBirthInventoryContent',)}):
+            self.source('scripts/' + module + '.py')
+            result = self.select('scripts/' + module + '.py', ids=sorted(set(self.ids + ids)))
+        self.assertFalse(result['full_required'], result['reasons'])
+        self.assertTrue(set(ids).issubset(result['linux_debug']))
 
     def test_changed_known_class_selects_every_current_method_not_old_snapshot(self):
         result = self.select('scripts/test_example_process.py')

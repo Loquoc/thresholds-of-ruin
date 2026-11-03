@@ -10,10 +10,15 @@ use tor_simulation::{
 };
 use tor_world::{Location, Position, RegionId};
 
-fn drink(game: &mut Game, actor: ActorId, item: ItemId) {
-    game.admit_intention(actor, Action::Drink { item }, IntentionOrigin::Human)
+fn start_item_work(game: &mut Game, actor: ActorId, action: Action) {
+    // Finite-item work reserves its operand through ordinary intention admission.
+    game.admit_intention(actor, action, IntentionOrigin::Human)
         .unwrap();
     game.execute_next_intention().unwrap().outcome.unwrap();
+}
+
+fn drink(game: &mut Game, actor: ActorId, item: ItemId) {
+    start_item_work(game, actor, Action::Drink { item });
 }
 
 fn at(x: i32) -> Location {
@@ -532,14 +537,14 @@ fn newly_visible_hostility_pauses_work_but_resume_accepts_the_existing_threat() 
     )
     .unwrap();
     armor(&mut game, actor);
-    game.act(
+    start_item_work(
+        &mut game,
         actor,
         Action::Equip {
             item: ItemId(10),
             slot: EquipmentSlotId(0),
         },
-    )
-    .unwrap();
+    );
     game.configure_creature(
         other,
         tor_simulation::CreatureIdentity {
@@ -553,14 +558,14 @@ fn newly_visible_hostility_pauses_work_but_resume_accepts_the_existing_threat() 
     game.act(other, Action::Wait).unwrap();
     assert!(!game.preparation(actor).unwrap().active);
     assert!(game.equipment(actor).unwrap().is_empty());
-    game.act(
+    start_item_work(
+        &mut game,
         actor,
         Action::Equip {
             item: ItemId(10),
             slot: EquipmentSlotId(0),
         },
-    )
-    .unwrap();
+    );
     assert!(game.preparation(actor).unwrap().active);
     finish(&mut game, actor);
     assert_eq!(game.equipment(actor).unwrap().len(), 1);
@@ -850,7 +855,7 @@ fn rules_data_controls_equip_unequip_and_consumable_plan_timing() {
                 slot: EquipmentSlotId(0),
             }
         };
-        game.act(actor, action).unwrap();
+        start_item_work(&mut game, actor, action);
         assert_eq!(
             game.preparation(actor).unwrap().plan.preparation(),
             100 * turns
@@ -884,15 +889,19 @@ fn item_timing_product_cannot_create_an_unrestorable_plan() {
     let (mut game, actor, _) = fixture_with_rules(true, AnatomySpec::from_rules(&rules), rules);
     armor(&mut game, actor);
     let before = game.clone();
-    assert!(game
-        .act(
+    assert!(matches!(
+        game.admit_intention(
             actor,
             Action::Equip {
                 item: ItemId(10),
                 slot: EquipmentSlotId(2)
-            }
-        )
-        .is_err());
+            },
+            IntentionOrigin::Human,
+        ),
+        Err(tor_simulation::GameError::Schedule(
+            tor_simulation::ScheduleError::TimeExhausted
+        ))
+    ));
     assert_eq!(game, before);
 }
 
@@ -938,14 +947,14 @@ fn custom_slot_capability_timing_and_checkpoint_use_rules_data() {
     });
     game.place_item_stack(99, at(1), Some(actor), 1, item.clone())
         .unwrap();
-    game.act(
+    start_item_work(
+        &mut game,
         actor,
         Action::Equip {
             item: ItemId(99),
             slot: EquipmentSlotId(1),
         },
-    )
-    .unwrap();
+    );
     assert_eq!(game.preparation(actor).unwrap().plan.preparation(), 200);
     let mut shared = SharedState::default();
     let snapshot = game.checkpoint(&mut shared);
@@ -1040,12 +1049,13 @@ fn shared_grip_capacity_limits_authored_and_paid_equips_without_combat() {
                     .equip_authored(actor, id, EquipmentSlotId(socket))
                     .is_err());
                 assert!(game
-                    .act(
+                    .admit_intention(
                         actor,
                         Action::Equip {
                             item: id,
                             slot: EquipmentSlotId(socket)
-                        }
+                        },
+                        IntentionOrigin::Human,
                     )
                     .is_err());
                 assert_eq!(game.equipment(actor), Some(&before));

@@ -123,14 +123,43 @@ class RogueThrowingProcesses(ProcessTestCase):
         return preview
 
     @non_graphical
+    def test_equipping_carried_dart_stack_splits_one_and_preserves_remainder_after_restart(self):
+        initial = self.setup_encounter()
+        self.assertFalse(initial["state"]["wizard_game"])
+        source = inventory(initial, "dart")
+        self.assertEqual(source["quantity"], "3")
+        owner, _ = self.client()
+        accepted = self.act(owner, {"type": "equip", "item": source["id"], "slot": 10})
+        self.assertIsNone(accepted["error"])
+        equipped = self.settle()
+        darts = [row for row in observation(equipped)["inventory"] if row["name"] == "dart"]
+        self.assertEqual(sorted(int(row["quantity"]) for row in darts), [1, 2])
+        remainder, = [row for row in darts if row["id"] == source["id"]]
+        single, = [row for row in darts if row["id"] != source["id"]]
+        self.assertEqual(remainder["quantity"], "2")
+        self.assertEqual(single["quantity"], "1")
+        slots = {row["item"]: row["equipped_slot"]
+                 for row in observation(equipped)["interactions"]["inventory"]}
+        self.assertIsNone(slots[source["id"]])
+        self.assertEqual(slots[single["id"]], 10)
+        saved = checkpoint(self, self.probe)
+        retained = saved_items(saved, "rogue.dart")
+        self.assertEqual(sorted(row["quantity"] for _, row in retained), [1, 2])
+        self.assertTrue(all(not row["holds"] for _, row in retained))
+        self.assertEqual(retained[0][1]["spec"], retained[1][1]["spec"])
+        owner.stop(); self.probe.stop(); self.peer.stop(); self.game.stop(save=False)
+        remove_sources(self, self.package)
+        self.game = self.server("--checkpoint-interval", 1, seed=None)
+        self.probe, restored = self.client(observe=True)
+        self.assertDisclosedStateEqual(restored["state"], equipped["state"])
+        self.assertEqual(checkpoint(self, self.probe), saved)
+
+    @non_graphical
     def test_text_carried_dart_and_shuriken_preserve_exact_pending_payload_after_source_deletion(self):
         initial = self.setup_encounter()
         self.assertFalse(initial["state"]["wizard_game"])
-        owner, _ = self.client()
-        refused = self.act(owner, {"type": "equip", "item": inventory(initial, "dart")["id"], "slot": 10})
-        self.assertIsNotNone(refused["error"], "a whole multi-unit stack cannot be wielded")
-        self.assertDisclosedStateEqual(self.snapshot()["state"], initial["state"])
-        owner.stop()
+        # Equip-one has its own acceptance witness below; keep this source stack
+        # intact so the throw reservation and restart exercise all three units.
         text = self.text()
         start = len(self.replies)
         self.assertIn("No choices", text.command("throw"))

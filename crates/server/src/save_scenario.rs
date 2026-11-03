@@ -720,7 +720,7 @@ struct CarriedItemPool {
     version: u32,
     #[serde(
         serialize_with = "mapped::serialize",
-        deserialize_with = "bounded_stored::<_, source::CarriedItemChoice, 64>"
+        deserialize_with = "bounded_stored::<_, source::CarriedItemChoice, { tor_simulation::floor_activation::MAX_CARRIED_ITEM_CHOICES }>"
     )]
     choices: Vec<source::CarriedItemChoice>,
 }
@@ -5076,7 +5076,7 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (66, 37, "interactions-v57", 26, 10, 34, "tor-arena-run-v6")
+            (66, 37, "interactions-v58", 26, 10, 34, "tor-arena-run-v6")
         );
     }
 
@@ -7920,10 +7920,20 @@ mod population_boundary_tests {
         reject_shape(actor.carried_loot.as_ref().unwrap());
         reject_shape(&actor.carried_loot.as_ref().unwrap().chance);
         let good = serde_json::to_value(Borrowed(&activation)).unwrap();
+        for count in [79, 128] {
+            let mut accepted = good.clone();
+            accepted["carried_item_pools"]["supplies"]["choices"] = json!(vec![
+                good["carried_item_pools"]["supplies"]["choices"][0].clone(); count
+            ]);
+            let decoded: Owned<source::FloorActivation> = serde_json::from_value(accepted).unwrap();
+            assert_eq!(
+                decoded.0.carried_item_pools["supplies"].choices.len(),
+                count
+            );
+        }
         let mut too_many_choices = good.clone();
         too_many_choices["carried_item_pools"]["supplies"]["choices"] = json!(vec![
-            json!({"archetype":"stock","weight":2,"quantity":7});
-            65
+            good["carried_item_pools"]["supplies"]["choices"][0].clone(); 129
         ]);
         assert!(
             serde_json::from_value::<Owned<source::FloorActivation>>(too_many_choices).is_err()

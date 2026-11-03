@@ -242,3 +242,33 @@ def reviewed_live_activation():
             for name in ("gold", "healing", "fruit", "dart", "shuriken")]}],
         "actor_bands": copy.deepcopy(stages[0]["bands"])})
     return activation
+
+
+def reviewed_birth_item_pool():
+    """Independent pinned numeric fixture, never the live catalog/generator."""
+    import json
+    from pathlib import Path
+    reference = json.loads((Path(__file__).parent / "fixtures/rogue-birth-item-reference.json").read_text())
+    return {"version": 1, "choices": [
+        {"archetype": "rogue.generated_arrow" if row["archetype"] == "rogue.arrow" else row["archetype"], "weight": group["weight"] * row["weight"],
+         "quantity": copy.deepcopy(row["quantity"])}
+        for group in reference["categories"] for row in group["choices"]]}
+
+
+def reviewed_birth_inventory_activation():
+    """Explicit new policy layered on immutable pre-birth live expectations."""
+    activation = reviewed_live_activation()
+    activation["carried_item_pools"]["rogue.vampire_supplies"] = reviewed_birth_item_pool()
+    for stage in activation["profiles"]["rogue.low_depth"]["stages"]:
+        for bands in (stage.get("bands", []), stage.get("actor_bands", []), stage.get("item_bands", [])):
+            for band in bands:
+                for row in band["choices"]:
+                    if row["archetype"] in ("rogue.nymph", "rogue.orc"):
+                        numerator, denominator = (1, 1) if row["archetype"] == "rogue.nymph" else (3, 20)
+                        row["carried_loot"] = {"version": 1, "pool": "rogue.vampire_supplies",
+                                               "chance": {"numerator": numerator, "denominator": denominator}}
+                    if row["archetype"] == "rogue.arrow":
+                        row["archetype"] = "rogue.generated_arrow"
+                    if row["archetype"] == "rogue.dagger":
+                        row["quantity"] = {"kind": "uniform", "minimum": 2, "maximum": 5}
+    return activation

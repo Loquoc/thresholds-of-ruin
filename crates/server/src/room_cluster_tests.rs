@@ -447,6 +447,18 @@ fn room_cluster_item_actor_and_carried_roots_require_spatial_scope() {
     let original = scenario.package.as_ref().unwrap();
     let mut manifest = original.manifest.clone();
     crate::scenario_package::unroot_live_rogue_supplement(&mut manifest);
+    // Neutral fixed birth stock isolates the three explicit reachability roots
+    // below; the production catalog and all tested capability definitions remain.
+    assert_eq!(
+        manifest
+            .floor_activation
+            .as_ref()
+            .unwrap()
+            .carried_item_pools["rogue.vampire_supplies"]
+            .choices
+            .len(),
+        1
+    );
     // An otherwise ordinary unused authored region makes enabled source closure
     // observable through the existing crate-visible admission boundary.
     let unscoped = serde_json::from_value(json!({

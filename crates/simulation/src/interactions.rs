@@ -151,9 +151,10 @@ impl EquipmentSpec {
             && self.periodic_relocation.is_none()
             && self.modifiers.is_empty()
             && self.potency_modifiers.is_empty()
-            && self.weapon_profile.as_ref().is_some_and(|profile| {
-                profile.launcher.is_none() && profile.thrown_payload.is_some()
-            })
+            && self
+                .weapon_profile
+                .as_ref()
+                .is_some_and(|profile| profile.launcher.is_none())
     }
     pub fn valid_shape(&self) -> bool {
         self.potency_modifiers
@@ -863,8 +864,19 @@ impl Game {
         let prepared = self.prepare_actor_outcome(outcome)?;
         self.publish_actor_effect(prepared, false)
     }
+    /// Ordinary work may equip one homogeneous weapon unit, never the stack.
+    /// Persisted equipment and its compiled sources still require singletons.
+    pub(crate) fn item_equip_unit_available(&self, item: ItemId) -> bool {
+        self.items.get(&item).is_some_and(|item| {
+            item.quantity > 0
+                && item.condition_valid()
+                && (item.quantity == 1
+                    || (item.spec.stackable && item.spec.stackable_weapon_shape()))
+        })
+    }
+
     /// A throw temporarily allocates one unit to a free socket without equipping
-    /// its entire carried stack. Ordinary equip additionally requires a singleton.
+    /// its entire carried stack. Ordinary equip extracts a reserved singleton.
     pub(crate) fn item_socket_available(
         &self,
         actor: ActorId,
@@ -901,7 +913,8 @@ impl Game {
         };
         match work {
             Work::Equip { slot, .. } => {
-                i.quantity == 1 && self.item_socket_available(actor, item, *slot)
+                self.item_equip_unit_available(item)
+                    && self.item_socket_available(actor, item, *slot)
             }
             Work::Unequip { .. } => {
                 i.spec.equipment.is_some() && a.equipment.values().any(|id| *id == item)
@@ -945,9 +958,21 @@ impl Game {
                 {
                     return Err(GameError::ItemUnavailable);
                 }
-                let mut candidate = a.equipment.clone();
-                candidate.insert(slot, item);
-                self.equipment_candidate(actor, candidate)?;
+                if !self.item_equip_unit_available(item) {
+                    return Err(GameError::ItemUnavailable);
+                }
+                if i.quantity == 1 {
+                    let mut candidate = a.equipment.clone();
+                    candidate.insert(slot, item);
+                    self.equipment_candidate(actor, candidate)?;
+                } else {
+                    // The captured target/occupant profiles prove the capacity
+                    // of ONE unit without weakening persisted equipment shape.
+                    self.capture_carried_weapon_allocation(actor, item, slot)?;
+                    self.next_item_id
+                        .checked_add(1)
+                        .ok_or(GameError::IdentityExhausted)?;
+                }
                 // Quickdraw is canonical zero-time work. Do not scale or bound
                 // the unused ordinary equip duration before applying that trait.
                 if self

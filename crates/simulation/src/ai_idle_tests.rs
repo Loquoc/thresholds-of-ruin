@@ -920,3 +920,109 @@ fn npc_slow_digestion_values_effective_required_rate_without_vetoing_combat_upke
         );
     }
 }
+
+#[test]
+fn generic_ai_selects_a_homogeneous_weapon_stack_and_equips_one_through_ordinary_work() {
+    let mut document = crate::test_creatures::ruleset().document().clone();
+    let expertise = crate::content_ids::ExpertiseId::new("fixture.stack-weapon").unwrap();
+    document.expertises.push(crate::expertise::ExpertiseDef {
+        id: expertise.clone(),
+        name: "Stack weapon".into(),
+        category: crate::expertise::ExpertiseCategory::Equipment,
+    });
+    let rules = crate::rules::Ruleset::validate(document).unwrap();
+    let mut game = fixture_with_rules(AiProfile::general(), rules);
+    let actor = ActorId(2);
+    let mut spec = ItemSpec::ordinary(
+        "item.weapon.generic-stack".parse().unwrap(),
+        "plain clubs".into(),
+    );
+    spec.class = crate::ItemClass::Weapon;
+    spec.stackable = true;
+    // Match the fixture's natural Impact channel: ranking intentionally refuses
+    // cross-category tradeoffs rather than assuming Keen dominates Impact.
+    let damage = crate::damage::DamageComponent::fixed(crate::combat::DamageType::Impact, None, 20);
+    let primary = damage.key();
+    spec.equipment = Some(crate::EquipmentSpec {
+        slot: crate::EquipmentSlot::new("weapon").unwrap(),
+        periodic_relocation: None,
+        armor: None,
+        modifiers: vec![],
+        potency_modifiers: vec![],
+        attack: Some(
+            crate::attacks::MeleeAttack::new(
+                crate::attributes::Skill::HeavyWeaponry,
+                10,
+                1,
+                1,
+                crate::damage::DamageSpec::new(vec![damage], Some(primary)).unwrap(),
+            )
+            .unwrap(),
+        ),
+        weapon_profile: Some(crate::weapon_profiles::WeaponProfileSpec {
+            expertise,
+            launcher: None,
+            thrown_payload: None,
+            base_traits: vec![],
+            expert_traits: crate::weapon_profiles::WeaponTraitChanges {
+                add: vec![],
+                remove: vec![],
+            },
+        }),
+    });
+    let source = game
+        .place_item_stack(40, game.actors[&actor].location, Some(actor), 3, spec)
+        .unwrap();
+    assert!(
+        game.gear_destination(actor, source).is_some(),
+        "fixture is an unambiguous same-category upgrade"
+    );
+    let before = game.clone();
+    let decision = game.choose_ai(actor).unwrap();
+    let Action::Equip { item, slot } = decision.action else {
+        panic!("AI must choose useful carried stack: {:?}", decision.action)
+    };
+    assert_eq!(item, source);
+    let ordinary = game
+        .plan_work(actor, crate::Work::Equip { item, slot })
+        .unwrap();
+    if let Some(plan) = decision.plan {
+        assert_eq!(plan, ordinary);
+    }
+    assert_eq!(
+        game, before,
+        "ranking never mutates physical quantities or knowledge"
+    );
+    // A ready peer keeps the real scheduler at the admission boundary, so
+    // this test can inspect the held unit before ordinary completion.
+    game.spawn_actor(at(1, 0, 0), std::num::NonZeroU64::new(100).unwrap())
+        .unwrap();
+    game.act(ActorId(1), Action::Wait).unwrap();
+    game.admit_ai_intention(actor).unwrap();
+    let execution = game.execute_next_intention().unwrap();
+    assert_eq!(execution.action, Some(Action::Equip { item, slot }));
+    execution.outcome.unwrap();
+    let pending = game.preparation(actor).unwrap();
+    assert_eq!(pending.plan, ordinary);
+    assert_eq!(game.items[&source].holds[0].quantity, 1);
+    game.tick += pending.remaining_at(game.actor_clock(actor));
+    for id in game.actors.keys().copied().collect::<Vec<_>>() {
+        game.actors.get_mut(&id).unwrap().ready_at = game.tick;
+    }
+    game.with_effect_publication(|game| game.resolve_preparations())
+        .unwrap();
+    let equipped = game.equipment(actor).unwrap()[&slot];
+    assert_ne!(equipped, source);
+    assert_eq!(game.items[&equipped].quantity, 1);
+    assert_eq!(game.items[&source].quantity, 2);
+    assert!(game.items[&equipped]
+        .spec
+        .equipment
+        .as_ref()
+        .unwrap()
+        .weapon_profile
+        .as_ref()
+        .unwrap()
+        .thrown_payload
+        .is_none());
+}
