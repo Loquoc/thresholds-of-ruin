@@ -5,8 +5,50 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-/// Everything the world stores for one region. Links *into* the region stay
-/// with their source regions; links *out of* it travel with the slice.
+/// One region's physical payload for detachment, generation or reattachment.
+///
+/// Links *into* the region stay with their source regions; links *out of* it
+/// travel with the slice. The world retains known metadata and published anchor
+/// coordinates while the payload is absent. This value contains no simulation
+/// actors, activity clocks or host persistence barrier.
+///
+/// Deserialization alone is not validation or trusted-source identity. See
+/// [`Self::valid`] and [`World::attach_region`] for the local validation boundary.
+///
+/// ```
+/// use std::collections::BTreeSet;
+/// use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, RegionSlice, World};
+/// let regions = [1, 2].map(|id| Region {
+///     id: RegionId(id), name: format!("Room {id}"),
+///     bounds: Extent::new(3, 3, 2).unwrap(),
+/// });
+/// let left = Location { region: RegionId(1), position: Position { x: 2, y: 1, z: 0 } };
+/// let right = Location { region: RegionId(2), position: Position { x: 0, y: 1, z: 0 } };
+/// let mut world = World::new(regions.into(), vec![
+///     Passage { from: left, direction: Direction::East, to: right },
+///     Passage { from: right, direction: Direction::West, to: left },
+/// ]).unwrap();
+/// world.place_door(right, 7, false, 1).unwrap();
+/// let before = world.clone();
+/// let slice = world.detach_region(RegionId(2)).unwrap();
+/// assert!(slice.valid());
+/// assert!(world.knows(right));
+/// assert!(!world.contains(right));
+/// assert!(world.region(RegionId(2)).is_none());
+/// assert_eq!(world.known_region(RegionId(2)), Some(slice.region()));
+/// assert_eq!(world.linked_regions(RegionId(1)), BTreeSet::from([RegionId(2)]));
+/// assert!(world.linked_regions(RegionId(2)).is_empty());
+/// assert_eq!(slice.linked_regions(), BTreeSet::from([RegionId(1)]));
+/// assert_eq!(world.link_destination(left, Direction::East), Some(right));
+/// assert_eq!(world.step(left, Direction::East), None);
+///
+/// let encoded = serde_json::to_vec(&slice).unwrap();
+/// let decoded: RegionSlice = serde_json::from_slice(&encoded).unwrap();
+/// world.attach_region(decoded).unwrap();
+/// assert_eq!(world, before);
+/// world.set_door(right, true);
+/// assert_eq!(world.step(left, Direction::East), Some(right));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegionSlice {
@@ -43,14 +85,18 @@ pub struct RegionSlice {
 }
 
 impl RegionSlice {
+    /// The region identity carried by this payload's metadata.
     pub fn id(&self) -> RegionId {
         self.region.id
     }
+    /// Borrow the metadata that must match the receiving world's known region.
     pub fn region(&self) -> &Region {
         &self.region
     }
-    /// Identities of the doors in this region.
-    /// Regions this region's links lead to, in id order.
+    /// Distinct destinations of outgoing passages/named stairs, in region-ID order.
+    ///
+    /// Includes unresolved named stairs. This is a structural dependency list,
+    /// not a claim that their landing coordinates or terrain are available.
     pub fn linked_regions(&self) -> BTreeSet<RegionId> {
         self.passages
             .values()
@@ -58,17 +104,27 @@ impl RegionSlice {
             .chain(self.named_stairs.values().map(|to| to.region))
             .collect()
     }
+    /// Door identities in base-location order, not numeric identity order.
     pub fn door_ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.doors.values().map(|door| door.id)
     }
     /// Immutable feature payloads, for content-aware restore validation.
+    ///
+    /// Iterates in trap-location order. No actor-specific concealment filtering
+    /// occurs here; a region slice is backend state.
     pub fn traps(&self) -> impl Iterator<Item = &Trap> {
         self.traps.values()
     }
+    /// Trap identities in location order, not numeric identity order.
     pub fn trap_ids(&self) -> impl Iterator<Item = u64> + '_ {
         self.traps.values().map(|trap| trap.id)
     }
-    /// Structural validity, independent of the rest of the world.
+    /// Check the local structural constraints used by region attachment.
+    ///
+    /// This does not consult other regions, prove trusted-source identity or
+    /// replace [`World::checkpoint_valid`]. That world-level check covers
+    /// additional cross-cell and allocator invariants. The simulation/host also
+    /// owns content membership, identity directories and lifecycle validation.
     pub fn valid(&self) -> bool {
         let id = self.region.id;
         let inside = |at: &Location| at.region == id && self.region.bounds.contains(at.position);
@@ -214,6 +270,8 @@ impl RegionKey for (Location, Direction) {
         self.0.region
     }
     fn first(region: RegionId) -> Self {
+        // North is the first Direction variant under derived Ord. Changing
+        // enum/key order requires revisiting every region-local range bound.
         (Location::first(region), Direction::North)
     }
 }
@@ -248,6 +306,8 @@ fn take_region<K: RegionKey, V: Clone>(
         .collect()
 }
 
+// Match take_region's empty-owner fast path: do not detach shared storage merely
+// to discover that this region contributes no keys.
 fn take_set<K: RegionKey>(set: &mut Shared<BTreeSet<K>>, region: RegionId) -> BTreeSet<K> {
     let keys = region_keys(set.range(K::first(region)..), region);
     if !keys.is_empty() {
@@ -259,14 +319,17 @@ fn take_set<K: RegionKey>(set: &mut Shared<BTreeSet<K>>, region: RegionId) -> BT
 }
 
 impl World {
-    /// Whether `region` is loaded or detached: known to this world either way.
+    /// Whether a region is loaded or known absent, including not-yet-built regions.
+    ///
+    /// This is backend topology knowledge, not an actor's disclosed knowledge.
     pub fn knows_region(&self, region: RegionId) -> bool {
         self.regions.contains_key(&region) || self.absent.contains_key(&region)
     }
 
-    /// Whether `location` lies inside a loaded or detached region. References
+    /// Whether `location` lies inside a loaded, detached or unbuilt region. References
     /// held as knowledge (memory, objectives) are checked with this; anything
     /// that acts on terrain uses [`World::contains`].
+    /// No terrain, occupancy or actor-specific disclosure check is performed.
     pub fn knows(&self, location: Location) -> bool {
         self.contains(location)
             || self
@@ -279,6 +342,16 @@ impl World {
     /// metadata is here and its content arrives later as a [`RegionSlice`].
     /// A chamber's stored bounds include its stone shell, as
     /// [`World::add_chamber`] makes them.
+    ///
+    /// Pass the interior bounds when `chamber` is true; the helper expands them
+    /// exactly once. This registers metadata only, without invoking a generator
+    /// or storing a payload. The caller supplies valid metadata and the identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::DuplicateRegion`] for any already-known identity,
+    /// or [`WorldError::InvalidEndpoint`] if shell bounds overflow. An error
+    /// leaves the world unchanged.
     pub fn add_unbuilt_region(
         &mut self,
         mut region: Region,
@@ -299,16 +372,22 @@ impl World {
 
     /// A loaded, detached or unbuilt region's metadata. Knowledge of a
     /// region (its name, say) outlives its content being loaded.
+    /// Returns `None` only when neither loaded nor absent metadata exists.
     pub fn known_region(&self, id: RegionId) -> Option<&Region> {
         self.region(id).or_else(|| self.absent.get(&id))
     }
 
-    /// Loaded regions, in id order.
+    /// Currently loaded region identities, in ascending ID order.
+    ///
+    /// This iterator neither builds nor activates a region.
     pub fn loaded_regions(&self) -> impl Iterator<Item = RegionId> + '_ {
         self.regions.keys().copied()
     }
 
-    /// Detached regions, in id order.
+    /// Known absent region identities, in ascending ID order.
+    ///
+    /// Includes both detached and not-yet-built regions. The world does not
+    /// distinguish those host/simulation lifecycle states in this iterator.
     pub fn detached_regions(&self) -> impl Iterator<Item = RegionId> + '_ {
         self.absent.keys().copied()
     }
@@ -316,6 +395,9 @@ impl World {
     /// Regions that a link out of `region` leads to, in id order. Rim
     /// projection also follows these links, so they cover every region a
     /// step from `region` can reach.
+    /// Includes unresolved named stairs, unlike [`World::required_linked_regions`].
+    /// Only outgoing links currently held by the world participate; links removed
+    /// with an absent source live in its [`RegionSlice`] instead.
     pub fn linked_regions(&self, region: RegionId) -> BTreeSet<RegionId> {
         self.exits(region)
             .map(|p| p.to.region)
@@ -331,6 +413,9 @@ impl World {
     /// Dependencies whose coordinates can already participate in movement or
     /// geometry. Unresolved named stairs are structural edges only; a loader
     /// may defer preparing them when its immutable source cannot supply them.
+    ///
+    /// Ordinary passage destinations and resolved named stairs are included even
+    /// when their regions are absent. The result is deduplicated in region-ID order.
     pub fn required_linked_regions(&self, region: RegionId) -> BTreeSet<RegionId> {
         self.exits(region)
             .map(|passage| passage.to.region)
@@ -349,6 +434,16 @@ impl World {
     }
 
     /// Publish a prepared record's structural anchors before any member attaches.
+    ///
+    /// Borrows the slice without attaching its terrain or other payload. This
+    /// lets named dependencies resolve before the residency transaction attaches
+    /// the complete required set.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::InvalidEndpoint`] for a locally invalid slice,
+    /// metadata differing from the known region, or an anchor publication
+    /// rejected by [`World::register_named_anchors`]. Rejection changes nothing.
     pub fn publish_region_anchors(&mut self, slice: &RegionSlice) -> Result<(), WorldError> {
         if !slice.valid() || self.known_region(slice.id()) != Some(slice.region()) {
             return Err(WorldError::InvalidEndpoint);
@@ -356,13 +451,22 @@ impl World {
         self.register_named_anchors(slice.id(), slice.named_anchors.clone())
     }
 
-    /// Remove a loaded region's content, keeping its metadata so references
-    /// into it stay checkable. Links into it from other regions stay, and
-    /// lead nowhere until it's attached again.
+    /// Remove a loaded region's payload while retaining known metadata and anchors.
+    ///
+    /// Incoming links remain with their source regions. Their coordinates can
+    /// still resolve, but their absent destination is not a walkable loaded cell.
+    /// Outgoing links and physical payload move into the returned [`RegionSlice`].
+    /// Simulation actors, clocks and storage are outside this operation's scope.
     ///
     /// Only sight scenes that list this region are invalidated. That's exact:
     /// a scene lists every region it entered and every region linked from
     /// them, and links into this region stay with their source regions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::InvalidEndpoint`] if the region is not loaded,
+    /// leaving the world unchanged. Detaching is not validation of a world
+    /// previously obtained from untrusted serialized state.
     pub fn detach_region(&mut self, id: RegionId) -> Result<RegionSlice, WorldError> {
         let region = self
             .regions
@@ -428,9 +532,48 @@ impl World {
         Ok(slice)
     }
 
-    /// Restore a detached region exactly as it was detached. Fails, changing
-    /// nothing, unless the region is detached with the same metadata and none
-    /// of its door identities is in use.
+    /// Attach a payload to matching known absent metadata.
+    ///
+    /// Accepts a detached payload or an initially generated one. The supplied
+    /// slice is consumed even on error; clone it first if a caller needs to retain
+    /// it for another candidate. Successful attachment publishes its anchors and
+    /// invalidates affected sight witnesses. It does not activate simulation
+    /// actors, validate trusted-source identity or establish persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::InvalidEndpoint`] if absent metadata is missing or
+    /// differs, [`RegionSlice::valid`] fails, a door/trap ID conflicts with loaded
+    /// geometry, or anchor publication conflicts. Every rejection leaves this
+    /// world unchanged. The enclosing host must still validate content and
+    /// complete identity/lifecycle invariants.
+    ///
+    /// ```
+    /// use tor_world::{Extent, Location, Position, Region, RegionId, World};
+    /// let regions = [1, 2].map(|id| Region {
+    ///     id: RegionId(id), name: format!("Room {id}"),
+    ///     bounds: Extent::new(3, 3, 2).unwrap(),
+    /// });
+    /// let at = |region| Location {
+    ///     region: RegionId(region), position: Position { x: 1, y: 1, z: 0 },
+    /// };
+    /// let mut world = World::new(regions.into(), vec![]).unwrap();
+    /// world.place_door(at(2), 7, false, 1).unwrap();
+    /// let slice = world.detach_region(RegionId(2)).unwrap();
+    ///
+    /// // Deliberately introduce an ID conflict in a separate candidate.
+    /// let mut conflicting = world.clone();
+    /// conflicting.place_door(at(1), 7, true, 1).unwrap();
+    /// let before = conflicting.clone();
+    /// assert!(conflicting.attach_region(slice.clone()).is_err());
+    /// assert_eq!(conflicting, before);
+    /// assert!(!conflicting.contains(at(2)));
+    ///
+    /// // Retaining the slice permits attachment to the original, valid candidate.
+    /// world.attach_region(slice).unwrap();
+    /// assert!(world.contains(at(2)));
+    /// assert_eq!(world.door_location(7), Some(at(2)));
+    /// ```
     pub fn attach_region(&mut self, slice: RegionSlice) -> Result<(), WorldError> {
         let id = slice.id();
         if self.absent.get(&id) != Some(&slice.region) || !slice.valid() {

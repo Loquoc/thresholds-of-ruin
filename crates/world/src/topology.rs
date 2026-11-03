@@ -8,25 +8,43 @@ pub mod checkpoint;
 mod region_slice;
 pub use region_slice::RegionSlice;
 
+/// Region identity used to scope coordinates and deterministic table ordering.
+///
+/// This is a numeric label, not a loaded-region handle or allocation authority.
+/// Construction/deserialization does not prove that a world knows the identity.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
-pub struct RegionId(pub u64);
+pub struct RegionId(#[doc = "The host-assigned numeric identity."] pub u64);
 
+/// A cell coordinate paired with the region whose frame gives it meaning.
+///
+/// Ordering compares the region before its position. Region-local range scans
+/// depend on that order. A value may name unloaded or nonexistent geometry;
+/// distinguish [`World::knows`] from [`World::contains`].
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Location {
+    /// Owner of the coordinate frame, not proof of current residency.
     pub region: RegionId,
+    /// Cell position in that owner's local frame.
     pub position: Position,
 }
 
 /// A named destination whose coordinates are published with its region.
+///
+/// A stair may retain this reference before its coordinates or region content
+/// are available. Constructing/deserializing it does not register or validate
+/// the name; [`World::connect_named_stair`] and [`World::register_named_anchors`]
+/// check their respective input contracts.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NamedAnchor {
+    /// Known destination region, which need not be loaded.
     pub region: RegionId,
+    /// Anchor key: 1–80 ASCII letters, digits, underscores or hyphens when registered.
     pub name: String,
 }
 
@@ -63,27 +81,46 @@ impl<'de> serde::Deserialize<'de> for NamedAnchor {
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub enum Direction {
+    /// One cell toward decreasing y.
     North,
+    /// One cell toward increasing x.
     East,
+    /// One cell toward increasing y.
     South,
+    /// One cell toward decreasing x.
     West,
+    /// Increasing x and decreasing y.
     NorthEast,
+    /// Increasing x and increasing y.
     SouthEast,
+    /// Decreasing x and increasing y.
     SouthWest,
+    /// Decreasing x and decreasing y.
     NorthWest,
+    /// One cell toward increasing z.
     Up,
+    /// One cell toward decreasing z.
     Down,
+    /// Increasing x and increasing z.
     EastUp,
+    /// Decreasing x and increasing z.
     WestUp,
+    /// Decreasing y and increasing z.
     NorthUp,
+    /// Increasing y and increasing z.
     SouthUp,
+    /// Increasing x and decreasing z.
     EastDown,
+    /// Decreasing x and decreasing z.
     WestDown,
+    /// Decreasing y and decreasing z.
     NorthDown,
+    /// Increasing y and decreasing z.
     SouthDown,
 }
 
 impl Direction {
+    /// The four horizontal cardinals in NESW order, then NE, SE, SW and NW.
     pub const HORIZONTAL: [Self; 8] = [
         Self::North,
         Self::East,
@@ -95,6 +132,10 @@ impl Direction {
         Self::NorthWest,
     ];
 
+    /// Decompose a two-axis diagonal into its ordered cardinal components.
+    ///
+    /// Returns `None` for the six cardinals. This is a coordinate decomposition,
+    /// not a traversability test; [`World::diagonal_reach`] checks the routes.
     #[inline]
     pub fn components(self) -> Option<(Self, Self)> {
         match self {
@@ -114,6 +155,10 @@ impl Direction {
         }
     }
 
+    /// Return the unit cell delta `(x, y, z)` in the current region's frame.
+    ///
+    /// Diagonal components each have magnitude one; the vector is not normalized
+    /// to a Euclidean unit length. Crossing a portal can change the local frame.
     #[inline]
     pub fn delta(self) -> (i32, i32, i32) {
         match self {
@@ -147,6 +192,19 @@ impl Direction {
         })
     }
 
+    /// Match an exact cardinal or two-axis diagonal unit delta.
+    ///
+    /// Returns `None` for zero, longer vectors and three-axis corner diagonals.
+    /// Components are not rounded, normalized or reduced to their signs.
+    ///
+    /// ```
+    /// use tor_world::Direction;
+    /// assert_eq!(Direction::from_delta([1, 0, 1]), Some(Direction::EastUp));
+    /// assert_eq!(Direction::from_delta([2, 0, 2]), None);
+    /// assert_eq!(Direction::from_delta([1, 1, 1]), None);
+    /// assert_eq!(Direction::East.rotated(1), Direction::South);
+    /// assert_eq!(Direction::NorthEast.components(), Some((Direction::North, Direction::East)));
+    /// ```
     #[inline]
     pub fn from_delta(v: [i64; 3]) -> Option<Self> {
         Some(match v {
@@ -171,6 +229,14 @@ impl Direction {
             _ => return None,
         })
     }
+    /// Transform this direction with a proper cube-rotation ID in `0..24`.
+    ///
+    /// `turns` is the historical name for the full rotation ID, not an arbitrary
+    /// count of quarter turns. See [`crate::rotate_vector`].
+    ///
+    /// # Panics
+    ///
+    /// Panics for IDs outside `0..24`.
     #[inline]
     pub fn rotated(self, turns: u8) -> Self {
         if turns == 0 {
@@ -189,32 +255,52 @@ impl Direction {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Region {
+    /// Stable owner identity; adding a region does not allocate this value.
     pub id: RegionId,
+    /// Authored display metadata, not a unique lookup key.
     pub name: String,
+    /// Storage bounds. A chamber's registered bounds include its material shell.
     pub bounds: Extent,
 }
 
 /// A directed, single-cell connection. Horizontal apertures are at boundaries;
 /// explicit vertical links can represent stairs within a room. Rotation metadata
-/// is validated by `World::connect`. A passage need not contain a door entity.
+/// is validated by [`World::connect`]. A passage need not contain a door entity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Passage {
+    /// Source cell in the owning region; the link is stored with this region.
     pub from: Location,
+    /// Cardinal exit direction in the source frame.
     pub direction: Direction,
+    /// Destination cell in its own region's frame.
     pub to: Location,
 }
 
+/// Rejection categories for world construction and topology mutation.
+///
+/// Individual methods describe their validation boundary; these categories do
+/// not encode actor permission, simulation costs or persistence failures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorldError {
+    /// The relevant region registry already contains this identity.
     DuplicateRegion,
+    /// A location, record, geometry parameter or other structural input is invalid.
     InvalidEndpoint,
+    /// A horizontal connection would not exit the source region/interior boundary.
     NotBoundaryExit,
+    /// Another ordinary passage or named stair already owns the exit.
     DuplicateExit,
+    /// A crossing rotation is outside the 24 supported proper cube rotations.
     InvalidRotation,
 }
 
-/// Validated region topology with stable iteration order.
+/// Region topology and physical payloads with stable iteration order.
+///
+/// Loaded geometry and known-but-absent metadata are separate. Values obtained by
+/// raw deserialization still require the enclosing checkpoint/content validation;
+/// serialization support is not a proof of validity or client disclosure.
+/// Cloning uses copy-on-write storage, while equality ignores derived sight caches.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct World {
@@ -308,6 +394,16 @@ fn raised(location: Location, cells: i32) -> Option<Location> {
 
 impl World {
     /// Publish immutable coordinates, independently of region residency.
+    ///
+    /// Names are 1–80 ASCII letters, digits, underscores or hyphens; each
+    /// coordinate must satisfy [`World::knows`]. Publishing the same map again
+    /// is allowed. An empty map is not stored, and publication never loads terrain.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::InvalidEndpoint`] for an invalid name/coordinate or
+    /// a map differing from the region's already-published map. Rejection leaves
+    /// the world unchanged.
     pub fn register_named_anchors(
         &mut self,
         region: RegionId,
@@ -333,6 +429,57 @@ impl World {
         Ok(())
     }
     /// Connect a visible logical stair without inspecting its destination's terrain.
+    ///
+    /// The destination region must be known, but its named coordinates may be
+    /// unresolved and its content absent. This directed link creates no reverse
+    /// stair. Use [`World::stair_region`] for its owner before coordinates exist,
+    /// and [`World::link_destination`] after anchor publication.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::InvalidEndpoint`] unless the direction is up/down,
+    /// the source is walkable, the destination region is known, its anchor name
+    /// has valid syntax, and no passage/named stair owns this exit. A rejected
+    /// connection changes nothing; a successful one does not authorize movement.
+    ///
+    /// ```
+    /// use std::collections::{BTreeMap, BTreeSet};
+    /// use tor_world::{Direction, Extent, Location, NamedAnchor, Position, Region, RegionId, World};
+    /// let region = |id| Region {
+    ///     id: RegionId(id), name: format!("Floor {id}"),
+    ///     bounds: Extent::new(3, 3, 2).unwrap(),
+    /// };
+    /// let from = Location { region: RegionId(1), position: Position { x: 1, y: 1, z: 0 } };
+    /// let to = Location { region: RegionId(2), position: Position { x: 2, y: 1, z: 0 } };
+    /// let mut world = World::new(vec![region(1)], vec![]).unwrap();
+    /// world.add_unbuilt_region(region(2), false).unwrap();
+    /// world.connect_named_stair(from, Direction::Down, NamedAnchor {
+    ///     region: RegionId(2), name: "landing".into(),
+    /// }).unwrap();
+    /// assert_eq!(world.stair_region(from, Direction::Down), Some(RegionId(2)));
+    /// assert_eq!(world.linked_regions(RegionId(1)), BTreeSet::from([RegionId(2)]));
+    /// assert!(world.required_linked_regions(RegionId(1)).is_empty());
+    /// assert_eq!(world.link_destination(from, Direction::Down), None);
+    ///
+    /// let mut generated = World::new(vec![region(2)], vec![]).unwrap();
+    /// generated.register_named_anchors(RegionId(2), BTreeMap::from([
+    ///     ("landing".into(), to.position),
+    /// ])).unwrap();
+    /// let target = generated.detach_region(RegionId(2)).unwrap();
+    /// world.publish_region_anchors(&target).unwrap();
+    /// assert_eq!(world.required_linked_regions(RegionId(1)), BTreeSet::from([RegionId(2)]));
+    /// assert_eq!(world.link_destination(from, Direction::Down), Some(to));
+    /// assert!(!world.contains(to)); // Coordinates can resolve before terrain arrives.
+    /// assert_eq!(world.step(from, Direction::Down), None);
+    /// world.attach_region(target).unwrap();
+    /// assert_eq!(world.step(from, Direction::Down), Some(to));
+    ///
+    /// let before = world.clone();
+    /// assert!(world.register_named_anchors(RegionId(2), BTreeMap::from([
+    ///     ("landing".into(), Position { x: 0, y: 1, z: 0 }),
+    /// ])).is_err());
+    /// assert_eq!(world, before); // Published anchors cannot silently move.
+    /// ```
     pub fn connect_named_stair(
         &mut self,
         from: Location,
@@ -612,6 +759,16 @@ impl World {
         self.sight_step(from, direction).map(|(to, _)| to)
     }
 
+    /// Construct ordinary empty-terrain regions and directed zero-rotation passages.
+    ///
+    /// Region metadata is inserted as supplied; the caller must provide valid
+    /// bounds and identities. Use [`World::add_chamber`] instead when an interior
+    /// needs a finite stone shell. Each passage is checked by [`World::connect`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::DuplicateRegion`] for repeated region IDs, or the
+    /// first passage's connection error. An error returns no partial world.
     pub fn new(regions: Vec<Region>, passages: Vec<Passage>) -> Result<Self, WorldError> {
         let mut world = Self {
             doors: Shared::new(BTreeMap::new()),
@@ -644,6 +801,19 @@ impl World {
         Ok(world)
     }
 
+    /// Insert validated metadata for a new loaded, empty-terrain region.
+    ///
+    /// The duplicate check covers loaded IDs only. A known absent ID is accepted
+    /// without removing its retained absent metadata, so this primitive is not a
+    /// complete residency/replacement transaction. The simulation/host owns that
+    /// reconciliation; use [`World::attach_region`] to restore a region payload.
+    /// This helper does not validate deserialized bounds or allocate identities.
+    /// Successful insertion invalidates derived topology witnesses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::DuplicateRegion`] if the identity is already loaded,
+    /// leaving the world unchanged.
     pub fn add_region(&mut self, region: Region) -> Result<(), WorldError> {
         if self.regions.contains_key(&region.id) {
             return Err(WorldError::DuplicateRegion);
@@ -655,6 +825,17 @@ impl World {
 
     /// Allocate finite stone and carve the requested interior. Joins override
     /// adjacent shell cells, so a storage partition does not create a barrier.
+    ///
+    /// `region.bounds` describes the interior on input. Registered metadata has
+    /// one additional storage cell on every face, without translating positions;
+    /// the shell defaults to stone and the interior to empty terrain. The same
+    /// metadata and residency qualifications as [`World::add_region`] apply.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldError::InvalidEndpoint`] if shell bounds overflow, or
+    /// [`WorldError::DuplicateRegion`] if the identity is already loaded.
+    /// Rejection changes nothing.
     pub fn add_chamber(&mut self, mut region: Region) -> Result<(), WorldError> {
         let interior = region.bounds;
         region.bounds = interior.with_shell().ok_or(WorldError::InvalidEndpoint)?;
@@ -950,6 +1131,12 @@ impl World {
     }
 
     /// Immutable sparse topology only, without destination or navigation lookup.
+    ///
+    /// Yields `(source, is_logical_stair)` for every named stair, then every
+    /// ordinary passage owned by `region`. Each group is in source/direction
+    /// order; their concatenation is not a single globally sorted sequence.
+    /// Multiple exits at one source remain separate entries. The boolean is
+    /// false for horizontal passages and physical vertical joins.
     pub fn stair_candidates_in_region(
         &self,
         region: RegionId,
@@ -990,6 +1177,10 @@ impl World {
     }
 
     /// Known owner of a stair landing, even before its coordinates exist.
+    ///
+    /// Returns `None` when this exit is not a logical up/down stair. A returned
+    /// identity does not imply that the landing has resolved coordinates or
+    /// loaded terrain. Physical vertical joins are not logical stairs.
     pub fn stair_region(&self, from: Location, direction: Direction) -> Option<RegionId> {
         if !self.is_stair(from, direction) {
             return None;
@@ -1003,6 +1194,12 @@ impl World {
             })
     }
 
+    /// Resolve an explicit passage or a named stair with published coordinates.
+    ///
+    /// Returns `None` for an ordinary unlinked neighbor or unresolved anchor.
+    /// Does not require the source or destination to be currently walkable, nor
+    /// the destination region to be loaded. Use [`World::step`] for a walkable
+    /// point destination; this lookup alone is not movement permission.
     pub fn link_destination(&self, from: Location, direction: Direction) -> Option<Location> {
         if let Some(passage) = self.passage(from, direction) {
             return Some(passage.to);
@@ -1193,15 +1390,29 @@ impl World {
         self.cell_gravity.insert(at, vector);
         Ok(())
     }
+    /// Return metadata only when the region's geometry is loaded.
+    ///
+    /// Use [`World::known_region`] when metadata must survive detachment or
+    /// precede initial construction.
     pub fn region(&self, id: RegionId) -> Option<&Region> {
         self.regions.get(&id)
     }
 
+    /// Whether a cell lies inside a currently loaded region's storage bounds.
+    ///
+    /// Solid terrain and closed doors still satisfy this test. It does not check
+    /// movement, visibility or actor occupancy; [`World::knows`] also admits
+    /// coordinates in known absent regions.
     pub fn contains(&self, location: Location) -> bool {
         self.region(location.region)
             .is_some_and(|region| region.bounds.contains(location.position))
     }
 
+    /// Ordinary passages owned by a loaded source region, in source/direction order.
+    ///
+    /// Named stairs are stored separately and are not yielded. Destination
+    /// regions may be absent; detaching the source moves its passages into the
+    /// [`RegionSlice`]. No destination walkability or actor permission is checked.
     pub fn exits(&self, region: RegionId) -> impl Iterator<Item = &Passage> {
         let start = Location {
             region,
