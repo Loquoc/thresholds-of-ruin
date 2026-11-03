@@ -557,6 +557,13 @@ impl Plan {
             | Self::Eat { actor, .. } => *actor,
         }
     }
+    /// Actor identity used by legacy actor-local plan bookkeeping.
+    ///
+    /// This is not a universal hit-recipient query. Targeted abilities return
+    /// their target and escape returns its holder; rays, projectiles, devices
+    /// and actor-local item/respec work return the acting actor. Physical delivery
+    /// resolves its actual recipients later. Do not use this value to invent a
+    /// persisted target for an untargeted ray or projectile.
     pub fn target(&self) -> ActorId {
         match self {
             Self::Escape(plan) => plan.holder,

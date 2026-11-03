@@ -37,6 +37,27 @@ impl QuantityExpr {
         self.resolve(Some(1)).is_ok() && self.resolve(Some(u32::MAX)).is_ok()
     }
 
+    /// Compile an inclusive positive range without consuming randomness.
+    ///
+    /// Fixed/uniform expressions ignore `depth`. Depth-scaled expressions require
+    /// a positive depth and use `maximum_base + depth * per_depth` as the upper
+    /// bound, including the first depth's increment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-definition error for missing/zero required depth,
+    /// arithmetic overflow, a zero minimum or a maximum below the minimum.
+    ///
+    /// ```
+    /// use tor_simulation::quantity::{QuantityExpr, QuantityRange};
+    /// let stock = QuantityExpr::DepthScaledUniform {
+    ///     minimum: 2, maximum_base: 51, per_depth: 10,
+    /// };
+    /// assert_eq!(stock.resolve(Some(1)).unwrap(), QuantityRange::new(2, 61).unwrap());
+    /// assert!(stock.resolve(None).is_err());
+    /// assert!(stock.resolve(Some(0)).is_err());
+    /// assert!(QuantityRange::new(0, 1).is_err());
+    /// ```
     pub fn resolve(self, depth: Option<u32>) -> Result<QuantityRange, GameError> {
         let (minimum, maximum) = match self {
             Self::Fixed { quantity } => (quantity, quantity),
@@ -72,6 +93,21 @@ impl QuantityRange {
 
     /// Uniform sampling with an explicit work bound. A fixed amount consumes
     /// no random state. Exhaustion rejects the enclosing unpublished candidate.
+    /// Failure also preserves the caller's supplied random state.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an invalid range or exhaustion of the bounded unbiased sampler.
+    ///
+    /// ```
+    /// use tor_simulation::quantity::QuantityRange;
+    /// let mut state = 91;
+    /// assert_eq!(QuantityRange::new(7, 7).unwrap().sample(&mut state).unwrap(), 7);
+    /// assert_eq!(state, 91);
+    /// let invalid = QuantityRange { minimum: 0, maximum: 1 };
+    /// assert!(invalid.sample(&mut state).is_err());
+    /// assert_eq!(state, 91);
+    /// ```
     pub fn sample(self, state: &mut u64) -> Result<u64, GameError> {
         self.sample_with(state, crate::dice::random_word)
     }
@@ -95,6 +131,8 @@ impl QuantityRange {
             return Ok(self.minimum);
         }
         let width = self.maximum - self.minimum + 1;
+        // Discard the short prefix so the remaining u64 domain divides exactly
+        // into equal-width buckets. Exhaustion must reject, not bias a fallback.
         let threshold = width.wrapping_neg() % width;
         for _ in 0..64 {
             let word = word();

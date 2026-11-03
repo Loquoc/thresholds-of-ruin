@@ -579,6 +579,15 @@ impl World {
         Ok(())
     }
     /// Open or close the door occupying `location`.
+    ///
+    /// Any cell occupied by the door identifies the same base entity. This
+    /// changes the barrier and invalidates its region's sight witness; it does
+    /// not check an actor's reach or charge an action cost.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no door occupies `location`. Check [`World::door`] first when
+    /// the caller has not already established this precondition.
     pub fn set_door(&mut self, location: Location, open: bool) {
         let (base, _) = self.door_entry(location).expect("validated door");
         self.doors.get_mut(&base).expect("validated door").open = open;
@@ -707,8 +716,20 @@ impl World {
             .is_some_and(|bounds| bounds.contains(location.position))
     }
 
-    /// Clockwise quarter turns about z transform sight after crossing. Connections
-    /// are directed: callers must explicitly construct and validate reverse links.
+    /// Connect one directed exit using a proper cube-rotation ID in `0..24`.
+    ///
+    /// The historical parameter name `quarter_turns` denotes a full rotation
+    /// ID: only IDs `0..4` are planar quarter turns about z. The transform maps
+    /// a continuing source-frame vector into the destination frame; see
+    /// [`crate::rotate_vector`] and [`crate::compose_rotation`]. Callers must
+    /// explicitly construct and validate reverse links.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unsupported rotations, noncardinal directions, invalid or
+    /// nonwalkable endpoints, horizontal exits that do not leave a boundary,
+    /// and an already occupied exit. A rejected connection leaves the world
+    /// unchanged.
     pub fn connect(&mut self, passage: Passage, quarter_turns: u8) -> Result<(), WorldError> {
         self.connect_checked(passage, quarter_turns, false)
     }
@@ -1204,6 +1225,12 @@ impl World {
     }
 
     /// Actual movement topology, excluding sight-only material rim projection.
+    ///
+    /// Returns the destination and crossing rotation for a cardinal direction
+    /// from a walkable source, including explicit stairs. The destination still
+    /// needs terrain/body/occupancy validation by the caller; a resolved link
+    /// alone is not movement permission. Use [`World::diagonal_reach`] for
+    /// diagonals, or [`World::step`] for a walkable point destination.
     pub fn movement_neighbor(
         &self,
         from: Location,
