@@ -15,10 +15,11 @@ from checkpoint_payload import crc32c, decode_checkpoint_payload
 from process_harness import ProcessTestCase, ROOT, hit_die_counts, inspect_save
 from process_work_budget import ProcessWorkBudget
 from rogue_activation_candidate import conditional_bands, create_candidate, population_shape
+from rogue_activation_oracle import reviewed_birth_item_pool
 from rogue_magic_receipts import (MAGIC_ITEM_STAGE_IDS, assert_magic_item_receipts,
     EQUIPMENT_ITEM_STAGE_IDS, CONTROL_ITEM_STAGE_IDS, LIVE_CONTENT_STAGE_IDS,
     assert_equipment_item_receipts, assert_control_item_receipts, assert_finite_item_identity,
-    assert_live_content_receipts)
+    assert_live_content_receipts, assert_birth_item_stock)
 from rogue_test_support import assert_room_gold_receipt
 from status_condition_package import actor_creature, checkpoint
 
@@ -201,8 +202,12 @@ class RogueActivationCandidateProcesses(ProcessTestCase):
                 if row["content"] == "rogue.dragon":
                     self.assertEqual(stock["kind"], "carried", "Dragon's birth chance is exactly 100%")
                 if stock["kind"] == "carried":
-                    self.assertIn(stock["content"], ("rogue.ration", "rogue.clean_bandage"))
-                    self.assertEqual(stock["quantity"], 1)
+                    if production_policy:
+                        assert_birth_item_stock(self, stock)
+                    else:
+                        # The retained candidate intentionally keeps its old stock law.
+                        self.assertIn(stock["content"], ("rogue.ration", "rogue.clean_bandage"))
+                        self.assertEqual(stock["quantity"], 1)
             else:
                 self.assertIsNone(stock)
             if stock is not None and stock["kind"] == "carried":
@@ -441,7 +446,7 @@ class RogueActivationCandidateProcesses(ProcessTestCase):
 
     def test_depth_twenty_one_jabberwock_birth_has_owned_rows_stock_and_source_free_restart(self):
         output, manifest = self.production_anchor_package(1, 21)
-        # Fixed production streams select M/F/P/J; the J carries one ration.
+        # Fixed production streams select M/F/P/J; J owns ordinary current birth stock.
         receipts = self.package_restart(output, 1, 21, 1, eligible_actors(manifest, 21),
                                         seed=2, production_policy=True)
         placed = [row for row in receipts[0]["decisions"][0]["result"]["attempts"]
@@ -449,8 +454,7 @@ class RogueActivationCandidateProcesses(ProcessTestCase):
         self.assertTrue(placed, "Fixed depth-21 production entry must actually construct J")
         for row in placed:
             stock = row["entity"]["carried_loot"]
-            self.assertEqual((stock["kind"], stock["content"], stock["quantity"]),
-                             ("carried", "rogue.ration", 1))
+            assert_birth_item_stock(self, stock)
 
     def test_depth_thirty_one_dragon_birth_owns_rank_three_stock_and_source_free_restart(self):
         # The actual full-26 policy owns the rank-three purchase at racial HD15.
@@ -462,8 +466,7 @@ class RogueActivationCandidateProcesses(ProcessTestCase):
                   if row["kind"] == "placed" and row["content"] == "rogue.dragon"]
         self.assertTrue(placed, "Fixed depth-31 entry must actually construct Dragon with its HD15 purchase")
         for row in placed:
-            self.assertEqual(row["entity"]["carried_loot"]["kind"], "carried")
-            self.assertEqual(row["entity"]["carried_loot"]["quantity"], 1)
+            assert_birth_item_stock(self, row["entity"]["carried_loot"])
 
     def test_quagga_unicorn_candidate_boundary_survives_source_free_journal_restart(self):
         self.candidate_restart(2, 17, 0)
@@ -508,10 +511,8 @@ class RogueActivationCandidateProcesses(ProcessTestCase):
                                     "choices": choices})
         self.assertEqual(stages[0]["bands"][-1], {
             "depth": {"kind": "open", "minimum": 32}, "choices": choices})
-        self.assertEqual(activation["carried_item_pools"]["rogue.vampire_supplies"], {
-            "version": 1, "choices": [
-                {"archetype": "rogue.ration", "weight": 1, "quantity": 1},
-                {"archetype": "rogue.clean_bandage", "weight": 1, "quantity": 1}]})
+        self.assertEqual(activation["carried_item_pools"]["rogue.vampire_supplies"],
+                         reviewed_birth_item_pool())
         actors = tomllib.loads((package / "catalog/actors.toml").read_text(encoding="utf-8"))["actors"]
         expected_base = [{"source": "racial", "purchases": [{
             "pool": "advancement", "selection": {"kind": "talent", "talent": talent}}]}
@@ -622,7 +623,7 @@ class RogueActivationSourceTests(unittest.TestCase):
     def test_jabberwock_depth21_changes_only_production_warrior_anchor(self):
         receipt = [{"decisions": [{"result": {"attempts": [{"kind": "placed",
             "content": "rogue.jabberwock", "entity": {"carried_loot": {
-                "kind": "carried", "content": "rogue.ration", "quantity": 1}}}]}}]}]
+                "kind": "carried", "content": "rogue.ration", "quantity": 1, "item": 603}}}]}}]}]
         self.check_production_anchor(
             "test_depth_twenty_one_jabberwock_birth_has_owned_rows_stock_and_source_free_restart", 1, 21, 2,
             receipt)
@@ -630,7 +631,7 @@ class RogueActivationSourceTests(unittest.TestCase):
     def test_dragon_depth31_changes_only_production_mage_anchor(self):
         receipt = [{"decisions": [{"result": {"attempts": [{"kind": "placed",
             "content": "rogue.dragon", "entity": {"carried_loot": {
-                "kind": "carried", "content": "rogue.ration", "quantity": 1}}}]}}]}]
+                "kind": "carried", "content": "rogue.ration", "quantity": 1, "item": 603}}}]}}]}]
         self.check_production_anchor(
             "test_depth_thirty_one_dragon_birth_owns_rank_three_stock_and_source_free_restart", 2, 31, 42,
             receipt)

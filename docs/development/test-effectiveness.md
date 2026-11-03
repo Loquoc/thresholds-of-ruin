@@ -3376,3 +3376,36 @@ source/tooling evidence. The full platform/native matrix and extended campaign
 suite are deferred to required final-head CI, not represented by these local
 checks. Disk-exhausted build attempts were retained and retried after bounded
 obsolete-cache cleanup; they were not gameplay failures or waived tests.
+
+### Rogue birth inventory CI fixture admission and receipt follow-through
+
+The first hosted full run found one stale simulation integration fixture pattern
+across three methods: successful Equip calls bypassed ordinary intention admission
+and therefore lacked the exact-unit reservation now required by shared equip-one.
+Those methods now use the existing admission/execution path, retaining hostility
+pause/resume, authored timing and custom-slot checkpoint assertions. The adjacent
+overflow and capacity negatives also enter through admission; overflow pins the
+actual TimeExhausted error rather than passing for a missing reservation. The
+initial local checkpoint had covered simulation unit tests and selected server
+integration, but missed this simulation integration owner.
+
+Hosted process checks also exposed current-source fixture drift: the shared
+equipment-receipt helper still expected the mundane arrow instead of the generated
+alias; a production carrier assertion still expected historical ration/bandage
+stock; an inverted-range mutation targeted a row that no longer existed; and a
+throwing test still expected multi-unit Equip rejection. These are distinct
+fixture causes, not additional gameplay defects or platform-multiplied counts.
+Historical baseline bytes and candidate oracles remain separate from current
+production expectations.
+
+The repaired checkpoint passed all 815 simulation integration methods and their
+Clippy target, 12 selected real-process methods, the directly affected helper and
+source-unit suites, pinned Python lint and documentation checks. The process
+selection includes the original exact thrown-payload/source-deleted restart and
+full earned-second-HD, finite-stock and floor-revisit witness; a separate new
+process checks accepted Equip-one with conserved remainder and source-free
+restart. The corrected range mutation asserts that it changes exactly one row
+before testing rejection. No production code, historical baseline or verification
+gate changed in this repair. A disk-exhausted local test build was stopped and
+retained as infrastructure evidence, then the complete integration target passed
+after bounded obsolete-cache cleanup. Fresh final-head CI remains required.

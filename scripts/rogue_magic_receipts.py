@@ -1,9 +1,11 @@
-from rogue_identity_contracts import IDENTITIES
 """Independent finite magic-stock expectations for private population audits.
 
 These constants are reviewed test policy, never loaded from production content.
 Receipts establish owned stock; they must not guide ordinary play or navigation.
 """
+
+from rogue_identity_contracts import IDENTITIES
+from rogue_activation_oracle import reviewed_birth_item_pool
 
 MAGIC_ITEM_STAGES = (
     ("rogue.magic_potions", ("rogue.healing", "rogue.confusion", "rogue.blindness", "rogue.poison", "rogue.see_invisible", "rogue.extra_healing", "rogue.levitation")),
@@ -58,7 +60,10 @@ def _assert_finite_item_receipts(test, stages, expected, *, require_placed=False
         test.assertGreater(entity["id"], 0)
         test.assertLess(entity["id"], 1 << 64)
         test.assertIs(type(entity["quantity"]), int)
-        test.assertEqual(entity["quantity"], quantities.get(identity, 1))
+        if identity == "rogue.equipment" and attempt["content"] == "rogue.dagger":
+            _bounded_integer(test, entity["quantity"], 2, 5)
+        else:
+            test.assertEqual(entity["quantity"], quantities.get(identity, 1))
         identities.append(("item", entity["id"]))
     test.assertEqual(len(identities), len(set(identities)))
     return identities
@@ -72,7 +77,7 @@ EQUIPMENT_ITEM_STAGES = (
                          "rogue.shortbow")),
     ("rogue.equipment_scrolls", ("rogue.enchant_armor", "rogue.protect_armor", "rogue.enchant_weapon",
                                  "rogue.remove_curse", "rogue.identify_weapon", "rogue.identify_armor")),
-    ("rogue.ammunition", ("rogue.arrow",)),
+    ("rogue.ammunition", ("rogue.generated_arrow",)),
     ("rogue.rings", ('rogue.ring_protection', 'rogue.ring_add_strength', 'rogue.ring_sustain_strength', 'rogue.ring_see_invisible', 'rogue.ring_adornment', 'rogue.ring_dexterity', 'rogue.ring_increase_damage', 'rogue.ring_regeneration', 'rogue.ring_slow_digestion', 'rogue.ring_maintain_armor', 'rogue.ring_searching', 'rogue.ring_teleportation', 'rogue.ring_stealth', 'rogue.ring_aggravation')),
 )
 EQUIPMENT_ITEM_STAGE_IDS = tuple(identity for identity, _ in EQUIPMENT_ITEM_STAGES)
@@ -81,7 +86,7 @@ EQUIPMENT_ITEM_STAGE_IDS = tuple(identity for identity, _ in EQUIPMENT_ITEM_STAG
 def assert_finite_item_identity(test, item, content):
     """Birth archetypes may intentionally share a neutral equipment identity."""
     test.assertEqual(item["spec"]["archetype"], content)
-    identity = IDENTITIES[content]
+    identity = IDENTITIES["rogue.arrow" if content == "rogue.generated_arrow" else content]
     test.assertEqual(item["spec"]["identity"], identity)
 
 
@@ -116,6 +121,21 @@ def _bounded_integer(test, value, minimum, maximum):
     test.assertIs(type(value), int)
     test.assertGreaterEqual(value, minimum)
     test.assertLessEqual(value, maximum)
+
+
+def assert_birth_item_stock(test, stock):
+    """Validate live non-Gold birth stock against the independent current pool."""
+    test.assertEqual(set(stock), {"kind", "content", "quantity", "item"})
+    test.assertEqual(stock["kind"], "carried")
+    _bounded_integer(test, stock["item"], 1, (1 << 64) - 1)
+    choices = {row["archetype"]: row["quantity"] for row in reviewed_birth_item_pool()["choices"]}
+    test.assertIn(stock["content"], choices)
+    quantity = choices[stock["content"]]
+    if isinstance(quantity, int):
+        _bounded_integer(test, stock["quantity"], quantity, quantity)
+    else:
+        test.assertEqual(quantity["kind"], "uniform")
+        _bounded_integer(test, stock["quantity"], quantity["minimum"], quantity["maximum"])
 
 
 def _assert_live_attempt(test, attempt, choices, kind, depth):
@@ -158,8 +178,7 @@ def _assert_live_attempt(test, attempt, choices, kind, depth):
         _bounded_integer(test, stock["quantity"], 2, 51 + 10 * depth)
     else:
         test.assertEqual(policy["pool"], "rogue.vampire_supplies")
-        test.assertIn(stock["content"], ("rogue.ration", "rogue.clean_bandage"))
-        _bounded_integer(test, stock["quantity"], 1, 1)
+        assert_birth_item_stock(test, stock)
     identities.append(("item", stock["item"]))
     return identities
 
@@ -167,10 +186,10 @@ def _assert_live_attempt(test, attempt, choices, kind, depth):
 def assert_live_content_receipts(test, stages, depth):
     """Strict appended-stage policy; return all births, including carried stock.
 
-    Actor eligibility comes from the independent historical roster oracle, not
+    Actor eligibility comes from the independent current birth-inventory oracle, not
     the supplied manifest or a receipt. This does not assert occurrence rates.
     """
-    from rogue_activation_oracle import reviewed_twenty_six_activation
+    from rogue_activation_oracle import reviewed_birth_inventory_activation
 
     _bounded_integer(test, depth, 1, 1_000_000)
     test.assertEqual([stage["id"] for stage in stages], list(LIVE_CONTENT_STAGE_IDS))
@@ -202,7 +221,7 @@ def assert_live_content_receipts(test, stages, depth):
     _bounded_integer(test, selected["item_requested"], 2, 4)
     _bounded_integer(test, selected["actor_requested"], 1, 3)
     actor_depth = selected["actor_depth"]
-    bands = reviewed_twenty_six_activation()["profiles"]["rogue.low_depth"]["stages"][0]["bands"]
+    bands = reviewed_birth_inventory_activation()["profiles"]["rogue.low_depth"]["stages"][0]["bands"]
     actors = {choice["archetype"]: choice for band in bands
               if band["depth"]["minimum"] <= actor_depth
               and (band["depth"]["kind"] == "open" or actor_depth <= band["depth"]["maximum"])

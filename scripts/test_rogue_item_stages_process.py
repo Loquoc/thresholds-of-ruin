@@ -49,16 +49,34 @@ class RogueItemStageProcesses(ProcessTestCase):
                 self.assertNotEqual(self.check(edit).returncode, 0)
 
     def test_grouped_missiles_use_their_own_quantity(self):
-        def single_arrows(stages):
+        def choice(stages, archetype):
+            # Assert the intended operand exists before testing its validation.
+            # Generated arrows use a distinct authoring recipe from trap ammo.
+            matches = [row for row in stages["rogue.items_other"]["bands"][0]["choices"]
+                       if row["archetype"] == archetype]
+            self.assertEqual(len(matches), 1, archetype)
+            return matches[0]
+
+        def inherited_quantities(stages):
             for row in stages["rogue.items_other"]["bands"][0]["choices"]:
                 row.pop("quantity", None)
-        self.assertEqual(self.check(single_arrows).returncode, 0)
+        accepted = self.check(inherited_quantities)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        def dagger_stack(stages):
+            choice(stages, "rogue.dagger")["quantity"] = {
+                "kind": "uniform", "minimum": 2, "maximum": 5}
+        accepted = self.check(dagger_stack)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
         def bad_quantity(stages):
-            for row in stages["rogue.items_other"]["bands"][0]["choices"]:
-                if row["archetype"] == "rogue.arrow":
-                    row["quantity"] = {"kind": "uniform", "minimum": 9, "maximum": 2}
+            choice(stages, "rogue.generated_arrow")["quantity"] = {
+                "kind": "uniform", "minimum": 9, "maximum": 2}
         self.assertNotEqual(self.check(bad_quantity).returncode, 0)
+
+        def nonstackable_quantity(stages):
+            choice(stages, "rogue.long_sword")["quantity"] = 2
+        self.assertNotEqual(self.check(nonstackable_quantity).returncode, 0)
 
 
 if __name__ == "__main__":

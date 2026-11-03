@@ -111,7 +111,7 @@ class RogueEquipmentReceiptTests(unittest.TestCase):
             for index, (identity, content) in enumerate((
                 ("rogue.equipment", "rogue.generated_mace"),
                 ("rogue.equipment_scrolls", "rogue.enchant_armor"),
-                ("rogue.ammunition", "rogue.arrow"),
+                ("rogue.ammunition", "rogue.generated_arrow"),
                 ("rogue.rings", "rogue.ring_protection")))]
 
     def test_equipment_and_ammunition_stages_preserve_cross_stage_identity_checks(self):
@@ -128,11 +128,13 @@ class RogueEquipmentReceiptTests(unittest.TestCase):
                  "rogue.shortbow"),
                 ("rogue.enchant_armor", "rogue.protect_armor", "rogue.enchant_weapon", "rogue.remove_curse",
                  "rogue.identify_weapon", "rogue.identify_armor"),
-                ("rogue.arrow",), ('rogue.ring_protection', 'rogue.ring_add_strength', 'rogue.ring_sustain_strength', 'rogue.ring_see_invisible', 'rogue.ring_adornment', 'rogue.ring_dexterity', 'rogue.ring_increase_damage', 'rogue.ring_regeneration', 'rogue.ring_slow_digestion', 'rogue.ring_maintain_armor', 'rogue.ring_searching', 'rogue.ring_teleportation', 'rogue.ring_stealth', 'rogue.ring_aggravation'))):
+                ("rogue.generated_arrow",), ('rogue.ring_protection', 'rogue.ring_add_strength', 'rogue.ring_sustain_strength', 'rogue.ring_see_invisible', 'rogue.ring_adornment', 'rogue.ring_dexterity', 'rogue.ring_increase_damage', 'rogue.ring_regeneration', 'rogue.ring_slow_digestion', 'rogue.ring_maintain_armor', 'rogue.ring_searching', 'rogue.ring_teleportation', 'rogue.ring_stealth', 'rogue.ring_aggravation'))):
             for choice in choices:
                 with self.subTest(stage=index, content=choice):
                     receipts = self.receipts()
                     receipts[index]["result"]["attempts"][0]["content"] = choice
+                    if choice == "rogue.dagger":
+                        receipts[index]["result"]["attempts"][0]["entity"]["quantity"] = 2
                     self.assertEqual(len(assert_equipment_item_receipts(self, receipts)), 4)
                 for wrong_stage in range(4):
                     if wrong_stage == index:
@@ -202,6 +204,7 @@ class RogueEquipmentReceiptTests(unittest.TestCase):
     def test_generated_aliases_require_exact_archetype_and_shared_identity(self):
         for content, identity in (("rogue.generated_mace", "item.weapon.mace"),
                                   ("rogue.generated_ring_mail", "item.armor.ring-mail"),
+                                  ("rogue.generated_arrow", "item.weapon.arrow"),
                                   ("rogue.long_sword", "item.weapon.long-sword"),
                                   ("rogue.enchant_armor", "item.scroll.enchant-armor"),
                                   ("rogue.healing", "item.potion.healing")):
@@ -212,6 +215,41 @@ class RogueEquipmentReceiptTests(unittest.TestCase):
                 forged["spec"][field] = "rogue.other"
                 with self.subTest(content=content, field=field), self.assertRaises(AssertionError):
                     assert_finite_item_identity(self, forged, content)
+
+    def test_current_ammunition_rejects_old_alias_and_daggers_keep_bounded_groups(self):
+        receipts = self.receipts()
+        receipts[2]["result"]["attempts"][0]["content"] = "rogue.arrow"
+        with self.assertRaises(AssertionError):
+            assert_equipment_item_receipts(self, receipts)
+        for quantity in (1, 2, 5, 6, True):
+            receipts = self.receipts()
+            row = receipts[0]["result"]["attempts"][0]
+            row["content"] = "rogue.dagger"
+            row["entity"]["quantity"] = quantity
+            with self.subTest(quantity=quantity):
+                if type(quantity) is int and 2 <= quantity <= 5:
+                    self.assertEqual(len(assert_equipment_item_receipts(self, receipts)), 4)
+                else:
+                    with self.assertRaises(AssertionError):
+                        assert_equipment_item_receipts(self, receipts)
+
+    def test_current_birth_stock_rejects_old_supplies_and_wrong_quantity_laws(self):
+        for content, minimum, maximum in (("rogue.healing", 1, 1), ("rogue.ration", 1, 1),
+                ("rogue.fruit", 1, 1), ("rogue.generated_arrow", 8, 15),
+                ("rogue.dart", 8, 15), ("rogue.shuriken", 8, 15), ("rogue.dagger", 2, 5)):
+            for quantity in (minimum - 1, minimum, maximum, maximum + 1, True):
+                stock = {"kind": "carried", "content": content, "quantity": quantity, "item": 603}
+                with self.subTest(content=content, quantity=quantity):
+                    if type(quantity) is int and minimum <= quantity <= maximum:
+                        rogue_magic_receipts.assert_birth_item_stock(self, stock)
+                    else:
+                        with self.assertRaises(AssertionError):
+                            rogue_magic_receipts.assert_birth_item_stock(self, stock)
+        for content in ("rogue.clean_bandage", "rogue.arrow", "rogue.gold", "rogue.amulet_of_yendor"):
+            with self.subTest(content=content), self.assertRaises(AssertionError):
+                rogue_magic_receipts.assert_birth_item_stock(self, {
+                    "kind": "carried", "content": content, "quantity": 1, "item": 603})
+
 
 
 class RogueControlReceiptTests(unittest.TestCase):
