@@ -3513,3 +3513,23 @@ a new tree; prior exact-tree qualification is not claimed for changed fixture
 readers. Review additionally found four server/ASCII reader sites outside the
 initial protocol/common edit scope; they were included before publication rather
 than leaving their old whole-file assumptions behind.
+
+## Screenshot HUD expectation maintenance, 3 November 2026
+
+PR 224's hosted Linux 3D debug run exposed a **stale test/oracle**, not a
+production defect: `test_client_process.Native3DProcesses.test_framed_hud_dock_opens_inventory_without_a_world_action`
+expected the seven pre-capture dock actions and rejected the newly supported
+`Screenshot` action. The assertion remains an exact set; its expectation now
+includes Screenshot. The related synthetic dock fixture in
+`test_verification.NativeMouseContract.test_hud_background_target_remains_reachable_on_the_default_xvfb_desktop`
+needed the same update. After correcting the native expectation, that focused
+fixture failed specifically because Screenshot was missing, then passed after
+its action list was corrected. This bounded evidence window has one stale
+expectation root, two distinct failing methods and two failed executions (one
+hosted native failure and one deliberate local fixture-maintenance check).
+The deliberate local check is not an additional naturally detected defect.
+
+All 34 pure Python 3D verification methods pass after both updates. Native
+window/OS-input execution was not repeated locally; hosted final-head execution
+must qualify that boundary. Existing geometry, no-world-action and exact-action
+assertions are preserved. No Rust or production behavior changed.

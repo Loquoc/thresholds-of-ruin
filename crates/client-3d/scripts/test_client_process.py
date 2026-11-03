@@ -241,7 +241,7 @@ class Native3DProcesses(ProcessTestCase):
         self.assertTrue("hud" in initial, "the live frame must present the framed action dock")
         self.assertEqual(initial["hud"]["readiness"], "READY")
         self.assertEqual({button["action"] for button in initial["hud"]["buttons"]},
-                         {"Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Wait"})
+                         {"Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Screenshot", "Wait"})
         for button in initial["hud"]["buttons"]:
             self.assertTrue(all(0 < value < 1 for value in button["screen"]), button)
             self.assertTrue(all(value > 20 for value in button["size"]), button)
