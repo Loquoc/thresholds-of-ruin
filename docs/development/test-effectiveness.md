@@ -3236,3 +3236,37 @@ same-adapter software-rendered wardrobe-motion captures, including walking,
 jumping and armor replacement, retain identical decoded pixels. This establishes
 avoided writes and visual preservation, not an FPS, hardware-GPU or release-time
 speedup; no separate release comparison was run under the VM's disk constraint.
+
+
+### Independent humanoid walking carriage (2026-11-02)
+
+The shared animation owner now exposes optional Native, Grounded and Poised
+carriage independently of body, outfit and gameplay identity. Before implementation,
+two intended feature witnesses failed: explicit profiles resolved to the same
+coefficients and produced the same hip pose. Native coefficient parity and strict
+review-schema controls were already green. An initial new contact fixture also
+failed on unchanged Native because it applied the straight-path sliding-share
+bound to an abrupt turn; that fixture was corrected to the existing canonical
+straight/curved/stop paths and their respective bounds, not counted as a production
+regression. Existing contact assertions were not relaxed.
+
+Six focused contracts cover Native parity, sex/body-independent explicit profiles,
+actual joint/stance differences without clock or arm-cadence changes, strict
+selection and teleport retention, all 32 adult-female wardrobe selections, and
+real planted-foot movement across five body/outfit combinations on three paths.
+Specialized non-humanoid/Guardian/Yeti/Zombie locomotion rejects explicit review
+profiles. Grounded and Poised steer future landings without relocating planted
+feet; defaults retain their historical path.
+
+The full renderer library passes 617 tests (one existing lifecycle-owned ignored
+fixture), and Clippy passes with warnings denied. The built renderer completed
+five Native wardrobe-motion captures with identical decoded pixels against the
+frozen pose-publication baseline. Fifteen additional matched-body comparison
+captures cover Ranger, Knight and Sylvan Duelist at rest, walking from two angles,
+turning and settling. Front/three-quarter walking and Ranger turning were visually
+inspected; the real contact tests, not screenshots or generated concept art,
+establish planted-foot behavior. No outfit geometry, network/gameplay contract,
+mesh-cache identity or automatic sex-based profile selection was added. Native
+remains the live/default choice; these optional profiles are reusable art controls,
+not a claim that every character now uses a different gait. Hosted qualification
+and hardware performance measurements remain separate from this local checkpoint.

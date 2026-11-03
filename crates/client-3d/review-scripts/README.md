@@ -19,6 +19,19 @@ walking and a mid-animation equipment change. Each actor has an exact model name
 fields use the documented `Variant` defaults; they are not randomly sampled.
 Body values and resolved composition identities are expanded in the manifest.
 
+Actors may independently select `"carriage": "native"`, `"grounded"`, or
+`"poised"`. Omission means `native`, preserving existing animation exactly.
+The explicit profiles adjust walking stance and modest pelvis/torso/head roll;
+they do not change body geometry, outfit, action timing, or gameplay. They work
+across ordinary humanoid wardrobes and bodies, not just one sex or outfit.
+Non-bipeds and the specialized Guardian, Yeti, and Zombie locomotion reject
+explicit profiles. Teleports retain the selection. This is a review/animation
+presentation control, not a class or a new mesh-cache identity.
+`walking-carriage.json` compares Native, Grounded, and Poised left-to-right,
+with matched bodies/outfits at rest, walking, turning, and settling. Change all
+three actors to another supported outfit to review that outfit without changing
+the motion comparison.
+
 Each camera specifies position, target and perspective field of view in degrees.
 World Y is up. Actor yaw is in degrees. The initial stage has a fixed neutral
 ground and directional/ambient lighting. Camera projection customization and

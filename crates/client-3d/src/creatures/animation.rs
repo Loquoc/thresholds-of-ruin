@@ -2,6 +2,8 @@ use super::anatomy::{BirdBody, FOOT_SCALE, HIP_SCALE};
 use super::geometry::{snake_segment_radius, BIRD_ANKLE, SNAKE};
 use super::*;
 
+mod carriage;
+pub use carriage::WalkingCarriage;
 mod publication;
 mod rogue;
 
@@ -496,7 +498,7 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     }
     let world_walk = supported && (moving || a.contacts.rig.is_some());
     match rig.plan {
-        Plan::Biped => biped_pose(&mut p, rig, s, w, breath, m, t),
+        Plan::Biped => biped_pose(&mut p, rig, s, w, breath, m.map(|m| (m, t)), a.carriage),
         Plan::Bird if rig.style.flies() => rogue::flier_pose(&mut p, rig, a, s, breath, m, t),
         Plan::Bird => bird_pose(&mut p, s, w, breath, m, t, !world_walk),
         Plan::Quadruped | Plan::Centaur => quad_pose(&mut p, rig, s, w, breath, m, t, !world_walk),
@@ -591,11 +593,15 @@ fn biped_walk_contacts(rig: &Rig, a: &Anim) -> [Vec3; 2] {
         let (z, lift) = beast_step(phase, stance, span, clearance);
         contacts[i] += Vec3::new(0.0, lift, z) * blend;
     }
-    if rig.humanoid.is_some_and(|body| body.bust.is_some()) && rig.style != Style::Zombie {
-        // She places each foot near the line she walks along, which swings
-        // her hips over it.
+    let selection = if a.action.is_some() {
+        WalkingCarriage::Native
+    } else {
+        a.carriage
+    };
+    let carriage = carriage::resolve(rig, selection);
+    if carriage.narrowing > 0.0 {
         for contact in &mut contacts {
-            contact.x *= 1.0 - 0.3 * blend;
+            contact.x *= 1.0 - carriage.narrowing * blend;
         }
     }
     contacts
@@ -732,6 +738,17 @@ fn walk_legs(rig: &Rig, a: &Anim) -> [Option<WalkLeg>; 4] {
             }
         }
         _ => {}
+    }
+    if rig.plan == Plan::Biped
+        && !matches!(rig.style, Style::Zombie | Style::Guardian | Style::Yeti)
+        && a.carriage != WalkingCarriage::Native
+    {
+        // Explicit profiles guide future landings; already planted feet keep
+        // their world-space ownership. Native retains the historical path.
+        let narrowing = carriage::resolve(rig, a.carriage).narrowing * ease(a.speed * 4.0);
+        for leg in legs.iter_mut().flatten() {
+            leg.rest.x *= 1.0 - narrowing;
+        }
     }
     legs
 }
@@ -1851,7 +1868,16 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn biped_pose(p: &mut Pose, rig: &Rig, s: f32, w: f32, breath: f32, m: Option<Move>, t: f32) {
+fn biped_pose(
+    p: &mut Pose,
+    rig: &Rig,
+    s: f32,
+    w: f32,
+    breath: f32,
+    action: Option<(Move, f32)>,
+    selection: WalkingCarriage,
+) {
+    let (m, t) = action.map_or((None, 0.0), |(m, t)| (Some(m), t));
     let zombie = rig.style == Style::Zombie;
     let lumber = matches!(rig.style, Style::Guardian | Style::Yeti);
     let stride = if zombie { 0.38 } else { 0.55 };
@@ -1905,16 +1931,13 @@ fn biped_pose(p: &mut Pose, rig: &Rig, s: f32, w: f32, breath: f32, m: Option<Mo
         p.r(J::Torso, bow(-0.1));
         p.r(J::Head, bow(0.04));
     }
-    if walking
-        && rig.humanoid.is_some_and(|body| body.woman)
-        && !matches!(rig.style, Style::Zombie | Style::Guardian)
-    {
-        // Her hips sway over each planted foot as she walks, the shoulders
-        // countering, as the women carry themselves on the concept sheets.
+    let carriage = carriage::resolve(rig, selection);
+    if walking && carriage.hips != 0.0 {
+        // The shoulders and head counter the pelvis without changing cadence.
         let sway = cycle.sin() * blend;
-        p.r(J::Hips, Quat::from_rotation_z(0.075 * sway));
-        p.r(J::Torso, Quat::from_rotation_z(-0.06 * sway));
-        p.r(J::Head, Quat::from_rotation_z(-0.02 * sway));
+        p.r(J::Hips, Quat::from_rotation_z(carriage.hips * sway));
+        p.r(J::Torso, Quat::from_rotation_z(carriage.torso * sway));
+        p.r(J::Head, Quat::from_rotation_z(carriage.head * sway));
     }
     if lumber {
         let roll = if walking {
@@ -3277,7 +3300,15 @@ mod support_tests {
         let (_, rig, _, _) = spawn_one(&look);
         let arms = |t| {
             let mut p = Pose::new();
-            biped_pose(&mut p, &rig, 0.0, 0.0, 0.0, Some(Move::Jump), t);
+            biped_pose(
+                &mut p,
+                &rig,
+                0.0,
+                0.0,
+                0.0,
+                Some((Move::Jump, t)),
+                WalkingCarriage::Native,
+            );
             [J::ArmL, J::ArmR, J::ForeL, J::ForeR].map(|j| p.rot[j as usize])
         };
         // Limit angular travel per real second at supported review rates,

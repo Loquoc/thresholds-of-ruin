@@ -619,3 +619,66 @@ fn appearance_assets_are_bounded_capture_inputs_not_display_names() {
     v["actors"][0]["held_item"] = json!("Wand");
     assert!(parse(v).is_ok());
 }
+
+#[test]
+fn walking_carriage_is_explicit_strict_and_separate_from_composition() {
+    use creatures::WalkingCarriage;
+    let native = parse(fixture()).unwrap();
+    assert_eq!(native.actors[0].carriage, WalkingCarriage::Native);
+    for (name, expected) in [
+        ("grounded", WalkingCarriage::Grounded),
+        ("poised", WalkingCarriage::Poised),
+    ] {
+        let mut value = fixture();
+        value["actors"][0]["carriage"] = json!(name);
+        let script = parse(value).unwrap();
+        let actor = &script.actors[0];
+        assert_eq!(actor.body, native.actors[0].body);
+        assert_eq!(actor.outfit, native.actors[0].outfit);
+        assert_eq!(actor.animation(Vec3::ZERO, 90.0).carriage, expected);
+        let mut spec = actor.clone();
+        let mut anim = spec.animation(Vec3::ZERO, 0.0);
+        let mut velocity = Vec3::Z;
+        let mut transform = Transform::default();
+        assert!(!apply_operation(
+            &mut spec,
+            &mut velocity,
+            &mut anim,
+            &mut transform,
+            &Operation::Teleport {
+                position: [1.0, 0.0, 0.0],
+                yaw: 45.0
+            }
+        ));
+        assert_eq!(
+            anim.carriage, expected,
+            "teleport/reset must retain explicit motion choice"
+        );
+    }
+    let mut unknown = fixture();
+    unknown["actors"][0]["carriage"] = json!("exaggerated");
+    assert!(parse(unknown).is_err());
+    for model in ["Dragon", "Emu", "Centaur", "Guardian", "Yeti", "Zombie"] {
+        let mut unsupported = fixture();
+        unsupported["actors"][0]["outfit"] = json!("native");
+        unsupported["actors"][0]["model"] = json!(model);
+        unsupported["actors"][0]["carriage"] = json!("poised");
+        assert!(
+            parse(unsupported).is_err(),
+            "{model} must retain specialized locomotion"
+        );
+    }
+}
+
+#[test]
+fn walking_carriage_supports_every_adult_female_wardrobe_without_remapping() {
+    for wardrobe in creatures::Wardrobe::ALL {
+        for carriage in ["native", "grounded", "poised"] {
+            let mut value = fixture();
+            value["actors"][0]["outfit"] = json!(format!("{wardrobe:?}"));
+            value["actors"][0]["carriage"] = json!(carriage);
+            let script = parse(value).unwrap();
+            assert_eq!(script.actors[0].outfit, format!("{wardrobe:?}"));
+        }
+    }
+}

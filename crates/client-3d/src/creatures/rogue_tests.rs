@@ -699,6 +699,14 @@ fn leather_jerkins_hang_free_below_the_belt_and_stay_shorter_than_the_tunic() {
 /// frames while it is planted (within 3 mm of its lowest height), and the
 /// share of those frames that slide more than a millimetre.
 fn planted_foot_slide(model: CreatureModel, path: &dyn Fn(usize) -> Vec3) -> Vec<(J, f32, f32)> {
+    planted_foot_slide_with(Look::of(model, 21), WalkingCarriage::Native, path)
+}
+
+fn planted_foot_slide_with(
+    look: Look,
+    carriage: WalkingCarriage,
+    path: &dyn Fn(usize) -> Vec3,
+) -> Vec<(J, f32, f32)> {
     use bevy::time::TimeUpdateStrategy;
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::transform::TransformPlugin))
@@ -709,14 +717,11 @@ fn planted_foot_slide(model: CreatureModel, path: &dyn Fn(usize) -> Vec3) -> Vec
         .add_systems(Update, animate);
     let mut materials = Assets::<StandardMaterial>::default();
     let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
-    let look = Look::of(model, 21);
+    let mut anim = Anim::new(21, Vec3::ZERO);
+    anim.carriage = carriage;
     let root = app
         .world_mut()
-        .spawn((
-            Anim::new(21, Vec3::ZERO),
-            Transform::default(),
-            Visibility::default(),
-        ))
+        .spawn((anim, Transform::default(), Visibility::default()))
         .id();
     let mut queue = bevy::ecs::world::CommandQueue::default();
     let rig = {
@@ -3780,6 +3785,56 @@ fn shared_head_cache_matches_fresh_components_in_both_outfit_orders() {
                     false,
                 ));
                 assert!(actual == expected[index], "{model:?}: head composition must not depend on cache history, order={order:?}, outfit={index}");
+            }
+        }
+    }
+}
+
+#[test]
+fn explicit_walking_carriage_retains_contact_across_outfits_and_turns() {
+    for carriage in [WalkingCarriage::Grounded, WalkingCarriage::Poised] {
+        for (model, wardrobe, woman) in [
+            (CreatureModel::Human, Wardrobe::Ranger, true),
+            (CreatureModel::Human, Wardrobe::Knight, true),
+            (CreatureModel::Human, Wardrobe::SylvanDuelist, true),
+            (CreatureModel::Human, Wardrobe::Commoner, false),
+            (CreatureModel::Orc, Wardrobe::Ranger, true),
+        ] {
+            let look = Look::with_choice(model, 21, Some(Variant { woman, ..default() }))
+                .dressed(wardrobe);
+            let straight = |frame: usize| Vec3::Z * frame as f32 * 0.03;
+            let turn = |frame: usize| {
+                let angle = frame as f32 * 0.02;
+                Vec3::new(1.5 - 1.5 * angle.cos(), 0.0, 1.5 * angle.sin())
+            };
+            let stop =
+                |frame: usize| Vec3::Z * (frame.min(90) + frame.saturating_sub(140)) as f32 * 0.03;
+            for (name, path) in [
+                ("straight", &straight as &dyn Fn(usize) -> Vec3),
+                ("turn", &turn),
+                ("stop", &stop),
+            ] {
+                let result = planted_foot_slide_with(look.clone(), carriage, path);
+                assert_eq!(
+                    result.len(),
+                    2,
+                    "{model:?}/{wardrobe:?}: actual supported biped feet"
+                );
+                for (foot, median, sliding) in result {
+                    // Same owners/limits as the existing straight and curved
+                    // walk contracts; a turn's settling frames are not straight stance.
+                    assert!(
+                        median.is_finite()
+                            && median < if name == "straight" { 0.001 } else { 0.0025 },
+                        "{name}/{carriage:?}/{model:?}/{wardrobe:?}/{foot:?}: median={median}"
+                    );
+                    if name == "straight" {
+                        assert!(
+                            sliding < 0.2,
+                            "{carriage:?}/{model:?}/{wardrobe:?}/{foot:?}: sliding={sliding}"
+                        );
+                    }
+                }
             }
         }
     }

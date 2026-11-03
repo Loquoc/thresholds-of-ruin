@@ -1,5 +1,5 @@
 //! Strict offline scene descriptions. No runtime or filesystem effects in validation.
-use crate::creatures::{Equipment, Look, Move, Variant, Wardrobe};
+use crate::creatures::{Anim, Equipment, Look, Move, Variant, WalkingCarriage, Wardrobe};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -101,6 +101,9 @@ pub(super) struct Actor {
     pub model: String,
     pub seed: u64,
     pub body: Variant,
+    /// A presentation control, not a body, outfit or mechanical-class selector.
+    #[serde(default)]
+    pub carriage: WalkingCarriage,
     pub outfit: String,
     pub equipment: Vec<String>,
     pub position: [f32; 3],
@@ -213,8 +216,22 @@ pub(super) fn action(name: &str) -> Result<Option<Move>, String> {
     })
 }
 impl Actor {
+    pub fn animation(&self, position: Vec3, yaw: f32) -> Anim {
+        let mut anim = Anim::new(self.seed, position);
+        anim.carriage = self.carriage;
+        anim.yaw = yaw.to_radians();
+        anim.target_yaw = Some(anim.yaw);
+        anim
+    }
+
     pub fn look(&self) -> Result<Look, String> {
         let base = Look::preview_adjusted(model(&self.model)?, self.seed, |v| *v = self.body);
+        if self.carriage != WalkingCarriage::Native && !base.supports_carriage() {
+            return Err(format!(
+                "{}: explicit carriage requires an ordinary humanoid walking rig",
+                self.id
+            ));
+        }
         let wardrobe = Wardrobe::parse(&self.outfit)
             .ok_or_else(|| format!("unknown outfit {}", self.outfit))?;
         let gear = equipment(&self.equipment)?;

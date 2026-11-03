@@ -277,7 +277,7 @@ fn setup_live(world: &mut World) {
                     let position = Vec3::from_array(spec.position);
                     let entity = world
                         .spawn((
-                            Anim::new(spec.seed, position),
+                            spec.animation(position, spec.yaw),
                             Transform::from_translation(position),
                             Visibility::Hidden,
                         ))
@@ -359,9 +359,9 @@ fn show(world: &mut World, variant: &mut VariantInstance) {
     }
     let mut rig = variant.rig.take().expect("inactive variant owns rig");
     rig.reset_presentation();
-    let mut anim = Anim::new(variant.spec.seed, Vec3::from_array(variant.spec.position));
-    anim.yaw = variant.spec.yaw.to_radians();
-    anim.target_yaw = Some(anim.yaw);
+    let anim = variant
+        .spec
+        .animation(Vec3::from_array(variant.spec.position), variant.spec.yaw);
     world
         .entity_mut(variant.entity)
         .insert((rig, anim, Visibility::Visible));

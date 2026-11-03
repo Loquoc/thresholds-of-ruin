@@ -260,9 +260,7 @@ fn setup(
     let mut library = PropLibrary::new(PropMaterials::new(&mut materials));
     for spec in &run.script.actors {
         let at = Vec3::from_array(spec.position);
-        let mut anim = Anim::new(spec.seed, at);
-        anim.yaw = spec.yaw.to_radians();
-        anim.target_yaw = Some(anim.yaw);
+        let anim = spec.animation(at, spec.yaw);
         let entity = commands
             .spawn((
                 ActorState {
@@ -592,9 +590,7 @@ fn apply_operation(
         Operation::Velocity { value } => *velocity = Vec3::from_array(*value),
         Operation::Teleport { position, yaw } => {
             transform.translation = Vec3::from_array(*position);
-            *anim = Anim::new(spec.seed, transform.translation);
-            anim.yaw = yaw.to_radians();
-            anim.target_yaw = Some(anim.yaw);
+            *anim = spec.animation(transform.translation, *yaw);
         }
         Operation::Dress { outfit } => {
             if spec.outfit != *outfit {
