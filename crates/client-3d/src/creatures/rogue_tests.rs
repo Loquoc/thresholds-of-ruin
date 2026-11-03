@@ -3839,3 +3839,79 @@ fn explicit_walking_carriage_retains_contact_across_outfits_and_turns() {
         }
     }
 }
+
+#[test]
+fn ordinary_skirts_clear_the_pelvis_between_waist_and_thighs() {
+    use bevy::render::mesh::VertexAttributeValues;
+    for wardrobe in [Wardrobe::Courtier, Wardrobe::Tavern, Wardrobe::Juliet] {
+        for woman in [false, true] {
+            for build in 0..3 {
+                for figure in 0..3 {
+                    let look = Look::with_choice(
+                        CreatureModel::Human,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            figure,
+                            ..default()
+                        }),
+                    )
+                    .composed(wardrobe, Equipment::default())
+                    .unwrap();
+                    let body = anatomy::HumanoidBody::resolve(&look);
+                    let pelvis = geometry::pelvis_shape(body);
+                    let (world, rig, _, meshes) = spawn_one(&look);
+                    let mut witnesses = 0;
+                    let mut lowest = f32::INFINITY;
+                    for &root in &rig.skirt_layers {
+                        let root_at = world.get::<Transform>(root).unwrap().compute_affine();
+                        let mut pending = vec![(root, root_at)];
+                        while let Some((entity, at)) = pending.pop() {
+                            if let Some(mesh) =
+                                world.get::<Mesh3d>(entity).and_then(|m| meshes.get(&m.0))
+                            {
+                                let Some(VertexAttributeValues::Float32x3(vertices)) =
+                                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                                else {
+                                    panic!("cloth positions")
+                                };
+                                let indices: Vec<_> =
+                                    mesh.indices().expect("cloth triangles").iter().collect();
+                                for tri in indices.as_chunks::<3>().0 {
+                                    let points = [tri[0], tri[1], tri[2]].map(|i| {
+                                        at.transform_point3(Vec3::from(vertices[i]))
+                                            / anatomy::HIP_SCALE
+                                    });
+                                    // Witness actual emitted triangle interiors, not just fitted rings.
+                                    for point in
+                                        [points[0], (points[0] + points[1] + points[2]) / 3.0]
+                                    {
+                                        if (-0.09..0.035).contains(&point.y) {
+                                            witnesses += 1;
+                                            lowest = lowest.min(pelvis.distance(point));
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(children) = world.get::<Children>(entity) {
+                                for child in children.iter() {
+                                    let child_at = world
+                                        .get::<Transform>(child)
+                                        .map_or(Affine3A::IDENTITY, |t| t.compute_affine());
+                                    pending.push((child, at * child_at));
+                                }
+                            }
+                        }
+                    }
+                    assert!(witnesses > 100, "exercise actual cloth below waist");
+                    assert!(
+                    lowest > 0.0,
+                    "{wardrobe:?} woman {woman} build {build} figure {figure}: cloth penetrates pelvis by {}",
+                    -lowest
+                );
+                }
+            }
+        }
+    }
+}

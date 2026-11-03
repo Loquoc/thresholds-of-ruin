@@ -1045,9 +1045,10 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 })
                 .collect();
             surface.seam = Some(std::sync::Arc::new(seam));
-            surface = surface.fit_pelvis(body);
         }
-        surface
+        // Every skirt crosses the full pelvis below its waist, not only
+        // raised gowns. A waist ring and thigh clearance miss the belly.
+        surface.fit_pelvis(body)
     };
     let mut skirt_stack = Vec::new();
     if let Some(skirt) = outfit.skirt.filter(|_| !blocky && !furry) {

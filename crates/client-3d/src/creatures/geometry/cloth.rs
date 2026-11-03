@@ -258,8 +258,8 @@ impl ClothSurface {
         point
     }
 
-    /// A raised waist must clear the full pelvis on the way down to the
-    /// original hip cut, not only meet the body at its top seam.
+    /// Clear the full pelvis between waist and thigh supports. Meeting the
+    /// body only at the top seam misses the belly below ordinary waistbands.
     pub(super) fn fit_pelvis(mut self, body: HumanoidBody) -> Self {
         let support = pelvic_supports(body, Vec3::ZERO);
         let rows = self.rows();
@@ -268,6 +268,11 @@ impl ClothSurface {
             rows,
         };
         for row in 0..=rows {
+            // Ordinary skirts already anchor to a fitted waist ring. Keep
+            // that attachment exact; only the transition below it needs lift.
+            if row == 0 && self.seam.is_none() {
+                continue;
+            }
             for column in 0..=64 {
                 let t = row as f32 / rows as f32;
                 let angle = column as f32 * TAU / 64.0;
@@ -280,6 +285,24 @@ impl ClothSurface {
                 if support.distance(body_point).abs() < 0.002 {
                     fit.lift[row * 65 + column] =
                         (body_point.dot(out) + 0.008 - point.dot(out)).max(0.0);
+                }
+            }
+        }
+        if self.seam.is_none() {
+            // The fixed waist and first free ring form a sloping triangle.
+            // Fit its upper interior too: checking only the free ring can
+            // leave the inner cloth wall crossing the belly near the seam.
+            let share = 1.0 / 3.0;
+            for column in 0..=64 {
+                let angle = column as f32 * TAU / 64.0;
+                let point = self.point(share / rows as f32, angle, true);
+                let out = Vec3::new(point.x, 0.0, point.z).normalize_or(Vec3::Z);
+                let body_point = pelvis_surface(&support, point.y, out);
+                if support.distance(body_point).abs() < 0.002 {
+                    let lift = &mut fit.lift[65 + column];
+                    let missing =
+                        (body_point.dot(out) + 0.002 - point.dot(out) - *lift * share).max(0.0);
+                    *lift += missing / share;
                 }
             }
         }

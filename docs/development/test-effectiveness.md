@@ -3270,3 +3270,32 @@ mesh-cache identity or automatic sex-based profile selection was added. Native
 remains the live/default choice; these optional profiles are reusable art controls,
 not a claim that every character now uses a different gait. Hosted qualification
 and hardware performance measurements remain separate from this local checkpoint.
+
+### Ordinary skirt pelvis clearance (2026-11-02)
+
+Actual Courtier, Tavern and Juliet captures showed an underlayer-colored oval
+through cloth immediately below the waist. The first-red actual-mesh regression
+measured 0.02284 model units of pelvis penetration for a slender Courtier. It
+samples emitted cloth triangle vertices and interiors against the pelvis support,
+not image colors or the fitter's own cached offsets. Coverage now spans those
+three outfits, both sexes, all three builds and all three figure choices (54
+compositions), with a nonempty geometric witness requirement.
+
+The shared skirt builder now applies the existing pelvis-fit stage to ordinary
+skirts too. Its first draft correctly cleared the pelvis but failed the existing
+Medusa waist stand-off limit; that assertion was preserved. The final fitter keeps
+ordinary attachment rings exact and fits the first free triangle interior as well
+as its lower ring. This avoids both widening the waistband and leaving a small
+near-seam intersection. Authored hems, splits, materials and body dimensions are
+unchanged. Raised/paired waist fitting retains its existing path.
+
+Seven focused skirt contracts pass, including existing thigh/waist, embroidery,
+layer-order and cloth-motion witnesses. The final full renderer library passes
+618 tests (one existing lifecycle-owned ignored fixture), Clippy passes, and the
+actual renderer builds. Matched front/low/high captures remove the static oval in
+all three affected outfits without changing necklines or inflating the skirt hem.
+Walking/turning/settling captures were retained before and after as well: they
+expose a separate pre-existing moving-thigh intersection in ordinary rigid-sway
+skirts, which this static fit does not claim to repair. That dynamic cloth/contact
+gap remains follow-up work; passing sway/layer tests is not proof of dynamic leg
+clearance. Hosted CI qualification is still required before merge.
