@@ -117,6 +117,27 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   pinned hashes even when executable values do not. Preserve checked discovery's
   positive, failed-roll and nondisclosure witnesses.
 
+### CH-010: Performance-trace parsing is not full fixture validation
+
+- **Category/status:** maintainability; source-supported schema limitation, not a
+  reproduced gameplay or benchmark failure. Reviewed at `3aac0cbb2` on 2026-11-04.
+- **Evidence:** [Trace and Step](../../crates/test-support/src/performance.rs)
+  deserialize the workload subset of the embedded fixture. `version` is a plain
+  integer; known successful outcome labels are not paired with action kinds.
+  `verify_effect` checks the action kind after handling `blocked` specially.
+  [The existing outcome-label test](../../crates/test-support/tests/it/performance.rs)
+  deliberately accepts all four known labels on a wait step. The public contract
+  now states these limits, so callers cannot mistake parsing for full validation.
+- **Consequence/confidence:** high confidence in the source contract; a custom
+  trace can carry misleading metadata while its action-specific assertions pass.
+  No malformed embedded trace or measured false benchmark result was found.
+- **Next step:** if custom trace ingestion becomes supported, decide its version
+  policy and whether labels are semantic expectations or reporting categories
+  before adding validation. Do not silently change existing fixture semantics.
+- **Acceptance:** preserve rejection of unknown labels and independent
+  blocked/movement/door/readiness oracle tests; add explicit version/pairing
+  rejection witnesses only for an approved strengthened input contract.
+
 ## Retained or resolved findings
 
 ### CH-007: Sight implementations are not established dead code

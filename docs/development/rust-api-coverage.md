@@ -44,7 +44,7 @@ missing-documentation denial once the actual surface is covered.
 | [Text](../../crates/client-text/src/lib.rs) | Inventoried | Parsing/resolution, clarification, execution chains, prompt readiness, narrative evidence and reset retention |
 | [ASCII](../../crates/client-ascii/src/lib.rs) | Inventoried | Worker/reducer ownership, modal controls, coordinates/hit tests, rendering and capture completion |
 | [Headless](../../crates/client-headless/src) | Inventoried | JSON-lines lifecycle, exit/failure handling and receipt versus completed gameplay |
-| [Test support](../../crates/test-support/src/lib.rs) | Inventoried | Fixture scope, process ownership, measurement boundaries and independent test oracles |
+| [Test support](../../crates/test-support/src/lib.rs) | Public contract pass | Performance workload members documented below; future schema policy tracked as CH-010 |
 | [Optional 3D](../../crates/client-3d) | Inventoried | Separate model/application workspaces, live/review clocks, resource ownership, async identity, coordinates and native evidence |
 
 The optional 3D application remains a separate workspace. Its own documentation
@@ -137,3 +137,26 @@ errors/panics and field units, inspect rendered documentation, and only then add
 focused missing-documentation enforcement. Keep one authoritative home for rules
 and preserve unique test oracles. Record newly found health concerns separately
 from missing prose, and qualify cleanup through the register's removal proof.
+
+## Test-support performance contracts
+
+Reviewed against `3aac0cbb2` on 2026-11-04. This is the complete current public
+surface of `tor-test-support`, not a qualification of all benchmark drivers.
+The crate does not manage processes or measure elapsed time.
+
+| Public path | Contract and witness |
+| --- | --- |
+| `performance::SPEC` | Embedded fixture scope, no runtime I/O; shared server fixture remains its source |
+| `performance::Trace` and `version`, `seed`, `secondary`, `traversal` | Workload-only parsing, metadata versus validation, driver-owned secondary/traversal execution; CH-010 records schema limits |
+| `Trace::load`, `Trace::steps` | Embedded parse panic, ordered minimum-region filtering without world validation; runnable filtering example |
+| `performance::Step` and all four fields | Label categories, default threshold, supported outcomes versus action dispatch; runnable deserialization/default/typo-rejection example |
+| `performance::TraceAction` and all variants/fields | Actor-relative move, desired door state and wait; no stored door identity |
+| `Step::resolve` | Readiness and one distinct eligible disclosed door, repeated-occurrence deduplication; existing readiness/missing/ambiguous/duplicate-door tests |
+| `Step::verify`, `Step::verify_effect` | Issued picture revision versus separately checked causal boundary, exact blocked equality and narrow action-specific effects; existing positive/negative effect tests |
+
+The independent witnesses live in
+[performance tests](../../crates/test-support/tests/it/performance.rs).
+The [latency benchmark](../../crates/server/examples/latency_bench.rs) demonstrates
+caller-owned causal-boundary checks before `verify_effect`; its existence is not
+fresh performance-measurement evidence. No runtime behavior, fixture data or
+oracle assertions changed in this documentation pass.
