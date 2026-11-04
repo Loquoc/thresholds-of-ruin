@@ -7,6 +7,20 @@ fn valid_socket(socket: u16) -> bool {
 }
 
 /// The selected equipped launcher, with no implicit primary-weapon fallback.
+/// The host still resolves the item and checks its actual equipment slot.
+/// Deserialization rejects a socket outside the protocol's equipment bound.
+///
+/// ```
+/// use tor_protocol::{EquippedProjectileWeapon, ItemTarget, MAX_EQUIPMENT_SLOTS};
+///
+/// let launcher = EquippedProjectileWeapon {
+///     item: ItemTarget::from_digest([1; 32]), socket: 0,
+/// };
+/// let mut wire = serde_json::to_value(launcher).unwrap();
+/// assert_eq!(serde_json::from_value::<EquippedProjectileWeapon>(wire.clone()).unwrap(), launcher);
+/// wire["socket"] = serde_json::json!(MAX_EQUIPMENT_SLOTS);
+/// assert!(serde_json::from_value::<EquippedProjectileWeapon>(wire).is_err());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct EquippedProjectileWeapon {
     pub item: ItemTarget,
@@ -41,6 +55,19 @@ impl<'de> Deserialize<'de> for EquippedProjectileWeapon {
 
 /// Throw an equipped item or a carried stack using the selected socket.
 /// The socket remains explicit for either source mode.
+///
+/// ```
+/// use tor_protocol::{ItemTarget, ThrownSourceSelection};
+///
+/// let source = ThrownSourceSelection::Carried {
+///     item: ItemTarget::from_digest([2; 32]), socket: 0,
+/// };
+/// let mut wire = serde_json::to_value(source).unwrap();
+/// assert_eq!(wire["kind"], "carried");
+/// assert_eq!(serde_json::from_value::<ThrownSourceSelection>(wire.clone()).unwrap(), source);
+/// wire.as_object_mut().unwrap().remove("socket");
+/// assert!(serde_json::from_value::<ThrownSourceSelection>(wire).is_err());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ThrownSourceSelection {
@@ -74,6 +101,23 @@ impl<'de> Deserialize<'de> for ThrownSourceSelection {
 
 /// A closed delivery choice for exactly one projectile. Launch always names
 /// both the equipped launcher and the carried ammunition stack.
+/// The two tokens must differ. Shape validation does not establish matching
+/// ammunition, reachability, ownership or sufficient quantity.
+///
+/// ```
+/// use tor_protocol::{EquippedProjectileWeapon, ItemTarget, ProjectileDeliverySelection};
+///
+/// let launcher = EquippedProjectileWeapon {
+///     item: ItemTarget::from_digest([1; 32]), socket: 0,
+/// };
+/// let selection = ProjectileDeliverySelection::Launch {
+///     launcher, ammunition: ItemTarget::from_digest([2; 32]),
+/// };
+/// let mut wire = serde_json::to_value(selection).unwrap();
+/// assert_eq!(serde_json::from_value::<ProjectileDeliverySelection>(wire.clone()).unwrap(), selection);
+/// wire["ammunition"] = serde_json::to_value(launcher.item).unwrap();
+/// assert!(serde_json::from_value::<ProjectileDeliverySelection>(wire).is_err());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectileDeliverySelection {

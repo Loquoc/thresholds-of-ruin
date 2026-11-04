@@ -1,4 +1,16 @@
 //! Deterministic commands and prose derived exclusively from disclosed state.
+//!
+//! [`parser`] recognizes language; [`engine`] resolves it against the current
+//! scene, plans goals, executes through the shared connection and composes the
+//! resulting passage. Recognition is not a grant of a gameplay capability.
+//! [`admission`] owns the queued-action boundary before a new prompt, while
+//! [`projectiles`] handles server-authored choices in both script and adventure
+//! modes. [`adventure`] and [`narrative`] describe disclosed places and scenery.
+//!
+//! Root-level [`Input`] and command parsers also serve the deterministic script
+//! interface. They return local controls or protocol intent, not permission to
+//! skip current-state validation. Shared transport, recovery, notes and capture
+//! upload belong to [`tor_client_common`], not to the language engine.
 use tor_protocol::*;
 
 pub mod admission;

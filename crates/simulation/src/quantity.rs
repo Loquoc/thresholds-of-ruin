@@ -3,27 +3,48 @@
 use crate::{abilities::RuleError, GameError};
 use serde::{Deserialize, Serialize};
 
+/// Authored quantity operands, not yet a validated range.
+///
+/// Public construction and deserialization can represent invalid operands.
+/// Use [`Self::valid`] to check the supported depth domain, then [`Self::resolve`]
+/// to compile the current context before an action pays or consumes randomness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum QuantityExpr {
+    /// One positive quantity; no depth is required and sampling consumes no RNG.
     Fixed {
+        /// Exact item count, in the full positive `u64` domain.
         quantity: u64,
     },
+    /// Inclusive positive bounds, independent of depth.
     Uniform {
+        /// Smallest admitted quantity, at least one.
         minimum: u64,
+        /// Largest admitted quantity, at least `minimum`.
         maximum: u64,
     },
+    /// Inclusive range whose upper bound is `maximum_base + depth * per_depth`.
     DepthScaledUniform {
+        /// Smallest admitted quantity, at least one.
         minimum: u64,
+        /// Base upper bound before the first depth's increment.
         maximum_base: u64,
+        /// Nonnegative increment per positive depth, including depth one.
         per_depth: u64,
     },
 }
 
+/// An inclusive positive item-count range.
+///
+/// [`Self::new`] and deserialization enforce the bounds. Because fields are
+/// public, a struct literal can bypass them; [`Self::sample`] rechecks validity.
+/// JSON decoding requires a named record with both fields and no unknown fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuantityRange {
+    /// Inclusive lower bound, at least one for a valid range.
     pub minimum: u64,
+    /// Inclusive upper bound, at least [`Self::minimum`] for a valid range.
     pub maximum: u64,
 }
 
@@ -33,6 +54,20 @@ fn invalid() -> GameError {
 
 impl QuantityExpr {
     /// Validate every authored operand, including the largest supported depth.
+    ///
+    /// A successful resolution at one depth does not prove this contract: later
+    /// depth multiplication can overflow. This check does not consume RNG.
+    ///
+    /// ```
+    /// use tor_simulation::quantity::QuantityExpr;
+    /// let stock = QuantityExpr::DepthScaledUniform {
+    ///     minimum: 1, maximum_base: 0, per_depth: u64::MAX,
+    /// };
+    /// assert_eq!(stock.resolve(Some(1)).unwrap().maximum, u64::MAX);
+    /// assert!(!stock.valid()); // The same expression overflows at larger depths.
+    /// assert!(QuantityExpr::Fixed { quantity: u64::MAX }.valid());
+    /// assert!(!QuantityExpr::Fixed { quantity: 0 }.valid());
+    /// ```
     pub fn valid(self) -> bool {
         self.resolve(Some(1)).is_ok() && self.resolve(Some(u32::MAX)).is_ok()
     }
@@ -80,6 +115,25 @@ impl QuantityExpr {
 }
 
 impl QuantityRange {
+    /// Validate inclusive bounds without consuming RNG.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GameError::Rule`] with [`RuleError::InvalidDefinition`] when
+    /// `minimum` is zero or `maximum` is smaller than `minimum`.
+    ///
+    /// ```
+    /// use tor_simulation::quantity::QuantityRange;
+    /// let range = QuantityRange::new(1, u64::MAX).unwrap();
+    /// let json = serde_json::to_string(&range).unwrap();
+    /// assert_eq!(serde_json::from_str::<QuantityRange>(&json).unwrap(), range);
+    /// assert!(QuantityRange::new(2, 1).is_err());
+    /// assert!(serde_json::from_str::<QuantityRange>(r#"{"minimum":1}"#).is_err());
+    /// assert!(serde_json::from_str::<QuantityRange>("[1,2]").is_err());
+    /// assert!(serde_json::from_str::<QuantityRange>(
+    ///     r#"{"minimum":1,"maximum":2,"extra":0}"#,
+    /// ).is_err());
+    /// ```
     pub fn new(minimum: u64, maximum: u64) -> Result<Self, GameError> {
         if minimum == 0 || maximum < minimum {
             return Err(invalid());
@@ -87,6 +141,7 @@ impl QuantityRange {
         Ok(Self { minimum, maximum })
     }
 
+    /// Check bounds, including values assembled through the public fields.
     pub fn valid(self) -> bool {
         Self::new(self.minimum, self.maximum).is_ok()
     }

@@ -3,6 +3,12 @@ use crate::{direction, known_cells, near_actor, Cmd, View};
 use std::collections::{HashMap, HashSet, VecDeque};
 use tor_protocol::{ActorTarget, Direction, Position};
 
+/// Suggest one shortest-path step to a goal at the observer's current elevation.
+///
+/// Uses known open floor, avoids closed doors and disclosed creatures except at
+/// goal cells, and does not cut diagonal corners. Goals at other heights are
+/// ignored. `None` means no distinct reachable goal was found; the server still
+/// validates any returned step.
 pub fn step_toward(view: &View, goals: &HashSet<Position>) -> Option<Direction> {
     let goals = goals
         .iter()
@@ -12,6 +18,8 @@ pub fn step_toward(view: &View, goals: &HashSet<Position>) -> Option<Direction> 
     projected_step(view, &goals)
 }
 
+/// Suggest an attack only for a disclosed hostile target with a nearby body cell.
+/// Proximity is an input hint, not a proof of server-side melee reach or readiness.
 pub fn attack_at_hand(view: &View, id: ActorTarget) -> Option<Cmd> {
     (view.actors.iter().any(|a| a.id == id && a.hostile) && near_actor(view, id))
         .then_some(Cmd::Attack(id))

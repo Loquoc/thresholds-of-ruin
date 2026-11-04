@@ -1,4 +1,19 @@
 //! Authoritative sessions, durable action/annotation history, and WebSocket transport.
+//!
+//! # Ownership and integration
+//!
+//! - [`Engine`] owns trusted game operations, branch history and accepted receipts.
+//!   An accepted operation is not necessarily executed gameplay or durable storage.
+//! - [`Service`] owns authenticated attachment/control policy and ordered client
+//!   publication. Its constructor reconciles saved work before clients connect.
+//! - [`Simulation`] runs the service on one owner thread. [`serve`] provides the
+//!   loopback WebSocket transport and graceful shutdown barrier.
+//! - [`SavePolicy`] controls background write scheduling and queue admission;
+//!   [`SaveStatus`] distinguishes the accepted and durable journal prefixes.
+//!
+//! Direct engine/tool APIs are trusted backend interfaces, not alternate client
+//! authorization paths. Internal journal and simulation values must be projected
+//! through the session's disclosure rules before being sent to a frontend.
 
 #[cfg(test)]
 #[path = "../../protocol/tests/support/fixture.rs"]

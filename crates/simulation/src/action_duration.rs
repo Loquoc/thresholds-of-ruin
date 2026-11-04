@@ -7,8 +7,11 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ActionDuration {
     #[default]
+    /// Preserve the already-computed action duration.
     Normal,
+    /// Halve the duration, rounding a positive fraction upward.
     Haste,
+    /// Double the duration with checked arithmetic.
     Slow,
 }
 
@@ -66,7 +69,27 @@ impl ActionDuration {
         }
     }
 
-    /// Prepared work has a separate structural bound in addition to arithmetic.
+    /// Scale prepared work, then enforce its separate structural bound.
+    ///
+    /// The bound applies to the scaled result, not the input. Zero-time work
+    /// remains valid; condition durations use [`crate::rules::ConditionTicks`]
+    /// instead and are not scaled by this method.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::creatures::BuildError::Arithmetic`] on `u64` overflow,
+    /// or [`crate::creatures::BuildError::DerivedLimit`] if the scaled result
+    /// exceeds [`crate::limits::NUMERIC`].
+    ///
+    /// ```
+    /// use tor_simulation::action_duration::ActionDuration::{Haste, Normal, Slow};
+    /// use tor_simulation::creatures::BuildError;
+    /// let limit = tor_simulation::limits::NUMERIC as u64;
+    /// assert_eq!(Haste.apply_bounded(2 * limit), Ok(limit));
+    /// assert_eq!(Slow.apply_bounded(0), Ok(0));
+    /// assert_eq!(Normal.apply_bounded(limit + 1), Err(BuildError::DerivedLimit));
+    /// assert_eq!(Slow.apply_bounded(u64::MAX), Err(BuildError::Arithmetic));
+    /// ```
     pub fn apply_bounded(self, duration: u64) -> Result<u64, crate::creatures::BuildError> {
         self.apply(duration)
             .ok_or(crate::creatures::BuildError::Arithmetic)

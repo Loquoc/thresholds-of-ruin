@@ -1,3 +1,6 @@
+//! Socket ownership, ordered state application and bounded background query work.
+//! The connection applies messages before returning them for presentation. Recovery
+//! retains the last valid picture for display but disables new gameplay requests.
 use crate::{observation_assets, ClientState, Palette};
 use futures_util::{SinkExt, StreamExt};
 use std::{
@@ -49,6 +52,8 @@ fn timing_record(
 }
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+/// Transport, protocol or local request-validation failure.
+/// An error after sending does not by itself prove the server rejected the request.
 pub type ConnectionError = Box<dyn Error + Send + Sync>;
 const DEADLINE: Duration = Duration::from_secs(10);
 
@@ -637,7 +642,22 @@ impl Connection {
         .await
     }
 
-    /// Send a request; any skipping ends, so what follows is paced again.
+    /// Submit a request and return its correlation identity, not its outcome.
+    ///
+    /// Ordinary requests are sent on the socket. `Observe` instead coalesces a
+    /// local picture demand; keep polling [`Self::next`] to complete it. Chart
+    /// requests use the managed chart transfer. Accepted submissions end display
+    /// skipping, so subsequent presented updates are paced again.
+    ///
+    /// Use [`crate::PendingRequest`] after applying each returned message to
+    /// distinguish a confirmed reply from recovery with an unknown outcome.
+    /// A successful send does not imply admission, execution or disk durability.
+    ///
+    /// # Errors
+    ///
+    /// Rejects direct map hydration requests and unsynchronized state, and reports
+    /// background-query, validation and transport failures. Do not automatically
+    /// retry an error that may have occurred after the server received the request.
     pub async fn request(&mut self, request: Request) -> Result<String, ConnectionError> {
         if matches!(request, Request::Map { .. }) {
             return Err("Map hydration is managed automatically".into());

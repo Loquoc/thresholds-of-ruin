@@ -272,7 +272,11 @@ impl World {
         self.physics_neighbor(at, Direction::Down)
             .is_some_and(|(below, _)| below.region == at.region && self.is_wall(below))
     }
-    /// Resolve structural coordinates without pretending absent terrain is loaded.
+    /// Resolve a published anchor without loading or inspecting its destination.
+    ///
+    /// Returns `None` for an unknown region/name mapping. Published coordinates
+    /// survive detachment, so `Some` does not imply [`World::contains`] or
+    /// [`World::walkable`]. This query neither registers a name nor creates a link.
     pub fn named_anchor(&self, anchor: &NamedAnchor) -> Option<Location> {
         Some(Location {
             region: anchor.region,
