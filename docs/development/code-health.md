@@ -158,33 +158,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   shared pending-request completion and bounded stale-revision-only wizard
   retries; none is established redundant or safe to remove.
 
-### CH-012: Supported comparison workloads do not fit ledger identities
-
-- **Category/status:** robustness/maintainability; source-supported integration
-  mismatch, not yet reproduced through the CLI. Reviewed at `d7b374664` on
-  2026-11-04.
-- **Impact/confidence:** high confidence that accepted strike and active-mob
-  measurements cannot be appended through the comparison-to-ledger path. This
-  affects recording results, not their measured execution or gameplay.
-- **Evidence:** [comparison workloads and result assembly](../../scripts/perf_compare.py)
-  use `ordered-strikes` and `active-mobs-v1` as ledger names with integer versions.
-  [entry conversion and validation](../../scripts/perf_ledger.py) normalize only
-  string-valued versions; the name constraint `[a-z][a-z0-9_]*` rejects both
-  names before `append_entry` opens the ledger for writing.
-- **Next step:** establish a first-red actual CLI export witness for both
-  identities using valid independent comparison fixtures. Choose explicit ledger
-  identities satisfying the existing schema, keeping benchmark wire labels
-  separate. Do not broadly relax validation or rewrite historical measurements.
-- **Acceptance:** positive ledger CLI append/check for both workloads with exact
-  name/version and preserved counts, timings, source commit and raw-data checksum;
-  a registry-wide ledger-name contract; and preserved streaming conversion,
-  invalid-workload, duplicate and non-writing failure witnesses.
-- **Review limits:** existing [ledger tests](../../scripts/test_perf_ledger.py)
-  cover structured performance entries and streaming string-version conversion,
-  but do not establish these two comparison-to-ledger round trips. No new runtime
-  regression was executed for this entry. Nonconstant count ranges are deliberately
-  excluded from headline entries and are not another lost-data defect.
-
 ### CH-013: Linux storage probe loses empty column boundaries
 
 - **Category/status:** robustness; source-supported parsing candidate, not a
@@ -364,6 +337,28 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   is claimed.
 
 ## Retained or resolved findings
+
+### CH-012: Comparison workload ledger identities corrected
+
+- **Disposition:** reproduced and corrected on 2026-11-04. The comparison
+  registry now uses `ordered_strikes` and `active_mobs` as ledger names, with
+  version 1 unchanged. Benchmark wire labels and ledger validation stay intact;
+  historical measurements are not rewritten.
+- **Evidence:** actual [ledger CLI](../../scripts/perf_ledger.py) exports of both
+  prior registry identities failed at workload-name validation before writing.
+  Otherwise-identical valid-name fixtures passed, isolating the defect from
+  counts, timing statistics, source identity and raw-data checksum handling.
+- **Coverage:** [ledger tests](../../scripts/test_perf_ledger.py) now exercise
+  both registry-derived CLI append/check round trips with independent expected
+  identities and preserved values, duplicate rejection without writing, and
+  every registry name against the ledger schema. Existing streaming conversion
+  and invalid-workload rejection remain covered.
+- **Limits:** this is an export correctness fix, not a benchmark execution,
+  gameplay or speedup claim. Previously generated comparison files carrying the
+  invalid identities still fail strict validation; no historical importer was
+  added. Local qualification covers the affected Python tooling, not a full
+  Windows/Linux application or release run.
+
 
 ### CH-007: Sight implementations are not established dead code
 

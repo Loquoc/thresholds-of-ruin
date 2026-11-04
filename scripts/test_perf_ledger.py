@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import subprocess
 import sys
@@ -7,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import perf_ledger as ledger
+import perf_compare as compare
 
 MACHINE = ledger.with_fingerprint({
     "cpu": "Example CPU", "logical_cpus": 8, "ram_gib": 16.0, "os": "Example OS", "os_build": "1.0",
@@ -96,6 +98,58 @@ class EntryFormat(unittest.TestCase):
 
 
 class LedgerFormat(unittest.TestCase):
+    def test_all_comparison_workloads_have_valid_ledger_identities(self):
+        for key, spec in compare.WORKLOADS.items():
+            with self.subTest(workload=key):
+                entry = dict(ENTRY, workload={"name": spec.name, "version": 1})
+                self.assertEqual([], ledger.validate_entry(entry))
+
+    def assert_comparison_cli_round_trip(self, unit, group, expected_name):
+        comparison = {
+            "created": "2026-11-04T11:00:00+00:00", "machine": MACHINE, "rustc": "rustc 1.98.1",
+            "sides": {"head": {"commit": "e" * 40, "dirty": False}},
+            "units": {unit: {"command": [compare.WORKLOADS[unit].example]}},
+            "results": {unit: {group: {
+                "workload": {"head": {"name": compare.WORKLOADS[unit].name, "version": 1}},
+                "head": {"timings": {"command_ms": {"n": 4, "p50_ms": 1, "p95_ms": 2, "max_ms": 3}},
+                         "counts": {"commands": 4, "varying": {"min": 1, "max": 2}}}}}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, raw, output = root / "comparison.json", root / "raw.tar.gz", root / "ledger.jsonl"
+            source.write_text(json.dumps(comparison), encoding="utf-8")
+            raw_bytes = b"independently authored comparison sample bundle"
+            raw.write_bytes(raw_bytes)
+            command = [
+                sys.executable, ledger.__file__, "add", "--comparison", str(source),
+                "--unit", unit, "--group", group, "--metric", "command_ms",
+                "--raw-url", ENTRY["raw"]["url"], "--raw-file", str(raw), "--ledger", str(output),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            entry = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(entry["workload"], {"name": expected_name, "version": 1})
+            self.assertEqual((entry["n"], entry["p50_ms"], entry["p95_ms"], entry["max_ms"]), (4, 1, 2, 3))
+            self.assertEqual(entry["counts"], {"commands": 4})
+            self.assertEqual(entry["commit"], "e" * 40)
+            self.assertEqual((entry["case"], entry["metric"]), (group, "command_ms"))
+            self.assertEqual(entry["raw"], {"url": ENTRY["raw"]["url"],
+                                            "sha256": hashlib.sha256(raw_bytes).hexdigest()})
+            checked = subprocess.run([sys.executable, ledger.__file__, "check", str(output)],
+                                     capture_output=True, text=True)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            original = output.read_bytes()
+            duplicate = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn("duplicate entry", duplicate.stderr)
+            self.assertEqual(output.read_bytes(), original)
+
+    def test_strikes_comparison_can_be_recorded_by_actual_cli(self):
+        self.assert_comparison_cli_round_trip("strikes", "s3-q2-a2-r16-tail", "ordered_strikes")
+
+    def test_active_mobs_comparison_can_be_recorded_by_actual_cli(self):
+        self.assert_comparison_cli_round_trip("active-mobs", "r20-ai100-s8", "active_mobs")
+
     def test_streaming_comparison_can_be_recorded_by_actual_cli(self):
         unit, group = "latency:stream-r16-memory", "stream-r16-memory"
         comparison = {
