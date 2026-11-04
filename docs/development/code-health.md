@@ -710,6 +710,51 @@ executed; no runtime pass, benchmark or whole-system certification is claimed.
   all-catalog validation, population scheduling and placement rollback were not
   audited.
 
+### Locomotion, control, detection and cosmetic selection
+
+Source review reconciled against main `3c24d49fd` on 2026-11-04 found no new
+issue in these bounded paths. Existing assertions were inspected, not executed;
+no runtime pass, statistical audit or performance measurement is claimed.
+
+- [Locomotion composition](../../crates/simulation/src/locomotion.rs) combines
+  grants, strongest exact rational chances and overriding suppression without
+  source-order dependence. Hovering includes levitation; voluntary vertical
+  control requires flight. [Action commitment](../../crates/simulation/src/actions.rs)
+  samples confusion inside a candidate after command validation, retaining
+  requested cost even for sampled stay/obstruction. Blocked draws are not rerolled.
+  Existing [confusion witnesses](../../crates/simulation/src/locomotion/confusion_tests.rs)
+  pin destinations/RNG, diagonal costs, pre-draw rejection and rollback after
+  sampling with a deterministic retry. All geometry, movement modes, scheduler
+  callers and RNG quality remain outside this pass.
+- [Control-scroll state](../../crates/simulation/src/control_scrolls.rs) binds
+  timed control to condition identity/generation rather than another expiry clock.
+  Confusion is one replaceable charge: misses retain it, successful physical
+  primaries consume it before extra resistance. Committed unavailable hostile
+  attempts can release Hold while retaining confusion. Nearby target IDs are
+  deduplicated before checks; approach receipts rearm on departure, not continued
+  presence. Existing [control tests](../../crates/simulation/src/control_scroll_tests.rs)
+  inspect old-generation rejection, unrelated-condition preservation, charge
+  replacement and exact approach transitions. These distinct lifetimes are not
+  established redundant; full creation/spatial reconciliation was not audited.
+- [Detection completion](../../crates/simulation/src/detection_lifecycle.rs)
+  captures checked base-turn duration while ordinary conditions own expiry.
+  Refresh replaces remaining lifetime rather than extending it. Final matching
+  chart receipts govern identification independently of gameplay mutation.
+  Existing [detection tests](../../crates/simulation/src/detection_lifecycle_tests.rs)
+  vary receipt status and mutation independently, preserve full lifetime without
+  identifying an unavailable chart, and separate haste/slow preparation from
+  captured duration. Census, loading, topology and checkpoint handling remain
+  unqualified; no host-envelope claim follows from these checks.
+- [Immutable cosmetic catalogs](../../crates/simulation/src/appearance_catalog.rs)
+  canonicalize rows with sort/dedup and intentional neutral fallbacks. Shared
+  handles avoid rebuilding the catalog for selection. [Deterministic selection](../../crates/simulation/src/appearance_state.rs)
+  uses fixed operands and wrapping arithmetic, not gameplay RNG. The public
+  4096-choice bound differs intentionally from internal admitted-palette selection.
+  Existing tests retain literal unsigned-domain vectors, purity, reordered-source
+  equivalence and larger canonical palettes. Do not infer exact frequencies,
+  all-renderer behavior, allocation performance, disclosure or host-source-budget
+  correctness from this bounded review.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
