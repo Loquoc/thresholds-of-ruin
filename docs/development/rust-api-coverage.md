@@ -226,3 +226,32 @@ unknown gaps and custom labels. These helpers do not confer interaction authorit
 or refresh historical facts. Remaining qualification includes rendered public and
 private API review, warning-free rustdoc and executable examples; member review
 alone does not establish that those checks ran.
+
+## Resource balance and recovery contracts
+
+Reviewed against `99dadca9a` on 2026-11-04. This bounded pass covers every public
+member declared in [resources](../../crates/simulation/src/resources.rs), not
+the surrounding actor lifecycle, action-cost or persistence APIs. No runtime
+behavior changed. Five runnable public-API examples specify independent expected
+balances, phases, scheduling delays and rejection results.
+
+| Public path | Contract and witness |
+| --- | --- |
+| `Resource`, all variants, `ALL` | Three pools and deterministic enumeration order; map example |
+| `ResourceError::InvalidState` | Over-capacity balance, out-of-period phase and full-pool phase rejection; reconstruction example |
+| `ByResource<T>`, all fields, `map`, `from_fn`, `get`, `get_mut` | Exhaustive named representation, callback order and selected-field access; map example |
+| `ResourceMaxima`, `Resources`, `new` | Caller-derived capacities, initially full pools, value cloning, validated periods; spending/recovery example |
+| `from_recorded` | Whole-value rejection, no time advance or clamping; valid continuation and three independent rejection cases |
+| `set_recovery_rules` | Phase modulo new period, unchanged balance and no retroactive grant; 10-to-3 tick period example |
+| `restore`, `balance`, `maximum`, `recovery_elapsed` | Actual restored amount, bounded balances, full-pool phase reset; saturation example |
+| `next_recovery_in` | Earliest strictly positive non-full event, no event for all-full or zero-capacity pools; recovery/capacity examples |
+| `set_maxima` | Capacity increase does not heal, reduction clamps, partial phase retention; capacity example |
+| `spend`, `advance_active` | Atomic insufficient-funds rejection, zero spend, active-time-only recovery, overflow-safe elapsed accumulation, no full-pool banking; spending/recovery example |
+
+Existing [resource integration tests](../../crates/simulation/tests/it/resources.rs)
+remain separate witnesses for capacity derivation and recovery behavior. Actor
+nutrition/regeneration composition is covered by
+[nutrition regeneration tests](../../crates/simulation/tests/it/nutrition_regeneration.rs).
+No test assertions were removed or weakened. Rendered public/private rustdoc and
+executable examples still require qualification through the normal Rust CI gate;
+member review alone is not a successful check or a completed whole-family claim.

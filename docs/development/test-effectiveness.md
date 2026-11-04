@@ -33,6 +33,102 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Workflow progress snapshot ordering, 4 November 2026
+
+The CH-015 actual CLI reproduction confirmed one offline-reporting root: selecting
+workflow records by attempt alone made equal-attempt evidence depend on input
+order. Two core first-red methods in `test_ci_cost_report.CostReport`,
+`test_workflow_progress_uses_latest_snapshot_in_either_order` and
+`test_actual_cli_progress_order_and_ambiguity_without_writes`, require identical
+results and independently expected 60 runner-seconds with a 120-second completed
+workflow span. Each failed once before repair in this bounded regression window.
+Three additional first-red methods cover equal-time metadata reconciliation,
+conflict rejection and invalid chronology/attempt handling. These are explicit
+robustness requirements, not three additional discovered production roots; their
+subtests do not multiply the five distinct methods/five method executions.
+
+The reconciler now selects the latest aware update timestamp within the highest
+attempt, merges compatible equal-time report fields and rejects ambiguity. Job
+accounting remains unchanged. The final 27-method accounting suite passes,
+including real CLI order reversal and rejection without overwriting outputs,
+higher incomplete attempts, timezone equivalence and unchanged input objects.
+Independent review also found that the guide's old timestamp-free JSON example
+would now error rather than produce its intended lower bound. A new test reads
+the literal documented example and reproduced that error before the guide was
+corrected; this is one documentation fixture mismatch, not another accounting
+production root. The example now explicitly supplies synthetic chronology and
+reports the omitted job pages. Verified-empty chronology requirements also have
+a rejection witness. This is focused local Python qualification, not hosted CI
+or billing evidence.
+
+## Comparison-to-ledger workload identities, 4 November 2026
+
+The bounded first-red run of the new `test_perf_ledger.LedgerFormat` methods
+`test_strikes_comparison_can_be_recorded_by_actual_cli`,
+`test_active_mobs_comparison_can_be_recorded_by_actual_cli`, and
+`test_all_comparison_workloads_have_valid_ledger_identities` exposed **one
+production root, three distinct failing methods and three failed method
+executions**. The registry method reports two failing subtests, not two methods.
+Both actual export processes failed on invalid ledger names before writing;
+independent valid-name controls passed. An earlier draft fixture had an unclosed
+dictionary and could not import: that setup error is not production evidence.
+
+Two registry literals were corrected without changing benchmark wire labels,
+versions or ledger validation. The final affected suites pass: ledger 21,
+comparison 31, shared workload reports 37, active-mob reports 8 and strike reports
+10 methods. The regressions assert exact identities, timings, counts, source
+commit and independently computed raw checksum, and retain duplicate rejection
+without writes. These are focused Python results, not application/release or
+Windows qualification; no speedup is claimed.
+
+## Projectile fixture cross-client snapshot race, 4 November 2026
+
+PR253's integrated-head Windows debug Python shard failed
+`test_projectile_process.ProjectileProcesses.test_text_expertise_throw_launch_payment_recovery_and_source_free_restart`
+at its target-readiness assertion before pickup/restart. Captured headless output
+shows the observer snapshot at tick 300 with the player not ready, followed by a
+target snapshot at tick 344 with the target not ready and observer updates at
+344 with the player ready and no intentions. Two connections do not provide an
+atomic snapshot pair; the fixture incorrectly treated those observations as one
+state. No database, checkpoint trace or gameplay rule change was needed.
+
+`ProjectileSettle.test_player_completion_between_snapshots_does_not_require_target_wait`
+reproduces that exact interleaving deterministically and failed at the same
+assertion before repair. Across that first-red and the CI failure, this is **one
+fixture-synchronization root, two distinct failing methods and two failed method
+executions**, not an additional gameplay defect or three aggregate failures.
+
+When the target is not ready, the fixture now refreshes the player once and
+returns only if that fresh observation is ready with no intentions. It still
+fails if the fresh player is blocked or queued, on target wait errors, or after
+16 ordinary target waits without completion. Five deterministic settle witnesses
+and the existing launch-wiring witness pass locally. The real process acceptance,
+payment, pickup and source-free restart assertions remain unchanged and must pass
+in hosted CI; mock schedules do not qualify that boundary.
+
+## Post-merge qualification ZIP fixture, 4 November 2026
+
+[PR #256 CI run 41844918282](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41844918282)
+failed `test_ci_postmerge.PostmergeTests.test_malformed_external_shapes_restore_normal_full_without_compiler_setup`
+in Linux debug Python shard 2 before its negative mutations: the positive
+`fetch_candidate` control rejected an artifact digest mismatch. The fixture
+rebuilt ZIP bytes on each mocked API request using the current ZIP timestamp.
+An unchanged qualification could therefore have different list/download bytes
+across a two-second clock boundary. This is **one harness/fixture root, one
+naturally failing method and one observed failed method execution** in this
+bounded evidence window, not a production digest-validation or gameplay defect.
+
+The fixture now uses fixed ZIP entry metadata. The new
+`test_fixture_archive_digest_is_stable_across_clock_boundaries` first failed on
+archive-byte equality with the original helper; that deliberate regression
+execution is separate from the natural failure count. It then passed with the
+fix, as did all 31 methods in the post-merge qualification test owner. The witness
+checks cross-request byte/digest equality, successful production verification
+while the mocked clock alternates, and changed bytes when qualification content
+changes. Production validation and negative digest/archive tests remain intact.
+These are focused local Python results; hosted CI and cross-platform qualification
+remain separate requirements.
+
 ## Cross-region retreat and save-anchor boundaries, 30 October 2026
 
 The documentation review's mixed flee-distance candidate was reproduced against
@@ -3590,3 +3686,27 @@ on Linux before the correction and passes afterward; all 27 owner methods pass
 locally. Hosted native Windows verification remains required, not replaced by
 this path emulation. The failing evidence is
 [PR 255's first Windows debug shard 2](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41823447489/job/126561124600).
+
+## Staff disconnect picture barrier, 4 November 2026
+
+PR 258's Linux release Python run exposed the same stale-picture fixture-race
+class previously repaired in the throwing owner, now in
+`RogueStavesProcesses.test_text_staff_physical_hit_charge_exhaustion_and_pending_source_free_reopen`.
+The retained probe stream has a visual-changing outcome at sequence 48, paused
+intention at 49, and the demanded observation delta at 51. The intermediate
+picture still has active preparation and is not ready. The delta's disclosed
+state exactly matches the reopened state (excluding only the existing local
+picture identifiers), and the intentions match in both frames. Persistence is
+not implicated by this evidence.
+
+The staff pause barrier now consumes the demanded picture through the existing
+`picture_after` helper before retaining its restart oracle. All strict state,
+intention, frozen plan/payment, item and RNG comparisons remain unchanged.
+The deterministic ordered-stream regression first failed at its picture equality
+assertion in both timing subcases, then passed with the barrier; all 128 affected
+fixture and process-harness unit methods passed. This is one additional naturally
+failing process method in the already documented fixture-race class, not a new
+production defect. The two deliberate unit subcases are sensitivity evidence,
+not additional naturally detected failures. The actual Text/source-free restart
+witness remains required in final-head hosted CI; no local current-binary process
+qualification is claimed.

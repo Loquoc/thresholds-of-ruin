@@ -124,7 +124,9 @@ Supply each workflow run and its combined, paginated all-attempt jobs:
 ```json
 {
   "runs": [{
-    "run": {"id": 123, "status": "completed", "run_attempt": 2},
+    "run": {"id": 123, "status": "completed", "conclusion": "success",
+            "run_attempt": 2, "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:05:00Z"},
     "jobs_scope": "all",
     "total_count": 17,
     "jobs": []
@@ -132,12 +134,13 @@ Supply each workflow run and its combined, paginated all-attempt jobs:
 }
 ```
 
-The illustration omits real timestamps/jobs; it intentionally cannot establish
-complete cost. Preserve `created_at`, `updated_at`, and each job's `id`, `name`,
+The illustration uses synthetic timestamps and omits the 17 declared jobs, so it
+produces a lower bound with `job_pages_incomplete`, not a complete cost. Preserve `created_at`, `updated_at`, and each job's `id`, `name`,
 `labels`, `started_at`, `completed_at`, `conclusion` and `run_attempt`. Include
 `repository.full_name` when combining repositories. Fetch jobs with `filter=all`,
 combine every page, retain `total_count`, then declare `jobs_scope: "all"`.
-Otherwise the report flags a lower bound. This declaration is a caller assertion,
+Missing jobs/count/scope evidence flags a lower bound; invalid workflow chronology
+is rejected as described below. The scope declaration is a caller assertion,
 not independently authenticated API provenance.
 
 ```sh
@@ -145,14 +148,26 @@ python scripts/ci_cost_report.py --input saved-ci-jobs.json \
   --json-output ci-cost.json --text-output ci-cost.txt
 ```
 
-Repeat `--input` to combine files. Same-job-ID progress snapshots are reconciled
-first: compatible completed timestamps supersede null fields regardless of input
-order; conflicting non-null identities or timestamps fail closed with an error
+Repeat `--input` to combine files. Workflow metadata comes from the newest
+`updated_at` within the highest `run_attempt`; a completed lower attempt cannot
+replace an in-progress higher one. Attempts must be positive integers (an absent
+attempt defaults to 1). Highest-attempt update timestamps must include a timezone;
+missing, invalid or naive timestamps fail closed rather than guessing chronology.
+Equivalent timezone representations compare as the same instant. At equal update
+times, missing report fields can be filled from another snapshot; conflicting
+non-null status, conclusion, creation time, workflow name, event or URL produces
+an error. Invalid chronology in a lower attempt does not supersede valid latest
+attempt evidence. Errors leave report output files untouched.
+
+Same-job-ID progress snapshots are reconciled independently: compatible completed
+timestamps supersede null fields regardless of input order; conflicting non-null identities or timestamps fail closed with an error
 instead of being double charged. Then carried-forward new IDs with identical
 name/start/end intervals are deduplicated within runs. An empty input sample is
 uncertain, not exact zero. An explicitly completed run with `jobs_scope: "all"`,
-`total_count: 0`, and no jobs is a verified empty run for this offline accounting
-contract; missing count or attempt-completeness declarations make a lower bound. Optional repeated `--summary` accepts verifier stage summaries, projecting
+`total_count: 0`, no jobs, a valid creation timestamp and valid highest-attempt
+update chronology is a verified empty run for this offline accounting contract; missing count or attempt-completeness declarations make a lower bound.
+
+Optional repeated `--summary` accepts verifier stage summaries, projecting
 only stage names and durations. Stage durations are informational and never added
 to runner totals. Their provenance/uniqueness remains the caller's responsibility.
 No metric here changes qualification or waives tests.
