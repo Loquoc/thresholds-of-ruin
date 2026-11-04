@@ -65,19 +65,45 @@ pub use topology::{
     RegionId, RegionSlice, Trap, TrapFamily, TrapKind, World, WorldError, MAX_DOOR_HEIGHT,
 };
 
-/// Integer position in a region's local coordinate system.
+/// Integer cell position in a region's local coordinate system.
+///
+/// This value does not identify a region or establish that a cell exists. Use
+/// [`Location`] to name the region and [`World::contains`] to test loaded bounds.
+/// Ordering is lexicographic by x, then y, then z; region table lookups rely on it.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Position {
+    /// Eastward cell coordinate; negative values can name chamber shell cells.
     pub x: i32,
+    /// Southward cell coordinate; north decreases this value.
     pub y: i32,
+    /// Upward cell coordinate, using the same [`CELL_SIZE_FEET`] scale as x and y.
     pub z: i32,
 }
 
 /// Positive dimensions and an origin; authored interiors start at zero, while
 /// their material shells include negative coordinates.
+///
+/// Bounds include the origin and exclude origin plus dimensions. [`Self::new`]
+/// validates positive dimensions; deserializing the representation alone does
+/// not perform that constructor check. Untrusted metadata needs its enclosing
+/// world/content validation before use.
+///
+/// ```
+/// use tor_world::{Extent, Position};
+/// let interior = Extent::new(3, 4, 2).unwrap();
+/// let shell = interior.with_shell().unwrap();
+/// assert_eq!(shell.origin(), Position { x: -1, y: -1, z: -1 });
+/// assert_eq!(shell.dimensions(), (5, 6, 4));
+/// let corner = Position { x: 3, y: 4, z: 2 };
+/// assert!(!interior.contains(corner));
+/// assert!(shell.contains(corner));
+/// assert!(!shell.contains(Position { x: 4, ..corner }));
+/// assert!(Extent::new(0, 4, 2).is_none());
+/// assert!(Extent::new(i32::MAX, 4, 2).unwrap().with_shell().is_none());
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Extent {
@@ -92,11 +118,15 @@ impl Extent {
     pub fn dimensions(self) -> (i32, i32, i32) {
         (self.width, self.depth, self.height)
     }
-    /// The minimum corner.
+    /// The included minimum corner, without any coordinate translation.
     pub fn origin(self) -> Position {
         self.origin
     }
 
+    /// Construct zero-origin bounds with positive x/y/z cell dimensions.
+    ///
+    /// Returns `None` if any dimension is zero or negative. No world cells or
+    /// terrain are allocated by constructing bounds.
     pub fn new(width: i32, depth: i32, height: i32) -> Option<Self> {
         (width > 0 && depth > 0 && height > 0).then_some(Self {
             origin: Position { x: 0, y: 0, z: 0 },
@@ -106,6 +136,10 @@ impl Extent {
         })
     }
 
+    /// Test all three half-open coordinate intervals, independent of terrain.
+    ///
+    /// Differences are computed in a wider integer domain, so extreme positions
+    /// do not overflow the bounds test. This does not establish world residency.
     pub fn contains(self, position: Position) -> bool {
         let inside = |value: i32, start: i32, size: i32| {
             (0..i64::from(size)).contains(&(i64::from(value) - i64::from(start)))
@@ -116,6 +150,10 @@ impl Extent {
     }
 
     /// Add one cell of finite storage on every face, without shifting coordinates.
+    ///
+    /// Returns `None` if subtracting one from an origin or adding two to a
+    /// dimension would exceed the `i32` representation. This changes only bounds;
+    /// [`World::add_chamber`] supplies the shell's default stone terrain.
     pub fn with_shell(self) -> Option<Self> {
         Some(Self {
             origin: Position {

@@ -56,6 +56,7 @@ rather than treating a historical plan as current behavior.
 - [Testing](development/testing.md): required layers, local tiers, CI and evidence
 - [Test objectives and owners](development/test-objectives.md): independent contract witnesses, affected selection and cadence
 - [Rust API coverage](development/rust-api-coverage.md): public-surface inventory, source-contract work and runnable example coverage
+- [World residency API checklist](development/world-residency-api.md): reviewed coordinate, region and named-link members with executable witnesses
 - [Code-health register](development/code-health.md): evidence-led robustness, performance, maintainability and cleanup review
 - [Test effectiveness](development/test-effectiveness.md): evidenced defects, stale-test failures and bounded counting
 - [CI cost baseline](development/ci-cost-baseline.md): measured runner cost, elapsed time and comparison limits
