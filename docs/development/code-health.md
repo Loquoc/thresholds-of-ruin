@@ -750,6 +750,248 @@ no runtime pass, statistical audit or performance measurement is claimed.
   all-renderer behavior, allocation performance, disclosure or host-source-budget
   correctness from this bounded review.
 
+### Capture uploads, projectile menus and shared route search
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new issue in these bounded paths. Existing assertions were inspected, not run;
+this is neither a fresh runtime pass nor a performance or correctness certification.
+
+- [Capture upload](../../crates/client-common/src/captures.rs) retains the picture
+  anchor while checking the current attachment/branch. Construction bounds bytes
+  and validates text UTF-8, without claiming PNG structure validation. Sequential
+  chunks require the exact upload identity and next offset. Pre-commit failure
+  permits bounded staging cleanup; after Commit, only a correlated rejection
+  triggers cleanup. Uncertain transport, timeout or malformed outcomes must not
+  become automatic abort/retry. The first correlated reply is retained through
+  synchronization while ordinary messages reach the presentation callback.
+  Existing [wire assertions](../../crates/client-common/tests/it/capture_upload.rs)
+  preserve the original chunk/commit rejection, check the staging identity and
+  distinguish explicit fresh capture after rejection from uncertain outcomes
+  without a retry. Full storage durability, server format validation and socket
+  cancellation remain outside this pass.
+- [Projectile source/ammunition menus](../../crates/client-common/src/projectiles.rs)
+  bind context, ability, inventory, equipment disclosure, request and complete
+  query. Freshness checks cover reply acceptance, navigation, selection and final
+  directional action. Supplied choices and the ammunition phase's launcher are
+  rechecked against disclosed identities/sockets, not independently derived
+  ammunition compatibility or numeric rules. Previous pages retain offsets;
+  an empty filtered page can still have a continuation. Launcher selection resets
+  pagination and binds its exact identity. Existing
+  [menu tests](../../crates/client-common/src/projectile_tests.rs) inspect context
+  and query mismatches, duplicate replies, empty-page navigation, launcher socket
+  changes, exact final delivery and ten stale-state mutations. Snapshot clones
+  alone do not establish an optimization opportunity. All-frontend interactions,
+  server enumeration and menu-memory costs were not audited or measured.
+- [Shared remembered-route search](../../crates/simulation/src/travel.rs) reuses
+  settled prefixes for several destinations within one read-only decision. Keys
+  retain location/orientation, ordered ties are deterministic and superseded queue
+  entries are skipped. Expansion consults remembered cells/edges and actor movement
+  capabilities/cost, including composed diagonal frames, rather than hidden terrain.
+  Expanding the popped destination before returning permits continuation to later
+  targets; removing that work needs an equivalent deferred-expansion mechanism.
+  The existing `shared_search_matches_fresh_routes_across_target_orders_and_frames`
+  differential witness compares shared and fresh routes through directed cycles,
+  equal-cost choices, portal frames, unreachable cells and a known wall, across
+  five actor frames, three target orders and repeated targets. This is source
+  evidence for reuse semantics, not a timing result. Refresh/alignment, exhaustive
+  geometry, route execution, memory costs and topology/checkpoint validation
+  remain outside the review.
+
+### Earned growth, strike pages, relocation clocks and finite supplies
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable issue in these bounded paths. Existing regression assertions are
+source evidence only: no fresh runtime pass, exhaustive correctness result or
+performance measurement is claimed.
+
+- [Earned-growth accounting](../../crates/simulation/src/earned_growth.rs) separates
+  earned/applied high-water marks and exact spent-plus-held balances. Lost ordinals
+  cost the current applied-tier price; forward projection uses binary search and
+  [checked threshold sums](../../crates/simulation/src/rules/growth.rs), with an
+  explicit representational-endpoint error. This scalar projection differs from
+  [actual-row admission](../../crates/simulation/src/creatures/state.rs), which
+  retains XP for dead actors, unavailable sources or structural limits and commits
+  candidate spending only after successful rebuild. Existing growth assertions
+  cover bounded iterative-oracle equivalence, full-width arithmetic, overflow
+  preservation, drain/regrowth and banked XP beyond actual-row admission. All XP
+  attribution, full build derivation and persistence remain outside this review.
+- [Strike-page navigation](../../crates/client-common/src/inspection_pages.rs)
+  binds context, target/source identity, request, cursor and inspection handle;
+  pending queries prevent navigation and acceptance errors clear the navigator.
+  Candidate compact structure is checked before publication. Eviction precedes
+  formatting to retain at most two rendered pages, while bounded cursor/shape
+  history survives for continuation and revisits. Existing module assertions
+  cover stale/mismatched replies, skipped entries, aggregate effect/descriptor
+  limits, maximum-source traversal and rider structure after rendered eviction.
+  Keeping only two text pages is not an equivalent replacement for compact
+  structure checks. Server authorization, protocol parsing, all UI interactions
+  and the material cost of bounded aggregate rescans were not established here.
+- [Periodic relocation clocks](../../crates/simulation/src/periodic_relocation.rs)
+  retain independent per-item phases and trials. Advancement rejects jumping past
+  the earliest deadline or proceeding with pending trials. Boundary removal keeps
+  earned trials; fractional ownership transfers rather than duplicating elapsed
+  time. Settlement takes the earned batch before reentrant relocation and checks
+  liveness between ordered trials. Existing clock and
+  [gameplay assertions](../../crates/simulation/src/periodic_relocation_tests.rs)
+  cover independent phases, rejected catch-up, ordered simultaneous trials, frozen
+  partial intervals, exact-boundary removal and pending-owner index isolation.
+  Destination geometry, distributions, persistence and whole-scheduler costs
+  remain outside scope; checkpoint implementation was not investigated.
+- [Finite supplies](../../crates/simulation/src/supplies.rs) separate physical
+  preview quantities from committed availability after holds. Replacement can
+  discount only its retiring lineage; reservation binds lineage and cost ordinal.
+  Release checks all references before removing holds, and consumption validates
+  the complete preparation. Reservation still relies on its outer transaction;
+  the helper alone is not certified atomic under arbitrary partial failure.
+  Settled payment prevents repeated consumption without requiring a deleted source
+  for a paid tail. Existing [lifecycle assertions](../../crates/simulation/tests/it/supply_lifecycle.rs)
+  distinguish AI preview from held availability, resume paid work, preserve state
+  on missing second supply and retain exact preparation on rejected replacement.
+  Full action orchestration, every item kind, detached-state persistence and stack
+  split/merge mutation were not audited in this pass.
+
+### Defensive AI, resource pools, adventure objectives and sequence debt
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable issue in these bounded paths. Primary sources and referenced
+support/test files matched the reviewed versions. Assertions were inspected, not
+executed; no fresh runtime pass, benchmark or exhaustive correctness claim follows.
+
+- [Defensive AI](../../crates/simulation/src/ai_defense.rs) admits a narrow
+  single-strike, unchecked, self-only condition shape, using
+  [effect classification](../../crates/simulation/src/ai_effect_safety.rs) to reject
+  unsupported payloads. Active conditions, reserved families, immunity, effective
+  improvement and resource thresholds constrain fresh plans; priority ties use
+  stable ability IDs. Exact suspended pre-prefix work is considered separately
+  before fresh admission. The incoming-condition baseline is already outside the
+  candidate loop. Existing [defense assertions](../../crates/simulation/src/ai_defense_tests.rs)
+  cover rejected shapes, resource gates, frozen-plan resumption, declaration-order
+  independence and bounded work counters across 257 candidates. Those counters
+  are source assertions, not measurements from this review. Other AI priorities,
+  all condition semantics and tactical strength remain outside scope.
+- [Resource recovery](../../crates/simulation/src/resources.rs) combines ticks and
+  remainder in wide arithmetic, caps gains before narrowing and discards excess
+  fraction when full. Increased capacity does not refill; failed spending does
+  not mutate. Full pools have no recovery event, and projection is nonmutating.
+  Positive bounded periods come from rules validation. Existing
+  [pool tests](../../crates/simulation/tests/it/resources.rs) cover partial
+  deadlines, distinct pool schedules, partition equivalence, capacity changes,
+  saturation, failed-spend preservation and full-width elapsed time. The loop is
+  over three resources, not ticks. Whole-scheduler/frozen-region integration and
+  proportional rephasing on ruleset changes were not established by this review.
+- [Adventure objective policy](../../crates/simulation/src/run_policy.rs) requires
+  a living starting character at the exact anchor, carrying the exact objective
+  item when required. Missing or consumed items cannot satisfy it; a recorded
+  victor is preserved. Continued play can retain victory without termination,
+  while selected-character death independently ends an adventure. Existing
+  [combat witnesses](../../crates/simulation/tests/it/combat.rs) distinguish
+  noncharacters, continued victory and selected death; an
+  [interaction witness](../../crates/simulation/tests/it/interactions.rs) consumes
+  the objective item without granting victory. Complete policy-hook coverage,
+  objective placement and persistence validation were not audited.
+- [Sequence debt](../../crates/simulation/src/sequence.rs) subtracts elapsed work
+  only while active. Checked completion debt includes the remaining next strike,
+  authored offset tail and recovery; abandonment owes it only after a committed
+  prefix. Paid prefixes retain no resource hold. Execution preserves exact gaps
+  and starts final recovery after the last strike. Existing
+  [strike assertions](../../crates/simulation/src/abilities/strike_tests.rs)
+  preserve frozen plans, distinguish active/suspended cancellation deadlines and
+  resume unfinished work without paying the committed resource prefix again.
+  Preserve these operands and debts during simplification. This pass does not
+  certify all rider/damage/hold lifetimes, offset boundaries or execution timing.
+
+### Remembered placement, advancement confirmation and ranged acquisition
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable defect in these bounded paths. Primary and referenced support/test
+files matched the reviewed versions. Existing assertions were inspected, not run;
+no fresh runtime pass, heap measurement or performance improvement is claimed.
+
+- [Remembered-map placement](../../crates/client-common/src/map_memory.rs) derives
+  translations from unique common cell identities, discarding old placement on
+  conflicting or absent unambiguous anchors. Wide intermediate arithmetic and
+  checked coordinate conversion avoid narrowing assumptions. Two independent
+  anchor vectors are needed to certify old coverage; provisional placement alone
+  does not certify a retained rectangle. Changed appearances replace byte
+  accounting. Eviction favors unplaced records and clears certified coverage when
+  placed data exceeds budget; adjacent-face requests avoid treating uncovered
+  corners as covered. Existing [map assertions](../../crates/client-common/tests/it/map_memory.rs)
+  cover conflicting/ambiguous anchors, elevation, extreme translation, rejected
+  update preservation and sparse/collinear/rotated anchors. This extends placement
+  and eviction coverage without certifying all hydration, protocol/frame validation,
+  global topology or live-observation memory peaks.
+- [Advancement confirmation](../../crates/client-common/src/advancement.rs) retains
+  at most four complete pages, bounded offset history and one exact confirmation,
+  with a pinned overview. Replies bind query, basis, revision, request and context
+  before mutation, including section totals and encoded-envelope size. Navigation
+  uses returned offsets. Identity/control loss discards private state; changed
+  context stales confirmation rather than silently rebuilding it. Commit uses the
+  retained proposal/basis and current admission; respec resume/cancel names the
+  disclosed intention and permitted controls. Existing
+  [reducer assertions](../../crates/client-common/src/advancement/tests.rs) cover
+  cursor progress, stale/foreign replies, confirmation refusal, bounded traversal
+  of 100 removal pages and exact respec operands. Server accounting, all parser
+  grammar and UI end-to-end behavior remain outside this review.
+- [Ranged acquisition](../../crates/simulation/src/ai_ranged_items.rs) orders hostile
+  launch abilities by priority/ID, prefers equipped launchers, rejects inventories
+  above 128 entries and inspects at most 16 launcher candidates. Complete ability
+  plus weapon costs are checked against loadout maxima, including projected gear.
+  Matching ammunition preserves a preferred usable launcher; depletion releases
+  that preference. Saturating carried totals target a six-shot reserve. Ground
+  quantities are per-candidate desires, not a simultaneous batch: the caller picks
+  one action and caps it to that stack. Repeated deficits across candidate stacks
+  do not alone prove overcollection, and bounded nested scans are not the earlier
+  unbounded gear-ranking candidate. No focused acquisition test body was located
+  in the bounded search; this does not establish that none exists. Before changing
+  policy, locate or add witnesses for 128/129 inventory entries, 16/17 launchers,
+  split-stack reserves, depleted preferred launchers, secondary-socket costs and
+  repeated single-stack takes. These are verification scenarios, not observed
+  failures. Numerical projectile compilation and whole tactical priority remain
+  outside scope.
+
+### Awareness clocks, projectile requests and skill-check arithmetic
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable defect in these bounded paths. Primary files and referenced
+support/test files matched the reviewed versions. Existing assertions were read,
+not executed; no fresh runtime pass, profiling result or exhaustive audit follows.
+
+- [Awareness clocks](../../crates/simulation/src/awareness.rs) reconcile expired or
+  disabled alert memory without repeatedly extending its expiry. Expiry is
+  exclusive; location alerts retain a snapshot, not the source's live position.
+  Aggravation rephases fractional progress in wide arithmetic and rejects excess
+  advancement or already-pending trials before clock mutation. Settlement takes
+  pending work before running it and uses the pending-owner index. Checked
+  arithmetic governs expiry and frozen-time shifts. Existing module assertions
+  cover alert/source separation, exclusive expiry, retained 499/500 phase,
+  single-consumption trials and shifted expiry boundaries. Sensory contests,
+  hearing geometry, target disclosure, RNG distribution and surrounding candidate
+  rollback were not audited in this clock-focused pass.
+- [AI projectile requests](../../crates/simulation/src/ai_projectiles.rs) select
+  exact item/socket/delivery operands rather than deferring weapon selection to
+  execution. Fresh requests check cooldown, identified inventory and known curses
+  on equipped throws; enumeration considers the first 128 rows and at most 16
+  launchers with 128 ammunition rows each. These are NPC heuristics, not public
+  menu completeness guarantees. Known profiles supply range, expertise and
+  secondary-socket costs; shared AI helpers check full resource bundles and
+  disclosed, aligned target directions. Paused work uses frozen projectile
+  operands. No dedicated request-test body was inspected, so regression evidence
+  here is weaker. Before changes, locate/add witnesses for cursed throws, range
+  endpoints, diagonal alignment, multi-resource secondary costs, 128/129 rows,
+  16/17 launchers and frozen-plan reuse. These are proposed scenarios, not failures
+  or measured optimization opportunities; whole tactical priority is not qualified.
+- [Attribute and skill checks](../../crates/simulation/src/attributes.rs) widen
+  adjustment arithmetic before flooring/cap checks and reject ranks above five.
+  Spellcasting uses its selected mana binding while Breath remains Willpower.
+  Totals widen modifiers/thresholds to signed 64-bit values and use inclusive
+  success, without natural-roll overrides. Diagnostics retain attribute/rank,
+  edge allocation, raw/retained dice and before/after RNG state. Existing
+  [attribute assertions](../../crates/simulation/tests/it/attributes.rs) cover
+  adjustment preservation, caps, fixed and selected bindings, independent ranks,
+  inclusive thresholds and extreme signed modifiers with natural three/eighteen.
+  Dice sampling and full build-fold validation were not repeated. Similar cap
+  checks at distinct semantic entry points alone do not warrant a cleanup issue.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
