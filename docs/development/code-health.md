@@ -91,20 +91,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   event-time disclosure, with existing unique witnesses retained. Independent
   wire/save/authoring adapters are not automatically duplication to remove.
 
-### CH-005: Server/storage wording and operational identities
-
-- **Category/status:** documentation; source review identifies corrections,
-  owned by the server/protocol batch.
-- **Evidence/next step:** inspect [Engine retry](../../crates/server/src/engine.rs)
-  for accepted-versus-durable receipt language; [storage](../../crates/server/src/storage.rs)
-  for worker-I/O claims versus synchronous lazy reads; [checkpoint preparation](../../crates/server/src/checkpoint.rs)
-  and [persistence](../architecture/persistence.md) for chart-history capacity
-  encoding; [save inspection](../../crates/server/src/storage.rs) for physical-frame
-  versus save-format terminology. Verify each exact current symbol before editing.
-- **Acceptance:** match the actual thread/phase and current identity owner,
-  preserve format versions and persistence behavior, and validate affected docs
-  and executable examples. Do not call journal admission a disk flush.
-
 ### CH-006: Rogue Search comment no longer describes checked recognition
 
 - **Category/status:** documentation; confirmed mismatch, correction pending.
@@ -138,6 +124,40 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   blocked/movement/door/readiness oracle tests; add explicit version/pairing
   rejection witnesses only for an approved strengthened input contract.
 
+### CH-011: Compact headless frames build discarded derived state
+
+- **Category/status:** performance/maintainability; source-supported redundant
+  work, benefit unmeasured. Reviewed at `a7d0f10e1`
+  on 2026-11-04; no runtime failure or speedup is claimed.
+- **Impact/confidence:** high confidence in unnecessary construction; practical
+  CPU/allocation impact depends on observation, history, palette and background
+  message volume. This is transient work, not evidence of retained-memory growth.
+- **Evidence/trigger:** [headless `emit` and `DiagnosticOutput::project`](../../crates/client-headless/src/main.rs)
+  first build the complete derived JSON object, including advancement display,
+  observation state, history and palette. With `--compact-background`, successful
+  non-ready `map_page`, `palette` and `waiting` frames then discard those fields
+  and retain only the compact envelope. Thus smaller output does not establish
+  avoided full-state serialization. Accumulated diagnostic memory already skips
+  construction on this path; do not report it as part of the redundant work.
+- **Next step:** select compact versus complete output before constructing the
+  derived fields, sharing the exact eligibility predicate and compact envelope.
+  Preserve raw-message serialization, map hydration, all errors and full ready,
+  observation/lifecycle and snapshot frames. Keep ordinary output unchanged.
+- **Acceptance:** retain the existing unit witnesses
+  `compact_background_keeps_raw_messages_and_marks_omitted_derived_state` and
+  `compact_background_preserves_ready_observations_and_every_error_in_full`, and
+  the actual-process witness
+  [HeadlessProcesses.test_compact_background_retains_raw_pages_and_complete_gameplay_and_errors](../../scripts/test_headless_process.py).
+  Add a construction-boundary witness proving that omitted derived fields are
+  not evaluated on compact frames, while complete frames still evaluate them.
+  Compare optimized before/after time and allocation evidence for equal disclosed
+  state and raw messages before claiming a performance improvement.
+- **Review limits:** existing assertions were inspected, not freshly executed.
+  No implementation, test, wire schema or dependency changed in this review.
+  The headless lifecycle review also found explicit unknown-outcome diagnostics,
+  shared pending-request completion and bounded stale-revision-only wizard
+  retries; none is established redundant or safe to remove.
+
 ## Retained or resolved findings
 
 ### CH-007: Sight implementations are not established dead code
@@ -167,6 +187,26 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   distinguishes the retained-checkpoint bound. Recheck current tests and behavior
   if a new failure contradicts that classification; do not infer fresh runtime
   verification from this source reconciliation.
+
+### CH-005: Server/storage wording and operational identities
+
+- **Category/status:** documentation; resolved by [PR 227](https://github.com/KCall360/thresholds-of-ruin/pull/227),
+  merged as `6b344410`; reconciled against `a7d0f10e1` on 2026-11-04.
+- **Resolution/evidence:** [Engine::retry](../../crates/server/src/engine.rs)
+  distinguishes an accepted receipt from a durable journal prefix.
+  [Storage](../../crates/server/src/storage.rs) distinguishes background writes
+  from caller-thread lazy reads, and `inspect_save` separates physical-frame
+  identity from logical save format and strict gameplay replay.
+  [Checkpoint preparation](../../crates/server/src/checkpoint.rs) and
+  [persistence](../architecture/persistence.md) describe synchronous
+  chart-history capacity encoding before admission, separately from periodic
+  worker encoding. No runtime implementation or format changed.
+- **Qualification:** PR 227 records server/protocol library checks and Clippy,
+  two runnable doctests, warning-free public/private rustdoc, documentation
+  checks and rendered-page inspection. This reconciliation rechecked the current
+  source wording; it did not rerun those checks or establish runtime/performance
+  qualification. Broader server/protocol member coverage remains partial in the
+  [API inventory](rust-api-coverage.md).
 
 ## Removal and consolidation proof
 

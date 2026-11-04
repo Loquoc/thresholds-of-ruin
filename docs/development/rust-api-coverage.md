@@ -38,14 +38,14 @@ missing-documentation denial once the actual surface is covered.
 | --- | --- | --- |
 | [World](../../crates/world/src/lib.rs) | Partial | Complete exported topology, region lifecycle, sight/lighting, ray, serialization and ownership contracts |
 | [Simulation](../../crates/simulation/src/lib.rs) | Partial | Complete the module/export inventory below and public methods implemented outside the crate root |
-| [Protocol](../../crates/protocol/src/lib.rs) | Inventoried | Bounded decoding/assembly, envelope clocks, disclosed handles, direction, schema versus semantic validation |
-| [Server](../../crates/server/src/lib.rs) | Inventoried | Authority/dedup, scheduler callbacks, publication/durability, storage, compilation and operational error boundaries |
-| [Client common](../../crates/client-common/src/lib.rs) | Inventoried | Transport/state ownership, recovery, completion, page reducers, retained pictures and disclosed affordances |
-| [Text](../../crates/client-text/src/lib.rs) | Inventoried | Parsing/resolution, clarification, execution chains, prompt readiness, narrative evidence and reset retention |
-| [ASCII](../../crates/client-ascii/src/lib.rs) | Inventoried | Worker/reducer ownership, modal controls, coordinates/hit tests, rendering and capture completion |
+| [Protocol](../../crates/protocol/src/lib.rs) | Partial | Bounded decoding/assembly, envelope clocks, disclosed handles, direction, schema versus semantic validation |
+| [Server](../../crates/server/src/lib.rs) | Partial | Authority/dedup, scheduler callbacks, publication/durability, storage, compilation and operational error boundaries |
+| [Client common](../../crates/client-common/src/lib.rs) | Partial | Transport/state ownership, recovery, completion, page reducers, retained pictures and disclosed affordances |
+| [Text](../../crates/client-text/src/lib.rs) | Partial | Parsing/resolution, clarification, execution chains, prompt readiness, narrative evidence and reset retention |
+| [ASCII](../../crates/client-ascii/src/lib.rs) | Partial | Worker/reducer ownership, modal controls, coordinates/hit tests, rendering and capture completion |
 | [Headless](../../crates/client-headless/src) | Inventoried | JSON-lines lifecycle, exit/failure handling and receipt versus completed gameplay |
 | [Test support](../../crates/test-support/src/lib.rs) | Public contract pass | Performance workload members documented below; future schema policy tracked as CH-010 |
-| [Optional 3D](../../crates/client-3d) | Inventoried | Separate model/application workspaces, live/review clocks, resource ownership, async identity, coordinates and native evidence |
+| [Optional 3D](../../crates/client-3d) | Partial | Separate model/application workspaces, live/review clocks, resource ownership, async identity, coordinates and native evidence |
 
 The optional 3D application remains a separate workspace. Its own documentation
 and doctests need explicit qualification; a root-workspace pass does not cover it.
@@ -122,6 +122,46 @@ catalog example is a minimal backend fixture, not a production authoring recipe.
 Later batches should add creature construction/advancement, paid interruption and
 resumption, condition clocks, disclosure, and residency/population workflows with
 independently expected positive and negative assertions.
+
+## Merged client and server/protocol contract batches
+
+Reconciled against `a7d0f10e1` on 2026-11-04. The rows below record bounded
+improvements from [PR 226](https://github.com/KCall360/thresholds-of-ruin/pull/226)
+and [PR 227](https://github.com/KCall360/thresholds-of-ruin/pull/227); neither PR
+updated this shared inventory. The remaining-review column above is the broader
+family review boundary, not a claim that none of those contracts exists. No
+family is marked complete by these batches.
+
+| Source family / reviewed owners | Bounded contracts and witnesses | Remaining boundary |
+| --- | --- | --- |
+| Client common: crate root, connection, state, pending requests and captures | Server-before-local ownership, recovery, immutable pictures, request versus gameplay completion, capture receipt versus durability; runnable atomic stream-rejection example | Remaining public members, fields/variants and reducer/selection families require member-level review |
+| Text: crate root, admission and engine | Queued admission, execution ownership and prompt/readiness boundaries; runnable admission example | Parser/resolution, clarification, narrative evidence and remaining engine members |
+| ASCII: crate root, model and render | Worker/reducer ownership, modal controls, coordinate/hit-test and render/capture boundaries | Complete public/member inventory and executable examples; no native UI qualification |
+| Optional 3D: renderer-free model root, advancement, appearance, commands, equipment, frame, interaction, inventory, map, observation and routing; application README | Frame translation/reset, bounded Unicode search and exact compass-offset examples; stale selections, map confirmation, inventory/equipment/advancement contracts | Separate application/model member coverage, async resource ownership and native/art evidence remain incomplete |
+| Server: crate root, Engine, Service/session, runner, storage and checkpoint | Trusted host versus authenticated session, accepted versus durable receipts, save barriers/policy/status, mailbox cancellation and checkpoint capacity phases; runnable save-barrier example; CH-005 resolved | Remaining public members, scheduler/publication paths, compilation and operational failures |
+| Protocol: crate root, codec and recovery | Bounded decoding, schema-versus-context validation, snapshot assembly and lifecycle reading paths; runnable assembler example | Remaining envelope/member contracts, disclosed-handle families, clocks and direction |
+
+PR 226 records five passing runnable doctests and scoped library, Clippy and
+public/private rustdoc checks for common/Text/ASCII and the separate renderer-free
+model workspace. PR 227 records two passing doctests and scoped server/protocol
+checks. Both record documentation checks and rendered-page inspection. These are
+the respective PRs' evidence, not fresh execution in this tracking reconciliation
+or proof of full runtime, native, release or cross-platform qualification.
+Subsequent merged batches retain their own bounded evidence:
+
+- [PR 229](https://github.com/KCall360/thresholds-of-ruin/pull/229) adds world
+  residency and coordinate contracts; its [member checklist](world-residency-api.md)
+  records the reviewed surface and remaining world work. World remains Partial.
+- [PR 230](https://github.com/KCall360/thresholds-of-ruin/pull/230) improves
+  simulation content IDs, dice, hit dice, quantities, action duration and rules
+  contracts and examples. The broader simulation inventory remains Partial.
+- [PR 231](https://github.com/KCall360/thresholds-of-ruin/pull/231) adds the
+  test-support public contract pass and member checklist below; CH-010 remains
+  open. That bounded status is preserved, not promoted to whole-project completion.
+
+The source-only headless review records redundant compact-frame construction as
+[CH-011](code-health.md#ch-011-compact-headless-frames-build-discarded-derived-state).
+It adds no source contracts or executable examples, so Headless stays Inventoried.
 
 ## Qualification and maintenance
 
