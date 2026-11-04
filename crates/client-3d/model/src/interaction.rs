@@ -48,6 +48,17 @@ impl Intent {
     }
 }
 
+/// Convert an exact nonzero neighboring offset to a compass direction.
+/// Positive x is east and positive y is south. This does not normalize a distant
+/// vector, infer elevation or check whether movement is allowed.
+///
+/// ```
+/// use tor_client_3d_model::direction;
+/// use tor_protocol::Direction;
+/// assert_eq!(direction(1, -1), Some(Direction::NorthEast));
+/// assert_eq!(direction(0, 0), None);
+/// assert_eq!(direction(2, -1), None);
+/// ```
 pub fn direction(dx: i32, dy: i32) -> Option<Direction> {
     Some(match (dx, dy) {
         (0, -1) => Direction::North,
@@ -62,6 +73,8 @@ pub fn direction(dx: i32, dy: i32) -> Option<Direction> {
     })
 }
 
+/// Current terrain followed by aligned remembered terrain, as [`View::terrain`].
+/// This includes appearances without actionable entity handles.
 pub fn known_cells(view: &View) -> impl Iterator<Item = crate::Terrain<'_>> {
     view.terrain()
 }

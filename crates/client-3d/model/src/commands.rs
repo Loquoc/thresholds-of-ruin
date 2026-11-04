@@ -57,7 +57,6 @@ pub enum Cmd {
     Travel(String),
 }
 
-/// The immutable disclosure boundary used to interpret this input.
 /// Choosing a projectile delivery from the server's pages, then firing it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectileStep {
@@ -84,11 +83,25 @@ pub enum AbilityTarget {
 /// The longest place name the ASCII client also accepts.
 pub const MAX_PLACE_NAME: usize = 80;
 
+/// A UI command paired with the immutable disclosure from which it was chosen.
+///
+/// Keep the original context while the command crosses threads. Replacing it
+/// with the worker's newer context would silently rebind a stale selection.
 pub struct Input {
+    /// Context copied from the displayed [`crate::View`].
     pub shown: ReplyContext,
+    /// The player's selection, still subject to current shared admission checks.
     pub command: Cmd,
 }
 
+/// Validate the displayed context before translating a direct command.
+///
+/// # Errors
+///
+/// Returns an error if the picture/input context changed or the command cannot
+/// be constructed from current disclosed affordances. Projectile, advancement
+/// and chart commands require their connection-owned reducers instead. This
+/// function neither sends a request nor guarantees that the server will admit it.
 pub fn request_from(
     state: &ClientState,
     shown: &ReplyContext,

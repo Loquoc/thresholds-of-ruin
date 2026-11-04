@@ -78,6 +78,87 @@ impl ChartStreamValidator {
 
     /// On failure no cursor/header/declaration/row is committed. The caller's
     /// retained rows must likewise publish only after this proof succeeds.
+    ///
+    /// This example receives a declaration page followed by two equal food
+    /// occurrences. A page-local check cannot prove alignment inherited from an
+    /// earlier page. The validator rejects that mismatch without advancing;
+    /// equal valid occurrences remain distinct records rather than being deduplicated.
+    /// Real callers obtain these correlated pages from the server, not by
+    /// synthesizing identities or continuation ordinals.
+    ///
+    /// ```
+    /// use tor_protocol::chart_pages::*;
+    /// use tor_protocol::{ActorId, BranchId, InputContext, ObservationBase, ReplyContext,
+    ///     SnapshotId, StreamContext, StreamCursor, StreamId};
+    ///
+    /// let context = StreamContext { stream: StreamId("example-stream".into()), epoch: 1 };
+    /// let base = ObservationBase {
+    ///     snapshot: SnapshotId("example-snapshot".into()),
+    ///     cursor: StreamCursor { sequence: 3, tick: 10 }, revision: 2,
+    /// };
+    /// let query = ChartQuery {
+    ///     context: context.clone(), branch: BranchId("example-branch".into()),
+    ///     base: base.clone(), chart: "example-sample".into(), cursor: None,
+    /// };
+    /// let first = ChartPageReply {
+    ///     message_type: ChartReplyType::ChartPage,
+    ///     context: ReplyContext {
+    ///         snapshot: base.snapshot.clone(),
+    ///         input: InputContext { stream: context.clone(), readiness_revision: 0 },
+    ///         actor: ActorId(1), branch: query.branch.clone(),
+    ///         cursor: base.cursor, revision: base.revision,
+    ///     },
+    ///     request_id: "request-1".into(),
+    ///     page: ChartPage {
+    ///         context, branch: query.branch.clone(), base, chart: query.chart.clone(),
+    ///         kind: ChartKind::Food, mode: ChartMode::Historical, acquired_at: 8,
+    ///         total_components: 1, total_records: 3, start: 0,
+    ///         records: vec![ChartRecord::Component(ChartComponent {
+    ///             component: 0, alignment: ChartAlignment::Aligned,
+    ///         })],
+    ///         next: Some(1),
+    ///     },
+    /// };
+    /// let budget = ChartAssemblyBudget {
+    ///     components: 1, records: 3, encoded_bytes: 2 * MAX_CHART_PAGE_BYTES as u64,
+    /// };
+    /// let mut stream = ChartStreamValidator::new(ActorId(1), budget);
+    /// stream.accept(&query, "request-1", &first).unwrap();
+    /// assert!(!stream.is_complete());
+    /// assert_eq!((stream.components_seen(), stream.records_seen()), (1, 1));
+    ///
+    /// let next_query = ChartQuery { cursor: first.page.next, ..query.clone() };
+    /// let mut second = first.clone();
+    /// second.request_id = "request-2".into();
+    /// second.page.start = 1;
+    /// second.page.next = None;
+    /// second.page.records = vec![ChartRecord::Row(ChartRow {
+    ///     component: 0, position: None, mark: ChartMark::Food,
+    /// }); 2];
+    /// assert!(second.page.validate().is_ok()); // The declaration was on page one.
+    /// let before = stream.clone();
+    /// assert!(stream.accept(&next_query, "request-2", &second).is_err());
+    /// assert_eq!(stream, before);
+    /// for record in &mut second.page.records {
+    ///     if let ChartRecord::Row(row) = record {
+    ///         row.position = Some([2, 0, 0]);
+    ///     }
+    /// }
+    /// assert!(stream.accept(&next_query, "another-request", &second).is_err());
+    /// assert_eq!(stream, before);
+    /// stream.accept(&next_query, "request-2", &second).unwrap();
+    /// assert!(stream.is_complete());
+    /// assert_eq!(stream.records_seen(), 3); // Declaration plus both occurrences.
+    /// assert!(stream.encoded_bytes() <= budget.encoded_bytes);
+    /// assert!(stream.accept(&next_query, "request-2", &second).is_err());
+    ///
+    /// let mut too_small = ChartStreamValidator::new(ActorId(1), ChartAssemblyBudget {
+    ///     records: 2, ..budget
+    /// });
+    /// let empty = too_small.clone();
+    /// assert!(too_small.accept(&query, "request-1", &first).is_err());
+    /// assert_eq!(too_small, empty);
+    /// ```
     pub fn accept(
         &mut self,
         query: &ChartQuery,

@@ -18,6 +18,21 @@ pub struct AdmissionBoundary {
 }
 
 impl AdmissionBoundary {
+    /// Start a boundary only for a receipt admitting a queued intention.
+    /// Other receipt kinds and already nonqueued phases return `None`.
+    ///
+    /// ```
+    /// use tor_client_text::admission::AdmissionBoundary;
+    /// use tor_protocol::{ActorId, BranchId, EntryId, IntentionId,
+    ///                    IntentionPhase, RequestReceipt};
+    /// let receipt = RequestReceipt::Admitted {
+    ///     actor: ActorId(1), branch: BranchId("play".into()),
+    ///     intention: IntentionId("action".into()), entry_id: EntryId("entry".into()),
+    ///     phase: IntentionPhase::Queued,
+    /// };
+    /// let boundary = AdmissionBoundary::new(&receipt).unwrap();
+    /// assert!(!boundary.settled()); // Admission alone does not reopen the prompt.
+    /// ```
     pub fn new(receipt: &RequestReceipt) -> Option<Self> {
         let RequestReceipt::Admitted {
             actor,
@@ -47,6 +62,13 @@ impl AdmissionBoundary {
         self.execution_stopped && self.permissions_received
     }
 
+    /// Consume a message already validated and applied by the connection.
+    ///
+    /// Returns true only for a readiness update following a matching nonqueued
+    /// intention update in the same stream context. This is **not** equivalent to
+    /// [`Self::settled`]: readiness can follow `Started` while execution is still
+    /// running. A later intention phase resets the readiness requirement; messages
+    /// for another actor or branch do not advance this boundary.
     pub fn observe(&mut self, message: &ServerMessage) -> bool {
         let ServerMessage::Update { update } = message else {
             return false;

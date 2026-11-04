@@ -1,4 +1,26 @@
-//! Client-side validation of server-pushed observation ordering.
+//! Validated disclosure, transport and presentation shared by the frontends.
+//!
+//! # Entry points
+//!
+//! - [`Connection`] owns the socket, applies messages and manages recovery and
+//!   background queries. Poll it before interpreting already-ready local input;
+//!   [`server_before_local`] supplies that ordering.
+//! - [`ClientState`] validates and retains live authority alongside an immutable
+//!   displayed picture. [`ClientSessionState`] is not an exportable reset snapshot.
+//! - [`PendingRequest`] correlates request completion after messages have been
+//!   applied. An admitted request, a completed query and finished gameplay are
+//!   different events; an unknown outcome must not trigger automatic replay.
+//! - [`advancement`], [`charts`], [`inspection_pages`], [`projectiles`] and
+//!   [`weapon_preview`] own bounded, context-pinned browsing and confirmation.
+//! - [`items`], [`abilities`], [`weapons`] and [`holds`] select from disclosed
+//!   affordances. [`Palette`], [`presentation`], [`narration`] and [`status`]
+//!   turn disclosed facts into frontend-neutral presentation.
+//! - [`annotations`] formats notes/reports; [`captures`] uploads bytes already
+//!   captured explicitly by a frontend. Neither invents a new screenshot.
+//!
+//! Remembered appearances and cosmetic recipes never grant action authority.
+//! Frontends must preserve exact targets and selection contexts rather than
+//! reconstruct them from names, list indices or a newer picture.
 
 #[cfg(test)]
 #[path = "../../protocol/tests/support/fixture.rs"]
@@ -38,6 +60,9 @@ pub use state::{ClientSessionState, ClientState, RememberedCell};
 
 use tor_protocol::{ActorId, StreamCursor};
 
+/// Validation failure while applying a disclosed stream or reset boundary.
+/// Callers must recover through a fresh authoritative boundary, not patch a
+/// failed update into the previously valid state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StreamError {
     WrongStreamContext,
@@ -53,6 +78,20 @@ pub enum StreamError {
 ///
 /// This only validates ordering. `ClientState` applies payloads and `Connection`
 /// supplies the transport. Reconnects establish a fresh snapshot.
+///
+/// ```
+/// use tor_client_common::{ObservationStream, StreamError};
+/// use tor_protocol::{ActorId, StreamCursor};
+/// let actor = ActorId(1);
+/// let mut stream = ObservationStream::from_snapshot(
+///     actor, StreamCursor { sequence: 7, tick: 10 },
+/// );
+/// stream.accept(actor, StreamCursor { sequence: 8, tick: 10 }).unwrap();
+/// let accepted = stream.cursor();
+/// assert_eq!(stream.accept(actor, StreamCursor { sequence: 10, tick: 11 }),
+///            Err(StreamError::SequenceMismatch));
+/// assert_eq!(stream.cursor(), accepted);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObservationStream {
     actor: ActorId,
@@ -60,6 +99,8 @@ pub struct ObservationStream {
 }
 
 impl ObservationStream {
+    /// Establish the ordering cursor of an already validated snapshot.
+    /// This constructor does not validate the snapshot payload itself.
     pub fn from_snapshot(actor: ActorId, cursor: StreamCursor) -> Self {
         Self { actor, cursor }
     }
@@ -70,6 +111,11 @@ impl ObservationStream {
 
     /// Accept an update atomically, leaving the cursor unchanged on failure.
     /// A sequence gap requires resynchronization before applying more updates.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a different actor, a sequence other than the immediate successor
+    /// (including exhaustion of `u64`), or a decreasing tick. Equal ticks are valid.
     pub fn accept(&mut self, actor: ActorId, next: StreamCursor) -> Result<(), StreamError> {
         if actor != self.actor {
             return Err(StreamError::WrongActor);

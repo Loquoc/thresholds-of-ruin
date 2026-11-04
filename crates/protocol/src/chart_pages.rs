@@ -95,6 +95,24 @@ record!(ChartSummary {
     latest_attempt: Option<ChartAttempt>,
 });
 impl ChartSummary {
+    /// Require sample identity to agree with the disclosed status. An inactive
+    /// summary has neither an acquisition time nor a chart token; available and
+    /// empty samples need both. This does not authorize fetching the token.
+    ///
+    /// ```
+    /// use tor_protocol::chart_pages::{ChartKind, ChartMode, ChartStatus, ChartSummary};
+    ///
+    /// let mut summary = ChartSummary {
+    ///     kind: ChartKind::Food, supported: true, mode: ChartMode::Live,
+    ///     status: ChartStatus::Inactive, acquired_at: None, chart: None, latest_attempt: None,
+    /// };
+    /// assert!(summary.validate().is_ok());
+    /// summary.status = ChartStatus::Available;
+    /// assert!(summary.validate().is_err());
+    /// summary.acquired_at = Some(10);
+    /// summary.chart = Some("example-sample".into());
+    /// assert!(summary.validate().is_ok());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if self
             .chart
@@ -117,6 +135,23 @@ impl ChartSummary {
         }
     }
 }
+/// Check each summary and the strictly increasing, nonrepeating kind order.
+/// The wire order follows [`ChartKind`], not the translated display names.
+///
+/// ```
+/// use tor_protocol::chart_pages::{validate_summaries, ChartKind, ChartMode,
+///     ChartStatus, ChartSummary};
+///
+/// let inactive = |kind| ChartSummary {
+///     kind, supported: true, mode: ChartMode::Live, status: ChartStatus::Inactive,
+///     acquired_at: None, chart: None, latest_attempt: None,
+/// };
+/// let food = inactive(ChartKind::Food);
+/// let magic = inactive(ChartKind::Magic);
+/// assert!(validate_summaries(&[food.clone(), magic.clone()]).is_ok());
+/// assert!(validate_summaries(&[magic, food.clone()]).is_err());
+/// assert!(validate_summaries(&[food.clone(), food]).is_err());
+/// ```
 pub fn validate_summaries(values: &[ChartSummary]) -> Result<(), &'static str> {
     if values.len() > MAX_CHART_SUMMARIES || values.windows(2).any(|w| w[0].kind >= w[1].kind) {
         return Err("chart summaries exceed bound or repeat/descend in kind");
@@ -173,6 +208,18 @@ impl<'de> Deserialize<'de> for MappingMark {
     }
 }
 impl MappingMark {
+    /// Check a sparse mapping fact. A known wall normal is a cardinal unit
+    /// vector, while `None` retains an unaligned fact without inventing a frame.
+    /// Neither kind supplies navigation or interaction authority.
+    ///
+    /// ```
+    /// use tor_protocol::chart_pages::MappingMark;
+    ///
+    /// assert!(MappingMark::WallFace { normal: Some([0, -1, 0]) }.validate().is_ok());
+    /// assert!(MappingMark::WallFace { normal: None }.validate().is_ok());
+    /// assert!(MappingMark::WallFace { normal: Some([1, 1, 0]) }.validate().is_err());
+    /// assert!(MappingMark::WallFace { normal: Some([0, 0, 0]) }.validate().is_err());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if let Self::WallFace {
             normal: Some(normal),
@@ -281,6 +328,23 @@ record!(ChartRow {
     mark: ChartMark,
 });
 impl ChartRow {
+    /// Check one occurrence, including the shared alignment of a mapping wall's
+    /// normal and position. Component declarations and cross-page ordering still
+    /// require [`ChartStreamValidator`].
+    ///
+    /// ```
+    /// use tor_protocol::chart_pages::{ChartMark, ChartRow, MappingMark};
+    ///
+    /// let mut row = ChartRow {
+    ///     component: 0, position: Some([2, 0, 0]),
+    ///     mark: ChartMark::Mapping { fact: MappingMark::WallFace { normal: Some([1, 0, 0]) } },
+    /// };
+    /// assert!(row.validate().is_ok());
+    /// row.position = None;
+    /// assert!(row.validate().is_err());
+    /// row.mark = ChartMark::Mapping { fact: MappingMark::WallFace { normal: None } };
+    /// assert!(row.validate().is_ok());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         self.mark.validate()?;
         if let ChartMark::Mapping {
@@ -320,6 +384,19 @@ impl<'de> Deserialize<'de> for ChartRecord {
 }
 impl ChartRecord {
     /// Includes the record discriminator and all values; excludes its list comma.
+    /// This conservative allocation bound accounts for escaped text. It is not
+    /// the exact wire length and does not validate a complete chart stream.
+    ///
+    /// ```
+    /// use tor_protocol::chart_pages::{ChartMark, ChartRecord, ChartRow};
+    ///
+    /// let record = ChartRecord::Row(ChartRow {
+    ///     component: 0, position: Some([1, 2, 3]),
+    ///     mark: ChartMark::Monster { name: "the \"watcher\"".into(), asset: None },
+    /// });
+    /// let encoded = serde_json::to_string(&record).unwrap();
+    /// assert!(encoded.len() <= record.encoded_size_bound().unwrap());
+    /// ```
     pub fn encoded_size_bound(&self) -> Result<usize, &'static str> {
         match self {
             Self::Component(_) => Ok(CHART_COMPONENT_BYTES),
@@ -343,6 +420,27 @@ record!(ChartQuery {
     cursor: Option<u64>,
 });
 impl ChartQuery {
+    /// Check query identity and continuation shape. Use `None` for the first
+    /// page, then preserve the server's continuation ordinal; zero is not a
+    /// valid explicit continuation. Currentness and authorization are separate.
+    ///
+    /// ```
+    /// use tor_protocol::chart_pages::ChartQuery;
+    /// use tor_protocol::{BranchId, ObservationBase, SnapshotId, StreamContext, StreamCursor, StreamId};
+    ///
+    /// let mut query = ChartQuery {
+    ///     context: StreamContext { stream: StreamId("example-stream".into()), epoch: 1 },
+    ///     branch: BranchId("example-branch".into()),
+    ///     base: ObservationBase {
+    ///         snapshot: SnapshotId("example-snapshot".into()),
+    ///         cursor: StreamCursor { sequence: 0, tick: 0 }, revision: 0,
+    ///     },
+    ///     chart: "example-sample".into(), cursor: None,
+    /// };
+    /// assert!(query.validate().is_ok());
+    /// query.cursor = Some(0);
+    /// assert!(query.validate().is_err());
+    /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if !self.context.is_valid()
             || !self.base.snapshot.is_valid()
@@ -528,10 +626,34 @@ pub(crate) fn read_page_reply<'de, D: serde::Deserializer<'de>>(
     Ok((f.context, f.request_id, f.page))
 }
 
-/// Standalone bounded codec until the separate live Message integration exists.
+/// Decode the standalone correlated chart envelope with the chart-page byte
+/// bound. The live [`crate::ServerMessage`] decoder uses the same envelope
+/// validation. A decoded page still needs outstanding-query correlation and
+/// [`ChartStreamValidator`] before publication.
 pub fn decode_chart_page_reply(text: &str) -> Result<ChartPageReply, crate::DecodeError> {
     crate::codec::decode(text, MAX_CHART_PAGE_BYTES)
 }
+/// Decode a chart query, rejecting invalid identities, numeric wire integers,
+/// missing required nullable fields, unknown keys, and oversized request text.
+///
+/// ```
+/// use tor_protocol::chart_pages::decode_chart_query;
+///
+/// let mut wire = serde_json::json!({
+///     "context": {"stream": "example-stream", "epoch": "1"},
+///     "branch": "example-branch",
+///     "base": {"snapshot": "example-snapshot", "cursor": {"sequence": "0", "tick": "0"}, "revision": "0"},
+///     "chart": "example-sample", "cursor": null
+/// });
+/// let query = decode_chart_query(&wire.to_string()).unwrap();
+/// assert_eq!(query.cursor, None);
+/// wire["cursor"] = serde_json::json!(1);
+/// assert!(decode_chart_query(&wire.to_string()).is_err());
+/// wire["cursor"] = serde_json::json!("1");
+/// assert_eq!(decode_chart_query(&wire.to_string()).unwrap().cursor, Some(1));
+/// wire["secret"] = serde_json::json!(true);
+/// assert!(decode_chart_query(&wire.to_string()).is_err());
+/// ```
 pub fn decode_chart_query(text: &str) -> Result<ChartQuery, crate::DecodeError> {
     crate::codec::decode(text, crate::MAX_REQUEST_BYTES)
 }

@@ -95,12 +95,45 @@ macro_rules! target {
 target!(
     ActorTarget,
     b'a',
-    "Observer-scoped reference to a disclosed actor."
+    r#"Observer-scoped reference to a disclosed actor.
+
+Parsing checks the canonical namespace and lowercase hexadecimal spelling. It
+does not establish that the actor exists, is visible, or can be selected by this
+attachment. Clients preserve the token disclosed by the server rather than
+deriving one from an actor ID.
+
+```
+use tor_protocol::{ActorTarget, ItemTarget};
+
+// A synthetic server-derived token for this example, not a live capability.
+let disclosed = ActorTarget::from_digest([0xab; 32]);
+let text = disclosed.to_string();
+assert_eq!(text, format!("a_{}", "ab".repeat(32)));
+assert_eq!(text.parse::<ActorTarget>().unwrap(), disclosed);
+assert!(text.parse::<ItemTarget>().is_err());
+assert!(text.to_uppercase().parse::<ActorTarget>().is_err());
+```
+"#
 );
 target!(
     ItemTarget,
     b'i',
-    "Observer-scoped reference to a disclosed item."
+    r#"Observer-scoped reference to a disclosed item.
+
+The wire representation is a string, never a numeric item ID. Successful
+deserialization proves token shape only; ownership and current selection are
+checked by the host.
+
+```
+use tor_protocol::ItemTarget;
+
+let target = ItemTarget::from_digest([7; 32]);
+let json = serde_json::to_string(&target).unwrap();
+assert_eq!(serde_json::from_str::<ItemTarget>(&json).unwrap(), target);
+assert!(serde_json::from_str::<ItemTarget>("7").is_err());
+assert!(serde_json::from_str::<ItemTarget>("\"i_07\"").is_err());
+```
+"#
 );
 target!(
     DoorTarget,
@@ -117,7 +150,21 @@ target!(
 target!(
     AppearanceSeed,
     b'p',
-    "Shared cosmetic identity of one creature, independent of observer and interaction authority."
+    r#"Shared cosmetic identity of one creature, independent of observer and interaction authority.
+
+The cosmetic namespace cannot be substituted for a selecting target, even when
+both values originate from the same bytes in a synthetic fixture.
+
+```
+use tor_protocol::{ActorTarget, AppearanceSeed};
+
+let cosmetic = AppearanceSeed::from_digest([3; 32]);
+let actor = ActorTarget::from_digest([3; 32]);
+assert_ne!(cosmetic.to_string(), actor.to_string());
+assert!(cosmetic.to_string().parse::<ActorTarget>().is_err());
+assert_eq!(cosmetic.to_string().parse::<AppearanceSeed>().unwrap(), cosmetic);
+```
+"#
 );
 target!(
     HoldTarget,

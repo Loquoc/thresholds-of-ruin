@@ -1,5 +1,8 @@
 //! Checkpoint capture is cheap ownership transfer to the storage worker.
-//! Encoding and world/navigation deduplication run outside the engine/session lock.
+//! Periodic persistence encodes and deduplicates on that worker. Chart-history
+//! growth additionally runs the same bounded encoding synchronously before
+//! admission, so an unsavable candidate cannot publish. That capacity check does
+//! not enqueue an extra periodic checkpoint or change its capture cadence.
 use super::*;
 use std::collections::BTreeSet;
 use tor_simulation::checkpoint::{RestoreContext, SharedState, Snapshot};

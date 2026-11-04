@@ -2,17 +2,31 @@
 use crate::{Cmd, View};
 use std::collections::{BTreeMap, BTreeSet};
 use tor_protocol::{Position, ReplyContext};
+/// One unambiguous, locally selectable destination in the displayed map.
+/// It is a candidate for server travel, not a proof of a reachable route.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MapDestination {
+    /// Disclosed cell identity sent to the server, never reconstructed from a name.
     pub key: String,
+    /// Cell location in the current observer frame.
     pub position: Position,
+    /// Presentation category, independent of the destination's identity.
     pub label: &'static str,
 }
+/// A destination pinned to the complete context in which the player selected it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MapSelection {
+    /// Original displayed context; do not replace it when refreshing the map.
     pub shown: ReplyContext,
+    /// Exact key, position and category that confirmation must still match.
     pub destination: MapDestination,
 }
+/// List known current-level destinations, ordered by y, x, z and cell key.
+///
+/// Current appearances take precedence over memory. Repeated keys/positions,
+/// the observer's cell, other actors, closed doors and traps are excluded; solid
+/// cells are excluded unless they disclose stairs. Neither presence in this
+/// list nor remembered geometry establishes server reachability.
 pub fn map_destinations(view: &View) -> Vec<MapDestination> {
     let mut columns = BTreeMap::new();
     for cell in view.terrain().filter(|cell| cell.position.z == view.feet.z) {
@@ -77,6 +91,7 @@ pub fn map_destinations(view: &View) -> Vec<MapDestination> {
     rows
 }
 impl MapSelection {
+    /// Pin an eligible key and its current display context, or return `None`.
     pub fn select(view: &View, key: &str) -> Option<Self> {
         map_destinations(view)
             .into_iter()
@@ -86,6 +101,12 @@ impl MapSelection {
                 destination,
             })
     }
+    /// Build a travel command only when the exact selection remains current.
+    ///
+    /// The caller supplies transport/UI readiness in `ready`. The view must
+    /// additionally grant control and action readiness, have no identification
+    /// prompt, and retain the identical context and destination. A changed view
+    /// requires a fresh selection, not silent rebinding. Nothing is sent here.
     pub fn command(&self, view: &View, ready: bool) -> Option<Cmd> {
         (ready
             && view.identify.is_none()

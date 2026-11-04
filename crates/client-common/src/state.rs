@@ -1,3 +1,6 @@
+//! Validated session authority and the independently aged presentation picture.
+//! Keep stream application atomic: callers retain the last valid state after a
+//! rejected update and recover through a server snapshot rather than modifying it.
 use crate::{ObservationStream, StreamError};
 use serde::Serialize;
 use std::sync::Arc;
@@ -63,6 +66,12 @@ struct SessionAuthority {
 }
 
 impl ClientState {
+    /// Validate a reset snapshot and initialize its live state, picture and memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError`] when the reset's context, picture, authority or
+    /// history is inconsistent. No partially initialized state is returned.
     pub fn from_snapshot(snapshot: Snapshot) -> Result<Self, StreamError> {
         validate_reset_snapshot(&snapshot)?;
         let mut client = Self {
