@@ -855,6 +855,56 @@ performance measurement is claimed.
   Full action orchestration, every item kind, detached-state persistence and stack
   split/merge mutation were not audited in this pass.
 
+### Defensive AI, resource pools, adventure objectives and sequence debt
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable issue in these bounded paths. Primary sources and referenced
+support/test files matched the reviewed versions. Assertions were inspected, not
+executed; no fresh runtime pass, benchmark or exhaustive correctness claim follows.
+
+- [Defensive AI](../../crates/simulation/src/ai_defense.rs) admits a narrow
+  single-strike, unchecked, self-only condition shape, using
+  [effect classification](../../crates/simulation/src/ai_effect_safety.rs) to reject
+  unsupported payloads. Active conditions, reserved families, immunity, effective
+  improvement and resource thresholds constrain fresh plans; priority ties use
+  stable ability IDs. Exact suspended pre-prefix work is considered separately
+  before fresh admission. The incoming-condition baseline is already outside the
+  candidate loop. Existing [defense assertions](../../crates/simulation/src/ai_defense_tests.rs)
+  cover rejected shapes, resource gates, frozen-plan resumption, declaration-order
+  independence and bounded work counters across 257 candidates. Those counters
+  are source assertions, not measurements from this review. Other AI priorities,
+  all condition semantics and tactical strength remain outside scope.
+- [Resource recovery](../../crates/simulation/src/resources.rs) combines ticks and
+  remainder in wide arithmetic, caps gains before narrowing and discards excess
+  fraction when full. Increased capacity does not refill; failed spending does
+  not mutate. Full pools have no recovery event, and projection is nonmutating.
+  Positive bounded periods come from rules validation. Existing
+  [pool tests](../../crates/simulation/tests/it/resources.rs) cover partial
+  deadlines, distinct pool schedules, partition equivalence, capacity changes,
+  saturation, failed-spend preservation and full-width elapsed time. The loop is
+  over three resources, not ticks. Whole-scheduler/frozen-region integration and
+  proportional rephasing on ruleset changes were not established by this review.
+- [Adventure objective policy](../../crates/simulation/src/run_policy.rs) requires
+  a living starting character at the exact anchor, carrying the exact objective
+  item when required. Missing or consumed items cannot satisfy it; a recorded
+  victor is preserved. Continued play can retain victory without termination,
+  while selected-character death independently ends an adventure. Existing
+  [combat witnesses](../../crates/simulation/tests/it/combat.rs) distinguish
+  noncharacters, continued victory and selected death; an
+  [interaction witness](../../crates/simulation/tests/it/interactions.rs) consumes
+  the objective item without granting victory. Complete policy-hook coverage,
+  objective placement and persistence validation were not audited.
+- [Sequence debt](../../crates/simulation/src/sequence.rs) subtracts elapsed work
+  only while active. Checked completion debt includes the remaining next strike,
+  authored offset tail and recovery; abandonment owes it only after a committed
+  prefix. Paid prefixes retain no resource hold. Execution preserves exact gaps
+  and starts final recovery after the last strike. Existing
+  [strike assertions](../../crates/simulation/src/abilities/strike_tests.rs)
+  preserve frozen plans, distinguish active/suspended cancellation deadlines and
+  resume unfinished work without paying the committed resource prefix again.
+  Preserve these operands and debts during simplification. This pass does not
+  certify all rider/damage/hold lifetimes, offset boundaries or execution timing.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
