@@ -620,6 +620,52 @@ issue in these bounded paths. No fresh behavioral tests or benchmarks ran.
   integration witnesses. Anatomy edits, acquisition history, frozen paid plans
   and all projectile adapters remain unqualified.
 
+### Map hydration, arena stops and exact action gates
+
+Source review reconciled against main `3c24d49fd` on 2026-11-04 found no new
+actionable defect in four bounded paths below. Existing assertions were read,
+not executed; no fresh runtime pass, benchmark or full-system certification is
+claimed.
+
+- [Map hydration](../../crates/client-common/src/map_hydration.rs) binds pages to
+  stream/actor/branch/base/window and validates request/ordinal/counts before
+  staging. Partial pages do not publish memory. Matching aliases preserve valid
+  occurrences; conflicting appearance cannot rewrite already committed regions.
+  Cumulative page/cell/byte budgets reserve reply headroom before continuation.
+  Existing [map tests](../../crates/client-common/tests/it/map_memory.rs) inspect
+  25-page atomic publication with live readiness, mismatch refusal, cross-region
+  alias conflicts and conservative continuation stops. [ClientState](../../crates/client-common/src/state.rs)
+  separately recomputes viewport completeness after installation, so aggregate
+  progress is not a viewport guarantee. Coordinates/topology, wire parsing,
+  socket cancellation, rendering and reconnect behavior remain outside this pass.
+- [Arena policy](../../crates/simulation/src/arena.rs) bounds limits and deadlines,
+  counts committed execution rather than admission, and applies controls on a
+  candidate. Stop precedence is elimination, action cap, then tick cap; elimination
+  is rechecked after due creature settlement before preparation/queue cleanup.
+  Existing [arena tests](../../crates/simulation/tests/it/arena_run.rs) inspect exact
+  action/tick caps, one-step pause budgets, invalid controls and discarded step
+  permission. Paid start charges remain spent when stopped preparations are
+  canceled. These do not certify all callers' error atomicity, scheduler paths
+  or save/restore behavior.
+- [Readied touch ambush](../../crates/simulation/src/readied_ambush.rs) is a
+  one-lifetime opportunity, not reusable free preparation. Acquisition and touch
+  check eligibility/costs; body/placement/build/derived/condition changes retire
+  credit. Invalidated touch can preserve provocation without immediate reveal or
+  a strike. Existing in-module witnesses inspect one release with ordinary
+  recovery, unchanged bump locations/items, no rearming after displacement and
+  later ordinary preparation when incapacity ends. Preserve source-state identity
+  checks; not all eligibility combinations, rollback, AI engagement or restoration
+  paths were traced.
+- [Weapon preview](../../crates/client-common/src/weapon_preview.rs) pins full
+  action/context/request identity and rechecks control and current invocation at
+  confirmation. It is not a reservation. Existing focused tests inspect changed
+  echo/ability/weapon/aim/supplies, stream/revision, inventory/equipment and phase
+  labels. [ASCII](../../crates/client-ascii/src/model.rs) consumes a ready gate
+  before confirmation; [text](../../crates/client-text/src/engine/mod.rs) additionally
+  matches the intended action. These source paths do not prove absence of every
+  double-submit. Server preview calculation, all network orders, 3D, projectile
+  pagination and actual-process frontend testing remain unqualified.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
