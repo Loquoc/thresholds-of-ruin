@@ -1,7 +1,8 @@
 //! Bounded deterministic dice used by checks and damage pools.
 //!
-//! This module owns neither action scheduling nor serialization. Callers own the
-//! persisted random state and allocate a resolution's edge budget in roll order.
+//! [`DicePool`] serializes its validated numeric definition, not a random stream
+//! or a completed roll. Callers own the persisted random state and allocate a
+//! resolution's edge budget in roll order. This module does not schedule actions.
 
 /// Net advantage after one-for-one cancellation. Each unit affects a different
 /// original die; a check has three original dice, damage retains its pool size.
@@ -9,6 +10,7 @@
 pub struct Edge(i64);
 
 impl Edge {
+    /// Cancel advantages and disadvantages one for one without consuming RNG.
     pub fn from_counts(advantages: u32, disadvantages: u32) -> Self {
         Self(i64::from(advantages) - i64::from(disadvantages))
     }
@@ -18,12 +20,23 @@ impl Edge {
         self.0
     }
 
+    /// Whether no advantage or disadvantage remains.
     pub fn is_neutral(self) -> bool {
         self.0 == 0
     }
 
     /// Allocate at most `maximum` units, preserving any remainder for the next
     /// eligible pool in this resolution. A zero-capacity roll consumes nothing.
+    ///
+    /// ```
+    /// use tor_simulation::dice::Edge;
+    /// let mut edge = Edge::from_counts(1, 6);
+    /// assert_eq!(edge.take(3).balance(), -3);
+    /// assert_eq!(edge.balance(), -2);
+    /// assert!(edge.take(0).is_neutral());
+    /// assert_eq!(edge.take(4).balance(), -2);
+    /// assert!(edge.is_neutral());
+    /// ```
     pub fn take(&mut self, maximum: u16) -> Self {
         let magnitude = self.0.unsigned_abs().min(u64::from(maximum)) as i64;
         let allocated = if self.0 < 0 { -magnitude } else { magnitude };
@@ -35,8 +48,10 @@ impl Edge {
 /// Checks always retain three d6; each remaining edge unit contributes one
 /// extra candidate die, up to three. Further edge belongs to later damage.
 pub const CHECK_DICE: u16 = 3;
+/// Maximum edge allocated to a check; further units may belong to later damage.
 pub const CHECK_EDGE_CAPACITY: u16 = 3;
 
+/// A completed check, keeping both draw-order evidence and the three retained dice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CheckRoll {
     rolled: [u16; 6],
@@ -50,6 +65,8 @@ impl CheckRoll {
     pub fn rolled(&self) -> &[u16] {
         &self.rolled[..usize::from(self.draw_count)]
     }
+    /// Three dice in descending order for advantage, ascending for disadvantage,
+    /// or original draw order for a neutral check.
     pub fn retained(&self) -> &[u16; 3] {
         &self.retained
     }
@@ -57,6 +74,26 @@ impl CheckRoll {
 
 /// Roll a bounded 3d6 check without heap allocation. Callers allocate up to
 /// `CHECK_EDGE_CAPACITY` units before this call when later damage shares edge.
+/// Passing an [`Edge`] directly caps it for this roll but does not update the
+/// caller's remaining budget; use [`Edge::take`] to distribute it.
+///
+/// ```
+/// use tor_simulation::dice::{roll_check, DicePool, Edge, CHECK_EDGE_CAPACITY};
+/// let mut state = 42;
+/// let mut edge = Edge::from_counts(6, 1);
+/// let check = roll_check(&mut state, edge.take(CHECK_EDGE_CAPACITY));
+/// assert_eq!(check.rolled(), &[2, 2, 1, 1, 5, 1]);
+/// assert_eq!(check.retained(), &[5, 2, 2]);
+/// assert_eq!(check.kept, 9);
+/// assert_eq!(edge.balance(), 2);
+///
+/// let pool = DicePool::new(2, 6, -3).unwrap();
+/// let damage = pool.roll(&mut state, edge.take(pool.count()));
+/// assert_eq!(damage.rolled, [2, 3, 2, 3]);
+/// assert_eq!(damage.kept, [3, 3]);
+/// assert_eq!(damage.total, 3);
+/// assert!(edge.is_neutral());
+/// ```
 pub fn roll_check(state: &mut u64, edge: Edge) -> CheckRoll {
     let extra = edge.0.unsigned_abs().min(u64::from(CHECK_EDGE_CAPACITY)) as usize;
     let mut rolled = [0; 6];
@@ -83,8 +120,10 @@ fn retain_check(rolled: [u16; 6], draw_count: usize, edge: Edge) -> CheckRoll {
     }
 }
 
+/// A rejected dice definition or composition; no random draw has occurred.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiceError {
+    /// Count, sides, bonus, combined numeric bounds or merge compatibility failed.
     InvalidPool,
 }
 
@@ -98,6 +137,28 @@ pub struct DicePool {
 }
 
 impl DicePool {
+    /// Construct a bounded, nonempty homogeneous pool with a signed flat bonus.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiceError::InvalidPool`] unless the count is in
+    /// `1..=limits::DICE`, sides in `2..=limits::DICE_SIDES`, the bonus magnitude
+    /// is at most [`crate::limits::NUMERIC`], and the largest unclamped result is
+    /// at most that numeric limit. Negative totals are allowed and clamp to zero
+    /// when evaluated. Deserialization applies the same checks.
+    ///
+    /// ```
+    /// use tor_simulation::dice::{DiceError, DicePool};
+    /// let pool = DicePool::new(2, 6, -3).unwrap();
+    /// assert_eq!((pool.minimum(), pool.maximum()), (0, 9));
+    /// assert_eq!(DicePool::new(0, 6, 0), Err(DiceError::InvalidPool));
+    /// assert_eq!(DicePool::new(1, 1, 0), Err(DiceError::InvalidPool));
+    /// let json = serde_json::to_string(&pool).unwrap();
+    /// assert_eq!(serde_json::from_str::<DicePool>(&json).unwrap(), pool);
+    /// assert!(serde_json::from_str::<DicePool>(
+    ///     r#"{"count":0,"sides":6,"bonus":0}"#,
+    /// ).is_err());
+    /// ```
     pub fn new(count: u16, sides: u16, bonus: i32) -> Result<Self, DiceError> {
         if !(1..=crate::limits::DICE).contains(&count)
             || !(2..=crate::limits::DICE_SIDES).contains(&sides)
@@ -113,14 +174,17 @@ impl DicePool {
         })
     }
 
+    /// Original dice retained by every roll, before any extra edge candidates.
     pub fn count(self) -> u16 {
         self.count
     }
 
+    /// Faces per die; each draw is in the inclusive range `1..=sides`.
     pub fn sides(self) -> u16 {
         self.sides
     }
 
+    /// Signed adjustment applied after summing the retained dice.
     pub fn bonus(self) -> i32 {
         self.bonus
     }
@@ -130,10 +194,27 @@ impl DicePool {
         (i64::from(self.count) + i64::from(self.bonus)).max(0) as u32
     }
 
+    /// Largest clamped result, without consuming the random stream.
     pub fn maximum(self) -> u32 {
         (i64::from(self.count) * i64::from(self.sides) + i64::from(self.bonus)).max(0) as u32
     }
 
+    /// Combine equal-sided pools by adding counts and bonuses, then revalidate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiceError::InvalidPool`] for different die sizes, overflow or a
+    /// combined pool outside [`Self::new`]'s bounds. Neither input is mutated.
+    ///
+    /// ```
+    /// use tor_simulation::dice::{DiceError, DicePool};
+    /// let first = DicePool::new(1, 6, 2).unwrap();
+    /// let combined = first.merged(DicePool::new(2, 6, -1).unwrap()).unwrap();
+    /// assert_eq!(combined, DicePool::new(3, 6, 1).unwrap());
+    /// assert_eq!(first.merged(DicePool::new(1, 8, 0).unwrap()), Err(DiceError::InvalidPool));
+    /// let largest = DicePool::new(tor_simulation::limits::DICE, 6, 0).unwrap();
+    /// assert_eq!(largest.augmented(1, 0), Err(DiceError::InvalidPool));
+    /// ```
     pub fn merged(self, other: Self) -> Result<Self, DiceError> {
         if self.sides != other.sides {
             return Err(DiceError::InvalidPool);
@@ -141,6 +222,10 @@ impl DicePool {
         self.augmented(other.count, other.bonus)
     }
 
+    /// Add dice of the same size and a signed bonus without consuming RNG.
+    ///
+    /// Returns [`DiceError::InvalidPool`] on count/bonus overflow or if the new
+    /// pool fails [`Self::new`]. Zero extra dice and zero bonus preserve the pool.
     pub fn augmented(self, extra_dice: u16, flat_bonus: i32) -> Result<Self, DiceError> {
         let count = self
             .count
@@ -153,6 +238,12 @@ impl DicePool {
         Self::new(count, self.sides, bonus)
     }
 
+    /// Consume the explicit stream, retaining exactly [`Self::count`] dice.
+    ///
+    /// Each edge unit adds one candidate, capped at the original count. Advantage
+    /// retains the highest dice; disadvantage retains the lowest. The flat bonus
+    /// is applied once after retention, and a negative total becomes zero.
+    /// Allocate shared edge with [`Edge::take`] before calling this method.
     pub fn roll(self, state: &mut u64, edge: Edge) -> PoolRoll {
         let original = usize::from(self.count);
         let extra = edge.0.unsigned_abs().min(u64::from(self.count)) as usize;
@@ -178,11 +269,14 @@ impl DicePool {
     }
 }
 
+/// A completed damage-pool roll and its raw deterministic evidence.
+/// Hosts must apply their disclosure policy before exposing a roll to a client.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PoolRoll {
     /// Actual draw order, before retention.
     pub rolled: Vec<u16>,
-    /// Retained dice, sorted best-first when an edge was applied.
+    /// Retained dice: descending for advantage, ascending for disadvantage,
+    /// or original draw order without edge.
     pub kept: Vec<u16>,
     /// Retained sum plus the flat bonus, clamped to zero.
     pub total: u32,

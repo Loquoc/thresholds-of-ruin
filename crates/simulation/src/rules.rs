@@ -1,4 +1,11 @@
 //! Validated immutable content. TOML parsing and content hashing belong to the host.
+//!
+//! Deserialize into [`RulesetDocument`], then pass ownership to
+//! [`Ruleset::validate`] before constructing [`crate::creatures::Content`].
+//! Parsing checks the serialized representation; validation checks the content
+//! graph, references and structural limits. Scenario-owned definitions need their
+//! own validation against the resulting ruleset. A syntactically valid content
+//! ID alone never proves that a referenced definition exists.
 use crate::HdCount;
 mod advancement;
 mod cancellation;
@@ -35,6 +42,12 @@ use std::{
     sync::Arc,
 };
 
+/// Editable rules input, not proof of a valid content graph.
+///
+/// Deserialize or construct this document, then call [`Ruleset::validate`].
+/// Public fields permit invalid combinations even when their individual typed
+/// values were constructed successfully. This is backend content, not a client
+/// observation or a filesystem/package loader.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RulesetDocument {
@@ -1477,10 +1490,31 @@ impl<'de> Deserialize<'de> for ConditionDef {
 }
 
 /// Positive, bounded actor-active duration. No wall-clock or region catch-up.
+///
+/// This scalar expresses condition ticks, not action work. Its constructor and
+/// integer deserializer enforce the same range; action haste/slow does not change
+/// that range or scale this value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct ConditionTicks(u64);
 impl ConditionTicks {
+    /// Construct a duration in `1..=limits::NUMERIC` actor-active ticks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::conditions::ConditionError::InvalidDuration`] for zero
+    /// or a value above [`crate::limits::NUMERIC`].
+    ///
+    /// ```
+    /// use tor_simulation::rules::ConditionTicks;
+    /// use tor_simulation::conditions::ConditionError;
+    /// let limit = tor_simulation::limits::NUMERIC as u64;
+    /// assert_eq!(ConditionTicks::new(limit).unwrap().get(), limit);
+    /// assert_eq!(ConditionTicks::new(0), Err(ConditionError::InvalidDuration));
+    /// assert_eq!(ConditionTicks::new(limit + 1), Err(ConditionError::InvalidDuration));
+    /// assert_eq!(serde_json::from_str::<ConditionTicks>("1").unwrap().get(), 1);
+    /// assert!(serde_json::from_str::<ConditionTicks>("0").is_err());
+    /// ```
     pub fn new(ticks: u64) -> Result<Self, crate::conditions::ConditionError> {
         if ticks == 0 || ticks > crate::limits::NUMERIC as u64 {
             Err(crate::conditions::ConditionError::InvalidDuration)
@@ -1488,6 +1522,7 @@ impl ConditionTicks {
             Ok(Self(ticks))
         }
     }
+    /// Return the positive actor-active tick count without advancing any clock.
     pub fn get(self) -> u64 {
         self.0
     }
@@ -1670,16 +1705,31 @@ pub enum Eviction {
     Reject,
 }
 
+/// A rules graph or structural validation failure, separate from parse errors.
+///
+/// Diagnostic strings can contain authored IDs. They are backend authoring
+/// diagnostics, not automatically safe player-facing disclosure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RulesetError {
+    /// An identity does not satisfy the content-ID grammar.
     InvalidId(String),
+    /// An identity is repeated where uniqueness is required.
     DuplicateId(String),
+    /// A syntactically valid reference has no definition in its required category.
     UnknownReference { category: &'static str, id: String },
+    /// A field violates a structural, numeric or supported-shape constraint.
     Bound { field: String },
+    /// A dependency graph cannot be ordered because it contains a cycle.
     Cycle { category: &'static str, id: String },
+    /// More than one definition describes the same required resource.
     DuplicateResource,
+    /// A required resource definition is absent.
     MissingResource,
 }
+/// Immutable validated definitions, indexes and deterministic talent ordering.
+///
+/// Obtain the shared owner through [`Self::validate`]. Borrowed definitions are
+/// content facts, not per-creature effective values or actor-visible knowledge.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ruleset {
     document: RulesetDocument,
@@ -1705,18 +1755,25 @@ struct Indexes {
     point_pools: BTreeMap<PointPoolId, usize>,
 }
 impl Ruleset {
+    /// Borrow the validated definition document, without reopening edit access.
+    /// Clone it and call [`Self::validate`] again to derive a different ruleset.
     pub fn document(&self) -> &RulesetDocument {
         &self.document
     }
+    /// Borrow the authored ruleset identity; this is not a content hash.
     pub fn id(&self) -> &RulesetId {
         &self.document.id
     }
+    /// Borrow validated tuning constants, distinct from [`crate::limits`].
     pub fn constants(&self) -> &Constants {
         &self.document.constants
     }
+    /// Dependency-first talent order with deterministic ID ordering among ready entries.
     pub fn talent_order(&self) -> &[TalentId] {
         &self.talent_order
     }
+    /// Find an authored ability; `None` means this ruleset has no such ID.
+    /// A match does not establish that a creature owns or may invoke the ability.
     pub fn ability(&self, id: &AbilityId) -> Option<&AbilityDef> {
         self.indexes
             .abilities
@@ -1866,6 +1923,42 @@ impl Ruleset {
             }
         }
     }
+    /// Consume editable input and construct a shared immutable ruleset.
+    ///
+    /// Checks catalog bounds/uniqueness, supported definition shapes, content
+    /// references, required resources and dependency graphs. Interns IDs and
+    /// builds lookup indexes. No RNG, game state or host I/O is involved.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`RulesetError`] found; this is not an aggregate lint
+    /// report. Successful deserialization does not imply this check will pass.
+    /// A failure yields no partially validated ruleset.
+    ///
+    /// ```
+    /// use tor_simulation::content_ids::AbilityId;
+    /// use tor_simulation::rules::{Ruleset, RulesetDocument, RulesetError, DEFAULT_RULESET_TOML};
+    /// let document: RulesetDocument = toml::from_str(DEFAULT_RULESET_TOML).unwrap();
+    /// let rules = Ruleset::validate(document.clone()).unwrap();
+    /// let authored = &document.abilities[0];
+    /// assert_eq!(rules.ability(&authored.id), Some(authored));
+    /// let absent = AbilityId::new("fixture.absent").unwrap();
+    /// assert!(rules.ability(&absent).is_none());
+    ///
+    /// let mut duplicate = document.clone();
+    /// duplicate.abilities.push(authored.clone());
+    /// assert_eq!(Ruleset::validate(duplicate),
+    ///     Err(RulesetError::DuplicateId(authored.id.to_string())));
+    ///
+    /// let mut dangling = document;
+    /// dangling.constants.default_abilities.push(absent.clone());
+    /// // The typed ID and document encode successfully, but the reference is absent.
+    /// let encoded = serde_json::to_string(&dangling).unwrap();
+    /// let decoded: RulesetDocument = serde_json::from_str(&encoded).unwrap();
+    /// assert_eq!(Ruleset::validate(decoded), Err(RulesetError::UnknownReference {
+    ///     category: "ability", id: absent.to_string(),
+    /// }));
+    /// ```
     pub fn validate(mut document: RulesetDocument) -> Result<Arc<Self>, RulesetError> {
         let mut pool = Interner::default();
         macro_rules! catalog {
@@ -3124,7 +3217,35 @@ impl References<'_> {
     }
 }
 /// Context-free structural checks for scenario and item sources. Catalog references
-/// must additionally pass `Ruleset::validate_modifiers` when content is attached.
+/// must additionally pass [`Ruleset::validate_modifiers`] when permanent content
+/// is attached, or [`Ruleset::validate_condition_modifiers`] for a condition source.
+///
+/// # Errors
+///
+/// Rejects excessive source size and unsupported scope, numeric or operation
+/// shapes. Successful validation does not prove referenced IDs exist and does
+/// not make condition-only scopes valid for permanent sources.
+///
+/// ```
+/// use tor_simulation::content_ids::AbilityId;
+/// use tor_simulation::rules::{
+///     validate_modifier_shapes, Modifier, ModifierOp, Ruleset, RulesetError,
+///     Scope, DEFAULT_RULESET_TOML,
+/// };
+/// let rules = Ruleset::validate(toml::from_str(DEFAULT_RULESET_TOML).unwrap()).unwrap();
+/// let mut source = Modifier {
+///     cancellable: false, scope: Scope::Always,
+///     op: ModifierOp::GrantAbility { ability: rules.document().abilities[0].id.clone() },
+/// };
+/// assert!(rules.validate_modifiers(&[source.clone()]).is_ok());
+/// let absent = AbilityId::new("fixture.absent").unwrap();
+/// source.op = ModifierOp::GrantAbility { ability: absent.clone() };
+/// assert!(validate_modifier_shapes(&[source.clone()]).is_ok());
+/// assert_eq!(rules.validate_modifiers(&[source.clone()]),
+///     Err(RulesetError::UnknownReference { category: "ability", id: absent.to_string() }));
+/// source.scope = Scope::VersusSource; // This scope cannot grant abilities.
+/// assert!(validate_modifier_shapes(&[source]).is_err());
+/// ```
 pub fn validate_modifier_shapes(values: &[Modifier]) -> Result<(), RulesetError> {
     bound(
         values.len() <= crate::limits::MODIFIERS_PER_SOURCE,
@@ -3370,7 +3491,13 @@ impl Ruleset {
         }
         Ok(())
     }
-    /// Validate scenario-owned modifier sources against the same content graph.
+    /// Validate permanent scenario/item modifier sources against this content graph.
+    ///
+    /// Performs structural and reference checks, expanded-source bounds and
+    /// supported projectile-range checks without changing the caller's modifiers.
+    /// Unlike [`Self::validate_condition_modifiers`], this rejects every
+    /// [`Scope::VersusSource`] entry with a `permanent_modifier_scope` bound error.
+    /// See [`validate_modifier_shapes`] for the shape-only versus catalog boundary.
     pub fn validate_modifiers(&self, modifiers: &[Modifier]) -> Result<(), RulesetError> {
         bound(
             modifiers
@@ -3421,6 +3548,12 @@ impl Ruleset {
     }
 
     /// Condition contributions carry a causer, allowing the supported scoped edge operators.
+    /// Validate a condition source's shapes, references and expanded-source bounds.
+    ///
+    /// Permits the supported [`Scope::VersusSource`] operations, unlike permanent
+    /// sources. Returns [`RulesetError`] for invalid shapes, missing references,
+    /// unsupported projectile-range changes or excessive expanded modifiers.
+    /// This does not apply a condition or mutate its input.
     pub fn validate_condition_modifiers(&self, modifiers: &[Modifier]) -> Result<(), RulesetError> {
         self.validate_projectile_range_modifiers(modifiers)?;
         let abilities = self.indexes.abilities.keys().cloned().collect();
@@ -3688,6 +3821,8 @@ impl Ruleset {
     }
 }
 
+/// Bundled authored rules text, still requiring parsing and [`Ruleset::validate`].
+/// Hosts own file/package loading and identity policy; this constant does not do I/O.
 pub const DEFAULT_RULESET_TOML: &str = include_str!("../data/default-ruleset.toml");
 
 impl std::fmt::Display for RulesetError {
