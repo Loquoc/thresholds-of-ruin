@@ -2,6 +2,56 @@
 //!
 //! [`Game`] and [`ActionOutcome`] are backend-only types. Network adapters must
 //! disclose observations and filter events; they must not serialize raw game state.
+//!
+//! # Reading paths
+//!
+//! - Construct validated [`rules::Ruleset`] and [`creatures::Content`] before
+//!   building a game or creature. Deserialization alone is not content validation.
+//! - Admit work with [`Game::admit_intention`], then let the scheduler select
+//!   [`Game::execute_next_intention`]. Admission is not execution or payment.
+//! - Use [`Game::observe`] for actor-specific disclosure. Raw plans, receipts and
+//!   checkpoints are not client views, even when their types support serialization.
+//! - Hosts using [`CandidateStep`] must settle private candidates before external
+//!   publication. [`checkpoint`] describes capture and validated restoration.
+//!
+//! # A deterministic admitted action
+//!
+//! This minimal backend fixture has no creature catalog or network controller.
+//! TOML parsing belongs to this caller, not to the simulation. Production hosts
+//! additionally own authorization, region settlement, persistence and publication.
+//!
+//! ```
+//! use std::num::NonZeroU64;
+//! use tor_simulation::{Action, ActorId, Game, IntentionOrigin};
+//! use tor_simulation::creatures::{Content, ScenarioCatalog};
+//! use tor_simulation::rules::{Ruleset, DEFAULT_RULESET_TOML};
+//! use tor_world::{Location, Position, RegionId};
+//!
+//! let document = toml::from_str(DEFAULT_RULESET_TOML).unwrap();
+//! let rules = Ruleset::validate(document).unwrap();
+//! let content = Content::new(rules, ScenarioCatalog::default()).unwrap();
+//! let mut game = Game::two_room(42, content);
+//! let actor = game.spawn_actor(
+//!     Location { region: RegionId(1), position: Position { x: 1, y: 1, z: 0 } },
+//!     NonZeroU64::new(100).unwrap(),
+//! ).unwrap();
+//!
+//! let intention = game.admit_intention(actor, Action::Wait, IntentionOrigin::Human).unwrap();
+//! assert_eq!(game.tick(), 0); // Admission does not advance time.
+//! assert_eq!(game.pending_intention(actor).unwrap().id, intention);
+//! let execution = game.execute_next_intention().unwrap();
+//! assert_eq!(execution.intention.id, intention);
+//! let outcome = execution.outcome.unwrap();
+//! assert_eq!(outcome.actor, actor);
+//! assert_eq!(outcome.at_tick, 0);
+//! assert_eq!(outcome.next_tick, 100);
+//! assert!(game.pending_intention(actor).is_none());
+//! assert!(game.observe(actor).is_ok());
+//!
+//! let before = game.clone();
+//! assert!(game.act(ActorId(u64::MAX), Action::Wait).is_err());
+//! assert_eq!(game, before); // An invalid request changes no authoritative state.
+//! ```
 
 mod item_identity;
 pub use item_identity::{InvalidItemIdentity, ItemIdentity};

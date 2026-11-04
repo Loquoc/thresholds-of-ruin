@@ -1,4 +1,46 @@
 //! Region-local geometry, independent of rendering and transport.
+//!
+//! [`World`] owns physical cells, directed connections and barriers. Locations
+//! are meaningful within their [`RegionId`], not a global coordinate system.
+//! Connections can change the local frame using the 24 proper cube rotations;
+//! [`compose_rotation`] applies its first transform before its second.
+//! Geometry queries do not authorize an actor's movement, pay action costs or
+//! load absent regions. Those responsibilities belong to the simulation/host.
+//!
+//! # Connecting regions and checking a barrier
+//!
+//! Reverse connections are explicit. [`World::adjacent`] can disclose a closed
+//! door, while [`World::step`] additionally requires a walkable destination.
+//!
+//! ```
+//! use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
+//!
+//! let regions = [1, 2].map(|id| Region {
+//!     id: RegionId(id),
+//!     name: format!("Room {id}"),
+//!     bounds: Extent::new(3, 3, 2).unwrap(),
+//! });
+//! let mut world = World::new(regions.into(), vec![]).unwrap();
+//! let left = Location {
+//!     region: RegionId(1),
+//!     position: Position { x: 2, y: 1, z: 0 },
+//! };
+//! let right = Location {
+//!     region: RegionId(2),
+//!     position: Position { x: 0, y: 1, z: 0 },
+//! };
+//! world.connect(Passage { from: left, direction: Direction::East, to: right }, 0).unwrap();
+//! assert_eq!(world.step(left, Direction::East), Some(right));
+//! assert_eq!(world.step(right, Direction::West), None);
+//! world.connect(Passage { from: right, direction: Direction::West, to: left }, 0).unwrap();
+//!
+//! world.place_door(right, 1, false, 1).unwrap();
+//! assert_eq!(world.adjacent(left, Direction::East), Some(right));
+//! assert_eq!(world.step(left, Direction::East), None);
+//! world.set_door(right, true);
+//! assert_eq!(world.step(left, Direction::East), Some(right));
+//! assert_eq!(world.step(right, Direction::West), Some(left));
+//! ```
 
 pub mod checkpoint_map;
 mod geometry;

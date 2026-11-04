@@ -1,5 +1,10 @@
-//! Application journal and checkpoints. SQLite supplies atomic batches and recovery;
-//! the worker owns all disk I/O after bootstrap, never the engine/session lock.
+//! Application journal and checkpoints. SQLite supplies atomic batches and recovery.
+//!
+//! The worker owns background writes after bootstrap. Lazy region/source reads use
+//! separate connections on their caller's thread and can wait for SQLite. Producers
+//! encode journal records before admission; chart-history growth also checks the
+//! complete checkpoint encoding before publication. Neither path holds the worker's
+//! shared status lock during encoding or I/O.
 use crate::{
     engine::{invalid_archive, storage_failure, Archive, Checkpoint, DiskCheckpoint, Record},
     Failure,
@@ -274,13 +279,35 @@ fn saved_row_failure(error: rusqlite::Error) -> Failure {
     }
 }
 
+/// Background write scheduling and admission bounds for one open save.
+///
+/// These are host resource policies, not simulation clocks. A write becomes due
+/// at the maximum age, at 75% queue capacity, after the target age and quiet
+/// interval, or on an explicit save request. A due write is not yet durable.
+/// [`Engine::open_with_policy`](crate::Engine::open_with_policy) validates the
+/// policy before opening the save.
 #[derive(Clone, Debug)]
 pub struct SavePolicy {
-    /// Accepted journal entries between snapshots; zero disables checkpointing.
+    /// Accepted journal entries between periodic checkpoint captures; at most
+    /// 1,000,000. Zero disables periodic captures, not pre-publication capacity
+    /// checks required when chart history grows.
     pub checkpoint_interval: u64,
+    /// Positive age of the oldest unsaved entry before a quiet-time write is due.
     pub target_interval: Duration,
+    /// Maximum age before a write is due and session backpressure applies.
+    /// Must be at least `target_interval` and at most one day. This is not an
+    /// upper bound on completion time for slow or failed storage.
     pub max_unsaved_age: Duration,
+    /// Quiet time since the last admission needed for a target-age write.
+    /// May be zero; must not exceed `max_unsaved_age`.
     pub idle_interval: Duration,
+    /// Encoded admission budget, including pending and in-flight journal,
+    /// attachment and copied region bytes; between one byte and 1 GiB.
+    ///
+    /// The record and attachment must fit. Copied region inputs/rows may exceed
+    /// this budget only when the queue is empty, so a large first acquisition can
+    /// make progress. Checkpoints and other runtime allocations are separate;
+    /// this is not a bound on total process memory.
     pub max_pending_bytes: usize,
 }
 impl Default for SavePolicy {
@@ -296,6 +323,9 @@ impl Default for SavePolicy {
     }
 }
 impl SavePolicy {
+    /// Check the field relationships and supported bounds without opening a save.
+    /// Returns [`ErrorCode::InvalidRequest`](tor_protocol::ErrorCode::InvalidRequest)
+    /// for an invalid policy.
     pub fn validate(&self) -> Result<(), Failure> {
         if self.checkpoint_interval > 1_000_000
             || self.target_interval.is_zero()
@@ -319,22 +349,44 @@ impl SavePolicy {
             || (age >= self.target_interval && idle >= self.idle_interval)
     }
 }
+/// A point-in-time view of one save writer, not a durability promise for future work.
+///
+/// A requested sequence is durable once `durable_sequence` reaches it. Accepted
+/// work above that sequence can still be lost after a crash. Counters and timings
+/// describe this open writer; they are diagnostics, not persisted gameplay state.
+/// An engine without a save returns the default, all-zero status.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct SaveStatus {
+    /// Sequence covered by the latest committed checkpoint, or zero without one.
     pub checkpoint_sequence: u64,
+    /// Checkpoints successfully written by this writer since opening.
     pub checkpoints: u64,
+    /// Encoded bytes of the latest written checkpoint and its region rows.
     pub checkpoint_bytes: u64,
+    /// Encoding time of that checkpoint and its region rows, in milliseconds.
     pub last_checkpoint_ms: u64,
+    /// Highest sequence accepted into this save's in-memory queue.
     pub accepted_sequence: u64,
+    /// Highest sequence in the successfully committed database prefix.
     pub durable_sequence: u64,
+    /// Encoded admission bytes not yet committed, including the in-flight batch.
     pub pending_bytes: usize,
+    /// Age of the oldest uncommitted admission in milliseconds, or zero if empty.
     pub unsaved_age_ms: u64,
+    /// Whether the worker currently owns a batch for encoding and writing.
     pub saving: bool,
+    /// Whether the oldest uncommitted admission reached the maximum age.
     pub overdue: bool,
+    /// Retained background failure. New mutations are rejected while present.
+    /// An explicit save retries eligible failures; it does not re-encode an
+    /// unchanged checkpoint already known to exceed the capacity limit.
     pub error: Option<String>,
+    /// Successful background batches since opening this writer.
     pub batches: u64,
-    /// Application bytes committed, not physical filesystem writes.
+    /// Committed journal-frame bytes since opening, excluding copied sources,
+    /// region rows and attachments. Not physical filesystem writes.
     pub journal_bytes: u64,
+    /// Total elapsed time of the last successful batch, in milliseconds.
     pub last_batch_ms: u64,
     /// SQLite commit time for the last successful batch, within last_batch_ms.
     pub last_commit_ms: u64,
@@ -732,7 +784,12 @@ fn read_checkpoint(conn: &Connection) -> Result<Option<DiskCheckpoint>, Failure>
     Ok(Some(checkpoint))
 }
 
-/// Read a format-6 save for diagnostics. Gameplay uses normal strict replay too.
+/// Read the current-format save's archive as JSON for trusted offline diagnostics.
+///
+/// This checks the storage frames and selected checkpoint while loading retained
+/// records. It does not run the engine's deterministic replay or eagerly read
+/// every detached region. Use [`Engine::open`](crate::Engine::open) for gameplay
+/// recovery. The physical frame version is independent of the logical save format.
 pub fn inspect_save(path: impl AsRef<Path>) -> Result<serde_json::Value, Failure> {
     let (_, archive, _, _, _, _) = load(path.as_ref())?;
     serde_json::to_value(archive).map_err(|_| invalid_archive())

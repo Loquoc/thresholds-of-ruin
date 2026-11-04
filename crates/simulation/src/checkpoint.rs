@@ -2,6 +2,57 @@
 //! regions, actor tables, map-owner directories, intentions and population states
 //! are encoded once across rewind boundaries.
 //! This module does not perform storage or I/O.
+//!
+//! Capture related states into one fresh [`SharedState`]. A [`Snapshot`] holds
+//! references into that pool and is not independently restorable without it.
+//! For multiple decoded snapshots, construct [`RestoreContext`], bind the complete
+//! current/history root list once, then restore each snapshot. For a pool with
+//! one snapshot, [`Game::restore_checkpoint`] performs that sequence for you.
+//! Re-encoding a decoded pool additionally requires
+//! [`SharedState::prepare_spatial_serialization`]; that is not restore authority.
+//!
+//! # Capture, decode and restore related states
+//!
+//! The host supplies the same validated content that the save pins. This example
+//! exercises the in-memory codec, not disk durability, server archive validation
+//! or the host's publication transaction.
+//!
+//! ```
+//! use std::num::NonZeroU64;
+//! use tor_simulation::{Action, Game};
+//! use tor_simulation::checkpoint::{RestoreContext, SharedState, Snapshot};
+//! use tor_simulation::creatures::{Content, ScenarioCatalog};
+//! use tor_simulation::rules::{Ruleset, DEFAULT_RULESET_TOML};
+//! use tor_world::{Location, Position, RegionId};
+//!
+//! let rules = Ruleset::validate(toml::from_str(DEFAULT_RULESET_TOML).unwrap()).unwrap();
+//! let content = Content::new(rules, ScenarioCatalog::default()).unwrap();
+//! let mut game = Game::two_room(42, content.clone());
+//! let actor = game.spawn_actor(
+//!     Location { region: RegionId(1), position: Position { x: 1, y: 1, z: 0 } },
+//!     NonZeroU64::new(100).unwrap(),
+//! ).unwrap();
+//! let earlier = game.clone();
+//! let mut shared = SharedState::default();
+//! let first = game.checkpoint(&mut shared);
+//! game.act(actor, Action::Wait).unwrap();
+//! let second = game.checkpoint(&mut shared);
+//!
+//! let bytes = serde_json::to_vec(&(vec![first, second], shared)).unwrap();
+//! let (snapshots, shared): (Vec<Snapshot>, SharedState) = serde_json::from_slice(&bytes).unwrap();
+//! let mut context = RestoreContext::new(&shared, content);
+//! context.bind_spatial_roots(&snapshots.iter().collect::<Vec<_>>()).unwrap();
+//! let mut snapshots = snapshots.into_iter();
+//! let restored_earlier = context.restore(snapshots.next().unwrap()).unwrap();
+//! let mut restored_current = context.restore(snapshots.next().unwrap()).unwrap();
+//! assert_eq!(restored_earlier, earlier);
+//! assert_eq!(restored_current, game);
+//! assert_eq!(
+//!     restored_current.act(actor, Action::Wait).unwrap(),
+//!     game.act(actor, Action::Wait).unwrap(),
+//! );
+//! assert_eq!(restored_current, game);
+//! ```
 /// Existing whole-archive raw/compressed ceiling, shared with server storage.
 pub const ARCHIVE_BYTE_LIMIT: usize = 64 * 1024 * 1024;
 /// Current archive envelope: 256 retained boundaries plus current snapshot.
@@ -402,6 +453,18 @@ pub struct RestoreContext<'a> {
 }
 
 impl<'a> RestoreContext<'a> {
+    /// Validate and bind the complete current/retained snapshot root list once.
+    ///
+    /// Call this after [`Self::new`] and before [`Self::restore`]. Chart-history
+    /// roots are included automatically. The successful binding belongs to this
+    /// context and immutable decoded pool; it is not granted by preparing that
+    /// pool for serialization.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a second successful binding, an excessive root count, inconsistent
+    /// chart-history references or a malformed spatial pool/root set. No restored
+    /// game is published by this operation.
     pub fn bind_spatial_roots(&mut self, snapshots: &[&Snapshot]) -> Result<(), PersistError> {
         if self.spatial.is_some() || snapshots.len() > MAX_CHECKPOINT_ROOTS {
             return Err(PersistError::Spatial);
@@ -442,6 +505,11 @@ impl<'a> RestoreContext<'a> {
         Ok(root)
     }
 
+    /// Create an unbound restoration context for one immutable decoded pool.
+    ///
+    /// `content` must be the validated content pinned by the enclosing save.
+    /// The host owns that identity check. Bind all snapshot roots with
+    /// [`Self::bind_spatial_roots`] before restoring any game.
     pub fn new(shared: &'a SharedState, content: Arc<Content>) -> Self {
         Self {
             shared,
@@ -467,6 +535,15 @@ impl<'a> RestoreContext<'a> {
         }
     }
 
+    /// Restore and validate one snapshot using this context's already-bound pool.
+    ///
+    /// Shared immutable definitions may be reused across successful restores;
+    /// each snapshot's mutable state and cross-references still need validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PersistError`] for missing/unbound shared roots or invalid state.
+    /// An error returns no partially restored [`Game`].
     pub fn restore(&mut self, snapshot: Snapshot) -> Result<Game, PersistError> {
         Game::restore_with_context(snapshot, self)
     }
@@ -706,6 +783,17 @@ fn share_definition<T: Ord>(pool: &mut BTreeSet<Shared<T>>, definition: &mut Sha
 }
 
 impl Game {
+    /// Capture a settled backend state, reusing equal entries in a fresh capture pool.
+    ///
+    /// Keep the returned [`Snapshot`] with `shared`. Reuse that pool to capture
+    /// related history states, not to append to a deserialized pool. This method
+    /// neither writes storage nor establishes a server durability barrier.
+    ///
+    /// # Panics
+    ///
+    /// Panics while a region transition, trap resolution, body-return finalization,
+    /// host continuation or unsealed event observation remains pending. A host
+    /// must settle and seal its private candidate before capture.
     pub fn checkpoint(&self, shared: &mut SharedState) -> Snapshot {
         assert!(
             !self.region_transition_pending()
@@ -849,6 +937,15 @@ impl Game {
         }
     }
 
+    /// Restore a single-snapshot pool with the save's validated, pinned content.
+    ///
+    /// For a pool shared by current and retained history snapshots, use one
+    /// [`RestoreContext`] and bind the complete root list instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PersistError`] if root binding or snapshot validation fails.
+    /// The enclosing host is responsible for verifying content/save identities.
     pub fn restore_checkpoint(
         snapshot: Snapshot,
         shared: &SharedState,
