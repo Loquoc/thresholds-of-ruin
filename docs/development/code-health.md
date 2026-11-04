@@ -518,6 +518,42 @@ fresh behavioral test pass nor whole-subsystem correctness.
   all indexes and take/drop/equip/death/projectile adapters remain unqualified;
   no checkpoint validation or benchmark was performed.
 
+### Cooldowns and expertise ownership
+
+Source review reconciled at `24f0827c2` on 2026-11-04 found no new actionable
+issue in actor-active cooldown storage/expiry or permanent expertise acquisition.
+No new CH issue, fresh behavioral pass or complete scheduler/advancement
+certification follows; no performance measurement was made.
+
+- [Cooldown starts](../../crates/simulation/src/cooldowns.rs) validate duration,
+  catalog identity, readiness and capacity before shared-storage mutation. Failed
+  or duplicate starts do not renew intervals. Zero advancement exits before
+  copy-on-write; positive advancement subtracts saturatingly and removes expired
+  entries without a per-tick loop. Scans are linear in retained catalog-bounded
+  entries, not a measured reason for another timer index. `is_ready` describes
+  absence of cooldown, not ownership or permission to perform an ability.
+- [Creature integration](../../crates/simulation/src/creatures/state.rs) includes
+  cooldown deadlines independently of recovery. Existing [cooldown tests](../../crates/simulation/tests/it/action_cooldowns.rs)
+  assert stopped recovery still expires at 100 ticks, death at tick 10 leaves
+  90 of 100 cooldown ticks, and exact retained-entry/copy-on-write counts through
+  zero, repeated and maximum-duration advancement. Unit snapshots preserve
+  failed-start/zero-work assertions. These were inspected, not rerun; freezing,
+  checkpoints and end-to-end scheduler timing remain outside this pass.
+- [Expertise ownership](../../crates/simulation/src/expertise.rs) separates owned
+  grants from active effects. Dormant grants remain owned and block repurchase;
+  active effects deduplicate by expertise ID while independent origins survive
+  removal of one source. Paid identity uses owning HD and point pool rather than
+  mutable purchase-list position. [Acquisition](../../crates/simulation/src/creatures/advancement.rs)
+  commits a build only after a successful preview. The private ownership insert
+  helper's duplicate error discards a local compilation result, not an exposed
+  partially updated ownership map.
+- Existing [expertise tests](../../crates/simulation/src/expertise_tests.rs) inspect
+  dormant duplicate rejection, independent grants, stable paid identity, exact
+  shared-budget/refund balances and candidate ownership during grant replacement.
+  No fresh execution is claimed; source provenance is not safely reducible to
+  a boolean set. Full advancement pricing, all intellect choices, runtime
+  weapon-profile capture and all action-preparation paths remain unqualified.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
