@@ -3579,3 +3579,27 @@ regression with two failing subcases, not three production defects. The original
 strict real-process witness remains a final-head hosted CI gate; protected local
 process binaries predate later capture changes and are not claimed as current
 runtime qualification.
+
+## Staff disconnect picture barrier, 4 November 2026
+
+PR 258's Linux release Python run exposed the same stale-picture fixture-race
+class previously repaired in the throwing owner, now in
+`RogueStavesProcesses.test_text_staff_physical_hit_charge_exhaustion_and_pending_source_free_reopen`.
+The retained probe stream has a visual-changing outcome at sequence 48, paused
+intention at 49, and the demanded observation delta at 51. The intermediate
+picture still has active preparation and is not ready. The delta's disclosed
+state exactly matches the reopened state (excluding only the existing local
+picture identifiers), and the intentions match in both frames. Persistence is
+not implicated by this evidence.
+
+The staff pause barrier now consumes the demanded picture through the existing
+`picture_after` helper before retaining its restart oracle. All strict state,
+intention, frozen plan/payment, item and RNG comparisons remain unchanged.
+The deterministic ordered-stream regression first failed at its picture equality
+assertion in both timing subcases, then passed with the barrier; all 128 affected
+fixture and process-harness unit methods passed. This is one additional naturally
+failing process method in the already documented fixture-race class, not a new
+production defect. The two deliberate unit subcases are sensitivity evidence,
+not additional naturally detected failures. The actual Text/source-free restart
+witness remains required in final-head hosted CI; no local current-binary process
+qualification is claimed.
