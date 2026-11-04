@@ -158,6 +158,58 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   shared pending-request completion and bounded stale-revision-only wizard
   retries; none is established redundant or safe to remove.
 
+### CH-012: Supported comparison workloads do not fit ledger identities
+
+- **Category/status:** robustness/maintainability; source-supported integration
+  mismatch, not yet reproduced through the CLI. Reviewed at `d7b374664` on
+  2026-11-04.
+- **Impact/confidence:** high confidence that accepted strike and active-mob
+  measurements cannot be appended through the comparison-to-ledger path. This
+  affects recording results, not their measured execution or gameplay.
+- **Evidence:** [comparison workloads and result assembly](../../scripts/perf_compare.py)
+  use `ordered-strikes` and `active-mobs-v1` as ledger names with integer versions.
+  [entry conversion and validation](../../scripts/perf_ledger.py) normalize only
+  string-valued versions; the name constraint `[a-z][a-z0-9_]*` rejects both
+  names before `append_entry` opens the ledger for writing.
+- **Next step:** establish a first-red actual CLI export witness for both
+  identities using valid independent comparison fixtures. Choose explicit ledger
+  identities satisfying the existing schema, keeping benchmark wire labels
+  separate. Do not broadly relax validation or rewrite historical measurements.
+- **Acceptance:** positive ledger CLI append/check for both workloads with exact
+  name/version and preserved counts, timings, source commit and raw-data checksum;
+  a registry-wide ledger-name contract; and preserved streaming conversion,
+  invalid-workload, duplicate and non-writing failure witnesses.
+- **Review limits:** existing [ledger tests](../../scripts/test_perf_ledger.py)
+  cover structured performance entries and streaming string-version conversion,
+  but do not establish these two comparison-to-ledger round trips. No new runtime
+  regression was executed for this entry. Nonconstant count ranges are deliberately
+  excluded from headline entries and are not another lost-data defect.
+
+### CH-013: Linux storage probe loses empty column boundaries
+
+- **Category/status:** robustness; source-supported parsing candidate, not a
+  reproduced machine-probe failure. Reviewed at `d7b374664` on 2026-11-04.
+- **Impact/confidence:** high confidence in the string transformation; prevalence
+  remains unmeasured. A device with an unreported transport and a reported model
+  can have its first model word recorded as the bus, altering descriptive storage
+  data included in the machine fingerprint. No timing-comparison error is proven.
+- **Evidence:** [probe_linux_machine](../../scripts/perf_ledger.py) requests
+  whitespace columns `ROTA,TRAN,MODEL`, then uses `partition(" ")` and
+  `rest.strip().partition(" ")`. For an illustrative row `0      Example Disk`,
+  stripping the empty middle column assigns `Example` to transport and `Disk`
+  to model. This is source reasoning, not captured output from an affected host.
+- **Next step:** preserve empty values with structured output or separate field
+  reads, retaining explicit command-failure fallbacks. A changed interpretation
+  can start a new fingerprint series; preserve historical entries rather than
+  incorrectly joining measurement series.
+- **Acceptance:** independent subprocess-output fixtures for present/missing
+  transport, multiword/missing models, partition-parent lookup, command failures
+  and empty output. Assert exact storage fields and fingerprint input, not merely
+  acceptance by `validate_machine`.
+- **Review limits:** existing [MachineProbe tests](../../scripts/test_perf_ledger.py)
+  cover CPU/memory/OS text parsers and Windows extraction, not Linux findmnt/lsblk
+  command composition or column decoding. No fresh probe execution is claimed.
+
 ## Retained or resolved findings
 
 ### CH-007: Sight implementations are not established dead code
