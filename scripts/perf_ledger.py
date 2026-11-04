@@ -167,8 +167,19 @@ def probe_linux_machine(path):
     source, _, filesystem = run("findmnt", "-no", "SOURCE,FSTYPE", "-T", str(path)).partition(" ")
     parent = run("lsblk", "-no", "PKNAME", source).splitlines()
     device = f"/dev/{parent[0]}" if parent and parent[0] else source
-    rota, _, rest = run("lsblk", "-ndo", "ROTA,TRAN,MODEL", device).partition(" ")
-    transport, _, model = rest.strip().partition(" ")
+    # JSON preserves empty middle columns and model whitespace/quotes.
+    try:
+        info = json.loads(run("lsblk", "-Jndo", "ROTA,TRAN,MODEL", device))
+    except ValueError:
+        info = {}
+    disks = info.get("blockdevices") if isinstance(info, dict) else None
+    disk = disks[0] if isinstance(disks, list) and disks else None
+    disk = disk if isinstance(disk, dict) else {}
+    rota = str(disk.get("rota")).lower()
+    transport = disk.get("tran")
+    transport = transport.strip() if isinstance(transport, str) else ""
+    model = disk.get("model")
+    model = model.strip() if isinstance(model, str) else ""
     return with_fingerprint({
         "cpu": parse_cpuinfo(read("/proc/cpuinfo")),
         "logical_cpus": os.cpu_count() or 0,
@@ -176,7 +187,7 @@ def probe_linux_machine(path):
         "os": parse_os_release(read("/etc/os-release")),
         "os_build": platform.release(),
         "storage": {
-            "type": storage_type(rotational=(rota.strip() == "1") if rota.strip() in ("0", "1") else None,
+            "type": storage_type(rotational=(rota in ("1", "true")) if rota in ("0", "1", "false", "true") else None,
                                  bus=transport),
             "filesystem": filesystem.strip() or "unknown",
             "model": model.strip() or "unknown",
