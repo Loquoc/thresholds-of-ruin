@@ -481,6 +481,43 @@ claimed; no benchmark measured these paths.
   do not certify every adapter, nested effect, save format, UI or lifecycle
   transaction, nor establish a new performance improvement.
 
+### Condition lifetimes and homogeneous transfers
+
+Source review at `f72ef1784` on 2026-11-04 found no new actionable defect in
+live condition lifetimes or homogeneous item transfer preparation/application.
+These bounded negative findings create no CH issue and establish neither a
+fresh behavioral test pass nor whole-subsystem correctness.
+
+- [Conditions](../../crates/simulation/src/conditions.rs) check extension overflow
+  before any field changes and lifetime generation allocation before eviction or
+  age compaction. Renewals preserve lifetime identity; generation and compactable
+  age are not redundant. Unbounded/mixed-duration admission requires Keep
+  stacking, so Option ordering alone does not establish a reachable Longest/Stack
+  bug. Expiry carries excess elapsed time into protection rather than granting a
+  fresh full interval after both phases have elapsed.
+- Reserved expired tokens intentionally retain zero-duration tombstones owned
+  by the exact paid reservation; removing them or making them reusable would
+  change that contract. Existing condition tests inspect full-state equality on
+  overflow, unbounded expiry, protected/tombstone removal, stale lifetime tokens
+  and prevention of reserved-token reuse/refresh/eviction. They were not rerun;
+  all stacking combinations, ability consumers and scheduler/cancellation adapters
+  remain outside this review.
+- [Item stack keys](../../crates/simulation/src/items.rs) include definition,
+  complete condition and charges, excluding corpses. Location and reservations
+  are separate transfer constraints. Held destinations remain separate; free
+  source quantity and exact source/destination/allocator witnesses are checked.
+  Quantity overflow and new identity allocation are preflighted before source
+  removal. Conditioned merges intentionally obtain fresh identities, not proven
+  unnecessary allocator work.
+- Omitted fuel/relocation progress alone does not prove unsafe stacking: held
+  lights disallow stacks, and [stackable equipment](../../crates/simulation/src/interactions.rs)
+  excludes periodic relocation. Existing [stack tests](../../crates/simulation/src/item_stack_tests.rs)
+  inspect per-unit keys, exact split state, incompatible/wrong-location merge
+  atomicity, held destinations and stale-plan refusal with full Game equality.
+  These assertions were not executed in this pass. Large-inventory performance,
+  all indexes and take/drop/equip/death/projectile adapters remain unqualified;
+  no checkpoint validation or benchmark was performed.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
