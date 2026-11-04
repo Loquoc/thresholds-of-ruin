@@ -7,6 +7,26 @@ use std::{
     sync::{Arc, Weak},
 };
 
+/// Shared immutable values with copy-on-write mutation through [`DerefMut`].
+///
+/// Cloning shares storage; mutating a clone detaches it as needed. Equality,
+/// ordering and serialization use the value, not allocation identity. The
+/// process-local [`SharedIdentity`] is only a cache/diagnostic witness, never
+/// persisted identity or permission to reuse gameplay results.
+///
+/// ```
+/// use tor_world::Shared;
+/// let original = Shared::new(vec![1, 2]);
+/// let identity = original.weak_identity();
+/// let mut changed = original.clone();
+/// assert!(identity.matches(&changed));
+/// changed.push(3);
+/// assert_eq!(&*original, &[1, 2]);
+/// assert_eq!(&*changed, &[1, 2, 3]);
+/// assert!(identity.matches(&original));
+/// assert!(!identity.matches(&changed));
+/// assert_eq!(serde_json::to_string(&original).unwrap(), "[1,2]");
+/// ```
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct Shared<T>(Arc<T>);

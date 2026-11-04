@@ -1,3 +1,5 @@
+//! Presentation-thread state and modal input reduction over validated disclosure.
+//! Native input becomes an effect for the shell; this module does not own a socket.
 use serde::{Deserialize, Serialize};
 use tor_client_common::annotations::{play_test_report, MAX_PLAY_TEST_REPORT_BYTES};
 use tor_client_common::holds::{hold_choices, render_holds, HoldChoice};
@@ -108,6 +110,8 @@ pub enum Input {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// Work for the native shell or connection worker after local input reduction.
+/// A request still requires current shared admission checks and a server response.
 pub enum Effect {
     /// Capture only the next genuinely presented game framebuffer.
     Screenshot,
@@ -161,6 +165,11 @@ pub struct WeaponDraft {
     previous_status: String,
 }
 
+/// Local screens, selections and the displayed shared state for one ASCII window.
+///
+/// Update this reducer for every ordered disclosure before interpreting input.
+/// Public fields support rendering and diagnostics; their values are not a second
+/// rules engine. Transport and native-window ownership remain outside this type.
 pub struct App {
     pub charts_open: bool,
     pub charts: tor_client_common::charts::ChartPages,
@@ -1955,6 +1964,8 @@ impl App {
         Effect::None
     }
 
+    /// Reduce input through the active modal screen before ordinary map controls.
+    /// Returns an effect for the shell; it neither sends nor executes a game action.
     pub fn input(&mut self, input: Input) -> Effect {
         if self.command_line.is_some() {
             return self.command_input(input);
@@ -3977,7 +3988,6 @@ pub fn describe(
     )
 }
 
-/// The known place whose anchor in sight is nearest the player.
 /// Compact disclosed attributes and location, then health, resource balances,
 /// reserved amounts, identified gold, time and conditions.
 pub fn status_lines(app: &App, state: &ClientState) -> [String; 2] {

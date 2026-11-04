@@ -1,14 +1,19 @@
 //! Owner-disclosed equipment, independent of rendering and action admission.
 use tor_protocol::{EquipmentSlot, ItemInteractionView, ItemTarget, Observation};
 
+/// Carried equipment interactions and owner-disclosed socket layout.
+/// Slot indices refer to positions in [`Self::slots`], not to unique slot kinds.
 #[derive(Clone, Debug, Default)]
 pub struct Equipment {
     /// Preserve socket order and duplicates: two ring sockets are two positions.
     pub slots: Vec<EquipmentSlot>,
+    /// Disclosed interaction records whose targets are still carried.
     pub items: Vec<ItemInteractionView>,
 }
 
 impl Equipment {
+    /// Copy the disclosed slot layout and retain only currently carried targets.
+    /// Missing owner interaction disclosure produces empty equipment, not guesses.
     pub fn from_observation(observation: &Observation) -> Self {
         let Some(interactions) = &observation.interactions else {
             return Self::default();
@@ -37,6 +42,8 @@ impl Equipment {
             .map(|item| item.item)
     }
 
+    /// Socket indices with the item's disclosed slot-kind ID, including occupied
+    /// sockets. Compatibility does not imply that equipping is currently allowed.
     pub fn compatible_slots(&self, target: ItemTarget) -> impl Iterator<Item = u16> + '_ {
         let kind = self
             .item(target)
@@ -53,6 +60,8 @@ impl Equipment {
     }
 
     /// Choose a comparison only. Equipping still uses the shared admission path.
+    /// Prefer the item's current socket, then a compatible requested socket, then
+    /// an occupied compatible socket, then the first compatible socket.
     pub fn comparison_slot(&self, target: ItemTarget, preferred: Option<u16>) -> Option<u16> {
         if let Some(slot) = self.item(target).and_then(|item| item.equipped_slot) {
             return Some(slot);
@@ -69,6 +78,8 @@ impl Equipment {
             .or_else(|| self.compatible_slots(target).next())
     }
 
+    /// Whether the disclosed layout contains an unoccupied compatible socket.
+    /// This is presentation information, not an admission decision.
     pub fn has_free_slot(&self, target: ItemTarget) -> bool {
         self.compatible_slots(target)
             .any(|slot| self.occupant(slot).is_none())

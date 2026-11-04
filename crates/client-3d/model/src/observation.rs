@@ -26,8 +26,13 @@ pub struct Actor {
 }
 
 /// Everything the window draws, in the observer frame of this moment.
+///
+/// Build with [`view`] from validated shared state. Geometry belongs to the
+/// retained picture; control/readiness may be newer live authority. Use `shown`
+/// to pin player selections, and let the connection owner revalidate them.
 #[derive(Clone)]
 pub struct View {
+    /// Complete selection context, not merely the picture's revision number.
     pub shown: ReplyContext,
     pub context: StreamContext,
     pub branch: BranchId,
@@ -140,6 +145,11 @@ pub struct Carried {
 /// How much retained history the history screen shows.
 pub const HISTORY_LINES: usize = 40;
 
+/// Project a validated client state without querying the server or mutating it.
+///
+/// The living observer's primary body occurrence is placed first. Aligned map
+/// memory fills positions not currently visible; it does not recreate actors or
+/// action handles. Cosmetic recipes resolve only through the supplied palette.
 pub fn view(state: &ClientState, palette: &Palette) -> View {
     let o = &state.state().observation;
     let hostile = |id| {
@@ -469,6 +479,9 @@ pub struct Terrain<'a> {
     pub lit: bool,
 }
 impl View {
+    /// Current cell appearances followed by aligned remembered appearances.
+    /// Remembered entries are unlit and carry no live door/item/actor targets.
+    /// This iterator does not deduplicate repeated disclosed cell identities.
     pub fn terrain(&self) -> impl Iterator<Item = Terrain<'_>> {
         self.visible
             .iter()

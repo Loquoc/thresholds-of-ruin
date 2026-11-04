@@ -19,12 +19,20 @@ use presentation_history::{IssuedPresentation, PresentationHistory};
 #[path = "service_contract_host.rs"]
 pub(crate) mod contract_host;
 
-/// Trusted startup configuration. Tokens are never put into game history.
+/// Trusted startup authority for an authenticated connection.
+///
+/// [`serve`](crate::serve) matches the token and validates the account configuration;
+/// the client cannot choose its user, role or authorized actors. Attachment alone
+/// does not grant an actor's exclusive control lease. Tokens never enter game history.
 #[derive(Clone)]
 pub struct Account {
+    /// Authenticated receipt namespace, shared across this user's frontends.
     pub user: String,
+    /// Nonempty secret used for the initial loopback handshake. Do not log it.
     pub token: String,
+    /// Server-assigned permission class, independent of the frontend label.
     pub role: AccessRole,
+    /// Actors this account may attach to; attachment fixes one viewing perspective.
     pub actors: BTreeSet<ActorId>,
 }
 
@@ -329,7 +337,11 @@ enum TravelExecution {
     Redirected,
 }
 
-/// Serialized session operations keep snapshots and streamed updates consistent.
+/// Session authority and ordered publication around one owned [`Engine`].
+///
+/// Operations are serialized by [`Simulation`](crate::Simulation), keeping account,
+/// attachment, control and output state consistent with accepted game boundaries.
+/// Those ephemeral permissions are not recovered from an old client stream.
 pub struct Service {
     attachments: BTreeMap<u64, attachment_session::Upload>,
     outbound: crate::outbound::Pool,
@@ -356,13 +368,31 @@ pub struct Service {
 }
 
 impl Service {
+    /// Create a session with default outbound limits and reconcile saved work.
+    ///
+    /// See [`with_outbound_limits`](Self::with_outbound_limits) for startup effects
+    /// and the fallible constructor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if startup reconciliation fails, for example when storage rejects
+    /// cancellation of a saved journey or suspension of a queued human intention.
     pub fn new(engine: Engine) -> Self {
         Self::with_outbound_limits(engine, crate::OutboundLimits::default())
             .expect("valid default outbound limits")
     }
 
-    /// Configure host output bounds before any client connects. Limits are not
-    /// persisted and are validated before startup.
+    /// Create a session with validated, non-persisted host output bounds.
+    ///
+    /// Before clients connect, saved journey work is cancelled and queued human
+    /// intentions are suspended. Existing preparation is paused except for AI in
+    /// an unattended arena. These are ordinary engine transitions and can append
+    /// journal records; construction is not a read-only wrapper around an engine.
+    ///
+    /// Invalid limits or failed journey/intention reconciliation return a
+    /// [`Failure`]. Preparation-pause failures instead become the session's save
+    /// warning. Earlier successful reconciliation steps are not rolled back if a
+    /// later one fails. Construction itself does not promise a durability barrier.
     pub fn with_outbound_limits(
         mut engine: Engine,
         limits: crate::OutboundLimits,
@@ -415,8 +445,9 @@ impl Service {
         })
     }
 
-    /// Change how long an explicit save waits before answering `SaveBehind`;
-    /// between one millisecond and a minute.
+    /// Change how long an explicit save waits before answering `SaveBehind`.
+    /// The duration must be positive and at most one minute. Timing out the reply
+    /// does not cancel the pending write or report it as durable.
     pub fn set_save_reply_wait(&mut self, wait: std::time::Duration) -> Result<(), Failure> {
         if wait.is_zero() || wait > std::time::Duration::from_secs(60) {
             return Err(Failure::new(
