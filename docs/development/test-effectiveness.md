@@ -33,6 +33,26 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Comparison-to-ledger workload identities, 4 November 2026
+
+The bounded first-red run of the new `test_perf_ledger.LedgerFormat` methods
+`test_strikes_comparison_can_be_recorded_by_actual_cli`,
+`test_active_mobs_comparison_can_be_recorded_by_actual_cli`, and
+`test_all_comparison_workloads_have_valid_ledger_identities` exposed **one
+production root, three distinct failing methods and three failed method
+executions**. The registry method reports two failing subtests, not two methods.
+Both actual export processes failed on invalid ledger names before writing;
+independent valid-name controls passed. An earlier draft fixture had an unclosed
+dictionary and could not import: that setup error is not production evidence.
+
+Two registry literals were corrected without changing benchmark wire labels,
+versions or ledger validation. The final affected suites pass: ledger 21,
+comparison 31, shared workload reports 37, active-mob reports 8 and strike reports
+10 methods. The regressions assert exact identities, timings, counts, source
+commit and independently computed raw checksum, and retain duplicate rejection
+without writes. These are focused Python results, not application/release or
+Windows qualification; no speedup is claimed.
+
 ## Cross-region retreat and save-anchor boundaries, 30 October 2026
 
 The documentation review's mixed flee-distance candidate was reproduced against
