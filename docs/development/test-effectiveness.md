@@ -33,6 +33,34 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Workflow progress snapshot ordering, 4 November 2026
+
+The CH-015 actual CLI reproduction confirmed one offline-reporting root: selecting
+workflow records by attempt alone made equal-attempt evidence depend on input
+order. Two core first-red methods in `test_ci_cost_report.CostReport`,
+`test_workflow_progress_uses_latest_snapshot_in_either_order` and
+`test_actual_cli_progress_order_and_ambiguity_without_writes`, require identical
+results and independently expected 60 runner-seconds with a 120-second completed
+workflow span. Each failed once before repair in this bounded regression window.
+Three additional first-red methods cover equal-time metadata reconciliation,
+conflict rejection and invalid chronology/attempt handling. These are explicit
+robustness requirements, not three additional discovered production roots; their
+subtests do not multiply the five distinct methods/five method executions.
+
+The reconciler now selects the latest aware update timestamp within the highest
+attempt, merges compatible equal-time report fields and rejects ambiguity. Job
+accounting remains unchanged. The final 27-method accounting suite passes,
+including real CLI order reversal and rejection without overwriting outputs,
+higher incomplete attempts, timezone equivalence and unchanged input objects.
+Independent review also found that the guide's old timestamp-free JSON example
+would now error rather than produce its intended lower bound. A new test reads
+the literal documented example and reproduced that error before the guide was
+corrected; this is one documentation fixture mismatch, not another accounting
+production root. The example now explicitly supplies synthetic chronology and
+reports the omitted job pages. Verified-empty chronology requirements also have
+a rejection witness. This is focused local Python qualification, not hosted CI
+or billing evidence.
+
 ## Cross-region retreat and save-anchor boundaries, 30 October 2026
 
 The documentation review's mixed flee-distance candidate was reproduced against
