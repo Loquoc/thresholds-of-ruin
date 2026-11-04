@@ -247,6 +247,47 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   genuine Outcome facts through normal application, not only hand-built lines.
   Retain the legacy test unless a separate complete removal proof justifies it.
 
+### CH-015: Workflow progress reconciliation depends on input-file order
+
+- **Category/status:** robustness/maintainability; high-confidence source-supported
+  reporting mismatch, not a reproduced CLI failure. Reviewed at `af2683427` on
+  2026-11-04.
+- **Evidence:** [offline cost report](../../scripts/ci_cost_report.py) groups
+  workflow records by repository/run ID and chooses `max` by `run_attempt` alone.
+  Equal-attempt snapshots therefore retain the first input's workflow status,
+  conclusion and update time, even when later evidence describes completion.
+  Job-level reconciliation separately fills missing completion fields independent
+  of input order; that existing protection is not absent.
+- **Predicted witness:** two snapshots of run 42, attempt 2, created at 00:00:00,
+  with one job starting at 00:00:10 and complete all-jobs scope. The earlier run
+  is in progress at 00:00:20, with no job completion; the later run succeeds at
+  00:02:00, with that same job completing at 00:01:10. Both orders retain 60
+  runner-seconds. Older-first retains `workflow_not_completed`, null conclusion
+  and a 20-second `github_terminal_span_seconds`; newer-first selects success
+  and a 120-second span without the workflow-incomplete issue.
+- **Impact boundary:** identical evidence can produce different lower-bound
+  flags and workflow metadata. This witness does not change summed runner time,
+  actual execution, GitHub state, billing or CI qualification, and does not prove
+  any committed cost baseline used affected inputs.
+- **Coverage gap:** [the accounting guide](ci-cost-baseline.md) permits overlapping
+  inputs and progress snapshots. The existing
+  [completed-snapshot test](../../scripts/test_ci_cost_report.py) covers both
+  job-input orders, but its helper gives both workflow records completed status
+  and identical update timestamps. No fresh regression was run for this entry.
+- **Next step:** establish a first-red workflow-progress witness, then reconcile
+  snapshots explicitly within the highest attempt using validated chronology.
+  Define deterministic conflict/unknown handling; a lower completed attempt must
+  not supersede a higher in-progress attempt. Preserve job interval accounting
+  and completeness requirements.
+- **Acceptance:** reversed inputs yield identical latest workflow metadata and
+  the exact 60-second runner total; higher incomplete attempts remain incomplete;
+  equivalent timestamps with different time zones agree; missing/conflicting
+  metadata yields a documented deterministic limitation or error rather than
+  false exactness. Test repeated reversed `--input` arguments through the CLI
+  and compare parsed JSON and human-readable conclusions. Preserve job completion
+  merging, conflict rejection, carried-forward deduplication, skipped/canceled
+  jobs, page completeness, OS breakdown and optional-stage exclusion.
+
 ## Retained or resolved findings
 
 ### CH-007: Sight implementations are not established dead code
