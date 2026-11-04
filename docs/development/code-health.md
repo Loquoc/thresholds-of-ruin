@@ -802,6 +802,59 @@ this is neither a fresh runtime pass nor a performance or correctness certificat
   geometry, route execution, memory costs and topology/checkpoint validation
   remain outside the review.
 
+### Earned growth, strike pages, relocation clocks and finite supplies
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable issue in these bounded paths. Existing regression assertions are
+source evidence only: no fresh runtime pass, exhaustive correctness result or
+performance measurement is claimed.
+
+- [Earned-growth accounting](../../crates/simulation/src/earned_growth.rs) separates
+  earned/applied high-water marks and exact spent-plus-held balances. Lost ordinals
+  cost the current applied-tier price; forward projection uses binary search and
+  [checked threshold sums](../../crates/simulation/src/rules/growth.rs), with an
+  explicit representational-endpoint error. This scalar projection differs from
+  [actual-row admission](../../crates/simulation/src/creatures/state.rs), which
+  retains XP for dead actors, unavailable sources or structural limits and commits
+  candidate spending only after successful rebuild. Existing growth assertions
+  cover bounded iterative-oracle equivalence, full-width arithmetic, overflow
+  preservation, drain/regrowth and banked XP beyond actual-row admission. All XP
+  attribution, full build derivation and persistence remain outside this review.
+- [Strike-page navigation](../../crates/client-common/src/inspection_pages.rs)
+  binds context, target/source identity, request, cursor and inspection handle;
+  pending queries prevent navigation and acceptance errors clear the navigator.
+  Candidate compact structure is checked before publication. Eviction precedes
+  formatting to retain at most two rendered pages, while bounded cursor/shape
+  history survives for continuation and revisits. Existing module assertions
+  cover stale/mismatched replies, skipped entries, aggregate effect/descriptor
+  limits, maximum-source traversal and rider structure after rendered eviction.
+  Keeping only two text pages is not an equivalent replacement for compact
+  structure checks. Server authorization, protocol parsing, all UI interactions
+  and the material cost of bounded aggregate rescans were not established here.
+- [Periodic relocation clocks](../../crates/simulation/src/periodic_relocation.rs)
+  retain independent per-item phases and trials. Advancement rejects jumping past
+  the earliest deadline or proceeding with pending trials. Boundary removal keeps
+  earned trials; fractional ownership transfers rather than duplicating elapsed
+  time. Settlement takes the earned batch before reentrant relocation and checks
+  liveness between ordered trials. Existing clock and
+  [gameplay assertions](../../crates/simulation/src/periodic_relocation_tests.rs)
+  cover independent phases, rejected catch-up, ordered simultaneous trials, frozen
+  partial intervals, exact-boundary removal and pending-owner index isolation.
+  Destination geometry, distributions, persistence and whole-scheduler costs
+  remain outside scope; checkpoint implementation was not investigated.
+- [Finite supplies](../../crates/simulation/src/supplies.rs) separate physical
+  preview quantities from committed availability after holds. Replacement can
+  discount only its retiring lineage; reservation binds lineage and cost ordinal.
+  Release checks all references before removing holds, and consumption validates
+  the complete preparation. Reservation still relies on its outer transaction;
+  the helper alone is not certified atomic under arbitrary partial failure.
+  Settled payment prevents repeated consumption without requiring a deleted source
+  for a paid tail. Existing [lifecycle assertions](../../crates/simulation/tests/it/supply_lifecycle.rs)
+  distinguish AI preview from held availability, resume paid work, preserve state
+  on missing second supply and retain exact preparation on rejected replacement.
+  Full action orchestration, every item kind, detached-state persistence and stack
+  split/merge mutation were not audited in this pass.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
