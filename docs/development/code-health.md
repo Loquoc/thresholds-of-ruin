@@ -666,6 +666,50 @@ claimed.
   double-submit. Server preview calculation, all network orders, 3D, projectile
   pagination and actual-process frontend testing remain unqualified.
 
+### Escape, theft, quantities and equipment birth
+
+Source review reconciled against main `3c24d49fd` on 2026-11-04 found no new
+issue in these four bounded gameplay paths. Existing tests were inspected, not
+executed; no runtime pass, benchmark or whole-system certification is claimed.
+
+- [Escape](../../crates/simulation/src/escape.rs) captures exact relationship,
+  policy, generic opposed check, token claims and timing. Completion rechecks
+  current relationship availability before RNG; stale work is abandoned without
+  retargeting a replacement hold. Success removes only the exact hold before
+  obtaining a fresh completion outcome. Existing witnesses distinguish successful
+  release with captured recovery, failed check retaining links while paying
+  recovery, same-holder replacement abandonment without RNG/debt, and endpoint
+  token retirement. All scheduler callers, mirror mutations, protection expiry
+  and rollback paths were not traced; internal staged writes alone do not prove
+  public partial commit.
+- [Theft](../../crates/simulation/src/theft.rs) filters living distinct actors,
+  carried free units and unequipped items. Currency caps each fragment by remaining
+  request/stock rather than summing a purse, using deterministic owner buckets
+  and an existing lazy recipient merge index. Magical selection samples entries,
+  not quantity-weighted units, and does not grant identity knowledge. Existing
+  tests inspect finite stock, maximum requests, exact claims/equipment exclusion,
+  unknown magical units and checked-rider authoring. Deferred receipts describe
+  actual transfers. Multi-fragment rollback, distribution performance, relocation
+  and loaded-region continuation remain outside this pass.
+- [Quantity expressions](../../crates/simulation/src/quantity.rs) check depth
+  arithmetic and positive range validity. Inclusive width cannot overflow for
+  valid positive-only bounds; this does not generalize to ranges including zero.
+  Fixed values draw no RNG. Rejection sampling permits at most 64 attempts and
+  publishes candidate RNG only after success, without biased fallback. Existing
+  tests inspect exact depth arithmetic, full-width deterministic progression and
+  injected 64-rejection exhaustion with unchanged caller state. They do not prove
+  RNG statistical quality or atomic failure handling by every caller.
+- [Equipment birth](../../crates/simulation/src/equipment_generation.rs) validates
+  all possible outcomes before drawing, including rare extreme modifiers.
+  Authored/guaranteed conditions avoid RNG; signed potency derives curse from its
+  sign, weapon birth changes hit rather than damage enchantment, and armor curse
+  persists even when its physical penalty clamps to zero. Candidate RNG publishes
+  only after success. Existing witnesses inspect invalid-policy nonmutation,
+  reproducible disjoint outcome shapes, unchanged equipment and independent
+  condition fields. Finite fixture samples are not exact frequency proofs;
+  all-catalog validation, population scheduling and placement rollback were not
+  audited.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
