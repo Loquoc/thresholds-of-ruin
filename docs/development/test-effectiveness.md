@@ -3653,6 +3653,40 @@ strict real-process witness remains a final-head hosted CI gate; protected local
 process binaries predate later capture changes and are not claimed as current
 runtime qualification.
 
+## Linux storage probe columns, 4 November 2026
+
+CH-013 is one production parsing defect: whitespace splitting treated a model's
+first word as the transport when `lsblk` returned an empty middle `TRAN` column.
+The isolated `MachineProbe.test_linux_probe_blank_transport_preserves_model`
+regression failed against the original probe for both single-word and multiword
+models, then passed with explicit JSON columns. These are two subcases of one
+method and one root cause, not two defects. The fixture executes the actual
+probe with subprocesses, machine-file reads, CPU count and kernel identity mocked;
+it does not establish prevalence on real hosts.
+
+The complete performance-ledger owner passed 26 methods under stdlib Python
+3.12.14. Controls retain exact previous fingerprints for present transport,
+missing model and empty device output; other cases cover JSON rotational
+encodings, NVMe, quoted models, existing parent selection, command failures and
+malformed output. Corrected metadata changes affected fingerprints prospectively;
+historical measurements and fingerprint construction remain unchanged and must
+not be rewritten to combine old/new timing series. Windows probing is unchanged.
+No Rust builds, actual-device probes or broad verification tiers ran. A qualified
+pinned Python environment, lint, independent review and final-head hosted CI
+remain required before publication/merge qualification.
+
+The first hosted Windows debug Python shard then exposed one fixture portability
+root across all eight new probe methods: Windows rendered the fixture path as
+`\fixture`, while the mocked command table expected `/fixture`. Its mocked file
+lookup likewise assumed POSIX separators. This is a test-fixture defect, not a
+second production storage-parser defect. Expected command paths now use the
+host's path rendering and mocked file lookup uses normalized POSIX keys. A
+`PureWindowsPath` fixture regression reproduces the exact command-table `KeyError`
+on Linux before the correction and passes afterward; all 27 owner methods pass
+locally. Hosted native Windows verification remains required, not replaced by
+this path emulation. The failing evidence is
+[PR 255's first Windows debug shard 2](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41823447489/job/126561124600).
+
 ## Staff disconnect picture barrier, 4 November 2026
 
 PR 258's Linux release Python run exposed the same stale-picture fixture-race
