@@ -331,6 +331,38 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   projection/clone/fold counts separately from timings and storage bytes. No
   fresh benchmark or behavioral regression was run in this review.
 
+### CH-017: Portable-light fuel filtering scans unrelated items
+
+- **Category/status:** performance; source-supported iteration candidate, not a
+  reproduced slowdown. Reviewed at `3c24d49fd` on 2026-11-04. Practical cost and
+  priority are unmeasured; no illumination correctness defect is established.
+- **Evidence:** [next_fuel_expiry and burn_light_fuel](../../crates/simulation/src/portable_light.rs)
+  iterate the complete [ItemStore map](../../crates/simulation/src/item_store.rs)
+  before filtering fuel eligibility. [Physics integration](../../crates/simulation/src/physics.rs)
+  checks expiry, then calls `burn_light_fuel(1)` per actual physical iteration;
+  the no-gravity/no-motion path instead burns one whole interval.
+- **Scale:** with N stored item rows and T executed integration iterations, fuel
+  eligibility alone visits N*T rows, even with no burning lights, plus the
+  separate expiry scan. Early exits mean T is not necessarily requested elapsed
+  ticks. These are cheap eligibility visits, not N*T optical calculations or
+  deep clones, and do not prove fuel work dominates simulation time.
+- **Next step:** count fuel candidates and compare release timings with increasing
+  unrelated items, zero/one/many burning lights and moving/stationary paths.
+  Control actual executed ticks and activity geography before choosing an
+  optimization. If justified, consider a derived fuel-bearing/light candidate
+  index maintained through item mutations, retaining live eligibility checks.
+  Indexing only currently burning items additionally requires proof for every
+  actor/equipment/location/activity transition; offscreen is not permission to
+  skip fuel. No serialized cache or second lifetime authority is needed.
+- **Acceptance:** define the promised candidate complexity, then establish its
+  first-red count witness. Preserve [portable-light tests](../../crates/simulation/src/abilities/portable_light_tests.rs)
+  for ignition preparation, exact wait/extinguish fuel, seven-tick expiry,
+  interruption during burnout, and drop/pickup/stow without refill. An index
+  also needs insertion/removal/extinguish/death/activity maintenance witnesses.
+  Existing assertions were inspected, not executed. Optical topology, residency
+  continuation and checkpoint handling remain outside this review; no speedup
+  is claimed.
+
 ## Retained or resolved findings
 
 ### CH-007: Sight implementations are not established dead code
@@ -553,6 +585,40 @@ certification follows; no performance measurement was made.
   No fresh execution is claimed; source provenance is not safely reducible to
   a boolean set. Full advancement pricing, all intellect choices, runtime
   weapon-profile capture and all action-preparation paths remain unqualified.
+
+### Periodic search, hallucination and shared equipment capacity
+
+Source review reconciled at `3c24d49fd` on 2026-11-04 found no new correctness
+issue in these bounded paths. No fresh behavioral tests or benchmarks ran.
+
+- [Search cadence](../../crates/simulation/src/search_clock.rs) preserves a
+  floor-rounded fraction, rejects over-boundary/pending advancement before
+  mutation and settles indexed pending owners rather than all loaded actors.
+  Suppressed intervals earn no later catch-up. Existing [search tests](../../crates/simulation/src/discovery_time_tests.rs)
+  inspect exact RNG at 99/100 ticks, duplicate-source equivalence, sleep/blindness
+  suppression, real equip transitions and earned search before same-boundary
+  nutrition sleep. Full discovery results, failed scan settlement and scheduler
+  atomicity were not audited.
+- [Hallucination cadence](../../crates/simulation/src/hallucination_clock.rs)
+  advances multiple phases arithmetically, checking overflow before publication.
+  Condition lifetime remains externally owned; expiry wins ties, an extension
+  preserves its generation/deadline, and reapplication resets generation. Pure
+  query projection neither mutates the actor nor samples rules RNG. Existing
+  [lifecycle witnesses](../../crates/simulation/src/hallucination_clock_tests.rs)
+  inspect paid completion, non-owner-driven authoritative phase changes,
+  extension/reapplication and expiry. Palette/disclosure, all condition
+  interactions, persistence authenticity and rendering performance remain outside
+  this pass. Different search and visual cadence contracts are not redundant.
+- [Equipment capacity](../../crates/simulation/src/equipment_capacity.rs)
+  distinguishes structurally possible minimum demand from current demand. Minimum
+  above capacity rejects; current excess returns a deficit without deleting gear.
+  Socket-bounded checked sums reject unknown pools/invalid demand, with no implicit
+  humanoid grip capacity. Existing [capacity tests](../../crates/simulation/src/equipment_capacity_tests.rs)
+  inspect independent pools and exact deficits; [profile tests](../../crates/simulation/src/weapon_profile_tests.rs)
+  retain gear through expertise loss/restoration, while [torch tests](../../crates/simulation/src/abilities/portable_light_tests.rs)
+  reject a third grip atomically. Pure aggregation tests do not replace these
+  integration witnesses. Anatomy edits, acquisition history, frozen paid plans
+  and all projectile adapters remain unqualified.
 
 ## Removal and consolidation proof
 
