@@ -3556,3 +3556,25 @@ regression with two failing subcases, not three production defects. The original
 strict real-process witness remains a final-head hosted CI gate; protected local
 process binaries predate later capture changes and are not claimed as current
 runtime qualification.
+
+## Linux storage probe columns, 4 November 2026
+
+CH-013 is one production parsing defect: whitespace splitting treated a model's
+first word as the transport when `lsblk` returned an empty middle `TRAN` column.
+The isolated `MachineProbe.test_linux_probe_blank_transport_preserves_model`
+regression failed against the original probe for both single-word and multiword
+models, then passed with explicit JSON columns. These are two subcases of one
+method and one root cause, not two defects. The fixture executes the actual
+probe with subprocesses, machine-file reads, CPU count and kernel identity mocked;
+it does not establish prevalence on real hosts.
+
+The complete performance-ledger owner passed 26 methods under stdlib Python
+3.12.14. Controls retain exact previous fingerprints for present transport,
+missing model and empty device output; other cases cover JSON rotational
+encodings, NVMe, quoted models, existing parent selection, command failures and
+malformed output. Corrected metadata changes affected fingerprints prospectively;
+historical measurements and fingerprint construction remain unchanged and must
+not be rewritten to combine old/new timing series. Windows probing is unchanged.
+No Rust builds, actual-device probes or broad verification tiers ran. A qualified
+pinned Python environment, lint, independent review and final-head hosted CI
+remain required before publication/merge qualification.
