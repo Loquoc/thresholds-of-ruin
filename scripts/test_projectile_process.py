@@ -61,6 +61,12 @@ class ProjectileProcesses(ProcessTestCase):
             if view(current)["ready"] and not current["intentions"]:
                 return current
             peer = self.request(self.target, {"type": "snapshot"})
+            if not view(peer)["ready"]:
+                # These connections do not share an atomic snapshot. The player
+                # can finish between the first snapshot and the target's reply.
+                current = self.snapshot()
+                if view(current)["ready"] and not current["intentions"]:
+                    return current
             self.assertTrue(view(peer)["ready"], "Fixture target cannot advance pending player work")
             self.assertIsNone(self.act(self.target, {"type": "wait"})["error"])
         self.fail("Projectile fixture did not settle within 1600 ticks of ordinary target waits")
@@ -348,6 +354,75 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertEqual(item(launched, "shortbow")["id"], item(initial, "shortbow")["id"])
         self.assertFalse(any(row["item"]["name"] == "arrow" for row in view(launched)["ground_items"]))
         self.assertEqual(len(self.admissions("rogue.launch")), 1)
+
+
+class ProjectileSettle(unittest.TestCase):
+    """Deterministic cross-client snapshot schedules; no server or native window."""
+
+    @staticmethod
+    def observed(tick, ready, intentions=()):
+        return {"state": {"observation": {"tick": str(tick), "ready": ready}},
+                "intentions": list(intentions)}
+
+    def test_player_completion_between_snapshots_does_not_require_target_wait(self):
+        harness = ProjectileProcesses()
+        harness.target = object()
+        pending = self.observed(300, False)
+        finished = self.observed(344, True)
+        with patch.object(harness, "snapshot", side_effect=[pending, finished]) as snapshot, \
+                patch.object(harness, "request", return_value=self.observed(344, False)) as request, \
+                patch.object(harness, "act") as act:
+            self.assertIs(harness.settle(), finished)
+        self.assertEqual(snapshot.call_count, 2)
+        request.assert_called_once_with(harness.target, {"type": "snapshot"})
+        act.assert_not_called()
+
+    def test_unready_target_and_still_pending_player_remain_a_failure(self):
+        for fresh in (self.observed(344, False), self.observed(344, True, [{"phase": "queued"}])):
+            harness = ProjectileProcesses()
+            harness.target = object()
+            with self.subTest(fresh=fresh), \
+                    patch.object(harness, "snapshot", side_effect=[self.observed(300, False), fresh]), \
+                    patch.object(harness, "request", return_value=self.observed(344, False)), \
+                    patch.object(harness, "act") as act:
+                with self.assertRaisesRegex(AssertionError, "Fixture target cannot advance pending player work"):
+                    harness.settle()
+                act.assert_not_called()
+
+    def test_ready_target_advances_player_with_an_ordinary_wait(self):
+        harness = ProjectileProcesses()
+        harness.target = object()
+        finished = self.observed(344, True)
+        with patch.object(harness, "snapshot", side_effect=[self.observed(300, False), finished]), \
+                patch.object(harness, "request", return_value=self.observed(300, True)), \
+                patch.object(harness, "act", return_value={"error": None}) as act:
+            self.assertIs(harness.settle(), finished)
+        act.assert_called_once_with(harness.target, {"type": "wait"})
+
+    def test_initially_finished_player_needs_no_peer_request(self):
+        harness = ProjectileProcesses()
+        finished = self.observed(344, True)
+        with patch.object(harness, "snapshot", return_value=finished), \
+                patch.object(harness, "request") as request, patch.object(harness, "act") as act:
+            self.assertIs(harness.settle(), finished)
+        request.assert_not_called()
+        act.assert_not_called()
+
+    def test_wait_errors_and_finite_progress_bound_remain_failures(self):
+        harness = ProjectileProcesses()
+        harness.target = object()
+        with patch.object(harness, "snapshot", return_value=self.observed(300, False)), \
+                patch.object(harness, "request", return_value=self.observed(300, True)), \
+                patch.object(harness, "act", return_value={"error": "rejected"}) as act:
+            with self.assertRaises(AssertionError):
+                harness.settle()
+            self.assertEqual(act.call_count, 1)
+        with patch.object(harness, "snapshot", return_value=self.observed(300, False)), \
+                patch.object(harness, "request", return_value=self.observed(300, True)), \
+                patch.object(harness, "act", return_value={"error": None}) as act:
+            with self.assertRaisesRegex(AssertionError, "did not settle within 1600 ticks"):
+                harness.settle()
+            self.assertEqual(act.call_count, 16)
 
 
 class ProjectileCaptureLaunch(unittest.TestCase):
