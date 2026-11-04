@@ -200,3 +200,29 @@ The [latency benchmark](../../crates/server/examples/latency_bench.rs) demonstra
 caller-owned causal-boundary checks before `verify_effect`; its existence is not
 fresh performance-measurement evidence. No runtime behavior, fixture data or
 oracle assertions changed in this documentation pass.
+
+
+## Client presentation helpers
+
+Reviewed against `3c24d49fd` on 2026-11-04. This is the bounded member inventory
+for the existing `tor_client_common::surfaces` and `public_plan` exports, not
+completion of the client-common family. No runtime behavior changed. Eight
+runnable rustdoc examples use public APIs with explicit expected results; they
+require compilation and execution through the normal Rust documentation gate.
+
+| Public path | Contract and witness |
+| --- | --- |
+| `surfaces::Roles` and `floors`, `ceilings`, `walls` | Borrowed, sorted unique labels; open-neighbor roles, multiple roles and absence versus unknown space; classification examples |
+| `surfaces::material` | Borrowed material versus static empty-label fallback, no validation or sanitization; explicit-label/fallback example |
+| `surfaces::roles` | Disclosed cardinal adjacency, first duplicate position wins, no inferred unseen surface; room and lone-solid example |
+| `surfaces::roles_by` | Caller labels, borrowed lifetime, callback repetition and coordinate arithmetic precondition; multi-role example |
+| `surfaces::floor_below` | Exact adjacent position, first matching solid cell, no unknown-space inference and coordinate arithmetic precondition; floor/absent-column example |
+| `surfaces::ceiling_above` | Complete disclosed column, nearest solid cell, inclusive 16-cell limit and coordinate arithmetic precondition; unseen-gap and 16/17-cell examples |
+| `public_plan::line` | Historical observation tick/frame, unknown operands, unchanged remaining work, no validation or target resolution; unavailable-aim and directional-aim examples |
+| `public_plan::changed_line` | Complete-record value comparison, silent disappearance, explicit no-public-plan observation, caller-owned prior state; absent/equal/later-observation example |
+
+Existing surface unit tests remain independent witnesses for role classification,
+unknown gaps and custom labels. These helpers do not confer interaction authority
+or refresh historical facts. Remaining qualification includes rendered public and
+private API review, warning-free rustdoc and executable examples; member review
+alone does not establish that those checks ran.
