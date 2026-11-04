@@ -755,6 +755,53 @@ no runtime pass, statistical audit or performance measurement is claimed.
   all-renderer behavior, allocation performance, disclosure or host-source-budget
   correctness from this bounded review.
 
+### Capture uploads, projectile menus and shared route search
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new issue in these bounded paths. Existing assertions were inspected, not run;
+this is neither a fresh runtime pass nor a performance or correctness certification.
+
+- [Capture upload](../../crates/client-common/src/captures.rs) retains the picture
+  anchor while checking the current attachment/branch. Construction bounds bytes
+  and validates text UTF-8, without claiming PNG structure validation. Sequential
+  chunks require the exact upload identity and next offset. Pre-commit failure
+  permits bounded staging cleanup; after Commit, only a correlated rejection
+  triggers cleanup. Uncertain transport, timeout or malformed outcomes must not
+  become automatic abort/retry. The first correlated reply is retained through
+  synchronization while ordinary messages reach the presentation callback.
+  Existing [wire assertions](../../crates/client-common/tests/it/capture_upload.rs)
+  preserve the original chunk/commit rejection, check the staging identity and
+  distinguish explicit fresh capture after rejection from uncertain outcomes
+  without a retry. Full storage durability, server format validation and socket
+  cancellation remain outside this pass.
+- [Projectile source/ammunition menus](../../crates/client-common/src/projectiles.rs)
+  bind context, ability, inventory, equipment disclosure, request and complete
+  query. Freshness checks cover reply acceptance, navigation, selection and final
+  directional action. Supplied choices and the ammunition phase's launcher are
+  rechecked against disclosed identities/sockets, not independently derived
+  ammunition compatibility or numeric rules. Previous pages retain offsets;
+  an empty filtered page can still have a continuation. Launcher selection resets
+  pagination and binds its exact identity. Existing
+  [menu tests](../../crates/client-common/src/projectile_tests.rs) inspect context
+  and query mismatches, duplicate replies, empty-page navigation, launcher socket
+  changes, exact final delivery and ten stale-state mutations. Snapshot clones
+  alone do not establish an optimization opportunity. All-frontend interactions,
+  server enumeration and menu-memory costs were not audited or measured.
+- [Shared remembered-route search](../../crates/simulation/src/travel.rs) reuses
+  settled prefixes for several destinations within one read-only decision. Keys
+  retain location/orientation, ordered ties are deterministic and superseded queue
+  entries are skipped. Expansion consults remembered cells/edges and actor movement
+  capabilities/cost, including composed diagonal frames, rather than hidden terrain.
+  Expanding the popped destination before returning permits continuation to later
+  targets; removing that work needs an equivalent deferred-expansion mechanism.
+  The existing `shared_search_matches_fresh_routes_across_target_orders_and_frames`
+  differential witness compares shared and fresh routes through directed cycles,
+  equal-cost choices, portal frames, unreachable cells and a known wall, across
+  five actor frames, three target orders and repeated targets. This is source
+  evidence for reuse semantics, not a timing result. Refresh/alignment, exhaustive
+  geometry, route execution, memory costs and topology/checkpoint validation
+  remain outside the review.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
