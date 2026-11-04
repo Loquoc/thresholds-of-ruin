@@ -3578,3 +3578,15 @@ not be rewritten to combine old/new timing series. Windows probing is unchanged.
 No Rust builds, actual-device probes or broad verification tiers ran. A qualified
 pinned Python environment, lint, independent review and final-head hosted CI
 remain required before publication/merge qualification.
+
+The first hosted Windows debug Python shard then exposed one fixture portability
+root across all eight new probe methods: Windows rendered the fixture path as
+`\fixture`, while the mocked command table expected `/fixture`. Its mocked file
+lookup likewise assumed POSIX separators. This is a test-fixture defect, not a
+second production storage-parser defect. Expected command paths now use the
+host's path rendering and mocked file lookup uses normalized POSIX keys. A
+`PureWindowsPath` fixture regression reproduces the exact command-table `KeyError`
+on Linux before the correction and passes afterward; all 27 owner methods pass
+locally. Hosted native Windows verification remains required, not replaced by
+this path emulation. The failing evidence is
+[PR 255's first Windows debug shard 2](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41823447489/job/126561124600).
