@@ -58,6 +58,29 @@ and the existing launch-wiring witness pass locally. The real process acceptance
 payment, pickup and source-free restart assertions remain unchanged and must pass
 in hosted CI; mock schedules do not qualify that boundary.
 
+## Post-merge qualification ZIP fixture, 4 November 2026
+
+[PR #256 CI run 41844918282](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41844918282)
+failed `test_ci_postmerge.PostmergeTests.test_malformed_external_shapes_restore_normal_full_without_compiler_setup`
+in Linux debug Python shard 2 before its negative mutations: the positive
+`fetch_candidate` control rejected an artifact digest mismatch. The fixture
+rebuilt ZIP bytes on each mocked API request using the current ZIP timestamp.
+An unchanged qualification could therefore have different list/download bytes
+across a two-second clock boundary. This is **one harness/fixture root, one
+naturally failing method and one observed failed method execution** in this
+bounded evidence window, not a production digest-validation or gameplay defect.
+
+The fixture now uses fixed ZIP entry metadata. The new
+`test_fixture_archive_digest_is_stable_across_clock_boundaries` first failed on
+archive-byte equality with the original helper; that deliberate regression
+execution is separate from the natural failure count. It then passed with the
+fix, as did all 31 methods in the post-merge qualification test owner. The witness
+checks cross-request byte/digest equality, successful production verification
+while the mocked clock alternates, and changed bytes when qualification content
+changes. Production validation and negative digest/archive tests remain intact.
+These are focused local Python results; hosted CI and cross-platform qualification
+remain separate requirements.
+
 ## Cross-region retreat and save-anchor boundaries, 30 October 2026
 
 The documentation review's mixed flee-distance candidate was reproduced against
