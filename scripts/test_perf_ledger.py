@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import perf_ledger as ledger
 
@@ -214,7 +214,7 @@ class MachineProbe(unittest.TestCase):
                  "/etc/os-release": 'PRETTY_NAME="Fixture Linux"\n'}
         device = "/dev/" + parent.splitlines()[0] if parent else "/dev/sda1"
         outputs = {
-            ("findmnt", "-no", "SOURCE,FSTYPE", "-T", "/fixture"): "/dev/sda1 ext4\n",
+            ("findmnt", "-no", "SOURCE,FSTYPE", "-T", str(Path("/fixture"))): "/dev/sda1 ext4\n",
             ("lsblk", "-no", "PKNAME", "/dev/sda1"): parent,
             ("lsblk", "-ndo", "ROTA,TRAN,MODEL", device): row,
             ("lsblk", "-Jndo", "ROTA,TRAN,MODEL", device):
@@ -228,7 +228,7 @@ class MachineProbe(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, outputs[tuple(command)])
 
         with patch.object(ledger.subprocess, "run", side_effect=run), \
-                patch.object(Path, "read_text", lambda p, **kw: files[str(p)]), \
+                patch.object(Path, "read_text", lambda p, **kw: files[p.as_posix()]), \
                 patch.object(ledger.os, "cpu_count", return_value=4), \
                 patch.object(ledger.platform, "release", return_value="fixture-kernel"):
             machine = ledger.probe_linux_machine(Path("/fixture"))
@@ -280,6 +280,17 @@ class MachineProbe(unittest.TestCase):
             with self.subTest(failure=type(failure).__name__):
                 machine = self.linux_probe("", {}, failure=failure)
                 self.assertEqual("a971251ccf16", machine["fingerprint"])
+
+    def test_linux_probe_fixture_accepts_windows_paths(self):
+        class WindowsFixturePath(PureWindowsPath):
+            def read_text(self, **kwargs):
+                raise AssertionError("Fixture file reads must be mocked")
+
+        with patch.object(sys.modules[__name__], "Path", WindowsFixturePath), \
+                patch.object(ledger, "Path", WindowsFixturePath):
+            machine = self.linux_probe("0 sata Example Disk",
+                                       {"rota": False, "tran": "sata", "model": "Example Disk"})
+        self.assertEqual("bb813f2f4bab", machine["fingerprint"])
 
     def test_linux_probe_wrong_field_types_use_unknown(self):
         for value in ([], {}, 2, 0.5, "invalid"):
