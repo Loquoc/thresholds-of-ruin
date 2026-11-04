@@ -1181,7 +1181,8 @@ mod tests {
         // Independent expected positions cover empty, unavailable, increasing,
         // decreasing, equal and incomparable scores. Health and defense are
         // independent dominance dimensions; unavailable entries never win.
-        let cases: &[(Vec<Option<(u64, i64)>>, Option<usize>)] = &[
+        type RankingCase = (Vec<Option<(u64, i64)>>, Option<usize>);
+        let cases: &[RankingCase] = &[
             (vec![], None),
             (vec![None], None),
             (vec![Some((1, 1))], Some(0)),
