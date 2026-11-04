@@ -33,6 +33,31 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Projectile fixture cross-client snapshot race, 4 November 2026
+
+PR253's integrated-head Windows debug Python shard failed
+`test_projectile_process.ProjectileProcesses.test_text_expertise_throw_launch_payment_recovery_and_source_free_restart`
+at its target-readiness assertion before pickup/restart. Captured headless output
+shows the observer snapshot at tick 300 with the player not ready, followed by a
+target snapshot at tick 344 with the target not ready and observer updates at
+344 with the player ready and no intentions. Two connections do not provide an
+atomic snapshot pair; the fixture incorrectly treated those observations as one
+state. No database, checkpoint trace or gameplay rule change was needed.
+
+`ProjectileSettle.test_player_completion_between_snapshots_does_not_require_target_wait`
+reproduces that exact interleaving deterministically and failed at the same
+assertion before repair. Across that first-red and the CI failure, this is **one
+fixture-synchronization root, two distinct failing methods and two failed method
+executions**, not an additional gameplay defect or three aggregate failures.
+
+When the target is not ready, the fixture now refreshes the player once and
+returns only if that fresh observation is ready with no intentions. It still
+fails if the fresh player is blocked or queued, on target wait errors, or after
+16 ordinary target waits without completion. Five deterministic settle witnesses
+and the existing launch-wiring witness pass locally. The real process acceptance,
+payment, pickup and source-free restart assertions remain unchanged and must pass
+in hosted CI; mock schedules do not qualify that boundary.
+
 ## Post-merge qualification ZIP fixture, 4 November 2026
 
 [PR #256 CI run 41844918282](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41844918282)
