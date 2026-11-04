@@ -412,6 +412,38 @@ than deriving test oracles from production projection helpers. This pass exclude
 complete condition/recovery interactions, balance, stochastic trigger distribution,
 freeze/thaw scheduling and external input validation; those remain unqualified.
 
+### Preparation-owned action costs
+
+Source review at `e4ebbba5d` on 2026-11-04 found no new actionable issue in live
+CostBundle arithmetic, CostLedger start/resume/finish/cancel, capacity reduction
+or their creature wrappers. No new CH issue, fresh behavioral pass or complete
+action-execution certification follows from this bounded negative result.
+
+- [CostBundle and CostLedger](../../crates/simulation/src/costs.rs) use checked
+  phase arithmetic and domain bounds. Explicit zero entries represent real
+  preparations; removing them would change resumable/finishable/cancelable holds.
+  Start validation is read-only and preflights all pools before spending;
+  matching holds resume without another charge and conflicting costs are rejected.
+- Available balances exclude unpaid resolution reservations. Finish checks all
+  pools before payment and removes the hold afterward; repeat finish is Unknown.
+  Cancel releases unpaid reservations without refunding paid start costs. These
+  ledger semantics do not establish request-retry idempotence, owned by receipts.
+- Capacity reduction cancels whole bundles in resource order, then newest
+  intention ID, recomputing later pools after releases. It is not global
+  newest-first ordering. [Creature wrappers](../../crates/simulation/src/creatures/state.rs)
+  reject new cost validation/start for dead creatures before delegation.
+- Reserved-total scans are bounded by [64 holds](../../crates/simulation/src/limits.rs)
+  and [three resource pools](../../crates/simulation/src/resources.rs). This is
+  not evidence of unbounded work or measured justification for cached totals.
+
+The existing [cost tests](../../crates/simulation/src/costs_tests.rs) were inspected,
+not executed: independent insufficient-pool/whole-ledger comparisons, explicit
+start/resume/finish balances, cross-intention funding, cancellation, zero holds,
+capacity reduction without repeated cancellation and full-capacity resume.
+Preserve those concrete assertions. Whole scheduler atomicity, replay receipts,
+every ability adapter, physical supplies, live ruleset replacement and checkpoint
+validation remain outside this review; no performance measurements were made.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
