@@ -381,6 +381,37 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   qualification. Broader server/protocol member coverage remains partial in the
   [API inventory](rust-api-coverage.md).
 
+## Bounded review coverage
+
+### Nutrition and health recovery
+
+Source review at `4c63a9367` on 2026-11-04 found no new actionable defect in
+arithmetic, fraction preservation or active-time settlement under existing valid
+gameplay inputs. This is a bounded negative finding, not a correctness
+certification or a new CH issue. No behavioral tests or benchmarks were rerun.
+
+- [Nutrition time projection](../../crates/simulation/src/nutrition.rs) uses at
+  most one analytical positive/empty-reserve split and retains fractional work;
+  large elapsed time alone does not establish per-tick digestion cost.
+- [Health recovery](../../crates/simulation/src/health_recovery.rs) widens elapsed
+  addition, caps restoration by injury, clears saturated/dead fractional clocks
+  and does not advance stopped clocks. Rephasing floors the earned fraction.
+- [Combined settlement](../../crates/simulation/src/creatures/state.rs) chooses
+  expiry/nutrition boundaries and bisects earlier combined regeneration crossings.
+  The inner search takes at most 64 probes over a u64 interval; this does not
+  bound the whole settlement to 64 probes or establish measured runtime.
+- [Regeneration accounting](../../crates/simulation/src/nutrition/regeneration.rs)
+  intentionally charges gross actual restoration using widened checked products.
+  Net before/after pool differences would lose gains before capacity changes.
+
+Existing source witnesses include independent tick-oracle nutrition comparisons,
+empty-boundary/deadline cases, maximum-tick settlement, split-interval recovery,
+saturation/death and modifier/nutrition-toggle fraction checks in the linked
+nutrition and recovery modules. Preserve those independent expected values rather
+than deriving test oracles from production projection helpers. This pass excludes
+complete condition/recovery interactions, balance, stochastic trigger distribution,
+freeze/thaw scheduling and external input validation; those remain unqualified.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
