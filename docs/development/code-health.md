@@ -954,6 +954,49 @@ no fresh runtime pass, heap measurement or performance improvement is claimed.
   failures. Numerical projectile compilation and whole tactical priority remain
   outside scope.
 
+### Awareness clocks, projectile requests and skill-check arithmetic
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable defect in these bounded paths. Primary files and referenced
+support/test files matched the reviewed versions. Existing assertions were read,
+not executed; no fresh runtime pass, profiling result or exhaustive audit follows.
+
+- [Awareness clocks](../../crates/simulation/src/awareness.rs) reconcile expired or
+  disabled alert memory without repeatedly extending its expiry. Expiry is
+  exclusive; location alerts retain a snapshot, not the source's live position.
+  Aggravation rephases fractional progress in wide arithmetic and rejects excess
+  advancement or already-pending trials before clock mutation. Settlement takes
+  pending work before running it and uses the pending-owner index. Checked
+  arithmetic governs expiry and frozen-time shifts. Existing module assertions
+  cover alert/source separation, exclusive expiry, retained 499/500 phase,
+  single-consumption trials and shifted expiry boundaries. Sensory contests,
+  hearing geometry, target disclosure, RNG distribution and surrounding candidate
+  rollback were not audited in this clock-focused pass.
+- [AI projectile requests](../../crates/simulation/src/ai_projectiles.rs) select
+  exact item/socket/delivery operands rather than deferring weapon selection to
+  execution. Fresh requests check cooldown, identified inventory and known curses
+  on equipped throws; enumeration considers the first 128 rows and at most 16
+  launchers with 128 ammunition rows each. These are NPC heuristics, not public
+  menu completeness guarantees. Known profiles supply range, expertise and
+  secondary-socket costs; shared AI helpers check full resource bundles and
+  disclosed, aligned target directions. Paused work uses frozen projectile
+  operands. No dedicated request-test body was inspected, so regression evidence
+  here is weaker. Before changes, locate/add witnesses for cursed throws, range
+  endpoints, diagonal alignment, multi-resource secondary costs, 128/129 rows,
+  16/17 launchers and frozen-plan reuse. These are proposed scenarios, not failures
+  or measured optimization opportunities; whole tactical priority is not qualified.
+- [Attribute and skill checks](../../crates/simulation/src/attributes.rs) widen
+  adjustment arithmetic before flooring/cap checks and reject ranks above five.
+  Spellcasting uses its selected mana binding while Breath remains Willpower.
+  Totals widen modifiers/thresholds to signed 64-bit values and use inclusive
+  success, without natural-roll overrides. Diagnostics retain attribute/rank,
+  edge allocation, raw/retained dice and before/after RNG state. Existing
+  [attribute assertions](../../crates/simulation/tests/it/attributes.rs) cover
+  adjustment preservation, caps, fixed and selected bindings, independent ranks,
+  inclusive thresholds and extreme signed modifiers with natural three/eighteen.
+  Dice sampling and full build-fold validation were not repeated. Similar cap
+  checks at distinct semantic entry points alone do not warrant a cleanup issue.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
