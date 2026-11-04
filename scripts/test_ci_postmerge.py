@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import io
+from itertools import cycle
 import json
 import os
 import re
@@ -74,7 +75,9 @@ class PostmergeTests(unittest.TestCase):
     def responses(self):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w') as archive:
-            archive.writestr('qualification.json', json.dumps(self.qualified))
+            # Separate mocked requests must describe/download identical bytes.
+            entry = zipfile.ZipInfo('qualification.json', date_time=(1980, 1, 1, 0, 0, 0))
+            archive.writestr(entry, json.dumps(self.qualified))
         raw = buffer.getvalue()
         artifact = {'id': 321, 'name': 'full-pr-qualification-attempt-1', 'expired': False,
                     'size_in_bytes': len(raw), 'digest': 'sha256:' + hashlib.sha256(raw).hexdigest(),
@@ -91,6 +94,27 @@ class PostmergeTests(unittest.TestCase):
         }
         responses.update(self.overrides)
         return responses
+
+    def test_fixture_archive_digest_is_stable_across_clock_boundaries(self):
+        self.fixture()
+        stamps = [(2026, 11, 4, 14, 0, 0, 2, 308, 0),
+                  (2026, 11, 4, 14, 0, 2, 2, 308, 0)]
+        with patch('zipfile.time.localtime', return_value=stamps[0]):
+            listed = self.responses()
+        with patch('zipfile.time.localtime', return_value=stamps[1]):
+            downloaded = self.responses()
+        endpoint = '/actions/artifacts/321/zip'
+        self.assertEqual(listed[endpoint], downloaded[endpoint],
+                         'Unchanged qualification must keep identical archive bytes across requests')
+        artifact = listed['/actions/runs/123/artifacts?per_page=100']['artifacts'][0]
+        self.assertEqual(artifact['digest'], 'sha256:' + hashlib.sha256(downloaded[endpoint]).hexdigest())
+        # Exercise production digest validation while every mocked request can
+        # cross the ZIP timestamp resolution boundary. Do not bypass validation.
+        with patch('zipfile.time.localtime', side_effect=cycle(stamps)):
+            self.assertTrue(self.fetch())
+        self.qualified['pr_number'] += 1
+        self.assertNotEqual(self.responses()[endpoint], downloaded[endpoint],
+                            'Qualification mutations must still change the archive')
 
     def transport(self, command, **kwargs):
         self.calls.append(command)
