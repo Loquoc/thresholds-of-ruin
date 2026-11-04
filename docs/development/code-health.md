@@ -905,6 +905,55 @@ executed; no fresh runtime pass, benchmark or exhaustive correctness claim follo
   Preserve these operands and debts during simplification. This pass does not
   certify all rider/damage/hold lifetimes, offset boundaries or execution timing.
 
+### Remembered placement, advancement confirmation and ranged acquisition
+
+Source review reconciled against main `99dadca9a` on 2026-11-04 established no
+new actionable defect in these bounded paths. Primary and referenced support/test
+files matched the reviewed versions. Existing assertions were inspected, not run;
+no fresh runtime pass, heap measurement or performance improvement is claimed.
+
+- [Remembered-map placement](../../crates/client-common/src/map_memory.rs) derives
+  translations from unique common cell identities, discarding old placement on
+  conflicting or absent unambiguous anchors. Wide intermediate arithmetic and
+  checked coordinate conversion avoid narrowing assumptions. Two independent
+  anchor vectors are needed to certify old coverage; provisional placement alone
+  does not certify a retained rectangle. Changed appearances replace byte
+  accounting. Eviction favors unplaced records and clears certified coverage when
+  placed data exceeds budget; adjacent-face requests avoid treating uncovered
+  corners as covered. Existing [map assertions](../../crates/client-common/tests/it/map_memory.rs)
+  cover conflicting/ambiguous anchors, elevation, extreme translation, rejected
+  update preservation and sparse/collinear/rotated anchors. This extends placement
+  and eviction coverage without certifying all hydration, protocol/frame validation,
+  global topology or live-observation memory peaks.
+- [Advancement confirmation](../../crates/client-common/src/advancement.rs) retains
+  at most four complete pages, bounded offset history and one exact confirmation,
+  with a pinned overview. Replies bind query, basis, revision, request and context
+  before mutation, including section totals and encoded-envelope size. Navigation
+  uses returned offsets. Identity/control loss discards private state; changed
+  context stales confirmation rather than silently rebuilding it. Commit uses the
+  retained proposal/basis and current admission; respec resume/cancel names the
+  disclosed intention and permitted controls. Existing
+  [reducer assertions](../../crates/client-common/src/advancement/tests.rs) cover
+  cursor progress, stale/foreign replies, confirmation refusal, bounded traversal
+  of 100 removal pages and exact respec operands. Server accounting, all parser
+  grammar and UI end-to-end behavior remain outside this review.
+- [Ranged acquisition](../../crates/simulation/src/ai_ranged_items.rs) orders hostile
+  launch abilities by priority/ID, prefers equipped launchers, rejects inventories
+  above 128 entries and inspects at most 16 launcher candidates. Complete ability
+  plus weapon costs are checked against loadout maxima, including projected gear.
+  Matching ammunition preserves a preferred usable launcher; depletion releases
+  that preference. Saturating carried totals target a six-shot reserve. Ground
+  quantities are per-candidate desires, not a simultaneous batch: the caller picks
+  one action and caps it to that stack. Repeated deficits across candidate stacks
+  do not alone prove overcollection, and bounded nested scans are not the earlier
+  unbounded gear-ranking candidate. No focused acquisition test body was located
+  in the bounded search; this does not establish that none exists. Before changing
+  policy, locate or add witnesses for 128/129 inventory entries, 16/17 launchers,
+  split-stack reserves, depleted preferred launchers, secondary-socket costs and
+  repeated single-stack takes. These are verification scenarios, not observed
+  failures. Numerical projectile compilation and whole tactical priority remain
+  outside scope.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
