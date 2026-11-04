@@ -288,6 +288,49 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   merging, conflict rejection, carried-forward deduplication, skipped/canceled
   jobs, page completeness, OS breakdown and optional-stage exclusion.
 
+### CH-016: Equipment ranking reconstructs identical candidates repeatedly
+
+- **Category/status:** performance/maintainability; source-supported repeated
+  computation with quadratic worst-case ranking structure. Practical cost and
+  improvement are unmeasured. Reviewed at `d961c7caa` on 2026-11-04; no gameplay
+  failure or memory leak is claimed.
+- **Evidence:** ordinary [AI Search decisions](../../crates/simulation/src/ai.rs)
+  call `choose_gear` when equipment policy is enabled and no visible hostile
+  exposes the actor. After ranged-specific paths, [choose_gear](../../crates/simulation/src/ai_items.rs)
+  collects eligible item/socket choices, then finds the first candidate not
+  dominated by another choice. Both outer candidates and inner competitors are
+  rebuilt with `gear_projection` and `gear_score` against the unchanged Game.
+- **Cost mechanism:** each successful projection clones a shared-storage Game,
+  projects the loadout with the socket removed, checks equip allocation and
+  projects the replacement. Both loadout folds restore original actor inputs,
+  use remembered item conditions and execute production modifier/recovery logic.
+  Shared storage means a Game clone does not imply copying the whole world;
+  derivation and copy-on-write costs require measurement.
+- **Predicted scale witness:** strictly improving eligible same-slot choices in
+  increasing score order force repeated scans until later dominating choices
+  are reached. Ranking projections can grow quadratically with choice count.
+  A best first choice exits earlier; not every decision has quadratic actual
+  cost. Eligibility also repeats baseline work in `gear_upgrade`, a separate
+  follow-up after a narrow ranking optimization is qualified.
+- **Next step:** calculate each eligible choice's optional score once for
+  ranking, preserving list order, first nondominated selection, unavailable-score
+  handling, socket and old-item action. Retain production loadout derivation;
+  neither equipment-only arithmetic nor arbitrary inventory cutoffs preserve
+  the existing contract automatically.
+- **Acceptance:** exact independently expected actions and unchanged original
+  Game for single/increasing/equal/incomparable choices, unavailable scores,
+  occupied/multiple sockets and retained ranged equipment. Cover ordinary
+  `choose_ai` and subsequent equip work. A work-count witness must show at most
+  one ranking projection per eligible choice, separately accounting for setup
+  and eligibility. Retain existing recovery/protection/damage/timing witnesses
+  in [equipment tests](../../crates/simulation/src/ai_items.rs) and ordinary
+  stack-equipment/remembered-condition witnesses in
+  [AI idle tests](../../crates/simulation/src/ai_idle_tests.rs).
+- **Measurement gate:** compare deterministic small and larger inventories with
+  the [performance workflow](performance.md) before claiming a speedup. Report
+  projection/clone/fold counts separately from timings and storage bytes. No
+  fresh benchmark or behavioral regression was run in this review.
+
 ## Retained or resolved findings
 
 ### CH-007: Sight implementations are not established dead code
