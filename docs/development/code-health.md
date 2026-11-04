@@ -444,6 +444,43 @@ Preserve those concrete assertions. Whole scheduler atomicity, replay receipts,
 every ability adapter, physical supplies, live ruleset replacement and checkpoint
 validation remain outside this review; no performance measurements were made.
 
+### Dice allocation and item-owned armor
+
+Source review at `0de890ef7` on 2026-11-04 found no new actionable issue in two
+bounded areas: deterministic dice/edge allocation and live armor-condition
+transformations. No CH issue, fresh test pass or subsystem certification is
+claimed; no benchmark measured these paths.
+
+- [Dice](../../crates/simulation/src/dice.rs) clamp extra check candidates to
+  three and extra pool candidates to the original count. The 64-die pool bound
+  limits accepted die results to 128 even with extreme edge; rejection sampling
+  means this is not a bound of 128 underlying generator calls. Pool combination
+  checks overflow, and signed bonuses apply once after retention before the
+  final zero floor. Shared edge consumes only its allocation, preserving the
+  remainder for subsequent rolled pools; fixed damage allocates no dice.
+- Both raw and retained dice have [damage trace consumers](../../crates/simulation/src/damage.rs).
+  Their storage is not established redundant or a measured bottleneck.
+  Existing [dice tests](../../crates/simulation/tests/it/dice.rs) inspect exact
+  vectors, state continuation, canceled/extreme edge and signed totals; unit
+  distribution tests use independent integer counts. These assertions were
+  inspected, not rerun. Statistical RNG quality, full damage protection,
+  action-wide replay and optimized timings remain outside this pass.
+- [Armor conditions](../../crates/simulation/src/armor.rs) separate physical
+  plating from magical ward. Corrosion consumes only remaining physical armor;
+  protection prevents new corrosion without repairing history, and uncurse
+  preserves penalty/rust. Enchantment checks the resulting contribution before
+  returning a changed instance. Equipment views flatten physical Impact/Keen
+  modifiers and the five-category ward, excluding Psychic, then clear the raw
+  armor profile to prevent another physical fold. That clearing is intentional.
+- Existing armor tests assert exact category vectors, retained ward/history and
+  unchanged instances after failed bounds. The [corrosion integration witnesses](../../crates/simulation/src/abilities/corrosion_tests.rs)
+  cover once-per-sequence rust and unchanged permanent-compilation counts. The
+  rollback witness establishes mutation inside the candidate before later
+  failure, then checks original Game/RNG equality; the successful counterpart
+  checks payment and changed item state. These were not freshly executed and
+  do not certify every adapter, nested effect, save format, UI or lifecycle
+  transaction, nor establish a new performance improvement.
+
 ## Removal and consolidation proof
 
 Before removing a path, field or data structure:
