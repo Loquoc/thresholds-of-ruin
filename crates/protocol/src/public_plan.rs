@@ -8,6 +8,19 @@ use serde::{Deserialize, Serialize};
 /// bound without importing simulation types into the wire schema.
 pub const MAX_PUBLIC_AIM_OCCURRENCES: usize = 61_619;
 
+/// What was observable about an aim at the paid observation's historical frame.
+/// A direction is a unit step along one or two axes, not a destination or a
+/// selecting target. This representation does not grant interaction authority.
+///
+/// ```
+/// use tor_protocol::{ObservedAimView, Position};
+///
+/// let aim = ObservedAimView::Direction { direction: Position { x: 1, y: -1, z: 0 } };
+/// let mut wire = serde_json::to_value(&aim).unwrap();
+/// assert_eq!(serde_json::from_value::<ObservedAimView>(wire.clone()).unwrap(), aim);
+/// wire["direction"]["z"] = serde_json::json!(1);
+/// assert!(serde_json::from_value::<ObservedAimView>(wire).is_err());
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ObservedAimView {
@@ -45,6 +58,23 @@ impl<'de> Deserialize<'de> for ObservedAimView {
         })
     }
 }
+/// The observed preparation, or an explicit report that no public plan was seen.
+/// `ability: None` and an unavailable aim deliberately retain unknown operands.
+/// Deserialization alone does not check the contextual work bound; validate the
+/// enclosing [`PublicPlanObservationView`] at its containing state's tick.
+///
+/// ```
+/// use tor_protocol::{ObservedAimView, PublicPlanObservationView, PublicPlanStateView};
+///
+/// let state = PublicPlanStateView::Preparing {
+///     ability: None, aim: ObservedAimView::Unavailable, remaining_work: 1_000_001,
+/// };
+/// let decoded: PublicPlanStateView = serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+/// let observation = PublicPlanObservationView {
+///     observed_at: 10, subject_name: "a creature".into(), state: decoded,
+/// };
+/// assert!(!observation.valid_at(10));
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PublicPlanStateView {
@@ -112,6 +142,31 @@ impl<'de> Deserialize<'de> for PublicPlanObservationView {
     }
 }
 impl PublicPlanObservationView {
+    /// Check the paid observation against a containing simulation tick, including
+    /// label/operand/work bounds and sorted unique disclosed occurrences. This
+    /// does not refresh historical information to the subject's current plan.
+    ///
+    /// ```
+    /// use tor_protocol::{ObservedAimView, Position, PublicPlanObservationView, PublicPlanStateView};
+    ///
+    /// let mut observation = PublicPlanObservationView {
+    ///     observed_at: 10, subject_name: "a creature".into(),
+    ///     state: PublicPlanStateView::Preparing {
+    ///         ability: None, remaining_work: 40,
+    ///         aim: ObservedAimView::Disclosed {
+    ///             cell: "example-cell".into(),
+    ///             occurrences: vec![Position { x: 1, y: 0, z: 0 }, Position { x: 2, y: 0, z: 0 }],
+    ///         },
+    ///     },
+    /// };
+    /// assert!(!observation.valid_at(9));
+    /// assert!(observation.valid_at(10));
+    /// assert!(observation.valid_at(20)); // Historical validity is not freshness.
+    /// if let PublicPlanStateView::Preparing { aim: ObservedAimView::Disclosed { occurrences, .. }, .. } = &mut observation.state {
+    ///     occurrences.reverse();
+    /// }
+    /// assert!(!observation.valid_at(20));
+    /// ```
     pub fn valid_at(&self, tick: u64) -> bool {
         self.observed_at <= tick
             && crate::valid_label(&self.subject_name, 256)
