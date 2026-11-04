@@ -341,11 +341,27 @@ mismatched actual waiver accounting and changed checked inputs fail the gate.
 This mechanism grants no authorization itself and does not replace hosted native
 acceptance or the unchanged default verification commands.
 
-Core verification deliberately excludes this workspace. Core changes do not
-require maintaining or checking the 3D client; its own workflow runs when its
-files change or when manually requested. When resuming 3D maintenance, build and
-verify against the current shared protocol and client libraries. Run matching
-server and client binaries from the same checkout.
+The core Cargo workspace excludes Bevy, but the core CI plan can require a
+3D consumer-compatibility lane when shared contracts change. Exhaustive core CI
+checks the 3D binary and runs the renderer-free model tests. The independent
+native/rendering workflow runs for its client paths or when manually requested;
+consumer compatibility does not replace those checks. When resuming 3D
+maintenance, build and verify against the current shared protocol and client
+libraries. Run matching server and client binaries from the same checkout.
+
+For the renderer-free API, start with [the crate overview](model/src/lib.rs): it maps projection,
+frame alignment, context-bound commands and the inventory/map/advancement reducers.
+Its runnable rustdoc examples need neither a window nor a GPU. From the repository
+root, build its API reference and run its examples with:
+
+```sh
+cargo doc --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d-model --no-deps --document-private-items --locked
+cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d-model --doc --locked
+```
+
+Use `RUSTDOCFLAGS=-D warnings` for a warning-free documentation check, following the
+[platform setup in the testing guide](../../docs/development/testing.md).
+These focused commands are not substitutes for the independent maintenance gate above.
 
 ## Controls
 
@@ -587,7 +603,8 @@ richer resource presentation and pause/accessibility settings remain unfinished.
   mace, greatsword and shorter blades, ring mail, bandage, ration, corpses
   tinted by creature, the dawn seal, copper/silver/iron tokens, the stone
   tablet, and fallbacks for every item class (potion, ring, amulet, scroll,
-  spellbook, wand, gem, tool, pouch). Items are matched by name, then class.
+  spellbook, wand, gem, tool, pouch). Item recipes resolve from palette-approved
+  appearance assets, with disclosed class as the fallback; names do not select models.
   The shared model cache retains live handles and reuses idle models within a
   128 MiB raw-mesh-payload budget and 1,024-key limit. Periodic pruning releases
   the least recently used idle handles; these limits do not bound live geometry,

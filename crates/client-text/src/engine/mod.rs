@@ -77,8 +77,10 @@ struct Tally {
     told: bool,
 }
 
-/// What the engine keeps between turns. None of it is game state: it's lost
-/// on restart, and a snapshot clears it.
+/// Session-local interpretation and narrative memory, not authoritative game state.
+/// Restarting the client loses it. [`Self::reset`] clears pending referents and
+/// selected interaction state after recovery, but is not a full session restart:
+/// settings and narrative bookkeeping remain in this value.
 #[derive(Default)]
 pub struct Engine {
     pub referents: Referents,
@@ -332,7 +334,11 @@ fn answer<'q>(question: &'q Question, line: &str) -> Option<&'q verbs::Choice> {
 }
 
 impl Engine {
-    /// Forget everything tied to the old state, as after a rewind.
+    /// Clear projectile selection, referents, pending dialogue and repeat sentence.
+    ///
+    /// Recovery callers use this to discard those stale interaction choices. It
+    /// does not replace the whole engine with its default: settings,
+    /// place/trail memory, narration bookkeeping and other fields remain retained.
     pub fn reset(&mut self) {
         self.projectile_selection = None;
         self.referents.clear();

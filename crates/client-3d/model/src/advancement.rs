@@ -2,6 +2,9 @@
 use tor_client_common::{advancement::AdvancementPages, ClientState};
 use tor_protocol::*;
 
+/// A bounded copy of shared advancement presentation for the rendering thread.
+/// Only synchronized, current pages expose actionable context and confirmation.
+/// Display lines alone must never be parsed to recreate a purchase.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AdvancementView {
     pub context: Option<ReplyContext>,
@@ -12,6 +15,9 @@ pub struct AdvancementView {
     pub lines: Vec<String>,
 }
 impl AdvancementView {
+    /// Project the shared reducer without changing it or requesting a new page.
+    /// Lack of control exposes no page. During recovery or staleness, explanatory
+    /// lines may remain visible while context/page/confirmation are absent.
     pub fn new(pages: &AdvancementPages, state: &ClientState, synchronized: bool) -> Self {
         if !state.has_control() {
             return Self {
@@ -29,6 +35,7 @@ impl AdvancementView {
             lines: pages.display(&state.state().observation),
         }
     }
+    /// Borrow a page only when its context, revision and owner basis match `shown`.
     pub fn current_page(&self, shown: &ReplyContext) -> Option<&AdvancementPage> {
         self.page.as_ref().filter(|page| {
             self.context.as_ref() == Some(shown)
@@ -51,6 +58,7 @@ impl AdvancementView {
     }
 }
 
+/// Local navigation or a server-preview request; neither variant commits a purchase.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AdvancementAction {
     Pool {
@@ -59,6 +67,7 @@ pub enum AdvancementAction {
     },
     Preview(PurchaseChoice),
 }
+/// One graphical choice derived from the typed page and selected funding pool.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdvancementOption {
     pub label: String,
@@ -71,10 +80,12 @@ struct Funding {
     basis: AdvancementBasis,
     row: AdvancementBalanceRow,
 }
+/// Retain a selected funding row only within its original context and page basis.
 #[derive(Clone, Debug, Default)]
 pub struct AdvancementBrowser {
     funding: Option<Funding>,
 }
+/// Shared reducer command for browsing this advancement category.
 pub fn catalog_command(kind: AdvancementKind) -> &'static str {
     match kind {
         AdvancementKind::SkillRank => "skills",
@@ -111,11 +122,13 @@ fn choices(row: &AdvancementCatalogRow) -> Vec<(String, PurchaseChoice)> {
     vec![(row.name.clone(), row.selection.clone())]
 }
 impl AdvancementBrowser {
+    /// Discard funding that no longer matches the current page and display context.
     pub fn reconcile(&mut self, view: &AdvancementView, shown: &ReplyContext) {
         if self.funding(view, shown).is_none() {
             self.funding = None;
         }
     }
+    /// Borrow the selected funding row only while its pinned basis remains current.
     pub fn funding(
         &self,
         view: &AdvancementView,
@@ -127,6 +140,10 @@ impl AdvancementBrowser {
             .filter(|funding| funding.context == *shown && funding.basis == page.basis)
             .map(|funding| &funding.row)
     }
+    /// Produce choices in page order, expanding authored talent forms as needed.
+    /// Stale pages and the overlaid supply chooser produce no graphical options.
+    /// Catalog preview availability means a matching funding selection, not
+    /// guaranteed affordability. Funding-pool navigation remains available.
     pub fn options(&self, view: &AdvancementView, shown: &ReplyContext) -> Vec<AdvancementOption> {
         let Some(page) = view.current_page(shown) else {
             return Vec::new();
