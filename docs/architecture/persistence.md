@@ -59,8 +59,11 @@ runtime allocations have separate bounds.
 
 Saving also starts at 75% queue capacity. This uses activity and queue pressure as
 cheap resource-availability signals; it does not sample OS-wide CPU or disk load.
-One worker owns disk I/O outside the engine/session lock. Maximum age is a
-scheduling deadline, not a promise that slow or failed storage will finish on time.
+One worker owns background journal/checkpoint writes. Lazy reads of detached
+regions and saved compiled inputs use separate connections on the caller's thread,
+including the preloader when enabled. Those reads can wait for SQLite; they do
+not acquire the worker's shared status lock while performing I/O. Maximum age is
+a scheduling deadline, not a promise that slow or failed storage will finish on time.
 The server broadcasts a warning when saving is overdue or fails. While saving is
 overdue it applies backpressure: new player commands wait in arrival order and
 autonomous play pauses, so play cannot outrun durable storage; queries, saves
@@ -294,7 +297,7 @@ See the [performance plan](../development/performance.md) and
 ## Capture and scheduling
 
 `--checkpoint-interval 1024` requests a snapshot after that many accepted journal
-entries since the last capture. Zero disables captures for diagnostic comparisons;
+entries since the last periodic capture. Zero disables periodic captures for diagnostic comparisons;
 the maximum is 1,000,000. Captures do not trigger disk writes: the ordinary save
 policy still chooses batch timing. A durable save covers any captured checkpoint
 in its batch. An unsaved snapshot may disappear with an unsaved tail after a crash.
@@ -303,10 +306,22 @@ Capture copies the current game and shares the existing immutable rewind
 boundaries. Attachment display revisions, picture bases and presentation caches
 are not checkpoint state. It does not clone the complete history or receipt index. One
 snapshot may be encoding and one newer snapshot may be pending; newer pending
-captures replace older ones. Encoding, checksum calculation, world/navigation deduplication,
-and database work happen in the storage worker outside the engine/session lock.
+captures replace older ones. The storage worker performs their encoding, checksum
+calculation, world/navigation deduplication and database writes outside the
+simulation-owner thread.
 Snapshots can still consume CPU and storage bandwidth while gameplay proceeds;
 profiling tracks their effect rather than assuming background work is free.
+
+Chart-history growth has an additional synchronous admission check. Before
+publishing that candidate, the producer captures its complete retained checkpoint,
+deduplicates and runs the real bounded raw/compressed encoder into a sink, and
+checks its unwritten detached records. This prevents new history from publishing
+when its saved representation would exceed the current limits. The producer gate
+preserves sequence ordering, but the worker's shared status lock is not held
+during encoding. Admission rechecks worker failure and queue state afterward.
+This check still runs when periodic captures are disabled; it neither enqueues
+an extra periodic checkpoint nor changes the periodic capture cadence. It proves
+capacity at admission, not successful I/O or durability.
 
 The snapshot contains the current simulation and scheduler state, navigation
 knowledge, identities, current branch, permanent wizard flag and all retained

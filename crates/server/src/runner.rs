@@ -69,6 +69,8 @@ impl Simulation {
         }
     }
 
+    /// Clone a handle to the bounded mailbox of the running service.
+    /// Keeping this handle alive keeps a sender alive; dropping it is not a flush.
     pub fn handle(&self) -> SimulationHandle {
         SimulationHandle(self.mail.clone())
     }
@@ -79,7 +81,16 @@ impl Simulation {
 pub struct SimulationHandle(mpsc::Sender<Mail>);
 
 impl SimulationHandle {
-    /// Run `call` on the service between actions; `None` once it has stopped.
+    /// Run `call` synchronously on the service-owner thread between actions.
+    ///
+    /// The closure blocks both simulation progress and mailbox processing until
+    /// it returns; keep it bounded and do not wait for another call to this same
+    /// service. The returned value is delivered after the closure completes.
+    ///
+    /// Dropping this future after enqueueing does not retract the closure or its
+    /// effects. `None` means the mailbox or reply channel closed before a result
+    /// was received, not proof that the closure never ran. Do not blindly retry a
+    /// mutating call after an interrupted wait.
     pub async fn with<R: Send + 'static>(
         &self,
         call: impl FnOnce(&mut Service) -> R + Send + 'static,
