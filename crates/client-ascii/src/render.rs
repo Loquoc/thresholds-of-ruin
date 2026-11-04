@@ -109,7 +109,11 @@ pub fn cell_center(o: &Observation, position: tor_protocol::Position) -> Option<
     map::cell_center(o, position)
 }
 
+/// Fixed [`WIDTH`] by [`HEIGHT`] logical framebuffer, in row-major packed RGB.
+/// The native shell scales these pixels to the window; game/map coordinates must
+/// not be rescaled independently of the corresponding input hit testing.
 pub struct Canvas {
+    /// One `0x00RRGGBB` value per logical pixel. [`Default`] allocates the full canvas.
     pub pixels: Vec<u32>,
 }
 impl Default for Canvas {

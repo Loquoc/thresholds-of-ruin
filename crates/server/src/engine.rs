@@ -1530,9 +1530,16 @@ pub struct RegionCounts {
     pub records_read: usize,
 }
 
+/// A journaled operation accepted by the engine, or its existing retry result.
+///
+/// Acceptance is not a disk barrier. In particular, an intention-admission entry
+/// is not evidence that the queued gameplay action has executed. The entry's
+/// content identifies the operation that completed at this boundary.
 #[derive(Clone, Debug)]
 pub struct CommandResult {
+    /// Original accepted journal entry, including its original branch identity.
     pub entry: JournalEntry,
+    /// True when a matching request returned its entry without repeating effects.
     pub duplicate: bool,
 }
 
@@ -2161,7 +2168,19 @@ fn revision_view(game: &Game, actor: ActorId) -> Result<CachedObservation, Failu
     })
 }
 
-/// Durable chronological journal, including retained futures and explicit forks.
+/// Trusted game and chronological journal owner, including retained futures and forks.
+///
+/// Mutations are prepared privately, admitted to storage when attached, and then
+/// published. Ordinary acceptance does not wait for durable storage; use
+/// [`flush`](Self::flush) or observe a [`request_save`](Self::request_save) target.
+/// An engine created by [`memory`](Self::memory) has no durable store.
+///
+/// This is a backend API, not an authenticated session. Callers supply trusted
+/// user/actor identities and internal [`Command`] values. [`Service`](crate::Service)
+/// owns account, attachment, role and control checks for client requests. Internal
+/// observations are not substitutes for Service-issued presentation capabilities.
+/// Opening saves, flushing and lazy region acquisition can perform blocking I/O;
+/// the simulation owner must not be mistaken for an I/O-free rules engine.
 #[derive(Debug)]
 pub struct Engine {
     recovery: RecoveryProfile,
@@ -2217,6 +2236,13 @@ impl Engine {
         self.game.arena_run().is_some()
     }
 
+    /// Create a fresh game without attaching a durable journal.
+    ///
+    /// Scenario validation and initial acquisition still run and can fail. A
+    /// package-backed scenario may read compiled inputs; "memory" describes the
+    /// absence of a save writer, not a guarantee of no filesystem reads.
+    /// [`flush`](Self::flush) succeeds without writing and
+    /// [`save_status`](Self::save_status) returns its default status.
     pub fn memory(scenario: Scenario) -> Result<Self, Failure> {
         if scenario.package.is_none() && !(1..=256).contains(&scenario.regions) {
             return Err(invalid_archive());
@@ -2311,10 +2337,23 @@ impl Engine {
         })
     }
 
-    /// Existing saves own their scenario; `scenario` is used only for a new file.
+    /// Open or create an exclusively owned save with the default save policy.
+    ///
+    /// Existing saves own their scenario; `scenario` initializes only a new file.
+    /// For an existing package save, a supplied compiled package can provide
+    /// matching missing inputs; it does not replace the saved scenario authority.
+    /// Recovery validates the current format and strictly replays the checkpoint
+    /// tail. Unsupported or corrupt saves fail rather than being migrated.
+    /// See [`open_with_policy`](Self::open_with_policy) for scheduling controls.
     pub fn open(path: impl AsRef<Path>, scenario: Scenario) -> Result<Self, Failure> {
         Self::open_with_policy(path, scenario, crate::SavePolicy::default())
     }
+    /// Open or create a save using explicit background-write and queue bounds.
+    ///
+    /// Validates `policy` before acquiring the exclusive journal lease. Bootstrap
+    /// and recovery are synchronous; subsequent accepted records are written by
+    /// the background worker. Invalid policy, unavailable ownership/storage,
+    /// incompatible content or invalid recovery data return a [`Failure`].
     pub fn open_with_policy(
         path: impl AsRef<Path>,
         scenario: Scenario,
@@ -2430,7 +2469,13 @@ impl Engine {
             regions.settle_preloading();
         }
     }
-    /// Wait for the records accepted before this call to become durable.
+    /// Block until records accepted before this call become durable, or saving fails.
+    ///
+    /// Later admissions need not be covered. This requests an eligible retry of a
+    /// background failure, but an unchanged oversized checkpoint remains failed.
+    /// There is no caller timeout here: use [`request_save`](Self::request_save)
+    /// and [`save_status`](Self::save_status) when the host needs an asynchronous
+    /// deadline. Without a save writer this succeeds without writing.
     pub fn flush(&self) -> Result<(), Failure> {
         if let Some(store) = &self.store {
             store.flush()?;
@@ -2475,12 +2520,47 @@ impl Engine {
         Some(counts)
     }
 
+    /// Read the attached writer's current status without waiting for a disk write.
+    /// Returns the default status when no durable store is attached.
     pub fn save_status(&self) -> crate::SaveStatus {
         self.store
             .as_ref()
             .map(|store| store.status())
             .unwrap_or_default()
     }
+    /// Request a write and return the accepted-sequence target without waiting.
+    ///
+    /// The returned number is not a completion receipt. Saving has covered the
+    /// request only once [`SaveStatus::durable_sequence`](crate::SaveStatus::durable_sequence)
+    /// reaches it. Later accepted work need not be covered. An explicit request
+    /// also retries eligible background failures; inspect status for a retained
+    /// failure. Returns zero and performs no write when no save is attached.
+    ///
+    /// # Example
+    ///
+    /// A trusted backend can accept an action, request a save, and use the blocking
+    /// barrier before treating that accepted prefix as durable:
+    ///
+    /// ```
+    /// use tor_protocol::ActorId;
+    /// use tor_server::{journal::{Action, Command}, Engine, Scenario};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let directory = tempfile::tempdir()?;
+    /// let mut engine = Engine::open(directory.path().join("game.db"), Scenario::two_room(7))?;
+    /// let actor = ActorId(1);
+    /// let branch = engine.branch().clone();
+    /// let command = Command::Act {
+    ///     expected_boundary: engine.causal_boundary(actor)?,
+    ///     action: Action::Wait,
+    /// };
+    /// let accepted = engine.command("player", "tool", actor, "wait-1", &branch, command)?;
+    /// assert!(!accepted.duplicate);
+    /// let target = engine.request_save();
+    /// engine.flush()?;
+    /// assert!(engine.save_status().durable_sequence >= target);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn request_save(&self) -> u64 {
         self.store
             .as_ref()
@@ -3350,7 +3430,16 @@ impl Engine {
         })
     }
 
-    /// Recover a durable receipt before checking ephemeral control ownership.
+    /// Look up a previously accepted request without repeating its effects.
+    ///
+    /// The lookup key is `(user, request_id)` across frontends and connections.
+    /// `Ok(None)` means no accepted receipt exists; a hit must also match the
+    /// original actor, branch and complete internal command or returns
+    /// [`ErrorCode::RequestConflict`]. The caller authenticates and authorizes
+    /// receipt access before calling; this method performs no role/control check.
+    ///
+    /// An accepted receipt may still be in the unsaved tail. It survives restart
+    /// only when its journal prefix is durable. A hit is not a save barrier.
     pub fn retry(
         &self,
         user: &str,
@@ -3392,6 +3481,20 @@ impl Engine {
         }))
     }
 
+    /// Apply one trusted internal journal command, or return its exact accepted retry.
+    ///
+    /// `user` and `actor` are caller-authorized identities; `frontend` is only
+    /// attribution. These are not wire commands: session authority, opaque-target
+    /// resolution and public input generations belong to [`Service`](crate::Service).
+    /// The internal command determines whether this boundary admits queued work,
+    /// performs an action or makes another journaled change.
+    ///
+    /// After wizard-mode and identity checks, matching receipts are returned before
+    /// current branch/causal-boundary checks. Reusing `(user, request_id)` for a
+    /// different actor, branch or command returns [`ErrorCode::RequestConflict`].
+    /// A fresh command validates and admits its private candidate before publishing;
+    /// failure does not publish that candidate. Success is acceptance, not a disk
+    /// barrier: use [`flush`](Self::flush) for durability.
     pub fn command(
         &mut self,
         user: &str,

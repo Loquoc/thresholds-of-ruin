@@ -27,6 +27,20 @@ impl<'de> Deserialize<'de> for SupplyView {
     }
 }
 impl SupplyView {
+    /// Check a disclosed supply label after constructing or decoding the DTO.
+    /// Standalone deserialization checks its shape, not this semantic predicate.
+    ///
+    /// ```
+    /// use tor_protocol::SupplyView;
+    ///
+    /// let mut supply = SupplyView { id: "arrows".into(), name: "Arrows".into() };
+    /// assert!(supply.valid());
+    /// supply.name = "".into();
+    /// let decoded: SupplyView = serde_json::from_value(
+    ///     serde_json::to_value(&supply).unwrap(),
+    /// ).unwrap();
+    /// assert!(!decoded.valid());
+    /// ```
     pub fn valid(&self) -> bool {
         valid_content_id(&self.id) && crate::creature::valid_label(&self.name, 256)
     }
@@ -69,6 +83,23 @@ impl<'de> Deserialize<'de> for AbilitySupplyCost {
     }
 }
 impl AbilitySupplyCost {
+    /// Check the content label and positive bounded quantity. This does not prove
+    /// that an actor owns enough supplies or is allowed to use a ground source.
+    /// Call it for a standalone decoded cost as well as an in-memory value.
+    ///
+    /// ```
+    /// use tor_protocol::{AbilitySupplyCost, SupplyAccess};
+    ///
+    /// let mut cost = AbilitySupplyCost {
+    ///     supply: "arrows".into(), name: "Arrows".into(), quantity: 2,
+    ///     access: SupplyAccess::CarriedOnly,
+    /// };
+    /// assert!(cost.valid());
+    /// let wire = serde_json::to_value(&cost).unwrap();
+    /// assert_eq!(wire["quantity"], "2");
+    /// cost.quantity = 0;
+    /// assert!(!cost.valid());
+    /// ```
     pub fn valid(&self) -> bool {
         valid_content_id(&self.supply)
             && crate::creature::valid_label(&self.name, 256)
@@ -103,6 +134,38 @@ impl<'de> Deserialize<'de> for SelectedSupply {
     }
 }
 
+/// Request carried-source resolution, or name a canonical list of exact sources.
+/// Neither form authorizes access or proves the requested quantity is available.
+/// Explicit rows sort by cost ordinal and then token; each item may occur once,
+/// even when assigned to different cost ordinals.
+///
+/// ```
+/// use tor_protocol::{ItemTarget, SelectedSupply, SupplySelection};
+///
+/// let first = SelectedSupply { cost_ordinal: 0, item: ItemTarget::from_digest([1; 32]) };
+/// let second = SelectedSupply { cost_ordinal: 1, item: ItemTarget::from_digest([2; 32]) };
+/// let selected = SupplySelection::Explicit { items: vec![first, second] };
+/// assert!(selected.valid());
+/// assert!(!SupplySelection::Explicit { items: vec![second, first] }.valid());
+/// let reused = SelectedSupply { cost_ordinal: 1, ..first };
+/// assert!(!SupplySelection::Explicit { items: vec![first, reused] }.valid());
+/// ```
+///
+/// The decoder applies the list predicate, rejects an empty explicit choice,
+/// and does not accept extra keys on the carried form.
+///
+/// ```
+/// use tor_protocol::SupplySelection;
+///
+/// let carried: SupplySelection = serde_json::from_str(r#"{"kind":"carried"}"#).unwrap();
+/// assert_eq!(carried, SupplySelection::default());
+/// assert!(serde_json::from_str::<SupplySelection>(
+///     r#"{"kind":"explicit","items":[]}"#,
+/// ).is_err());
+/// assert!(serde_json::from_str::<SupplySelection>(
+///     r#"{"kind":"carried","items":[]}"#,
+/// ).is_err());
+/// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SupplySelection {

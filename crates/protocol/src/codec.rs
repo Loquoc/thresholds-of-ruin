@@ -174,6 +174,10 @@ pub(crate) fn decode_snapshot_response(text: &str) -> Result<crate::ServerMessag
 }
 
 /// Decode a complete client envelope after byte and nesting checks.
+///
+/// Rejects oversized/deep input and invalid typed JSON. Success does not validate
+/// a handshake's supported version or authenticate its token, nor does it authorize
+/// a request or resolve its targets. Those checks belong to the host session.
 pub fn decode_request(text: &str) -> Result<crate::ClientMessage, DecodeError> {
     decode(text, MAX_REQUEST_BYTES)
 }
@@ -182,6 +186,12 @@ pub fn decode_request(text: &str) -> Result<crate::ClientMessage, DecodeError> {
 mod response_kind;
 
 /// Decode a complete server envelope after byte and nesting checks.
+///
+/// Applies the protocol ceiling and smaller page-family bounds where required by
+/// the decoder. A [`SnapshotPart`](crate::SnapshotPart) remains only a part: feed
+/// it to a connection-owned [`ResponseAssembler`](crate::ResponseAssembler).
+/// Complete messages still need the client's semantic and stream-context checks;
+/// successful decoding alone is not permission to publish a new model.
 pub fn decode_response(text: &str) -> Result<crate::ServerMessage, DecodeError> {
     if text.len() > MAX_RESPONSE_BYTES {
         return Err(DecodeError::TooLarge {
