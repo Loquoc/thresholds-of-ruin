@@ -14,8 +14,12 @@ pub(super) fn floor_cell(
     offset: IVec3,
     cutaway: bool,
 ) -> Option<(Position, f32)> {
+    #[cfg(test)]
+    crate::loot_labels::work::add(|counts| counts.maps += 1);
     let mut cells = std::collections::HashMap::new();
     for cell in known_cells(view) {
+        #[cfg(test)]
+        crate::loot_labels::work::add(|counts| counts.terrain += 1);
         cells.entry(cell.position).or_insert(cell);
     }
     cells
@@ -89,6 +93,8 @@ impl Models<'_, '_> {
         let mut nearest = floor_cell(ray, view, offset, cutaway)
             .map(|(at, distance)| (Focus::Cell(at), distance));
         for (entity, bounds, transform, visible) in &self.meshes {
+            #[cfg(test)]
+            crate::loot_labels::work::add(|counts| counts.meshes += 1);
             if !visible.get() {
                 continue;
             }

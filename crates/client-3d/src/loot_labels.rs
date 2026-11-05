@@ -30,6 +30,8 @@ pub(crate) struct LabelGroup {
 }
 
 fn item_line(name: &str, quantity: u64) -> String {
+    #[cfg(test)]
+    work::add(|counts| counts.names += 1);
     let cleaned: String = name
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -282,8 +284,185 @@ pub(crate) fn show(
 }
 
 #[cfg(test)]
+pub(crate) mod work {
+    use std::cell::Cell;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) struct Counts {
+        pub(crate) maps: usize,
+        pub(crate) terrain: usize,
+        pub(crate) meshes: usize,
+        pub(crate) names: usize,
+    }
+
+    thread_local! {
+        static COUNTS: Cell<Counts> = Cell::new(Counts::default());
+    }
+
+    pub(crate) fn add(f: impl FnOnce(&mut Counts)) {
+        COUNTS.with(|counts| {
+            let mut next = counts.get();
+            f(&mut next);
+            counts.set(next);
+        });
+    }
+
+    pub(crate) fn take() -> Counts {
+        COUNTS.with(|counts| counts.replace(Counts::default()))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real label system and camera projection, without a GPU or network.
+    fn ready_scene() -> (App, Entity, Entity) {
+        use bevy::render::{camera::camera_system, camera::ManualTextureViews, primitives::Aabb};
+        use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+        use tor_client_3d_model::{CreatureModel, GroundItem, ItemModel, ItemSurface};
+        use tor_protocol::{CellView, ItemClass, ItemTarget};
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<LootLabels>()
+            .init_resource::<crate::Game>()
+            .init_resource::<crate::interact::Panel>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<ManualTextureViews>()
+            .add_event::<WindowCreated>()
+            .add_event::<WindowResized>()
+            .add_event::<WindowScaleFactorChanged>()
+            .add_event::<AssetEvent<Image>>()
+            .add_systems(Update, (camera_system, show).chain());
+        let window = app
+            .world_mut()
+            .spawn((
+                PrimaryWindow,
+                Window {
+                    focused: true,
+                    resolution: (800.0, 600.0).into(),
+                    ..default()
+                },
+            ))
+            .id();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                Camera::default(),
+                Projection::Perspective(PerspectiveProjection::default()),
+                GlobalTransform::from(
+                    Transform::from_xyz(0.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+                ),
+            ))
+            .id();
+        let mut view = crate::test_support::view(1);
+        for (index, x) in [-2, 0, 2].into_iter().enumerate() {
+            let position = Position { x, y: 0, z: 0 };
+            for z in [-1, 0] {
+                view.visible.push(CellView {
+                    position: Position { z, ..position },
+                    object_presentation: None,
+                    wall: z == -1,
+                    lit: true,
+                    key: format!("{x}:{z}"),
+                    material: String::new(),
+                    asset: None,
+                    trap: None,
+                    door: None,
+                    stairs_up: false,
+                    stairs_down: false,
+                    place_hint: false,
+                });
+            }
+            for n in 0..5 {
+                view.items.push(GroundItem {
+                    surface: ItemSurface::Neutral,
+                    corpse_seed: None,
+                    model: ItemModel::Ring,
+                    corpse_model: CreatureModel::Placeholder,
+                    id: ItemTarget::from_digest([(index * 5 + n) as u8; 32]),
+                    name: format!("ring {n}"),
+                    class: ItemClass::Ring,
+                    quantity: 999,
+                    description: String::new(),
+                    position,
+                    reachable: true,
+                });
+            }
+        }
+        for x in 20..24 {
+            app.world_mut().spawn((
+                crate::picking::Pick(tor_client_3d_model::Focus::Cell(view.visible[1].position)),
+                Mesh3d(Handle::default()),
+                Aabb {
+                    center: Vec3::ZERO.into(),
+                    half_extents: Vec3::splat(0.25).into(),
+                },
+                GlobalTransform::from_xyz(x as f32, 0.0, 0.0),
+                InheritedVisibility::VISIBLE,
+            ));
+        }
+        app.world_mut().resource_mut::<crate::Game>().view = Some(view);
+        (app, camera, window)
+    }
+
+    fn label_entities(app: &mut App) -> Vec<Entity> {
+        let world = app.world_mut();
+        let mut result: Vec<_> = world
+            .query_filtered::<Entity, With<GroundLabel>>()
+            .iter(world)
+            .collect();
+        result.sort();
+        result
+    }
+
+    #[test]
+    fn multi_pile_update_prepares_scene_once_and_retains_unchanged_nodes() {
+        let (mut app, _, _) = ready_scene();
+        work::take();
+        app.update();
+        let counts = work::take();
+        let labels = label_entities(&mut app);
+        assert_eq!(
+            labels.len(),
+            3,
+            "fixture must project three selectable piles"
+        );
+        assert_eq!(
+            counts.maps, 1,
+            "one terrain preparation per update: {counts:?}"
+        );
+        assert_eq!(counts.terrain, 6, "each known terrain entry prepared once");
+        assert_eq!(counts.meshes, 4, "each shaped mesh prepared once");
+        assert_eq!(
+            counts.names, 0,
+            "count mode must not format discarded names"
+        );
+        app.update();
+        assert_eq!(
+            label_entities(&mut app),
+            labels,
+            "equal placement keeps UI entities"
+        );
+    }
+
+    #[test]
+    fn count_only_summary_never_formats_item_names() {
+        let (app, _, _) = ready_scene();
+        let view = app.world().resource::<crate::Game>().view.as_ref().unwrap();
+        work::take();
+        let counts = summaries(view, false);
+        assert_eq!(counts.len(), 3);
+        assert!(counts
+            .iter()
+            .all(|group| group.text == "5 stacks" && group.stacks == 5));
+        assert_eq!(
+            work::take().names,
+            0,
+            "count-only path discards all item names"
+        );
+    }
 
     fn group(x: i32, stacks: usize) -> LabelGroup {
         LabelGroup {
