@@ -3113,6 +3113,121 @@ mod support_tests {
     use crate::creatures::rogue_tests::spawn_one;
 
     #[test]
+    fn discovered_corpses_start_without_living_fidgets_across_humanoid_outfits() {
+        for (model, wardrobe) in [
+            (CreatureModel::Human, Wardrobe::Commoner),
+            (CreatureModel::Human, Wardrobe::Knight),
+            (CreatureModel::Human, Wardrobe::SylvanDuelist),
+            (CreatureModel::Mage, Wardrobe::Native),
+        ] {
+            for woman in [false, true] {
+                let look = Look::with_choice(model, 7, Some(Variant { woman, ..default() }))
+                    .dressed(wardrobe);
+                let (_, rig, _, _) = spawn_one(&look);
+                for gag in 0..3 {
+                    // Explicitly select an active antic and establish that it
+                    // actually moves this living fixture before testing death.
+                    let mut lively = Anim::new(7, Vec3::ZERO);
+                    lively.time = 4.0;
+                    lively.antic = Some(gag);
+                    let dancing = pose(&rig, &mut lively, 1.0, 0.0, false, false);
+                    let resting = pose(&rig, &mut lively, 0.0, 0.0, false, false);
+                    assert!(
+                        dancing.rot != resting.rot || dancing.off != resting.off,
+                        "inactive antic fixture: {model:?}/{wardrobe:?}, gag={gag}"
+                    );
+                    let mut ordinary = Anim::corpse(7);
+                    let mut quiet = Anim::corpse(7);
+                    ordinary.antic = Some(gag);
+                    quiet.antic = Some(gag);
+                    quiet.quiet = true;
+                    let mut first = None;
+                    // Explicit refresh can publish the first pose without a
+                    // time step. Continue through an active antic interval.
+                    for frame in 0..4 {
+                        let time = 4.0 + frame as f32 / 60.0;
+                        let dt = if frame == 0 { 0.0 } else { 1.0 / 60.0 };
+                        ordinary.time = time;
+                        quiet.time = time;
+                        let actual = pose(&rig, &mut ordinary, 1.0, dt, false, false);
+                        let expected = pose(&rig, &mut quiet, 1.0, dt, false, false);
+                        assert_eq!(actual.rot, expected.rot,
+                            "living fidget leaked into discovered {model:?}/{wardrobe:?}, woman={woman}, time={time}");
+                        assert_eq!(actual.off, expected.off);
+                        let snapshot = (actual.rot, actual.off);
+                        if let Some(first) = first {
+                            assert_eq!(snapshot, first, "settled skeleton must not animate");
+                        } else {
+                            first = Some(snapshot);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn discovered_corpse_revival_recovers_living_idle_blend() {
+        let (mut world, rig, _, meshes) = spawn_one(&Look::of(CreatureModel::Human, 7));
+        let root = world
+            .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+            .unwrap()
+            .parent();
+        let entities: Vec<_> = rig.joints.iter().flatten().copied().collect();
+        assert!(!entities.is_empty());
+        world.entity_mut(root).insert((rig, Anim::corpse(7)));
+        world.insert_resource(meshes);
+        let mut time = Time::<()>::default();
+        time.advance_by(std::time::Duration::from_secs_f32(1.0 / 60.0));
+        world.insert_resource(time);
+        let mut animation = Schedule::default();
+        animation.add_systems(animate);
+        animation.run(&mut world);
+        let corpse = world.get::<Anim>(root).unwrap();
+        assert_eq!(corpse.fallen, 1.0, "ordinary update retains settled fall");
+        assert_eq!(
+            corpse.rest, 0.0,
+            "discovered corpse starts without living idle"
+        );
+        world.get_mut::<Anim>(root).unwrap().dead = None;
+        let mut previous: Vec<_> = entities
+            .iter()
+            .map(|&entity| *world.get::<Transform>(entity).unwrap())
+            .collect();
+        let mut prior_rest = 0.0;
+        for _ in 0..60 {
+            animation.run(&mut world);
+            let anim = world.get::<Anim>(root).unwrap();
+            assert!(
+                anim.rest > prior_rest,
+                "revival gradually restores idle blend"
+            );
+            prior_rest = anim.rest;
+            for (index, &entity) in entities.iter().enumerate() {
+                let current = *world.get::<Transform>(entity).unwrap();
+                assert!(current.rotation.is_finite() && current.translation.is_finite());
+                assert!(
+                    current.rotation.angle_between(previous[index].rotation) < 0.2,
+                    "revival must not snap a skeletal joint"
+                );
+                assert!(
+                    current.translation.distance(previous[index].translation) < 0.1,
+                    "revival must not jump a skeletal joint"
+                );
+                previous[index] = current;
+            }
+        }
+        let revived = world.get::<Anim>(root).unwrap();
+        assert_eq!(revived.fallen, 0.0);
+        assert!(revived.rest > 0.99);
+        assert_eq!(
+            Anim::new(7, Vec3::ZERO).rest,
+            1.0,
+            "ordinary live construction still starts fully at rest"
+        );
+    }
+
+    #[test]
     fn explicit_pose_refresh_preserves_time_and_held_frames() {
         let look = Look::with_choice(
             CreatureModel::Human,

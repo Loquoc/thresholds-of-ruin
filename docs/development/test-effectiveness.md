@@ -33,6 +33,33 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Discovered-corpse idle initialization, 5 November 2026
+
+A focused regression against published main confirmed **one production root,
+one distinct failing method and one failed method execution**: `Anim::corpse`
+inherited the living constructor's full idle blend. Newly discovered settled
+bodies could therefore carry idle/antic motion until that blend decayed. The
+`creatures::animation::support_tests::discovered_corpses_start_without_living_fidgets_across_humanoid_outfits`
+method failed at its intended pose-equality assertion for Human/Commoner, rather
+than a setup or inactive-fixture failure. The run stops at that first witness;
+later outfit/body/antic controls were exercised by the green run, not first-red.
+
+The correction initializes only discovered corpses with zero idle blend. Live
+fall transitions, their negative pre-roll and ordinary living construction remain
+unchanged. The two new regressions pass, covering four humanoid model/outfit
+pairs, both body variants, active antic controls, zero-step pose evaluation,
+sequential settled poses and ordinary-system revival. Five mapped acceptance
+methods also pass: world-space revival/reaction continuity, action exit, held
+refresh, repeated refresh and asynchronous loading after death.
+
+The [isolated evidence run](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41957003096)
+retains the first-red/fixed source, toolchain and binary hashes, check/Clippy logs
+and focused results. This is Linux development-profile evidence, not native
+visual approval or final-head platform qualification. Local revival bounds do
+not replace world-space acceptance. Direct bestiary death assignment and
+independent soft-body breathing are outside this constructor fix; no universal
+corpse immobility or performance gain is claimed.
+
 ## Workflow progress snapshot ordering, 4 November 2026
 
 The CH-015 actual CLI reproduction confirmed one offline-reporting root: selecting

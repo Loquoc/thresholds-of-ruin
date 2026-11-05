@@ -1481,6 +1481,9 @@ impl Anim {
     pub fn corpse(seed: u64) -> Self {
         Self {
             dead: Some(1.0),
+            // A discovered body is already settled, unlike a living creature
+            // entering its fall. Do not fade a living idle pose into this body.
+            rest: 0.0,
             ..Self::new(seed, Vec3::ZERO)
         }
     }
