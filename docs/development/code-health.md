@@ -158,42 +158,27 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   shared pending-request completion and bounded stale-revision-only wizard
   retries; none is established redundant or safe to remove.
 
-### CH-014: Event-time sightings measure arrival interval, not absence
+### CH-014: Event-time sightings now measure absence
 
-- **Category/status:** behavior/maintainability; high-confidence source-supported
-  mismatch, not reproduced in a running client. Reviewed at `88e935cb8` on
-  2026-11-04.
-- **Evidence:** [Messages](../../crates/client-ascii/src/messages.rs) documents
-  `SIGHTING_TICKS` as time out of sight and `sightings` as the last visible tick.
-  The active [model path](../../crates/client-ascii/src/model.rs) calls
-  `absorb_outcome_with_underfoot` with the event cursor tick. That method updates
-  the timestamp only for `Topic::Noticed` and ignores `Topic::LostSight`.
-  [OutcomeFacts](../../crates/protocol/src/outcome_facts.rs) emit these facts on
-  entry to and exit from the disclosed actor set, not during continuous
-  visibility; [narration](../../crates/client-common/src/narration.rs) preserves
-  their corresponding topics.
-- **Predicted trigger/consequence:** notice at tick 1, remain visible until
-  departure at tick 2001, return at tick 2002. The retained tick is still 1, so
-  the interval exceeds 1000 and another notice appears despite only one tick
-  of absence. Separate message turns avoid duplicate compression obscuring the
-  result. This predicts redundant player-facing narration, not changed gameplay
-  authority, undisclosed information, a crash or measured resource cost.
-- **Coverage gap:**
-  [a_creature_is_announced_again_only_after_a_long_absence](../../crates/client-ascii/tests/it/turns_and_map.rs)
-  exercises legacy `Messages::absorb`, which refreshes timestamps from the
-  visible-actor list, rather than the event-time method used by the model.
-  Existing outcome tests cover other narration behavior; no fresh runtime
-  regression was executed in this review.
-- **Next step:** establish the intended first-red event-time regression, then
-  track disclosed departure time without displaying LostSight lines. Determine
-  exact threshold semantics from the absence contract; preserve actor identity,
-  event ordering, arrivals and timeline reset without importing stale views.
-- **Acceptance:** first encounter announces; long visibility followed by short
-  absence suppresses a repeat; threshold and longer absences announce; actors
-  remain independent; repeated cycles use the latest departure; reset forgets
-  prior sightings; LostSight remains silent. Include a model-level witness using
-  genuine Outcome facts through normal application, not only hand-built lines.
-  Retain the legacy test unless a separate complete removal proof justifies it.
+- **Category/status:** behavior/maintainability; corrected. The event-time
+  [message composer](../../crates/client-ascii/src/messages.rs) records disclosed
+  `LostSight` ticks silently, so a return is measured from the latest departure,
+  not from the previous arrival. The threshold remains 1,000 ticks inclusive.
+- **Evidence:** two first-red integration methods in
+  [turns and map tests](../../crates/client-ascii/tests/it/turns_and_map.rs)
+  reproduced redundant notice text after long visibility and one tick of absence.
+  `event_time_sightings_measure_absence_from_latest_departure` covers initial
+  notice, short/exact/long absences, repeated cycles, actor identity, same-tick
+  ordering, reset and silent departure. The model-level
+  `model_outcome_sightings_use_departure_time_without_refreshing_the_picture`
+  applies genuine `OutcomeFacts` through `App::update` while the visual picture
+  remains stale. The legacy observation-based witness is retained.
+- **Impact/limits:** the correction removes redundant player-facing narration;
+  it changes no gameplay authority, disclosed information or wire schema.
+  Both regression methods and the full 182-method ASCII integration owner pass
+  locally. Native process, Windows and hosted CI qualification are separate;
+  no resource or performance improvement is claimed. See the
+  [test-effectiveness record](test-effectiveness.md#event-time-sighting-absence-5-november-2026).
 
 ### CH-016: Equipment ranking scores cached; timing evidence remains open
 

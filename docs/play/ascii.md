@@ -63,7 +63,8 @@ Starting and finishing item work reads as the finished action, adding
 to be something else; a repeated line is counted ("(x3)"). After you move it
 says what's underfoot ("You see here a sword.", "There is a staircase down
 here."). A creature is announced when it first comes into sight and again
-only after 1,000 ticks out of sight. A journey that stops short says why.
+only after at least 1,000 ticks out of sight, measured from its latest disclosed
+departure rather than the previous arrival. A journey that stops short says why.
 
 When a turn's messages need more than three rows, the last row ends with
 `--More--`. Your next key shows the next rows and does nothing else, so no

@@ -33,6 +33,26 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Event-time sighting absence, 5 November 2026
+
+CH-014 was confirmed in the published baseline `5c87b5719`: event-time notices
+measured time since arrival rather than time out of sight. The bounded first-red
+window contains **one production root, two distinct failing methods and two
+failed method executions**, both in `tor-client-ascii`'s `it` target:
+`turns_and_map::event_time_sightings_measure_absence_from_latest_departure` and
+`turns_and_map::model_outcome_sightings_use_departure_time_without_refreshing_the_picture`.
+Both first encounters passed before an unexpected notice appeared following long
+visibility and one tick of absence. The model witness uses real `OutcomeFacts`
+and normal application without refreshing the visual snapshot. An earlier
+fixture compilation error attempted mutation through an `Arc`; it was corrected
+before these runs and is not counted as a production or behavioral failure.
+
+Recording each disclosed departure tick silently fixes the root. All 182 ASCII
+integration methods pass locally, including the new boundary, identity, repeated
+cycle, reset and silence assertions, and the retained legacy sighting witness.
+This is targeted local debug evidence, not native actual-process, Windows,
+release or hosted CI qualification. No test was removed or weakened.
+
 ## Discovered-corpse idle initialization, 5 November 2026
 
 A focused regression against published main confirmed **one production root,

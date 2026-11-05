@@ -688,6 +688,128 @@ fn a_creature_is_announced_again_only_after_a_long_absence() {
 }
 
 #[test]
+fn event_time_sightings_measure_absence_from_latest_departure() {
+    let scout = super::actor_target(2);
+    let other = super::actor_target(3);
+    let notice = line(Topic::Noticed(scout), "You notice a ruin scout.");
+    let lost = line(Topic::LostSight(scout), "The ruin scout leaves sight.");
+    let mut messages = Messages::default();
+    messages.absorb_outcome(std::slice::from_ref(&notice), 1, None);
+    assert_eq!(messages.text(), notice.text);
+    messages.begin_turn();
+    messages.absorb_outcome(std::slice::from_ref(&lost), 2001, None);
+    assert_eq!(messages.text(), "", "departure remains silent");
+    messages.absorb_outcome(std::slice::from_ref(&notice), 2002, None);
+    assert_eq!(messages.text(), "", "long visibility is not long absence");
+
+    // Each cycle is measured from its own departure, including the exact boundary.
+    for (departure, absence, expected) in [
+        (4000, 999, ""),
+        (6000, 1000, notice.text.as_str()),
+        (8000, 1001, notice.text.as_str()),
+    ] {
+        messages.begin_turn();
+        messages.absorb_outcome(std::slice::from_ref(&lost), departure, None);
+        assert_eq!(messages.text(), "");
+        messages.absorb_outcome(std::slice::from_ref(&notice), departure + absence, None);
+        assert_eq!(messages.text(), expected, "absence {absence}");
+    }
+
+    messages.begin_turn();
+    messages.absorb_outcome(
+        &[
+            line(Topic::LostSight(other), "Other leaves sight."),
+            notice.clone(),
+        ],
+        10001,
+        None,
+    );
+    assert_eq!(
+        messages.text(),
+        notice.text,
+        "another actor cannot suppress this one"
+    );
+    messages.begin_turn();
+    messages.absorb_outcome(&[lost.clone(), notice.clone()], 11001, None);
+    assert_eq!(
+        messages.text(),
+        "",
+        "same-tick ordered departure suppresses arrival"
+    );
+    messages.absorb_outcome(std::slice::from_ref(&lost), 12001, None);
+    messages.reset_sightings();
+    messages.absorb_outcome(std::slice::from_ref(&notice), 1, None);
+    assert_eq!(
+        messages.text(),
+        notice.text,
+        "timeline reset forgets old sightings"
+    );
+}
+
+#[test]
+fn model_outcome_sightings_use_departure_time_without_refreshing_the_picture() {
+    let scout = super::actor_target(2);
+    let mut initial = snapshot();
+    let scout_view = initial
+        .state
+        .observation
+        .visible_actors
+        .iter()
+        .find(|actor| actor.id == scout)
+        .unwrap()
+        .clone();
+    Arc::make_mut(&mut initial.state)
+        .observation
+        .visible_actors
+        .retain(|actor| actor.id != scout);
+    let mut before = initial.state.observation.clone();
+    let mut app = App::new();
+    app.set_state(ClientState::from_snapshot(initial).unwrap());
+    for (index, (tick, visible, expected)) in [
+        (101, true, "You notice a ruin scout."),
+        (2101, true, ""),
+        (2102, false, ""),
+        (2103, true, ""),
+        (4103, false, ""),
+        (5103, true, "You notice a ruin scout."),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut after = before.clone();
+        after.tick = tick;
+        after.visible_actors.retain(|actor| actor.id != scout);
+        if visible {
+            after.visible_actors.push(scout_view.clone());
+        }
+        let state = app.state.as_ref().unwrap();
+        let update = StreamUpdate {
+            context: state.context().clone(),
+            actor: after.actor,
+            branch: state.branch().clone(),
+            cursor: StreamCursor {
+                sequence: index as u64 + 1,
+                tick,
+            },
+            body: UpdateBody::Outcome {
+                facts: OutcomeFacts::capture(&before, &after, None),
+                event: None,
+                visual_changed: OutcomeFacts::picture_changed(&before, &after),
+            },
+        };
+        app.messages.begin_turn();
+        app.update(update).unwrap();
+        assert_eq!(app.messages.text(), expected, "event tick {tick}");
+        assert_eq!(
+            app.state.as_ref().unwrap().state().observation.tick,
+            100,
+            "event-time narration must not require a refreshed picture"
+        );
+        before = after;
+    }
+}
+
+#[test]
 fn messages_stay_until_the_next_command_and_then_move_to_the_log() {
     let mut app = app();
     let mut struck = app.state.as_ref().unwrap().state().observation.clone();

@@ -25,7 +25,7 @@ pub struct Messages {
     /// Rows of this turn already paged past.
     seen: usize,
     log: VecDeque<String>,
-    /// When each actor was last in sight.
+    /// Latest visible observation or event-time sighting boundary for each actor.
     sightings: BTreeMap<tor_protocol::ActorTarget, u64>,
 }
 
@@ -104,7 +104,12 @@ impl Messages {
                         self.here_outcome(contents);
                     }
                 }
-                Topic::Own(Event::Waited) | Topic::LostSight(_) | Topic::Pacing => {}
+                Topic::Own(Event::Waited) | Topic::Pacing => {}
+                Topic::LostSight(actor) => {
+                    // Outcomes describe visibility transitions, not every visible tick.
+                    // Measure the next absence from departure, keeping it silent.
+                    self.sightings.insert(*actor, tick);
+                }
                 Topic::Status => {
                     if let Some(status) = status {
                         if status.victory {
