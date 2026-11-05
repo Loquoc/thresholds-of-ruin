@@ -315,3 +315,7 @@ mod backpressure_tests {
         assert!(!holds(&Mail::Disconnect(1), true, 3));
     }
 }
+
+#[cfg(test)]
+#[path = "runner_backpressure_tests.rs"]
+mod stalled_ingress_tests;
