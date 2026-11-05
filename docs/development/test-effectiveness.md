@@ -33,6 +33,25 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Loot-label repeated preparation, 5 November 2026
+
+CH-018's deliberate work-count regressions at head `a2bb6830` ran in the
+[Linux debug 3D job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42103641534/job/127513396472).
+Compilation, formatting and Clippy passed; the runtime owner reported 635 passed,
+two failed and one ignored. The two intended new methods were
+`loot_labels::tests::count_only_summary_never_formats_item_names` (15 discarded
+name formats instead of zero) and
+`loot_labels::tests::multi_pile_update_prepares_scene_once_and_retains_unchanged_nodes`
+(three terrain preparations instead of one after positively asserting three
+visible labels). The measured scene had six terrain entries, four shaped meshes
+and fifteen item stacks: the baseline visited 18 terrain entries and 12 meshes.
+This is deliberate optimization first-red evidence, not two gameplay defects or
+a measured frame-rate improvement. Platform/profile repeats do not add distinct
+methods. The fix prepares selection context once per label update and directly
+counts stacks in count-only mode. Runtime camera/animated-occlusion, disclosure,
+focus/modal and unchanged-node witnesses accompany the change; fixed-head native
+and core CI qualification remains separate from this first-red record.
+
 ## Corpse soft-body breathing, 5 November 2026
 
 The shared soft-region solver continued its autonomous breathing drive after an
