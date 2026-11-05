@@ -5945,6 +5945,10 @@ mod playable_rogue_schema_tests {
 }
 
 #[cfg(test)]
+#[path = "retention_tests.rs"]
+mod retention_tests;
+
+#[cfg(test)]
 mod presentation_boundary_tests {
     use super::*;
 

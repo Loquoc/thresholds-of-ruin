@@ -1650,6 +1650,72 @@ scheduling noise. Operation counts, not those timings, establish scaling.
 
 ## Persistence evidence
 
+### Retained presentation and history ownership
+
+[CH-003](code-health.md#ch-003-retained-presentation-and-history-cost) separates
+three kinds of retention rather than treating every presentation as another full
+Game:
+
+- The engine retains the union of its latest 128 selectable and latest 128 raw
+  boundaries, at most 256 immutable boundary roots. Wait-only workloads have 128
+  once the window fills. The current mutable Game is a separate owner of shared
+  state, not another presentation capability.
+- Each attached client retains at most 32 issued presentation capabilities and
+  one latest complete picture. Capabilities for the same committed boundary
+  share its `Arc`; old complete pictures are not retained by that history.
+  Quiet attachments can intentionally keep roots beyond the rewind window for
+  their already-issued pages and annotations. With C attachments the union is
+  at most 256 + 32C boundary roots, often much smaller. This is a bound in C, not
+  a server-wide memory limit or a bound on world/discovery size.
+- Journal records, accepted receipts and derived history indexes retain the
+  complete chronology, including abandoned futures. Their memory and validated
+  startup work grow with history independently of checkpoint and presentation
+  windows. Dropping these records would change replay, retry and history behavior.
+
+The [ownership matrix](../../crates/server/src/retention_tests.rs) exercises
+0/100/1,000/10,000 starting records and one/eight modeled attachment owners. Each
+owner holds 32 distinct, staggered boundaries, then 128 later waits expire their
+engine rewind ownership. It counts unique live `Arc<Boundary>` allocations,
+checks that each old root has exactly its presentation owner, and proves every
+old root is gone through `Weak::upgrade` after those owners are dropped. The
+[Service witness](../../crates/server/src/presentation_history.rs) separately
+checks that eight actual attachments with 32 stationary pictures each share one
+Game root, and that reset/disconnect remove their own capabilities. Existing
+stale-token and old-full-picture-release witnesses remain unchanged.
+
+The matrix also counts pooled snapshot JSON using the existing shared-state
+codec, and records Linux process RSS before those temporary capture allocations.
+Pooled snapshot bytes are a reproducible state-size proxy, **not allocated heap
+bytes**: the codec deduplicates values, allocator overhead is absent, and the
+archive/indexes/current Game/client views are outside that byte count. Inline
+boundary bytes count only the root structs. RSS includes the entire process and
+allocator reuse; lack of an immediate RSS fall is not a failed ownership release.
+The multi-owner matrix models capability ownership only, not Service/socket CPU,
+output queues or complete per-client state.
+
+Each case then persists the ordinary history, captures a checkpoint, opens it
+normally, and compares the complete disclosed state. Recovery must load every
+retained record and replay zero tail records. Restart timing includes normal
+validation and index construction, after a freshly written save has warmed the
+filesystem cache; it is not cold-storage startup or a latency gate.
+
+For isolated release samples, build the server library tests once, then run each
+of the eight exact `engine::retention_tests::history_*` cases separately with
+`--nocapture --test-threads=1`. For example:
+
+```sh
+cargo test -p tor-server --lib --release --locked --no-run
+cargo test -p tor-server --lib --release --locked \
+  engine::retention_tests::history_10000_attachments_8 -- --exact --nocapture --test-threads=1
+```
+
+Keep each `retention-sample` JSON record, the source and executable hashes,
+exit receipt, toolchain and save-volume machine fingerprint. Repeat complete
+cases on the same otherwise-idle host. Ordinary combined CI runs validate the
+ownership/recovery assertions; their parallel timings and RSS are not comparable
+isolated measurements. No timing or RSS threshold changes gameplay or test success.
+
+
 ### Explored-map checkpoint capacity
 
 The existing
