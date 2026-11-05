@@ -33,6 +33,32 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Corpse soft-body breathing, 5 November 2026
+
+The shared soft-region solver continued its autonomous breathing drive after an
+owning creature died. A bounded first-red window in the
+[Linux debug job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42063334935/job/127370626725)
+at regression head `c41bc952` established **one production root, two distinct
+failing methods and two failed method executions**. Both
+`creatures::soft_tests::owned_soft_breath_stops_at_death_and_returns_after_revival`
+and `creatures::soft_tests::composed_leotard_corpse_soft_regions_remain_at_rest_after_settling`
+failed at the intended stationary-dead-region assertion, with about 0.002608 model
+units of excursion. Compilation, Clippy, formatting and fixture controls passed;
+this was not a setup failure. Linux release reproduced the same two failures,
+not additional roots or distinct methods. The debug owner reported 633 passes,
+two failures and one existing ignored subprocess fixture invoked by its owning
+lifecycle test. Later verification stages were not reached in this failed run.
+
+The correction resolves each soft frame's nearest animation owner through its
+current hierarchy and suppresses only autonomous breathing while that owner is
+dead, including death pre-roll. Passive springs, independent living neighbors,
+revival and standalone soft models retain their behavior; no owner entity ID is
+stored across asynchronous model transfer. The retained tests cover those
+contracts and real nested Leotard composition. Fixed-head runtime and platform
+qualification are separate from this first-red result; no native visual approval
+or performance gain is claimed. The first-red artifact's recorded merge tree equals the regression
+head tree, and its archive digest was verified.
+
 ## Event-time sighting absence, 5 November 2026
 
 CH-014 was confirmed in the published baseline `5c87b5719`: event-time notices

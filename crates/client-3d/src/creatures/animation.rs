@@ -3069,6 +3069,8 @@ const SOFT_REACH: f32 = 0.02;
 pub fn soften(
     time: Res<Time>,
     frames: Query<&GlobalTransform>,
+    parents: Query<&ChildOf>,
+    owners: Query<&Anim>,
     mut bones: Query<(&mut crate::props::SoftBone, &mut Transform, &ChildOf)>,
 ) {
     let dt = time.delta_secs();
@@ -3098,10 +3100,28 @@ pub fn soften(
             let next = bone.offset + bone.velocity * h;
             bone.offset = next.clamp_length_max(SOFT_REACH);
         }
+        // Soft frames sit below the rig's joints. Resolve their current owner
+        // through the hierarchy, including after asynchronous model transfer.
+        // Death stops only breathing; the passive spring above still settles.
+        let mut ancestor = parent.parent();
+        let breathing = loop {
+            if let Ok(owner) = owners.get(ancestor) {
+                break owner.dead.is_none();
+            }
+            let Ok(parent) = parents.get(ancestor) else {
+                // Standalone soft models retain their independent breathing.
+                break true;
+            };
+            ancestor = parent.parent();
+        };
         // A slow breath lifts a chest a little forward and up, each body on
         // its own rhythm.
         let phase = parent.parent().index() as f32 * 1.37;
-        let breath = (time.elapsed_secs() * 1.7 + phase).sin() * bone.breath;
+        let breath = if breathing {
+            (time.elapsed_secs() * 1.7 + phase).sin() * bone.breath
+        } else {
+            0.0
+        };
         transform.translation =
             bone.rest + bone.offset * bone.give + Vec3::new(0.0, 0.0022, 0.0014) * breath;
     }

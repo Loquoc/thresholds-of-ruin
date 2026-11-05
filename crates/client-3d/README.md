@@ -841,7 +841,8 @@ richer resource presentation and pause/accessibility settings remain unfinished.
   at flies only it can see.
 - Death: a creature seen to die collapses onto its back, limbs limp, head
   lolled (beasts on their side, legs slack); its glow fades to embers and any
-  light it carried goes out. Its body stays as its corpse,
+  light it carried goes out. Soft regions stop active breathing while retaining
+  passive motion and settling; revival restores their breathing. Its body stays as its corpse,
   turned to lie along open ground. Corpses found later are the creature's own
   model in that pose. With the same disclosed appearance and cell, a corpse keeps its rig and
   pose between views. Newly identified remains adopt their disclosed creature recipe.
