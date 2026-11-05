@@ -1,12 +1,15 @@
 import copy
+import hashlib
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
+from pathlib import Path, PureWindowsPath
 
 import perf_ledger as ledger
+import perf_compare as compare
 
 MACHINE = ledger.with_fingerprint({
     "cpu": "Example CPU", "logical_cpus": 8, "ram_gib": 16.0, "os": "Example OS", "os_build": "1.0",
@@ -96,6 +99,58 @@ class EntryFormat(unittest.TestCase):
 
 
 class LedgerFormat(unittest.TestCase):
+    def test_all_comparison_workloads_have_valid_ledger_identities(self):
+        for key, spec in compare.WORKLOADS.items():
+            with self.subTest(workload=key):
+                entry = dict(ENTRY, workload={"name": spec.name, "version": 1})
+                self.assertEqual([], ledger.validate_entry(entry))
+
+    def assert_comparison_cli_round_trip(self, unit, group, expected_name):
+        comparison = {
+            "created": "2026-11-04T11:00:00+00:00", "machine": MACHINE, "rustc": "rustc 1.98.1",
+            "sides": {"head": {"commit": "e" * 40, "dirty": False}},
+            "units": {unit: {"command": [compare.WORKLOADS[unit].example]}},
+            "results": {unit: {group: {
+                "workload": {"head": {"name": compare.WORKLOADS[unit].name, "version": 1}},
+                "head": {"timings": {"command_ms": {"n": 4, "p50_ms": 1, "p95_ms": 2, "max_ms": 3}},
+                         "counts": {"commands": 4, "varying": {"min": 1, "max": 2}}}}}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, raw, output = root / "comparison.json", root / "raw.tar.gz", root / "ledger.jsonl"
+            source.write_text(json.dumps(comparison), encoding="utf-8")
+            raw_bytes = b"independently authored comparison sample bundle"
+            raw.write_bytes(raw_bytes)
+            command = [
+                sys.executable, ledger.__file__, "add", "--comparison", str(source),
+                "--unit", unit, "--group", group, "--metric", "command_ms",
+                "--raw-url", ENTRY["raw"]["url"], "--raw-file", str(raw), "--ledger", str(output),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            entry = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(entry["workload"], {"name": expected_name, "version": 1})
+            self.assertEqual((entry["n"], entry["p50_ms"], entry["p95_ms"], entry["max_ms"]), (4, 1, 2, 3))
+            self.assertEqual(entry["counts"], {"commands": 4})
+            self.assertEqual(entry["commit"], "e" * 40)
+            self.assertEqual((entry["case"], entry["metric"]), (group, "command_ms"))
+            self.assertEqual(entry["raw"], {"url": ENTRY["raw"]["url"],
+                                            "sha256": hashlib.sha256(raw_bytes).hexdigest()})
+            checked = subprocess.run([sys.executable, ledger.__file__, "check", str(output)],
+                                     capture_output=True, text=True)
+            self.assertEqual(checked.returncode, 0, checked.stderr)
+            original = output.read_bytes()
+            duplicate = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn("duplicate entry", duplicate.stderr)
+            self.assertEqual(output.read_bytes(), original)
+
+    def test_strikes_comparison_can_be_recorded_by_actual_cli(self):
+        self.assert_comparison_cli_round_trip("strikes", "s3-q2-a2-r16-tail", "ordered_strikes")
+
+    def test_active_mobs_comparison_can_be_recorded_by_actual_cli(self):
+        self.assert_comparison_cli_round_trip("active-mobs", "r20-ai100-s8", "active_mobs")
+
     def test_streaming_comparison_can_be_recorded_by_actual_cli(self):
         unit, group = "latency:stream-r16-memory", "stream-r16-memory"
         comparison = {
@@ -205,6 +260,108 @@ class MachineProbe(unittest.TestCase):
         self.assertEqual(15.6, ledger.parse_meminfo("MemTotal:       16384000 kB\nMemFree: 1 kB\n"))
         self.assertIsNone(ledger.parse_meminfo(""))
         self.assertEqual("Ubuntu 24.04 LTS", ledger.parse_os_release('NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 24.04 LTS"\n'))
+
+
+    def linux_probe(self, row, disk, parent="sda\n", failure=None, output=None):
+        files = {"/proc/cpuinfo": "model name : Fixture CPU\n",
+                 "/proc/meminfo": "MemTotal: 8388608 kB\n",
+                 "/etc/os-release": 'PRETTY_NAME="Fixture Linux"\n'}
+        device = "/dev/" + parent.splitlines()[0] if parent else "/dev/sda1"
+        outputs = {
+            ("findmnt", "-no", "SOURCE,FSTYPE", "-T", str(Path("/fixture"))): "/dev/sda1 ext4\n",
+            ("lsblk", "-no", "PKNAME", "/dev/sda1"): parent,
+            ("lsblk", "-ndo", "ROTA,TRAN,MODEL", device): row,
+            ("lsblk", "-Jndo", "ROTA,TRAN,MODEL", device):
+                json.dumps({"blockdevices": [disk]}) if output is None else output,
+        }
+
+        def run(command, **kwargs):
+            self.assertEqual({"capture_output": True, "text": True, "check": True}, kwargs)
+            if failure and "ROTA,TRAN,MODEL" in command:
+                raise failure
+            return subprocess.CompletedProcess(command, 0, outputs[tuple(command)])
+
+        with patch.object(ledger.subprocess, "run", side_effect=run), \
+                patch.object(Path, "read_text", lambda p, **kw: files[p.as_posix()]), \
+                patch.object(ledger.os, "cpu_count", return_value=4), \
+                patch.object(ledger.platform, "release", return_value="fixture-kernel"):
+            machine = ledger.probe_linux_machine(Path("/fixture"))
+        self.assertEqual([], ledger.validate_machine(machine))
+        return machine
+
+    def test_linux_probe_transport_and_fingerprint_compatibility(self):
+        machine = self.linux_probe("0 sata Example Disk\n",
+                                   {"rota": False, "tran": "sata", "model": "Example Disk"})
+        self.assertEqual({"type": "SSD", "filesystem": "ext4", "bus": "sata",
+                          "model": "Example Disk"}, machine["storage"])
+        self.assertEqual("bb813f2f4bab", machine["fingerprint"])
+
+    def test_linux_probe_blank_transport_preserves_model(self):
+        for model, fingerprint in (("Example Disk", "b195f4796d9e"), ("Example", "37ea402bac1f")):
+            with self.subTest(model=model):
+                machine = self.linux_probe("0      " + model + "\n",
+                                           {"rota": False, "tran": None, "model": model})
+                self.assertEqual({"type": "SSD", "filesystem": "ext4", "bus": "unknown",
+                                  "model": model}, machine["storage"])
+                self.assertEqual(fingerprint, machine["fingerprint"])
+
+    def test_linux_probe_missing_model_and_device_compatibility(self):
+        for row, disk, fingerprint in (("0 sata", {"rota": False, "tran": "sata", "model": None},
+                                       "a591a300405e"), ("", {}, "a971251ccf16")):
+            with self.subTest(row=row):
+                machine = self.linux_probe(row, disk)
+                self.assertEqual("unknown", machine["storage"]["model"])
+                self.assertEqual(fingerprint, machine["fingerprint"])
+
+    def test_linux_probe_parent_selection_and_rotational_encodings(self):
+        for parent in ("sda\n", "", "sda\nsdb\n"):
+            for rota in (True, 1, "1", False, 0, "0", None):
+                with self.subTest(parent=parent, rota=rota):
+                    expected = "unknown" if rota is None else ("HDD" if rota in (True, 1, "1") else "SSD")
+                    row = ("?" if rota is None else ("1" if expected == "HDD" else "0")) + " sata Disk"
+                    machine = self.linux_probe(row, {"rota": rota, "tran": "sata", "model": "Disk"}, parent)
+                    self.assertEqual(expected, machine["storage"]["type"])
+
+    def test_linux_probe_nvme_and_model_characters(self):
+        model = 'Disk "quoted" \\ path  with spaces'
+        machine = self.linux_probe("0 nvme " + model,
+                                   {"rota": False, "tran": "nvme", "model": "  " + model + "  "})
+        self.assertEqual("NVMe", machine["storage"]["type"])
+        self.assertEqual(model, machine["storage"]["model"])
+
+    def test_linux_probe_failed_device_command(self):
+        for failure in (OSError("missing"), subprocess.CalledProcessError(1, "lsblk")):
+            with self.subTest(failure=type(failure).__name__):
+                machine = self.linux_probe("", {}, failure=failure)
+                self.assertEqual("a971251ccf16", machine["fingerprint"])
+
+    def test_linux_probe_fixture_accepts_windows_paths(self):
+        class WindowsFixturePath(PureWindowsPath):
+            def read_text(self, **kwargs):
+                raise AssertionError("Fixture file reads must be mocked")
+
+        with patch.object(sys.modules[__name__], "Path", WindowsFixturePath), \
+                patch.object(ledger, "Path", WindowsFixturePath):
+            machine = self.linux_probe("0 sata Example Disk",
+                                       {"rota": False, "tran": "sata", "model": "Example Disk"})
+        self.assertEqual("bb813f2f4bab", machine["fingerprint"])
+
+    def test_linux_probe_wrong_field_types_use_unknown(self):
+        for value in ([], {}, 2, 0.5, "invalid"):
+            with self.subTest(value=value):
+                disk = {"rota": value, "tran": value, "model": value}
+                machine = self.linux_probe("", disk)
+                self.assertEqual("unknown", machine["storage"]["type"])
+                expected = value if isinstance(value, str) else "unknown"
+                self.assertEqual(expected, machine["storage"]["bus"])
+                self.assertEqual(expected, machine["storage"]["model"])
+
+    def test_linux_probe_invalid_device_output(self):
+        for output in ("", "not json", "null", "[]", "{}", '{"blockdevices": null}',
+                       '{"blockdevices": {}}', '{"blockdevices": []}', '{"blockdevices": [null]}'):
+            with self.subTest(output=output):
+                machine = self.linux_probe("", {}, output=output)
+                self.assertEqual("a971251ccf16", machine["fingerprint"])
 
 
 if __name__ == "__main__":

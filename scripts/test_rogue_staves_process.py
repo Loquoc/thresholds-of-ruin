@@ -42,11 +42,62 @@ class RogueStavesFixtureTests(unittest.TestCase):
             {"id": 32, "at": [1, 2, 0], "archetype": "rogue.wand_fire"}])
 
 
+    def test_pause_boundary_waits_for_picture_without_advancing_or_resetting_play(self):
+        def frame(sequence, kind, active, phase, **body):
+            return {"type": "update", "cursor": {"sequence": str(sequence)},
+                    "message": {"type": "update", "update": {
+                        "body": {"type": kind, **body}}},
+                    "state": {"observation": {"combat": {
+                        "preparation_active": active, "preparation_remaining": "60"}}},
+                    "intentions": [{"phase": phase, "intention": "original"}]}
+
+        class OrderedClient:
+            def __init__(self, frames):
+                self.lines = [json.dumps(value) for value in frames]
+                self.consumed = []
+
+            def until(self, predicate, seconds, include_transcript):
+                while self.lines:
+                    line = self.lines.pop(0)
+                    self.consumed.append(json.loads(line)["cursor"]["sequence"])
+                    if predicate(line):
+                        return line
+                raise AssertionError("Expected picture never arrived")
+
+        for already_paused in (False, True):
+            with self.subTest(already_paused=already_paused):
+                owner = RogueStavesProcesses(
+                    "test_text_staff_physical_hit_charge_exhaustion_and_pending_source_free_reopen")
+                initial = frame(47, "observation", True, "started")
+                causal = frame(49, "intention", True, "paused")
+                picture = frame(51, "observation_delta", False, "paused")
+                frames = [frame(48, "outcome", True, "started", visual_changed=True),
+                          causal, frame(50, "readiness", True, "paused"), picture]
+                owner.probe = OrderedClient(frames[2:] if already_paused else frames)
+                if already_paused:
+                    owner.probe._picture_dirty = True
+                    owner.probe._picture_stale = True
+                owner.snapshot = lambda: causal if already_paused else initial
+                actual = owner.paused_picture()
+                self.assertEqual(actual, picture)
+                self.assertEqual(owner.probe.consumed,
+                                 ["50", "51"] if already_paused else ["48", "49", "50", "51"])
+                self.assertEqual(owner.probe.lines, [])
+
+
 class RogueStavesProcesses(ProcessTestCase):
     def snapshot(self, client=None):
         frame = self.request(client or self.probe, {"type": "snapshot"})
         self.assertIsNone(frame["error"])
         return frame
+
+    def paused_picture(self):
+        paused = self.snapshot()
+        if not any(row["phase"] == "paused" for row in paused["intentions"]):
+            paused = self.frame(self.probe, lambda frame: any(
+                row["phase"] == "paused" for row in frame["intentions"]))
+        # The paused intention can precede its demanded observation delta.
+        return self.picture_after(self.probe, paused)
 
     def settle(self):
         for _ in range(24):
@@ -123,10 +174,7 @@ class RogueStavesProcesses(ProcessTestCase):
             self.assertIsNone(interaction(frame, selected)["charges"])
         spectator.stop(save=False)
         text.stop(save=False)
-        paused = self.snapshot()
-        if not any(row["phase"] == "paused" for row in paused["intentions"]):
-            paused = self.frame(self.probe, lambda frame: any(
-                row["phase"] == "paused" for row in frame["intentions"]))
+        paused = self.paused_picture()
         frozen = checkpoint(self, self.probe)
         self.assertFalse(frozen["actors"]["1"]["pending"]["active"])
         for field in ("plan", "hold", "origin", "intention", "progress", "item_payment", "remaining"):

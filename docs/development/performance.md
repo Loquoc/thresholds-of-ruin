@@ -570,6 +570,14 @@ profile, and workload version. Counts are deterministic and comparable across
 machines. `python scripts/perf_ledger.py fingerprint --path DIR` prints this
 machine's record for the volume holding `DIR`.
 
+On Linux, storage metadata uses `lsblk` JSON output (util-linux 2.27 or newer)
+to preserve missing transport fields and multiword device models. Older versions
+without JSON support, unavailable commands, or invalid device output produce
+`unknown` storage metadata rather than guessing column boundaries. This fallback
+or a correction to previously misparsed metadata can change future fingerprints.
+Keep historical records intact and do not combine timing series with different
+fingerprints. Windows storage probing and the machine-record schema are unchanged.
+
 The ledger is seeded with the headline cases whose raw samples are preserved in
 the [`docs-history-2026-09` archive](https://github.com/KCall360/thresholds-of-ruin/tree/docs-history-2026-09/docs/measurements):
 Phase B, C, and D at 256 regions, 8 actors, and 10,000 actions; the Phase E

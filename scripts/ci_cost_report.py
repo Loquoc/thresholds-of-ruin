@@ -70,6 +70,36 @@ def reconcile_job_ids(jobs):
     return list(by_id.values()) + unidentified, duplicates
 
 
+def reconcile_workflow_snapshots(runs):
+    """Select the newest highest-attempt snapshot, rejecting ambiguous evidence.
+
+    Equal-time snapshots may fill missing report fields but cannot disagree.
+    Compare aware timestamps, not their spelling or the input-file order.
+    """
+    attempts = [run.get("run_attempt", 1) for run in runs]
+    if any(type(attempt) is not int or attempt < 1 for attempt in attempts):
+        raise ValueError("workflow run_attempt must be a positive integer")
+    highest = max(attempts)
+    candidates = [run for run, attempt in zip(runs, attempts) if attempt == highest]
+    updated = [timestamp(run.get("updated_at")) for run in candidates]
+    if any(value is None for value in updated):
+        raise ValueError("workflow updated_at must be an aware timestamp for highest-attempt snapshots")
+    latest = max(updated)
+    candidates = [run for run, value in zip(candidates, updated) if value == latest]
+    result = {"id": runs[0]["id"], "run_attempt": highest}
+    for field in ("status", "conclusion", "created_at", "updated_at", "name", "event", "html_url"):
+        values = [run[field] for run in candidates if run.get(field) is not None]
+        if not values:
+            continue
+        def equivalent(value):
+            parsed = timestamp(value) if field.endswith("_at") else None
+            return parsed if parsed is not None else value
+        if any(equivalent(value) != equivalent(values[0]) for value in values[1:]):
+            raise ValueError(f"conflicting workflow snapshots for run ID {result['id']}: {field}")
+        result[field] = values[0]
+    return result
+
+
 def report(bundles, summaries=()):
     """Account completed intervals; incomplete/invalid data yields lower bounds."""
     grouped = {}
@@ -80,7 +110,7 @@ def report(bundles, summaries=()):
             grouped.setdefault(key, []).append(entry)
     rows = []
     for key, entries in sorted(grouped.items()):
-        run = max((entry["run"] for entry in entries), key=lambda r: r.get("run_attempt", 1))
+        run = reconcile_workflow_snapshots([entry["run"] for entry in entries])
         issues = set()
         if not any(entry.get("jobs_scope") == "all" for entry in entries):
             issues.add("all_attempts_not_declared")
