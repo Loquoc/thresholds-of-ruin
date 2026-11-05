@@ -584,18 +584,9 @@ impl Game {
             .collect();
         // Compare complete prospective loadouts, including item interactions,
         // rather than folding a parallel set of equipment-only stat formulas.
-        let (item, (slot, old)) = choices.iter().find(|(item, (slot, _))| {
-            let Some(candidate) = self
-                .gear_projection(actor, *item, *slot)
+        let (item, (slot, old)) = first_nondominated_gear(&choices, |(item, (slot, _))| {
+            self.gear_projection(actor, *item, *slot)
                 .and_then(|game| gear_score(&game, actor))
-            else {
-                return false;
-            };
-            !choices.iter().any(|(other, (other_slot, _))| {
-                self.gear_projection(actor, *other, *other_slot)
-                    .and_then(|game| gear_score(&game, actor))
-                    .is_some_and(|other| other.dominates(&candidate))
-            })
         })?;
         Some(old.map_or(
             Action::Equip {
@@ -605,6 +596,28 @@ impl Game {
             |item| Action::Unequip { item },
         ))
     }
+}
+
+/// Score each choice once against the same immutable source. Keep unavailable
+/// scores and input order: neither can dominate, and ties/incomparable loadouts
+/// still select the first nondominated choice. Only scores, not Games, survive
+/// projection; production derivation remains the authority for each loadout.
+fn first_nondominated_gear<T>(
+    choices: &[T],
+    score: impl FnMut(&T) -> Option<GearScore>,
+) -> Option<&T> {
+    let scores: Vec<_> = choices.iter().map(score).collect();
+    scores
+        .iter()
+        .position(|candidate| {
+            candidate.as_ref().is_some_and(|candidate| {
+                !scores
+                    .iter()
+                    .flatten()
+                    .any(|other| other.dominates(candidate))
+            })
+        })
+        .map(|index| &choices[index])
 }
 
 pub(crate) fn required_nutrition(view: &Observation) -> Option<crate::nutrition::Hunger> {
@@ -1162,6 +1175,149 @@ mod tests {
             modifiers: vec![],
         }
     }
+    #[test]
+    fn gear_ranking_caches_available_and_unavailable_scores_in_input_order() {
+        let (game, actor, _) = fixture();
+        // Independent expected positions cover empty, unavailable, increasing,
+        // decreasing, equal and incomparable scores. Health and defense are
+        // independent dominance dimensions; unavailable entries never win.
+        type RankingCase = (Vec<Option<(u64, i64)>>, Option<usize>);
+        let cases: &[RankingCase] = &[
+            (vec![], None),
+            (vec![None], None),
+            (vec![Some((1, 1))], Some(0)),
+            (vec![Some((1, 1)), Some((2, 2)), Some((3, 3))], Some(2)),
+            (vec![Some((3, 3)), Some((2, 2)), Some((1, 1))], Some(0)),
+            (vec![Some((2, 2)), Some((2, 2))], Some(0)),
+            (vec![Some((3, 1)), Some((1, 3))], Some(0)),
+            (vec![None, Some((1, 1)), None, Some((2, 2))], Some(3)),
+            (vec![None, None], None),
+        ];
+        for (values, expected) in cases {
+            let choices: Vec<_> = (0..values.len()).collect();
+            let mut calls = vec![0; choices.len()];
+            let selected = first_nondominated_gear(&choices, |&index| {
+                calls[index] += 1;
+                let (health, defense_value) = values[index]?;
+                let mut score = gear_score(&game, actor).unwrap();
+                score.maximum_health = health;
+                score.stats.insert(
+                    Stat::Defense {
+                        defense: DefenseKind::Cognitive,
+                    },
+                    defense_value,
+                );
+                Some(score)
+            });
+            assert_eq!(selected.copied(), *expected);
+            assert_eq!(
+                calls,
+                vec![1; choices.len()],
+                "including unavailable scores"
+            );
+        }
+    }
+
+    fn ranking_armor(value: i64) -> EquipmentSpec {
+        EquipmentSpec {
+            periodic_relocation: None,
+            potency_modifiers: Vec::new(),
+            weapon_profile: None,
+            armor: None,
+            slot: EquipmentSlot::new("head_armor").unwrap(),
+            attack: None,
+            modifiers: vec![defense(value)],
+        }
+    }
+
+    #[test]
+    fn increasing_gear_ranking_projects_once_per_choice_and_keeps_original_game() {
+        for count in [1_u64, 4, 16, 64] {
+            let (mut game, actor, at) = fixture();
+            let slot = EquipmentSlotId(3);
+            for index in 0..count {
+                add(
+                    &mut game,
+                    actor,
+                    at,
+                    100 + index,
+                    ranking_armor(index as i64 + 1),
+                );
+            }
+            let original = game.clone();
+            // Eligibility is deliberately completed before counting ranking
+            // projections, so setup/baseline folds are not misreported as saved.
+            let choices: Vec<_> = (0..count)
+                .map(|index| {
+                    let item = ItemId(100 + index);
+                    assert_eq!(game.gear_destination(actor, item), Some((slot, None)));
+                    (item, (slot, None::<ItemId>))
+                })
+                .collect();
+            let ranking_start = crate::diagnostics::work_counts();
+            let mut ranking_projections = 0;
+            let selected = first_nondominated_gear(&choices, |(item, (slot, _))| {
+                ranking_projections += 1;
+                let projected = game
+                    .gear_projection(actor, *item, *slot)
+                    .expect("validated fixture must project successfully");
+                Some(gear_score(&projected, actor).expect("fixture must be scoreable"))
+            });
+            assert_eq!(selected, Some(&(ItemId(99 + count), (slot, None))));
+            assert_eq!(ranking_projections, count);
+            let ranking_end = crate::diagnostics::work_counts();
+            assert_eq!(
+                ranking_end.game_clones - ranking_start.game_clones,
+                usize::try_from(count).unwrap()
+            );
+            assert_eq!(game, original);
+            assert_eq!(
+                game.choose_gear(actor, &game.observe(actor).unwrap()),
+                Some(Action::Equip {
+                    item: ItemId(99 + count),
+                    slot
+                })
+            );
+            assert_eq!(game, original);
+        }
+    }
+
+    #[test]
+    fn ordinary_gear_ranking_preserves_equal_order_and_occupied_socket_action() {
+        for occupied in [false, true] {
+            let (mut game, actor, at) = fixture();
+            let slot = EquipmentSlotId(3);
+            if occupied {
+                add(&mut game, actor, at, 90, ranking_armor(1));
+                game.equip_authored(actor, ItemId(90), slot).unwrap();
+            }
+            add(&mut game, actor, at, 100, ranking_armor(2));
+            add(&mut game, actor, at, 101, ranking_armor(2));
+            game.configure_ai(
+                actor,
+                crate::ai::AiProfile {
+                    idle: crate::behavior::IdleBehavior::Wait,
+                    equipment: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let view = game.observe(actor).unwrap();
+            let before = game.clone();
+            let expected = if occupied {
+                Action::Unequip { item: ItemId(90) }
+            } else {
+                Action::Equip {
+                    item: ItemId(100),
+                    slot,
+                }
+            };
+            assert_eq!(game.choose_gear(actor, &view), Some(expected.clone()));
+            assert_eq!(game.choose_ai(actor).unwrap().action, expected);
+            assert_eq!(game, before);
+        }
+    }
+
     #[test]
     fn ordered_strikes_no_damage_natural_source_still_has_a_gear_score() {
         let mut species = crate::test_creatures::species();
