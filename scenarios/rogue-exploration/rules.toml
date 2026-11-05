@@ -175,7 +175,9 @@ path = ["talents", "rogue.ambush_from_guise"]
 value = { id = "rogue.ambush_from_guise", name = "Ambush From Guise", prerequisites = ["rogue.object_guise"], requirement = { kind = "all", requirements = [{ kind = "total_hd", minimum = 6 }, { kind = "subtype_in", subtypes = ["shapechanger"] }] }, form_choices = [], modifiers = [{ cancellable = true, scope = "always", op = { kind = "perception", value = { kind = "ambush_from_guise", enabled = true } } }] }
 
 # Ordinary paid Search is available to every creature in this package. Discovery
-# is a guaranteed bounded physical-contact query, not a free observation mutation.
+# uses checked, actor-private recognition with one shared roll. Eligible adjacent
+# terrain can be searched by touch. Success is not guaranteed; read-only queries
+# never discover features.
 [[overrides]]
 op = "set"
 path = ["constants", "default_abilities"]

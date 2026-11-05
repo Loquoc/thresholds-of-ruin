@@ -29,23 +29,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 
 ## Active review queue
 
-### CH-001: Public core boundary contracts
-
-- **Category/status:** documentation; verified gaps, foundation correction.
-- **Impact/confidence:** high confidence; callers can misunderstand rotations,
-  checkpoint preconditions, provisional host results or plan targets.
-- **Evidence:** [World::connect](../../crates/world/src/topology.rs) accepted all
-  24 cube rotations while its comment described planar quarter turns;
-  [checkpoint](../../crates/simulation/src/checkpoint.rs) public entry points
-  omitted settlement/panic and root-binding order; [Plan::target](../../crates/simulation/src/abilities/plan.rs)
-  described its non-targeted bookkeeping case only inside the implementation.
-- **Correction:** source-adjacent contracts and executable public-API examples;
-  no runtime changes or removed paths. Remaining member coverage stays in the
-  [API inventory](rust-api-coverage.md).
-- **Acceptance:** runnable doctests, warning-free public/private rustdoc, link
-  checks and semantic review against owning implementation/tests. A clean docs
-  build does not prove complete API coverage.
-
 ### CH-002: Commands retained outside the bounded mailbox
 
 - **Category/status:** robustness; source-supported candidate, not reproduced.
@@ -79,72 +62,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   [performance workflow](performance.md), unchanged replay/disclosure behavior and
   an explanation of retained versus reclaimable ownership.
 
-### CH-004: Action-transition phase readability
-
-- **Category/status:** maintainability; opportunity, not a proven behavior defect.
-- **Evidence:** [Engine::resolve_action_transition](../../crates/server/src/engine.rs)
-  joins execution, observer projection, navigation, event capture and profiling.
-- **Next step:** map each phase's inputs, outputs and ordering obligations while
-  documenting its callers. Extract only a clearly owned responsibility when the
-  phase contract and independent tests are understood; length alone is insufficient.
-- **Acceptance:** preserved publication order, atomic failure, RNG/clocks and
-  event-time disclosure, with existing unique witnesses retained. Independent
-  wire/save/authoring adapters are not automatically duplication to remove.
-
-### CH-006: Rogue Search comment no longer describes checked recognition
-
-- **Category/status:** documentation; confirmed mismatch, correction pending.
-- **Evidence:** [Rogue exploration rules](../../scenarios/rogue-exploration/rules.toml)
-  describe Search as guaranteed physical-contact querying, while
-  [discovery](../../crates/simulation/src/discovery.rs) owns checked private
-  recognition. Read the complete nearby rules overrides before correcting prose.
-- **Next step/acceptance:** change the comment, not the gameplay rule. Follow the
-  package identity/certificate workflow because source-text changes may change
-  pinned hashes even when executable values do not. Preserve checked discovery's
-  positive, failed-roll and nondisclosure witnesses.
-
-### CH-010: Performance-trace parsing is not full fixture validation
-
-- **Category/status:** maintainability; source-supported schema limitation, not a
-  reproduced gameplay or benchmark failure. Reviewed at `3aac0cbb2` on 2026-11-04.
-- **Evidence:** [Trace and Step](../../crates/test-support/src/performance.rs)
-  deserialize the workload subset of the embedded fixture. `version` is a plain
-  integer; known successful outcome labels are not paired with action kinds.
-  `verify_effect` checks the action kind after handling `blocked` specially.
-  [The existing outcome-label test](../../crates/test-support/tests/it/performance.rs)
-  deliberately accepts all four known labels on a wait step. The public contract
-  now states these limits, so callers cannot mistake parsing for full validation.
-- **Consequence/confidence:** high confidence in the source contract; a custom
-  trace can carry misleading metadata while its action-specific assertions pass.
-  No malformed embedded trace or measured false benchmark result was found.
-- **Next step:** if custom trace ingestion becomes supported, decide its version
-  policy and whether labels are semantic expectations or reporting categories
-  before adding validation. Do not silently change existing fixture semantics.
-- **Acceptance:** preserve rejection of unknown labels and independent
-  blocked/movement/door/readiness oracle tests; add explicit version/pairing
-  rejection witnesses only for an approved strengthened input contract.
-
-### CH-014: Event-time sightings now measure absence
-
-- **Category/status:** behavior/maintainability; corrected. The event-time
-  [message composer](../../crates/client-ascii/src/messages.rs) records disclosed
-  `LostSight` ticks silently, so a return is measured from the latest departure,
-  not from the previous arrival. The threshold remains 1,000 ticks inclusive.
-- **Evidence:** two first-red integration methods in
-  [turns and map tests](../../crates/client-ascii/tests/it/turns_and_map.rs)
-  reproduced redundant notice text after long visibility and one tick of absence.
-  `event_time_sightings_measure_absence_from_latest_departure` covers initial
-  notice, short/exact/long absences, repeated cycles, actor identity, same-tick
-  ordering, reset and silent departure. The model-level
-  `model_outcome_sightings_use_departure_time_without_refreshing_the_picture`
-  applies genuine `OutcomeFacts` through `App::update` while the visual picture
-  remains stale. The legacy observation-based witness is retained.
-- **Impact/limits:** the correction removes redundant player-facing narration;
-  it changes no gameplay authority, disclosed information or wire schema.
-  Both regression methods and the full 182-method ASCII integration owner pass
-  locally. Native process, Windows and hosted CI qualification are separate;
-  no resource or performance improvement is claimed. See the
-  [test-effectiveness record](test-effectiveness.md#event-time-sighting-absence-5-november-2026).
 
 ### CH-016: Equipment ranking scores cached; timing evidence remains open
 
@@ -281,6 +198,115 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 - **Limits:** optimized before/after latency and allocation magnitudes are not
   measured. Smaller output and fewer builder invocations must not be reported as
   a quantified CPU, allocation or memory-retention improvement.
+
+### CH-001: Public core boundary contracts
+
+- **Category/status:** documentation; resolved by [PR 225](https://github.com/KCall360/thresholds-of-ruin/pull/225),
+  merged at `3aac0cbb21b031d109df2f19736a3a4bb987092b`. The specific gaps
+  below remain corrected at `6fab91097`; broader member coverage is a separate
+  API-inventory program, not an unresolved instance of this finding.
+- **Impact/confidence:** high confidence; callers can misunderstand rotations,
+  checkpoint preconditions, provisional host results or plan targets.
+- **Evidence:** [World::connect](../../crates/world/src/topology.rs) accepted all
+  24 cube rotations while its comment described planar quarter turns;
+  [checkpoint](../../crates/simulation/src/checkpoint.rs) public entry points
+  omitted settlement/panic and root-binding order; [Plan::target](../../crates/simulation/src/abilities/plan.rs)
+  described its non-targeted bookkeeping case only inside the implementation.
+- **Correction:** source-adjacent contracts and executable public-API examples;
+  no runtime changes or removed paths. Remaining member coverage stays in the
+  [API inventory](rust-api-coverage.md).
+- **Qualification:** the original change records ten passing doctests, scoped
+  library checks and Clippy, warning-free public/private rustdoc, documentation
+  checks and rendered-page inspection. This reconciliation rechecked the cited
+  source; it does not claim fresh runtime or whole-API qualification.
+
+### CH-004: Action-transition phase readability
+
+- **Category/status:** maintainability; resolved by documenting the existing phase
+  and caller contracts, without a behavior-changing extraction. The review at
+  `6fab91097` established no independently owned duplicate implementation whose
+  removal would justify changing the transaction boundary.
+- **Resolution:** the [action-transition phase map](../architecture/simulation-cycle.md#action-transition-phase-contract)
+  records inputs, outputs, both callers and the ordering obligations in
+  [Engine::resolve_action_transition](../../crates/server/src/engine.rs).
+  Source-adjacent phase comments point to the same contract. Execution, residency,
+  capability-only waits, event receipts, projection, navigation and membership
+  retain their current sequence and failure propagation.
+- **Preserved witnesses:** `frozen_presentation_survives_actions_without_durable_display_counters`
+  in [engine tests](../../crates/server/src/engine.rs) distinguishes stationary
+  waits from observer-affecting moves and checks frozen pictures and replay;
+  [performance workloads](../../crates/server/tests/it/performance_workloads.rs)
+  retain the independent mixed-trace disclosure/replay witness. The phase map
+  joins those owners to the existing persistence and intention contracts.
+- **Limits:** only documentation changes; no assertion or implementation was
+  removed, and no fresh runtime/performance result is claimed. Any later extraction
+  still requires the register's equivalence and unique-witness proof.
+
+### CH-006: Rogue Search comment describes checked recognition
+
+- **Category/status:** documentation; corrected. The Search comment in
+  [Rogue exploration rules](../../scenarios/rogue-exploration/rules.toml) now
+  describes actor-private recognition with a shared roll, eligible adjacent
+  touch searches and no discovery through read-only queries. Success is not
+  guaranteed. No executable TOML value or gameplay rule changed.
+- **Certificate evidence:** the existing `tor-scenario-50` validator reproduced
+  the baseline certificate byte-for-byte, then validated the corrected package.
+  Only authored rules and source-closure content hashes changed; effective
+  rules, model, index, dependency hashes and validator identity are unchanged.
+  Repository LF-source certificate checks pass. No version bump is necessary
+  for this comment-only identity change.
+- **Limits:** this is certificate generation and source/semantic review, not a
+  fresh gameplay regression run. Checked discovery's positive, failed-roll and
+  nondisclosure witnesses remain unchanged and must pass final-head hosted CI.
+
+### CH-010: Performance-trace parsing is not full fixture validation
+
+- **Category/status:** maintainability; resolved as an explicit retained input
+  contract, not a gameplay or benchmark defect. Reconciled at `6fab91097`.
+- **Evidence:** [Trace and Step](../../crates/test-support/src/performance.rs)
+  deserialize the workload subset of the embedded fixture. `version` is a plain
+  integer; known successful outcome labels are not paired with action kinds.
+  `verify_effect` checks the action kind after handling `blocked` specially.
+  [The existing outcome-label test](../../crates/test-support/tests/it/performance.rs)
+  deliberately accepts all four known labels on a wait step. The public contract
+  now states these limits, so callers cannot mistake parsing for full validation.
+- **Consequence/confidence:** high confidence in the source contract; a custom
+  trace can carry misleading metadata while its action-specific assertions pass.
+  No malformed embedded trace or measured false benchmark result was found.
+- **Disposition:** current drivers call `Trace::load` on the compiled-in fixture;
+  no custom-trace ingestion route was found in the server examples, integration
+  owners or Python drivers. The public parser deliberately reads only workload
+  fields, and its successful labels are reporting categories. Keep that documented
+  API and its existing test rather than silently strengthening deserialization.
+  A future custom-ingestion feature must define its version and pairing policy at
+  that boundary; it is not an outstanding fix to the supported embedded workload.
+- **Acceptance:** preserve rejection of unknown labels and independent
+  blocked/movement/door/readiness oracle tests; add explicit version/pairing
+  rejection witnesses only for an approved strengthened input contract.
+
+### CH-014: Event-time sightings now measure absence
+
+- **Category/status:** behavior/maintainability; resolved by
+  [PR 262](https://github.com/KCall360/thresholds-of-ruin/pull/262), merged at
+  `739ee7fdf704a33979d7711bcabc9807203328da`. The event-time
+  [message composer](../../crates/client-ascii/src/messages.rs) records disclosed
+  `LostSight` ticks silently, so a return is measured from the latest departure,
+  not from the previous arrival. The threshold remains 1,000 ticks inclusive.
+- **Evidence:** two first-red integration methods in
+  [turns and map tests](../../crates/client-ascii/tests/it/turns_and_map.rs)
+  reproduced redundant notice text after long visibility and one tick of absence.
+  `event_time_sightings_measure_absence_from_latest_departure` covers initial
+  notice, short/exact/long absences, repeated cycles, actor identity, same-tick
+  ordering, reset and silent departure. The model-level
+  `model_outcome_sightings_use_departure_time_without_refreshing_the_picture`
+  applies genuine `OutcomeFacts` through `App::update` while the visual picture
+  remains stale. The legacy observation-based witness is retained.
+- **Impact/limits:** the correction removes redundant player-facing narration;
+  it changes no gameplay authority, disclosed information or wire schema.
+  Both regression methods and the full 182-method ASCII integration owner pass
+  locally. Native process, Windows and hosted CI qualification are separate;
+  no resource or performance improvement is claimed. See the
+  [test-effectiveness record](test-effectiveness.md#event-time-sighting-absence-5-november-2026).
 
 ### CH-013: Linux storage probe preserves empty column boundaries
 
