@@ -334,6 +334,9 @@ mod tests {
             .add_event::<WindowScaleFactorChanged>()
             .add_event::<AssetEvent<Image>>()
             .add_systems(Update, (camera_system, show).chain());
+        app.edit_schedule(Update, |schedule| {
+            schedule.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);
+        });
         let window = app
             .world_mut()
             .spawn((
