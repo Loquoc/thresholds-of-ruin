@@ -773,3 +773,69 @@ fn raw_world_facts_follow_portable_light_without_ambient_world_mutation() {
     assert!(world.matches(&game.world));
     assert_eq!(game.world.is_lit(target), Some(false));
 }
+
+#[test]
+fn fuel_passes_visit_only_fuel_candidates_independent_of_ordinary_items() {
+    for ordinary_count in [0, 100, 10_000] {
+        let (mut game, burning, _) = equipped(1000, 2);
+        game.set_item_light(burning, true).unwrap();
+        let stowed = game
+            .place_item_stack(31, at(1), Some(OWNER), 1, spec(1000, 2))
+            .unwrap();
+        let exhausted = game
+            .place_item_stack(32, at(1), None, 1, spec(1000, 2))
+            .unwrap();
+        game.items.edit(exhausted, |item| {
+            item.fuel.as_mut().unwrap().remaining = 0;
+        });
+        let mut ordinary = game.items[&stowed].clone();
+        ordinary.fuel = None;
+        ordinary.spec = tor_world::Shared::new(crate::ItemSpec::ordinary(
+            "item.test.fuel-unrelated".parse().unwrap(),
+            "unrelated item".into(),
+        ));
+        for offset in 0..ordinary_count {
+            game.items.insert(ItemId(10_000 + offset), ordinary.clone());
+        }
+        for pass in 0..4 {
+            let before = crate::diagnostics::work_counts().portable_fuel_candidates;
+            assert_eq!(game.next_fuel_expiry(), Some(game.tick() + 1000 - pass * 7));
+            let expiry_visits = crate::diagnostics::work_counts().portable_fuel_candidates - before;
+            let before = crate::diagnostics::work_counts().portable_fuel_candidates;
+            game.burn_light_fuel(7);
+            let burn_visits = crate::diagnostics::work_counts().portable_fuel_candidates - before;
+            assert_eq!(
+                game.items[&burning].fuel.unwrap().remaining,
+                1000 - (pass + 1) * 7
+            );
+            assert!(game.items[&burning].fuel.unwrap().lit);
+            assert_eq!(game.items[&stowed].fuel.unwrap().remaining, 1000);
+            assert!(!game.items[&stowed].fuel.unwrap().lit);
+            assert_eq!(game.items[&exhausted].fuel.unwrap().remaining, 0);
+            assert!(!game.items[&exhausted].fuel.unwrap().lit);
+            assert_eq!(
+                (expiry_visits, burn_visits),
+                (3, 3),
+                "ordinary rows: {ordinary_count}, pass: {pass}"
+            );
+        }
+        let before = crate::diagnostics::work_counts().portable_fuel_candidates;
+        game.burn_light_fuel(0);
+        assert_eq!(
+            crate::diagnostics::work_counts().portable_fuel_candidates,
+            before
+        );
+
+        for id in [burning, stowed, exhausted] {
+            game.items.remove(&id);
+        }
+        let before = crate::diagnostics::work_counts().portable_fuel_candidates;
+        assert_eq!(game.next_fuel_expiry(), None);
+        game.burn_light_fuel(7);
+        assert_eq!(
+            crate::diagnostics::work_counts().portable_fuel_candidates - before,
+            0,
+            "no fuel-bearing rows: {ordinary_count}"
+        );
+    }
+}

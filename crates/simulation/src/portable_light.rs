@@ -288,6 +288,7 @@ impl crate::Game {
             (changed || !self.light_missing_regions(&boundary).is_empty()).then_some(boundary);
     }
     fn fuel_burns(&self, id: crate::ItemId, item: &crate::Item) -> bool {
+        crate::diagnostics::portable_fuel_candidate();
         if !item.fuel.is_some_and(|fuel| fuel.lit && fuel.remaining > 0) {
             return false;
         }
