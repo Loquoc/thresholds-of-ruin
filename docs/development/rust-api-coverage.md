@@ -159,9 +159,10 @@ Subsequent merged batches retain their own bounded evidence:
   test-support public contract pass and member checklist below; CH-010 remains
   open. That bounded status is preserved, not promoted to whole-project completion.
 
-The source-only headless review records redundant compact-frame construction as
+The headless review's redundant compact-frame construction is corrected under
 [CH-011](code-health.md#ch-011-compact-headless-frames-build-discarded-derived-state).
-It adds no source contracts or executable examples, so Headless stays Inventoried.
+Its construction-boundary regression does not complete the public API contract
+inventory, so Headless stays Inventoried.
 
 ## Qualification and maintenance
 
