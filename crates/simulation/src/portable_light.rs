@@ -308,8 +308,8 @@ impl crate::Game {
     }
     pub(crate) fn next_fuel_expiry(&self) -> Option<u64> {
         self.items
-            .iter()
-            .filter(|(id, item)| self.fuel_burns(**id, item))
+            .fuel_candidates()
+            .filter(|(id, item)| self.fuel_burns(*id, item))
             .filter_map(|(_, item)| {
                 self.tick
                     .checked_add(item.fuel.expect("lit fuel").remaining)
@@ -323,9 +323,9 @@ impl crate::Game {
         }
         let burning: Vec<_> = self
             .items
-            .iter()
-            .filter(|(id, item)| self.fuel_burns(**id, item))
-            .map(|(id, _)| *id)
+            .fuel_candidates()
+            .filter(|(id, item)| self.fuel_burns(*id, item))
+            .map(|(id, _)| id)
             .collect();
         for id in burning {
             self.items.edit(id, |item| {
