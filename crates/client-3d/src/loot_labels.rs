@@ -343,7 +343,7 @@ mod tests {
                 PrimaryWindow,
                 Window {
                     focused: true,
-                    resolution: (800.0, 600.0).into(),
+                    resolution: (800.0_f32, 600.0_f32).into(),
                     ..default()
                 },
             ))
