@@ -1746,6 +1746,57 @@ ownership/recovery assertions; their parallel timings and RSS are not comparable
 isolated measurements. No timing or RSS threshold changes gameplay or test success.
 
 
+#### CH-003 isolated ownership diagnostic (2026-11-05)
+
+[Hosted run 42117066862](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42117066862)
+completed all 24 separate-process samples, argument tests and exact ownership /
+recovery assertions with no failed samples. Rust 1.99.1 used normal release,
+one build job and no incremental compilation, with no release-profile overrides.
+The clean tested merge commit was `bbcca7d1081db1d3956ace35c474a6422acb7105`,
+tree `6866dcf0fb5912a7ddbeb8df61c352a4fec16584`, for PR head `9def54cf`.
+The host was Ubuntu 26.04.1, AMD EPYC 9V45, four reported logical CPUs,
+15.6 GiB RAM and ext4/NVMe (fingerprint `513c51c692dd`). Executable SHA-256:
+`7a8fc4c722101f34d3d4d68ddda435891e32b299e6262bf12b394145bc7729fa`.
+
+Each case has **n=3**, so nearest-rank p95 equals maximum. RSS columns are
+whole-process medians sampled after rewind expiry and after releasing modeled
+capability owners. They are not attributable heap-byte counts or peak RSS.
+
+| Starting records | Owners | Retained RSS (MiB) | Released RSS (MiB) | Warm checkpoint reopen p50 / p95 / max (ms) |
+| --- | --- | --- | --- | --- |
+| 0 | 1 | 21.42 | 22.57 | 10.230 / 10.239 / 10.239 |
+| 100 | 1 | 22.29 | 22.73 | 11.332 / 11.742 / 11.742 |
+| 1,000 | 1 | 23.60 | 24.02 | 22.214 / 23.438 / 23.438 |
+| 10,000 | 1 | 35.56 | 35.96 | 142.919 / 150.680 / 150.680 |
+| 0 | 8 | 23.21 | 25.29 | 12.376 / 12.799 / 12.799 |
+| 100 | 8 | 23.29 | 25.12 | 14.179 / 14.422 / 14.422 |
+| 1,000 | 8 | 25.20 | 26.70 | 24.966 / 25.376 / 25.376 |
+| 10,000 | 8 | 36.35 | 37.84 | 146.083 / 146.556 / 146.556 |
+
+For every history size, one owner retained 160 unique boundary roots and eight
+owners retained 384 after rewind expiry (128 rewind roots plus 32 per owner).
+Dropping those owners reclaimed every expired root, proven by `Weak::upgrade`,
+and left exactly 128 roots. Inline root structs fell from 320,000 / 768,000 to
+256,000 bytes; these exclude referenced allocations. RSS did not immediately
+fall and sometimes rose: temporary codec allocations and allocator reuse remain
+part of this staged process, so RSS alone cannot refute the exact reclamation.
+
+At 10,000 starting records, the two-batch eight-owner snapshot-size proxy was
+767,718 bytes, falling to 271,347 in one batch after release. Actual checkpoint
+JSON was 279,007 bytes; SQLite files were 16,744,448 / 17,113,088 bytes for one /
+eight owners. Archive length still increased RSS and reopen cost while the rewind
+root count stayed bounded. Reopen loaded all 10,161 / 10,385 retained records
+and replayed zero tail records. These are fixture-specific costs, not a leak,
+an arbitrary-world memory bound, cold-storage startup or an improvement claim.
+
+The [diagnostic artifact](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42117066862/artifacts/13457368201)
+contains raw samples, recomputable summaries, all exit/log receipts and unchanged
+source manifests. Its ZIP SHA-256 is
+`773719b78698908428efc83d52b13cf421110c9b8ad89dbd1e1e3dec0547080e`.
+It has ordinary 14-day CI retention; no permanent raw publication or accepted
+headline ledger entry is claimed. The bounded ownership/measurement question is
+answered for this workload; full final-head CI remains a separate merge gate.
+
 ### Explored-map checkpoint capacity
 
 The existing
