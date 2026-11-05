@@ -33,6 +33,11 @@ pub(crate) enum Mail {
 /// schedule" warning. It never advances the game.
 const SAVE_POLL: Duration = Duration::from_millis(50);
 
+/// The save backlog is separate from the mailbox, but must be bounded too.
+/// At the limit, abort the submitting stream rather than claim a request was
+/// rejected: its ID may be an exact retry of an already accepted operation.
+const HELD_REQUESTS: usize = 256;
+
 /// A client whose queue stays nearly full this long is disconnected, like a
 /// socket write that times out.
 pub(crate) const STALL: Duration = Duration::from_secs(5);
@@ -106,7 +111,8 @@ impl SimulationHandle {
 
 /// Backpressure: while saving is overdue, a player's command waits, and so
 /// does any command behind an earlier held one, keeping arrival order. Other
-/// mail (queries, saves, connections) is handled at once.
+/// mail (queries, saves, connections) is handled at once. The separate backlog
+/// has a fixed admission limit; overflow ends the submitting stream.
 fn holds(mail: &Mail, overdue: bool, held: usize) -> bool {
     matches!(
         mail,
@@ -120,10 +126,45 @@ fn holds(mail: &Mail, overdue: bool, held: usize) -> bool {
 /// Handle or hold one message; false once shut down.
 fn deliver(service: &mut Service, mail: Mail, held: &mut VecDeque<Mail>) -> bool {
     if holds(&mail, service.saving_overdue(), held.len()) {
-        held.push_back(mail);
+        let Mail::Request { client, .. } = &mail else {
+            unreachable!("only requests are deferred");
+        };
+        if !service.is_connected(*client) {
+            return true;
+        }
+        retain_connected(service, held);
+        if held.len() < HELD_REQUESTS {
+            held.push_back(mail);
+        } else {
+            // No receipt is fabricated and no accepted operation is rolled back.
+            // As with output failure, reconnect and retry the exact request ID
+            // to resolve an uncertain outcome through the ordinary receipt path.
+            service.disconnect(*client);
+            retain_connected(service, held);
+        }
         return true;
     }
-    receive(service, mail)
+    let running = receive(service, mail);
+    retain_connected(service, held);
+    running
+}
+
+fn retain_connected(service: &Service, held: &mut VecDeque<Mail>) {
+    held.retain(
+        |mail| matches!(mail, Mail::Request { client, .. } if service.is_connected(*client)),
+    );
+}
+
+/// At most HELD_REQUESTS can run before polling ordinary mail. Storage may
+/// become overdue again during recovery; leave the remaining FIFO intact.
+fn resume_held(service: &mut Service, held: &mut VecDeque<Mail>) -> bool {
+    while !service.saving_overdue() {
+        let Some(mail) = held.pop_front() else { break };
+        if !receive(service, mail) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Handle one message; false once shut down.
@@ -180,12 +221,9 @@ pub(crate) async fn run(
     // Player commands held while saving is overdue, in arrival order.
     let mut held: VecDeque<Mail> = VecDeque::new();
     loop {
-        if !held.is_empty() && !service.saving_overdue() {
-            while let Some(mail) = held.pop_front() {
-                if !receive(&mut service, mail) {
-                    return service;
-                }
-            }
+        retain_connected(&service, &mut held);
+        if !resume_held(&mut service, &mut held) {
+            return service;
         }
         // Handle every message that could already be queued, but do not let
         // continuously arriving replacements starve saves or the simulation.

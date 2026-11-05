@@ -2564,6 +2564,12 @@ impl Service {
         self.disconnect_with(id, DisconnectMode::Drain);
     }
 
+    /// Whether this stream still owns session state. Deferred ingress must not
+    /// retain requests after explicit, output-pressure or lifecycle disconnects.
+    pub(crate) fn is_connected(&self, id: u64) -> bool {
+        self.clients.contains_key(&id)
+    }
+
     pub(crate) fn disconnect(&mut self, id: u64) {
         self.disconnect_with(id, DisconnectMode::Abort);
     }
