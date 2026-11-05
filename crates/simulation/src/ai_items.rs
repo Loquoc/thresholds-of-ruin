@@ -323,6 +323,7 @@ impl Game {
     /// Candidate evaluation uses the production modifier fold. It changes only
     /// a private snapshot; the chosen ordinary action still owns admission.
     fn gear_projection(&self, actor: ActorId, item: ItemId, slot: EquipmentSlotId) -> Option<Game> {
+        crate::diagnostics::gear_projection();
         let mut equipment = self.actors.get(&actor)?.equipment.clone();
         equipment.remove(&slot);
         let mut candidate = self.clone();
@@ -1266,6 +1267,10 @@ mod tests {
             assert_eq!(selected, Some(&(ItemId(99 + count), (slot, None))));
             assert_eq!(ranking_projections, count);
             let ranking_end = crate::diagnostics::work_counts();
+            assert_eq!(
+                ranking_end.gear_projections - ranking_start.gear_projections,
+                usize::try_from(count).unwrap()
+            );
             assert_eq!(
                 ranking_end.game_clones - ranking_start.game_clones,
                 usize::try_from(count).unwrap()

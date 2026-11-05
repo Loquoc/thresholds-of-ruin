@@ -118,6 +118,65 @@ with `body_compile_work_` in the simulation library tests (set
 `creatures::body_tests::validated_body_replacement_` for the fresh-rebuild and
 atomic-rejection witnesses, alongside the existing body/Polymorph owner tests.
 
+### Equipment-decision workload v1
+
+`python scripts/perf_compare.py BASE --case equipment --rounds 3 --order balanced`
+compares complete public AI decisions with 1, 4, 16 and 64 eligible carried
+armor choices. The deterministic seed is 42; armor improves monotonically, so
+the independent expected action equips the last item. Each case warms up three
+decisions, then records twenty samples. Setup, reporting, expected-action and
+unchanged-Game assertions are outside the measured interval.
+
+The measured interval includes ordinary observation, eligibility, ranking and
+choice, not ranking alone or action execution. Actual equipment projections,
+whole-Game clones and dynamic creature folds are distinct counters. Eligibility
+and baseline folds are included and must not be credited as ranking savings.
+Use the existing ranking unit witnesses for isolated once-per-choice bounds.
+The validator requires every case/sample, the correct chosen item, valid timings
+and positive counts. This synthetic monotonic matrix is not a workload-frequency
+or general gameplay-speedup estimate.
+
+#### CH-016 controlled ranking comparison (2026-11-05)
+
+A local Rust 1.99.1 release comparison used the workload above on Linux,
+AMD EPYC 9V74, 9.7 GiB RAM (machine fingerprint `e2e20dc3f0e0`). Three balanced
+interleaved rounds supplied **60 valid samples per side per case**, with no
+failed or incomplete runs and no concurrent project builds/tests. Both sides
+used identical fixture/counter code and current production inputs; the baseline
+restored the repeated-score ranking algorithm preceding
+[PR 256](https://github.com/KCall360/thresholds-of-ruin/pull/256). This is a
+controlled algorithm comparison, not a replay of the complete historical tree.
+
+| Choices | Base p50 / p95 / max (ms) | Cached p50 / p95 / max (ms) |
+| --- | --- | --- |
+| 1 | 0.070 / 0.192 / 0.299 | 0.055 / 0.171 / 0.194 |
+| 4 | 0.447 / 0.705 / 0.919 | 0.176 / 0.369 / 1.313 |
+| 16 | 3.399 / 5.865 / 16.594 | 0.878 / 1.568 / 3.045 |
+| 64 | 47.365 / 55.526 / 68.935 | 5.097 / 6.811 / 8.504 |
+
+Actual counts **per complete decision**, including eligibility/baseline work:
+
+| Choices | Projections (base → cached) | Game clones | Dynamic folds |
+| --- | --- | --- | --- |
+| 1 | 3 → 2 | 4 → 3 | 3 → 2 |
+| 4 | 21 → 8 | 25 → 12 | 21 → 8 |
+| 16 | 183 → 32 | 199 → 48 | 183 → 32 |
+| 64 | 2271 → 128 | 2335 → 192 | 2271 → 128 |
+
+Every sample selected the independently expected highest armor item and left
+the authoritative Game unchanged. The cached path reduces measured cost for
+this synthetic monotonic inventory; it does not make the entire decision linear,
+establish allocation savings, or predict actual inventory frequencies. The
+four-choice maximum increased despite lower median and p95, and small-case
+round-to-round variation is material. Counters are enabled equally on both sides;
+these are instrumented diagnostic timings, not a general gameplay-speedup claim.
+No fresh full-workspace behavior qualification is implied.
+
+Raw release-asset publication requires maintainer approval and has not occurred;
+there is consequently no accepted headline performance-ledger entry yet. Preserve
+this evidence limitation rather than presenting the local summary as a published
+raw-data audit trail.
+
 ### Regeneration and nutrition baseline
 
 Recovery periods, per-point nutrition costs, maximum pools, action costs,
