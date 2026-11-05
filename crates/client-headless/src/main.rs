@@ -23,11 +23,8 @@ impl DiagnosticOutput {
         self,
         mut fields: serde_json::Value,
         state: &tor_client_common::ClientState,
+        derive: impl FnOnce(&mut serde_json::Value),
     ) -> serde_json::Value {
-        // This is the last admitted observation boundary, not the possibly
-        // later readiness/control cursor printed alongside it. Chart queries
-        // must echo this exact common-client authority.
-        fields["observation_base"] = serde_json::json!(state.observation_base());
         // Background transport is still emitted verbatim. Only the repeated
         // derived snapshot is omitted, and the absence is explicit. Every
         // observation/lifecycle update, ready result and error stays complete.
@@ -47,6 +44,13 @@ impl DiagnosticOutput {
                 "state_omitted": true,
             });
         }
+        // Keep full-state construction behind the same eligibility decision
+        // as the compact envelope, including advancement display formatting.
+        derive(&mut fields);
+        // This is the last admitted observation boundary, not the possibly
+        // later readiness/control cursor printed alongside it. Chart queries
+        // must echo this exact common-client authority.
+        fields["observation_base"] = serde_json::json!(state.observation_base());
         if !self.omit_memory {
             fields["memory"] = diagnostic_memory(state);
         }
@@ -342,30 +346,29 @@ fn emit(
     static TIMING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let timing = *TIMING.get_or_init(|| std::env::var_os("TOR_TIMING_DIAGNOSTICS").is_some());
     let started = timing.then(std::time::Instant::now);
-    let fields = serde_json::json!({
-        "type": kind,
-        "advancement": connection.advancement_pages.display(&connection.state.state().observation),
-        "advancement_page": connection.advancement_pages.page(),
-        "synchronized": connection.is_synchronized(),
-        "role": connection.role(),
-        "capabilities": connection.capabilities(),
-        "state": connection.state.state(),
-        "branch": connection.state.branch(),
-        "cursor": connection.state.cursor(),
-        "has_control": connection.state.has_control(),
-        "readiness": connection.state.readiness(),
-        "narration": if matches!(message, Some(ServerMessage::Update { update }) if matches!(update.body, UpdateBody::Outcome { .. })) {
+    let fields = serde_json::json!({"type": kind, "message": message, "error": error});
+    let output = output.project(fields, &connection.state, |fields| {
+        fields["advancement"] = serde_json::json!(connection
+            .advancement_pages
+            .display(&connection.state.state().observation));
+        fields["advancement_page"] = serde_json::json!(connection.advancement_pages.page());
+        fields["synchronized"] = serde_json::json!(connection.is_synchronized());
+        fields["role"] = serde_json::json!(connection.role());
+        fields["capabilities"] = serde_json::json!(connection.capabilities());
+        fields["state"] = serde_json::json!(connection.state.state());
+        fields["branch"] = serde_json::json!(connection.state.branch());
+        fields["cursor"] = serde_json::json!(connection.state.cursor());
+        fields["has_control"] = serde_json::json!(connection.state.has_control());
+        fields["readiness"] = serde_json::json!(connection.state.readiness());
+        fields["narration"] = serde_json::json!(if matches!(message, Some(ServerMessage::Update { update }) if matches!(update.body, UpdateBody::Outcome { .. })) {
             connection.state.narration()
-        } else { &[] },
-        "input_context": connection.state.input_context(),
-        "history": connection.state.history(),
-        "travel": connection.state.travel(),
-        "intentions": connection.state.intentions(),
-        "palette": &connection.palette,
-        "message": message,
-        "error": error,
+        } else { &[] });
+        fields["input_context"] = serde_json::json!(connection.state.input_context());
+        fields["history"] = serde_json::json!(connection.state.history());
+        fields["travel"] = serde_json::json!(connection.state.travel());
+        fields["intentions"] = serde_json::json!(connection.state.intentions());
+        fields["palette"] = serde_json::json!(&connection.palette);
     });
-    let output = output.project(fields, &connection.state);
     let mut stdout = io::stdout().lock();
     serde_json::to_writer(&mut stdout, &output)?;
     writeln!(stdout)?;
@@ -468,7 +471,7 @@ mod tests {
                 omit_memory: false,
                 compact_background,
             }
-            .project(fields, &state);
+            .project(fields, &state, |_| {});
             assert_eq!(
                 actual["observation_base"],
                 serde_json::to_value(&base).unwrap()
@@ -488,12 +491,12 @@ mod tests {
         ] {
             let mut fields = retained_diagnostic_fields(&state);
             fields["message"] = message.clone();
-            let full = DiagnosticOutput::default().project(fields.clone(), &state);
+            let full = DiagnosticOutput::default().project(fields.clone(), &state, |_| {});
             let compact = DiagnosticOutput {
                 compact_background: true,
                 ..Default::default()
             }
-            .project(fields, &state);
+            .project(fields, &state, |_| {});
             assert_eq!(compact["message"], message);
             assert_eq!(compact["type"], full["type"]);
             assert_eq!(compact["error"], full["error"]);
@@ -522,12 +525,12 @@ mod tests {
                 let mut fields = retained_diagnostic_fields(&state);
                 fields["type"] = kind.into();
                 fields["message"] = message;
-                let full = DiagnosticOutput::default().project(fields.clone(), &state);
+                let full = DiagnosticOutput::default().project(fields.clone(), &state, |_| {});
                 let compact = DiagnosticOutput {
                     compact_background: true,
                     ..Default::default()
                 }
-                .project(fields, &state);
+                .project(fields, &state, |_| {});
                 assert_eq!(compact, full);
             }
         }
@@ -543,9 +546,67 @@ mod tests {
                     compact_background: true,
                     ..Default::default()
                 }
-                .project(fields.clone(), &state),
-                DiagnosticOutput::default().project(fields, &state)
+                .project(fields.clone(), &state, |_| {}),
+                DiagnosticOutput::default().project(fields, &state, |_| {})
             );
+        }
+    }
+
+    #[test]
+    fn compact_background_skips_derived_construction_only_for_eligible_frames() {
+        let state = diagnostic_state(2);
+        for compact_background in [false, true] {
+            for omit_memory in [false, true] {
+                for kind in ["ready", "response", "update"] {
+                    for error in [None, Some("local failure")] {
+                        for message_type in [
+                            "map_page", "palette", "waiting", "snapshot", "update", "error", "none",
+                        ] {
+                            let message = if message_type == "none" {
+                                serde_json::Value::Null
+                            } else {
+                                serde_json::json!({"type":message_type,"payload":"raw"})
+                            };
+                            let fields =
+                                serde_json::json!({"type":kind,"message":message,"error":error});
+                            let mut calls = 0;
+                            let actual = DiagnosticOutput {
+                                omit_memory,
+                                compact_background,
+                            }
+                            .project(fields, &state, |fields| {
+                                calls += 1;
+                                fields["derived_witness"] = "constructed".into();
+                            });
+                            let compact = compact_background
+                                && kind != "ready"
+                                && error.is_none()
+                                && ["map_page", "palette", "waiting"].contains(&message_type);
+                            assert_eq!(calls, usize::from(!compact), "{kind} {error:?} {message_type} compact={compact_background} omit_memory={omit_memory}");
+                            assert_eq!(actual["message"], message);
+                            assert_eq!(actual["type"], kind);
+                            assert_eq!(actual["error"], serde_json::json!(error));
+                            assert_eq!(
+                                actual["map_hydration"],
+                                serde_json::json!(state.map_hydration())
+                            );
+                            if compact {
+                                assert!(actual.get("derived_witness").is_none());
+                                assert_eq!(actual["state_omitted"], true);
+                                assert_eq!(actual.as_object().unwrap().len(), 5);
+                            } else {
+                                assert_eq!(actual["derived_witness"], "constructed");
+                                assert!(actual.get("state_omitted").is_none());
+                                assert_eq!(actual.get("memory").is_none(), omit_memory);
+                                assert_eq!(
+                                    actual["observation_base"],
+                                    serde_json::json!(state.observation_base())
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -562,7 +623,7 @@ mod tests {
                 omit_memory,
                 ..Default::default()
             }
-            .project(fields.clone(), &state);
+            .project(fields.clone(), &state, |_| {});
             assert_eq!(result["message"], fields["message"]);
             assert_eq!(result["message"]["request_id"], "catalog");
         }
@@ -573,12 +634,12 @@ mod tests {
         let state = diagnostic_state(512);
         let before = state.clone();
         let retained = retained_diagnostic_fields(&state);
-        let full = DiagnosticOutput::default().project(retained.clone(), &state);
+        let full = DiagnosticOutput::default().project(retained.clone(), &state, |_| {});
         let projected = DiagnosticOutput {
             omit_memory: true,
             ..Default::default()
         }
-        .project(retained.clone(), &state);
+        .project(retained.clone(), &state, |_| {});
         let memory = diagnostic_memory(&state);
         let mut expected_full = retained.clone();
         expected_full["memory"] = memory;
@@ -597,7 +658,7 @@ mod tests {
         );
         assert_eq!(state, before, "Projection must not change any client state");
         assert_eq!(
-            DiagnosticOutput::default().project(retained, &state),
+            DiagnosticOutput::default().project(retained, &state, |_| {}),
             full,
             "A projected report must not discard future full-memory output"
         );
@@ -610,12 +671,12 @@ mod tests {
         for remembered_cells in [1, 512] {
             let state = diagnostic_state(remembered_cells);
             let retained = retained_diagnostic_fields(&state);
-            let full = DiagnosticOutput::default().project(retained.clone(), &state);
+            let full = DiagnosticOutput::default().project(retained.clone(), &state, |_| {});
             let projected = DiagnosticOutput {
                 omit_memory: true,
                 ..Default::default()
             }
-            .project(retained, &state);
+            .project(retained, &state, |_| {});
             let full_bytes = serde_json::to_vec(&full).unwrap();
             let projected_bytes = serde_json::to_vec(&projected).unwrap();
             assert_eq!(
