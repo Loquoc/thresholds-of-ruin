@@ -158,31 +158,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   shared pending-request completion and bounded stale-revision-only wizard
   retries; none is established redundant or safe to remove.
 
-### CH-013: Linux storage probe loses empty column boundaries
-
-- **Category/status:** robustness; source-supported parsing candidate, not a
-  reproduced machine-probe failure. Reviewed at `d7b374664` on 2026-11-04.
-- **Impact/confidence:** high confidence in the string transformation; prevalence
-  remains unmeasured. A device with an unreported transport and a reported model
-  can have its first model word recorded as the bus, altering descriptive storage
-  data included in the machine fingerprint. No timing-comparison error is proven.
-- **Evidence:** [probe_linux_machine](../../scripts/perf_ledger.py) requests
-  whitespace columns `ROTA,TRAN,MODEL`, then uses `partition(" ")` and
-  `rest.strip().partition(" ")`. For an illustrative row `0      Example Disk`,
-  stripping the empty middle column assigns `Example` to transport and `Disk`
-  to model. This is source reasoning, not captured output from an affected host.
-- **Next step:** preserve empty values with structured output or separate field
-  reads, retaining explicit command-failure fallbacks. A changed interpretation
-  can start a new fingerprint series; preserve historical entries rather than
-  incorrectly joining measurement series.
-- **Acceptance:** independent subprocess-output fixtures for present/missing
-  transport, multiword/missing models, partition-parent lookup, command failures
-  and empty output. Assert exact storage fields and fingerprint input, not merely
-  acceptance by `validate_machine`.
-- **Review limits:** existing [MachineProbe tests](../../scripts/test_perf_ledger.py)
-  cover CPU/memory/OS text parsers and Windows extraction, not Linux findmnt/lsblk
-  command composition or column decoding. No fresh probe execution is claimed.
-
 ### CH-014: Event-time sightings measure arrival interval, not absence
 
 - **Category/status:** behavior/maintainability; high-confidence source-supported
@@ -220,48 +195,39 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   genuine Outcome facts through normal application, not only hand-built lines.
   Retain the legacy test unless a separate complete removal proof justifies it.
 
-### CH-016: Equipment ranking reconstructs identical candidates repeatedly
+### CH-016: Equipment ranking scores cached; timing evidence remains open
 
-- **Category/status:** performance/maintainability; source-supported repeated
-  computation with quadratic worst-case ranking structure. Practical cost and
-  improvement are unmeasured. Reviewed at `d961c7caa` on 2026-11-04; no gameplay
-  failure or memory leak is claimed.
-- **Evidence:** ordinary [AI Search decisions](../../crates/simulation/src/ai.rs)
-  call `choose_gear` when equipment policy is enabled and no visible hostile
-  exposes the actor. After ranged-specific paths, [choose_gear](../../crates/simulation/src/ai_items.rs)
-  collects eligible item/socket choices, then finds the first candidate not
-  dominated by another choice. Both outer candidates and inner competitors are
-  rebuilt with `gear_projection` and `gear_score` against the unchanged Game.
-- **Cost mechanism:** each successful projection clones a shared-storage Game,
-  projects the loadout with the socket removed, checks equip allocation and
-  projects the replacement. Both loadout folds restore original actor inputs,
-  use remembered item conditions and execute production modifier/recovery logic.
-  Shared storage means a Game clone does not imply copying the whole world;
-  derivation and copy-on-write costs require measurement.
-- **Predicted scale witness:** strictly improving eligible same-slot choices in
-  increasing score order force repeated scans until later dominating choices
-  are reached. Ranking projections can grow quadratically with choice count.
-  A best first choice exits earlier; not every decision has quadratic actual
-  cost. Eligibility also repeats baseline work in `gear_upgrade`, a separate
-  follow-up after a narrow ranking optimization is qualified.
-- **Next step:** calculate each eligible choice's optional score once for
-  ranking, preserving list order, first nondominated selection, unavailable-score
-  handling, socket and old-item action. Retain production loadout derivation;
-  neither equipment-only arithmetic nor arbitrary inventory cutoffs preserve
-  the existing contract automatically.
-- **Acceptance:** exact independently expected actions and unchanged original
-  Game for single/increasing/equal/incomparable choices, unavailable scores,
-  occupied/multiple sockets and retained ranged equipment. Cover ordinary
-  `choose_ai` and subsequent equip work. A work-count witness must show at most
-  one ranking projection per eligible choice, separately accounting for setup
-  and eligibility. Retain existing recovery/protection/damage/timing witnesses
-  in [equipment tests](../../crates/simulation/src/ai_items.rs) and ordinary
-  stack-equipment/remembered-condition witnesses in
-  [AI idle tests](../../crates/simulation/src/ai_idle_tests.rs).
-- **Measurement gate:** compare deterministic small and larger inventories with
-  the [performance workflow](performance.md) before claiming a speedup. Report
-  projection/clone/fold counts separately from timings and storage bytes. No
-  fresh benchmark or behavioral regression was run in this review.
+- **Category/status:** performance/maintainability; repeated ranking projection
+  corrected by [PR 256](https://github.com/KCall360/thresholds-of-ruin/pull/256),
+  merged on 2026-11-05 at `49b9d7808ebaa909f73043f70f73370d75442431`.
+  Work-count evidence is established; practical speedup remains unmeasured.
+- **Correction:** [equipment ranking](../../crates/simulation/src/ai_items.rs)
+  calculates each eligible choice's optional score once, retaining order,
+  unavailable-score handling, first nondominated selection and existing
+  Equip/Unequip operands. Only scores are retained, not candidate Games.
+  Eligibility and production loadout projection remain unchanged. Dominance
+  comparisons can still be quadratic; this is not a linear-time claim for the
+  entire decision or proof that repeated eligibility baseline work is resolved.
+- **Work-count evidence:** the [focused hosted witness](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41949313623)
+  passed three ranking tests, including actual 1/4/16/64-choice projection and
+  Game-clone counts, unchanged-Game assertions and ordinary AI actions. A faithful
+  repeated-projection mutation produced two intended singleton failures (2 versus
+  1 and `[2]` versus `[1]`); restoring the optimized source passed all three again.
+  Larger old-case counts remain source-derived because the mutation stopped at
+  singleton failures. They are not measured baseline runs.
+- **Behavior qualification:** focused affected selections passed for equipment
+  (13), ordinary AI idle (21), duplicate sockets (1), remembered curses (1) and
+  retained ranged equipment (5). [Final integrated full CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41952664131)
+  passed for head `05e4a1411b97378a6470109a3740790cf10cb918`, including both
+  platform aggregates and Full PR qualification. These are historical receipts,
+  not fresh runtime checks performed by this register update. Two earlier local
+  test compilations were killed before execution and provide no runtime evidence.
+- **Remaining measurement gate:** compare deterministic small and larger
+  inventories under the [performance workflow](performance.md) before claiming
+  a practical speedup. Report projection/clone/fold counts separately from elapsed
+  time and storage bytes; shared-storage cloning does not copy the entire world.
+  Keep eligibility follow-ups separate from the qualified ranking change and
+  preserve loadout derivation, recovery, protection and equipment behavior.
 
 ### CH-017: Portable-light fuel filtering scans unrelated items
 
@@ -295,7 +261,79 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   continuation and checkpoint handling remain outside this review; no speedup
   is claimed.
 
+### CH-018: 3D loot labels repeat scene picking and discarded name preparation
+
+- **Category/status:** performance; source-supported work candidate, not a
+  reproduced functional bug or measured slowdown. Reviewed at `af1ff6046` on
+  2026-11-05; medium priority pending representative counters/profile.
+- **Evidence:** [label updates](../../crates/client-3d/src/loot_labels.rs) build
+  summaries and call `Models::select` for each successfully projected group before
+  comparing the resulting labels with the prior frame. The equality check avoids
+  UI reconstruction, not preceding preparation, picking or layout work.
+  [Picking](../../crates/client-3d/src/picking.rs) builds a fresh known-terrain map
+  and scans it in `floor_cell`, then traverses every queried shaped mesh per call.
+  Visible eligible meshes additionally walk ancestry and may receive a ray test;
+  this does not claim every mesh is intersected. For G valid label rays, the path
+  makes G terrain maps and G complete mesh-query traversals per active frame.
+  Terrain includes aligned remembered cells, not only the loot cell. These are
+  structural counts, not measured frame times.
+- **Related preparation:** disclosed-item membership uses linear visible-cell
+  scans. Count-only summaries still format and sort names before replacing text
+  with stack counts or discarding small piles. This belongs to the same candidate,
+  not a second issue merely to increase the finding count.
+- **Next step:** first instrument map constructions, terrain entries, mesh visits
+  and name formatting in representative ready scenes with multiple loot cells,
+  names on/off and varying terrain/mesh counts. Consider one prepared terrain map
+  and disclosed-cell lookup per update, plus a count-only grouping path. Preserve
+  existing no-rebuild behavior; observation revision alone cannot cache final
+  occlusion because camera, viewport and animated transforms can change it.
+- **Acceptance:** establish the current repeated-work witness before optimization,
+  then require at most one prepared terrain map per update with identical labels
+  and occlusion. Cover stationary/moving cameras, animated foreground obstruction,
+  cutaway/height, focus/modal transitions, empty/small piles and disappearing items.
+  Benchmark representative scenes before claiming a frame-rate improvement.
+- **Review limits:** existing label assertions cover quantities, bounded names,
+  layout, count thresholds, noninteractive nodes and offscreen anchors; they were
+  inspected, not run, and do not establish a work bound. No fresh runtime, GPU or
+  allocation profile is claimed.
+
 ## Retained or resolved findings
+
+### CH-013: Linux storage probe preserves empty column boundaries
+
+- **Disposition:** reproduced with controlled full-probe fixtures and corrected
+  by [PR 255](https://github.com/KCall360/thresholds-of-ruin/pull/255), merged
+  on 2026-11-04 at `af1ff60469f0342d81cbb87f7ee86df1371df08d`.
+  The original whitespace parser assigned the first model word to an empty
+  transport column. The intended first-red witness failed for both single-word
+  and multiword models; this was not a captured failure on a physical device.
+- **Correction:** [probe_linux_machine](../../scripts/perf_ledger.py) requests
+  explicit `lsblk` JSON fields and preserves missing transport separately from
+  device-model text. Non-string transport/model fields become unknown; missing
+  or invalid device output and command failures retain explicit unknown-data
+  fallbacks. The machine-record schema, fingerprint algorithm and Windows probe
+  remain unchanged.
+- **Coverage:** [MachineProbe tests](../../scripts/test_perf_ledger.py) assert
+  exact storage fields and frozen fingerprint values for present/absent transport,
+  single/multiword and absent models, partition-parent selection, rotational
+  encodings, NVMe and quoted model text, command failures, malformed JSON and
+  unexpected field/container types. The fixture also covers Windows path
+  rendering without requiring a real Linux storage device.
+- **Qualification:** the PR records an intended first-red failure and a passing
+  27-test focused owner after correcting a Windows-path fixture assumption.
+  After integrating current main, 30 ledger, 31 comparison and 20 documentation
+  tests passed locally (81 total). [Hosted run 41930266853](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41930266853)
+  passed for final head `6a123303186e5f6b587d8a4d715305d3e5a0565e`, including
+  all full Rust/Python lanes, both required platform aggregates and Full PR
+  qualification. These are scoped historical receipts, not fresh checks performed
+  by this register update or evidence of integration with every real storage device.
+- **Compatibility/limits:** Linux JSON probing requires util-linux 2.27 or newer.
+  Unsupported versions and unusable device output can produce unknown metadata.
+  Corrected or fallback metadata can change future fingerprints; historical
+  records remain intact and timing series with different fingerprints must not
+  be combined. See the [performance workflow](performance.md). This corrects
+  descriptive machine metadata, not a proven timing-comparison error, gameplay
+  defect or measured performance improvement.
 
 ### CH-015: Workflow progress reconciliation is order-independent
 
@@ -969,6 +1007,29 @@ not executed; no fresh runtime pass, profiling result or exhaustive audit follow
   inclusive thresholds and extreme signed modifiers with natural three/eighteen.
   Dice sampling and full build-fold validation were not repeated. Similar cap
   checks at distinct semantic entry points alone do not warrant a cleanup issue.
+
+### 3D picking correctness and camera publication
+
+Source review reconciled against main `af1ff6046` on 2026-11-05 found no new
+correctness issue in these bounded paths. Assertions were read, not executed.
+
+- [Picking](../../crates/client-3d/src/picking.rs) checks below-cell coordinates,
+  excludes unknown floor and uses coordinate tie-breaking for floor distances.
+  Decorative and culling-only bounds are excluded; targets must still resolve in
+  the disclosed view. Local-space intersections preserve rotation/nonuniform scale
+  and return world distance, rejecting singular/nonfinite determinants. Existing
+  assertions cover elevated floor, unknown space, culling-only bounds and transformed
+  distance. GPU/UI behavior, exhaustive overlapping-mesh ties and extreme-coordinate
+  integration remain outside scope. CH-018 concerns repeated picking, not a proven
+  intersection defect.
+- [Camera publication](../../crates/client-3d/src/camera.rs) shifts framing eye and
+  focus together and excludes portrait cameras from exploration queries. Cave
+  parameters are compared through immutable access before requesting mutable asset
+  access, avoiding unconditional material modification. Existing
+  [camera assertions](../../crates/client-3d/src/camera/tests.rs) cover inventory
+  framing, zero material modifications across 64 unchanged updates and changes
+  after focus/camera motion. No exhaustive input audit, long-duration precision
+  test or measured GPU bind-group cost is claimed.
 
 ## Removal and consolidation proof
 
