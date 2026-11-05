@@ -1704,15 +1704,40 @@ retained record and replay zero tail records. Restart timing includes normal
 validation and index construction, after a freshly written save has warmed the
 filesystem cache; it is not cold-storage startup or a latency gate.
 
-For isolated release samples, build the server library tests once, then run each
-of the eight exact `engine::retention_tests::history_*` cases separately with
-`--nocapture --test-threads=1`. For example:
+For isolated release samples, build the opt-in `retention_bench` example once,
+then run each of the eight history/owner pairs in a separate process. This avoids
+linking the complete server unit-test owner on memory-constrained development
+hosts. The feature-gated hidden runner and the eight unit tests use the same
+[workload implementation](../../crates/server/src/retention_profile.rs), including
+exact root ownership/reclamation and normal checkpoint recovery assertions. It
+accepts only the documented history sizes and one/eight modeled owners, creates
+its own engine, and is absent from ordinary library and server CLI builds. Its
+caller supplies an unused save path; the example owns a temporary directory.
+For example:
 
 ```sh
-cargo test -p tor-server --lib --release --locked --no-run
-cargo test -p tor-server --lib --release --locked \
-  engine::retention_tests::history_10000_attachments_8 -- --exact --nocapture --test-threads=1
+cargo build -p tor-server --example retention_bench --features retention-profile --release --locked
+target/release/examples/retention_bench 10000 8
 ```
+
+The path-scoped [hosted diagnostic](../../.github/workflows/retention-diagnostic.yml)
+runs 24 independent normal-release processes (eight cases, three repeats) using
+[`retention_measure.py`](../../scripts/retention_measure.py). It builds and runs
+argument tests before sampling, records exact tested merge/head identity, source
+manifests, executable hash, toolchain, build configuration, machine/save-volume
+fingerprint, every log and exit receipt, and rejects incomplete results. Sampling
+starts after all builds finish, with no other workload in that job. Hosted CPU
+contention is still possible; results are head-only diagnostics, not a speedup
+or universal latency claim. The workflow uses read-only permissions and ordinary
+14-day CI artifacts, not release assets; permanent raw publication remains a
+separate decision. Full canonical CI qualification is still required.
+
+Local preparation passed the feature-enabled release compilation preflight,
+formatting, architecture and documentation checks. Full test-owner builds and
+the smaller normal-release server library build were killed by the local host;
+a final server-only `codegen-units=256` attempt also failed. No local behavioral
+or memory/timing result is claimed from these builds. The hosted job uses normal
+release settings, not that failed local override.
 
 Keep each `retention-sample` JSON record, the source and executable hashes,
 exit receipt, toolchain and save-volume machine fingerprint. Repeat complete
