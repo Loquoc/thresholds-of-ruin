@@ -33,11 +33,6 @@ fn sample(engine: &Engine, held: &[PresentationBoundary], phase: &str) -> serde_
         }
     }
     let rss = rss_bytes(); // Before checkpoint diagnostics allocate temporary state.
-    let mut shared = tor_simulation::checkpoint::SharedState::default();
-    let snapshots: Vec<_> = roots
-        .iter()
-        .map(|boundary| boundary.game.checkpoint(&mut shared))
-        .collect();
     #[derive(Default)]
     struct Counter(usize);
     impl std::io::Write for Counter {
@@ -50,7 +45,18 @@ fn sample(engine: &Engine, held: &[PresentationBoundary], phase: &str) -> serde_
         }
     }
     let mut encoded = Counter::default();
-    serde_json::to_writer(&mut encoded, &(snapshots, shared)).unwrap();
+    // Presentation roots can outnumber a legal checkpoint's root list. Encode
+    // bounded independent pools rather than weakening the production limit.
+    // Sharing across batches is intentionally not counted by this size proxy.
+    let batch_limit = tor_simulation::checkpoint::MAX_CHECKPOINT_ROOTS;
+    for batch in roots.chunks(batch_limit) {
+        let mut shared = tor_simulation::checkpoint::SharedState::default();
+        let snapshots: Vec<_> = batch
+            .iter()
+            .map(|boundary| boundary.game.checkpoint(&mut shared))
+            .collect();
+        serde_json::to_writer(&mut encoded, &(snapshots, shared)).unwrap();
+    }
     json!({
         "phase": phase,
         "records": engine.profile_counts().0,
@@ -58,7 +64,9 @@ fn sample(engine: &Engine, held: &[PresentationBoundary], phase: &str) -> serde_
         "presentation_handles": held.len(),
         "unique_boundary_roots": roots.len(),
         "boundary_inline_bytes": roots.len() * std::mem::size_of::<Boundary>(),
-        "pooled_snapshot_json_bytes": encoded.0,
+        "snapshot_batch_json_bytes": encoded.0,
+        "snapshot_batches": roots.len().div_ceil(batch_limit),
+        "snapshot_batch_root_limit": batch_limit,
         "rss_bytes": rss,
     })
 }
@@ -104,6 +112,11 @@ fn retained_history(history: usize, attachments: usize) {
         retained["unique_boundary_roots"],
         REWIND_BOUNDARIES + 32 * attachments
     );
+    assert_eq!(
+        retained["snapshot_batches"],
+        if attachments == 8 { 2 } else { 1 }
+    );
+    assert!(retained["snapshot_batch_json_bytes"].as_u64().unwrap() > 0);
     drop(held);
     assert!(
         weak.iter().all(|root| root.upgrade().is_none()),
@@ -153,7 +166,7 @@ fn retained_history(history: usize, attachments: usize) {
     println!(
         "retention-sample {}",
         json!({
-            "version": 1,
+            "version": 2,
             "history": history,
             "attachments": attachments,
             "rss_before_engine": rss_before_engine,

@@ -1683,9 +1683,14 @@ checks that eight actual attachments with 32 stationary pictures each share one
 Game root, and that reset/disconnect remove their own capabilities. Existing
 stale-token and old-full-picture-release witnesses remain unchanged.
 
-The matrix also counts pooled snapshot JSON using the existing shared-state
-codec, and records Linux process RSS before those temporary capture allocations.
-Pooled snapshot bytes are a reproducible state-size proxy, **not allocated heap
+The matrix also counts snapshot JSON using the existing shared-state codec in
+independent batches of at most 257 roots, respecting the production checkpoint
+limit. `snapshot_batch_json_bytes` sums those encodings; `snapshot_batches` and
+`snapshot_batch_root_limit` make the grouping explicit. The eight-owner retained
+stage needs two batches. Sharing is deduplicated within each batch, not across
+batches, so this is not a globally pooled encoding or an actual save size. Linux
+process RSS is sampled before those temporary capture allocations.
+Snapshot batch bytes are a reproducible state-size proxy, **not allocated heap
 bytes**: the codec deduplicates values, allocator overhead is absent, and the
 archive/indexes/current Game/client views are outside that byte count. Inline
 boundary bytes count only the root structs. RSS includes the entire process and
