@@ -4051,3 +4051,18 @@ The final combined local helper, selection and reporting run passed 77 tests;
 the new scripted class non-graphical and the original native case graphical;
 existing unregistered owners still require exhaustive fallback rather than being
 silently accepted by selective coverage.
+
+The [next PR 272 cohort](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42302778734)
+passed every other actual lane, but Windows release Rust reached its 60-minute
+whole-job limit. Its retained, hash-verified artifact records 54m10s of release
+compilation, all 816 simulation integration tests and the final 29 Service
+contracts passing, and a complete verifier exit zero after 3547.375 seconds.
+GitHub still cancelled the job before completion evidence could qualify it;
+the required aggregates did not pass and no full qualification seal was emitted.
+This is one demonstrated infrastructure-budget defect, not a test failure or a
+waiver. Only Windows release Rust now has a 75-minute job and 70-minute
+verification limit, preserving bounded execution and five minutes of setup and
+evidence margin. A first-red workflow-contract test observed the old `(60, 60)`
+bounds and zero margin; its matrix cases preserve every other lane's limits.
+All test selection, individual test deadlines, gates and evidence requirements
+are unchanged. Fresh hosted qualification remains required after this correction.
