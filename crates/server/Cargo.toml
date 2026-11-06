@@ -10,6 +10,8 @@ publish = false
 [features]
 # Explicitly selected development adapter; never part of the server CLI.
 service-contract-host = []
+# Canned offline measurement workload, excluded from normal library/CLI builds.
+retention-profile = []
 
 [[bin]]
 name = "tor-service-contract-host"
@@ -44,3 +46,7 @@ tempfile.workspace = true
 tor-test-support = { path = "../test-support" }
 tor-client-common.workspace = true
 tor-client-ascii = { path = "../client-ascii" }
+
+[[example]]
+name = "retention_bench"
+required-features = ["retention-profile"]

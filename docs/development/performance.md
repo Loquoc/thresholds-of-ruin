@@ -1709,6 +1709,153 @@ scheduling noise. Operation counts, not those timings, establish scaling.
 
 ## Persistence evidence
 
+### Retained presentation and history ownership
+
+[CH-003](code-health.md#ch-003-retained-presentation-and-history-cost) separates
+three kinds of retention rather than treating every presentation as another full
+Game:
+
+- The engine retains the union of its latest 128 selectable and latest 128 raw
+  boundaries, at most 256 immutable boundary roots. Wait-only workloads have 128
+  once the window fills. The current mutable Game is a separate owner of shared
+  state, not another presentation capability.
+- Each attached client retains at most 32 issued presentation capabilities and
+  one latest complete picture. Capabilities for the same committed boundary
+  share its `Arc`; old complete pictures are not retained by that history.
+  Quiet attachments can intentionally keep roots beyond the rewind window for
+  their already-issued pages and annotations. With C attachments the union is
+  at most 256 + 32C boundary roots, often much smaller. This is a bound in C, not
+  a server-wide memory limit or a bound on world/discovery size.
+- Journal records, accepted receipts and derived history indexes retain the
+  complete chronology, including abandoned futures. Their memory and validated
+  startup work grow with history independently of checkpoint and presentation
+  windows. Dropping these records would change replay, retry and history behavior.
+
+The [ownership matrix](../../crates/server/src/retention_tests.rs) exercises
+0/100/1,000/10,000 starting records and one/eight modeled attachment owners. Each
+owner holds 32 distinct, staggered boundaries, then 128 later waits expire their
+engine rewind ownership. It counts unique live `Arc<Boundary>` allocations,
+checks that each old root has exactly its presentation owner, and proves every
+old root is gone through `Weak::upgrade` after those owners are dropped. The
+[Service witness](../../crates/server/src/presentation_history.rs) separately
+checks that eight actual attachments with 32 stationary pictures each share one
+Game root, and that reset/disconnect remove their own capabilities. Existing
+stale-token and old-full-picture-release witnesses remain unchanged.
+
+The matrix also counts snapshot JSON using the existing shared-state codec in
+independent batches of at most 257 roots, respecting the production checkpoint
+limit. `snapshot_batch_json_bytes` sums those encodings; `snapshot_batches` and
+`snapshot_batch_root_limit` make the grouping explicit. The eight-owner retained
+stage needs two batches. Sharing is deduplicated within each batch, not across
+batches, so this is not a globally pooled encoding or an actual save size. Linux
+process RSS is sampled before those temporary capture allocations.
+Snapshot batch bytes are a reproducible state-size proxy, **not allocated heap
+bytes**: the codec deduplicates values, allocator overhead is absent, and the
+archive/indexes/current Game/client views are outside that byte count. Inline
+boundary bytes count only the root structs. RSS includes the entire process and
+allocator reuse; lack of an immediate RSS fall is not a failed ownership release.
+The multi-owner matrix models capability ownership only, not Service/socket CPU,
+output queues or complete per-client state.
+
+Each case then persists the ordinary history, captures a checkpoint, opens it
+normally, and compares the complete disclosed state. Recovery must load every
+retained record and replay zero tail records. Restart timing includes normal
+validation and index construction, after a freshly written save has warmed the
+filesystem cache; it is not cold-storage startup or a latency gate.
+
+For isolated release samples, build the opt-in `retention_bench` example once,
+then run each of the eight history/owner pairs in a separate process. This avoids
+linking the complete server unit-test owner on memory-constrained development
+hosts. The feature-gated hidden runner and the eight unit tests use the same
+[workload implementation](../../crates/server/src/retention_profile.rs), including
+exact root ownership/reclamation and normal checkpoint recovery assertions. It
+accepts only the documented history sizes and one/eight modeled owners, creates
+its own engine, and is absent from ordinary library and server CLI builds. Its
+caller supplies an unused save path; the example owns a temporary directory.
+For example:
+
+```sh
+cargo build -p tor-server --example retention_bench --features retention-profile --release --locked
+target/release/examples/retention_bench 10000 8
+```
+
+The path-scoped [hosted diagnostic](../../.github/workflows/retention-diagnostic.yml)
+runs 24 independent normal-release processes (eight cases, three repeats) using
+[`retention_measure.py`](../../scripts/retention_measure.py). It builds and runs
+argument tests before sampling, records exact tested merge/head identity, source
+manifests, executable hash, toolchain, build configuration, machine/save-volume
+fingerprint, every log and exit receipt, and rejects incomplete results. Sampling
+starts after all builds finish, with no other workload in that job. Hosted CPU
+contention is still possible; results are head-only diagnostics, not a speedup
+or universal latency claim. The workflow uses read-only permissions and ordinary
+14-day CI artifacts, not release assets; permanent raw publication remains a
+separate decision. Full canonical CI qualification is still required.
+
+Local preparation passed the feature-enabled release compilation preflight,
+formatting, architecture and documentation checks. Full test-owner builds and
+the smaller normal-release server library build were killed by the local host;
+a final server-only `codegen-units=256` attempt also failed. No local behavioral
+or memory/timing result is claimed from these builds. The hosted job uses normal
+release settings, not that failed local override.
+
+Keep each `retention-sample` JSON record, the source and executable hashes,
+exit receipt, toolchain and save-volume machine fingerprint. Repeat complete
+cases on the same otherwise-idle host. Ordinary combined CI runs validate the
+ownership/recovery assertions; their parallel timings and RSS are not comparable
+isolated measurements. No timing or RSS threshold changes gameplay or test success.
+
+
+#### CH-003 isolated ownership diagnostic (2026-11-05)
+
+[Hosted run 42117066862](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42117066862)
+completed all 24 separate-process samples, argument tests and exact ownership /
+recovery assertions with no failed samples. Rust 1.99.1 used normal release,
+one build job and no incremental compilation, with no release-profile overrides.
+The clean tested merge commit was `bbcca7d1081db1d3956ace35c474a6422acb7105`,
+tree `6866dcf0fb5912a7ddbeb8df61c352a4fec16584`, for PR head `9def54cf`.
+The host was Ubuntu 26.04.1, AMD EPYC 9V45, four reported logical CPUs,
+15.6 GiB RAM and ext4/NVMe (fingerprint `513c51c692dd`). Executable SHA-256:
+`7a8fc4c722101f34d3d4d68ddda435891e32b299e6262bf12b394145bc7729fa`.
+
+Each case has **n=3**, so nearest-rank p95 equals maximum. RSS columns are
+whole-process medians sampled after rewind expiry and after releasing modeled
+capability owners. They are not attributable heap-byte counts or peak RSS.
+
+| Starting records | Owners | Retained RSS (MiB) | Released RSS (MiB) | Warm checkpoint reopen p50 / p95 / max (ms) |
+| --- | --- | --- | --- | --- |
+| 0 | 1 | 21.42 | 22.57 | 10.230 / 10.239 / 10.239 |
+| 100 | 1 | 22.29 | 22.73 | 11.332 / 11.742 / 11.742 |
+| 1,000 | 1 | 23.60 | 24.02 | 22.214 / 23.438 / 23.438 |
+| 10,000 | 1 | 35.56 | 35.96 | 142.919 / 150.680 / 150.680 |
+| 0 | 8 | 23.21 | 25.29 | 12.376 / 12.799 / 12.799 |
+| 100 | 8 | 23.29 | 25.12 | 14.179 / 14.422 / 14.422 |
+| 1,000 | 8 | 25.20 | 26.70 | 24.966 / 25.376 / 25.376 |
+| 10,000 | 8 | 36.35 | 37.84 | 146.083 / 146.556 / 146.556 |
+
+For every history size, one owner retained 160 unique boundary roots and eight
+owners retained 384 after rewind expiry (128 rewind roots plus 32 per owner).
+Dropping those owners reclaimed every expired root, proven by `Weak::upgrade`,
+and left exactly 128 roots. Inline root structs fell from 320,000 / 768,000 to
+256,000 bytes; these exclude referenced allocations. RSS did not immediately
+fall and sometimes rose: temporary codec allocations and allocator reuse remain
+part of this staged process, so RSS alone cannot refute the exact reclamation.
+
+At 10,000 starting records, the two-batch eight-owner snapshot-size proxy was
+767,718 bytes, falling to 271,347 in one batch after release. Actual checkpoint
+JSON was 279,007 bytes; SQLite files were 16,744,448 / 17,113,088 bytes for one /
+eight owners. Archive length still increased RSS and reopen cost while the rewind
+root count stayed bounded. Reopen loaded all 10,161 / 10,385 retained records
+and replayed zero tail records. These are fixture-specific costs, not a leak,
+an arbitrary-world memory bound, cold-storage startup or an improvement claim.
+
+The [diagnostic artifact](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42117066862/artifacts/13457368201)
+contains raw samples, recomputable summaries, all exit/log receipts and unchanged
+source manifests. Its ZIP SHA-256 is
+`773719b78698908428efc83d52b13cf421110c9b8ad89dbd1e1e3dec0547080e`.
+It has ordinary 14-day CI retention; no permanent raw publication or accepted
+headline ledger entry is claimed. The bounded ownership/measurement question is
+answered for this workload; full final-head CI remains a separate merge gate.
+
 ### Explored-map checkpoint capacity
 
 The existing

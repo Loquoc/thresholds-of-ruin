@@ -136,3 +136,7 @@ fn assert_spectator_disclosed_state_eq(
     }
     assert_disclosed_state_eq(actual, &expected);
 }
+
+#[cfg(feature = "retention-profile")]
+#[doc(hidden)]
+pub use engine::run_retention_profile;
