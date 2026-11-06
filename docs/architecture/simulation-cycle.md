@@ -42,7 +42,12 @@ one bounded mailbox. A dedicated simulation thread owns `Service` on its own
 current-thread Tokio runtime; network tasks do not mutate `Game`.
 
 The runner drains at most mailbox capacity (256 messages) per pass, polls save
-status when due, then calls `Service::step` once. It repeats after progress. While
+status when due, then calls `Service::step` once. An overdue save defers commands
+and attachment commits in a separate, at-most-256-request FIFO. Overflow aborts
+the submitting stream and releases its deferred work; explicit or internal
+disconnection also reclaims it. Recovery handles at most that bounded backlog
+before the next mailbox pass and rechecks the save deadline before each request.
+See [persistence](persistence.md) for uncertain-outcome and retry semantics. It repeats after progress. While
 blocked it waits for mail, output capacity or save/stall timers. No request
 interrupts a half-executed action, and replacement arrivals cannot extend one
 drain pass indefinitely. This bounds message count, not action/query CPU cost.

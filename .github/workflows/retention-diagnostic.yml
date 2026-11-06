@@ -1,0 +1,57 @@
+name: Retained ownership diagnostic
+
+on:
+  pull_request:
+    paths:
+      - "crates/server/src/retention_profile.rs"
+      - "crates/server/src/retention_tests.rs"
+      - "crates/server/examples/retention_bench.rs"
+      - "scripts/retention_measure.py"
+      - "scripts/test_retention_measure.py"
+      - ".github/workflows/retention-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retention-diagnostic-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: Isolated retained ownership (Linux release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_INCREMENTAL: "0"
+      RETENTION_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact tested merge source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Select repository toolchain
+        run: rustup show active-toolchain
+      - name: Install native example dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - name: Validate diagnostic tooling and run isolated normal-release matrix
+        env:
+          TMPDIR: ${{ runner.temp }}/retention-saves
+        run: |
+          mkdir -p "$TMPDIR"
+          python3 -m unittest discover -s scripts -p test_retention_measure.py -v
+          python3 scripts/retention_measure.py --output .local/retention-hosted
+      - name: Retain ordinary CI diagnostic evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: retention-diagnostic-attempt-${{ github.run_attempt }}
+          path: .local/retention-hosted/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

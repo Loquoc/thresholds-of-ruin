@@ -80,6 +80,8 @@ class Workload:
 
 
 WORKLOADS = {
+    "equipment": Workload("equipment", "tor-simulation", "equipment_bench", "scripts/equipment_performance_report.py",
+                          group=lambda row: f"i{row['items']}", keys=("items", "sample", "version", "seed")),
     "models": Workload("models", "tor-client-3d", "model_bench", "scripts/model_performance_report.py",
                        group=lambda row: row["case"], keys=("case", "sample", "seed", "version", "hz"),
                        manifest="crates/client-3d/Cargo.toml"),

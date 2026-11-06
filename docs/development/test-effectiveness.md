@@ -52,6 +52,40 @@ counts stacks in count-only mode. Runtime camera/animated-occlusion, disclosure,
 focus/modal and unchanged-node witnesses accompany the change; fixed-head native
 and core CI qualification remains separate from this first-red record.
 
+## Save-deferred ingress retention, 5 November 2026
+
+CH-002 was reproduced against `6fab91097` in the
+[Linux debug first-red job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42098728533/job/127495738606),
+using regression head `12cb70421afb`. The bounded evidence window establishes
+**one deferred-ingress ownership root, three distinct behavioral failing methods
+and three failed behavioral method executions**, all under
+`runner::stalled_ingress_tests`:
+
+- `stalled_ingress_is_bounded_and_overflow_only_disconnects_the_sender` retained
+  257 requests against the independent 256-request bound.
+- `disconnect_reclaims_held_requests_without_reordering_the_survivors` retained
+  `gone` between the expected surviving `first` and `last` requests.
+- `real_transport_overflow_closes_flooding_stream_but_keeps_queries_available`
+  expired its explicit overload/query liveness window with the real writer stalled.
+
+The fourth method, `recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect`,
+failed its positive accepted-receipt setup before exercising overload/recovery.
+This is **one separate fixture failure**, not another confirmed production failure.
+The fixture now establishes that receipt before locking the writer, avoiding the
+SQLite busy-timeout window, and reports the actual setup output if it fails.
+Compilation, Clippy, rustdoc and formatting passed. The server library reported
+1,331 passes and four failures; later workspace owners were not reached. The
+artifact archive's SHA-256 was independently checked. No OOM, total retained-byte
+measurement, performance improvement or complete first-red matrix is claimed.
+
+The correction caps deferred admission, reclaims disconnected-stream work and
+preserves surviving FIFO and accepted receipts. Follow-up witnesses put an accepted
+retry at the overflow boundary, prove a discarded valid request has no receipt,
+cover service-side disconnect cleanup and pause a recovery batch when saving
+becomes overdue again. Fixed-head platform qualification is separate from the
+first-red evidence; all original storage, authorization and transport witnesses
+remain required and unchanged.
+
 ## Corpse soft-body breathing, 5 November 2026
 
 The shared soft-region solver continued its autonomous breathing drive after an
@@ -3802,3 +3836,22 @@ production defect. The two deliberate unit subcases are sensitivity evidence,
 not additional naturally detected failures. The actual Text/source-free restart
 witness remains required in final-head hosted CI; no local current-binary process
 qualification is claimed.
+
+
+## Retention diagnostic root limit, 5 November 2026
+
+PR 266's first Linux release Rust run exposed one diagnostic-fixture root cause
+in all four eight-owner retention methods. Their 384 distinct roots exceeded
+the production checkpoint codec's 257-root capture bound; serialization rejected
+the invalid capture. The four single-owner methods passed. This is not a
+production retention defect or missing restore binding. Evidence: [Linux release
+job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42100439774/job/127504306775),
+artifact 13452188782 (SHA-256
+`cfbd4e89ba5b99405b80ad59df622532e0757de99489c2fa1bf8f9308d192113`).
+
+Diagnostic serialization now uses legal independent batches, reports their summed
+JSON bytes and count explicitly, and asserts two batches for eight owners. It
+preserves the production bound, all ownership/reclamation assertions, and normal
+checkpoint recovery. Cross-batch sharing is not counted by this size proxy.
+Final-head hosted execution remains required; no local behavioral run or isolated
+RSS/timing result is claimed while local storage capacity is constrained.
