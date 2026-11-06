@@ -206,6 +206,84 @@ mod tests {
     }
 
     #[test]
+    fn attachments_share_roots_and_release_their_own_capabilities() {
+        let (mut service, first) = attached();
+        let mut clients = vec![first];
+        for _ in 1..8 {
+            let client = service
+                .connect(
+                    &Account {
+                        role: AccessRole::Spectator,
+                        user: "another-reader".into(),
+                        token: "test-only".into(),
+                        actors: BTreeSet::from([ActorId(1)]),
+                    },
+                    "headless".into(),
+                )
+                .unwrap();
+            service.handle(
+                client.id,
+                "attach".into(),
+                Request::Attach { actor: ActorId(1) },
+            );
+            clients.push(client);
+        }
+        let original = service.clients[&clients[0].id].presentations.entries[0]
+            .base
+            .clone();
+        for client in &mut clients {
+            while client.messages.try_recv_frame().is_ok() {}
+            for _ in 1..RETAINED_PRESENTATIONS {
+                service.observe(client.id).unwrap();
+                while client.messages.try_recv_frame().is_ok() {}
+            }
+        }
+        let roots: BTreeSet<_> = service
+            .clients
+            .values()
+            .flat_map(|client| {
+                assert_eq!(client.presentations.entries.len(), RETAINED_PRESENTATIONS);
+                client.presentations.entries.iter().map(|issued| {
+                    service.engine.presentation_game(&issued.boundary).unwrap() as *const _
+                })
+            })
+            .collect();
+        assert_eq!(
+            roots.len(),
+            1,
+            "256 issued capabilities share one Game root"
+        );
+        assert!(service
+            .issued_presentation(clients[0].id, &original)
+            .is_ok());
+        service.snapshot(clients[0].id, "reset").unwrap();
+        assert_eq!(
+            service.clients[&clients[0].id].presentations.entries.len(),
+            1
+        );
+        assert_eq!(
+            service
+                .issued_presentation(clients[0].id, &original)
+                .err()
+                .unwrap()
+                .code,
+            ErrorCode::StaleContext
+        );
+        for client in clients.into_iter().skip(1) {
+            service.disconnect(client.id);
+        }
+        assert_eq!(service.clients.len(), 1);
+        assert_eq!(
+            service
+                .clients
+                .values()
+                .map(|client| client.presentations.entries.len())
+                .sum::<usize>(),
+            1
+        );
+    }
+
+    #[test]
     fn preparation_and_rejected_output_do_not_admit_capabilities() {
         let (mut service, client) = attached();
         let id = client.id;
