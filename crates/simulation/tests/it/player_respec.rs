@@ -509,7 +509,8 @@ fn phase5_respec_restore_rejects_an_unheld_extra_explicit_ration() {
     let snapshot = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value((snapshot, shared)).unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    let plan = &mut value[1]["actors"][actors]["1"]["pending"]["plan"];
+    let plan =
+        &mut crate::checkpoint_fixture::actor_mut(&mut value[1], actors, "1")["pending"]["plan"];
     plan["supplies"] = json!({"kind":"explicit","items":[{"cost_ordinal":0,"item":10},{"cost_ordinal":0,"item":11}]});
     let (snapshot, shared) = serde_json::from_value(value).unwrap();
     assert!(
@@ -528,7 +529,8 @@ fn phase5_respec_progress_and_frozen_policy_cannot_be_substituted_on_restore() {
     let actors = original[0]["actors"].as_u64().unwrap() as usize;
     for mutation in 0..10 {
         let mut value = original.clone();
-        let pending = &mut value[1]["actors"][actors]["1"]["pending"];
+        let pending =
+            &mut crate::checkpoint_fixture::actor_mut(&mut value[1], actors, "1")["pending"];
         match mutation {
             0 => pending["progress"] = json!({"kind":"item"}),
             1 => {
@@ -1100,11 +1102,9 @@ fn shifted_clock(game: &Game, tick: u64) -> Game {
     let mut pool = serde_json::to_value(shared).unwrap();
     assert_eq!(game.tick(), 0);
     snapshot["tick"] = json!(tick);
-    for table in pool["actors"].as_array_mut().unwrap() {
-        for actor in table.as_object_mut().unwrap().values_mut() {
-            actor["ready_at"] = json!(tick);
-            actor["active_since"] = json!(tick);
-        }
+    for actor in pool["actor_records"].as_array_mut().unwrap() {
+        actor["ready_at"] = json!(tick);
+        actor["active_since"] = json!(tick);
     }
     Game::restore_checkpoint(
         serde_json::from_value(snapshot).unwrap(),
@@ -1527,7 +1527,7 @@ fn phase5_respec_nested_finite_records_require_named_shapes() {
     let snapshot = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value((snapshot, shared)).unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    value[1]["actors"][actors]["1"]["pending"]["item_payment"] =
+    crate::checkpoint_fixture::actor_mut(&mut value[1], actors, "1")["pending"]["item_payment"] =
         json!(["held",[{"cost_ordinal":0,"item":10}]]);
     assert!(serde_json::from_value::<(
         tor_simulation::checkpoint::Snapshot,
@@ -1764,7 +1764,7 @@ fn phase5_respec_post_spend_corpse_exhaustion_rolls_back_control_advancement_and
     // Resuming the public run-control transaction reaches completion without
     // passing a fresh action's early allocator guard.
     let actors = snapshot["actors"].as_u64().unwrap() as usize;
-    pool["actors"][actors]["2"]["ready_at"] = json!(due + 1);
+    crate::checkpoint_fixture::actor_mut(&mut pool, actors, "2")["ready_at"] = json!(due + 1);
     snapshot["combat"]["run"] = json!({"kind":"arena","state":{
         "limits":{"ticks":100000,"actions":10000},"started_at":game.tick(),"actions":0,
         "progress":{"kind":"active","control":{"kind":"paused","remaining":0}},"deceased":null

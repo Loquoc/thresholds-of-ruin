@@ -1014,8 +1014,10 @@ fn rewind_restores_the_original_guise_boundary_without_resetting_the_later_bound
     game.teleport(SUBJECT, at(1, 4, 2)).unwrap();
     let after = game.checkpoint(&mut shared);
     let shared = serde_json::from_slice(&serde_json::to_vec(&shared).unwrap()).unwrap();
-    let earlier = Game::restore_checkpoint(before, &shared, game.content().clone()).unwrap();
-    let later = Game::restore_checkpoint(after, &shared, game.content().clone()).unwrap();
+    let mut restore = crate::checkpoint::RestoreContext::new(&shared, game.content().clone());
+    restore.bind_spatial_roots(&[&before, &after]).unwrap();
+    let earlier = restore.restore(before).unwrap();
+    let later = restore.restore(after).unwrap();
     assert_eq!(
         disclosure(&earlier, OWNER, SUBJECT),
         ActorDisclosure::ApparentObject
@@ -1039,7 +1041,11 @@ fn forged_checkpoint(
     let snapshot_json = serde_json::to_value(&snapshot).unwrap();
     let pool = snapshot_json["actors"].as_u64().unwrap() as usize;
     let mut shared_json = serde_json::to_value(&shared).unwrap();
-    edit(&mut shared_json["actors"][pool][actor.0.to_string()]);
+    edit(crate::checkpoint_fixture::actor_mut(
+        &mut shared_json,
+        pool,
+        &actor.0.to_string(),
+    ));
     let shared = serde_json::from_value(shared_json).unwrap();
     Game::restore_checkpoint(snapshot, &shared, game.content().clone())
 }

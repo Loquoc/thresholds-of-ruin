@@ -808,8 +808,11 @@ fn ordered_strikes_checkpoint_tail_roundtrips_and_rejects_impossible_cursor_or_h
         ("started", json!(11)),
     ] {
         let mut forged = serde_json::to_value(&shared).unwrap();
-        forged["actors"][snapshot["actors"].as_u64().unwrap() as usize]["1"]["pending"][field] =
-            value;
+        crate::checkpoint_fixture::actor_mut(
+            &mut forged,
+            snapshot["actors"].as_u64().unwrap() as usize,
+            "1",
+        )["pending"][field] = value;
         let forged = serde_json::from_value::<SharedState>(forged)
             .expect("current, structurally valid mutation must reach checkpoint admission");
         assert!(crate::Game::restore_checkpoint(
@@ -1630,8 +1633,11 @@ fn ordered_strikes_checkpoint_preserves_captured_natural_source_across_transform
     // Historical capture authenticity belongs to deterministic journal replay.
     for unknown_source in [false, true] {
         let mut forged = serde_json::to_value(&shared).unwrap();
-        let plan = &mut forged["actors"][snapshot["actors"].as_u64().unwrap() as usize]["1"]
-            ["pending"]["plan"];
+        let plan = &mut crate::checkpoint_fixture::actor_mut(
+            &mut forged,
+            snapshot["actors"].as_u64().unwrap() as usize,
+            "1",
+        )["pending"]["plan"];
         if unknown_source {
             for strike in plan["strikes"].as_array_mut().unwrap() {
                 strike["origin"]["species"] = json!("missing_species");
@@ -1957,8 +1963,11 @@ fn ordered_strikes_checkpoint_rejects_invalid_frozen_offsets_ordinals_and_timing
         ("/recovery", json!(1_000_001)),
     ] {
         let mut forged = serde_json::to_value(&shared).unwrap();
-        let plan = &mut forged["actors"][snapshot["actors"].as_u64().unwrap() as usize]["1"]
-            ["pending"]["plan"];
+        let plan = &mut crate::checkpoint_fixture::actor_mut(
+            &mut forged,
+            snapshot["actors"].as_u64().unwrap() as usize,
+            "1",
+        )["pending"]["plan"];
         *plan.pointer_mut(path).unwrap() = value;
         let Ok(forged) = serde_json::from_value::<SharedState>(forged) else {
             continue;

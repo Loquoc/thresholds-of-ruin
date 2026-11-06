@@ -218,8 +218,11 @@ fn effective_interaction_frozen_plan_rejects_positive_harm_without_current_equip
     let snapshot = game.checkpoint(&mut shared);
     let encoded_snapshot = serde_json::to_value(&snapshot).unwrap();
     let mut encoded_shared = serde_json::to_value(&shared).unwrap();
-    encoded_shared["actors"][encoded_snapshot["actors"].as_u64().unwrap() as usize]["1"]
-        ["pending"]["plan"] = serde_json::to_value(forged).unwrap();
+    crate::checkpoint_fixture::actor_mut(
+        &mut encoded_shared,
+        encoded_snapshot["actors"].as_u64().unwrap() as usize,
+        "1",
+    )["pending"]["plan"] = serde_json::to_value(forged).unwrap();
     let shared = serde_json::from_value(encoded_shared).unwrap();
     assert!(crate::Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
 }

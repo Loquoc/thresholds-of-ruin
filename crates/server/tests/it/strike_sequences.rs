@@ -320,7 +320,7 @@ fn saved_checkpoint(path: &Path) -> Value {
 
 fn saved_preparation(checkpoint: &Value) -> &Value {
     let actors = checkpoint["game"]["actors"].as_u64().unwrap() as usize;
-    &checkpoint["shared"]["actors"][actors]["1"]["pending"]
+    &crate::checkpoint_fixture::actor(&checkpoint["shared"], actors, "1")["pending"]
 }
 
 fn target_hp(engine: &Engine) -> u64 {

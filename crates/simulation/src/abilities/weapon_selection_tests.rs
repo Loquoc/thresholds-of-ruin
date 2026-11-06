@@ -2057,6 +2057,7 @@ fn projectile_paid_equipped_release_recovers_exact_unit_after_hit_and_pending_re
         .costs()
         .reservation(owner)
         .is_none());
+    let mut shared = crate::checkpoint::SharedState::default();
     let checkpoint = restored.checkpoint(&mut shared);
     assert_eq!(
         Game::restore_checkpoint(checkpoint, &shared, restored.content().clone()).unwrap(),
@@ -4183,6 +4184,7 @@ fn standalone_authored_stack_is_not_equipped_whole_and_paid_throw_holds_one_and_
         restored.items[&stolen].quantity, 2,
         "theft never consumes the reserved unit"
     );
+    let mut shared = crate::checkpoint::SharedState::default();
     let checkpoint = restored.checkpoint(&mut shared);
     assert_eq!(
         Game::restore_checkpoint(checkpoint, &shared, restored.content().clone()).unwrap(),
@@ -4841,6 +4843,7 @@ fn homogeneous_melee_equip_reserves_one_reopens_and_keeps_remainder_and_knowledg
         assert!(restored
             .projectile_choice_for_item(actor, &throw, ProjectileChoiceQuery::ThrowSources, next)
             .is_none());
+        let mut shared = crate::checkpoint::SharedState::default();
         let again = Game::restore_checkpoint(
             restored.checkpoint(&mut shared),
             &shared,

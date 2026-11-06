@@ -329,7 +329,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
                 sequence, payload = db.execute("SELECT sequence, payload FROM checkpoint").fetchone()
                 self.assertEqual(db.execute("SELECT count(*) FROM journal WHERE sequence > ?", (sequence,)).fetchone()[0], 0)
             saved = json.loads(decode_checkpoint_payload(payload))
-            actors = saved["shared"]["actors"][saved["game"]["actors"]]
+            actors = {actor: saved["shared"]["actor_records"][index] for actor, index in saved["shared"]["actors"][saved["game"]["actors"]].items()}
             lifecycle = saved["shared"]["lifecycles"][saved["game"]["lifecycle"]]
             remote_points = [point for point in lifecycle["points"].values() if point["target"] == {"actor": 2}]
             self.assertEqual(remote_points, [{"target": {"actor": 2}, "active_radius": 0,
@@ -515,8 +515,8 @@ class CreatureAbilityProcesses(ProcessTestCase):
             self.assertEqual(db.execute("SELECT count(*) FROM journal WHERE sequence > ?", (sequence,)).fetchone()[0], 0)
         import json
         checkpoint = json.loads(decode_checkpoint_payload(payload))
-        self.assertTrue(any(actors.get("2", {}).get("pending") is not None
-                            for actors in checkpoint["shared"]["actors"]))
+        self.assertTrue(any(checkpoint["shared"]["actor_records"][actors["2"]].get("pending") is not None
+                            for actors in checkpoint["shared"]["actors"] if "2" in actors))
         wizard.stop()
         clock.stop()
         player.stop()

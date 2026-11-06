@@ -1204,7 +1204,8 @@ fn canonical_wraith_earned_regrowth_survives_source_free_service_reopen() {
     }
     fn creature(saved: &Value, actor: ActorId) -> &Value {
         let actors = saved["game"]["actors"].as_u64().unwrap() as usize;
-        &saved["shared"]["actors"][actors][actor.0.to_string()]["combat"]["creature"]
+        &crate::checkpoint_fixture::actor(&saved["shared"], actors, &actor.0.to_string())["combat"]
+            ["creature"]
     }
     fn owned_rows(build: &Value, kind: &str) -> Value {
         json!(build["hd"]
@@ -1265,7 +1266,9 @@ fn canonical_wraith_earned_regrowth_survives_source_free_service_reopen() {
         // reduce injury but cannot manufacture it.
         assert!(view.max_hp - view.hp <= raw_injury);
         let actors = snapshot["game"]["actors"].as_u64().unwrap() as usize;
-        if snapshot["shared"]["actors"][actors]["1"]["active_since"] == snapshot["game"]["tick"] {
+        if crate::checkpoint_fixture::actor(&snapshot["shared"], actors, "1")["active_since"]
+            == snapshot["game"]["tick"]
+        {
             assert_eq!(view.max_hp - view.hp, raw_injury);
         }
         assert_eq!(view.own_stats.unwrap().restorable_losses.hit_dice, 2 - hd);

@@ -427,7 +427,7 @@ fn speculative_preparation_and_published_visibility_do_not_activate_floor_two() 
     let actor = |engine: &Engine| {
         let state = authority(engine);
         let pool = state["game"]["actors"].as_u64().unwrap() as usize;
-        state["shared"]["actors"][pool]["1"].clone()
+        crate::checkpoint_fixture::actor(&state["shared"], pool, "1").clone()
     };
     assert_eq!(
         actor(&engine),
@@ -576,7 +576,7 @@ fn entry_population_is_born_before_movement_recovery_advances_the_scheduler() {
     );
     let state = authority(&engine);
     let pool = state["game"]["actors"].as_u64().unwrap() as usize;
-    let actor = &state["shared"]["actors"][pool][spawned[0].0.to_string()];
+    let actor = crate::checkpoint_fixture::actor(&state["shared"], pool, &spawned[0].0.to_string());
     assert_eq!(actor["active_since"], json!(entry_tick));
     assert_eq!(actor["ready_at"], json!(entry_tick));
     restored_both_ways(&engine);
@@ -611,7 +611,8 @@ fn loaded_inactive_member_births_use_entry_tick_and_individual_freeze_stamps() {
     let frozen = lifecycle["frozen"].as_array().unwrap();
     let actors = state["game"]["actors"].as_u64().unwrap() as usize;
     let mut frozen_births = 0;
-    for (id, actor) in state["shared"]["actors"][actors].as_object().unwrap() {
+    for (id, index) in state["shared"]["actors"][actors].as_object().unwrap() {
+        let actor = &state["shared"]["actor_records"][index.as_u64().unwrap() as usize];
         if id == "1" {
             continue;
         }
@@ -680,7 +681,8 @@ fn assert_selected_starter(engine: &Engine, selected: u64) -> Value {
     );
     let state = authority(engine);
     let actor_pool = state["game"]["actors"].as_u64().unwrap() as usize;
-    let actor = &state["shared"]["actors"][actor_pool][selected.to_string()];
+    let actor =
+        crate::checkpoint_fixture::actor(&state["shared"], actor_pool, &selected.to_string());
     let equipped: BTreeSet<u64> = actor["equipment"]
         .as_object()
         .unwrap()

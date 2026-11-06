@@ -22,7 +22,8 @@ fn knows(game: &Game, actor: ActorId, id: &str) -> bool {
     let snapshot = game.checkpoint(&mut shared);
     let value = serde_json::to_value((snapshot, shared)).unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    value[1]["actors"][actors][actor.0.to_string()]["recognized_abilities"]
+    crate::checkpoint_fixture::actor(&value[1], actors, &actor.0.to_string())
+        ["recognized_abilities"]
         .as_array()
         .unwrap()
         .iter()

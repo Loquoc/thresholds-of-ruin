@@ -1566,7 +1566,8 @@ mod tests {
             let value = serde_json::to_value(&snapshot).unwrap();
             let mut pool = serde_json::to_value(&shared).unwrap();
             let actors = value["actors"].as_u64().unwrap() as usize;
-            pool["actors"][actors]["1"]["pending"]["intention"] = serde_json::json!(corrupt);
+            crate::checkpoint_fixture::actor_mut(&mut pool, actors, "1")["pending"]["intention"] =
+                serde_json::json!(corrupt);
             let invalid_shared = serde_json::from_value(pool).unwrap();
             assert!(Game::restore_checkpoint(
                 serde_json::from_value(value).unwrap(),

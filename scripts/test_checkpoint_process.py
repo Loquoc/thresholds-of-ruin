@@ -7,6 +7,7 @@ import json
 import unittest
 import zlib
 import re
+import tomllib
 
 from checkpoint_payload import HEADER, crc32c, decode_checkpoint_payload
 from process_harness import ROOT, ProcessTestCase, SPECTATOR_TOKEN, TOKEN, creature_package
@@ -137,16 +138,15 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
                 self.save.write_bytes(original)
                 broken = copy.deepcopy(checkpoint)
                 changed = 0
-                for actors in broken["shared"]["actors"]:
-                    for actor in actors.values():
-                        if actor.get("combat") is None:
-                            continue
-                        parent = actor["combat"]["creature"]
-                        for part in path[:-1]:
-                            parent = parent[part]
-                        self.assertIn(path[-1], parent)
-                        del parent[path[-1]]
-                        changed += 1
+                for actor in broken["shared"]["actor_records"]:
+                    if actor.get("combat") is None:
+                        continue
+                    parent = actor["combat"]["creature"]
+                    for part in path[:-1]:
+                        parent = parent[part]
+                    self.assertIn(path[-1], parent)
+                    del parent[path[-1]]
+                    changed += 1
                 self.assertGreater(changed, 0)
                 self.write_checkpoint(broken)
                 self.assert_invalid_save(scenario=package)
@@ -187,12 +187,11 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
                            "immunities": [], "reductions": {}, "faction": "neutral"}, "hp": 30}
         checkpoint = self.read_checkpoint()
         changed = 0
-        for actors in checkpoint["shared"]["actors"]:
-            for actor in actors.values():
-                if actor.get("combat") is not None:
-                    self.assertEqual(set(actor["combat"]), {"identity", "creature"})
-                    actor["combat"] = legacy
-                    changed += 1
+        for actor in checkpoint["shared"]["actor_records"]:
+            if actor.get("combat") is not None:
+                self.assertEqual(set(actor["combat"]), {"identity", "creature"})
+                actor["combat"] = legacy
+                changed += 1
         self.assertGreater(changed, 0)
         self.write_checkpoint(checkpoint)
         self.assert_invalid_save(scenario=package)
@@ -251,6 +250,159 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
         barrier.assert_released()
         with sqlite3.connect(self.save) as db:
             self.assertEqual(db.execute("SELECT sequence FROM checkpoint").fetchone()[0], 8)
+
+
+    def capacity_server(self, *, reduced=False, scenario="two-room"):
+        return self.server("--checkpoint-interval", 8, "--save-target-ms", 3600000,
+            "--save-max-ms", 7200000, "--save-idle-ms", 0, scenario=scenario, seed=None,
+            extra_env={"TOR_TEST_CHECKPOINT_BYTE_LIMIT": "0"} if reduced else {})
+
+    def test_capacity_deferral_keeps_saved_tail_with_and_without_old_checkpoint(self):
+        # Real encoder bounds, not an alternate serializer or a fabricated error.
+        # The ordinary journal records remain legal at the production limit.
+        for prior_checkpoint in (False, True):
+            with self.subTest(prior_checkpoint=prior_checkpoint):
+                self.save = self.directory / f"capacity-{prior_checkpoint}.db"
+                previous = None
+                if prior_checkpoint:
+                    server = self.capacity_server()
+                    player, _ = self.client()
+                    for _ in range(4):
+                        self.assertIsNone(self.act(player, {"type": "wait"})["error"])
+                    self.assertIsNone(self.request(player, {"type": "save"})["error"])
+                    player.stop(); server.stop()
+                    with sqlite3.connect(self.save) as db:
+                        previous = db.execute("SELECT sequence,payload,checksum FROM checkpoint").fetchone()
+                    self.assertIsNotNone(previous)
+                server = self.capacity_server(reduced=True)
+                player, _ = self.client()
+                for _ in range(5):
+                    completed = self.act(player, {"type": "wait"})
+                    self.assertIsNone(completed["error"])
+                for _ in range(2):
+                    self.assertIsNone(self.request(player, {"type": "save"})["error"])
+                # Further ordinary play remains admitted after the first overflow.
+                completed = self.act(player, {"type": "wait"})
+                self.assertIsNone(completed["error"])
+                self.assertIsNone(self.request(player, {"type": "save"})["error"])
+                warnings = [json.loads(line) for line in player.transcript if line.startswith("{")]
+                warnings = [frame.get("message") or {} for frame in warnings]
+                self.assertTrue(any(message.get("type") == "error"
+                    and message.get("request_id") is None
+                    and "Checkpoint deferred" in message.get("message", "")
+                    and "journal saving continues" in message.get("message", "")
+                    for message in warnings))
+                with sqlite3.connect(self.save) as db:
+                    self.assertEqual(db.execute("SELECT sequence,payload,checksum FROM checkpoint").fetchone(), previous)
+                    tail = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 ORDER BY sequence").fetchall()
+                    self.assertTrue(tail)
+                    self.assertGreater(tail[0][0], previous[0] if previous else 0)
+                    self.assertEqual([seq for seq, _ in tail], list(range(tail[0][0], tail[-1][0] + 1)))
+                player.stop()
+                server.child.kill(); server.child.wait(timeout=10)
+                # A fresh normal process replays the old checkpoint plus durable
+                # tail, or the base plus tail when no checkpoint ever succeeded.
+                server = self.capacity_server()
+                player, restored = self.client()
+                self.assertDisclosedStateEqual(restored["state"], completed["state"])
+                self.assertEqual(restored["history"], completed["history"])
+                for _ in range(4):
+                    self.assertIsNone(self.act(player, {"type": "wait"})["error"])
+                self.assertIsNone(self.request(player, {"type": "save"})["error"])
+                with sqlite3.connect(self.save) as db:
+                    selected = db.execute("SELECT sequence FROM checkpoint").fetchone()[0]
+                self.assertGreater(selected, tail[-1][0])
+                player.stop(); server.stop()
+
+    def test_invalid_checkpoint_fault_configuration_is_not_capacity_deferral(self):
+        server = self.server("--checkpoint-interval", 1, "--save-target-ms", 3600000,
+            "--save-max-ms", 7200000, "--save-idle-ms", 0, scenario="two-room",
+            extra_env={"TOR_TEST_CHECKPOINT_BYTE_LIMIT": "invalid"})
+        player, _ = self.client()
+        self.assertIsNone(self.act(player, {"type": "wait"})["error"])
+        saved = self.request(player, {"type": "save"})
+        self.assertIsNotNone(saved["error"])
+        self.assertNotIn("Checkpoint deferred", saved["error"])
+        with sqlite3.connect(self.save) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM checkpoint").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT max(sequence) FROM journal").fetchone()[0], 0)
+        player.stop()
+        server.child.kill(); server.child.wait(timeout=10)
+
+    def test_text_save_and_spectator_survive_checkpoint_deferral(self):
+        server = self.capacity_server(reduced=True)
+        player, _ = self.text_client()
+        spectator, initial = self.client(token=SPECTATOR_TOKEN, observe=True)
+        actor = initial["state"]["observation"]["actor"]
+        def waits(frame):
+            return sum(entry["actor"] == actor and entry["content"].get("event") == {"type": "waited"}
+                       for entry in frame.get("history", []))
+        for count in range(1, 6):
+            player.command("wait")
+            self.frame(spectator, lambda frame: waits(frame) == count)
+        self.assertIn("Done.", player.command("save"))
+        saved = self.request(spectator, {"type": "observe"})
+        self.assertEqual(saved["state"]["observation"]["tick"], "500")
+        player.command("wait")
+        self.frame(spectator, lambda frame: waits(frame) == 6)
+        self.assertIn("Done.", player.command("save"))
+        saved = self.request(spectator, {"type": "observe"})
+        self.assertEqual(saved["state"]["observation"]["tick"], "600")
+        spectator.stop(); player.stop()
+        server.child.kill(); server.child.wait(timeout=10)
+        self.capacity_server()
+        player, welcome = self.text_client()
+        self.assertIn("tick 600", welcome)
+        spectator, restored = self.client(token=SPECTATOR_TOKEN, observe=True)
+        self.assertDisclosedStateEqual(restored["state"], saved["state"])
+        self.assertEqual(restored["history"], saved["history"])
+
+    def test_full_limit_many_actor_play_crosses_retention_window_and_restarts(self):
+        # A lawful synthetic workload, not the unavailable private Menagerie
+        # package or player save. All 26 AI actors are peaceful and exploratory.
+        package = creature_package(self, "checkpoint-many-actors", abilities=())
+        region = package / "regions/1.toml"
+        source = region.read_text(encoding="utf-8").replace("size = [6, 3, 2]", "size = [6, 12, 2]")
+        template = source[source.index("[[actors]]"):]
+        self.assertIn("id = 2\n", template)
+        self.assertIn("at = [2, 1, 0]", template)
+        for index in range(25):
+            actor = index + 3
+            extra = template.replace("id = 2\n", f"id = {actor}\n", 1)
+            extra = extra.replace("at = [2, 1, 0]", f"at = [{index % 5}, {4 + index // 5}, 0]", 1)
+            source += "\n" + extra
+        authored = tomllib.loads(source)
+        self.assertEqual(authored["size"], [6, 12, 2])
+        self.assertEqual([actor["id"] for actor in authored["actors"]], list(range(2, 28)))
+        positions = [tuple(actor["at"]) for actor in authored["actors"]]
+        self.assertEqual(len(set(positions)), 26)
+        self.assertNotIn((1, 1, 0), positions, "AI actors must not overlap the player")
+        self.assertTrue(all(0 <= x < 6 and 0 <= y < 12 and z == 0 for x, y, z in positions))
+        region.write_text(source, encoding="utf-8", newline="\n")
+        validation = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+            capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(validation.returncode, 0, validation.stderr)
+        server = self.server("--checkpoint-interval", 32, "--save-target-ms", 3600000,
+            "--save-max-ms", 7200000, "--save-idle-ms", 0, scenario=package)
+        player, _ = self.client()
+        for index in range(132):
+            completed = self.act(player, {"type": "wait"})
+            self.assertIsNone(completed["error"])
+            if (index + 1) % 32 == 0:
+                self.assertIsNone(self.request(player, {"type": "save"})["error"])
+        self.assertIsNone(self.request(player, {"type": "save"})["error"])
+        checkpoint = self.read_checkpoint()
+        self.assertGreaterEqual(len(checkpoint["boundaries"]), 128)
+        self.assertLessEqual(len(checkpoint["boundaries"]), 256)
+        self.assertEqual(len(checkpoint["shared"]["actors"][checkpoint["game"]["actors"]]), 27)
+        spectator, observed = self.client(token=SPECTATOR_TOKEN, observe=True)
+        self.assertEqual(observed["history"], completed["history"])
+        spectator.stop(); player.stop(); server.stop()
+        self.server(scenario=package, seed=None)
+        player, restored = self.client()
+        self.assertDisclosedStateEqual(restored["state"], completed["state"])
+        self.assertEqual(restored["history"], completed["history"])
+
 
 
 

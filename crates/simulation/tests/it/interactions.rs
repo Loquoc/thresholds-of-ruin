@@ -739,7 +739,8 @@ fn saved_item_preparation_rejects_missing_ground_and_foreign_items() {
     // Another actor owns an unrelated pending relocation array. It must not
     // be mistaken for this actor's preparation or become a corruption target.
     assert!(
-        encoded["actors"][actors][other.0.to_string()]["periodic_relocations"]["pending"]
+        crate::checkpoint_fixture::actor(&encoded, actors, &other.0.to_string())
+            ["periodic_relocations"]["pending"]
             .as_array()
             .unwrap()
             .is_empty()
@@ -997,7 +998,7 @@ fn unknown_anatomy_slot_rejects_configuration_and_checkpoint_restore() {
     let mut shared = SharedState::default();
     let snapshot = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value(&shared).unwrap();
-    value["actors"][0][actor.0.to_string()]["anatomy"]["slots"] =
+    crate::checkpoint_fixture::actor_mut(&mut value, 0, &actor.0.to_string())["anatomy"]["slots"] =
         serde_json::json!(["unknown_slot"]);
     let corrupt = serde_json::from_value(value).unwrap();
     assert!(Game::restore_checkpoint(snapshot, &corrupt, game.content().clone()).is_err());
@@ -1068,8 +1069,8 @@ fn shared_grip_capacity_limits_authored_and_paid_equips_without_combat() {
         if capacity == 3 {
             let snapshot = game.checkpoint(&mut shared);
             let mut invalid = serde_json::to_value(&shared).unwrap();
-            invalid["actors"][0][actor.0.to_string()]["anatomy"]["capacities"]["grip"] =
-                serde_json::json!(1);
+            crate::checkpoint_fixture::actor_mut(&mut invalid, 0, &actor.0.to_string())
+                ["anatomy"]["capacities"]["grip"] = serde_json::json!(1);
             let corrupt = serde_json::from_value(invalid).unwrap();
             assert!(Game::restore_checkpoint(snapshot, &corrupt, game.content().clone()).is_err());
         }

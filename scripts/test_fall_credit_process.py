@@ -83,7 +83,7 @@ class FallCreditProcesses(ProcessTestCase):
                         self.assertIsNotNone(row)
                         selected_sequence, payload = row
                         checkpoint = json.loads(decode_checkpoint_payload(payload))
-                        actors = checkpoint["shared"]["actors"][checkpoint["game"]["actors"]]
+                        actors = {actor: checkpoint["shared"]["actor_records"][index] for actor, index in checkpoint["shared"]["actors"][checkpoint["game"]["actors"]].items()}
                         cause = actors["2"]["motion"]["active_fall"]
                         self.assertEqual(cause["owner"], 1)
                         self.assertGreater(cause["episode"], 0)

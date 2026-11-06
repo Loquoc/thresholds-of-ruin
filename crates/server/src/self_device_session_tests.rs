@@ -89,7 +89,7 @@ fn self_device_source(root: &Path, with_other: bool, condition: bool) -> crate::
 
 fn nothing_actor(saved: &Value, actor: ActorId) -> &Value {
     let index = saved["game"]["actors"].as_u64().unwrap() as usize;
-    &saved["shared"]["actors"][index][actor.0.to_string()]
+    crate::checkpoint_fixture::actor(&saved["shared"], index, &actor.0.to_string())
 }
 fn nothing_items(saved: &Value) -> &serde_json::Map<String, Value> {
     let index = saved["game"]["items"].as_u64().unwrap() as usize;

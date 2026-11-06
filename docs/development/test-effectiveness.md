@@ -3897,3 +3897,93 @@ preserves the production bound, all ownership/reclamation assertions, and normal
 checkpoint recovery. Cross-batch sharing is not counted by this size proxy.
 Final-head hosted execution remains required; no local behavioral run or isolated
 RSS/timing result is claimed while local storage capacity is constrained.
+
+## Menagerie checkpoint capacity, 6 November 2026
+
+The supplied extended-play incident exposed two related persistence weaknesses:
+whole actor-table and AI-state repetition multiplied large records across the
+bounded rewind window, and optional checkpoint capacity failure stopped legal
+journal batches from becoming durable. The private deployed save was not copied
+into the repository or used as a local fixture; the reported 64 MiB cap incident
+is distinct from the reduced-limit regression below.
+
+Three deliberate regression methods reproduced the intended pre-fix behavior.
+`storage::checkpoint_failure_tests::capacity_deferral_keeps_journal_durable_with_and_without_prior_checkpoint`
+failed at explicit journal flush after a real encoder overflow. The simulation
+`checkpoint::tests::changing_one_actor_does_not_repeat_other_actor_records`
+validated all restored states and mutation isolation, then measured 2,308,224
+bytes for 64 boundaries of 32 actors against 36,787 bytes for one boundary.
+`checkpoint::tests::retained_ai_records_share_visits_and_restore_independent_mutable_states`
+validated restoration/isolation, then found 96 serialized visit maps where four
+complete AI records suffice. These are three sensitivity witnesses, not three
+independent naturally detected production defects or platform-multiplied counts.
+
+Save-format pooling requires current-format fixture updates. Test-only mutable
+actor access preserves the former per-directory mutation boundary through
+copy-on-write; malformed raw references remain raw tests. Historical corruption
+must not silently corrupt a current shared payload and thereby weaken its
+historical-only rejection witness. Verification outcomes are recorded with the
+change; local focused checks do not replace final-head hosted qualification.
+
+The same synthetic actor workload now encodes to 160,170 bytes (93.06% below
+its 2,308,224-byte baseline); its single snapshot is 36,907 bytes. This is a
+serialized-size witness, not a release latency benchmark or a measurement of the
+private Menagerie save. An additional restoration-cache witness first failed at
+rebuilding an unchanged actor across distinct directories, then passed alongside
+item-table scoping and mutation isolation. A deliberately failing generic
+serializer also exposed an intermediate capture panic before the guarded hash
+sink was added; this was an implementation-stage regression, not a separately
+observed gameplay incident. Oversized fingerprinting and other serializer errors
+now have distinct handling, with reader and writer expansion checks kept symmetric.
+
+Broader checkpoint checks also detected stale multi-root fixture API usage:
+full save restoration and boundary equality succeeded, but a later independent
+single-root restore correctly rejected unused records from the multi-root pool.
+Those fixture reads now bind the complete root set before restoring individual
+snapshots, retaining exact equality and corruption-rejection assertions. Three
+independent weapon round-trips now start a fresh pool after changing state rather
+than carrying unreferenced records from the preceding round-trip. A new streaming
+fallback fixture initially assumed that entering a hall implied detachment;
+perception and physical-neighbor pins invalidate that assumption. Its setup must
+prove actual movement and detached references before testing durable row retention.
+These are fixture corrections, not additional observed production incidents.
+The streaming fixture's public position comparison was also observer-relative
+zero; it now verifies authoritative movement-event coordinates and the authored
+start anchor. A subsequent real execution reached valid detached rows but exposed
+a missing NPC-turn driver in the new fixture's continuation, rather than a
+persistence failure. The fixture uses the existing bounded ordinary AI progression
+pattern and keeps unexpected movement failures fatal.
+That corridor had already saved all seven authored source rows before fallback,
+so expecting its source count to grow was an invalid setup oracle. The streaming
+witness instead preserves those exact saved sources and reopens without the
+original package; newly admitted source/generated-row atomicity is independently
+asserted by the transaction-boundary regression. No production source-admission
+requirement is removed.
+
+After these fixture corrections, the focused checkpoint set passed 55 simulation
+and 87 server tests; the four additionally affected simulation fixture modules
+passed 169 tests. Ten actual-process checkpoint tests passed with freshly built
+server, Text and headless clients, including reduced encoder capacity with and
+without an older checkpoint, continued durable play, restart, old-format rejection,
+and a normal-limit 27-actor retention-window workload. These are local focused
+receipts, not hosted or native graphical qualification. The private deployed
+Menagerie scenario was unavailable and is not represented as verified.
+The subsequent targeted integration phase passed 23 server persistence/streaming
+checks and 40 simulation nutrition checks; nine actual-process background-save
+checks also passed. These results include the source-free streaming fallback
+witness and retain the same local-versus-hosted qualification distinction.
+
+Release comparisons found smaller checkpoints and faster restart but repeated
+interaction-latency increases, so a further capture-work regression was added.
+After exact restoration and canonical-byte checks, the intended first-red
+witnesses measured 33 actor fingerprint calls versus five required and 63 AI
+calls versus seven required. A separate equal-allocation/cleared-memo witness
+measured 15 calls versus five. Initial test setup incorrectly expected a revisited
+AI value to create another unique record and attempted unsupported capture into a
+decoded pool; those fixture errors were corrected without relaxing either
+structural deduplication or decoded spatial-authority rules. Reduced fingerprint
+work alone is not evidence that the observed latency difference is resolved.
+The memoized run also exposed one old fixture mutating an internal canonical
+record after capture, leaving its fingerprint metadata stale. It now captures an
+invalid source clone and the valid original separately, retaining invalid-body
+rejection and exact valid restoration without mutable access to pooled records.

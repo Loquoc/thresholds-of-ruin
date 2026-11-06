@@ -250,7 +250,7 @@ fn authority(engine: &Engine) -> Value {
 fn guise(engine: &Engine, actor: u64) -> Value {
     let saved = authority(engine);
     let pool = saved["game"]["actors"].as_u64().unwrap() as usize;
-    let state = &saved["shared"]["actors"][pool][actor.to_string()];
+    let state = crate::checkpoint_fixture::actor(&saved["shared"], pool, &actor.to_string());
     assert!(state.is_object(), "the claim witness must be loaded");
     state["guise"].clone()
 }

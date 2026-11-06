@@ -1,6 +1,10 @@
 //! Integration tests for this crate, compiled as one binary so each build
 //! links one test executable instead of one per file.
 
+#[cfg(test)]
+#[path = "../../test_support/checkpoint_json.rs"]
+mod checkpoint_fixture;
+
 mod abilities;
 mod ability_targets;
 mod action_boundaries;
