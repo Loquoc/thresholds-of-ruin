@@ -33,6 +33,44 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Save-deferred recovery fixture synchronization, 6 November 2026
+
+[Linux debug CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42166863701/job/127725338174)
+at `b453330b8` passed 1,344 server-library tests and failed
+`runner::stalled_ingress_tests::recovery_stops_when_storage_becomes_overdue_again`
+at its post-unlock flush with `StorageFailure`. This is one fixture synchronization
+failure, not another demonstrated ingress defect or a loot-label regression.
+The test deliberately blocks SQLite but released the lock and requested recovery
+without first settling the blocked attempt. That attempt could publish its failure
+after the recovery request had cleared the earlier error state.
+
+The fixture now observes the induced failed flush while the lock remains held,
+then unlocks and explicitly retries. Both initial setup and recovery use that
+ordering. Existing overdue, held-order and accepted-sequence assertions remain;
+additional assertions prove the first record remains pending, is durably retried,
+and the second record becomes durable without a remaining save error. Production
+storage and ingress behavior are unchanged. Fixed-head runtime qualification is
+required separately; a source correction alone is not a passing test.
+
+## Loot-label repeated preparation, 5 November 2026
+
+CH-018's deliberate work-count regressions at head `a2bb6830` ran in the
+[Linux debug 3D job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42103641534/job/127513396472).
+Compilation, formatting and Clippy passed; the runtime owner reported 635 passed,
+two failed and one ignored. The two intended new methods were
+`loot_labels::tests::count_only_summary_never_formats_item_names` (15 discarded
+name formats instead of zero) and
+`loot_labels::tests::multi_pile_update_prepares_scene_once_and_retains_unchanged_nodes`
+(three terrain preparations instead of one after positively asserting three
+visible labels). The measured scene had six terrain entries, four shaped meshes
+and fifteen item stacks: the baseline visited 18 terrain entries and 12 meshes.
+This is deliberate optimization first-red evidence, not two gameplay defects or
+a measured frame-rate improvement. Platform/profile repeats do not add distinct
+methods. The fix prepares selection context once per label update and directly
+counts stacks in count-only mode. Runtime camera/animated-occlusion, disclosure,
+focus/modal and unchanged-node witnesses accompany the change; fixed-head native
+and core CI qualification remains separate from this first-red record.
+
 ## Save-deferred ingress retention, 5 November 2026
 
 CH-002 was reproduced against `6fab91097` in the

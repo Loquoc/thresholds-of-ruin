@@ -385,7 +385,10 @@ Objects:
   group items sharing a cell, and pass clicks through to the world. Crowded
   labels show an overflow count; zoom in to separate them. Labels hide while
   a panel is open or the window is unfocused. Like other keys, Alt/F3 cancel
-  a pending click-to-travel errand.
+  a pending click-to-travel errand. Count-only labels do not format discarded
+  item names. Each label update prepares disclosed terrain and shaped meshes
+  once, then tests each label ray against that frame-local context; camera and
+  animated geometry changes still take effect without a new observation.
 - Hover any cell for its name, description and what a click does; a frame of
   light marks it (gold: interact, red: attack, blue: travel).
 - The cursor shows what a click does: a grasping hand over things to pick

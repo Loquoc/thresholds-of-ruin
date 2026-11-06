@@ -30,6 +30,8 @@ pub(crate) struct LabelGroup {
 }
 
 fn item_line(name: &str, quantity: u64) -> String {
+    #[cfg(test)]
+    work::add(|counts| counts.names += 1);
     let cleaned: String = name
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -73,18 +75,26 @@ fn summaries(view: &View, names: bool) -> Vec<LabelGroup> {
     if names {
         return groups(view);
     }
-    pile_counts(disclosed_groups(
-        view.items
-            .iter()
-            .filter(|item| {
-                item.model != tor_client_3d_model::ItemModel::Corpse
-                    && view
-                        .visible
-                        .iter()
-                        .any(|cell| cell.position == item.position)
-            })
-            .map(|item| (item.position, item.name.as_str(), item.quantity)),
-    ))
+    let mut cells: BTreeMap<(i32, i32, i32), usize> = BTreeMap::new();
+    for item in view.items.iter().filter(|item| {
+        item.model != tor_client_3d_model::ItemModel::Corpse
+            && view
+                .visible
+                .iter()
+                .any(|cell| cell.position == item.position)
+    }) {
+        let p = item.position;
+        *cells.entry((p.x, p.y, p.z)).or_default() += 1;
+    }
+    cells
+        .into_iter()
+        .filter(|(_, stacks)| *stacks > 4)
+        .map(|((x, y, z), stacks)| LabelGroup {
+            position: Position { x, y, z },
+            text: format!("{stacks} stacks"),
+            stacks,
+        })
+        .collect()
 }
 
 /// Shared presentation for already-disclosed live observations and explicitly
@@ -257,7 +267,11 @@ pub(crate) fn show(
     if !blocked && focused {
         if let (Some(view), Some(window), Ok((camera, eye))) = (&game.view, window, camera.single())
         {
-            let anchors = summaries(view, names)
+            let groups = summaries(view, names);
+            // Rebuild from current terrain, visibility, hierarchy and animated transforms.
+            // Avoid even preparation when there is no disclosed label candidate.
+            let prepared = (!groups.is_empty()).then(|| models.prepare(view, game.offset, false));
+            let anchors = groups
                 .into_iter()
                 .filter_map(|group| {
                     let world =
@@ -265,7 +279,7 @@ pub(crate) fn show(
                     let at = camera.world_to_viewport(eye, world).ok()?;
                     // Match hover's terrain omission and foreground mesh occlusion.
                     let ray = camera.viewport_to_world(eye, at).ok()?;
-                    let focus = models.select(ray, view, game.offset, false)?;
+                    let focus = prepared.as_ref()?.select(ray)?;
                     (focus.position(view) == Some(group.position)).then_some((at, group))
                 })
                 .collect();
@@ -282,8 +296,292 @@ pub(crate) fn show(
 }
 
 #[cfg(test)]
+pub(crate) mod work {
+    use std::cell::Cell;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) struct Counts {
+        pub(crate) maps: usize,
+        pub(crate) terrain: usize,
+        pub(crate) meshes: usize,
+        pub(crate) names: usize,
+    }
+
+    thread_local! {
+        static COUNTS: Cell<Counts> = Cell::new(Counts::default());
+    }
+
+    pub(crate) fn add(f: impl FnOnce(&mut Counts)) {
+        COUNTS.with(|counts| {
+            let mut next = counts.get();
+            f(&mut next);
+            counts.set(next);
+        });
+    }
+
+    pub(crate) fn take() -> Counts {
+        COUNTS.with(|counts| counts.replace(Counts::default()))
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real label system and camera projection, without a GPU or network.
+    fn ready_scene() -> (App, Entity, Entity) {
+        use bevy::render::{camera::camera_system, camera::ManualTextureViews, primitives::Aabb};
+        use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+        use tor_client_3d_model::{CreatureModel, GroundItem, ItemModel, ItemSurface};
+        use tor_protocol::{CellView, ItemClass, ItemTarget};
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<LootLabels>()
+            .init_resource::<crate::Game>()
+            .init_resource::<crate::interact::Panel>()
+            .init_resource::<Assets<Image>>()
+            .init_resource::<ManualTextureViews>()
+            .add_event::<WindowCreated>()
+            .add_event::<WindowResized>()
+            .add_event::<WindowScaleFactorChanged>()
+            .add_event::<AssetEvent<Image>>()
+            .add_systems(Update, (camera_system, show).chain());
+        app.edit_schedule(Update, |schedule| {
+            schedule.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);
+        });
+        let window = app
+            .world_mut()
+            .spawn((
+                PrimaryWindow,
+                Window {
+                    focused: true,
+                    resolution: (800.0_f32, 600.0_f32).into(),
+                    ..default()
+                },
+            ))
+            .id();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                Camera::default(),
+                Projection::Perspective(PerspectiveProjection::default()),
+                GlobalTransform::from(
+                    Transform::from_xyz(0.0, 10.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+                ),
+            ))
+            .id();
+        let mut view = crate::test_support::view(1);
+        for (index, x) in [-2, 0, 2].into_iter().enumerate() {
+            let position = Position { x, y: 0, z: 0 };
+            for z in [-1, 0] {
+                view.visible.push(CellView {
+                    position: Position { z, ..position },
+                    object_presentation: None,
+                    wall: z == -1,
+                    lit: true,
+                    key: format!("{x}:{z}"),
+                    material: String::new(),
+                    asset: None,
+                    trap: None,
+                    door: None,
+                    stairs_up: false,
+                    stairs_down: false,
+                    place_hint: false,
+                });
+            }
+            for n in 0..5 {
+                view.items.push(GroundItem {
+                    surface: ItemSurface::Neutral,
+                    corpse_seed: None,
+                    model: ItemModel::Ring,
+                    corpse_model: CreatureModel::Placeholder,
+                    id: ItemTarget::from_digest([(index * 5 + n) as u8; 32]),
+                    name: format!("ring {n}"),
+                    class: ItemClass::Ring,
+                    quantity: 999,
+                    description: String::new(),
+                    position,
+                    reachable: true,
+                });
+            }
+        }
+        for x in 20..24 {
+            app.world_mut().spawn((
+                crate::picking::Pick(tor_client_3d_model::Focus::Cell(view.visible[1].position)),
+                Mesh3d(Handle::default()),
+                Aabb {
+                    center: Vec3::ZERO.into(),
+                    half_extents: Vec3::splat(0.25).into(),
+                },
+                GlobalTransform::from_xyz(x as f32, 0.0, 0.0),
+                InheritedVisibility::VISIBLE,
+            ));
+        }
+        app.world_mut().resource_mut::<crate::Game>().view = Some(view);
+        (app, camera, window)
+    }
+
+    fn label_entities(app: &mut App) -> Vec<Entity> {
+        let world = app.world_mut();
+        let mut result: Vec<_> = world
+            .query_filtered::<Entity, With<GroundLabel>>()
+            .iter(world)
+            .collect();
+        result.sort();
+        result
+    }
+
+    #[test]
+    fn multi_pile_update_prepares_scene_once_and_retains_unchanged_nodes() {
+        let (mut app, _, _) = ready_scene();
+        work::take();
+        app.update();
+        let counts = work::take();
+        let labels = label_entities(&mut app);
+        assert_eq!(
+            labels.len(),
+            3,
+            "fixture must project three selectable piles"
+        );
+        assert_eq!(
+            counts.maps, 1,
+            "one terrain preparation per update: {counts:?}"
+        );
+        assert_eq!(counts.terrain, 6, "each known terrain entry prepared once");
+        assert_eq!(counts.meshes, 4, "each shaped mesh prepared once");
+        assert_eq!(
+            counts.names, 0,
+            "count mode must not format discarded names"
+        );
+        app.update();
+        assert_eq!(
+            label_entities(&mut app),
+            labels,
+            "equal placement keeps UI entities"
+        );
+    }
+
+    #[test]
+    fn count_only_summary_never_formats_item_names() {
+        let (app, _, _) = ready_scene();
+        let view = app.world().resource::<crate::Game>().view.as_ref().unwrap();
+        work::take();
+        let counts = summaries(view, false);
+        assert_eq!(counts.len(), 3);
+        assert!(counts
+            .iter()
+            .all(|group| group.text == "5 stacks" && group.stacks == 5));
+        assert_eq!(
+            work::take().names,
+            0,
+            "count-only path discards all item names"
+        );
+    }
+
+    #[test]
+    fn prepared_labels_follow_camera_animation_disclosure_and_modal_changes() {
+        use bevy::render::primitives::Aabb;
+        use tor_client_3d_model::Focus;
+        let (mut app, camera, window) = ready_scene();
+        app.update();
+        assert_eq!(label_entities(&mut app).len(), 3);
+        let original_eye = *app.world().get::<GlobalTransform>(camera).unwrap();
+        *app.world_mut().get_mut::<GlobalTransform>(camera).unwrap() = GlobalTransform::from(
+            Transform::from_xyz(0.0, 10.0, 10.0).looking_at(Vec3::new(0.0, 20.0, 20.0), Vec3::Y),
+        );
+        app.update();
+        assert!(
+            label_entities(&mut app).is_empty(),
+            "camera changes without a new observation"
+        );
+        *app.world_mut().get_mut::<GlobalTransform>(camera).unwrap() = original_eye;
+        app.update();
+        assert_eq!(label_entities(&mut app).len(), 3);
+
+        // A foreground shape captures every label ray for the left-hand pile.
+        // Moving it out of the way must restore other labels without a view update.
+        let blocker = app
+            .world_mut()
+            .spawn((
+                crate::picking::Pick(Focus::Cell(Position { x: -2, y: 0, z: 0 })),
+                Mesh3d(Handle::default()),
+                Aabb {
+                    center: Vec3::ZERO.into(),
+                    half_extents: Vec3::splat(2.0).into(),
+                },
+                GlobalTransform::from_xyz(0.0, 5.0, 5.0),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+        app.update();
+        assert_eq!(
+            label_entities(&mut app).len(),
+            1,
+            "foreground animated geometry occludes other piles"
+        );
+        *app.world_mut().get_mut::<GlobalTransform>(blocker).unwrap() =
+            GlobalTransform::from_xyz(50.0, 5.0, 5.0);
+        app.update();
+        assert_eq!(label_entities(&mut app).len(), 3);
+        *app.world_mut().get_mut::<GlobalTransform>(blocker).unwrap() =
+            GlobalTransform::from_xyz(0.0, 5.0, 5.0);
+        *app.world_mut()
+            .get_mut::<InheritedVisibility>(blocker)
+            .unwrap() = InheritedVisibility::HIDDEN;
+        app.update();
+        assert_eq!(
+            label_entities(&mut app).len(),
+            3,
+            "hidden shape must not occlude"
+        );
+
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+        app.update();
+        assert!(label_entities(&mut app).is_empty());
+        app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+        app.update();
+        assert_eq!(label_entities(&mut app).len(), 3);
+        app.world_mut()
+            .resource_mut::<crate::interact::Panel>()
+            .open = true;
+        app.update();
+        assert!(label_entities(&mut app).is_empty());
+        app.world_mut()
+            .resource_mut::<crate::interact::Panel>()
+            .open = false;
+        app.update();
+        assert_eq!(label_entities(&mut app).len(), 3);
+
+        app.world_mut()
+            .resource_mut::<crate::Game>()
+            .view
+            .as_mut()
+            .unwrap()
+            .visible
+            .retain(|cell| cell.position.x != 2);
+        app.update();
+        assert_eq!(
+            label_entities(&mut app).len(),
+            2,
+            "stale item rows cannot retain undisclosed labels"
+        );
+        app.world_mut()
+            .resource_mut::<crate::Game>()
+            .view
+            .as_mut()
+            .unwrap()
+            .visible
+            .clear();
+        work::take();
+        app.update();
+        assert!(label_entities(&mut app).is_empty());
+        assert_eq!(
+            work::take(),
+            work::Counts::default(),
+            "no candidates need no picking preparation"
+        );
+    }
 
     fn group(x: i32, stacks: usize) -> LabelGroup {
         LabelGroup {
