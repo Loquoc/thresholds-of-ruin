@@ -4017,6 +4017,25 @@ both previously failing real-process nutrition cases using the unchanged current
 production binaries. These are test-consumer corrections, not a relaxation of
 checkpoint validation or the continuation comparisons.
 
+The next [Linux debug Rust lane](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42295919602)
+passed 815 simulation integration tests and failed
+`interactions::saved_item_preparation_rejects_missing_ground_and_foreign_items`
+at its positive preparation lookup. Its local accessor still traversed an actor
+directory binding as a payload. This is one additional stale-fixture root, one
+distinct failing method, independently seen in Linux debug and release, not a
+production decoder failure. The accessor now checks optional preparation through the strict
+pooled-record reader before requesting a COW mutation. Shared-directory assertions
+preserve no mutation for an absent preparation and isolate a present preparation
+from retained bindings; existing invalid-item and frozen-plan rejection assertions
+remain unchanged. Focused Clippy, the exact corrected test and all 816 simulation
+integration tests passed locally. The first broad feedback wrapper rejected two
+successful summaries because an existing bounded anti-spin test runs a child of
+itself; its Cargo exit was zero and checked inputs were unchanged. The exact
+feedback rerun and normal Cargo integration command both passed, with the latter
+confirming all 816 tests and exit zero. This wrapper diagnostic was retained rather
+than called a successful feedback gate. Fixed-head hosted qualification remains
+separate.
+
 The Windows debug native travel failure is independently explained by retained
 frames: a distinct return journey had arrived with one step and admission ready,
 but its picture was still marked not current at tick 100. The mouse path completed;
