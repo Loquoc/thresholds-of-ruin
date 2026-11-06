@@ -559,6 +559,11 @@ fn recovery_stops_when_storage_becomes_overdue_again() {
     let mut client = connect(&mut service, "peer");
     let snapshot = attach(&mut service, &mut client);
     let store = service.flush_handle().unwrap();
+    // Settle the deliberately blocked attempt before unlocking. Otherwise a
+    // flush can request recovery while the worker is still reporting the old
+    // lock failure, and observe that failure instead of a completed retry.
+    assert_eq!(store.flush().unwrap_err().code, ErrorCode::StorageFailure);
+    assert!(!store.status().saving);
     lock.execute_batch("ROLLBACK").unwrap();
     store.flush().unwrap();
     assert!(!service.saving_overdue());
@@ -598,9 +603,22 @@ fn recovery_stops_when_storage_becomes_overdue_again() {
     assert!(
         matches!(held.front(), Some(Mail::Request { request_id, .. }) if request_id == "second")
     );
+    // The ingress assertion above owns overdue recovery, not SQLite's
+    // read-to-write lock timing. Finish the induced failure while still locked,
+    // then explicitly retry the retained record after releasing the blocker.
+    assert_eq!(store.flush().unwrap_err().code, ErrorCode::StorageFailure);
+    let blocked = store.status();
+    assert!(!blocked.saving);
+    assert_eq!(blocked.accepted_sequence, 2);
+    assert_eq!(blocked.durable_sequence, 1);
+    assert!(blocked.error.is_some());
     lock.execute_batch("ROLLBACK").unwrap();
     store.flush().unwrap();
+    assert_eq!(store.status().durable_sequence, 2);
     assert!(resume_held(&mut service, &mut held));
     assert!(held.is_empty());
     assert_eq!(store.status().accepted_sequence, 3);
+    store.flush().unwrap();
+    assert_eq!(store.status().durable_sequence, 3);
+    assert!(store.status().error.is_none());
 }

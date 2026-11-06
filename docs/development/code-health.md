@@ -29,126 +29,166 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 
 ## Active review queue
 
+The earlier bounded findings have been evaluated and resolved or retained with
+explicit evidence and limits below. The subsequently reported checkpoint-capacity
+issue remains active. This is not a complete audit or a claim that broader
+performance and scaling work is finished.
+
+### CH-019: Checkpoint representation and journal durability at the capacity bound
+
+- **Category/status:** robustness and representation cost; active follow-up from
+  the Menagerie checkpoint report on 2026-11-06. Not yet published or qualified.
+- **Evidence:** [simulation checkpoint records](../../crates/simulation/src/checkpoint.rs)
+  retain actor/AI state across rewind roots. Repeated records can approach the
+  fixed 64 MiB checkpoint bound; an optional checkpoint capacity failure can
+  block otherwise legal journal durability in
+  [storage](../../crates/server/src/storage.rs). Existing explicit capacity
+  classification is preserved; this is distinct from the resolved CH-009 finding.
+- **Work in progress:** actor/AI record pooling and journal-only fallback for
+  classified optional-checkpoint capacity failures are implemented locally, with
+  an approved save-format change planned for that separate PR. This register
+  update does not change the current save format or claim that fix is on main.
+- **Verification:** 55 simulation checkpoint tests passed in the local work.
+  Server checkpoint fixture corrections and broader runtime checks remain in
+  progress; actual-process, release-cost and final-head CI qualification remain.
+  The reported deployed save/scenario has not been inspected because the
+  relevant desktop is unavailable. Local fixtures are not that reproduction.
+- **Acceptance:** preserve strict decode/replay, rewind ownership and classified
+  failure distinctions; demonstrate that legal journal work remains durable at
+  the optional checkpoint cap, while unrelated failures still surface. Complete
+  process/recovery and release-cost checks, then required final-head hosted gates
+  before marking this finding resolved.
+
+## Retained or resolved findings
+
 ### CH-003: Retained presentation and history cost
 
-- **Category/status:** performance; measurement question, not a claimed leak.
-- **Impact/confidence:** retention/startup may grow with history and attachment
-  count; the magnitude and practical threshold remain unmeasured.
-- **Evidence:** [presentation_history.rs](../../crates/server/src/presentation_history.rs)
-  retains bounded per-attachment presentation capabilities whose boundaries own
-  shared Game roots; [history_index.rs](../../crates/server/src/history_index.rs)
-  maintains history indexes. Old complete display views are already released.
-- **Next step:** measure unique retained roots/bytes, RSS slope and startup cost
-  across history length, clients and rewind-window expiry. Do not multiply a
-  full Game size by capability count or equate checkpoint bounds with all memory.
-- **Acceptance:** same-machine comparable measurements using the
-  [performance workflow](performance.md), unchanged replay/disclosure behavior and
-  an explanation of retained versus reclaimable ownership.
-
+- **Category/status:** performance; bounded ownership/measurement question
+  answered by [PR 266](https://github.com/KCall360/thresholds-of-ruin/pull/266),
+  merged on 2026-11-06 at `14676bd25693d30f21bb1fa06f189c4e02a28416` after
+  [exhaustive CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42153509080),
+  both platform aggregates and Full PR qualification passed. No leak was established.
+- **Ownership:** engine rewind retains at most 256 shared boundary roots; each
+  attachment has at most 32 capabilities. The union bound is 256 + 32C for C
+  attachments, not a bound on arbitrary-world heap memory. Complete chronology,
+  accepted receipts and history indexes intentionally grow with history to
+  preserve replay, retries and history. Old complete display views are released.
+- **Evidence:** the isolated normal-release
+  [diagnostic](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42117066862)
+  completed 24 separate-process samples: 0/100/1,000/10,000 starting records,
+  one/eight modeled capability owners and three repeats per case. Every sample
+  passed exact ownership/reclamation and checkpoint recovery assertions.
+  After rewind expiry, one/eight owners retained 160/384 unique roots; releasing
+  them left 128, with each expired root's reclamation proven by `Weak::upgrade`.
+  The independent Service witness verifies eight actual attachments share one
+  stationary Game root and release their own capabilities on reset/disconnect.
+- **Measured costs:** warm checkpoint reopen medians grew from 10.230/12.376 ms
+  at zero starting records to 142.919/146.083 ms at 10,000 for one/eight owners.
+  The [performance guide](performance.md) records every case, p50/p95/max, RSS,
+  bytes, machine and source identity. With n=3 per case, p95 equals maximum.
+  These are head-only fixture measurements, not a before/after improvement.
+- **Limits:** snapshot batch JSON is a state-size proxy, not allocated heap;
+  inline root bytes exclude referenced allocations. Whole-process RSS includes
+  allocator reuse and need not fall immediately when roots are reclaimed.
+  Modeled owners do not measure all Service/socket state; warm reopen is not
+  cold-storage startup. Ordinary CI artifacts expire after 14 days; no permanent
+  raw release publication or accepted headline ledger entry is claimed.
+  Broader history/world scaling and practical acceptance remain separate work.
 
 ### CH-016: Equipment ranking scores cached; timing evidence remains open
 
 - **Category/status:** performance/maintainability; repeated ranking projection
-  corrected by [PR 256](https://github.com/KCall360/thresholds-of-ruin/pull/256),
-  merged on 2026-11-05 at `49b9d7808ebaa909f73043f70f73370d75442431`.
-  Work-count evidence is established; practical speedup remains unmeasured.
-- **Correction:** [equipment ranking](../../crates/simulation/src/ai_items.rs)
-  calculates each eligible choice's optional score once, retaining order,
-  unavailable-score handling, first nondominated selection and existing
-  Equip/Unequip operands. Only scores are retained, not candidate Games.
-  Eligibility and production loadout projection remain unchanged. Dominance
-  comparisons can still be quadratic; this is not a linear-time claim for the
-  entire decision or proof that repeated eligibility baseline work is resolved.
-- **Work-count evidence:** the [focused hosted witness](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41949313623)
-  passed three ranking tests, including actual 1/4/16/64-choice projection and
-  Game-clone counts, unchanged-Game assertions and ordinary AI actions. A faithful
-  repeated-projection mutation produced two intended singleton failures (2 versus
-  1 and `[2]` versus `[1]`); restoring the optimized source passed all three again.
-  Larger old-case counts remain source-derived because the mutation stopped at
-  singleton failures. They are not measured baseline runs.
-- **Behavior qualification:** focused affected selections passed for equipment
-  (13), ordinary AI idle (21), duplicate sockets (1), remembered curses (1) and
-  retained ranged equipment (5). [Final integrated full CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41952664131)
-  passed for head `05e4a1411b97378a6470109a3740790cf10cb918`, including both
-  platform aggregates and Full PR qualification. These are historical receipts,
-  not fresh runtime checks performed by this register update. Two earlier local
-  test compilations were killed before execution and provide no runtime evidence.
-- **Remaining measurement gate:** compare deterministic small and larger
-  inventories under the [performance workflow](performance.md) before claiming
-  a practical speedup. Report projection/clone/fold counts separately from elapsed
-  time and storage bytes; shared-storage cloning does not copy the entire world.
-  Keep eligibility follow-ups separate from the qualified ranking change and
-  preserve loadout derivation, recovery, protection and equipment behavior.
+  was corrected by [PR 256](https://github.com/KCall360/thresholds-of-ruin/pull/256)
+  at `49b9d7808ebaa909f73043f70f73370d75442431`. The bounded timing question now
+  has controlled release evidence in
+  [PR 270](https://github.com/KCall360/thresholds-of-ruin/pull/270), merged on
+  2026-11-06 at `9cdd30c50c8f74b8f4fd1708a5c144705f675327` after its
+  [exhaustive CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42114220443),
+  both platform aggregates and Full PR qualification passed. General gameplay impact is not
+  established; the original heading remains stable for incoming links.
+- **Correction and behavior:** each eligible choice's optional score is computed
+  once, preserving candidate order, unavailable-score handling, first
+  nondominated selection and Equip/Unequip operands. Only scores are retained,
+  not candidate Games. Eligibility and production loadout projection remain
+  unchanged; dominance comparisons can still be quadratic. PR 256's final
+  [full CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/41952664131)
+  qualified its behavior; that is historical evidence, not a fresh run here.
+- **Measurement:** three balanced interleaved rounds supplied 60 valid samples
+  per side/case for 1/4/16/64 eligible carried armor choices, with no failed or
+  incomplete runs. The controlled baseline restored repeated-score ranking with
+  all other inputs equal, rather than replaying an entire historical tree.
+  Complete-decision p50 fell from 0.070/0.447/3.399/47.365 ms to
+  0.055/0.176/0.878/5.097 ms. The [performance guide](performance.md) preserves
+  p95/max and source/toolchain/machine details. Four-choice maximum increased
+  from 0.919 to 1.313 ms despite lower median and p95.
+- **Work counts:** actual projections and dynamic folds per complete decision
+  were 3→2, 21→8, 183→32 and 2271→128; Game clones were 4→3, 25→12, 199→48
+  and 2335→192. These include eligibility/baseline work, not ranking alone.
+  Every sample selected the independent expected action and left Game unchanged.
+- **Limits:** instrumented synthetic timings do not establish inventory
+  frequencies, allocation savings, linear total complexity or general gameplay
+  speedup. Small-case variation is material. Permanent raw release publication
+  needs separate maintainer approval and has not occurred; no accepted headline
+  ledger entry is claimed. Eligibility improvements remain separate scope.
 
 ### CH-017: Portable-light fuel filtering scans unrelated items
 
-- **Category/status:** performance; source-supported iteration candidate, not a
-  reproduced slowdown. Reviewed at `3c24d49fd` on 2026-11-04. Practical cost and
-  priority are unmeasured; no illumination correctness defect is established.
-- **Evidence:** [next_fuel_expiry and burn_light_fuel](../../crates/simulation/src/portable_light.rs)
-  iterate the complete [ItemStore map](../../crates/simulation/src/item_store.rs)
-  before filtering fuel eligibility. [Physics integration](../../crates/simulation/src/physics.rs)
-  checks expiry, then calls `burn_light_fuel(1)` per actual physical iteration;
-  the no-gravity/no-motion path instead burns one whole interval.
-- **Scale:** with N stored item rows and T executed integration iterations, fuel
-  eligibility alone visits N*T rows, even with no burning lights, plus the
-  separate expiry scan. Early exits mean T is not necessarily requested elapsed
-  ticks. These are cheap eligibility visits, not N*T optical calculations or
-  deep clones, and do not prove fuel work dominates simulation time.
-- **Next step:** count fuel candidates and compare release timings with increasing
-  unrelated items, zero/one/many burning lights and moving/stationary paths.
-  Control actual executed ticks and activity geography before choosing an
-  optimization. If justified, consider a derived fuel-bearing/light candidate
-  index maintained through item mutations, retaining live eligibility checks.
-  Indexing only currently burning items additionally requires proof for every
-  actor/equipment/location/activity transition; offscreen is not permission to
-  skip fuel. No serialized cache or second lifetime authority is needed.
-- **Acceptance:** define the promised candidate complexity, then establish its
-  first-red count witness. Preserve [portable-light tests](../../crates/simulation/src/abilities/portable_light_tests.rs)
-  for ignition preparation, exact wait/extinguish fuel, seven-tick expiry,
-  interruption during burnout, and drop/pickup/stow without refill. An index
-  also needs insertion/removal/extinguish/death/activity maintenance witnesses.
-  Existing assertions were inspected, not executed. Optical topology, residency
-  continuation and checkpoint handling remain outside this review; no speedup
-  is claimed.
+- **Category/status:** performance; repeated eligibility work reproduced and
+  bounded by [PR 267](https://github.com/KCall360/thresholds-of-ruin/pull/267),
+  merged on 2026-11-06 at `c1e8dab42a560b4fc5e92449550e926ec59f44dd` after
+  [exhaustive CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42159495637),
+  both platform aggregates and Full PR qualification passed. No illumination gameplay
+  defect or practical slowdown magnitude was established.
+- **Correction:** a derived ordered fuel-bearing candidate index in
+  [ItemStore](../../crates/simulation/src/item_store.rs) replaces complete-map
+  visits in expiry/burn passes. Restore rebuilds the index; insert, replacement,
+  remove, extend and guarded edits maintain it, including unwinding. Retained
+  clones share unchanged membership, including fuel-amount-only edits.
+  Actor life, equipment, location and region eligibility remain live checks.
+  The index is not serialized and is not a second lifetime authority.
+- **Evidence:** the first-red hosted simulation owner reached its intended
+  work-count failure (5/5 visits instead of 3/3) after positive fuel assertions.
+  The retained scale witness checks 0/100/10,000 unrelated items, exact fuel
+  outcomes, repeated passes, zero elapsed time and no fuel candidates. A separate
+  ItemStore witness covers mutation, restore, ordering, unwind and sharing.
+- **Preserved contracts:** existing portable-light owners retain paid ignition,
+  expiry, frozen/thaw behavior, checkpoint restore, drop/pickup/stow, grip/death,
+  movement and disclosure. Activity and eligibility are not cached; offscreen
+  status does not excuse fuel work. No gameplay or format change is intended.
+- **Limits:** the promise is candidate-bounded visits independent of unrelated
+  rows. Actual integration iterations still depend on simulation activity.
+  No measured latency, allocation, frame-rate or optical-work improvement is
+  claimed; broader physics/residency optimization is outside this finding.
 
 ### CH-018: 3D loot labels repeat scene picking and discarded name preparation
 
-- **Category/status:** performance; source-supported work candidate, not a
-  reproduced functional bug or measured slowdown. Reviewed at `af1ff6046` on
-  2026-11-05; medium priority pending representative counters/profile.
-- **Evidence:** [label updates](../../crates/client-3d/src/loot_labels.rs) build
-  summaries and call `Models::select` for each successfully projected group before
-  comparing the resulting labels with the prior frame. The equality check avoids
-  UI reconstruction, not preceding preparation, picking or layout work.
-  [Picking](../../crates/client-3d/src/picking.rs) builds a fresh known-terrain map
-  and scans it in `floor_cell`, then traverses every queried shaped mesh per call.
-  Visible eligible meshes additionally walk ancestry and may receive a ray test;
-  this does not claim every mesh is intersected. For G valid label rays, the path
-  makes G terrain maps and G complete mesh-query traversals per active frame.
-  Terrain includes aligned remembered cells, not only the loot cell. These are
-  structural counts, not measured frame times.
-- **Related preparation:** disclosed-item membership uses linear visible-cell
-  scans. Count-only summaries still format and sort names before replacing text
-  with stack counts or discarding small piles. This belongs to the same candidate,
-  not a second issue merely to increase the finding count.
-- **Next step:** first instrument map constructions, terrain entries, mesh visits
-  and name formatting in representative ready scenes with multiple loot cells,
-  names on/off and varying terrain/mesh counts. Consider one prepared terrain map
-  and disclosed-cell lookup per update, plus a count-only grouping path. Preserve
-  existing no-rebuild behavior; observation revision alone cannot cache final
-  occlusion because camera, viewport and animated transforms can change it.
-- **Acceptance:** establish the current repeated-work witness before optimization,
-  then require at most one prepared terrain map per update with identical labels
-  and occlusion. Cover stationary/moving cameras, animated foreground obstruction,
-  cutaway/height, focus/modal transitions, empty/small piles and disappearing items.
-  Benchmark representative scenes before claiming a frame-rate improvement.
-- **Review limits:** existing label assertions cover quantities, bounded names,
-  layout, count thresholds, noninteractive nodes and offscreen anchors; they were
-  inspected, not run, and do not establish a work bound. No fresh runtime, GPU or
-  allocation profile is claimed.
-
-## Retained or resolved findings
+- **Category/status:** performance; repeated preparation reproduced and reduced
+  by [PR 268](https://github.com/KCall360/thresholds-of-ruin/pull/268), merged on
+  2026-11-06 at `207c538c244d4a6ae4bf7ac16f8fcabb2cbf4e55` after
+  [exhaustive core CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42243409406),
+  both aggregates, Full PR qualification and
+  [all four native-3D lanes](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42243409328)
+  passed. This is not a gameplay bug
+  or a measured frame-rate gain.
+- **Correction:** [loot labels](../../crates/client-3d/src/loot_labels.rs) prepare
+  disclosed terrain and eligible mesh references once per update, reusing that
+  frame-local context for each label ray. Count-only mode counts non-corpse
+  stacks without formatting discarded names. Empty candidates skip preparation;
+  unchanged placement retains existing UI nodes.
+- **Evidence:** the first-red native Linux debug owner positively established
+  three visible piles, then observed 3 terrain preparations / 18 terrain visits /
+  12 mesh visits / 15 discarded name formats instead of 1 / 6 / 4 / 0. These are
+  work-count witnesses, not timing, GPU or allocation measurements.
+- **Preserved contracts:** disclosed membership, corpse counting, name content,
+  placement, focus/modal behavior and click-through remain covered. Added actual
+  system witnesses vary the camera, animated foreground occlusion, hidden meshes,
+  disclosure removal, focus/modal transitions and empty candidates without a new
+  observation revision. Prepared references last only for that update; current
+  visibility, hierarchy and animated transforms remain live inputs. Observation
+  revision alone is not a cache key for occlusion.
+- **Limits:** fewer preparations do not make label ray intersection constant-time
+  or establish end-to-end rendering speedup. Core qualification and all four
+  independent native 3D lanes remain separate merge obligations.
 
 ### CH-002: Save-deferred ingress is bounded and reclaimed
 
@@ -425,7 +465,8 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 - [SaveFailure::CheckpointCapacity](../../crates/server/src/storage.rs) already
   distinguishes the retained-checkpoint bound. Recheck current tests and behavior
   if a new failure contradicts that classification; do not infer fresh runtime
-  verification from this source reconciliation.
+  verification from this source reconciliation. The new representation/fallback
+  policy work is tracked separately in [CH-019](#ch-019-checkpoint-representation-and-journal-durability-at-the-capacity-bound).
 
 ### CH-005: Server/storage wording and operational identities
 
