@@ -33,6 +33,25 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Save-deferred recovery fixture synchronization, 6 November 2026
+
+[Linux debug CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42166863701/job/127725338174)
+at `b453330b8` passed 1,344 server-library tests and failed
+`runner::stalled_ingress_tests::recovery_stops_when_storage_becomes_overdue_again`
+at its post-unlock flush with `StorageFailure`. This is one fixture synchronization
+failure, not another demonstrated ingress defect or a loot-label regression.
+The test deliberately blocks SQLite but released the lock and requested recovery
+without first settling the blocked attempt. That attempt could publish its failure
+after the recovery request had cleared the earlier error state.
+
+The fixture now observes the induced failed flush while the lock remains held,
+then unlocks and explicitly retries. Both initial setup and recovery use that
+ordering. Existing overdue, held-order and accepted-sequence assertions remain;
+additional assertions prove the first record remains pending, is durably retried,
+and the second record becomes durable without a remaining save error. Production
+storage and ingress behavior are unchanged. Fixed-head runtime qualification is
+required separately; a source correction alone is not a passing test.
+
 ## Loot-label repeated preparation, 5 November 2026
 
 CH-018's deliberate work-count regressions at head `a2bb6830` ran in the
