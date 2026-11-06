@@ -40,6 +40,11 @@ impl Waiting {
 
 /// The waiting wearers to solve now, most pressing first, at most `free`.
 pub(crate) fn choose(waiting: &[Waiting], free: usize) -> Vec<usize> {
+    // Background solves can occupy all workers for several frames. Do not
+    // allocate and sort a crowd-sized order that cannot dispatch any work.
+    if free == 0 {
+        return Vec::new();
+    }
     let mut order: Vec<usize> = (0..waiting.len())
         .filter(|&i| waiting[i].wait > 0.0)
         .collect();
@@ -66,6 +71,34 @@ mod tests {
     fn nearer_wearers_are_solved_sooner_for_the_same_wait() {
         let jobs = [waiting(0.1, 12.0), waiting(0.1, 2.0)];
         assert_eq!(choose(&jobs, 1), vec![1]);
+    }
+
+    #[test]
+    fn busy_workers_do_not_allocate_a_discarded_crowd_order() {
+        // Background solves commonly occupy every worker across several frames.
+        // Positive waits keep this distinct from the empty/no-motion path.
+        let crowd = vec![waiting(0.3, 1.0); 4096];
+        assert_eq!(choose(&crowd, 1), vec![0]);
+        let order = choose(&crowd, 0);
+        assert!(order.is_empty());
+        assert_eq!(
+            order.capacity(),
+            0,
+            "busy workers allocated discarded order"
+        );
+    }
+
+    #[test]
+    fn available_workers_preserve_ties_and_skip_in_flight_wearers() {
+        let jobs = [
+            waiting(0.2, 0.0),
+            waiting(0.0, 0.0),
+            waiting(0.4, NEAR),
+            waiting(-0.1, 0.0),
+            waiting(0.2, 0.0),
+        ];
+        assert_eq!(choose(&jobs, 2), vec![0, 2]);
+        assert_eq!(choose(&jobs, usize::MAX), vec![0, 2, 4]);
     }
 
     #[test]
