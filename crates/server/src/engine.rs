@@ -5944,6 +5944,23 @@ mod playable_rogue_schema_tests {
     }
 }
 
+// Shared implementation keeps the standalone diagnostic and test assertions identical.
+#[cfg(any(test, feature = "retention-profile"))]
+#[path = "retention_profile.rs"]
+mod retention_profile;
+
+/// Run one bounded, assertion-checked retention diagnostic in a new save.
+/// Development-only; never part of client views or the ordinary server CLI.
+#[cfg(feature = "retention-profile")]
+#[doc(hidden)]
+pub fn run_retention_profile(history: usize, attachments: usize, path: &Path) -> serde_json::Value {
+    retention_profile::run(history, attachments, path)
+}
+
+#[cfg(test)]
+#[path = "retention_tests.rs"]
+mod retention_tests;
+
 #[cfg(test)]
 mod presentation_boundary_tests {
     use super::*;

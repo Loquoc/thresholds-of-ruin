@@ -65,9 +65,22 @@ including the preloader when enabled. Those reads can wait for SQLite; they do
 not acquire the worker's shared status lock while performing I/O. Maximum age is
 a scheduling deadline, not a promise that slow or failed storage will finish on time.
 The server broadcasts a warning when saving is overdue or fails. While saving is
-overdue it applies backpressure: new player commands wait in arrival order and
-autonomous play pauses, so play cannot outrun durable storage; queries, saves
-and connections are still handled. An explicit save that is not durable within
+overdue it applies backpressure: player commands and attachment commits wait in
+arrival order and autonomous play pauses, so play cannot outrun durable storage.
+The deferred backlog holds at most 256 requests, separately from the 256-message
+mailbox. Submitting a request beyond that backlog limit aborts that stream and
+releases its deferred requests; requests from surviving streams keep their order.
+Disconnected streams cannot retain deferred work. Queries, saves, connections and
+shutdown are still handled, and recovery rechecks the save deadline before each
+held request. This is a shared limit, not a per-client reservation: when full,
+the next submitting stream is aborted even if another stream filled the queue.
+These are request-count bounds, not a measured total-memory budget.
+A transport abort does not revoke accepted work or certify that a request ID was
+never accepted. Reconnect and retry the exact request to recover any existing
+receipt; the server does not fabricate a non-commit error for a possibly accepted
+retry. If no receipt exists, ordinary fresh-context validation still applies.
+A never-processed command may need fresh context and a new request identity;
+a disconnected, uncommitted attachment upload must be staged again. An explicit save that is not durable within
 five seconds (`--save-reply-ms`) is answered with `save_behind` and stays
 queued. A process test holds an exclusive SQLite lock as a slow disk to check both.
 
