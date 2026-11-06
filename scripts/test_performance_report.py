@@ -5,7 +5,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from performance_report import PRELOAD_BOUNDS, SPEC, STREAM_BOUNDS, expected_actions, validate, validate_work, validate_region_acquisition
+from performance_report import PRELOAD_BOUNDS, SPEC, STREAM_BOUNDS, expected_actions, validate, validate_work, validate_region_acquisition, validate_measurements
 
 
 class PerformanceReportTests(unittest.TestCase):
@@ -22,6 +22,35 @@ class PerformanceReportTests(unittest.TestCase):
         primary = [a for a in actions if a[0] == 1]
         self.assertEqual(primary,expected_actions(8,1,0,1))
         self.assertEqual({a[0] for a in actions},set(range(1,9)))
+
+
+class SaveStatusMeasurementTests(unittest.TestCase):
+    def test_optional_checkpoint_deferral_preserves_missing_null_and_sequence(self):
+        for status in ({"pending_bytes": 0},
+                       {"pending_bytes": 0, "checkpoint_deferred_sequence": None},
+                       {"pending_bytes": 0, "checkpoint_deferred_sequence": 0},
+                       {"pending_bytes": 0, "checkpoint_deferred_sequence": 42}):
+            with self.subTest(status=status):
+                rows = [{"save_status": status}]
+                original = copy.deepcopy(rows)
+                validate_measurements(rows)
+                self.assertEqual(rows, original, "validation must not replace absence with zero")
+
+    def test_present_checkpoint_deferral_requires_nonnegative_integer(self):
+        for value in (-1, True, False, 0.0, 42.0, "42", {}, []):
+            with self.subTest(value=value):
+                with self.assertRaises(InvalidWorkload):
+                    validate_measurements([{"save_status": {
+                        "pending_bytes": 0, "checkpoint_deferred_sequence": value}}])
+
+    def test_nullable_deferral_does_not_relax_other_count_fields(self):
+        for field in ("pending_bytes", "accepted_sequence", "durable_sequence",
+                      "checkpoint_sequence", "future_count"):
+            for value in (None, True, -1, "0", 0.0):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaises(InvalidWorkload):
+                        validate_measurements([{"save_status": {
+                            "checkpoint_deferred_sequence": None, field: value}}])
 
 
 class PhaseDWorkTests(unittest.TestCase):

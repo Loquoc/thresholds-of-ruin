@@ -422,14 +422,16 @@ fn imported_strength_pending_interval_one_reopen_keeps_unexecuted_boon_and_exact
         .engine
         .test_restore_checkpoint(&serde_json::to_vec(&pending).unwrap())
         .unwrap();
-    let index = pending["game"]["actors"].as_u64().unwrap();
-    let path_to_boon = format!("/shared/actors/{index}/1/combat/creature/build/strength_acquired");
+    let index = pending["game"]["actors"].as_u64().unwrap() as usize;
+    let path_to_boon = "/combat/creature/build/strength_acquired";
     // Owned permanent receipts acquired in a weaker form survive a stronger
     // current body. Raw5/7 are legal retained receipts even though natural
     // Strength projects to7; fresh potion acquisition is still capped above.
     for value in [json!(5), json!(7)] {
         let mut retained = pending.clone();
-        *retained.pointer_mut(&path_to_boon).unwrap() = value.clone();
+        *crate::checkpoint_fixture::actor_mut(&mut retained["shared"], index, "1")
+            .pointer_mut(path_to_boon)
+            .unwrap() = value.clone();
         wire.service
             .engine
             .test_restore_checkpoint(&serde_json::to_vec(&retained).unwrap())
@@ -463,7 +465,9 @@ fn imported_strength_pending_interval_one_reopen_keeps_unexecuted_boon_and_exact
     );
     for value in [json!(8), json!(-1), Value::Null, json!("1")] {
         let mut malformed = pending.clone();
-        *malformed.pointer_mut(&path_to_boon).unwrap() = value;
+        *crate::checkpoint_fixture::actor_mut(&mut malformed["shared"], index, "1")
+            .pointer_mut(path_to_boon)
+            .unwrap() = value;
         assert!(wire
             .service
             .engine
@@ -471,8 +475,8 @@ fn imported_strength_pending_interval_one_reopen_keeps_unexecuted_boon_and_exact
             .is_err());
     }
     let mut missing = pending.clone();
-    missing
-        .pointer_mut(&format!("/shared/actors/{index}/1/combat/creature/build"))
+    crate::checkpoint_fixture::actor_mut(&mut missing["shared"], index, "1")
+        .pointer_mut("/combat/creature/build")
         .unwrap()
         .as_object_mut()
         .unwrap()

@@ -3987,3 +3987,48 @@ The memoized run also exposed one old fixture mutating an internal canonical
 record after capture, leaving its fingerprint metadata stale. It now captures an
 invalid source clone and the valid original separately, retaining invalid-body
 rejection and exact valid restoration without mutable access to pooled records.
+
+The first exhaustive PR 272 run exposed 18 server fixture failures and one real
+profiling-consumer integration defect. Seven server failures came from missing
+current-writer scenario goldens and an obsolete literal save version. Eleven
+came from optional actor/AI absence wrappers, obsolete pooled-record paths and a
+single-root restore of a multi-root hallucination checkpoint. Fixes preserve
+optional absence only in the named wrappers, strict malformed-reference handling,
+COW negative mutations and complete-root restoration. The golden is recorded
+from the current writer; historical fixtures remain unchanged. The profiling
+validator had treated the new nullable deferral sequence as a mandatory numeric
+count. Its regression preserves missing/null/value distinctions and still rejects
+invalid values and null ordinary counts. These failures are distinct from the
+passing focused checks and are not evidence of exhaustive qualification.
+The correction passed all 1,348 default-feature server unit tests, the exact
+previously failing streaming-benchmark process test and 67 report-validator tests;
+three focused validator tests also passed under Python -O. Hosted CI enables four
+additional service-contract-host tests, all green on the first head but not
+included in that local count. The regenerated version-68 scenario golden is
+byte-identical to the preserved version-67 metadata fixture because the independent
+scenario metadata formats did not change. Recording mode was unset for the normal
+writer comparison, round-trip and malformed-schema checks.
+
+Later lanes in the same exhaustive run exposed two nutrition process wrappers
+that still treated pooled actor indices as full records. The wrapper now expands
+complete actor and AI values with independent copies for each binding and retained
+root. Its first-red alias/expansion regression and 15 helper checks pass, as do
+both previously failing real-process nutrition cases using the unchanged current
+production binaries. These are test-consumer corrections, not a relaxation of
+checkpoint validation or the continuation comparisons.
+
+The Windows debug native travel failure is independently explained by retained
+frames: a distinct return journey had arrived with one step and admission ready,
+but its picture was still marked not current at tick 100. The mouse path completed;
+the fixture consumed status before presentation. Native travel now uses the same
+arrival/admission/current-picture barrier as automated travel. Scripted regressions
+replay the real test body and frame reader, retaining exact input ordering, distinct
+journey identity and tick 100/200 assertions. The old predicate first failed at the
+original tick assertion for delayed pictures and at the admission witness for
+delayed permission. Mocked OS I/O is not native qualification: the actual native
+Windows/Linux lanes remain required, with no waiver or relaxed assertion.
+The final combined local helper, selection and reporting run passed 77 tests;
+20 documentation checks and whole-scripts Ruff also passed. The registry keeps
+the new scripted class non-graphical and the original native case graphical;
+existing unregistered owners still require exhaustive fallback rather than being
+silently accepted by selective coverage.

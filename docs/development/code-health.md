@@ -52,7 +52,14 @@ performance and scaling work is finished.
   integration tests and 19 actual-process checkpoint/background-save tests.
   The memoized checkpoint code passed all 58 checkpoint tests. After merging
   `a4a9a274`, all-target Clippy, 63 focused integration tests and 19 freshly built
-  actual-process tests passed again. Required final-head hosted gates remain.
+  actual-process tests passed again. The first exhaustive run exposed remaining
+  migration fixtures and nullable profiling-count handling; after correction,
+  all 1,348 default-feature server tests, the exact failed streaming-benchmark
+  process test and 67 report-validator tests passed locally. Required final-head
+  hosted gates remain. Two pooled nutrition test-consumer corrections also pass
+  their exact real-process cases. A retained-frame native travel synchronization
+  defect is fixed without relaxing mouse/tick assertions; actual native CI remains
+  required.
 - **Cost evidence:** four balanced release rounds compared `ec134e1c` with
   `c1e8dab42`. All 16 runs validated with matching work/durability counts.
   Checkpoint size and save/restart time improved; an earlier consistent interaction

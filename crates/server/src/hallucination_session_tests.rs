@@ -901,12 +901,22 @@ fn map_learning_is_a_fixed_point_for_current_hallucinated_stair_disclosure() {
     let mut wire = Wire::new(Engine::memory(scenario).unwrap());
     let restore = |wire: &Wire| {
         let saved = wire.checkpoint();
-        Game::restore_checkpoint(
-            serde_json::from_value(saved["game"].clone()).unwrap(),
-            &serde_json::from_value(saved["shared"].clone()).unwrap(),
-            content.clone(),
-        )
-        .unwrap()
+        let shared = serde_json::from_value(saved["shared"].clone()).unwrap();
+        let roots: Vec<tor_simulation::checkpoint::Snapshot> = std::iter::once(&saved["game"])
+            .chain(
+                saved["boundaries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|boundary| &boundary["game"]),
+            )
+            .map(|root| serde_json::from_value(root.clone()).unwrap())
+            .collect();
+        let mut restore = tor_simulation::checkpoint::RestoreContext::new(&shared, content.clone());
+        restore
+            .bind_spatial_roots(&roots.iter().collect::<Vec<_>>())
+            .unwrap();
+        restore.restore(roots.into_iter().next().unwrap()).unwrap()
     };
     let mut sober = restore(&wire);
     drink(&mut wire, 30, "map-fixed-point-dose");

@@ -201,9 +201,11 @@ fn expected_profile(idle: &str, tools: [bool; 4], flee: u32) -> Value {
 fn saved_ai(game: &Game) -> Value {
     let mut shared = tor_simulation::checkpoint::SharedState::default();
     let snapshot = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
-    serde_json::to_value(shared).unwrap()["ai_records"]
-        [snapshot["combat"]["ai"]["3"].as_u64().unwrap() as usize]
-        .clone()
+    let directory = snapshot["combat"]["ai"].as_object().unwrap();
+    let Some(record) = directory.get("3") else {
+        return Value::Null;
+    };
+    serde_json::to_value(shared).unwrap()["ai_records"][record.as_u64().unwrap() as usize].clone()
 }
 
 fn commit_ai(game: &mut Game) -> SimAction {
