@@ -33,6 +33,29 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Text rename confirmation race, 5 November 2026
+
+[Linux release process CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42110629349/job/127537320869)
+failed `AdventureProcesses.test_session_commands_and_sensory_in_real_process`:
+a successful rename followed immediately by `places` still displayed the old
+name. The committed acknowledgement can precede its observation, while the text
+session request returned at that acknowledgement. This is one production root,
+not a scenario-certificate defect or a stale process assertion.
+
+The deterministic first-red regression
+`turns::rename_confirmation_waits_for_the_correlated_picture` independently
+reproduced the old name after confirmation. Its rejected-request control passed.
+This bounded evidence window contains two distinct failing methods and two failed
+method executions (one process method, one scripted regression); message-order
+subcases are not additional methods.
+
+Successful renames now await a correlated, coalesced Observe completion before
+confirmation and the next local command. The fixed client-text integration owner
+passed all 204 tests, including both acknowledgement/picture orders and rejected
+rename without confirmation or extra observation demand. The original real-process
+assertion remains unchanged and requires final-head hosted qualification; no
+fresh local server process run or complete platform pass is claimed.
+
 ## Save-deferred recovery fixture synchronization, 6 November 2026
 
 [Linux debug CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42166863701/job/127725338174)

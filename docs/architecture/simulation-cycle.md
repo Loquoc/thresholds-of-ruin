@@ -230,6 +230,56 @@ Source: [engine.rs](../../crates/server/src/engine.rs), `resolve_action_transiti
 `commit_candidate_with_resolution`;
 [intention_lifecycle.rs](../../crates/server/src/intention_lifecycle.rs).
 
+#### Action-transition phase contract
+
+`Engine::resolve_action_transition` joins a settled action to observer and
+navigation bookkeeping inside a private `Candidate`. Its callers are
+`finish_checked_command` for the trusted direct `Command::Act` path and
+`execute_intention_profiled` in [intention.rs](../../crates/server/src/intention.rs)
+for already-executed queued work. The latter supplies the exact outcome from
+`execute_next_intention_for_host`; it must not execute the action again. Both
+callers continue through candidate reconciliation and persistence admission
+before publication. A successful return from this helper is not a committed or
+durable action.
+
+The phases are ordered, rather than independent operations to rearrange:
+
+1. **Choose before-state inputs.** Snapshot authoritative geometry and select the
+   observer cohort from action/perception changes, including an active
+   whole-scope monster-detection marker. Selection does not create a wire picture.
+2. **Complete execution.** Execute only when no outcome was supplied, settle an
+   `AwaitingRegions` continuation, then replace `next_tick` and `next_actor` with
+   the settled candidate values. Profiling counts execution only in its owner.
+3. **Bind event-time authority.** A stationary wait whose locomotion changes still
+   validates that observer, records its event receipt and refreshes navigation.
+   The ordinary cohort captures old/current scenes and binds all current event
+   receipts before later projection/dependency comparisons. Removed actors are
+   skipped. These receipts cannot be reconstructed from later visibility.
+4. **Validate and refresh.** Validate old and candidate projections for the
+   ordinary cohort, then refresh navigation only for changed geometry,
+   locomotion or navigation scene. Count reviewed observers separately from
+   actual refreshes; do not turn profiling into gameplay state or extra RNG.
+5. **Reconcile membership.** Reconcile candidate actors against the authoritative
+   game last, then return the outcome. Journal content, knowledge sealing,
+   admission, input generations and publication still belong to the callers and
+   `commit_candidate_with_resolution`.
+
+An error propagates while gameplay mutations remain private; do not publish the
+candidate, history append or staged input generations on that error. Region
+loading/preparation and derived caches may already have done work, so this is
+not a promise that failure performs no I/O or cache mutation. The surrounding
+transaction and storage contracts govern that work.
+
+Existing independent witnesses include
+`frozen_presentation_survives_actions_without_durable_display_counters` in
+[engine.rs](../../crates/server/src/engine.rs), which distinguishes zero affected
+observers on a stationary wait from one completed duty per observer on a move,
+and `mixed_trace_schedules_actors_changes_los_and_replays_identical_disclosure`
+in [performance workloads](../../crates/server/tests/it/performance_workloads.rs).
+The [contract map below](#source-and-validation-map) retains the intention, disclosure,
+RNG/clock and save-admission witnesses; these are not replaced by phase counters.
+This source map was reconciled against `6fab91097` without changing execution.
+
 ### 9. Admit persistence, then publish authoritative state
 
 Input generations are prepared but not yet published. The engine validates and

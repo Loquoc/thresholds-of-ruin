@@ -3933,6 +3933,12 @@ impl Engine {
 
     /// Apply/reconcile one action inside a private candidate. A supplied outcome
     /// comes only from an uninterrupted simulation execution against that candidate.
+    ///
+    /// Ordered phases: choose the before-state observer cohort; execute once and
+    /// settle entry; bind event-time receipts; validate projections and refresh
+    /// navigation; reconcile attached actors. Nothing here admits a journal or
+    /// publishes the candidate. See the action-transition phase contract in
+    /// `docs/architecture/simulation-cycle.md` for both callers and failure scope.
     fn resolve_action_transition(
         &mut self,
         candidate: &mut Candidate,
@@ -3941,6 +3947,7 @@ impl Engine {
         executed: Option<tor_simulation::ActionOutcome>,
         mut profile: Option<&mut CommandProfile>,
     ) -> Result<tor_simulation::ActionOutcome, Failure> {
+        // Phase 1: choose observers against the unchanged authoritative game.
         let mut navigation_refreshed = false;
         let geometry = self.game.geometry_snapshot();
         let started = Instant::now();
@@ -3985,6 +3992,7 @@ impl Engine {
             profile.perception += started.elapsed();
         }
         let started = Instant::now();
+        // Phase 2: execute exactly once, then finish any private region handoff.
         let already_executed = executed.is_some();
         let step = match executed {
             Some(outcome) => CandidateStep::Settled(outcome),
@@ -4011,6 +4019,7 @@ impl Engine {
         outcome.next_tick = candidate.game.tick();
         outcome.next_actor = candidate.game.next_actor();
         let event_witness = candidate.game.event_observation_witness();
+        // Phase 3a: stationary capability changes still own disclosure duties.
         // Stationary waits usually change only tick/readiness. Capability
         // expiry can change disclosed traversal without any geometry change.
         if !perception_changed {
@@ -4065,6 +4074,7 @@ impl Engine {
         // action kind or changes to entities/readiness. An unsettled same-tick
         // physics handoff can change disclosure without changing known links.
         let navigation_changed = candidate.game.geometry_snapshot() != geometry;
+        // Phase 3b: bind all selected event receipts before dependency validation.
         // Capture event-time authority synchronously, without making presentation
         // DTOs. All receipts bind before the immutable dependency comparison.
         let mut scenes = Vec::with_capacity(observers.len());
@@ -4099,6 +4109,7 @@ impl Engine {
         if let Some(profile) = profile.as_deref_mut() {
             profile.perception += perception_started.elapsed();
         }
+        // Phase 4: validate projections, then refresh changed navigation inputs.
         for (observer, old_scene, current_scene) in scenes {
             self.game
                 .validate_observer_projection(SimActor(observer.0))
@@ -4135,6 +4146,7 @@ impl Engine {
                 profile.navigation_refreshes += 1;
             }
         }
+        // Phase 5: reconcile membership last; the caller still owns commit.
         candidate.reconcile_actors(&self.game, profile)?;
         Ok(outcome)
     }

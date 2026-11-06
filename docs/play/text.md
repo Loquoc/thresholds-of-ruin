@@ -294,7 +294,9 @@ text even though the backend retains a personal mnemonic. A learned
 anchor represents a point, not a discovered room boundary. `places` distinguishes
 `in sight` from `remembered`; the latter is no promise that a route is clear.
 Names persist across clients and saves. Acceptable names are 1–80 UTF-8 bytes,
-with no control characters or leading/trailing whitespace. Renaming is free,
+with no control characters or leading/trailing whitespace. Successful rename
+confirmation waits for the updated place picture before the next command.
+Renaming is free,
 requires control and cancels an active travel job at its command boundary.
 
 `brief` gives full first descriptions and shorter return descriptions; `verbose`

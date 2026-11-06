@@ -2765,6 +2765,80 @@ async fn immediate_tool_reply_needs_no_later_execution_or_permission_frame() {
     assert!(link.queue.is_empty());
 }
 
+#[tokio::test]
+async fn rename_confirmation_waits_for_the_correlated_picture() {
+    for ack_first in [true, false] {
+        let mut initial = state();
+        initial.observation.places.push(PlaceView {
+            key: "cell-1".into(),
+            name: "Entry chamber".into(),
+            origin: PlaceNameOrigin::Authored,
+        });
+        let mut link = Scripted::new(initial, move |request, before| {
+            assert!(matches!(request, Request::Command {
+                command: Command::RenamePlace { key, name, .. }, ..
+            } if key == "cell-1" && name == "Vault of Whispers"));
+            let mut after = before.clone();
+            after.revision += 1;
+            after.observation.places[0].name = "Vault of Whispers".into();
+            after.observation.places[0].origin = PlaceNameOrigin::Player;
+            if ack_first {
+                vec![Frame::Ack, Frame::View(after, None)]
+            } else {
+                vec![Frame::View(after, None), Frame::Ack]
+            }
+        });
+        let mut engine = Engine::default();
+        assert!(play(&mut link, &mut engine, "places")
+            .await
+            .contains("Entry chamber"));
+        let confirmation = play(&mut link, &mut engine, "name 1 Vault of Whispers").await;
+        assert!(
+            confirmation.contains("You name the place Vault of Whispers."),
+            "{confirmation}"
+        );
+        assert_eq!(
+            link.client.state().observation.places[0].name,
+            "Vault of Whispers"
+        );
+        assert!(play(&mut link, &mut engine, "places")
+            .await
+            .contains("Vault of Whispers"));
+        assert_eq!(
+            link.sent.len(),
+            2,
+            "one rename and one correlated picture demand"
+        );
+        assert!(matches!(link.sent[1], Request::Observe));
+        assert!(link.queue.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn rejected_rename_does_not_confirm_or_request_a_picture() {
+    let mut initial = state();
+    initial.observation.places.push(PlaceView {
+        key: "cell-1".into(),
+        name: "Entry chamber".into(),
+        origin: PlaceNameOrigin::Authored,
+    });
+    let mut link = Scripted::new(initial, |_, _| {
+        vec![Frame::Reject(ErrorCode::InvalidRequest)]
+    });
+    let passage = play(
+        &mut link,
+        &mut Engine::default(),
+        "name 1 Vault of Whispers",
+    )
+    .await;
+    assert!(!passage.contains("You name the place"));
+    assert_eq!(
+        link.client.state().observation.places[0].name,
+        "Entry chamber"
+    );
+    assert_eq!(link.sent.len(), 1);
+}
+
 // Conversation: repeating, asking back, confirming, fighting on, going back.
 
 /// The targets of the attacks sent so far.

@@ -1271,6 +1271,13 @@ pub async fn run_request(
         record.say("Spectator access is read-only.");
         return Ok(false);
     }
+    let refresh_renamed_place = matches!(
+        &request,
+        Request::Command {
+            command: Command::RenamePlace { .. },
+            ..
+        }
+    );
     let mut reader = Reader {
         chronicler,
         beats: Vec::new(),
@@ -1278,7 +1285,14 @@ pub async fn run_request(
         resynced: false,
         waiting: None,
     };
-    let settled = settle(link, &mut reader, request, Until::Answered).await?;
+    let mut settled = settle(link, &mut reader, request, Until::Answered).await?;
+    if refresh_renamed_place && settled == Settled::Done {
+        // The committed receipt can precede its demanded picture. Do not
+        // confirm the rename or accept another local `places` command until
+        // this coalesced demand's correlated observation has been applied.
+        settled = settle(link, &mut reader, Request::Observe, Until::Answered).await?;
+    };
+
     let beats = std::mem::take(&mut reader.beats);
     let pages = std::mem::take(&mut reader.pages);
     if !beats.is_empty() {

@@ -156,8 +156,9 @@ Subsequent merged batches retain their own bounded evidence:
   simulation content IDs, dice, hit dice, quantities, action duration and rules
   contracts and examples. The broader simulation inventory remains Partial.
 - [PR 231](https://github.com/KCall360/thresholds-of-ruin/pull/231) adds the
-  test-support public contract pass and member checklist below; CH-010 remains
-  open. That bounded status is preserved, not promoted to whole-project completion.
+  test-support public contract pass and member checklist below. CH-010 is retained
+  as an explicit workload-parser contract, not a supported custom-input validator.
+  That disposition does not promote the bounded review to whole-project completion.
 
 The headless review's redundant compact-frame construction is corrected under
 [CH-011](code-health.md#ch-011-compact-headless-frames-build-discarded-derived-state).
