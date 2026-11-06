@@ -76,6 +76,7 @@ pub(crate) struct ItemStore {
     entries: Shared<BTreeMap<ItemId, Item>>,
     locations: Locations,
     claimed: Shared<BTreeSet<ItemId>>,
+    fuel: Shared<BTreeSet<ItemId>>,
     mutations: MutationLedger<ItemId, ItemMutation>,
 }
 
@@ -86,6 +87,7 @@ impl std::fmt::Debug for ItemStore {
             .field("entries", &self.entries)
             .field("locations", &self.locations)
             .field("claimed", &self.claimed)
+            .field("fuel", &self.fuel)
             .finish()
     }
 }
@@ -94,6 +96,7 @@ impl PartialEq for ItemStore {
         self.entries == other.entries
             && self.locations == other.locations
             && self.claimed == other.claimed
+            && self.fuel == other.fuel
     }
 }
 impl Eq for ItemStore {}
@@ -127,6 +130,7 @@ impl ItemStore {
         let mut mutations = MutationLedger::default();
         let mut locations = Locations::default();
         let mut claimed = BTreeSet::new();
+        let mut fuel = BTreeSet::new();
         for (&id, item) in &entries {
             mutations.publish(
                 id,
@@ -137,6 +141,9 @@ impl ItemStore {
                 true,
             );
             locations.insert(item.location, id);
+            if item.fuel.is_some() {
+                fuel.insert(id);
+            }
             if !item.holds.is_empty() {
                 claimed.insert(id);
             }
@@ -145,8 +152,14 @@ impl ItemStore {
             entries: Shared::new(entries),
             locations,
             claimed: Shared::new(claimed),
+            fuel: Shared::new(fuel),
             mutations,
         }
+    }
+
+    /// Derived candidates only; actor, equipment and residency eligibility stay live.
+    pub(crate) fn fuel_candidates(&self) -> impl Iterator<Item = (ItemId, &Item)> {
+        self.fuel.iter().map(|id| (*id, &self.entries[id]))
     }
 
     pub(crate) fn claimed(&self) -> impl Iterator<Item = (ItemId, &Item)> {
@@ -216,6 +229,13 @@ impl ItemStore {
 
     pub fn insert(&mut self, id: ItemId, item: Item) -> Option<Item> {
         let at = item.location;
+        if item.fuel.is_some() != self.fuel.contains(&id) {
+            if item.fuel.is_some() {
+                self.fuel.insert(id);
+            } else {
+                self.fuel.remove(&id);
+            }
+        }
         if item.holds.is_empty() {
             self.claimed.remove(&id);
         } else {
@@ -240,6 +260,9 @@ impl ItemStore {
     pub fn remove(&mut self, id: &ItemId) -> Option<Item> {
         let item = self.entries.remove(id)?;
         self.claimed.remove(id);
+        if item.fuel.is_some() {
+            self.fuel.remove(id);
+        }
         self.locations.remove(item.location, *id);
         self.mutations.publish(
             *id,
@@ -264,6 +287,8 @@ impl ItemStore {
             mutations: &mut self.mutations,
             id,
             before: item.location,
+            had_fuel: item.fuel.is_some(),
+            fuel: &mut self.fuel,
             item,
             locations: &mut self.locations,
             claimed: &mut self.claimed,
@@ -312,6 +337,8 @@ struct ItemEdit<'a> {
     mutations: &'a mut MutationLedger<ItemId, ItemMutation>,
     id: ItemId,
     before: ItemLocation,
+    had_fuel: bool,
+    fuel: &'a mut Shared<BTreeSet<ItemId>>,
     item: &'a mut Item,
     locations: &'a mut Locations,
     claimed: &'a mut BTreeSet<ItemId>,
@@ -326,6 +353,13 @@ impl Drop for ItemEdit<'_> {
             },
             true,
         );
+        if self.had_fuel != self.item.fuel.is_some() {
+            if self.item.fuel.is_some() {
+                self.fuel.insert(self.id);
+            } else {
+                self.fuel.remove(&self.id);
+            }
+        }
         if self.item.holds.is_empty() {
             self.claimed.remove(&self.id);
         } else {
@@ -368,6 +402,44 @@ mod tests {
             motion: MotionState::default(),
             orientation: 0,
         }
+    }
+
+    #[test]
+    fn fuel_index_tracks_restore_replace_edit_unwind_and_candidate_clones() {
+        let fuel = crate::portable_light::FuelState {
+            remaining: 10,
+            lit: false,
+        };
+        let mut fueled = item(ground(1, 0));
+        fueled.fuel = Some(fuel);
+        let mut store = ItemStore::from_entries(BTreeMap::from([
+            (ItemId(2), fueled.clone()),
+            (ItemId(1), item(ground(1, 1))),
+        ]));
+        let ids = |s: &ItemStore| s.fuel_candidates().map(|(id, _)| id).collect::<Vec<_>>();
+        assert_eq!(ids(&store), vec![ItemId(2)]);
+        let retained = store.clone();
+        store.edit(ItemId(1), |item| item.fuel = Some(fuel));
+        assert_eq!(ids(&store), vec![ItemId(1), ItemId(2)]);
+        assert_eq!(ids(&retained), vec![ItemId(2)]);
+        let same_membership = store.clone();
+        store.edit(ItemId(1), |item| item.fuel.as_mut().unwrap().remaining = 0);
+        assert!(store.fuel.shares_storage(&same_membership.fuel));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            store.edit(ItemId(1), |item| {
+                item.fuel = None;
+                panic!("edit unwinds");
+            });
+        }));
+        assert!(result.is_err());
+        assert_eq!(ids(&store), vec![ItemId(2)]);
+        store.insert(ItemId(2), item(ground(1, 0)));
+        assert!(ids(&store).is_empty());
+        store.extend([(ItemId(3), fueled)]);
+        assert_eq!(ids(&store), vec![ItemId(3)]);
+        store.remove(&ItemId(3));
+        assert!(ids(&store).is_empty());
+        assert_eq!(ids(&retained), vec![ItemId(2)]);
     }
 
     #[test]
