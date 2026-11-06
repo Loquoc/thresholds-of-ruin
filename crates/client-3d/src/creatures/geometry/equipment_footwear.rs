@@ -361,11 +361,21 @@ pub(super) fn emit_shaft(
                 SnowBoots => 6,
                 _ => 8,
             };
-            // Broad tongue under cross-laces; the lighter canvas upper is an
-            // independently modeled panel on jungle boots.
+            // Jungle boots have a broad, thin canvas gusset rather than the
+            // combat boot's thick leather tongue. Keep that construction
+            // visible in geometry even when both materials share a pigment.
+            let (tongue_width, tongue_depth) = if appearance == JungleBoots {
+                (0.66, 0.003)
+            } else {
+                (0.50, 0.006)
+            };
             p.matte.cuboid(
                 Vec3::new(0.0, y(0.5), radius(0.5)),
-                Vec3::new(radius(0.5) * 0.50, (shape.top - shape.bottom) * 0.47, 0.006),
+                Vec3::new(
+                    radius(0.5) * tongue_width,
+                    (shape.top - shape.bottom) * 0.47,
+                    tongue_depth,
+                ),
                 Quat::IDENTITY,
                 if appearance == JungleBoots {
                     trim * 0.62
@@ -543,6 +553,44 @@ mod tests {
                 "duplicate silhouette: {appearance:?}"
             );
         }
+    }
+
+    #[test]
+    fn jungle_canvas_gusset_is_wider_and_thinner_than_combat_leather() {
+        let shape = fit_shape(
+            FootwearAppearance::CombatBoots,
+            BootShape::fitted(1.0, -0.24),
+        );
+        let emit = |appearance| {
+            let mut parts = Parts::default();
+            emit_shaft(
+                &mut parts,
+                appearance,
+                shape,
+                1.0,
+                1.0,
+                Vec3::ONE,
+                Vec3::ONE,
+            );
+            parts
+        };
+        let combat = emit(FootwearAppearance::CombatBoots);
+        let jungle = emit(FootwearAppearance::JungleBoots);
+        // These probes sit inside the pre-existing catalog silhouette grid.
+        // Same fit and colors isolate the canvas construction difference.
+        let origin = Vec3::new(0.0, -0.30, 0.0);
+        let leather = combat.matte.outer_surface(origin, Vec3::Z).unwrap();
+        let canvas = jungle.matte.outer_surface(origin, Vec3::Z).unwrap();
+        assert!((leather.z - canvas.z - 0.003).abs() < 1e-6);
+        let outside_leather = Vec3::new(0.04, -0.30, 0.0);
+        assert!(combat
+            .matte
+            .outer_surface(outside_leather, Vec3::Z)
+            .is_none());
+        assert!(jungle
+            .matte
+            .outer_surface(outside_leather, Vec3::Z)
+            .is_some());
     }
 
     #[test]
