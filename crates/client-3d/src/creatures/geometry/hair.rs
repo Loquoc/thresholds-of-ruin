@@ -313,10 +313,13 @@ pub(super) fn hair_style(l: &Look) -> u8 {
 /// Whether a person's head is covered by a hood or helm rather than
 /// showing hair.
 pub(super) fn hooded(l: &Look) -> bool {
-    matches!(
-        Outfit::worn(l).head,
-        Headwear::Hood { .. } | Headwear::Helm | Headwear::WingedHelm { .. }
-    )
+    match Outfit::worn(l).head {
+        Headwear::Equipment(kind) => kind.covers_scalp(),
+        head => matches!(
+            head,
+            Headwear::Hood { .. } | Headwear::Helm | Headwear::WingedHelm { .. }
+        ),
+    }
 }
 
 /// Whether a person shows hair at all: not under a hood, and not a kind

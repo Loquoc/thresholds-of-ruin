@@ -25,6 +25,8 @@ mod embroidery_parts;
 mod equine_parts;
 #[cfg(test)]
 mod equine_tests;
+pub(in crate::creatures) mod equipment_footwear;
+pub(in crate::creatures) mod equipment_headwear;
 mod face;
 mod feather_parts;
 mod fringe_parts;

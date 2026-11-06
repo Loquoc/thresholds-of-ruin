@@ -337,13 +337,13 @@ impl Look {
     }
 
     /// Replace the independent visual loadout, retaining the selected preset.
-    /// Empty equipment reveals that preset's original pieces. The initial
-    /// fitting implementation supports the same bodies as the offline wardrobe.
+    /// Empty equipment reveals that preset's original pieces. Supported visual
+    /// attachments are resolved separately from whole-wardrobe support.
     pub(crate) fn equipped(mut self, equipment: Equipment) -> Look {
-        if !outfit::dresses(&self) {
+        if !outfit::dresses(&self) && self.plan != Plan::Centaur {
             return self;
         }
-        self.equipment = equipment;
+        self.equipment = equipment.for_body(&self);
         self.refresh_clothing_key();
         self
     }
@@ -352,7 +352,9 @@ impl Look {
     /// recipes instead of invoking the interactive wardrobe's fallback policy.
     /// Keep this renderer-local: gameplay equip permission belongs to the server.
     pub(crate) fn composed(self, wardrobe: Wardrobe, equipment: Equipment) -> Result<Self, String> {
-        if !self.dresses() && (wardrobe != Wardrobe::Native || !equipment.is_empty()) {
+        if (!self.dresses() && wardrobe != Wardrobe::Native)
+            || equipment.for_body(&self) != equipment
+        {
             return Err("cannot wear the requested composition".into());
         }
         if wardrobe.recipe_for(self.woman()) != wardrobe {

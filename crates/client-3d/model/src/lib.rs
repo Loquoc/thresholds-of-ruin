@@ -30,6 +30,8 @@ mod inventory;
 mod map;
 mod observation;
 mod routing;
+mod wearables;
+pub use wearables::WearableLook;
 
 pub use advancement::{
     catalog_command, AdvancementAction, AdvancementBrowser, AdvancementOption, AdvancementView,

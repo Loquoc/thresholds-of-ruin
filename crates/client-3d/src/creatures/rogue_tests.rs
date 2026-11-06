@@ -3915,3 +3915,18 @@ fn ordinary_skirts_clear_the_pelvis_between_waist_and_thighs() {
         }
     }
 }
+
+#[test]
+fn study_headwear_uses_centaur_head_frame_and_restores_native_geometry() {
+    let base = Look::of(CreatureModel::Centaur, 17);
+    let mut equipment = Equipment::default();
+    equipment.select("crested-helmet").unwrap();
+    let worn = base.clone().equipped(equipment);
+    let signature = |look: &Look, joint| {
+        surface_signature(joint_surface_samples_with_drapes(look, joint, false))
+    };
+    assert_ne!(signature(&base, J::Head), signature(&worn, J::Head));
+    assert_eq!(signature(&base, J::Body), signature(&worn, J::Body));
+    let restored = worn.equipped(Equipment::default());
+    assert_eq!(signature(&base, J::Head), signature(&restored, J::Head));
+}

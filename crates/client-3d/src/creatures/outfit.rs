@@ -146,6 +146,7 @@ pub(crate) struct Boots {
 /// What is worn on the head.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Headwear {
+    Equipment(super::geometry::equipment_headwear::HeadwearKind),
     Bare,
     /// Open pointed filigree crown fitted over the wearer's hair.
     Crown {

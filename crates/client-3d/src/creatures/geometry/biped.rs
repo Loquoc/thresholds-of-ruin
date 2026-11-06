@@ -82,6 +82,15 @@ impl Figure {
                 -0.24
             },
         );
+        let boot_shape = l.equipment.footwear().map_or(boot_shape, |kind| {
+            equipment_footwear::fit_shin(
+                kind,
+                boot_shape,
+                body.shin,
+                matches!(outfit.legs, Legs::Trousers(_)),
+                b,
+            )
+        });
         let blocky = style == Style::Guardian;
         let furry = style == Style::Yeti;
         let cuirass = outfit.outer == Some(Outer::Cuirass);
@@ -1550,6 +1559,10 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 // Knee to ankle, the calf full at the back.
                 sculpted_limb(&mut p.matte, body.shin, pants);
             }
+            if let Some(kind) = l.equipment.footwear() {
+                equipment_footwear::emit_shaft(p, kind, boot_shape, b, side, boot, kind.trim());
+                return;
+            }
             let boot_top = boot_shape.top;
             if boots.is_some() {
                 if let Some(fringe) = outfit.trimmings.boot_tops {
@@ -1640,7 +1653,19 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 );
                 return;
             }
-            if let Some(shoes) = shoes.filter(|_| !furry) {
+            if let Some(kind) = l.equipment.footwear() {
+                p.set_transform(Affine3A::IDENTITY);
+                equipment_footwear::emit_foot(
+                    p,
+                    kind,
+                    BootLast {
+                        build: b,
+                        heeled: kind.heeled(),
+                    },
+                    boot,
+                    kind.trim(),
+                );
+            } else if let Some(shoes) = shoes.filter(|_| !furry) {
                 p.set_transform(Affine3A::IDENTITY);
                 let upper = if shoes.sandal { l.skin } else { shoes.color };
                 boot_parts::emit_shoe(
@@ -1674,7 +1699,7 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                     );
                 }
             }
-            if furry || style == Style::Troll {
+            if (furry || style == Style::Troll) && l.equipment.footwear().is_none() {
                 for k in 0..3 {
                     let x = (k as f32 - 1.0) * 0.035;
                     p.matte.prism(
