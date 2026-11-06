@@ -46,23 +46,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   checks and semantic review against owning implementation/tests. A clean docs
   build does not prove complete API coverage.
 
-### CH-002: Commands retained outside the bounded mailbox
-
-- **Category/status:** robustness; source-supported candidate, not reproduced.
-- **Impact/confidence:** potentially high memory/latency impact under a stalled
-  save and sustained authenticated commands; runtime consequence unmeasured.
-- **Evidence:** [runner.rs](../../crates/server/src/runner.rs), `holds` and
-  `deliver`, retain commands in a `held` deque while saving is overdue; `run`
-  drains the bounded mailbox repeatedly and later drains held commands before
-  ordinary polling. Mailbox capacity
-  alone is therefore not evidence of a bound on retained command work.
-- **Next step:** reproduce with a stalled writer and sustained commands; measure
-  retained count/bytes, query/shutdown responsiveness, ordering and disconnect
-  cleanup. Decide a bounded admission/backpressure policy from that evidence.
-- **Acceptance:** independent tests for the selected bound and failure response,
-  preserved request order and retry semantics, and demonstrated recovery without
-  starving other host work. Do not silently drop or reorder accepted requests.
-
 ### CH-003: Retained presentation and history cost
 
 - **Category/status:** performance; measurement question, not a claimed leak.
@@ -249,6 +232,37 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   allocation profile is claimed.
 
 ## Retained or resolved findings
+
+### CH-002: Save-deferred ingress is bounded and reclaimed
+
+- **Category/status:** robustness; confirmed retention defect, corrected with
+  bounded admission and stream-lifetime cleanup.
+- **Evidence:** against `6fab91097`, the
+  [first-red Linux debug run](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42098728533/job/127495738606)
+  retained **257 requests**, kept a disconnected stream's deferred request, and
+  failed the real-WebSocket overload liveness witness. These are three behavioral
+  witnesses of one deferred-ingress ownership defect, not an observed OOM or RSS
+  measurement. A fourth test's positive receipt fixture failed before its intended
+  assertion and is classified separately in the [test ledger](test-effectiveness.md).
+- **Correction:** [runner](../../crates/server/src/runner.rs) holds at most 256
+  commands/attachment commits in addition to the bounded mailbox. Overflow aborts
+  the submitting stream and reclaims its deferred work. Surviving requests retain
+  FIFO order; explicit and service-side disconnects release their work, and
+  recovery rechecks saving before each held operation. Queries, connection mail
+  and shutdown continue through the ordinary bounded mailbox passes.
+- **Retry contract:** abort does not revoke previously accepted journal records.
+  An exact retry can recover an existing receipt after reconnect; a fresh request
+  still needs current context, and an uncommitted upload must be staged again.
+  No fabricated non-commit error is sent for a possibly accepted retry. The global
+  limit is not a per-client reservation or a claim of flood-source isolation.
+- **Acceptance:** [focused witnesses](../../crates/server/src/runner_backpressure_tests.rs)
+  cover sustained ingress, explicit/service-side reclamation, real transport,
+  surviving order, accepted overflow retries, unprocessed-request non-commit,
+  recovery and a second overdue interval. Existing
+  [save-backpressure process](../../scripts/test_save_backpressure_process.py),
+  [background-save](../../crates/server/tests/it/background_save.rs), attachment
+  staging and transport/permission witnesses remain intact. No wire, save or rules
+  identity changes, total-process memory bound or performance gain are claimed.
 
 ### CH-011: Compact headless frames build discarded derived state
 
