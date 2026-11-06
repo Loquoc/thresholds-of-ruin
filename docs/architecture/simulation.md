@@ -318,7 +318,11 @@ mailbox. `SimulationHandle::with` runs test/tool closures between actions.
 
 The loop handles a bounded FIFO mailbox pass, executes at most one due action,
 and repeats. Each pass is capped at mailbox capacity (256 server messages), so
-replacement arrivals cannot extend it indefinitely. A waking request is handled
+replacement arrivals cannot extend it indefinitely. Save-deferred commands occupy
+a separate FIFO of at most 256 requests, reclaimed when their stream disconnects.
+Its overload and exact-retry policy is defined in [persistence](persistence.md).
+Recovery processes only this bounded backlog before ordinary mail, checking the
+save deadline again before each held request. A waking request is handled
 before the next pass. A closed empty mailbox ends the run before another action,
 even if its last message filled the pass. A request waits behind at most one
 action, not a whole autonomous run; no action is split by an interruption.

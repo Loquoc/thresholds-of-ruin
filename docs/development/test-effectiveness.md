@@ -33,6 +33,40 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Save-deferred ingress retention, 5 November 2026
+
+CH-002 was reproduced against `6fab91097` in the
+[Linux debug first-red job](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42098728533/job/127495738606),
+using regression head `12cb70421afb`. The bounded evidence window establishes
+**one deferred-ingress ownership root, three distinct behavioral failing methods
+and three failed behavioral method executions**, all under
+`runner::stalled_ingress_tests`:
+
+- `stalled_ingress_is_bounded_and_overflow_only_disconnects_the_sender` retained
+  257 requests against the independent 256-request bound.
+- `disconnect_reclaims_held_requests_without_reordering_the_survivors` retained
+  `gone` between the expected surviving `first` and `last` requests.
+- `real_transport_overflow_closes_flooding_stream_but_keeps_queries_available`
+  expired its explicit overload/query liveness window with the real writer stalled.
+
+The fourth method, `recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect`,
+failed its positive accepted-receipt setup before exercising overload/recovery.
+This is **one separate fixture failure**, not another confirmed production failure.
+The fixture now establishes that receipt before locking the writer, avoiding the
+SQLite busy-timeout window, and reports the actual setup output if it fails.
+Compilation, Clippy, rustdoc and formatting passed. The server library reported
+1,331 passes and four failures; later workspace owners were not reached. The
+artifact archive's SHA-256 was independently checked. No OOM, total retained-byte
+measurement, performance improvement or complete first-red matrix is claimed.
+
+The correction caps deferred admission, reclaims disconnected-stream work and
+preserves surviving FIFO and accepted receipts. Follow-up witnesses put an accepted
+retry at the overflow boundary, prove a discarded valid request has no receipt,
+cover service-side disconnect cleanup and pause a recovery batch when saving
+becomes overdue again. Fixed-head platform qualification is separate from the
+first-red evidence; all original storage, authorization and transport witnesses
+remain required and unchanged.
+
 ## Corpse soft-body breathing, 5 November 2026
 
 The shared soft-region solver continued its autonomous breathing drive after an

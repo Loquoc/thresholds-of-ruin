@@ -46,23 +46,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   checks and semantic review against owning implementation/tests. A clean docs
   build does not prove complete API coverage.
 
-### CH-002: Commands retained outside the bounded mailbox
-
-- **Category/status:** robustness; source-supported candidate, not reproduced.
-- **Impact/confidence:** potentially high memory/latency impact under a stalled
-  save and sustained authenticated commands; runtime consequence unmeasured.
-- **Evidence:** [runner.rs](../../crates/server/src/runner.rs), `holds` and
-  `deliver`, retain commands in a `held` deque while saving is overdue; `run`
-  drains the bounded mailbox repeatedly and later drains held commands before
-  ordinary polling. Mailbox capacity
-  alone is therefore not evidence of a bound on retained command work.
-- **Next step:** reproduce with a stalled writer and sustained commands; measure
-  retained count/bytes, query/shutdown responsiveness, ordering and disconnect
-  cleanup. Decide a bounded admission/backpressure policy from that evidence.
-- **Acceptance:** independent tests for the selected bound and failure response,
-  preserved request order and retry semantics, and demonstrated recovery without
-  starving other host work. Do not silently drop or reorder accepted requests.
-
 ### CH-003: Retained presentation and history cost
 
 - **Category/status:** performance; measurement question, not a claimed leak.
@@ -123,40 +106,6 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 - **Acceptance:** preserve rejection of unknown labels and independent
   blocked/movement/door/readiness oracle tests; add explicit version/pairing
   rejection witnesses only for an approved strengthened input contract.
-
-### CH-011: Compact headless frames build discarded derived state
-
-- **Category/status:** performance/maintainability; source-supported redundant
-  work, benefit unmeasured. Reviewed at `a7d0f10e1`
-  on 2026-11-04; no runtime failure or speedup is claimed.
-- **Impact/confidence:** high confidence in unnecessary construction; practical
-  CPU/allocation impact depends on observation, history, palette and background
-  message volume. This is transient work, not evidence of retained-memory growth.
-- **Evidence/trigger:** [headless `emit` and `DiagnosticOutput::project`](../../crates/client-headless/src/main.rs)
-  first build the complete derived JSON object, including advancement display,
-  observation state, history and palette. With `--compact-background`, successful
-  non-ready `map_page`, `palette` and `waiting` frames then discard those fields
-  and retain only the compact envelope. Thus smaller output does not establish
-  avoided full-state serialization. Accumulated diagnostic memory already skips
-  construction on this path; do not report it as part of the redundant work.
-- **Next step:** select compact versus complete output before constructing the
-  derived fields, sharing the exact eligibility predicate and compact envelope.
-  Preserve raw-message serialization, map hydration, all errors and full ready,
-  observation/lifecycle and snapshot frames. Keep ordinary output unchanged.
-- **Acceptance:** retain the existing unit witnesses
-  `compact_background_keeps_raw_messages_and_marks_omitted_derived_state` and
-  `compact_background_preserves_ready_observations_and_every_error_in_full`, and
-  the actual-process witness
-  [HeadlessProcesses.test_compact_background_retains_raw_pages_and_complete_gameplay_and_errors](../../scripts/test_headless_process.py).
-  Add a construction-boundary witness proving that omitted derived fields are
-  not evaluated on compact frames, while complete frames still evaluate them.
-  Compare optimized before/after time and allocation evidence for equal disclosed
-  state and raw messages before claiming a performance improvement.
-- **Review limits:** existing assertions were inspected, not freshly executed.
-  No implementation, test, wire schema or dependency changed in this review.
-  The headless lifecycle review also found explicit unknown-outcome diagnostics,
-  shared pending-request completion and bounded stale-revision-only wizard
-  retries; none is established redundant or safe to remove.
 
 ### CH-014: Event-time sightings now measure absence
 
@@ -283,6 +232,69 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
   allocation profile is claimed.
 
 ## Retained or resolved findings
+
+### CH-002: Save-deferred ingress is bounded and reclaimed
+
+- **Category/status:** robustness; confirmed retention defect, corrected with
+  bounded admission and stream-lifetime cleanup.
+- **Evidence:** against `6fab91097`, the
+  [first-red Linux debug run](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42098728533/job/127495738606)
+  retained **257 requests**, kept a disconnected stream's deferred request, and
+  failed the real-WebSocket overload liveness witness. These are three behavioral
+  witnesses of one deferred-ingress ownership defect, not an observed OOM or RSS
+  measurement. A fourth test's positive receipt fixture failed before its intended
+  assertion and is classified separately in the [test ledger](test-effectiveness.md).
+- **Correction:** [runner](../../crates/server/src/runner.rs) holds at most 256
+  commands/attachment commits in addition to the bounded mailbox. Overflow aborts
+  the submitting stream and reclaims its deferred work. Surviving requests retain
+  FIFO order; explicit and service-side disconnects release their work, and
+  recovery rechecks saving before each held operation. Queries, connection mail
+  and shutdown continue through the ordinary bounded mailbox passes.
+- **Retry contract:** abort does not revoke previously accepted journal records.
+  An exact retry can recover an existing receipt after reconnect; a fresh request
+  still needs current context, and an uncommitted upload must be staged again.
+  No fabricated non-commit error is sent for a possibly accepted retry. The global
+  limit is not a per-client reservation or a claim of flood-source isolation.
+- **Acceptance:** [focused witnesses](../../crates/server/src/runner_backpressure_tests.rs)
+  cover sustained ingress, explicit/service-side reclamation, real transport,
+  surviving order, accepted overflow retries, unprocessed-request non-commit,
+  recovery and a second overdue interval. Existing
+  [save-backpressure process](../../scripts/test_save_backpressure_process.py),
+  [background-save](../../crates/server/tests/it/background_save.rs), attachment
+  staging and transport/permission witnesses remain intact. No wire, save or rules
+  identity changes, total-process memory bound or performance gain are claimed.
+
+### CH-011: Compact headless frames build discarded derived state
+
+- **Category/status:** performance/maintainability; redundant construction
+  corrected. This is a work-avoidance result, not a measured speedup or a
+  retained-memory fix.
+- **Correction:** [headless `emit` and `DiagnosticOutput::project`](../../crates/client-headless/src/main.rs)
+  serialize the raw envelope first and use the existing compact eligibility
+  decision before invoking the derived-field builder. Successful non-ready
+  `map_page`, `palette` and `waiting` frames skip advancement formatting and
+  observation, history, palette and other derived JSON construction. Full frames
+  invoke the builder once. Accumulated diagnostic memory already skipped this
+  path and is not counted as newly avoided work.
+- **Construction evidence:** the regression
+  `compact_background_skips_derived_construction_only_for_eligible_frames`
+  exercises both flags, all three output kinds, local errors, background and
+  complete message families, and absent raw messages. Its first-red run against
+  the equivalent eager construction failed at one builder invocation on an
+  eligible `map_page`, where zero was required. The fix moves that invocation
+  and observation-base serialization after the compact branch.
+- **Preserved contracts:** the existing
+  `compact_background_keeps_raw_messages_and_marks_omitted_derived_state` and
+  `compact_background_preserves_ready_observations_and_every_error_in_full`
+  witnesses retain raw message, exact envelope, map hydration and full-frame
+  assertions. Default and `--omit-memory` witnesses remain unchanged in scope,
+  including preserved client memory. The actual-process owner remains
+  [HeadlessProcesses.test_compact_background_retains_raw_pages_and_complete_gameplay_and_errors](../../scripts/test_headless_process.py).
+  Ready, observation/lifecycle, snapshot and error frames remain complete;
+  no protocol, save format, dependency or gameplay authority changes.
+- **Limits:** optimized before/after latency and allocation magnitudes are not
+  measured. Smaller output and fewer builder invocations must not be reported as
+  a quantified CPU, allocation or memory-retention improvement.
 
 ### CH-013: Linux storage probe preserves empty column boundaries
 
