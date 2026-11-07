@@ -540,7 +540,35 @@ fn study_pigment(recipe: &Recipe, row: usize, col: usize) -> Vec3 {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static AUDIT_CONTEXT: std::cell::RefCell<serde_json::Value> = const { std::cell::RefCell::new(serde_json::Value::Null) };
+}
+
+#[cfg(test)]
+struct AuditContextGuard(serde_json::Value);
+#[cfg(test)]
+impl AuditContextGuard {
+    fn enter(context: serde_json::Value) -> Self {
+        Self(AUDIT_CONTEXT.with(|slot| slot.replace(context)))
+    }
+}
+#[cfg(test)]
+impl Drop for AuditContextGuard {
+    fn drop(&mut self) {
+        AUDIT_CONTEXT.with(|slot| {
+            slot.replace(self.0.take());
+        });
+    }
+}
+#[cfg(test)]
+fn audit_context() -> serde_json::Value {
+    AUDIT_CONTEXT.with(|slot| slot.borrow().clone())
+}
+
 pub(super) struct CloakRig {
+    #[cfg(test)]
+    audit_context: serde_json::Value,
     pub entity: Entity,
     mesh: Handle<Mesh>,
     rest: Vec<Vec3>,
@@ -918,6 +946,8 @@ pub(super) fn spawn(
         .id();
     commands.entity(parent).add_child(entity);
     CloakRig {
+        #[cfg(test)]
+        audit_context: audit_context(),
         entity,
         mesh,
         points,
@@ -961,6 +991,8 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
 }
 
 fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, fit_arms: bool) {
+    #[cfg(test)]
+    let _audit = AuditContextGuard::enter(cloak.audit_context.clone());
     if cloak
         .last_rotation
         .is_some_and(|last| rotation.angle_between(last) < 1e-6)
@@ -2502,7 +2534,8 @@ fn fit_radial_faces_impl(
                                                     eprintln!(
                                                         "support audit polygon: {}",
                                                         serde_json::json!({
-                                                            "face":face,"iteration":iteration,"source":source,
+                                                            "context":audit_context(),"layer":if support.inner.is_some(){"mantle"}else{"main"},"rotation":rotation.to_array(),
+                                                        "face":face,"iteration":iteration,"source":source,
                                                             "points":polygon[..size].iter().map(|p|p.to_array()).collect::<Vec<_>>()
                                                         })
                                                     );
@@ -2512,7 +2545,7 @@ fn fit_radial_faces_impl(
                                         }
                                         eprintln!(
                                             "support audit complete: {}",
-                                            serde_json::json!({"face":face,"iteration":iteration,"polygons":count})
+                                            serde_json::json!({"context":audit_context(),"layer":if support.inner.is_some(){"mantle"}else{"main"},"rotation":rotation.to_array(),"face":face,"iteration":iteration,"polygons":count})
                                         );
                                     }
                                     #[cfg(test)]
@@ -2520,6 +2553,7 @@ fn fit_radial_faces_impl(
                                         eprintln!(
                                             "infeasible face diagnostics: {}",
                                             serde_json::json!({
+                                                "context":audit_context(),"layer":if support.inner.is_some(){"mantle"}else{"main"},"rotation":rotation.to_array(),
                                                 "face":face,"row":row,"column":column,"iteration":iteration,
                                                 "normal":normal.to_array(),"plane":plane,"support_point":witness.to_array(),
                                                 "source":if is_arm {"arms"}else{"inner"},"collar_deficit":best_anchor_deficit,
@@ -2979,6 +3013,8 @@ pub(super) fn place_layers(
     for i in 0..cloaks.len() {
         let (earlier, current) = cloaks.split_at_mut(i);
         let cloak = &mut current[0];
+        #[cfg(test)]
+        let _audit = AuditContextGuard::enter(cloak.audit_context.clone());
         let Some(rot) = rotation(cloak.entity) else {
             continue;
         };
@@ -3043,6 +3079,30 @@ pub(super) fn place_layers(
         }) {
             Ok(()) => cloak.points = candidate,
             Err(failure) => {
+                #[cfg(test)]
+                if std::env::var_os("TOR_CLOAK_SUPPORT_AUDIT").is_some() {
+                    let offset = Vec3::new(0.0, 0.53, -0.15);
+                    let body_profile: Vec<_> = [failure.column, (failure.column + 1).min(COLUMNS)].into_iter().map(|column| {
+                        let at = rot * candidate[index(0,column)] + offset;
+                        let direction = at.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                        let samples: Vec<_> = [0.565,0.585,0.605,0.625,0.645,0.649].into_iter().map(|y| {
+                            let point = cloak.support.as_ref().map(|body|fit_neck_opening((direction*0.01).with_y(y),body));
+                            serde_json::json!({"y":y,"body_attachment":point.map(|p|p.to_array()),
+                                "radial_sdf": (0..=25).map(|i| {
+                                    let radius=i as f32*0.01;
+                                    (radius,cloak.support.as_ref().map(|body|body.distance((direction*radius).with_y(y)/anatomy::HIP_SCALE)))
+                                }).collect::<Vec<_>>()})
+                        }).collect();
+                        serde_json::json!({"column":column,"reference":at.to_array(),"samples":samples})
+                    }).collect();
+                    eprintln!(
+                        "collar attachment region: {}",
+                        serde_json::json!({
+                            "context":audit_context(),"layer":"mantle","body_profile":body_profile,
+                            "inner_ring":(0..=COLUMNS).map(|c|serde_json::json!({"point":(inner_rot*inner.points[index(0,c)]+offset).to_array(),"normal":(inner_rot*inner.normals[index(0,c)]).to_array()})).collect::<Vec<_>>()
+                        })
+                    );
+                }
                 cloak.contact_fallbacks += 1;
                 let fallback = LayerSurface::from_triangles(
                     support
@@ -5777,7 +5837,13 @@ mod tests {
             equipment.select(name).unwrap();
             let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()))
                 .equipped(equipment);
-            let (mut world, rig, _, meshes) = super::super::rogue_tests::spawn_one(&look);
+            let _stage = AuditContextGuard::enter(
+                serde_json::json!({"actor":name,"fixture":"captured_tick_93","stage":"spawn"}),
+            );
+            let (mut world, mut rig, _, meshes) = super::super::rogue_tests::spawn_one(&look);
+            for cloak in &mut rig.cloaks {
+                cloak.audit_context = serde_json::json!({"actor":name,"fixture":"captured_tick_93","stage":"pose","tick":93});
+            }
             world.insert_resource(meshes);
             let mut anim = Anim::new(18, Vec3::ZERO);
             anim.yaw = 0.0;
@@ -5872,6 +5938,9 @@ mod tests {
             }),
         )
         .equipped(equipment);
+        let _stage = AuditContextGuard::enter(
+            serde_json::json!({"actor":"ornamental-cope+plate-mail","fixture":"posed_cope","stage":"spawn"}),
+        );
         let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
         assert_eq!(
             rig.visual_contacts.len(),
@@ -5901,6 +5970,7 @@ mod tests {
                 super::super::visual_contact::posed_triangles(&rig.visual_contacts, frame),
             ));
             for cloak in &mut rig.cloaks {
+                cloak.audit_context = serde_json::json!({"actor":"ornamental-cope+plate-mail","fixture":"posed_cope","stage":"pose","angle":angle});
                 cloak.set_contacts(contacts.clone());
                 cloak.set_contact_surface(surface.clone());
             }

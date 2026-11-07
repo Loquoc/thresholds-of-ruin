@@ -4269,3 +4269,13 @@ of a particular tick or angle. Subsequent test-only authored-normal and complete
 polygon probes retained the targeted failures and passed release Clippy. The
 remaining width, collar, motion and visual gates stay open; no threshold was
 relaxed and no remote publication is implied.
+
+A subsequent diagnostic-only native rerun added actor/layer/pose-stage context
+carried through the spawned rig into animation workers. It reproduced the two
+certificates specifically for the leather-cloak mantle at tick 93 and the
+plated ornamental-cope mantle at arm angle -1.15. Release Clippy passed; both
+targeted acceptance tests remained red. Actual torso SDF samples refuted an
+outermost-versus-first-exit shortcut: the 30 mm expanded field was monotone on
+the failing rays, with no earlier clear neck corridor. Higher supported points
+permit narrower radii, but an attachment change still requires coherent-ring,
+actual neck/head and first-band torso validation, not just vertex sampling.
