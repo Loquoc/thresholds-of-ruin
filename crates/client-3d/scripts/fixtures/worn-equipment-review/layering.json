@@ -141,7 +141,7 @@
       "yaw": 0
     },
     {
-      "id": "wrapping-over-shirt",
+      "id": "feminine-hawaiian-shirt",
       "model": "Human",
       "seed": 23,
       "body": {
@@ -152,8 +152,7 @@
       },
       "outfit": "native",
       "equipment": [
-        "mummy-wrapping",
-        "t-shirt"
+        "hawaiian-shirt"
       ],
       "position": [
         1.1,
@@ -304,7 +303,7 @@
       "fov_degrees": 38
     },
     {
-      "id": "detail-wrapping-over-shirt",
+      "id": "detail-feminine-hawaiian-shirt",
       "position": [
         1.4500000000000002,
         0.6499999999999999,
@@ -407,7 +406,7 @@
     },
     {
       "tick": 1,
-      "actor": "wrapping-over-shirt",
+      "actor": "feminine-hawaiian-shirt",
       "operation": {
         "type": "velocity",
         "value": [
@@ -503,7 +502,7 @@
     },
     {
       "tick": 40,
-      "actor": "wrapping-over-shirt",
+      "actor": "feminine-hawaiian-shirt",
       "operation": {
         "type": "velocity",
         "value": [
@@ -599,7 +598,7 @@
     },
     {
       "tick": 80,
-      "actor": "wrapping-over-shirt",
+      "actor": "feminine-hawaiian-shirt",
       "operation": {
         "type": "velocity",
         "value": [
@@ -671,7 +670,7 @@
     },
     {
       "tick": 85,
-      "actor": "wrapping-over-shirt",
+      "actor": "feminine-hawaiian-shirt",
       "operation": {
         "type": "action",
         "name": "strike"
@@ -729,8 +728,8 @@
     },
     {
       "tick": 0,
-      "name": "layering-detail-wrapping-over-shirt",
-      "camera": "detail-wrapping-over-shirt"
+      "name": "layering-detail-feminine-hawaiian-shirt",
+      "camera": "detail-feminine-hawaiian-shirt"
     },
     {
       "tick": 0,

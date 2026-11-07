@@ -41,6 +41,12 @@ def validate_manifest(script, manifest, output):
             raise ValueError(f'wrong image dimensions {png.name}')
 
 
+def capture_batches(script):
+    """Bound readback work per process without dropping poses or changing actors."""
+    return [dict(script, captures=script['captures'][i:i + 5])
+            for i in range(0, len(script['captures']), 5)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
@@ -60,21 +66,26 @@ def main():
             if source.name == 'index.json':
                 continue
             script = json.loads(source.read_text())
-            target = output / source.stem
-            started = time.monotonic()
-            command = [str(binary), '--scene-script', str(source), '--capture', str(target), '--offscreen']
-            with (output / f'{source.stem}.log').open('w') as log:
-                result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=900, check=False)
-            if result.returncode:
-                raise RuntimeError(f'{source.name} exited {result.returncode}')
-            manifest = json.loads((target / 'manifest.json').read_text())
-            validate_manifest(script, manifest, target)
-            receipt['scenes'].append({'script': source.name, 'sha256': digest(source),
-                                      'seconds': time.monotonic() - started,
-                                      'captures': [{'file': f'{source.stem}/{shot["name"]}.png',
-                                                    'sha256': digest(target / f'{shot["name"]}.png')}
-                                                   for shot in manifest['captures']]})
-            receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+            for part, batch in enumerate(capture_batches(script)):
+                name = f'{source.stem}-part-{part + 1:02}'
+                target = output / name
+                prepared = output / f'{name}.json'
+                prepared.write_text(json.dumps(batch, indent=2) + '\n')
+                started = time.monotonic()
+                command = [str(binary), '--scene-script', str(prepared), '--capture', str(target), '--offscreen']
+                with (output / f'{name}.log').open('w') as log:
+                    result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=900, check=False)
+                if result.returncode:
+                    raise RuntimeError(f'{source.name} exited {result.returncode}')
+                manifest = json.loads((target / 'manifest.json').read_text())
+                validate_manifest(batch, manifest, target)
+                receipt['scenes'].append({'script': source.name, 'sha256': digest(source), 'batch': prepared.name,
+                                          'batch_sha256': digest(prepared),
+                                          'seconds': time.monotonic() - started,
+                                          'captures': [{'file': f'{name}/{shot["name"]}.png',
+                                                        'sha256': digest(target / f'{shot["name"]}.png')}
+                                                       for shot in manifest['captures']]})
+                receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
         receipt['status'] = 'complete'
     except Exception as error:
         receipt['status'] = 'failed'

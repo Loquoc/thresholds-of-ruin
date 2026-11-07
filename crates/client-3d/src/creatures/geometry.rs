@@ -849,6 +849,8 @@ struct Kit<'a, 'w, 's> {
     hair_key: String,
     /// Every part is drawn translucent (a phantom).
     ghost: bool,
+    /// Only wraparound equipment capes need hand contacts beyond legacy hair profiles.
+    study_hand_contacts: bool,
 }
 
 impl Kit<'_, '_, '_> {
@@ -888,6 +890,8 @@ impl Kit<'_, '_, '_> {
             J::ArmL | J::ArmR if self.rig.plan == Plan::Biped => Some(vec![j]),
             J::ForeL if self.rig.plan == Plan::Biped => Some(vec![J::ArmL, j]),
             J::ForeR if self.rig.plan == Plan::Biped => Some(vec![J::ArmR, j]),
+            J::HandL if self.study_hand_contacts => Some(vec![J::ArmL, J::ForeL, j]),
+            J::HandR if self.study_hand_contacts => Some(vec![J::ArmR, J::ForeR, j]),
             _ => None,
         };
         if let Some(path) = path {
@@ -1045,6 +1049,13 @@ pub fn spawn(
         head_recipe,
         hair_key: look.body_key.clone().unwrap_or_else(|| look.key.clone()),
         ghost: look.style.ghostly(),
+        study_hand_contacts: look.plan == Plan::Biped
+            && look.equipment.outerwear().is_some_and(|kind| {
+                matches!(
+                    kind.recipe().cut,
+                    super::outfit::outerwear::OuterwearCut::Drape(_)
+                )
+            }),
     };
     let lift = kit
         .commands

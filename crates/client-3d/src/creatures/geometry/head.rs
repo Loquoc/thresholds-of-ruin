@@ -10,6 +10,7 @@ struct Finish {
     neck_band: Option<Neck>,
     earrings: Option<(Vec3, Vec3)>,
     cuirass: bool,
+    hood_binding: Option<Vec3>,
 }
 
 #[derive(Clone, Copy)]
@@ -26,6 +27,14 @@ impl Recipe {
                 neck_band: outfit.trimmings.neck,
                 earrings: outfit.trimmings.earrings,
                 cuirass: outfit.outer == Some(Outer::Cuirass),
+                hood_binding: look
+                    .equipment
+                    .outerwear()
+                    .filter(|kind| {
+                        *kind == super::outfit::outerwear::OuterwearAppearance::HoodedCloak
+                    })
+                    .filter(|_| matches!(outfit.head, Headwear::Hood { .. }))
+                    .map(|kind| kind.recipe().trim),
             },
         }
     }
@@ -46,6 +55,7 @@ impl Recipe {
             neck_band,
             earrings,
             cuirass,
+            hood_binding,
         } = self.finish;
         let neck = if furry { l.cloth } else { l.skin };
         let slim = neck_slim(fem);
@@ -392,6 +402,9 @@ impl Recipe {
                                 },
                             );
                         }
+                        if let Some(trim) = hood_binding {
+                            equipment_outerwear::emit_hood_rim(p, hood, trim);
+                        }
                         if fem || style == Style::Wraith {
                             // Locks of hair escape the hood to frame the face.
                             let c = hair_color(l);
@@ -553,5 +566,31 @@ impl Recipe {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod study_hood_tests {
+    use super::*;
+
+    #[test]
+    fn study_hood_binding_is_a_head_cache_dependency() {
+        let mut base = Look::of(CreatureModel::Human, 17);
+        let kind = super::super::super::outfit::outerwear::OuterwearAppearance::HoodedCloak;
+        let mut outfit = Outfit::native(&base);
+        outfit.head = Headwear::Hood {
+            color: kind.recipe().cloth,
+            pointed: false,
+        };
+        base.outfit = Some(outfit);
+        let native = Recipe::resolve(&base);
+        let mut equipment = super::super::super::outfit::Equipment::default();
+        equipment.select(kind.name()).unwrap();
+        let equipped = base.clone().equipped(equipment);
+        let study = Recipe::resolve(&equipped);
+        assert_eq!(native.finish.headwear, study.finish.headwear);
+        assert_eq!(native.finish.hood_binding, None);
+        assert_eq!(study.finish.hood_binding, Some(kind.recipe().trim));
+        assert_ne!(native.key(&base), study.key(&equipped));
     }
 }

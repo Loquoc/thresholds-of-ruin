@@ -121,7 +121,7 @@
         "bust": 2,
         "figure": 2
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "walking-shoes"
       ],
@@ -142,7 +142,7 @@
         "bust": 2,
         "figure": 0
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "hard-shoes"
       ],
@@ -163,7 +163,7 @@
         "bust": 2,
         "figure": 1
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "jackboots"
       ],

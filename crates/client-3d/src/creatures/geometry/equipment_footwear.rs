@@ -136,6 +136,26 @@ pub(super) fn fit_shin(
     build: f32,
 ) -> BootShape {
     let mut shape = fit_shape(appearance, shape);
+    let required = shin_profile(shape, shin, trousered, build);
+    shape.radius_bottom = shape.radius_bottom.max(required[0]);
+    // Hold the fitted ankle, then open the calf end enough to clear every row.
+    // This preserves an ankle taper instead of inflating the entire boot to
+    // the largest calf cross-section.
+    for (row, radius) in required.iter().enumerate().skip(1) {
+        let t = row as f32 / 48.0;
+        shape.radius_top = shape
+            .radius_top
+            .max((radius - shape.radius_bottom * (1.0 - t)) / t);
+    }
+    shape.cuff_radius = shape.radius_top + 0.002;
+    shape.sample_radius_top = shape.radius_top + shape.cuff_thickness + 0.004;
+    shape.sample_radius_bottom = shape.radius_bottom + 0.012;
+    shape
+}
+
+/// Per-height circular envelope of the actual clothed calf. The 12-sided
+/// shaft's flat faces retain the same clearance as the conservative cone.
+fn shin_profile(shape: BootShape, shin: LimbShape, trousered: bool, build: f32) -> [f32; 49] {
     let support = shin_support(shin, trousered, build);
     let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
     let outside = low.abs().max(high.abs()).xz().length() + 0.05;
@@ -161,20 +181,72 @@ pub(super) fn fit_shin(
             *radius = radius.max((hi + clearance) / polygon_inradius);
         }
     }
-    shape.radius_bottom = shape.radius_bottom.max(required[0]);
-    // Hold the fitted ankle, then open the calf end enough to clear every row.
-    // This preserves an ankle taper instead of inflating the entire boot to
-    // the largest calf cross-section.
-    for (row, radius) in required.iter().enumerate().skip(1) {
-        let t = row as f32 / 48.0;
-        shape.radius_top = shape
-            .radius_top
-            .max((radius - shape.radius_bottom * (1.0 - t)) / t);
+    required
+}
+
+/// Riding leather follows the calf then narrows again below the knee. Other
+/// study boots retain their authored construction and the same public catalog.
+/// `shape` remains the conservative envelope returned by `fit_shin`, so cloth
+/// contact continues to enclose every ring without changing its API.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_fitted_shaft(
+    p: &mut Parts,
+    appearance: FootwearAppearance,
+    shape: BootShape,
+    build: f32,
+    side: f32,
+    color: Vec3,
+    trim: Vec3,
+    shin: LimbShape,
+    trousered: bool,
+) {
+    if appearance != FootwearAppearance::RidingBoots {
+        emit_shaft(p, appearance, shape, build, side, color, trim);
+        return;
     }
-    shape.cuff_radius = shape.radius_top + 0.002;
-    shape.sample_radius_top = shape.radius_top + shape.cuff_thickness + 0.004;
-    shape.sample_radius_bottom = shape.radius_bottom + 0.012;
-    shape
+    let radii =
+        shin_profile(shape, shin, trousered, build).map(|radius| radius.max(shape.radius_bottom));
+    let y = |t: f32| shape.bottom + (shape.top - shape.bottom) * t;
+    let radius = |t: f32| {
+        let row = t.clamp(0.0, 1.0) * 48.0;
+        let i = (row.floor() as usize).min(47);
+        radii[i] + (radii[i + 1] - radii[i]) * (row - i as f32)
+    };
+    let path: Vec<_> = (0..49).map(|row| Vec3::Y * y(row as f32 / 48.0)).collect();
+    let girths: Vec<_> = radii.into_iter().map(Vec2::splat).collect();
+    p.satin.tube(&path, &girths, 12, &|_, _, _| color);
+    // The piping stays on the curved shaft rather than floating on the old
+    // extrapolated cone. Its dipped front/back is the riding study's topline.
+    let lip: Vec<_> = (0..=24)
+        .map(|i| {
+            let a = i as f32 * TAU / 24.0;
+            let top = shape.top - 0.025 * a.cos().abs();
+            let t = (top - shape.bottom) / (shape.top - shape.bottom);
+            Vec3::new(a.sin() * radius(t), top, a.cos() * radius(t))
+        })
+        .collect();
+    tube(&mut p.satin, &lip, &vec![(0.004, 0.004); lip.len()], trim);
+    let seam: Vec<_> = (2..47)
+        .map(|row| {
+            let t = row as f32 / 48.0;
+            Vec3::new(0.0, y(t), -radius(t))
+        })
+        .collect();
+    tube(
+        &mut p.satin,
+        &seam,
+        &vec![(0.003, 0.003); seam.len()],
+        color * 1.2,
+    );
+    p.satin.torus(
+        Vec3::Y * y(0.13),
+        Vec3::Y,
+        radius(0.13),
+        0.004,
+        12,
+        3,
+        color * 0.6,
+    );
 }
 
 fn cord(builder: &mut Builder, a: Vec3, b: Vec3, radius: f32, color: Vec3) {
@@ -594,6 +666,77 @@ mod tests {
     }
 
     #[test]
+    fn riding_shaft_narrows_above_calf_without_exceeding_contact_envelope() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let body = HumanoidBody::resolve(&Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                ));
+                let shape = fit_shin(
+                    FootwearAppearance::RidingBoots,
+                    BootShape::fitted(body.build, -0.24),
+                    body.shin,
+                    true,
+                    body.build,
+                );
+                let mut parts = Parts::default();
+                emit_fitted_shaft(
+                    &mut parts,
+                    FootwearAppearance::RidingBoots,
+                    shape,
+                    body.build,
+                    1.0,
+                    Vec3::ONE,
+                    Vec3::ONE,
+                    body.shin,
+                    true,
+                );
+                let rear_radius = |y| {
+                    parts
+                        .satin
+                        .outer_surface(Vec3::Y * y, Vec3::NEG_Z)
+                        .expect("riding shaft surface")
+                        .z
+                        .abs()
+                };
+                let calf = rear_radius(-0.14);
+                let rim = rear_radius(shape.top - 0.004);
+                assert!(
+                    rim < calf - 0.003,
+                    "calf should narrow toward knee: {woman}/{build}: {rim}/{calf}"
+                );
+                assert!(
+                    rim < shape.radius_top - 0.008,
+                    "must remove unsupported cone flare: {woman}/{build}: {rim}/{}",
+                    shape.radius_top
+                );
+                for row in 1..48 {
+                    let t = row as f32 / 48.0;
+                    let y = shape.bottom + (shape.top - shape.bottom) * t;
+                    let bound = shape.sample_radius_bottom
+                        + (shape.sample_radius_top - shape.sample_radius_bottom) * t;
+                    for k in 0..24 {
+                        let angle = k as f32 * TAU / 24.0;
+                        let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
+                        let origin = Vec3::Y * y;
+                        let at = parts.satin.outer_surface(origin, ray).unwrap();
+                        assert!(
+                            at.distance(origin) < bound,
+                            "fitted riding shaft escaped contact envelope"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn fitted_shaft_covers_actual_calf_and_trousers_across_wearers() {
         for woman in [false, true] {
             for build in 0..3 {
@@ -625,7 +768,7 @@ mod tests {
                             body.build,
                         );
                         let mut shaft = Parts::default();
-                        emit_shaft(
+                        emit_fitted_shaft(
                             &mut shaft,
                             appearance,
                             shape,
@@ -633,6 +776,8 @@ mod tests {
                             1.0,
                             Vec3::ONE,
                             Vec3::ONE,
+                            body.shin,
+                            trousered,
                         );
                         assert!(shape.sample_radius_top >= shape.radius_top);
                         assert!(shape.sample_radius_bottom >= shape.radius_bottom);

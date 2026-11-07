@@ -61,7 +61,7 @@ def reviews():
     pages = {}
     for start in range(0, len(names), 8):
         page = f'appearances-{start // 8 + 1:02}'
-        pages[page] = sheet([actor(name, i, [name]) for i, name in enumerate(names[start:start + 8])], page)
+        pages[page] = sheet([actor(name, i, [name], outfit='adventurer' if name in names[-10:] else 'native') for i, name in enumerate(names[start:start + 8])], page)
     layers = [
         actor('shirt-plate-open-cape', 0, ['hawaiian-shirt', 'plate-mail', 'opera-cloak']),
         actor('tshirt-chain-cloak', 1, ['t-shirt', 'chain-mail', 'hooded-cloak']),
@@ -69,7 +69,7 @@ def reviews():
         actor('apron-over-caster-robe', 3, ['apron', 'riding-gloves'], model='Mage'),
         actor('centaur-head-and-hands', 4, ['fedora', 'fencing-gloves'], model='Centaur'),
         actor('cope-and-armor', 5, ['ornamental-cope', 'plate-mail']),
-        actor('wrapping-over-shirt', 6, ['mummy-wrapping', 't-shirt']),
+        actor('feminine-hawaiian-shirt', 6, ['hawaiian-shirt'], woman=True),
         actor('leather-mantle-over-shirt', 7, ['leather-cloak', 'hawaiian-shirt']),
     ]
     pages['layering'] = sheet(layers, 'layering')

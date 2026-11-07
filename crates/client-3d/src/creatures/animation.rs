@@ -351,6 +351,20 @@ fn present_pose(
     }
     record_phase(&mut profile, 1, started);
     let started = profile.as_ref().map(|_| std::time::Instant::now());
+    let contacts = if rig.hair.is_some() || rig.cloaks.iter().any(|cloak| cloak.needs_contacts()) {
+        super::visual_contact::posed(&rig.visual_contacts, |joint| {
+            rig.joint(joint)
+                .and_then(|entity| joints.get(entity).ok())
+                .map(Transform::compute_affine)
+        })
+    } else {
+        Vec::new()
+    };
+    for cloak in &mut rig.cloaks {
+        if cloak.needs_contacts() {
+            cloak.set_contacts(contacts.clone());
+        }
+    }
     super::cloak::place_layers(
         &mut rig.cloaks,
         |entity| joints.get(entity).ok().map(|transform| transform.rotation),
@@ -362,15 +376,6 @@ fn present_pose(
         .joint(J::Head)
         .and_then(|entity| joints.get(entity).ok())
         .map(Transform::compute_affine);
-    let contacts = if rig.hair.is_some() {
-        super::visual_contact::posed(&rig.visual_contacts, |joint| {
-            rig.joint(joint)
-                .and_then(|entity| joints.get(entity).ok())
-                .map(Transform::compute_affine)
-        })
-    } else {
-        Vec::new()
-    };
     let mut deferred = None;
     if let (Some(head), Some(hair)) = (head, &mut rig.hair) {
         hair.set_contacts(contacts);

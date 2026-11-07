@@ -16,7 +16,7 @@
         "bust": 2,
         "figure": 0
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "combat-boots"
       ],
@@ -37,7 +37,7 @@
         "bust": 2,
         "figure": 1
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "jungle-boots"
       ],
@@ -58,7 +58,7 @@
         "bust": 2,
         "figure": 2
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "hiking-boots"
       ],
@@ -79,7 +79,7 @@
         "bust": 2,
         "figure": 0
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "mud-boots"
       ],
@@ -100,7 +100,7 @@
         "bust": 2,
         "figure": 1
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "buckled-boots"
       ],
@@ -121,7 +121,7 @@
         "bust": 2,
         "figure": 2
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "riding-boots"
       ],
@@ -142,7 +142,7 @@
         "bust": 2,
         "figure": 0
       },
-      "outfit": "native",
+      "outfit": "adventurer",
       "equipment": [
         "snow-boots"
       ],

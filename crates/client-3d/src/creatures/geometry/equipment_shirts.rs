@@ -62,7 +62,7 @@ pub(super) fn emit(
             patch(quad(-0.003, -0.019, 0.003, -0.010), GILT);
         }
         ShirtAppearance::HawaiianShirt => {
-            let color = kind.color();
+            let color = kind.color(body.woman);
             for side in [-1.0, 1.0] {
                 let s = body.shoulders * body.build;
                 patch(
@@ -95,7 +95,7 @@ pub(super) fn emit(
             .unwrap();
             for i in 0..7 {
                 let y = 0.075 + i as f32 * 0.045;
-                if y >= neckline.bottom - 0.01 {
+                if body.woman || y >= neckline.bottom - 0.01 {
                     continue;
                 }
                 patch(
@@ -109,14 +109,16 @@ pub(super) fn emit(
                 );
             }
             if body.woman {
-                // Two tied cloth ends leave the underlying lower garment alone.
+                // Knot/tails follow the actual cropped shirt hem, not the
+                // belt below the bare midriff.
+                let hem = body.bust.map_or(0.27, |bust| bust.fold) - 0.03;
                 for side in [-1.0, 1.0] {
                     patch(
                         [
-                            Vec2::new(side * 0.005, 0.065),
-                            Vec2::new(side * 0.055, 0.025),
-                            Vec2::new(side * 0.060, 0.075),
-                            Vec2::new(side * 0.012, 0.090),
+                            Vec2::new(side * 0.005, hem),
+                            Vec2::new(side * 0.055, hem - 0.055),
+                            Vec2::new(side * 0.060, hem - 0.010),
+                            Vec2::new(side * 0.012, hem + 0.018),
                         ],
                         color * 1.08,
                     );

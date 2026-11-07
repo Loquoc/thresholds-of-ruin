@@ -317,6 +317,13 @@ impl Equipment {
             if let Some(robe) = recipe.robe() {
                 base.robe = Some(robe);
             }
+            if recipe.hood != OuterwearHood::None && self.head.is_none() {
+                base.neck_drape = Some(NeckDrape {
+                    color: recipe.cloth,
+                    tail: false,
+                    covered_by_helm: true,
+                });
+            }
             if recipe.hood == OuterwearHood::Raised && self.head.is_none() {
                 base.head = Headwear::Hood {
                     color: recipe.cloth,

@@ -3897,3 +3897,24 @@ preserves the production bound, all ownership/reclamation assertions, and normal
 checkpoint recovery. Cross-batch sharing is not counted by this size proxy.
 Final-head hosted execution remains required; no local behavioral run or isolated
 RSS/timing result is claimed while local storage capacity is constrained.
+
+## Modular equipment development and capture budget, 7 November 2026
+
+The initial native geometry qualification for PR 276 exposed two new-feature
+implementation failures: `equipment_gloves::tests::cuff_clears_existing_wide_sleeve_instead_of_nominal_forearm`
+missed the broad sleeve between axial samples, and
+`equipment_layer_tests::changed_panel_transform_invalidates_contact_with_unchanged_leg_pose`
+exposed a rigid apron panel ballooning beyond its bounds. These are development
+failures, not released regressions or stale oracles. Cuffs now include adjacent
+support rows and polygon chord clearance. Aprons translate along the required
+front contact plane while preserving authored edge lengths. The original
+assertions remain; final-head hosted qualification is required.
+
+The expanded closeup [capture run](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42318975788)
+at `70a8ff0` compiled successfully, then exceeded the native scene's 180-second
+GPU/readback budget after 12 of the first scene's 13 requested images. This is
+one harness workload issue, not an additional geometry failure. The runner now
+splits each script into at most five captures per fresh process, preserving
+all actors, events, cameras and the exact ordered capture union. Its unit test
+checks that no pose is omitted or changed; completed rendering still does not
+constitute visual acceptance.

@@ -16,16 +16,17 @@ impl ShirtAppearance {
     pub fn name(self) -> &'static str {
         Self::NAMES[self as usize]
     }
-    pub fn color(self) -> Vec3 {
+    pub fn color(self, woman: bool) -> Vec3 {
         match self {
             Self::TShirt => Vec3::new(0.87, 0.85, 0.76),
-            Self::HawaiianShirt => Vec3::new(0.12, 0.29, 0.43),
+            Self::HawaiianShirt if woman => Vec3::new(0.12, 0.29, 0.43),
+            Self::HawaiianShirt => Vec3::new(0.62, 0.10, 0.055),
         }
     }
     /// This replaces the costume's inner torso/sleeves, not its legs, hair,
     /// cloak or independent armor. Armor composition happens afterwards.
     pub fn compose(self, mut base: Outfit, woman: bool) -> Outfit {
-        let color = self.color();
+        let color = self.color(woman);
         base.tunic = color;
         base.outer = None;
         base.torso_ornament = None;
@@ -54,6 +55,11 @@ impl ShirtAppearance {
                     wrap: false,
                 },
             }),
+            cover: if woman && self == Self::HawaiianShirt {
+                Cover::Crop(Hem::Even)
+            } else {
+                Cover::Full
+            },
             edge: color * 0.82,
             support: Support::Loose,
             pattern: match self {
@@ -73,5 +79,27 @@ impl ShirtAppearance {
         });
         base.cuffs = None;
         base
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn tropical_study_retains_full_male_and_knotted_feminine_cuts() {
+        let look = Look::of(CreatureModel::Human, 7);
+        let base = Outfit::native(&look);
+        let male = ShirtAppearance::HawaiianShirt.compose(base, false);
+        let female = ShirtAppearance::HawaiianShirt.compose(base, true);
+        assert_eq!(male.bodice.cover, Cover::Full);
+        assert_eq!(female.bodice.cover, Cover::Crop(Hem::Even));
+        assert!(male.tunic.x > male.tunic.z);
+        assert!(female.tunic.z > female.tunic.x);
+        for woman in [false, true] {
+            assert_eq!(
+                ShirtAppearance::TShirt.compose(base, woman).bodice.cover,
+                Cover::Full
+            );
+        }
     }
 }

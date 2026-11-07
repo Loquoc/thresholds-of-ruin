@@ -1322,6 +1322,13 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
             &sashes,
         ));
         if let Some(rig) = &mut kit.rig.robe {
+            if l.equipment.outerwear() == Some(outfit::outerwear::OuterwearAppearance::Robe) {
+                let seam = equipment_outerwear::robe_waist_seam(body, waist_support)
+                    .into_iter()
+                    .map(|p| p * storybook_part(Plan::Biped, J::Torso))
+                    .collect();
+                rig.attach_waist(seam, body.torso, kit.meshes);
+            }
             for (entity, triangles) in retained_surfaces {
                 rig.retain_surface(entity, triangles);
             }
@@ -1410,7 +1417,7 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 accessory_parts::peak(p, color, side, b);
             }
             if let Some(outerwear) = l.equipment.outerwear() {
-                equipment_outerwear::emit_robe_sleeve(p, outerwear, 0.28 * arm_len, b, true);
+                equipment_outerwear::emit_robe_sleeve(p, outerwear, 0.31 * arm_len, b, true);
             }
         });
         let lower = kit.joint(fore, upper, body.elbow(), &format!("fore{tag}"), |p| {
@@ -1715,7 +1722,17 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 sculpted_limb(&mut p.matte, body.shin, pants);
             }
             if let Some(kind) = l.equipment.footwear() {
-                equipment_footwear::emit_shaft(p, kind, boot_shape, b, side, boot, kind.trim());
+                equipment_footwear::emit_fitted_shaft(
+                    p,
+                    kind,
+                    boot_shape,
+                    b,
+                    side,
+                    boot,
+                    kind.trim(),
+                    body.shin,
+                    trousered,
+                );
                 return;
             }
             let boot_top = boot_shape.top;
@@ -1977,6 +1994,13 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
             super::outfit::outerwear::OuterwearCut::Drape(cut) => Some(cut),
             _ => None,
         });
+        let neutral_contacts = if cut.is_some() {
+            super::visual_contact::posed(&kit.rig.visual_contacts, |joint| {
+                Some(Affine3A::from_translation(kit.rig.rest[joint as usize]))
+            })
+        } else {
+            Vec::new()
+        };
         let fitted = |cut: Option<super::outfit::outerwear::DrapeCut>, extra: f32| {
             let mut recipe =
                 super::cloak::Recipe::new(body, cloak.exterior, cloak.lining, cloak.ragged);
@@ -2004,6 +2028,9 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
             }
             if extra > 0.0 {
                 recipe.reserve_back_layer(extra);
+            }
+            if cut.is_some() {
+                recipe.set_contacts(neutral_contacts.clone());
             }
             recipe
         };

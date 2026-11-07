@@ -20,12 +20,25 @@ class WornReview(unittest.TestCase):
         pages = generator.reviews()
         names = [a['equipment'][0] for page, s in pages.items() if page != 'layering' for a in s['actors']]
         self.assertEqual(names, generator.catalog())
+        boots = set(generator.catalog()[-10:])
+        self.assertTrue(all(a['outfit'] == 'adventurer' for page, scene in pages.items()
+                            if page != 'layering' for a in scene['actors'] if a['id'] in boots))
         layers = {a['id']: a for a in pages['layering']['actors']}
         self.assertEqual(layers['centaur-head-and-hands']['model'], 'Centaur')
         self.assertTrue(layers['robe-over-full-skirt']['body']['woman'])
         self.assertEqual(layers['apron-over-caster-robe']['model'], 'Mage')
 
 class RenderReceipt(unittest.TestCase):
+    def test_capture_batches_preserve_complete_ordered_workload(self):
+        import render_worn_equipment_review as runner
+        for script in generator.reviews().values():
+            batches = runner.capture_batches(script)
+            self.assertEqual([c for batch in batches for c in batch['captures']], script['captures'])
+            for batch in batches:
+                self.assertLessEqual(len(batch['captures']), 5)
+                self.assertEqual({k: v for k, v in batch.items() if k != 'captures'},
+                                 {k: v for k, v in script.items() if k != 'captures'})
+
     def test_manifest_requires_exact_names_ticks_renderer_and_actual_images(self):
         import copy
         import struct

@@ -18,6 +18,7 @@ const LAYER_GAP: f32 = 0.020;
 
 pub(super) struct Recipe {
     shoulders: f32,
+    yoke: Vec2,
     hem: f32,
     top: [Vec3; COLUMNS + 1],
     support: crate::sdf::Sculpt,
@@ -30,6 +31,7 @@ pub(super) struct Recipe {
     pub satin: bool,
     pub embroidery: Option<Vec3>,
     inner_layer: Option<Entity>,
+    scene: Option<super::visual_contact::Scene>,
 }
 
 impl Recipe {
@@ -40,6 +42,10 @@ impl Recipe {
         let support = geometry::torso_shape(body, Some(geometry::TorsoMaterial::Leather), false);
         let mut recipe = Self {
             shoulders,
+            yoke: Vec2::new(
+                0.25 * body.shoulders * body.build + 0.115 * body.build,
+                0.17 * body.build,
+            ),
             hem: 0.36 * body.hips_width * body.build * anatomy::HIP_SCALE.x,
             top: [Vec3::ZERO; COLUMNS + 1],
             support,
@@ -52,9 +58,21 @@ impl Recipe {
             satin: false,
             embroidery: None,
             inner_layer: None,
+            scene: None,
         };
         recipe.reserve_back_layer(0.0);
         recipe
+    }
+
+    /// Actual rendered arm, sleeve and pauldron profiles, in torso query space.
+    /// Call after reserving every torso layer so the scene owns the final union.
+    pub fn set_contacts(&mut self, contacts: Vec<super::visual_contact::Cylinder>) {
+        if self.cut.is_some() {
+            self.scene = Some(super::visual_contact::Scene::new(
+                self.support.clone(),
+                contacts,
+            ));
+        }
     }
 
     /// Fit this shoulder layer to an earlier cloak on the same torso frame.
@@ -140,16 +158,20 @@ impl Recipe {
         // unsampled angular gap is a real opening, never a painted seam.
         let angle = TAU - cut.opening * 0.5 - (TAU - cut.opening) * u;
         let direction = Vec3::new(angle.sin(), 0.0, angle.cos());
-        let top_y = 0.48 + 0.025 * (-angle.cos()).max(0.0) - 0.025 * angle.sin().abs();
-        let top = geometry::surface_ray_hit(&self.support, Vec3::Y * top_y, direction, 0.025, 0.65)
-            .unwrap_or(Vec3::Y * top_y + direction * self.shoulders)
-            * anatomy::HIP_SCALE;
+        // A cape begins at the neck, travels OVER the deltoid, then hangs.
+        // The old first row was below the shoulder and produced open teal
+        // shoulder cups and rigid-looking boards down either side.
+        let shoulder = Vec3::new(direction.x * self.yoke.x, 0.47, direction.z * self.yoke.y);
+        let neck = Vec3::new(direction.x * 0.075, 0.565, direction.z * 0.072);
         let fold = (angle * cut.folds as f32).cos() * (0.004 + 0.015 * t);
         let radius = self.shoulders * cut.fullness + fold;
         let hem_drop = match cut.hem {
             DrapeHem::Rounded => 0.018 * (angle * 2.0).cos(),
             DrapeHem::Frayed => 0.035 * (angle * 19.0).sin().abs(),
-            DrapeHem::Torn => 0.10 * (angle * 11.0 + 0.4).cos().abs() + 0.035 * (angle * 5.0).sin(),
+            DrapeHem::Torn => {
+                let notches = (angle * 7.0 + 0.8).cos().max(0.0).powi(3);
+                0.15 * notches + 0.045 * (angle * 3.0 + 0.6).sin() + 0.025 * (angle * 17.0).cos()
+            }
             DrapeHem::Rectangular => 0.13 * angle.sin().abs(),
         };
         // A rectangular blanket retains its four lower corners. Round capes
@@ -164,25 +186,75 @@ impl Recipe {
             0.53 - self.length - hem_drop,
             direction.z * radius * 0.78 * square,
         );
-        let mut at = top.lerp(hem, t);
-        if at.y >= 0.075 {
-            let query = at / anatomy::HIP_SCALE;
-            let out = Vec3::new(query.x, 0.0, query.z).normalize_or(direction);
-            if let Some(hit) = geometry::surface_ray_hit(
-                &self.support,
-                Vec3::Y * query.y,
-                out,
-                LAYER_GAP + 0.006,
-                0.70,
-            ) {
-                let hit = hit * anatomy::HIP_SCALE;
-                if Vec2::new(at.x, at.z).length() < Vec2::new(hit.x, hit.z).length() {
-                    at.x = hit.x;
-                    at.z = hit.z;
-                }
-            }
+        let mut at = if row <= 3 {
+            let across = row as f32 / 3.0;
+            neck.lerp(shoulder, across) + Vec3::Y * (0.045 * (across * PI).sin())
+        } else {
+            shoulder.lerp(hem, (row - 3) as f32 / (ROWS - 3) as f32)
+        };
+        if let Some(scene) = &self.scene {
+            at = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
+        } else {
+            at = fit_wrapped_contact(at, row <= 3, &|p| self.support.distance(p));
         }
         at - Vec3::new(0.0, 0.53, -0.15)
+    }
+}
+
+/// Fit in scaled torso coordinates. Shoulder rows travel above the arm cap;
+/// hanging rows approach the complete posed scene from outside radially.
+fn fit_wrapped_contact(at: Vec3, shoulder: bool, distance: &impl Fn(Vec3) -> f32) -> Vec3 {
+    let mut query = at / anatomy::HIP_SCALE;
+    if shoulder {
+        let mut y = 0.85;
+        while y > query.y {
+            let probe = Vec3::new(query.x, y, query.z);
+            let gap = distance(probe) - 0.025;
+            if gap <= 0.0002 {
+                query.y = y;
+                break;
+            }
+            y -= gap.clamp(0.002, 0.02);
+        }
+    } else if query.y >= -0.12 {
+        let out = query.with_y(0.0).normalize_or(Vec3::NEG_Z);
+        let radius = query.with_y(0.0).length();
+        let mut reach = 1.10;
+        while reach > radius {
+            let probe = Vec3::Y * query.y + out * reach;
+            let gap = distance(probe) - (LAYER_GAP + 0.010);
+            if gap <= 0.0002 {
+                query = probe;
+                break;
+            }
+            reach -= gap.clamp(0.002, 0.025);
+        }
+    }
+    query * anatomy::HIP_SCALE
+}
+
+fn study_pigment(recipe: &Recipe, row: usize, col: usize) -> Vec3 {
+    let Some(gold) = recipe.embroidery else {
+        return recipe.exterior;
+    };
+    let edge = row == ROWS
+        || row == ROWS - 3
+        || col == 0
+        || col == COLUMNS
+        || col == 2
+        || col == COLUMNS - 2;
+    let band = row >= ROWS - 3 || col <= 2 || col >= COLUMNS - 2;
+    // A readable blue orphrey bounded in gold, rather than orange dashes on
+    // plain cream. Small paired leaves stay on the interior field.
+    let leaf = row > 4
+        && row < ROWS - 4
+        && ((row % 6 == 0 && col % 12 == 6) || (row % 6 == 1 && matches!(col % 12, 5 | 7)));
+    if edge || leaf {
+        gold
+    } else if band {
+        recipe.lining
+    } else {
+        recipe.exterior
     }
 }
 
@@ -198,9 +270,30 @@ pub(super) struct CloakRig {
     wrapped: bool,
     inner_layer: Option<Entity>,
     last_inner_rotation: Option<Quat>,
+    scene: Option<super::visual_contact::Scene>,
 }
 
 impl CloakRig {
+    pub(super) fn needs_contacts(&self) -> bool {
+        self.wrapped
+    }
+
+    /// Body-only legacy capes ignore study arm contacts entirely.
+    pub(super) fn set_contacts(&mut self, contacts: Vec<super::visual_contact::Cylinder>) {
+        if self.wrapped && self.scene.is_none() {
+            if let Some(support) = &self.support {
+                self.scene = Some(super::visual_contact::Scene::new(support.clone(), contacts));
+                self.invalidate();
+                return;
+            }
+        }
+        if let Some(scene) = &mut self.scene {
+            if scene.set_pose(contacts) {
+                self.invalidate();
+            }
+        }
+    }
+
     pub(super) fn map_references(
         &mut self,
         entity: &impl Fn(Entity) -> Entity,
@@ -325,13 +418,7 @@ pub(super) fn spawn(
         .map(|i| {
             let row = i / (COLUMNS + 1);
             let col = i % (COLUMNS + 1);
-            let border = row >= ROWS - 1 || col <= 1 || col >= COLUMNS - 1;
-            let vine = (col % 8 == 2 || col % 8 == 6) && row % 5 <= 1;
-            pigment(if border || vine {
-                recipe.embroidery.unwrap_or(recipe.exterior)
-            } else {
-                recipe.exterior
-            })
+            pigment(study_pigment(&recipe, row, col))
         })
         .chain(std::iter::repeat_n(pigment(recipe.lining), GRID))
         .collect();
@@ -372,6 +459,7 @@ pub(super) fn spawn(
         rest,
         normals,
         last_rotation: None,
+        scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
         inner_layer: recipe.inner_layer,
         last_inner_rotation: None,
@@ -396,6 +484,7 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
         rest,
         support,
         wrapped,
+        scene,
         ..
     } = cloak;
     // Each point traces the back on its own, and tracing dominates a worn
@@ -406,7 +495,12 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
             let i = index(row, column);
             *point = bindings[row]
                 .evaluate(|&give| inverse * Quat::IDENTITY.slerp(rotation, give) * rest[i]);
-            if let Some(support) = support.as_ref().filter(|_| row > 1) {
+            if let Some(scene) = scene.as_ref() {
+                let at = rotation * *point + Vec3::new(0.0, 0.53, -0.15);
+                let fitted = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
+                *point = inverse * (fitted - Vec3::new(0.0, 0.53, -0.15));
+            }
+            if let Some(support) = support.as_ref().filter(|_| row > 1 && scene.is_none()) {
                 let mut at = rotation * *point + Vec3::new(0.0, 0.53, -0.15);
                 let query = at / anatomy::HIP_SCALE;
                 if query.y >= 0.075 {
@@ -619,6 +713,90 @@ mod tests {
         let mut recipe = Recipe::new(body, r.cloth, r.lining, false);
         recipe.set_cut(cut);
         recipe
+    }
+
+    #[test]
+    fn study_capes_add_complete_hand_contact_chains_without_changing_legacy_profiles() {
+        let base = Look::of(CreatureModel::Human, 17);
+        let (_, native, _, _) = super::super::rogue_tests::spawn_one(&base);
+        for (name, added) in [("cloak", 0), ("mummy-wrapping", 0), ("hooded-cloak", 2)] {
+            let mut equipment = Equipment::default();
+            equipment.select(name).unwrap();
+            let (_, mut rig, _, _) =
+                super::super::rogue_tests::spawn_one(&base.clone().equipped(equipment));
+            assert_eq!(
+                rig.visual_contacts.len(),
+                native.visual_contacts.len() + added
+            );
+            if added == 2 {
+                let neutral = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
+                    Some(Affine3A::from_translation(rig.rest[joint as usize]))
+                });
+                let posed = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
+                    let rotation = if matches!(joint, J::ArmL | J::ForeL) {
+                        Quat::from_rotation_x(0.65)
+                    } else {
+                        Quat::IDENTITY
+                    };
+                    Some(Affine3A::from_rotation_translation(
+                        rotation,
+                        rig.rest[joint as usize],
+                    ))
+                });
+                assert_ne!(neutral, posed);
+                let cloak = &mut rig.cloaks[0];
+                cloak.last_rotation = Some(Quat::IDENTITY);
+                cloak.set_contacts(posed);
+                assert!(
+                    cloak.last_rotation.is_none(),
+                    "posed arms invalidate a still cape"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn study_yoke_crosses_shoulder_from_neck_and_contact_clears_deltoid() {
+        let r = study_recipe(outfit::outerwear::OuterwearAppearance::HoodedCloak);
+        let origin = Vec3::new(0.0, 0.53, -0.15);
+        let neck = r.point(0, COLUMNS / 4) + origin;
+        let edge = r.point(3, COLUMNS / 4) + origin;
+        assert!(neck.y > 0.55 && neck.x.abs() < 0.10);
+        assert!(
+            edge.x.abs() > neck.x.abs() + 0.17,
+            "continuous shoulder slope"
+        );
+        let mut support = crate::sdf::Sculpt::default();
+        support.add(
+            crate::sdf::Shape::Ellipsoid(Vec3::new(0.28, 0.50, 0.0), Vec3::new(0.10, 0.09, 0.09)),
+            0.0,
+        );
+        let top = fit_wrapped_contact(
+            Vec3::new(0.28, 0.49, 0.0) * anatomy::HIP_SCALE,
+            true,
+            &|p| support.distance(p),
+        ) / anatomy::HIP_SCALE;
+        assert!(
+            top.y >= 0.61,
+            "yoke clears shoulder cap instead of beginning below it"
+        );
+        let side = fit_wrapped_contact(
+            Vec3::new(0.29, 0.50, 0.0) * anatomy::HIP_SCALE,
+            false,
+            &|p| support.distance(p),
+        ) / anatomy::HIP_SCALE;
+        assert!(side.x >= 0.40, "opaque side clears retained arm surface");
+    }
+
+    #[test]
+    fn cope_has_a_blue_orphrey_between_gold_edges() {
+        let mut r = study_recipe(outfit::outerwear::OuterwearAppearance::OrnamentalCope);
+        let gold = Vec3::new(0.72, 0.49, 0.18);
+        r.embroidery = Some(gold);
+        assert_eq!(study_pigment(&r, ROWS - 2, 12), r.lining);
+        assert_eq!(study_pigment(&r, ROWS, 12), gold);
+        assert_eq!(study_pigment(&r, ROWS - 3, 12), gold);
+        assert_ne!(r.lining, r.exterior);
     }
 
     #[test]

@@ -23,7 +23,10 @@ pub(super) fn emit_torso(
                     let path: Vec<_> = (0..17)
                         .map(|j| {
                             let x = (j as f32 / 16.0 * 2.0 - 1.0) * 0.23 * body.build;
-                            (Vec2::new(x, y + slope * x / (0.23 * body.build)), width)
+                            (
+                                Vec2::new(x, y + slope * x / (0.23 * body.build)),
+                                width * 0.60,
+                            )
                         })
                         .collect();
                     fitting::fitted_ribbon(
@@ -32,7 +35,19 @@ pub(super) fn emit_torso(
                         &path,
                         front,
                         0.014 + i as f32 * 0.0005,
-                        r.cloth * (0.90 + 0.025 * (i % 4) as f32),
+                        r.cloth * (0.76 + 0.08 * (i % 4) as f32),
+                    );
+                    let edge: Vec<_> = path
+                        .iter()
+                        .map(|(at, _)| (*at + Vec2::Y * (width * 0.53), 0.0015))
+                        .collect();
+                    fitting::fitted_ribbon(
+                        &mut p.matte,
+                        support,
+                        &edge,
+                        front,
+                        0.018 + i as f32 * 0.0005,
+                        r.cloth * 0.52,
                     );
                 }
             }
@@ -41,8 +56,8 @@ pub(super) fn emit_torso(
                     &mut p.matte,
                     support,
                     &[
-                        (Vec2::new(-sign * 0.13 * body.build, 0.12), 0.045),
-                        (Vec2::new(sign * 0.16 * body.build, 0.48), 0.045),
+                        (Vec2::new(-sign * 0.13 * body.build, 0.12), 0.023),
+                        (Vec2::new(sign * 0.16 * body.build, 0.48), 0.023),
                     ],
                     true,
                     0.024,
@@ -230,6 +245,22 @@ fn emit_robe_torso(
     }
 }
 
+/// Attachment seam shared with the dynamic robe waist bridge. Unscaled torso
+/// coordinates, before the caller applies HIP_SCALE and the torso joint pose.
+pub(super) fn robe_waist_seam(body: HumanoidBody, support: &crate::sdf::Sculpt) -> Vec<Vec3> {
+    let mut shell = torso_garment(body, TorsoMaterial::Cloth, false);
+    shell.union(support.clone(), 0.0);
+    shell.inflate(0.018);
+    (0..48)
+        .map(|column| {
+            let angle = column as f32 / 48.0 * TAU;
+            let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+            fitting::surface_ray_hit(&shell, Vec3::Y * 0.16, out, -0.002, 0.65)
+                .expect("robe torso has a continuous waist seam")
+        })
+        .collect()
+}
+
 /// Overlay after all arm/armour geometry, before gloves. `length` is the actual
 /// segment length in local meters, NOT the anatomy arm-length multiplier.
 /// The joint is the origin and the segment runs down -Y. All Parts builders
@@ -242,18 +273,26 @@ pub(super) fn emit_robe_sleeve(
     build: f32,
     upper: bool,
 ) {
+    if appearance == OuterwearAppearance::MummyWrapping && length > 0.0 {
+        emit_arm_wraps(p, length, build, upper);
+        return;
+    }
     if appearance != OuterwearAppearance::Robe || length <= 0.0 {
         return;
     }
     const ROWS: usize = 32;
     const SIDES: usize = 64;
     let r = appearance.recipe();
+    // Cover the positive-y shoulder dome, not just the arm below its joint.
+    // Forearm cloth overlaps above the elbow so bending cannot open a seam.
+    let top = if upper { 0.10 * build } else { 0.035 * build };
+    let height = |t: f32| top - (length + top) * t;
     let mut support = [0.0f32; ROWS + 1];
     for (row, radius) in support.iter_mut().enumerate() {
         // Inset only the ray sampling at the open joint boundaries, where a
         // ray exactly along an end cap can be parallel to every triangle.
         let t = (row as f32 / ROWS as f32).clamp(0.002, 0.998);
-        let origin = Vec3::Y * (-length * t);
+        let origin = Vec3::Y * height(t);
         for col in 0..SIDES {
             let a = col as f32 / SIDES as f32 * TAU;
             let direction = Vec3::new(a.sin(), 0.0, a.cos());
@@ -271,8 +310,11 @@ pub(super) fn emit_robe_sleeve(
                 .iter()
                 .copied()
                 .fold(0.0f32, f32::max);
-            let loose = if upper {
-                0.082 * build
+            let y = height(t);
+            let loose = if upper && y > 0.0 {
+                0.085 * build * (1.0 - (y / top).powi(2)).max(0.0).sqrt()
+            } else if upper {
+                0.076 * build
             } else {
                 (0.072 + 0.058 * t.powi(2)) * build
             };
@@ -281,11 +323,7 @@ pub(super) fn emit_robe_sleeve(
                 let a = col as f32 / SIDES as f32 * TAU;
                 // Folds only add ease. The trough never invades retained armour.
                 let fold = (1.0 + (a * 8.0).cos()) * 0.003 * t;
-                Vec3::new(
-                    a.sin() * (radius + fold),
-                    -length * t,
-                    a.cos() * (radius + fold),
-                )
+                Vec3::new(a.sin() * (radius + fold), y, a.cos() * (radius + fold))
             })
         })
         .collect();
@@ -298,8 +336,8 @@ pub(super) fn emit_robe_sleeve(
                 rings[row + 1][next],
                 rings[row + 1][col],
             ];
-            let inside = Vec3::Y * (-length * (row as f32 + 0.5) / ROWS as f32);
-            let color = if row >= ROWS - 2 {
+            let inside = Vec3::Y * height((row as f32 + 0.5) / ROWS as f32);
+            let color = if !upper && row >= ROWS - 2 {
                 r.trim * 0.78
             } else {
                 r.cloth
@@ -315,6 +353,16 @@ pub(super) fn emit_robe_sleeve(
             );
         }
     }
+    if upper {
+        let center = Vec3::Y * top;
+        for col in 0..SIDES {
+            p.matte.tri_out(
+                [center, rings[0][col], rings[0][(col + 1) % SIDES]],
+                center - Vec3::Y,
+                r.cloth,
+            );
+        }
+    }
     for row in [0, ROWS] {
         for col in 0..SIDES {
             let next = (col + 1) % SIDES;
@@ -324,10 +372,97 @@ pub(super) fn emit_robe_sleeve(
             p.matte.quad_out(
                 [a, b, inward(b), inward(a)],
                 Vec3::Y * if row == 0 { -length } else { 0.0 },
-                r.trim * 0.78,
+                if upper || row == 0 {
+                    r.cloth
+                } else {
+                    r.trim * 0.78
+                },
             );
         }
     }
+}
+
+/// Separate overlapping windings over the retained arm mesh. Compute every
+/// contact before emitting anything so the wraps never fit to themselves.
+fn emit_arm_wraps(p: &mut Parts, length: f32, build: f32, upper: bool) {
+    let recipe = OuterwearAppearance::MummyWrapping.recipe();
+    let bands = if upper { 5 } else { 7 };
+    const SIDES: usize = 48;
+    let first = if upper { 0.07 } else { 0.01 };
+    let pitch = (length - first) / bands as f32;
+    let layers: Vec<[[Vec3; SIDES + 1]; 2]> = (0..bands)
+        .map(|band| {
+            std::array::from_fn(|edge| {
+                std::array::from_fn(|col| {
+                    let a = col as f32 / SIDES as f32 * TAU;
+                    let y =
+                        -first - pitch * band as f32 - edge as f32 * pitch * 0.92 + 0.009 * a.sin();
+                    let origin = Vec3::Y * y;
+                    let out = Vec3::new(a.sin(), 0.0, a.cos());
+                    let mut radius = 0.04 * build;
+                    for builder in [&p.matte, &p.satin, &p.metal, &p.glow, &p.ghost, &p.sheer] {
+                        for dy in [-0.008, 0.0, 0.008] {
+                            let at = origin + Vec3::Y * dy;
+                            if let Some(hit) = builder.outer_surface(at, out) {
+                                radius = radius.max((hit - at).dot(out));
+                            }
+                        }
+                    }
+                    origin + out * (radius + 0.009)
+                })
+            })
+        })
+        .collect();
+    for (band, rings) in layers.iter().enumerate() {
+        for col in 0..SIDES {
+            let q = [
+                rings[0][col],
+                rings[0][col + 1],
+                rings[1][col + 1],
+                rings[1][col],
+            ];
+            p.matte.quad_out(
+                q,
+                Vec3::Y * q[0].y,
+                recipe.cloth * (0.78 + 0.07 * (band % 4) as f32),
+            );
+        }
+        let path = &rings[1];
+        p.matte.tube(
+            path,
+            &vec![Vec2::splat(0.0015); path.len()],
+            4,
+            &|_, _, _| recipe.cloth * 0.54,
+        );
+    }
+}
+
+/// Head-local folded binding for the explicit hooded-cloak study. The native
+/// hood and its face opening remain unchanged for every other wardrobe.
+pub(super) fn emit_hood_rim(p: &mut Parts, cloth: Vec3, trim: Vec3) {
+    let path: Vec<_> = (0..=40)
+        .map(|i| {
+            let angle = i as f32 / 40.0 * TAU;
+            Vec3::new(
+                0.096 * angle.sin(),
+                0.15 + 0.133 * angle.cos(),
+                0.117 - 0.018 * angle.cos(),
+            )
+        })
+        .collect();
+    p.matte.tube(
+        &path,
+        &vec![Vec2::splat(0.009); path.len()],
+        7,
+        &|_, _, _| cloth * 0.68,
+    );
+    let edge: Vec<_> = path.iter().map(|p| *p + Vec3::Z * 0.006).collect();
+    p.matte.tube(
+        &edge,
+        &vec![Vec2::splat(0.0025); edge.len()],
+        5,
+        &|_, _, _| trim * 0.85,
+    );
 }
 
 /// Only these cuts have an independently animated piece below the waist.
@@ -430,6 +565,44 @@ mod tests {
             Some(Variant { woman, ..default() }),
         ))
     }
+    #[test]
+    fn robe_upper_sleeve_covers_positive_shoulder_dome_and_overlaps_elbow() {
+        let mut p = Parts::default();
+        p.metal.blob(
+            Vec3::new(0.0, 0.015, 0.0),
+            Vec3::new(0.07, 0.065, 0.07),
+            1,
+            0.0,
+            STEEL,
+        );
+        let before = p.metal.bounds();
+        emit_robe_sleeve(&mut p, OuterwearAppearance::Robe, 0.31, 1.0, true);
+        assert_eq!(p.metal.bounds(), before);
+        let top = p
+            .matte
+            .outer_surface(Vec3::new(0.0, 0.015, 0.0), Vec3::Y)
+            .unwrap();
+        assert!(top.y >= 0.099, "closed cloth cap above existing deltoid");
+        assert!(
+            p.matte.bounds().0.y <= -0.309,
+            "upper sleeve crosses the .30 elbow joint"
+        );
+    }
+
+    #[test]
+    fn mummy_forearm_windings_cover_retained_surface_without_replacing_it() {
+        let mut p = Parts::default();
+        p.metal
+            .prism(Vec3::ZERO, Vec3::Y * -0.26, 0.05, 0.04, 12, STEEL, 0.0);
+        let before = p.metal.bounds();
+        emit_robe_sleeve(&mut p, OuterwearAppearance::MummyWrapping, 0.26, 1.0, false);
+        assert_eq!(p.metal.bounds(), before);
+        assert!(!p.matte.is_empty());
+        let (low, high) = p.matte.bounds();
+        assert!(low.y < -0.23 && high.y > -0.03);
+        assert!(high.x > 0.05, "windings remain above retained arm armor");
+    }
+
     #[test]
     fn apron_is_front_only_and_reserves_the_supplied_outer_layer() {
         for woman in [false, true] {

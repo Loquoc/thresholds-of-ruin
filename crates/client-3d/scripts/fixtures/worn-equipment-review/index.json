@@ -594,10 +594,9 @@
   },
   {
     "page": "layering",
-    "actor": "wrapping-over-shirt",
+    "actor": "feminine-hawaiian-shirt",
     "equipment": [
-      "mummy-wrapping",
-      "t-shirt"
+      "hawaiian-shirt"
     ],
     "body": {
       "woman": true,

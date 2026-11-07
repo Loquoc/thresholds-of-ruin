@@ -33,7 +33,8 @@ const MAX_CONTACT_SHIFT: f32 = ROW_HEIGHT * 2.0;
 const CORE_PIECES: usize = 3;
 const CUFF_PIECES: usize = 12;
 const CONTACT_PROXIES: usize = 6 + 4 * (CORE_PIECES + 1) + 2 * (CORE_PIECES + CUFF_PIECES);
-const POSE_JOINTS: [J; 8] = [
+const POSE_JOINTS: [J; 9] = [
+    J::Torso,
     J::Lift,
     J::Hips,
     J::LegL,
@@ -47,6 +48,126 @@ const POSE_JOINTS: [J; 8] = [
 #[cfg(test)]
 mod art_contract_tests {
     use super::*;
+
+    #[test]
+    fn modular_robe_waist_closes_to_torso_and_tracks_torso_only_motion() {
+        use crate::creatures::outfit::Equipment;
+        for build in 0..3 {
+            let base = Look::with_choice(
+                CreatureModel::Human,
+                42,
+                Some(Variant {
+                    woman: true,
+                    build,
+                    ..default()
+                }),
+            )
+            .dressed(Wardrobe::RoyalPrincess);
+            let mut equipment = Equipment::default();
+            equipment.select("robe").unwrap();
+            let (_, mut rig, _, mut meshes) =
+                super::super::rogue_tests::spawn_one(&base.equipped(equipment));
+            let rest = rig.rest;
+            let robe = rig.robe.as_mut().unwrap();
+            assert!(!robe.retained.is_empty(), "royal skirt is retained");
+            assert!(robe.waist.is_some(), "expanded top is connected to torso");
+            let mut rotations = [Quat::IDENTITY; JOINTS];
+            let mut offsets = [Vec3::ZERO; JOINTS];
+            place(robe, &rest, &rotations, &offsets, &mut meshes);
+            let lower = robe.points.clone();
+            let before = waist_points(robe, robe.waist.as_ref().unwrap());
+            let vertex_count = meshes.get(&robe.mesh).unwrap().count_vertices();
+            // Only the torso moves: this catches both pose-cache invalidation
+            // and the unchanged-lower-mesh fast path skipping the waist write.
+            rotations[J::Torso as usize] = Quat::from_euler(EulerRot::YXZ, 0.18, 0.22, -0.10);
+            offsets[J::Torso as usize] = Vec3::new(0.003, 0.008, -0.004);
+            place(robe, &rest, &rotations, &offsets, &mut meshes);
+            let waist = robe.waist.as_ref().unwrap();
+            let after = waist_points(robe, waist);
+            assert_ne!(before[0], after[0], "upper rim follows actual torso pose");
+            assert_eq!(
+                robe.points, lower,
+                "torso join does not change solved floor/body contact"
+            );
+            let mesh = meshes.get(&robe.mesh).unwrap();
+            assert_eq!(mesh.count_vertices(), vertex_count, "fixed owned topology");
+            let VertexAttributeValues::Float32x3(rendered) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+            else {
+                panic!("positions")
+            };
+            for col in 0..COLUMNS {
+                let expected = rotations[J::Torso as usize] * waist.seam[col]
+                    + rest[J::Torso as usize]
+                    + offsets[J::Torso as usize];
+                assert!(after[col].distance(expected) < 0.000001);
+                assert_eq!(
+                    after[WAIST_ROWS * COLUMNS + col],
+                    robe.points[col],
+                    "continuous attachment to final expanded lower rim"
+                );
+            }
+            for (i, point) in after.iter().enumerate() {
+                assert!(point.is_finite());
+                assert_eq!(
+                    rendered[waist.start + i],
+                    point.to_array(),
+                    "published posed join"
+                );
+                if i / COLUMNS > 0 && i / COLUMNS < WAIST_ROWS {
+                    let radius = retained_radius(&robe.retained, point.y, point.y, false);
+                    if radius > 0.0 {
+                        assert!(
+                            point.with_y(0.0).length() > radius + 0.014,
+                            "join must enclose retained underdress rather than cut through it"
+                        );
+                    }
+                }
+            }
+            let retained = robe
+                .retained
+                .iter()
+                .map(|r| r.rest.clone())
+                .collect::<Vec<_>>();
+            place(robe, &rest, &rotations, &offsets, &mut meshes);
+            assert_eq!(after, waist_points(robe, robe.waist.as_ref().unwrap()));
+            assert_eq!(
+                retained,
+                robe.retained
+                    .iter()
+                    .map(|r| r.rest.clone())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn waist_join_is_published_before_first_pose_even_without_retained_layers() {
+        let look = Look::of(CreatureModel::Mage, 42);
+        let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        let robe = rig.robe.as_mut().unwrap();
+        assert!(robe.waist.is_none(), "native topology is unchanged");
+        assert!(robe.retained.is_empty() && robe.overlays.is_empty());
+        let seam = (0..COLUMNS)
+            .map(|col| robe.rest[col].with_y(0.16))
+            .collect();
+        robe.attach_waist(seam, Vec3::Y * 0.06, &mut meshes);
+        robe.refresh_layers(&mut meshes);
+        let waist = robe.waist.as_ref().unwrap();
+        let expected = waist_points(robe, waist);
+        let VertexAttributeValues::Float32x3(values) = meshes
+            .get(&robe.mesh)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+        else {
+            panic!("positions")
+        };
+        for (i, point) in expected.iter().enumerate() {
+            assert_eq!(values[waist.start + i], point.to_array());
+            assert!(point.length() > 0.1, "no collapsed first-frame join");
+        }
+    }
 
     fn retained_skirt_fixture() -> Vec<[Vec3; 3]> {
         let mut triangles = Vec::new();
@@ -715,6 +836,18 @@ struct BoundOverlay {
     transform: Affine3A,
 }
 
+// The retained skirt can widen the lower robe's top ring substantially. Its
+// upper opening must be joined to the independently animated torso, not capped
+// to the hips or left as an open well. Extra vertices belong to the same owned
+// mesh; native robes retain their original topology.
+const WAIST_ROWS: usize = 8;
+const WAIST_GRID: usize = (WAIST_ROWS + 1) * COLUMNS;
+struct WaistJoin {
+    start: usize,
+    seam: [Vec3; COLUMNS],
+    torso: Affine3A,
+}
+
 pub(super) struct RobeRig {
     mesh: Handle<Mesh>,
     retained: Vec<RetainedSurface>,
@@ -732,8 +865,9 @@ pub(super) struct RobeRig {
     neutral_lengths: Option<[f32; COLUMNS]>,
     contacts: ContactReport,
     trim: SurfaceTrim,
-    last_rot: [Quat; 8],
-    last_off: [Vec3; 8],
+    waist: Option<WaistJoin>,
+    last_rot: [Quat; 9],
+    last_off: [Vec3; 9],
     dirty: bool,
 }
 
@@ -772,6 +906,66 @@ impl RobeRig {
             transform: Affine3A::IDENTITY,
         });
         self.neutral_lengths = None;
+        self.dirty = true;
+    }
+
+    /// The seam is torso-local with the rendered scale already baked in.
+    /// Its pose is independent of the hips, including strike and breathing.
+    pub(super) fn attach_waist(
+        &mut self,
+        seam: Vec<Vec3>,
+        torso_origin: Vec3,
+        meshes: &mut Assets<Mesh>,
+    ) {
+        assert_eq!(seam.len(), COLUMNS);
+        let Some(mesh) = meshes.get_mut(&self.mesh) else {
+            return;
+        };
+        let start = BODY_VERTICES + self.trim.points.len();
+        let color = match mesh.attribute(Mesh::ATTRIBUTE_COLOR) {
+            Some(VertexAttributeValues::Float32x4(values)) => values[0],
+            _ => return,
+        };
+        for attribute in [Mesh::ATTRIBUTE_POSITION, Mesh::ATTRIBUTE_NORMAL] {
+            if let Some(VertexAttributeValues::Float32x3(values)) = mesh.attribute_mut(attribute) {
+                values.resize(start + WAIST_GRID * 2, [0.0; 3]);
+            }
+        }
+        if let Some(VertexAttributeValues::Float32x4(values)) =
+            mesh.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+        {
+            values.resize(start + WAIST_GRID * 2, color);
+            for color in &mut values[start + WAIST_GRID..] {
+                for value in &mut color[..3] {
+                    *value *= 0.70;
+                }
+            }
+        }
+        let mut indices: Vec<u32> = mesh.indices().unwrap().iter().map(|i| i as u32).collect();
+        for row in 0..WAIST_ROWS {
+            for col in 0..COLUMNS {
+                let a = (start + row * COLUMNS + col) as u32;
+                let b = (start + row * COLUMNS + (col + 1) % COLUMNS) as u32;
+                let c = a + COLUMNS as u32;
+                let d = b + COLUMNS as u32;
+                indices.extend([a, c, b, b, c, d]);
+                let inner = WAIST_GRID as u32;
+                indices.extend([
+                    a + inner,
+                    b + inner,
+                    c + inner,
+                    b + inner,
+                    d + inner,
+                    c + inner,
+                ]);
+            }
+        }
+        mesh.insert_indices(Indices::U32(indices));
+        self.waist = Some(WaistJoin {
+            start,
+            seam: seam.try_into().unwrap(),
+            torso: Affine3A::from_translation(torso_origin),
+        });
         self.dirty = true;
     }
 
@@ -816,7 +1010,7 @@ impl RobeRig {
     /// are registered, before the first rendered frame. Authored leg joints are
     /// not needed here; place() still initializes its neutral body budget later.
     pub(super) fn refresh_layers(&mut self, meshes: &mut Assets<Mesh>) {
-        if self.retained.is_empty() && self.overlays.is_empty() {
+        if self.retained.is_empty() && self.overlays.is_empty() && self.waist.is_none() {
             return;
         }
         self.candidate.copy_from_slice(self.rest.as_ref());
@@ -827,6 +1021,7 @@ impl RobeRig {
         if let Some(mesh) = meshes.get_mut(&self.mesh) {
             write_attributes(mesh, &self.points, &self.normals, &self.trim);
         }
+        place_waist(self, meshes);
         place_overlays(self, meshes);
         self.dirty = true;
     }
@@ -1683,6 +1878,94 @@ fn constrain_retained_layers(robe: &mut RobeRig, up: Vec3) {
     }
 }
 
+/// A fitted annulus, not a flat cap. The lower boundary is exactly the final
+/// contact-solved robe ring and the upper boundary is sunk into the robe torso.
+/// Intermediate rings clear retained cloth through their entire adjacent band.
+fn waist_points(robe: &RobeRig, waist: &WaistJoin) -> [Vec3; WAIST_GRID] {
+    let mut points: [Vec3; WAIST_GRID] = std::array::from_fn(|i| {
+        let row = i / COLUMNS;
+        let col = i % COLUMNS;
+        if row == WAIST_ROWS {
+            // Preserve a bit-identical boundary, even with large pose shifts.
+            robe.points[col]
+        } else {
+            waist
+                .torso
+                .transform_point3(waist.seam[col])
+                .lerp(robe.points[col], row as f32 / WAIST_ROWS as f32)
+        }
+    });
+    let heights: [(f32, f32); WAIST_ROWS + 1] = std::array::from_fn(|row| {
+        points[row * COLUMNS..(row + 1) * COLUMNS]
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.y), hi.max(p.y))
+            })
+    });
+    for row in 1..WAIST_ROWS {
+        let low = heights[row - 1]
+            .0
+            .min(heights[row].0)
+            .min(heights[row + 1].0);
+        let high = heights[row - 1]
+            .1
+            .max(heights[row].1)
+            .max(heights[row + 1].1);
+        let radius = retained_radius(&robe.retained, low - 0.008, high + 0.008, false);
+        if radius <= 0.0 {
+            continue;
+        }
+        let required = (radius + 0.022) / (TAU / COLUMNS as f32).cos();
+        for p in &mut points[row * COLUMNS..(row + 1) * COLUMNS] {
+            let radial = p.with_y(0.0);
+            *p += radial.normalize_or(Vec3::Z) * (required - radial.length()).max(0.0);
+        }
+    }
+    points
+}
+
+fn place_waist(robe: &RobeRig, meshes: &mut Assets<Mesh>) {
+    let Some(waist) = &robe.waist else { return };
+    let points = waist_points(robe, waist);
+    let mut normals = [Vec3::ZERO; WAIST_GRID];
+    for row in 0..WAIST_ROWS {
+        for col in 0..COLUMNS {
+            let a = row * COLUMNS + col;
+            let b = row * COLUMNS + (col + 1) % COLUMNS;
+            let c = a + COLUMNS;
+            let d = b + COLUMNS;
+            for [a, b, c] in [[a, c, b], [b, c, d]] {
+                let n = (points[b] - points[a]).cross(points[c] - points[a]);
+                for i in [a, b, c] {
+                    normals[i] += n;
+                }
+            }
+        }
+    }
+    for normal in &mut normals {
+        *normal = normal.normalize_or(Vec3::Y);
+    }
+    let Some(mesh) = meshes.get_mut(&robe.mesh) else {
+        return;
+    };
+    if let Some(VertexAttributeValues::Float32x3(values)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for i in 0..WAIST_GRID {
+            values[waist.start + i] = points[i].to_array();
+            values[waist.start + WAIST_GRID + i] = (points[i] - normals[i] * 0.003).to_array();
+        }
+    }
+    if let Some(VertexAttributeValues::Float32x3(values)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
+    {
+        for i in 0..WAIST_GRID {
+            values[waist.start + i] = normals[i].to_array();
+            values[waist.start + WAIST_GRID + i] = (-normals[i]).to_array();
+        }
+    }
+}
+
 fn robe_triangles(points: &[Vec3; GRID]) -> Vec<[Vec3; 3]> {
     let mut triangles = Vec::with_capacity(ROWS * COLUMNS * 2);
     for row in 0..ROWS {
@@ -2424,8 +2707,9 @@ pub(super) fn spawn(
         neutral_lengths: None,
         contacts: ContactReport::default(),
         trim,
-        last_rot: [Quat::IDENTITY; 8],
-        last_off: [Vec3::ZERO; 8],
+        waist: None,
+        last_rot: [Quat::IDENTITY; 9],
+        last_off: [Vec3::ZERO; 9],
         dirty: true,
     }
 }
@@ -2443,6 +2727,16 @@ pub(super) fn place(
     let offsets = POSE_JOINTS.map(|j| off[j as usize]);
     if !robe.dirty && rotations == robe.last_rot && offsets == robe.last_off {
         return;
+    }
+    if let Some(waist) = &mut robe.waist {
+        let next = Affine3A::from_rotation_translation(
+            rot[J::Torso as usize],
+            rest[J::Torso as usize] + off[J::Torso as usize],
+        );
+        if waist.torso != next {
+            waist.torso = next;
+            robe.dirty = true;
+        }
     }
     let zero_rise = [0.0; COLUMNS];
     if robe.neutral_lengths.is_none() {
@@ -2549,5 +2843,6 @@ pub(super) fn place(
         robe.last_off = offsets;
         robe.dirty = false;
     }
+    place_waist(robe, meshes);
     place_overlays(robe, meshes);
 }

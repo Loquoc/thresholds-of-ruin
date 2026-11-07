@@ -108,6 +108,9 @@ fn crown(
     for row in 0..profile.len() - 1 {
         for col in 0..facets {
             for inner in [false, true] {
+                if crystal && inner {
+                    continue;
+                }
                 let q = [
                     point(row, col, inner),
                     point(row, col + 1, inner),
@@ -150,11 +153,13 @@ fn crown(
             center - Vec3::Y,
             color,
         );
-        b.tri_out(
-            [point(row, col, true), center, point(row, col + 1, true)],
-            center + Vec3::Y,
-            color * 0.68,
-        );
+        if !crystal {
+            b.tri_out(
+                [point(row, col, true), center, point(row, col + 1, true)],
+                center + Vec3::Y,
+                color * 0.68,
+            );
+        }
     }
 }
 
@@ -289,6 +294,16 @@ fn leather_hat(p: &mut Parts) {
     }
 }
 
+fn fedora_top(a: f32) -> Vec3 {
+    // Raised shoulders and a strong front pinch keep the crease visible from
+    // gameplay elevation without lowering any surface into the scalp.
+    Vec3::new(
+        a.sin() * (0.125 - 0.045 * a.cos().max(0.0).powi(2)),
+        0.405 + 0.034 * a.sin().abs(),
+        a.cos() * 0.13 - 0.012,
+    )
+}
+
 fn fedora(p: &mut Parts) {
     let brown = Vec3::new(0.36, 0.24, 0.15);
     p.matte.blob(
@@ -298,55 +313,83 @@ fn fedora(p: &mut Parts) {
         0.01,
         brown,
     );
-    // A deliberately pinched top edge and recessed center, not a round dome.
-    let lower: Vec<_> = (0..16)
-        .map(|i| ring_point(i as f32 * TAU / 16.0, BROW, 0.144))
-        .collect();
-    let upper: Vec<_> = (0..16)
-        .map(|i| {
-            let a = i as f32 * TAU / 16.0;
-            Vec3::new(
-                a.sin() * (0.112 - 0.018 * a.cos().max(0.0)),
-                0.365 + 0.012 * a.sin().abs(),
-                a.cos() * 0.13 - 0.012,
-            )
-        })
-        .collect();
-    for i in 0..16 {
-        let j = (i + 1) % 16;
+    for i in 0..32 {
+        let a = i as f32 * TAU / 32.0;
+        let b = (i + 1) as f32 * TAU / 32.0;
+        let upper = [fedora_top(a), fedora_top(b)];
         p.matte.quad_out(
-            [lower[i], lower[j], upper[j], upper[i]],
+            [
+                ring_point(a, BROW, 0.144),
+                ring_point(b, BROW, 0.144),
+                upper[1],
+                upper[0],
+            ],
             Vec3::new(0.0, 0.30, -0.012),
             brown,
         );
-        p.matte.tri_out(
-            [upper[i], upper[j], Vec3::new(0.0, 0.342, -0.012)],
+        // A long center crease, rather than a single conical indentation.
+        let crease = |v: Vec3| Vec3::new(0.0, 0.375 + 0.016 * ((v.z + 0.012) / 0.13).abs(), v.z);
+        p.matte.quad_out(
+            [upper[0], upper[1], crease(upper[1]), crease(upper[0])],
             Vec3::Y * 0.30,
-            brown * 0.9,
+            brown * 0.78,
         );
     }
     rim(&mut p.matte, BROW + 0.022, 0.143, 0.014, DARK * 2.0);
 }
 
+/// Sample the emitted cone rather than guessing its forward plane. Its bent
+/// axis makes a constant-z ornament disappear into the cloth.
+fn cone_inlay(p: &Parts, at: Vec2) -> Vec3 {
+    p.matte
+        .outer_surface(Vec3::new(at.x, at.y, -0.4), Vec3::Z)
+        .expect("conical ornament lies on the crown")
+        + Vec3::Z * 0.005
+}
+
 fn conical_hat(p: &mut Parts) {
-    // Reuse the established cloth brim and bent cone construction, without
-    // introducing a second head fit convention.
     let blue = Vec3::new(0.09, 0.20, 0.43);
     headwear_parts::witch_hat(p, blue, BRASS * 0.7);
-    for (x, y, z, size) in [
-        (0.0, 0.35, 0.079, 0.023),
-        (-0.035, 0.43, 0.026, 0.017),
-        (0.025, 0.50, -0.019, 0.014),
+    let gold = Vec3::new(0.98, 0.78, 0.26);
+    for (x, y, size) in [
+        (-0.045, 0.34, 0.03),
+        (0.0, 0.495, 0.021),
+        (0.05, 0.30, 0.021),
     ] {
-        let star: Vec<_> = (0..10)
+        let center = cone_inlay(p, Vec2::new(x, y));
+        let points: Vec<_> = (0..10)
             .map(|i| {
                 let a = i as f32 * TAU / 10.0;
-                let r = if i % 2 == 0 { size } else { size * 0.42 };
-                Vec2::new(a.sin() * r, a.cos() * r)
+                let r = if i % 2 == 0 { size } else { size * 0.43 };
+                cone_inlay(p, Vec2::new(x + a.sin() * r, y + a.cos() * r))
             })
             .collect();
-        p.metal
-            .extrude(&star, Vec3::new(x, y, z), Vec3::X, Vec3::Y, 0.003, BRASS);
+        for i in 0..10 {
+            p.metal.tri_out(
+                [center, points[i], points[(i + 1) % 10]],
+                center - Vec3::Z,
+                gold,
+            );
+        }
+    }
+    // A wide crescent has actual negative space between its horns.
+    let crescent = |t: f32, inner: bool| {
+        let a = -PI * 0.5 + t * PI;
+        Vec2::new(
+            0.047 - a.cos() * if inner { 0.008 } else { 0.043 },
+            0.405 + a.sin() * 0.038,
+        )
+    };
+    for i in 0..16 {
+        let a = i as f32 / 16.0;
+        let b = (i + 1) as f32 / 16.0;
+        let q = [
+            cone_inlay(p, crescent(a, false)),
+            cone_inlay(p, crescent(b, false)),
+            cone_inlay(p, crescent(b, true)),
+            cone_inlay(p, crescent(a, true)),
+        ];
+        p.metal.quad_out(q, q[0] - Vec3::Z, gold);
     }
 }
 
@@ -386,15 +429,17 @@ fn pot(p: &mut Parts) {
 }
 
 fn crystal(p: &mut Parts) {
-    let ice = Vec3::new(0.55, 0.77, 0.94);
-    crown(
-        &mut p.ghost,
-        &[(BROW, 0.15), (0.315, 0.145), (0.37, 0.09), (0.405, 0.012)],
-        10,
-        ice,
-        true,
-        false,
-    );
+    let ice = Vec3::new(0.77, 0.88, 0.98);
+    p.ghost.with_opacity(0.25, |glass| {
+        crown(
+            glass,
+            &[(BROW, 0.15), (0.315, 0.145), (0.37, 0.09), (0.405, 0.012)],
+            10,
+            ice,
+            true,
+            false,
+        )
+    });
     for i in 0..10 {
         let a = i as f32 * TAU / 10.0;
         tube(
@@ -410,39 +455,66 @@ fn crystal(p: &mut Parts) {
         );
     }
     for side in [-1.0, 1.0] {
-        p.ghost.extrude(
-            &[
-                Vec2::new(-0.07, 0.0),
-                Vec2::new(0.05, 0.0),
-                Vec2::new(0.06, -0.09),
-                Vec2::new(0.0, -0.065),
-                Vec2::new(-0.08, -0.10),
-            ],
-            Vec3::new(side * 0.142, BROW, -0.015),
-            Vec3::Z,
-            Vec3::Y,
-            0.012,
-            ice,
-        );
+        p.ghost.with_opacity(0.25, |glass| {
+            glass.extrude(
+                &[
+                    Vec2::new(-0.07, 0.0),
+                    Vec2::new(0.05, 0.0),
+                    Vec2::new(0.06, -0.09),
+                    Vec2::new(0.0, -0.065),
+                    Vec2::new(-0.08, -0.10),
+                ],
+                Vec3::new(side * 0.142, BROW, -0.015),
+                Vec3::Z,
+                Vec3::Y,
+                0.012,
+                ice,
+            )
+        });
     }
     rim(&mut p.satin, BROW, 0.15, 0.004, ice);
+}
+
+fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
+    let path: Vec<_> = (0..=10)
+        .map(|i| {
+            let t = i as f32 / 10.0;
+            Vec3::new(
+                lane * (0.02 + 0.095 * (t * PI * 0.72).sin()),
+                0.365 + (0.16 + layer * 0.035) * (t * PI * 0.95).sin() - t * t * 0.035,
+                0.025 - t * (0.22 + layer * 0.035) + if white { 0.035 } else { 0.0 },
+            )
+        })
+        .collect();
+    let radii: Vec<_> = (0..=10)
+        .map(|i| {
+            let t = i as f32 / 10.0;
+            let width = (t * PI).sin().max(0.0) * if white { 0.030 } else { 0.040 };
+            Vec2::new(width.max(0.001), (width * 0.12).max(0.001))
+        })
+        .collect();
+    b.tube(&path, &radii, 6, &|_, _, t| {
+        (if white { CREAM } else { RED }) * (0.86 + 0.14 * (1.0 - t))
+    });
 }
 
 fn plume(p: &mut Parts) {
     dome(p, IRON, false);
     guards(p, IRON, BRASS);
-    for i in 0..11 {
-        let t = i as f32 / 10.0;
-        feather_parts::vane(
-            &mut p.matte,
-            Vec3::new(0.0, 0.355, -0.005 - t * 0.05),
-            Vec3::new((t * 12.0).sin() * 0.3, 1.0 - t * 1.2, -0.35 - t),
-            0.20 + t * 0.07,
-            0.024,
-            Vec3::X,
-            if i % 3 == 0 { CREAM } else { RED },
-            None,
-        );
+    // Three overlapping broad layers make a supported red-and-white plume,
+    // arching over the crown and sweeping down behind it, not upright quills.
+    for layer in 0..3 {
+        for feather in 0..9 {
+            plume_feather(
+                &mut p.matte,
+                feather as f32 / 4.0 - 1.0,
+                layer as f32,
+                false,
+            );
+        }
+    }
+    for feather in 0..7 {
+        plume_feather(&mut p.matte, feather as f32 / 3.0 - 1.0, 0.7, true);
     }
     p.metal.blob(
         Vec3::new(0.0, 0.36, 0.015),
@@ -700,6 +772,63 @@ mod tests {
                 .metal
                 .outer_surface(Vec3::new(x, 0.14, 0.0), Vec3::Z)
                 .is_some());
+        }
+    }
+
+    #[test]
+    fn fedora_has_raised_shoulders_and_a_long_center_crease() {
+        let mut p = Parts::default();
+        fedora(&mut p);
+        for z in [-0.06, 0.04] {
+            let center = p
+                .matte
+                .outer_surface(Vec3::new(0.0, 0.30, z), Vec3::Y)
+                .unwrap();
+            let shoulder = p
+                .matte
+                .outer_surface(Vec3::new(0.075, 0.30, z), Vec3::Y)
+                .unwrap();
+            assert!(center.y >= 0.375, "crease cannot reduce scalp clearance");
+            assert!(shoulder.y > center.y + 0.018, "crease must read from above");
+        }
+    }
+
+    #[test]
+    fn wizard_stars_and_crescent_are_above_the_actual_cone() {
+        let mut p = Parts::default();
+        conical_hat(&mut p);
+        for (x, y) in [(-0.045, 0.34), (0.0, 0.495), (0.05, 0.30), (0.022, 0.405)] {
+            let origin = Vec3::new(x, y, -0.4);
+            let cloth = p.matte.outer_surface(origin, Vec3::Z).unwrap();
+            let inlay = p.metal.outer_surface(origin, Vec3::Z).unwrap();
+            assert!(inlay.z > cloth.z + 0.001, "ornament buried at {x}, {y}");
+            assert!(inlay.z < cloth.z + 0.015, "ornament floats off the cone");
+        }
+        assert!(
+            p.metal
+                .outer_surface(Vec3::new(0.045, 0.405, -0.4), Vec3::Z)
+                .is_none(),
+            "crescent's opening stays unfilled"
+        );
+    }
+
+    #[test]
+    fn plume_is_a_broad_connected_sweep_rather_than_sparse_shafts() {
+        let mut p = Parts::default();
+        plume(&mut p);
+        let (lo, hi) = p.matte.bounds();
+        assert!(hi.x - lo.x > 0.22);
+        assert!(
+            lo.z < -0.25 && hi.y > 0.56,
+            "plume arches then sweeps behind the helmet"
+        );
+        for i in -4..=4 {
+            assert!(
+                p.matte
+                    .outer_surface(Vec3::new(i as f32 * 0.02, 0.46, -0.4), Vec3::Z)
+                    .is_some(),
+                "plume has a gap in its broad mass at {i}"
+            );
         }
     }
 
