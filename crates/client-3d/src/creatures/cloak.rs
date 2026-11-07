@@ -559,7 +559,9 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
 /// Posed triangle contact in the shared torso frame. Height bins keep each
 /// mantle vertex query local without assuming the two hems have equal lengths.
 struct LayerSurface {
-    bins: Vec<Vec<[Vec3; 3]>>,
+    bins: Vec<Vec<usize>>,
+    triangles: Vec<[Vec3; 3]>,
+    first_bin: Vec<usize>,
     bottom: f32,
     height: f32,
 }
@@ -603,17 +605,21 @@ impl LayerSurface {
             .fold(f32::NEG_INFINITY, f32::max);
         let mut surface = Self {
             bins: vec![Vec::new(); 64],
+            triangles,
+            first_bin: Vec::new(),
             bottom,
             height: (top - bottom).max(0.001),
         };
-        for triangle in triangles {
+        for (id, triangle) in surface.triangles.iter().enumerate() {
             let low = triangle.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
             let high = triangle
                 .iter()
                 .map(|p| p.y)
                 .fold(f32::NEG_INFINITY, f32::max);
-            for bin in surface.bin(low)..=surface.bin(high) {
-                surface.bins[bin].push(triangle);
+            let first = surface.bin(low);
+            surface.first_bin.push(first);
+            for bin in first..=surface.bin(high) {
+                surface.bins[bin].push(id);
             }
         }
         surface
@@ -637,28 +643,40 @@ impl LayerSurface {
         if high < self.bottom || low > self.bottom + self.height {
             return None;
         }
+        let planes = [
+            (Vec3::Y, low),
+            (Vec3::NEG_Y, -high),
+            (lower, -THICKNESS),
+            (upper, -THICKNESS),
+        ];
         let mut support: Option<f32> = None;
-        for bin in self.bin(low)..=self.bin(high) {
-            for &triangle in &self.bins[bin] {
-                let mut polygon = triangle.to_vec();
-                for (plane, offset) in [
-                    (Vec3::Y, low),
-                    (Vec3::NEG_Y, -high),
-                    (lower, -THICKNESS),
-                    (upper, -THICKNESS),
-                ] {
-                    polygon = clip_layer_polygon(&polygon, plane, offset);
-                    if polygon.is_empty() {
-                        break;
-                    }
-                }
-                for point in polygon {
-                    let projected = point.dot(normal);
-                    support = Some(support.map_or(projected, |old| old.max(projected)));
-                }
+        for triangle in self.candidates(low, high) {
+            // A triangle's unclipped support bounds all its clipped vertices.
+            let bound = triangle
+                .iter()
+                .map(|p| p.dot(normal))
+                .fold(f32::NEG_INFINITY, f32::max);
+            if support.is_some_and(|old| bound <= old) {
+                continue;
+            }
+            if let Some(value) = clipped_support(*triangle, normal, &planes) {
+                support = Some(support.map_or(value, |old| old.max(value)));
             }
         }
         support
+    }
+
+    /// IDs occur in several height bins, but are yielded only at their first
+    /// overlap with this query. Full-height yoke queries no longer clip a face
+    /// up to 64 times; geometry storage is also no longer duplicated per bin.
+    fn candidates(&self, low: f32, high: f32) -> impl Iterator<Item = &[Vec3; 3]> {
+        let first = self.bin(low);
+        (first..=self.bin(high)).flat_map(move |bin| {
+            self.bins[bin]
+                .iter()
+                .filter(move |&&id| self.first_bin[id].max(first) == bin)
+                .map(move |&id| &self.triangles[id])
+        })
     }
 
     /// Outermost intersection with either face or a closed boundary edge.
@@ -668,7 +686,8 @@ impl LayerSurface {
             return None;
         }
         let mut far: Option<f32> = None;
-        for &[a, b, c] in &self.bins[self.bin(origin.y)] {
+        for &id in &self.bins[self.bin(origin.y)] {
+            let [a, b, c] = self.triangles[id];
             let e1 = b - a;
             let e2 = c - a;
             let cross = ray.cross(e2);
@@ -692,8 +711,52 @@ impl LayerSurface {
     }
 }
 
+/// A triangle clipped by four half-planes has at most seven vertices.
+/// Fixed scratch buffers avoid heap allocation in the per-cell contact path.
+fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32); 4]) -> Option<f32> {
+    if planes
+        .iter()
+        .any(|&(plane, offset)| triangle.iter().all(|p| plane.dot(*p) < offset))
+    {
+        return None;
+    }
+    let mut polygon = [Vec3::ZERO; 8];
+    polygon[..3].copy_from_slice(&triangle);
+    let mut count = 3;
+    for &(plane, offset) in planes {
+        let mut next = [Vec3::ZERO; 8];
+        let mut length = 0;
+        for i in 0..count {
+            let a = polygon[i];
+            let b = polygon[(i + 1) % count];
+            let da = plane.dot(a) - offset;
+            let db = plane.dot(b) - offset;
+            if da >= 0.0 {
+                next[length] = a;
+                length += 1;
+            }
+            if (da >= 0.0) != (db >= 0.0) {
+                next[length] = a.lerp(b, da / (da - db));
+                length += 1;
+            }
+        }
+        if length == 0 {
+            return None;
+        }
+        polygon = next;
+        count = length;
+    }
+    Some(
+        polygon[..count]
+            .iter()
+            .map(|p| p.dot(normal))
+            .fold(f32::NEG_INFINITY, f32::max),
+    )
+}
+
 /// Clip against a closed half-space; extrema of a linear support function
 /// lie at these vertices, including newly created edge intersections.
+#[cfg(test)]
 fn clip_layer_polygon(points: &[Vec3], normal: Vec3, offset: f32) -> Vec<Vec3> {
     let mut result = Vec::with_capacity(points.len() + 1);
     if points.is_empty() {
@@ -883,6 +946,58 @@ mod tests {
         let mut recipe = Recipe::new(body, r.cloth, r.lining, false);
         recipe.set_cut(cut);
         recipe
+    }
+
+    #[test]
+    fn contact_candidates_are_unique_and_stack_clipping_matches_exhaustive_oracle() {
+        let triangles: Vec<_> = (0..80)
+            .map(|i| {
+                let angle = i as f32 * 0.37;
+                [
+                    Vec3::new(angle.sin() * 0.5, -0.4, angle.cos() * 0.4),
+                    Vec3::new((angle + 0.1).sin() * 0.5, 0.8, (angle + 0.1).cos() * 0.4),
+                    Vec3::new((angle + 0.2).sin() * 0.5, 0.2, (angle + 0.2).cos() * 0.4),
+                ]
+            })
+            .collect();
+        let surface = LayerSurface::from_triangles(triangles.clone());
+        assert_eq!(surface.candidates(-0.4, 0.8).count(), triangles.len());
+        assert!(
+            surface.bins.iter().map(Vec::len).sum::<usize>() > triangles.len() * 32,
+            "fixture must exercise former repeated-bin work"
+        );
+        for low in [-0.4, -0.1, 0.3] {
+            for high in [0.35, 0.8] {
+                for angle in [0.0, 0.9, 2.8] {
+                    let normal = Vec3::new(f32::sin(angle), 0.0, f32::cos(angle));
+                    let lower = Vec3::new((angle - 0.16).cos(), 0.0, -(angle - 0.16).sin());
+                    let upper = Vec3::new(-(angle + 0.16).cos(), 0.0, (angle + 0.16).sin());
+                    let planes = [
+                        (Vec3::Y, low),
+                        (Vec3::NEG_Y, -high),
+                        (lower, -THICKNESS),
+                        (upper, -THICKNESS),
+                    ];
+                    let mut expected: Option<f32> = None;
+                    for triangle in &triangles {
+                        let mut polygon = triangle.to_vec();
+                        for (plane, offset) in planes {
+                            polygon = clip_layer_polygon(&polygon, plane, offset);
+                        }
+                        for p in polygon {
+                            let v = p.dot(normal);
+                            expected = Some(expected.map_or(v, |old| old.max(v)));
+                        }
+                    }
+                    let actual = surface.support_plane(normal, low, high, lower, upper);
+                    match (actual, expected) {
+                        (Some(a), Some(b)) => assert!((a - b).abs() < 1e-6),
+                        (None, None) => {}
+                        _ => panic!("candidate rejection changed contact support"),
+                    }
+                }
+            }
+        }
     }
 
     #[test]
