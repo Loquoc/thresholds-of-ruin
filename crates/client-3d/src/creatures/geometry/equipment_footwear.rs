@@ -85,7 +85,11 @@ impl FootwearAppearance {
 
 /// Keep the fitted ankle and radii; coverage is a fraction of available shin.
 /// Both the cloth contact envelope and emitted shaft should use this result.
-pub(super) fn fit_shape(appearance: FootwearAppearance, mut shape: BootShape) -> BootShape {
+pub(super) fn fit_shape(
+    appearance: FootwearAppearance,
+    mut shape: BootShape,
+    build: f32,
+) -> BootShape {
     use FootwearAppearance::*;
     let fraction = match appearance {
         WalkingShoes => 0.07,
@@ -111,7 +115,40 @@ pub(super) fn fit_shape(appearance: FootwearAppearance, mut shape: BootShape) ->
         0.008
     };
     shape.sample_radius_top = shape.radius_top + shape.cuff_thickness + 0.004;
+    if appearance == SnowBoots {
+        let contact_length = shape.top - shape.bottom;
+        fit_snow_cuff_contact(&mut shape, build, contact_length);
+    }
     shape
+}
+
+// Fleece dimensions also drive the contact envelope. Blob jitter multiplies
+// non-pole radii by at most 1 + jitter/2; poles stay within the same bound.
+const SNOW_PILE_RADIAL_OFFSET: f32 = 0.008;
+const SNOW_PILE_RADIUS_MAX: f32 = 0.015;
+const SNOW_PILE_HEIGHT_MAX: f32 = 0.0195;
+const SNOW_PILE_JITTER: f32 = 0.10;
+
+fn fit_snow_cuff_contact(shape: &mut BootShape, build: f32, contact_length: f32) {
+    let wobble = 1.0 + SNOW_PILE_JITTER * 0.5;
+    let radial = (SNOW_PILE_RADIAL_OFFSET + SNOW_PILE_RADIUS_MAX * wobble) * build;
+    // Centers are at -.009 +/- .001. This also bounds the two underfur
+    // tori, whose lowest possible point is -.012 - .016.
+    let vertical = (0.010 + SNOW_PILE_HEIGHT_MAX * wobble) * build;
+    shape.cuff_radius = shape.radius_top;
+    // Robe triangle contact uses 12 straight capsule segments, not a circle.
+    // Include their inward chord sagitta and the full radial/Y corner distance.
+    let chord_inset = shape.cuff_radius * (1.0 - (PI / 12.0).cos());
+    shape.cuff_thickness = (radial + chord_inset).hypot(vertical) + 0.001 * build;
+    let outer = shape.radius_top + radial;
+    let t = ((contact_length - vertical) / contact_length).clamp(0.01, 1.0);
+    // Sample contact tapers below top and rounds above it. Reserve enough
+    // top radius at the lowest pile height, not just at the cuff center.
+    let tapered = (outer - shape.sample_radius_bottom * (1.0 - t)) / t;
+    shape.sample_radius_top = tapered
+        .max(outer.hypot(vertical))
+        .max(shape.radius_top + shape.cuff_thickness)
+        + 0.004 * build;
 }
 
 fn shin_support(shin: LimbShape, trousered: bool, build: f32) -> crate::sdf::Sculpt {
@@ -135,7 +172,7 @@ pub(super) fn fit_shin(
     trousered: bool,
     build: f32,
 ) -> BootShape {
-    let mut shape = fit_shape(appearance, shape);
+    let mut shape = fit_shape(appearance, shape, build);
     let required = shin_profile(shape, shin, trousered, build);
     shape.radius_bottom = shape.radius_bottom.max(required[0]);
     // Hold the fitted ankle, then open the calf end enough to clear every row.
@@ -150,6 +187,10 @@ pub(super) fn fit_shin(
     shape.cuff_radius = shape.radius_top + 0.002;
     shape.sample_radius_top = shape.radius_top + shape.cuff_thickness + 0.004;
     shape.sample_radius_bottom = shape.radius_bottom + 0.012;
+    if appearance == FootwearAppearance::SnowBoots {
+        let contact_length = shin.length + shape.top;
+        fit_snow_cuff_contact(&mut shape, build, contact_length);
+    }
     shape
 }
 
@@ -499,19 +540,19 @@ fn snow_cuff(p: &mut Parts, shape: BootShape, build: f32, color: Vec3) {
         let stagger = (i as f32 * 1.7).sin();
         let angle = (i as f32 + stagger * 0.18) * TAU / 32.0;
         let center = Vec3::new(
-            angle.sin() * (shape.radius_top + 0.008 * build),
+            angle.sin() * (shape.radius_top + SNOW_PILE_RADIAL_OFFSET * build),
             shape.top + (-0.009 + stagger * 0.001) * build,
-            angle.cos() * (shape.radius_top + 0.008 * build),
+            angle.cos() * (shape.radius_top + SNOW_PILE_RADIAL_OFFSET * build),
         );
         p.matte.blob(
             center,
             Vec3::new(
-                0.013 + variation * 0.002,
-                0.018 + variation * 0.0015,
-                0.013 + variation * 0.002,
+                SNOW_PILE_RADIUS_MAX - 0.002 + variation * 0.002,
+                SNOW_PILE_HEIGHT_MAX - 0.0015 + variation * 0.0015,
+                SNOW_PILE_RADIUS_MAX - 0.002 + variation * 0.002,
             ) * build,
             i as u64,
-            0.10,
+            SNOW_PILE_JITTER,
             color * (0.90 + variation * 0.10),
         );
     }
@@ -905,11 +946,112 @@ mod tests {
     }
 
     #[test]
+    fn snow_cuff_vertices_fit_both_robe_contact_envelopes() {
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Human,
+            7,
+            None,
+        ));
+        for build in [0.75, 1.0, 1.4] {
+            for (fitted_index, shape) in [
+                fit_shape(
+                    FootwearAppearance::SnowBoots,
+                    BootShape::fitted(build, -0.24),
+                    build,
+                ),
+                fit_shin(
+                    FootwearAppearance::SnowBoots,
+                    BootShape::fitted(build, -0.24),
+                    body.shin,
+                    false,
+                    build,
+                ),
+                fit_shin(
+                    FootwearAppearance::SnowBoots,
+                    BootShape::fitted(build, -0.24),
+                    body.shin,
+                    true,
+                    build,
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut cuff = Parts::default();
+                snow_cuff(&mut cuff, shape, build, Vec3::ONE);
+                let mut meshes = Assets::<Mesh>::default();
+                let mut materials = Assets::<StandardMaterial>::default();
+                let model = cuff.finish(
+                    &mut meshes,
+                    &crate::props::PropMaterials::new(&mut materials),
+                );
+                let mut count = 0;
+                for (handle, _) in &model.0 {
+                    let mesh = meshes.get(handle).unwrap();
+                    let bevy::render::mesh::VertexAttributeValues::Float32x3(vertices) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+                    else {
+                        panic!("cuff positions");
+                    };
+                    for vertex in vertices {
+                        count += 1;
+                        let point = Vec3::from_array(*vertex);
+                        let radial = point.xz().length();
+                        let height = point.y - shape.top;
+                        // Independent cylinder used by robe cuff_far, without
+                        // its additional cloth-row sweep (a stricter bound).
+                        assert!(radial <= shape.cuff_radius + shape.cuff_thickness);
+                        assert!(height.abs() <= shape.cuff_thickness);
+                        // Actual 12-segment capsule ring used for triangle
+                        // contact: radial maxima alone do not prove this.
+                        let mut nearest = f32::INFINITY;
+                        for k in 0..12 {
+                            let center = |j: usize| {
+                                let angle = j as f32 * TAU / 12.0;
+                                Vec3::new(
+                                    -angle.sin() * shape.cuff_radius,
+                                    shape.top,
+                                    -angle.cos() * shape.cuff_radius,
+                                )
+                            };
+                            let a = center(k);
+                            let edge = center(k + 1) - a;
+                            let t = ((point - a).dot(edge) / edge.length_squared()).clamp(0.0, 1.0);
+                            nearest = nearest.min(point.distance(a + edge * t));
+                        }
+                        assert!(
+                            nearest <= shape.cuff_thickness,
+                            "pile escapes robe capsule ring: build={build} point={point:?}"
+                        );
+                        // Linear sample-radius interpolation below the top;
+                        // spherical cap above it. Do not clamp Y to the rim.
+                        let sample = if height > 0.0 {
+                            (shape.sample_radius_top.powi(2) - height.powi(2)).sqrt()
+                        } else {
+                            let length = if fitted_index == 0 {
+                                shape.top - shape.bottom
+                            } else {
+                                body.shin.length + shape.top
+                            };
+                            let t = 1.0 + height / length;
+                            shape.sample_radius_bottom
+                                + (shape.sample_radius_top - shape.sample_radius_bottom) * t
+                        };
+                        assert!(radial <= sample, "pile escapes tapered sample contact");
+                    }
+                }
+                assert!(count > 100, "real emitted cuff vertices required");
+            }
+        }
+    }
+
+    #[test]
     fn snow_cuff_has_deep_continuous_pile_not_a_thin_rope() {
         for build in [0.75, 1.0, 1.4] {
             let shape = fit_shape(
                 FootwearAppearance::SnowBoots,
                 BootShape::fitted(build, -0.24),
+                build,
             );
             let mut cuff = Parts::default();
             snow_cuff(&mut cuff, shape, build, Vec3::ONE);
@@ -943,6 +1085,7 @@ mod tests {
             let shape = fit_shape(
                 FootwearAppearance::SnowBoots,
                 BootShape::fitted(build, -0.24),
+                build,
             );
             let mut cuff = Parts::default();
             snow_cuff(&mut cuff, shape, build, Vec3::ONE);
@@ -1038,7 +1181,7 @@ mod tests {
     fn coverage_follows_the_study_without_changing_the_fitted_ankle() {
         use FootwearAppearance::*;
         for build in [0.75, 1.0, 1.4] {
-            let fit = |appearance| fit_shape(appearance, BootShape::fitted(build, -0.24));
+            let fit = |appearance| fit_shape(appearance, BootShape::fitted(build, -0.24), build);
             assert!(fit(WalkingShoes).top < fit(HikingBoots).top);
             assert!(fit(HikingBoots).top < fit(CombatBoots).top);
             assert!(fit(CombatBoots).top < fit(MudBoots).top);
@@ -1058,7 +1201,7 @@ mod tests {
         let mut signatures = std::collections::HashSet::new();
         for appearance in FootwearAppearance::ALL {
             let mut parts = Parts::default();
-            let shape = fit_shape(appearance, BootShape::fitted(1.0, -0.24));
+            let shape = fit_shape(appearance, BootShape::fitted(1.0, -0.24), 1.0);
             emit_shaft(
                 &mut parts,
                 appearance,
@@ -1092,6 +1235,7 @@ mod tests {
         let shape = fit_shape(
             FootwearAppearance::CombatBoots,
             BootShape::fitted(1.0, -0.24),
+            1.0,
         );
         let emit = |appearance| {
             let mut parts = Parts::default();
@@ -1374,7 +1518,7 @@ mod tests {
                     )
                 );
                 let mut shaft = Parts::default();
-                let shape = fit_shape(appearance, BootShape::fitted(build, -0.24));
+                let shape = fit_shape(appearance, BootShape::fitted(build, -0.24), build);
                 emit_shaft(
                     &mut shaft,
                     appearance,
