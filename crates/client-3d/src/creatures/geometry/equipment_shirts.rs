@@ -464,7 +464,7 @@ mod tests {
                 panic!("torso positions");
             };
             let indices: Vec<_> = surface.mesh.indices().unwrap().iter().collect();
-            for tri in indices.chunks_exact(3) {
+            for tri in indices.as_chunks::<3>().0 {
                 rendered.matte.tri(
                     std::array::from_fn(|i| {
                         surface

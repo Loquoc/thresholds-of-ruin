@@ -681,25 +681,93 @@ fn plume(p: &mut Parts) {
     );
 }
 
+// Angle/height motifs are authored independently of the helmet tessellation.
+// A curling stem and two pointed leaves make each group legible at portrait scale.
+fn etched_motifs() -> Vec<Vec<Vec2>> {
+    let mut paths = Vec::new();
+    for side in [-1.0, 1.0] {
+        for (angle, y, spread, height) in [
+            (0.42, 0.292, 0.20, 0.021),
+            (1.15, 0.312, 0.23, 0.024),
+            (2.15, 0.292, 0.24, 0.022),
+            (1.20, 0.130, 0.18, 0.022),
+        ] {
+            paths.push(
+                (0..=24)
+                    .map(|i| {
+                        let t = i as f32 / 24.0;
+                        let turn = t * PI * 2.4;
+                        let radius = 1.0 - t * 0.82;
+                        Vec2::new(
+                            side * (angle + spread * radius * turn.cos()),
+                            y + height * radius * turn.sin(),
+                        )
+                    })
+                    .collect(),
+            );
+            for sign in [-1.0, 1.0] {
+                // Closed pointed leaf, with a bent midrib joining the stem.
+                paths.push(
+                    (0..=16)
+                        .map(|i| {
+                            let t = i as f32 / 16.0;
+                            let along = (PI * t).sin();
+                            Vec2::new(
+                                side * (angle - spread * 0.60 + sign * spread * 0.65 * along),
+                                y - height * 0.5 - height * 0.65 * along
+                                    + height * 0.19 * (TAU * t).sin(),
+                            )
+                        })
+                        .collect(),
+                );
+            }
+        }
+    }
+    paths
+}
+
 fn etched(p: &mut Parts) {
     let green = Vec3::new(0.12, 0.35, 0.28);
     dome(p, green, true);
     guards(p, green, BRASS);
-    // Raised inlay follows the crown's curvature, with large readable curls.
-    for side in [-1.0, 1.0] {
-        let path: Vec<_> = (0..=24)
-            .map(|i| {
-                let t = i as f32 / 24.0;
-                let a = side * (0.35 + t * 1.8);
-                let y = 0.275 + 0.025 * (t * TAU * 1.5).sin();
-                ring_point(a, y, 0.146)
-            })
+    // Resolve every support against the undecorated emitted triangles first.
+    // Querying after adding inlay would stack later strokes on earlier strokes.
+    let fitted: Vec<Vec<(Vec3, Vec3)>> = etched_motifs()
+        .iter()
+        .map(|path| {
+            path.iter()
+                .map(|uv| {
+                    let ray = Vec3::new(uv.x.sin(), 0.0, uv.x.cos());
+                    let origin = Vec3::new(0.0, uv.y, -0.012);
+                    let surface = p
+                        .metal
+                        .outer_surface(origin, ray)
+                        .expect("etched motif must stay on its crown or cheek plate");
+                    (surface, ray)
+                })
+                .collect()
+        })
+        .collect();
+    for path in fitted {
+        let groove: Vec<_> = path
+            .iter()
+            .map(|(surface, ray)| *surface + *ray * 0.0008)
+            .collect();
+        let highlight: Vec<_> = path
+            .iter()
+            .map(|(surface, ray)| *surface + *ray * 0.0022)
             .collect();
         tube(
+            &mut p.matte,
+            &groove,
+            &vec![(0.0024, 0.0024); groove.len()],
+            green * 0.28,
+        );
+        tube(
             &mut p.metal,
-            &path,
-            &vec![(0.003, 0.003); path.len()],
-            BRASS,
+            &highlight,
+            &vec![(0.0009, 0.0009); highlight.len()],
+            BRASS * 0.83,
         );
     }
     tube(
@@ -1219,6 +1287,64 @@ mod tests {
                 .is_none(),
             "crescent's opening stays unfilled"
         );
+    }
+
+    #[test]
+    fn etched_scrolls_cover_crown_and_cheeks_and_remain_surface_fitted() {
+        let mut base = Parts::default();
+        dome(&mut base, IRON, true);
+        guards(&mut base, IRON, BRASS);
+        let mut decorated = Parts::default();
+        etched(&mut decorated);
+        // Independent fixed witnesses at the outer ends of four authored curls.
+        // The previous two crown arcs had no engraved cheek/back pattern.
+        for side in [-1.0, 1.0] {
+            for (angle, y) in [(0.62f32, 0.292), (1.38, 0.312), (2.39, 0.292), (1.38, 0.13)] {
+                let ray = Vec3::new(side * angle.sin(), 0.0, angle.cos());
+                let origin = Vec3::new(0.0, y, -0.012);
+                let support = base
+                    .metal
+                    .outer_surface(origin, ray)
+                    .expect("base plate fixture");
+                let groove = decorated
+                    .matte
+                    .outer_surface(origin, ray)
+                    .expect("engraved motif at fixed witness");
+                let highlight = decorated
+                    .metal
+                    .outer_surface(origin, ray)
+                    .expect("metallic motif edge");
+                let gap = (groove - support).dot(ray);
+                assert!(
+                    gap > 0.0002 && gap < 0.006,
+                    "engraving must contact the plate, gap={gap}"
+                );
+                assert!(
+                    (highlight - support).dot(ray) > 0.001,
+                    "fine metallic edge is present"
+                );
+            }
+        }
+        // Every authored stroke has a real support and stays below the modest
+        // relief budget, including points on sloping triangular crown facets.
+        for path in etched_motifs() {
+            for uv in path.iter().step_by(4) {
+                let ray = Vec3::new(uv.x.sin(), 0.0, uv.x.cos());
+                let origin = Vec3::new(0.0, uv.y, -0.012);
+                let support = base.metal.outer_surface(origin, ray).unwrap();
+                let stroke = decorated.matte.outer_surface(origin, ray).unwrap();
+                assert!((stroke - support).dot(ray).abs() < 0.006);
+            }
+        }
+        for side in [-1.0, 1.0] {
+            assert!(
+                decorated
+                    .matte
+                    .outer_surface(Vec3::new(side * 0.038, 0.16, 0.0), Vec3::Z)
+                    .is_none(),
+                "engraving stays away from the eyes"
+            );
+        }
     }
 
     #[test]

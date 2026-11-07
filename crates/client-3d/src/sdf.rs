@@ -1162,7 +1162,9 @@ fn selected_coverage_regions_recombine_to_exact_original_surface() {
         };
         let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
         let mut faces: Vec<_> = indices
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|face| {
                 std::array::from_fn::<_, 3, _>(|corner| {
                     let index = face[corner];
