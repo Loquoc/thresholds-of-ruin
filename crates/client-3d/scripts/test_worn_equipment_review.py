@@ -24,6 +24,41 @@ class WornReview(unittest.TestCase):
         self.assertTrue(layers['robe-over-full-skirt']['body']['woman'])
         self.assertEqual(layers['apron-over-caster-robe']['model'], 'Mage')
 
+class RenderReceipt(unittest.TestCase):
+    def test_manifest_requires_exact_names_ticks_renderer_and_actual_images(self):
+        import copy
+        import struct
+        import tempfile
+        import zlib
+        import render_worn_equipment_review as runner
+
+        def chunk(kind, payload):
+            return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
+
+        # Tiny synthetic RGBA encoder fixture exercises the real PNG decoder.
+        png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 2, 2, 8, 6, 0, 0, 0))
+        png += chunk(b'IDAT', zlib.compress((b'\0' + bytes([30, 60, 90, 255]) * 2) * 2)) + chunk(b'IEND', b'')
+        script = {'viewport': [2, 2], 'captures': [{'name': 'front', 'tick': 0}]}
+        manifest = {'status': 'complete', 'capture_mode': 'offscreen',
+                    'captures': [{'name': 'front', 'tick': 0, 'renderer': {'name': 'test-adapter'}}]}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / 'front.png').write_bytes(png)
+            runner.validate_manifest(script, manifest, output)
+            for key, value in [('status', 'failed'), ('capture_mode', 'window')]:
+                bad = copy.deepcopy(manifest)
+                bad[key] = value
+                with self.assertRaises(ValueError):
+                    runner.validate_manifest(script, bad, output)
+            for key, value in [('name', 'other'), ('tick', 1), ('renderer', {})]:
+                bad = copy.deepcopy(manifest)
+                bad['captures'][0][key] = value
+                with self.assertRaises(ValueError):
+                    runner.validate_manifest(script, bad, output)
+            (output / 'front.png').unlink()
+            with self.assertRaises(ValueError):
+                runner.validate_manifest(script, manifest, output)
+
 
 if __name__ == '__main__':
     unittest.main()

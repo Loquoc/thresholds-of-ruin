@@ -1,0 +1,55 @@
+name: Worn equipment visual review
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/worn-equipment-review.yml"
+      - "crates/client-3d/scripts/*worn_equipment_review.py"
+      - "crates/client-3d/scripts/fixtures/worn-equipment-review/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worn-equipment-review-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture worn equipment (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: "crates/client-3d -> target"
+          shared-key: client-3d-debug
+          save-if: ${{ false }}
+      - name: Install native rendering dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev libx11-dev libxkbcommon-x11-0 libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev libegl1-mesa-dev libvulkan-dev mesa-vulkan-drivers xvfb
+      - name: Build native client
+        run: cargo build --manifest-path crates/client-3d/Cargo.toml --bin tor-client-3d --locked
+      - name: Render bounded study and motion sheets
+        run: xvfb-run -a --server-args="-screen 0 1920x1280x24" python3 crates/client-3d/scripts/render_worn_equipment_review.py --binary crates/client-3d/target/debug/tor-client-3d --output .local/worn-equipment-review
+      - name: Retain actual images and provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: worn-equipment-review-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .local/worn-equipment-review/
+          if-no-files-found: warn
+          retention-days: 14

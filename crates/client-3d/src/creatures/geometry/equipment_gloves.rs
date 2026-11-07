@@ -4,19 +4,14 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum GloveAppearance {
-    OldGloves,
-    PaddedGloves,
-    RidingGloves,
-    FencingGloves,
+    Old,
+    Padded,
+    Riding,
+    Fencing,
 }
 
 impl GloveAppearance {
-    pub(crate) const ALL: [Self; 4] = [
-        Self::OldGloves,
-        Self::PaddedGloves,
-        Self::RidingGloves,
-        Self::FencingGloves,
-    ];
+    pub(crate) const ALL: [Self; 4] = [Self::Old, Self::Padded, Self::Riding, Self::Fencing];
     pub(crate) const NAMES: [&'static str; 4] = [
         "old-gloves",
         "padded-gloves",
@@ -34,10 +29,10 @@ impl GloveAppearance {
 
     pub(crate) const fn color(self) -> Vec3 {
         match self {
-            Self::OldGloves => Vec3::new(0.37, 0.23, 0.12),
-            Self::PaddedGloves => Vec3::new(0.23, 0.29, 0.39),
-            Self::RidingGloves => Vec3::new(0.30, 0.16, 0.075),
-            Self::FencingGloves => Vec3::new(0.075, 0.075, 0.095),
+            Self::Old => Vec3::new(0.37, 0.23, 0.12),
+            Self::Padded => Vec3::new(0.23, 0.29, 0.39),
+            Self::Riding => Vec3::new(0.30, 0.16, 0.075),
+            Self::Fencing => Vec3::new(0.075, 0.075, 0.095),
         }
     }
 }
@@ -70,7 +65,7 @@ pub(in crate::creatures) fn emit_hand(
     }
     let point = |x: f32, y: f32, z: f32| at + Vec3::new(side * x, y, z) * build;
     match appearance {
-        GloveAppearance::OldGloves => {
+        GloveAppearance::Old => {
             // Irregular repair seams cross the back, with individual stitches.
             seam(
                 &mut p.matte,
@@ -97,7 +92,7 @@ pub(in crate::creatures) fn emit_hand(
                 );
             }
         }
-        GloveAppearance::PaddedGloves => {
+        GloveAppearance::Padded => {
             // Raised quilt cells and separate knuckle pads, not a mitten shell.
             for row in 0..3 {
                 for col in 0..3 {
@@ -124,7 +119,7 @@ pub(in crate::creatures) fn emit_hand(
                 );
             }
         }
-        GloveAppearance::RidingGloves => {
+        GloveAppearance::Riding => {
             // A separate palm reinforcement remains inside the grip, and the
             // back has two long inset seams like the riding study.
             p.matte.blob(
@@ -147,7 +142,7 @@ pub(in crate::creatures) fn emit_hand(
                 );
             }
         }
-        GloveAppearance::FencingGloves => {
+        GloveAppearance::Fencing => {
             // Fine dorsal piping and a small gold stitch ornament. The hand
             // stays slim; the dramatic silhouette belongs to the flared cuff.
             for z in [-0.021, 0.021] {
@@ -168,10 +163,10 @@ pub(in crate::creatures) fn emit_hand(
 
 fn cuff_profile(appearance: GloveAppearance) -> [(f32, f32); 3] {
     match appearance {
-        GloveAppearance::OldGloves => [(0.0, 0.045), (0.035, 0.044), (0.105, 0.064)],
-        GloveAppearance::PaddedGloves => [(0.0, 0.047), (0.035, 0.048), (0.110, 0.066)],
-        GloveAppearance::RidingGloves => [(0.0, 0.043), (0.035, 0.042), (0.120, 0.063)],
-        GloveAppearance::FencingGloves => [(0.0, 0.042), (0.030, 0.043), (0.140, 0.082)],
+        GloveAppearance::Old => [(0.0, 0.045), (0.035, 0.044), (0.105, 0.064)],
+        GloveAppearance::Padded => [(0.0, 0.047), (0.035, 0.048), (0.110, 0.066)],
+        GloveAppearance::Riding => [(0.0, 0.043), (0.035, 0.042), (0.120, 0.063)],
+        GloveAppearance::Fencing => [(0.0, 0.042), (0.030, 0.043), (0.140, 0.082)],
     }
 }
 
@@ -218,7 +213,7 @@ pub(in crate::creatures) fn emit_cuff(
         .collect();
     let point = |row: usize, angle: f32, inner: bool| {
         let (y, _) = profile[row];
-        let wear = if appearance == GloveAppearance::OldGloves && row == 8 {
+        let wear = if appearance == GloveAppearance::Old && row == 8 {
             (angle * 5.0).sin() * 0.003
         } else {
             0.0
@@ -260,14 +255,14 @@ pub(in crate::creatures) fn emit_cuff(
             &mut p.satin,
             &path,
             0.002 * build,
-            if appearance == GloveAppearance::FencingGloves {
+            if appearance == GloveAppearance::Fencing {
                 GOLD
             } else {
                 THREAD * 0.65
             },
         );
     }
-    if appearance == GloveAppearance::FencingGloves {
+    if appearance == GloveAppearance::Fencing {
         for col in 0..8 {
             let angle = col as f32 * TAU / 8.0;
             // Repeated scalloped embroidery fans around the broad cuff lip.
@@ -303,7 +298,7 @@ pub(in crate::creatures) fn emit_cuff(
         ]
         .map(|v| center + v * build);
         seam(&mut p.metal, &corners, 0.0018 * build, GOLD);
-        if appearance == GloveAppearance::PaddedGloves {
+        if appearance == GloveAppearance::Padded {
             for col in 0..12 {
                 let a = col as f32 * TAU / 12.0;
                 seam(
@@ -404,13 +399,7 @@ mod tests {
             0.0,
             Vec3::ONE,
         );
-        emit_cuff(
-            &mut cuff,
-            GloveAppearance::RidingGloves,
-            Vec3::ZERO,
-            1.0,
-            1.0,
-        );
+        emit_cuff(&mut cuff, GloveAppearance::Riding, Vec3::ZERO, 1.0, 1.0);
         let hit = cuff.matte.outer_surface(Vec3::Y * 0.065, Vec3::X).unwrap();
         assert!(hit.x > 0.098, "cuff clears actual broad sleeve: {hit:?}");
     }
@@ -421,7 +410,7 @@ mod tests {
         let mut riding = Parts::default();
         emit_hand(
             &mut padded,
-            GloveAppearance::PaddedGloves,
+            GloveAppearance::Padded,
             Vec3::ZERO,
             1.0,
             1.0,
@@ -430,7 +419,7 @@ mod tests {
         );
         emit_hand(
             &mut riding,
-            GloveAppearance::RidingGloves,
+            GloveAppearance::Riding,
             Vec3::ZERO,
             1.0,
             1.0,
@@ -440,14 +429,8 @@ mod tests {
         assert!(padded.matte.bounds().1.x > riding.matte.bounds().1.x + 0.003);
         let mut fencing = Parts::default();
         let mut old = Parts::default();
-        emit_cuff(
-            &mut fencing,
-            GloveAppearance::FencingGloves,
-            Vec3::ZERO,
-            1.0,
-            1.0,
-        );
-        emit_cuff(&mut old, GloveAppearance::OldGloves, Vec3::ZERO, 1.0, 1.0);
+        emit_cuff(&mut fencing, GloveAppearance::Fencing, Vec3::ZERO, 1.0, 1.0);
+        emit_cuff(&mut old, GloveAppearance::Old, Vec3::ZERO, 1.0, 1.0);
         assert!(fencing.matte.bounds().1.x > old.matte.bounds().1.x + 0.015);
         assert!(fencing.matte.bounds().1.y > old.matte.bounds().1.y + 0.025);
         assert!(fencing.metal.is_empty());

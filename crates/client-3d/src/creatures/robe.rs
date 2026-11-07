@@ -797,7 +797,9 @@ impl RobeRig {
             .map(|indices| indices.iter().collect())
             .unwrap_or_else(|| (0..points.len()).collect());
         let triangles = indices
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|t| [t[0], t[1], t[2]])
             .collect();
         self.overlays.push(BoundOverlay {

@@ -148,7 +148,7 @@ impl Equipment {
                 wearing
                     .hands_look
                     .and_then(|look| GloveAppearance::parse(look.name()))
-                    .unwrap_or(GloveAppearance::OldGloves)
+                    .unwrap_or(GloveAppearance::Old)
             }),
             head: wearing.head.map(|_| {
                 wearing
