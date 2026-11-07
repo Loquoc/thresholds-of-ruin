@@ -98,8 +98,17 @@ def main():
                     # Every batch owns a new process and output directory. Keep
                     # independent evidence, but never turn partial work green.
                     continue
-                manifest = json.loads((target / 'manifest.json').read_text())
-                validate_manifest(batch, manifest, target)
+                try:
+                    manifest = json.loads((target / 'manifest.json').read_text())
+                    validate_manifest(batch, manifest, target)
+                except Exception as error:
+                    receipt['failures'].append({'script': source.name, 'batch': prepared.name,
+                                                'stage': 'manifest_validation', 'error': str(error),
+                                                'seconds': time.monotonic() - started})
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    # A completed process can still produce rejected evidence.
+                    # Retain that failure and continue the independent batches.
+                    continue
                 receipt['scenes'].append({'script': source.name, 'sha256': digest(source), 'batch': prepared.name,
                                           'batch_sha256': digest(prepared),
                                           'seconds': time.monotonic() - started,

@@ -82,6 +82,64 @@ class RenderReceipt(unittest.TestCase):
             self.assertEqual(receipt['visual_acceptance'], 'not_reviewed')
             self.assertTrue(any(s['script'] == 'layering.json' for s in receipt['scenes']))
 
+    def test_rejected_manifest_does_not_skip_independent_later_batches(self):
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import render_worn_equipment_review as runner
+
+        for failure in ['fallback', 'missing_image']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                calls = []
+                validations = []
+                validate = runner.validate_manifest
+
+                def process(command, **kwargs):
+                    calls.append(command)
+                    source = Path(command[command.index('--scene-script') + 1])
+                    target = Path(command[command.index('--capture') + 1])
+                    target.mkdir()
+                    script = json.loads(source.read_text())
+                    shots = [dict(shot, renderer={'name': 'test-adapter'})
+                             for shot in script['captures']]
+                    if len(calls) == 1 and failure == 'fallback':
+                        shots[0]['actors'] = [
+                            {'id': 'faded-pall', 'cloth_contact': {'solver_fallbacks': 3}}]
+                    (target / 'manifest.json').write_text(json.dumps({
+                        'status': 'complete', 'capture_mode': 'offscreen', 'captures': shots}))
+                    return SimpleNamespace(returncode=0)
+
+                def validate_batch(script, manifest, target):
+                    validations.append(target)
+                    if len(validations) == 1:
+                        # Exercise the real rejection, not a mocked exception.
+                        validate(script, manifest, target)
+
+                output = Path(directory) / 'result'
+                with patch('sys.argv', ['runner', '--binary', '/unused', '--output', str(output)]), \
+                     patch.object(runner.subprocess, 'check_output', return_value='head'), \
+                     patch.object(runner.subprocess, 'run', side_effect=process), \
+                     patch.object(runner, 'digest', return_value='sha'), \
+                     patch.object(runner, 'validate_manifest', side_effect=validate_batch):
+                    with self.assertRaisesRegex(RuntimeError, '1 capture batches failed'):
+                        runner.main()
+                receipt = json.loads((output / 'receipt.json').read_text())
+                expected = sum(len(runner.capture_batches(script)) for script in generator.reviews().values())
+                self.assertEqual(len(calls), expected)
+                self.assertEqual(len(validations), expected)
+                self.assertEqual(len(receipt['scenes']), expected - 1)
+                self.assertEqual(len(receipt['failures']), 1)
+                rejected = receipt['failures'][0]
+                self.assertEqual(rejected['stage'], 'manifest_validation')
+                if failure == 'fallback':
+                    self.assertEqual(rejected['error'], 'cloth solver fallback for faded-pall: 3')
+                else:
+                    first = generator.reviews()[Path(rejected['script']).stem]['captures'][0]['name']
+                    self.assertEqual(rejected['error'], f'missing image {first}.png')
+                self.assertEqual(receipt['status'], 'failed')
+                self.assertEqual(receipt['visual_acceptance'], 'not_reviewed')
+                self.assertTrue(any(s['script'] == 'layering.json' for s in receipt['scenes']))
+
     def test_manifest_requires_exact_names_ticks_renderer_and_actual_images(self):
         import copy
         import struct

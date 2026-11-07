@@ -1350,8 +1350,10 @@ fn fallback_radial_fit(
     }
 }
 
-/// Fixed-height radial movement preserves every triangle's angular wedge and
-/// vertical interval. The fifth query plane bounds the possible outward
+/// Noncollar vertices move radially at fixed height. Collar vertices move
+/// vertically at fixed XZ, within the same absolute attachment ceiling; first
+/// faces reserve that complete vertical sweep and use upward-facing planes.
+/// The fifth query plane bounds the possible outward
 /// travel, so an unrelated cap beyond a collar face cannot move its anchors.
 /// Any budget expansion restarts every face query. Only a solution contained
 /// in all queried budgets is committed; convexity then contains every final
@@ -1369,6 +1371,7 @@ fn fit_radial_faces(
         .iter()
         .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
         .collect();
+    let collar_ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
     let mut travels = vec![0.0f32; GRID];
     let mut budgets = vec![0.0f32; GRID];
     for iteration in 0..12 {
@@ -1409,10 +1412,13 @@ fn fit_radial_faces(
                     let left = horizontal * lo.cos() + tangent * lo.sin();
                     let right = horizontal * hi.cos() + tangent * hi.sin();
                     let low = vertices.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
-                    let high = vertices
+                    let mut high = vertices
                         .iter()
                         .map(|p| p.y)
                         .fold(f32::NEG_INFINITY, f32::max);
+                    if row == 0 {
+                        high = high.max(collar_ceiling);
+                    }
                     let radial_limit = face
                         .iter()
                         .map(|&i| horizontal.dot(reference[i] + directions[i] * budgets[i]))
@@ -1424,6 +1430,10 @@ fn fit_radial_faces(
                         (Vec3::new(-right.z, 0.0, right.x), -THICKNESS),
                         (-horizontal, -radial_limit - THICKNESS),
                     ];
+                    // Hanging cloth must stay outside the outermost retained
+                    // surface, including peaks beyond every vertex ray. Only
+                    // the roof uses a finite swept radial footprint.
+                    let planes = &planes[..if row < ROOF_ROWS { 5 } else { 4 }];
                     let cross = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]);
                     let authored = if cross.dot(horizontal).abs() > 1e-6 {
                         (cross.y / cross.dot(horizontal)).clamp(-128.0, 128.0)
@@ -1437,8 +1447,8 @@ fn fit_radial_faces(
                     let normals = slopes.map(|k| (horizontal + Vec3::Y * k).normalize());
                     let mut supports = [f32::NEG_INFINITY; 22];
                     let mut found = false;
-                    for &triangle in support.clipped_candidates(&planes) {
-                        if let Some((polygon, count)) = clipped_polygon(triangle, &planes) {
+                    for &triangle in support.clipped_candidates(planes) {
+                        if let Some((polygon, count)) = clipped_polygon(triangle, planes) {
                             found = true;
                             for (normal, value) in normals.iter().zip(&mut supports) {
                                 for p in &polygon[..count] {
@@ -1453,19 +1463,36 @@ fn fit_radial_faces(
                     let mut best: Option<([f32; 3], f32)> = None;
                     let mut best_anchor_deficit = f32::INFINITY;
                     for (normal, height) in normals.into_iter().zip(supports) {
+                        // Shared collar lifts must preserve every first-band
+                        // plane, just as radial travel preserves lower ones.
+                        if row == 0 && normal.y < 0.0 {
+                            continue;
+                        }
                         let plane = height + LAYER_GAP + THICKNESS;
                         let anchor_deficit = face
                             .iter()
                             .filter(|&&i| i <= COLUMNS)
-                            .map(|&i| (plane - normal.dot(reference[i])).max(0.0))
+                            .map(|&i| {
+                                (plane
+                                    - normal.dot(reference[i])
+                                    - normal.y * (collar_ceiling - reference[i].y))
+                                    .max(0.0)
+                            })
                             .fold(0.0, f32::max);
                         best_anchor_deficit = best_anchor_deficit.min(anchor_deficit);
                         let mut shifts = [0.0; 3];
                         let mut feasible = true;
                         for (j, &i) in face.iter().enumerate() {
                             let deficit = (plane - normal.dot(reference[i])).max(0.0);
-                            if i < COLUMNS + 1 {
-                                if deficit > 1e-6 {
+                            if i <= COLUMNS {
+                                if deficit > 0.0 {
+                                    if normal.y <= 1e-6 {
+                                        feasible = false;
+                                        break;
+                                    }
+                                    shifts[j] = deficit / normal.y;
+                                }
+                                if reference[i].y + shifts[j] > collar_ceiling {
                                     feasible = false;
                                     break;
                                 }
@@ -1485,7 +1512,7 @@ fn fit_radial_faces(
                         return Err(RadialFitFailure {
                             row,
                             column,
-                            reason: "no separating plane preserves collar anchors",
+                            reason: "no separating plane preserves bounded collar attachment",
                             detail: [best_anchor_deficit, low, high],
                         });
                     };
@@ -1498,6 +1525,7 @@ fn fit_radial_faces(
         let expanded = travels
             .iter()
             .zip(&budgets)
+            .skip(COLUMNS + 1)
             .any(|(&travel, &budget)| travel > budget);
         if !expanded {
             break;
@@ -1514,7 +1542,7 @@ fn fit_radial_faces(
                 ],
             });
         }
-        for (budget, &travel) in budgets.iter_mut().zip(&travels) {
+        for (budget, &travel) in budgets.iter_mut().zip(&travels).skip(COLUMNS + 1) {
             // Reserve one additional lining thickness when a domain expands. It
             // avoids asymptotic boundary chasing without changing final travel.
             if travel > *budget {
@@ -1526,7 +1554,8 @@ fn fit_radial_faces(
     // failure leaves the original mesh intact for the conservative fallback.
     let inverse = rotation.inverse();
     for (i, point) in points.iter_mut().enumerate() {
-        *point = inverse * (reference[i] + directions[i] * travels[i] - offset);
+        let direction = if i <= COLUMNS { Vec3::Y } else { directions[i] };
+        *point = inverse * (reference[i] + direction * travels[i] - offset);
     }
     Ok(())
 }
@@ -2101,14 +2130,67 @@ mod tests {
     }
 
     #[test]
-    fn radial_anchor_failure_is_explicit_and_transactional() {
+    fn finite_first_faces_seat_collar_without_moving_its_opening_or_lower_rows() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let mut points = radial_test_grid();
+        let before = points.clone();
+        let anchor = points[0] + offset;
+        let support = LayerSurface::from_triangles(vec![[
+            anchor - Vec3::X * 0.01,
+            anchor + Vec3::X * 0.01,
+            anchor + Vec3::Y * 0.01,
+        ]]);
+        fit_radial_faces(&mut points, Quat::IDENTITY, &support)
+            .expect("finite first-face support must seat the collar inside its existing ceiling");
+        assert!(points[0].y > before[0].y + 0.025);
+        for (i, (p, old)) in points.iter().zip(&before).enumerate() {
+            if i <= COLUMNS {
+                assert!((p.with_y(0.0) - old.with_y(0.0)).length() < 1e-6);
+                assert!(
+                    p.y + offset.y
+                        <= 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK) + 1e-6
+                );
+            } else {
+                assert!((p.y - old.y).abs() < 1e-6);
+            }
+        }
+        for column in 0..COLUMNS {
+            let [a, b, c, d] = [
+                index(0, column),
+                index(0, column + 1),
+                index(1, column),
+                index(1, column + 1),
+            ];
+            for face in [[a, b, c], [b, d, c]] {
+                for weights in [
+                    [1.0 / 3.0; 3],
+                    [0.6, 0.2, 0.2],
+                    [0.2, 0.6, 0.2],
+                    [0.2, 0.2, 0.6],
+                ] {
+                    let p = face
+                        .into_iter()
+                        .zip(weights)
+                        .map(|(i, w)| (points[i] + offset) * w)
+                        .sum::<Vec3>();
+                    assert!(
+                        rendered_clearance_checked(&support, p, true) > 0.001,
+                        "seated first-face interior must clear finite support: {p:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn radial_collar_height_failure_is_explicit_and_transactional() {
         let mut points = radial_test_grid();
         let before = points.clone();
         let anchor = points[0] + Vec3::new(0.0, 0.53, -0.15);
         let support = LayerSurface::from_triangles(vec![[
             anchor - Vec3::X * 0.01,
             anchor + Vec3::X * 0.01,
-            anchor + Vec3::Y * 0.01,
+            anchor + Vec3::Y * 0.2,
         ]]);
         let failure = fit_radial_faces(&mut points, Quat::IDENTITY, &support).unwrap_err();
         assert_eq!(failure.row, 0);

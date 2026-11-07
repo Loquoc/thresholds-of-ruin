@@ -4168,3 +4168,13 @@ separate neck cowl on the torso. Two upper-skin rays hit that accessory. A new
 triangle-identity witness establishes the emitted cowl hit, while bare-skin
 fixtures explicitly omit independent cowl/baldric pieces. Production accessories
 and strict skin limits are unchanged; native confirmation remains required.
+
+The bounded inclined solver at `042ebf69` compiled and reached native tests:
+741 methods passed, six cloak methods failed, and one existing method remained
+ignored in the inspected Linux release lane. Five failures exposed collar-plane
+infeasibility; the independent inter-ray peak witness also found insufficient
+face clearance. Capture validation rejected an actual faded-pall fallback rather
+than accepting its conservative geometry. These are new solver defects requiring
+correction, not reasons to loosen the attachment or clearance contracts. The
+first validation exception also stopped unrelated capture batches; the runner
+must retain that failure and continue collecting independent scene evidence.
