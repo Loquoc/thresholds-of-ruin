@@ -1661,8 +1661,15 @@ impl LayerSurface {
     }
 }
 
-/// A triangle clipped by at most five half-planes has at most eight vertices.
-/// Fixed scratch buffers avoid heap allocation in the per-cell contact path.
+// Six endpoints have at most twenty supporting triples, tested in both
+// orientations. Degenerate branches emit at most32 planes instead. Intersect
+// with five unit prism planes. A convex polygon gains at most one vertex per
+// clip; strict crossings avoid duplicates.
+const MAX_HULL_PLANES: usize = 40;
+const MAX_CONTACT_PLANES: usize = MAX_HULL_PLANES + 5;
+const MAX_CLIPPED_VERTICES: usize = 3 + MAX_CONTACT_PLANES;
+
+/// Fixed scratch buffers keep leaf clipping bounded without heap allocation.
 fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) -> Option<f32> {
     let (polygon, count) = clipped_polygon(triangle, planes)?;
     Some(
@@ -1673,10 +1680,13 @@ fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) ->
     )
 }
 
-fn clipped_polygon(triangle: [Vec3; 3], planes: &[(Vec3, f32)]) -> Option<([Vec3; 8], usize)> {
+fn clipped_polygon(
+    triangle: [Vec3; 3],
+    planes: &[(Vec3, f32)],
+) -> Option<([Vec3; MAX_CLIPPED_VERTICES], usize)> {
     assert!(
-        planes.len() <= 5,
-        "fixed clipping buffers support at most five planes"
+        planes.len() <= MAX_CONTACT_PLANES,
+        "fixed clipping buffers exceed bounded contact planes"
     );
     if planes
         .iter()
@@ -1684,11 +1694,11 @@ fn clipped_polygon(triangle: [Vec3; 3], planes: &[(Vec3, f32)]) -> Option<([Vec3
     {
         return None;
     }
-    let mut polygon = [Vec3::ZERO; 8];
+    let mut polygon = [Vec3::ZERO; MAX_CLIPPED_VERTICES];
     polygon[..3].copy_from_slice(&triangle);
     let mut count = 3;
     for &(plane, offset) in planes {
-        let mut next = [Vec3::ZERO; 8];
+        let mut next = [Vec3::ZERO; MAX_CLIPPED_VERTICES];
         let mut length = 0;
         for i in 0..count {
             let a = polygon[i];
@@ -2030,6 +2040,167 @@ fn face_domain_key(high: f32, radial: f32, arms: bool) -> [u32; 2] {
     [high.to_bits(), if arms { radial.to_bits() } else { 0 }]
 }
 
+const FACE_NORMALS: usize = 45;
+
+fn face_normals(horizontal: Vec3, authored: f32) -> [Vec3; FACE_NORMALS] {
+    let slopes = [
+        authored, 0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, -0.25, -0.5, -1.0,
+        -2.0, -4.0, -8.0, -16.0, -32.0, -64.0, -128.0,
+    ];
+    std::array::from_fn(|i| {
+        if i < slopes.len() {
+            (horizontal + Vec3::Y * slopes[i]).normalize()
+        } else if i == slopes.len() {
+            Vec3::Y
+        } else {
+            // A roof rising away from its collar needs an inward/upward
+            // separating plane. Append after the original family to preserve
+            // tie ordering. The per-face axis gate rejects these on radial
+            // hanging vertices; each admitted plane still queries all support.
+            (-horizontal + Vec3::Y * slopes[i - slopes.len() - 1]).normalize()
+        }
+    })
+}
+
+/// Arm proximity is bounded by the actual six-endpoint movement hull, not
+/// the independent angular/height/radius prism. All offsets use ALL endpoints,
+/// so a near-degenerate rank decision can only loosen this conservative hull.
+fn swept_arm_planes(vertices: [Vec3; 3], endpoints: [Vec3; 3]) -> Vec<(Vec3, f32)> {
+    let points = [
+        vertices[0],
+        vertices[1],
+        vertices[2],
+        endpoints[0],
+        endpoints[1],
+        endpoints[2],
+    ];
+    let mut planes: Vec<(Vec3, f32)> = Vec::with_capacity(MAX_HULL_PLANES);
+    let mut add = |normal: Vec3| {
+        let Some(normal) = normal.try_normalize() else {
+            return;
+        };
+        // Dropping a nearly duplicate valid plane is conservative. Never
+        // average normals/offsets, which could shrink the feasible domain.
+        if planes.iter().any(|(old, _)| old.dot(normal) > 1.0 - 1e-6) {
+            return;
+        }
+        let offset = points
+            .iter()
+            .map(|p| normal.dot(*p))
+            .fold(f32::INFINITY, f32::min)
+            - LAYER_GAP
+            - THICKNESS;
+        planes.push((normal, offset));
+    };
+    let origin = points[0];
+    let far = points
+        .iter()
+        .copied()
+        .max_by(|a, b| {
+            a.distance_squared(origin)
+                .total_cmp(&b.distance_squared(origin))
+        })
+        .unwrap();
+    let line = far - origin;
+    if line.length_squared() < 1e-14 {
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            add(axis);
+            add(-axis);
+        }
+    } else {
+        let normal = points
+            .iter()
+            .map(|p| line.cross(*p - origin))
+            .max_by(|a, b| a.length_squared().total_cmp(&b.length_squared()))
+            .unwrap();
+        if normal.length_squared() < 1e-18 {
+            let along = line.normalize();
+            let basis = if along.x.abs() < 0.8 {
+                Vec3::X
+            } else {
+                Vec3::Y
+            };
+            let across = along.cross(basis).normalize();
+            for axis in [along, across, along.cross(across)] {
+                add(axis);
+                add(-axis);
+            }
+        } else {
+            let normal = normal.normalize();
+            let height = points
+                .iter()
+                .map(|p| normal.dot(*p - origin).abs())
+                .fold(0.0f32, f32::max);
+            if height <= 1e-6 {
+                add(normal);
+                add(-normal);
+                for a in 0..6 {
+                    for b in a + 1..6 {
+                        let side = (points[b] - points[a]).cross(normal);
+                        add(side);
+                        add(-side);
+                    }
+                }
+            } else {
+                for a in 0..6 {
+                    for b in a + 1..6 {
+                        for c in b + 1..6 {
+                            let Some(normal) = (points[b] - points[a])
+                                .cross(points[c] - points[a])
+                                .try_normalize()
+                            else {
+                                continue;
+                            };
+                            let (low, high) = points
+                                .iter()
+                                .map(|p| normal.dot(*p - points[a]))
+                                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+                                    (lo.min(v), hi.max(v))
+                                });
+                            if low >= -1e-6 {
+                                add(normal);
+                            }
+                            if high <= 1e-6 {
+                                add(-normal);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(planes.len() <= MAX_HULL_PLANES);
+    planes
+}
+
+fn arm_contact_planes(
+    vertices: [Vec3; 3],
+    endpoints: [Vec3; 3],
+    prism: &[(Vec3, f32); 5],
+) -> Vec<(Vec3, f32)> {
+    let mut planes = swept_arm_planes(vertices, endpoints);
+    // Offset hull facets alone are a conservative polyhedral neighborhood,
+    // not a rounded Minkowski sum. Retain the old unit prism planes as valid
+    // bevel constraints: BOTH domains contain the complete clearance sweep.
+    planes.extend(prism.iter().map(|&(n, offset)| (n, offset - LAYER_GAP)));
+    assert!(planes.len() <= MAX_CONTACT_PLANES);
+    planes
+}
+
+fn swept_domain_key(high: f32, radial: f32, endpoints: Option<[Vec3; 3]>) -> [u32; 11] {
+    let mut key = [0; 11];
+    key[..2].copy_from_slice(&face_domain_key(high, radial, endpoints.is_some()));
+    if let Some(endpoints) = endpoints {
+        for (slot, coordinate) in key[2..]
+            .iter_mut()
+            .zip(endpoints.into_iter().flat_map(|p| p.to_array()))
+        {
+            *slot = coordinate.to_bits();
+        }
+    }
+    key
+}
+
 fn fit_radial_faces_impl(
     points: &mut [Vec3],
     rotation: Quat,
@@ -2146,14 +2317,11 @@ fn fit_radial_faces_impl(
                     // surface, including peaks beyond every vertex ray. Only
                     // the roof uses a finite swept radial footprint.
                     let inner_planes = &planes[..if row < ROOF_ROWS { 5 } else { 4 }];
-                    let mut arm_planes = planes;
-                    for (_, offset) in &mut arm_planes {
-                        *offset -= LAYER_GAP;
-                    }
 
                     let cache_index = (row * COLUMNS + column) * 2 + face_number;
                     let cacheable = cache_enabled && row >= ROOF_ROWS;
-                    let domain_key = face_domain_key(high, radial_limit, support.arms.is_some());
+                    let domain_key =
+                        swept_domain_key(high, radial_limit, support.arms.map(|_| endpoints));
                     let cached = face_cache[cache_index].filter(|(key, _)| *key == domain_key);
                     #[cfg(test)]
                     if face_cache[cache_index].is_some() && cached.is_none() {
@@ -2182,25 +2350,28 @@ fn fit_radial_faces_impl(
                                 } else {
                                     0.0
                                 };
-                                let slopes = [
-                                    authored, 0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0,
-                                    128.0, -0.25, -0.5, -1.0, -2.0, -4.0, -8.0, -16.0, -32.0,
-                                    -64.0, -128.0,
-                                ];
-                                let normals: [Vec3; 23] = std::array::from_fn(|i| {
-                                    if i < slopes.len() {
-                                        (horizontal + Vec3::Y * slopes[i]).normalize()
-                                    } else {
-                                        Vec3::Y
-                                    }
-                                });
-                                let mut supports = [f32::NEG_INFINITY; 23];
-                                let mut support_points = [Vec3::ZERO; 23];
-                                let mut support_is_arm = [false; 23];
+                                let normals = face_normals(horizontal, authored);
+                                let admissible =
+                                    normals.map(|n| face.iter().all(|&i| n.dot(axes[i]) > 1e-6));
+                                let mut supports = [f32::NEG_INFINITY; FACE_NORMALS];
+                                let mut support_points = [Vec3::ZERO; FACE_NORMALS];
+                                let mut support_is_arm = [false; FACE_NORMALS];
+                                #[cfg(test)]
+                                let authored_normal =
+                                    cross
+                                        .try_normalize()
+                                        .map(|n| if n.y < 0.0 { -n } else { n });
+                                #[cfg(test)]
+                                let mut authored_support = (f32::NEG_INFINITY, Vec3::ZERO, false);
                                 let mut found = false;
+                                // Construct only on a cache miss. Inner cloth retains its
+                                // outermost prism; arm hulls use exact ordered endpoints.
+                                let arm_planes = support
+                                    .arms
+                                    .map(|_| arm_contact_planes(vertices, endpoints, &planes));
                                 for (surface, domain, is_arm) in [
                                     (support.inner, inner_planes, false),
-                                    (support.arms, &arm_planes[..], true),
+                                    (support.arms, arm_planes.as_deref().unwrap_or(&[]), true),
                                 ]
                                 .into_iter()
                                 .filter_map(|(surface, domain, is_arm)| {
@@ -2215,12 +2386,26 @@ fn fit_radial_faces_impl(
                                             clipped_polygon(triangle, domain)
                                         {
                                             found = true;
-                                            for (((normal, value), witness), source) in normals
-                                                .iter()
-                                                .zip(&mut supports)
-                                                .zip(&mut support_points)
-                                                .zip(&mut support_is_arm)
+                                            #[cfg(test)]
+                                            if let Some(n) = authored_normal {
+                                                for &p in &polygon[..count] {
+                                                    let value = n.dot(p);
+                                                    if value > authored_support.0 {
+                                                        authored_support = (value, p, is_arm);
+                                                    }
+                                                }
+                                            }
+                                            for ((((normal, value), witness), source), allowed) in
+                                                normals
+                                                    .iter()
+                                                    .zip(&mut supports)
+                                                    .zip(&mut support_points)
+                                                    .zip(&mut support_is_arm)
+                                                    .zip(admissible)
                                             {
+                                                if !allowed {
+                                                    continue;
+                                                }
                                                 for p in &polygon[..count] {
                                                     #[cfg(test)]
                                                     {
@@ -2243,16 +2428,19 @@ fn fit_radial_faces_impl(
                                 let mut best: Option<([f32; 3], f32)> = None;
                                 let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO, false);
                                 let mut best_anchor_deficit = f32::INFINITY;
-                                for (((normal, height), witness), is_arm) in normals
+                                #[cfg(test)]
+                                let mut rejected_plane = None;
+                                for ((((normal, height), witness), is_arm), allowed) in normals
                                     .into_iter()
                                     .zip(supports)
                                     .zip(support_points)
                                     .zip(support_is_arm)
+                                    .zip(admissible)
                                 {
                                     // Every later shared-vertex correction must preserve
                                     // this plane. Test each frozen profile axis, including
                                     // both components of the shoulder transition.
-                                    if face.iter().any(|&i| normal.dot(axes[i]) <= 1e-6) {
+                                    if !allowed {
                                         continue;
                                     }
                                     let plane = height + LAYER_GAP + THICKNESS;
@@ -2266,6 +2454,10 @@ fn fit_radial_faces_impl(
                                                 .max(0.0)
                                         })
                                         .fold(0.0, f32::max);
+                                    #[cfg(test)]
+                                    if anchor_deficit < best_anchor_deficit {
+                                        rejected_plane = Some((normal, plane, witness, is_arm));
+                                    }
                                     best_anchor_deficit = best_anchor_deficit.min(anchor_deficit);
                                     let mut shifts = [0.0; 3];
                                     let mut feasible = true;
@@ -2289,6 +2481,62 @@ fn fit_radial_faces_impl(
                                     }
                                 }
                                 let Some((shifts, _)) = best else {
+                                    #[cfg(test)]
+                                    if std::env::var_os("TOR_CLOAK_SUPPORT_AUDIT").is_some() {
+                                        let mut count = 0usize;
+                                        for (surface, domain, source) in [
+                                            (support.inner, inner_planes, "inner"),
+                                            (
+                                                support.arms,
+                                                arm_planes.as_deref().unwrap_or(&[]),
+                                                "arms",
+                                            ),
+                                        ]
+                                        .into_iter()
+                                        .filter_map(|(s, d, k)| s.map(|s| (s, d, k)))
+                                        {
+                                            for &triangle in surface.clipped_candidates(domain) {
+                                                if let Some((polygon, size)) =
+                                                    clipped_polygon(triangle, domain)
+                                                {
+                                                    eprintln!(
+                                                        "support audit polygon: {}",
+                                                        serde_json::json!({
+                                                            "face":face,"iteration":iteration,"source":source,
+                                                            "points":polygon[..size].iter().map(|p|p.to_array()).collect::<Vec<_>>()
+                                                        })
+                                                    );
+                                                    count += 1;
+                                                }
+                                            }
+                                        }
+                                        eprintln!(
+                                            "support audit complete: {}",
+                                            serde_json::json!({"face":face,"iteration":iteration,"polygons":count})
+                                        );
+                                    }
+                                    #[cfg(test)]
+                                    if let Some((normal, plane, witness, is_arm)) = rejected_plane {
+                                        eprintln!(
+                                            "infeasible face diagnostics: {}",
+                                            serde_json::json!({
+                                                "face":face,"row":row,"column":column,"iteration":iteration,
+                                                "normal":normal.to_array(),"plane":plane,"support_point":witness.to_array(),
+                                                "source":if is_arm {"arms"}else{"inner"},"collar_deficit":best_anchor_deficit,
+                                                "face_reference":vertices.map(|p|p.to_array()),
+                                                "face_budget_endpoints":endpoints.map(|p|p.to_array()),
+                                                "face_axes":face.map(|i|axes[i].to_array()),"face_budgets":face.map(|i|budgets[i]),
+                                                "authored_plane_probe": authored_normal.map(|n| serde_json::json!({
+                                                    "normal": n.to_array(), "plane": authored_support.0 + LAYER_GAP + THICKNESS,
+                                                    "support_point": authored_support.1.to_array(), "source":if authored_support.2 {"arms"}else{"inner"},
+                                                    "axis_admissible":face.iter().all(|&i|n.dot(axes[i])>1e-6),
+                                                    "predicted_heights":face.map(|i| if n.dot(axes[i])>1e-6 {
+                                                        Some(reference[i].y + axes[i].y * (authored_support.0 + LAYER_GAP + THICKNESS - n.dot(reference[i])).max(0.0)/n.dot(axes[i]))
+                                                    } else {None})
+                                                }))
+                                            })
+                                        );
+                                    }
                                     return Err(RadialFitFailure {
                                     row,
                                     column,
@@ -2474,10 +2722,11 @@ fn fit_radial_faces_impl(
             "face_budget_endpoints":face.map(|i|(reference[i]+axes[i]*budgets[i]).to_array()),
             "face_final":face.map(|i|(reference[i]+axes[i]*travels[i]).to_array()),
             "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"source":if is_arm {"arms"} else {"inner"},
-            "height_domain":[low-THICKNESS-if is_arm {LAYER_GAP}else{0.0},high+THICKNESS+if is_arm {LAYER_GAP}else{0.0}],
-            "arm_height_domain":support.arms.map(|_|[low-THICKNESS-LAYER_GAP,high+THICKNESS+LAYER_GAP]),
+            "domain_kind":if is_arm {"swept_endpoint_hull_and_prism"}else{"inner_prism"},
+            "height_domain":(!is_arm).then_some([low-THICKNESS,high+THICKNESS]),
+            "reference_prism_height":[low,high],
             "inner_height_domain":support.inner.map(|_|[low-THICKNESS,high+THICKNESS]),
-            "arm_radial_domain":support.arms.map(|_|radial_limit+THICKNESS+LAYER_GAP),
+            "reference_prism_radial":radial_limit,
             "inner_radial_domain":support.inner.and(if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None}),
             "reference":reference[vertex].to_array(),"axis":axes[vertex].to_array(),"final":(reference[vertex]+axes[vertex]*travel).to_array()}),
         );
@@ -4092,6 +4341,55 @@ mod tests {
     }
 
     #[test]
+    fn rising_inner_roof_has_bounded_inward_plane_and_lining_clearance() {
+        let roof = [
+            Vec3::new(-0.1, 0.56, 0.10),
+            Vec3::new(0.1, 0.56, 0.10),
+            Vec3::new(0.0, 0.66, 0.20),
+        ];
+        let reference = [
+            Vec3::new(-0.05, 0.565, 0.10),
+            Vec3::new(0.05, 0.565, 0.10),
+            Vec3::new(0.0, 0.60, 0.20),
+        ];
+        let normals = face_normals(Vec3::Z, 1.0);
+        let candidate = normals
+            .into_iter()
+            .filter(|n| n.y > 1e-6)
+            .find_map(|n| {
+                let plane = roof
+                    .iter()
+                    .map(|q| n.dot(*q))
+                    .fold(f32::NEG_INFINITY, f32::max)
+                    + LAYER_GAP
+                    + THICKNESS;
+                let points = reference.map(|p| p + Vec3::Y * ((plane - n.dot(p)).max(0.0) / n.y));
+                (points[0].y <= 0.649 && points[1].y <= 0.649).then_some((n, plane, points))
+            })
+            .expect("complete rising roof must admit bounded collar without outward escape");
+        let (n, plane, points) = candidate;
+        assert!(n.z < 0.0, "fixture requires an inward-facing roof plane");
+        assert!(
+            n.dot(Vec3::Z) < 0.0,
+            "this plane must reject a pure-radial incident vertex"
+        );
+        for i in 0..=12 {
+            for j in 0..=12 - i {
+                let a = i as f32 / 12.0;
+                let b = j as f32 / 12.0;
+                let p = points[0] * a + points[1] * b + points[2] * (1.0 - a - b);
+                for side in [-1.0, 1.0] {
+                    let emitted = p + n * (side * THICKNESS * 0.5);
+                    assert!(n.dot(emitted) >= plane - THICKNESS * 0.5 - 1e-6);
+                    for q in roof {
+                        assert!(n.dot(emitted - q) >= LAYER_GAP + THICKNESS * 0.5 - 1e-6);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn horizontal_inner_cloth_seats_row_one_vertically_and_keeps_emitted_lining_clear() {
         let offset = Vec3::new(0.0, 0.53, -0.15);
         let y = 0.57166666;
@@ -4492,6 +4790,242 @@ mod tests {
     }
 
     #[test]
+    fn captured_arm_hulls_exclude_proven_prism_only_witnesses() {
+        // Actual source-frozen native first-red traces, not reconstructed poses.
+        for (reference, endpoints, witness) in [
+            (
+                [
+                    Vec3::new(
+                        f32::from_bits(0xbe18dc4a),
+                        f32::from_bits(0x3f03c44f),
+                        f32::from_bits(0xbe0d46c3),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbe0f7183),
+                        f32::from_bits(0x3f022223),
+                        f32::from_bits(0xbe19a168),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbdeb4c14),
+                        f32::from_bits(0x3ef0a3d9),
+                        f32::from_bits(0xbe4630bc),
+                    ),
+                ],
+                [
+                    Vec3::new(
+                        f32::from_bits(0xbea7c436),
+                        f32::from_bits(0x3f211a8b),
+                        f32::from_bits(0xbe9b0d82),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbeaf63c6),
+                        f32::from_bits(0x3f2bb33e),
+                        f32::from_bits(0xbebbd879),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbe9f4417),
+                        f32::from_bits(0x3ef0a3d9),
+                        f32::from_bits(0xbf062642),
+                    ),
+                ],
+                Vec3::new(
+                    f32::from_bits(0xbeb12dd2),
+                    f32::from_bits(0x3f0b7e0d),
+                    f32::from_bits(0xbea47019),
+                ),
+            ),
+            (
+                [
+                    Vec3::new(
+                        f32::from_bits(0xbe618226),
+                        f32::from_bits(0x3f022222),
+                        f32::from_bits(0x3dcb1b54),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbe79aa27),
+                        f32::from_bits(0x3f022222),
+                        f32::from_bits(0x3db77b80),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbe7c0188),
+                        f32::from_bits(0x3ef0a3d7),
+                        f32::from_bits(0x3dd2c6d4),
+                    ),
+                ],
+                [
+                    Vec3::new(
+                        f32::from_bits(0xbe85633f),
+                        f32::from_bits(0x3f0a2e53),
+                        f32::from_bits(0x3df0463a),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbe970f4f),
+                        f32::from_bits(0x3f0d0078),
+                        f32::from_bits(0x3dde084a),
+                    ),
+                    Vec3::new(
+                        f32::from_bits(0xbea59d95),
+                        f32::from_bits(0x3ef0a3d7),
+                        f32::from_bits(0x3e0a8526),
+                    ),
+                ],
+                Vec3::new(
+                    f32::from_bits(0xbe8b66f3),
+                    f32::from_bits(0x3ef91303),
+                    f32::from_bits(0x3d8713bf),
+                ),
+            ),
+        ] {
+            let planes = swept_arm_planes(reference, endpoints);
+            assert!(planes.len() <= MAX_CONTACT_PLANES);
+            assert!(planes.iter().any(|(n, h)| n.dot(witness) < *h - 0.001));
+            let remote = [
+                witness,
+                witness + Vec3::X * 0.0001,
+                witness + Vec3::Y * 0.0001,
+            ];
+            assert!(clipped_polygon(remote, &planes).is_none());
+            for mask in 0..8 {
+                let face = std::array::from_fn::<_, 3, _>(|i| {
+                    if mask & (1 << i) == 0 {
+                        reference[i]
+                    } else {
+                        endpoints[i]
+                    }
+                });
+                for weights in [
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [0.2, 0.3, 0.5],
+                ] {
+                    let point = face
+                        .into_iter()
+                        .zip(weights)
+                        .map(|(p, w)| p * w)
+                        .sum::<Vec3>();
+                    for (normal, offset) in &planes {
+                        assert!(normal.dot(point) >= *offset + LAYER_GAP + THICKNESS - 1e-6);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn arm_hull_prism_intersection_preserves_clearance_neighborhoods() {
+        let vertices = [
+            Vec3::new(0.0, 0.4, 0.2),
+            Vec3::new(0.1, 0.4, 0.2),
+            Vec3::new(0.0, 0.5, 0.3),
+        ];
+        let endpoints = [
+            vertices[0] + Vec3::Z * 0.1,
+            vertices[1] + Vec3::Y * 0.1,
+            vertices[2],
+        ];
+        let prism = [
+            (Vec3::X, -THICKNESS),
+            (Vec3::NEG_X, -0.1 - THICKNESS),
+            (Vec3::Y, 0.4 - THICKNESS),
+            (Vec3::NEG_Y, -0.5 - THICKNESS),
+            (Vec3::NEG_Z, -0.3 - THICKNESS),
+        ];
+        let planes = arm_contact_planes(vertices, endpoints, &prism);
+        let gap = LAYER_GAP + THICKNESS;
+        for mask in 0..8 {
+            let face = std::array::from_fn::<_, 3, _>(|i| {
+                if mask & (1 << i) == 0 {
+                    vertices[i]
+                } else {
+                    endpoints[i]
+                }
+            });
+            for point in face.into_iter().chain([face.iter().sum::<Vec3>() / 3.0]) {
+                for normal in [Vec3::X, Vec3::Y, Vec3::Z, Vec3::ONE.normalize()] {
+                    for sign in [-1.0, 1.0] {
+                        let expanded = point + normal * sign * gap;
+                        assert!(planes.iter().all(|(n, h)| n.dot(expanded) >= *h - 1e-6));
+                    }
+                }
+            }
+        }
+        // The prism's unit bevel remains present even when not a hull facet.
+        for (normal, offset) in prism {
+            assert!(planes
+                .iter()
+                .any(|(n, h)| *n == normal && *h == offset - LAYER_GAP));
+        }
+    }
+
+    #[test]
+    fn arm_hull_degeneracies_and_clipping_remain_bounded() {
+        for (reference, endpoints) in [
+            (
+                [Vec3::ZERO, Vec3::X, Vec3::Y],
+                [Vec3::ZERO, Vec3::X, Vec3::Y],
+            ),
+            (
+                [Vec3::ZERO, Vec3::X, Vec3::Y],
+                [Vec3::Z * 1e-8, Vec3::X, Vec3::Y],
+            ),
+            (
+                [Vec3::ZERO, Vec3::ONE, Vec3::ONE * 0.5],
+                [Vec3::ZERO, Vec3::ONE, Vec3::ONE * 0.7],
+            ),
+            ([Vec3::ZERO; 3], [Vec3::ZERO; 3]),
+        ] {
+            let planes = swept_arm_planes(reference, endpoints);
+            assert!(!planes.is_empty() && planes.len() <= MAX_CONTACT_PLANES);
+            for p in reference.into_iter().chain(endpoints) {
+                assert!(planes
+                    .iter()
+                    .all(|(n, h)| n.dot(p) >= *h + LAYER_GAP + THICKNESS - 1e-6));
+            }
+            let triangle = [
+                Vec3::new(-0.2, -0.1, 0.0),
+                Vec3::new(1.2, 0.2, 0.0),
+                Vec3::new(0.1, 1.2, 0.0),
+            ];
+            let mut expected = triangle.to_vec();
+            for &(n, h) in &planes {
+                expected = clip_layer_polygon(&expected, n, h);
+            }
+            let actual = clipped_polygon(triangle, &planes);
+            assert_eq!(actual.is_some(), !expected.is_empty());
+            if let Some((points, count)) = actual {
+                assert!(count <= MAX_CLIPPED_VERTICES);
+                for normal in [Vec3::X, Vec3::Y, Vec3::Z] {
+                    let a = points[..count]
+                        .iter()
+                        .map(|p| normal.dot(*p))
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    let b = expected
+                        .iter()
+                        .map(|p| normal.dot(*p))
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    assert!((a - b).abs() < 1e-6);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn arm_hull_cache_tracks_endpoint_changes_inside_same_prism() {
+        let first = [
+            Vec3::new(0.0, 0.5, 0.2),
+            Vec3::new(0.1, 0.5, 0.2),
+            Vec3::new(0.0, 0.4, 0.5),
+        ];
+        let mut second = first;
+        second[0].x += 0.01;
+        assert_ne!(
+            swept_domain_key(0.5, 0.5, Some(first)),
+            swept_domain_key(0.5, 0.5, Some(second))
+        );
+    }
+
+    #[test]
     fn fixed_clipper_accepts_three_four_and_five_plane_footprints() {
         let triangle = [
             Vec3::new(-1.0, 0.2, -1.0),
@@ -4528,9 +5062,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "at most five planes")]
+    #[should_panic(expected = "exceed bounded contact planes")]
     fn fixed_clipper_rejects_unsupported_plane_count_before_clipping() {
-        let _ = clipped_support([Vec3::ZERO; 3], Vec3::Y, &[(Vec3::X, 0.0); 6]);
+        let _ = clipped_support(
+            [Vec3::ZERO; 3],
+            Vec3::Y,
+            &[(Vec3::X, 0.0); MAX_CONTACT_PLANES + 1],
+        );
     }
 
     #[test]

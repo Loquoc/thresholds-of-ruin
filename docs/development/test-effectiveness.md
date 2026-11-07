@@ -4246,3 +4246,26 @@ eight release glove tests, release Clippy with warnings denied, formatting and
 the renderer build passed. Same-camera front and side captures showed continuous
 gold ribs. This is focused local Linux and visual evidence, not full-suite or
 cross-platform qualification; other equipment fit defects remain open.
+
+Local cloak refinement tightened arm obstacle queries to the intersection of a
+clearance-expanded six-endpoint swept hull and the existing conservative prism;
+inner-layer outermost containment remains separate. New degenerate-hull,
+clearance-neighborhood and exact cache-key witnesses passed. A complete rising
+roof regression failed with outward-only plane candidates and passed after
+admissible inward/upward candidates were appended without changing clearance or
+collar limits. Release Clippy passed; the focused cloak checkpoint had 56 passing
+methods and the same three unresolved acceptance failures. Same-camera neutral
+renders still showed rigid shoulder plates and gaps, so this is not visual
+acceptance or full-suite qualification.
+
+Opt-in native failure dumps captured all 311 and 103 clipped support polygons
+for the strike-named and posed-cope fixtures. Independently verified barycentric
+points on actual inner polygons lie 31.712944 mm and 29.749006 mm from the fixed-XZ
+collar segment at its 0.649 m ceiling, below the unchanged 32 mm plane reserve.
+This rules out any positive-Y unit separating plane for those queried faces;
+it does not prove all physical cloth attachments impossible. Earlier dumps lack
+unique actor/pose-stage tags, so their fixture names must not be treated as proof
+of a particular tick or angle. Subsequent test-only authored-normal and complete
+polygon probes retained the targeted failures and passed release Clippy. The
+remaining width, collar, motion and visual gates stay open; no threshold was
+relaxed and no remote publication is implied.
