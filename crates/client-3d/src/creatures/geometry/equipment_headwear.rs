@@ -593,11 +593,15 @@ fn plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
                     angle.cos() * radius + 0.045 * (1.0 - t),
                 );
             }
+            // Outer/foreground feathers bend early; the central rear sweep
+            // bends later. Height variation alone left all broad vanes folded
+            // at the same station, creating the straight cut-paper fan edge.
+            let bend = t.powf(0.75 + 0.90 * (1.0 - lane.abs()) + 0.20 * (layer - 1.0));
             Vec3::new(
-                lane * (0.02 + 0.105 * (t * PI * 0.72).sin()) + stagger * 0.015 * t * t,
-                0.365 + arch * (t * PI * 0.95).sin() - t * t * (0.035 + lane.abs() * 0.025),
-                0.025 - t * (0.235 + layer * 0.035 + stagger * 0.028)
-                    + if white { 0.045 } else { 0.0 },
+                lane * (0.02 + 0.105 * (bend * PI * 0.65).sin() + 0.05 * bend.powi(3))
+                    + stagger * 0.015 * t * t,
+                0.365 + arch * (bend * PI * 0.95).sin() - t * t * (0.035 + lane.abs() * 0.025),
+                0.025 - t * (0.235 + layer * 0.035 + stagger * 0.028),
             )
         })
         .collect()
@@ -1658,6 +1662,62 @@ mod tests {
             a[2].distance(b[2]) < 0.012,
             "tip spacing preserves coherent fan"
         );
+    }
+
+    #[test]
+    fn red_feather_vanes_bend_at_different_stations_and_sweep_outward() {
+        let mut peak_stations = Vec::new();
+        let mut helmet = Parts::default();
+        dome(&mut helmet, IRON, false);
+        for layer in [0.0, 1.0, 2.0] {
+            for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+                let path = plume_path(lane, layer, false);
+                let peak = path
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
+                    .unwrap()
+                    .0;
+                peak_stations.push(peak);
+                let mut feather = Builder::default();
+                plume_feather(&mut feather, lane, layer, false);
+                // Probe the emitted vane at its curved shoulder, including the
+                // root offset applied during emission, not just its centerline.
+                let mut emitted_path = path.clone();
+                for (i, point) in emitted_path.iter_mut().enumerate() {
+                    let t = i as f32 / 16.0;
+                    point.x += (layer - 1.0) * 0.009 * (1.0 - t);
+                    point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
+                }
+                let at = emitted_path[peak];
+                let surface = feather
+                    .outer_surface(Vec3::new(at.x, 0.36, at.z), Vec3::Y)
+                    .expect("staggered shoulder has an actual emitted vane");
+                assert!(surface.y >= at.y - 0.002 && surface.y < at.y + 0.035);
+                // Full vane crown clearance at the new early/late bends.
+                for i in 2..emitted_path.len() {
+                    for point in feather_section(&emitted_path, i, lane, false) {
+                        let origin = Vec3::new(0.0, point.y, -0.012);
+                        let ray = (point - origin).normalize();
+                        if let Some(shell) = helmet.metal.outer_surface(origin, ray) {
+                            assert!((point - shell).dot(ray) > 0.008);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            peak_stations.iter().max().unwrap() - peak_stations.iter().min().unwrap() >= 5,
+            "red vanes must not share one aligned fold station"
+        );
+        for side in [-1.0, 1.0] {
+            let path = plume_path(side, 2.0, false);
+            assert!(
+                side * (path[16].x - path[12].x) > 0.01,
+                "outer final thirds turn sideways instead of hanging as parallel strips"
+            );
+            assert!(path[16].z < -0.25, "outward tips retain the back sweep");
+        }
     }
 
     #[test]
