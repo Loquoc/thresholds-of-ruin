@@ -1408,7 +1408,11 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 );
             }
             if let Some(styled) = styled {
-                styled_sleeve_top(p, styled, side, b, arm_len);
+                if let Some(shirt) = l.equipment.shirt.filter(|_| styled.cut == SleeveCut::Short) {
+                    equipment_shirts::emit_short_sleeve(p, shirt, body, side, arm_len);
+                } else {
+                    styled_sleeve_top(p, styled, side, b, arm_len);
+                }
             }
             if let Some(color) = outfit.trimmings.armlets {
                 accessory_parts::armlet(p, color, b, arm_len);
@@ -2050,7 +2054,10 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 shoulder_layer: false,
                 ..cut
             };
-            let mut mantle = fitted(Some(mantle), 0.025);
+            // The exact posed inner-cloak surface supplies layer spacing.
+            // Inflating the whole torso again also enlarges its neck capsule
+            // and duplicates that clearance at the collar attachment.
+            let mut mantle = fitted(Some(mantle), 0.0);
             mantle.layer_over(main);
             kit.cloak(torso, mantle);
         }

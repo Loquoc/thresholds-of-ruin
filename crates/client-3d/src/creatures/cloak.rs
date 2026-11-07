@@ -166,6 +166,15 @@ impl Recipe {
         // shoulder cups and rigid-looking boards down either side.
         let shoulder = Vec3::new(direction.x * self.yoke.x, 0.47, direction.z * self.yoke.y);
         let neck = Vec3::new(direction.x * 0.075, 0.565, direction.z * 0.072);
+        // The opening surrounds the neck; it does not sit on the rounded
+        // cap of the torso's neck proxy. Derive the connecting shoulder rows
+        // from this fitted ring so an enlarged collar cannot fold underneath
+        // the next radial row.
+        let neck = if row <= 3 {
+            fit_neck_opening(neck, &self.support)
+        } else {
+            neck
+        };
         let fold = (angle * cut.folds as f32).cos() * (0.004 + 0.015 * t);
         let radius = self.shoulders * cut.fullness + fold;
         let hem_drop = match cut.hem {
@@ -195,13 +204,22 @@ impl Recipe {
         } else {
             shoulder.lerp(hem, (row - 3) as f32 / (ROWS - 3) as f32)
         };
-        if let Some(scene) = &self.scene {
-            at = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
-        } else {
-            at = fit_wrapped_contact(at, row <= 3, &|p| self.support.distance(p));
+        if row > 0 {
+            if let Some(scene) = &self.scene {
+                at = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
+            } else {
+                at = fit_wrapped_contact(at, row <= 3, &|p| self.support.distance(p));
+            }
         }
         at - Vec3::new(0.0, 0.53, -0.15)
     }
+}
+
+/// A neck opening is an annular attachment at fixed anatomical height.
+/// Only retained torso/neck support participates here; posed hands are handled
+/// by the complete cell solver, not by wrapping the collar around their reach.
+fn fit_neck_opening(at: Vec3, support: &crate::sdf::Sculpt) -> Vec3 {
+    fit_wrapped_contact(at, false, &|p| support.distance(p))
 }
 
 /// Fit in scaled torso coordinates. Shoulder rows travel above the arm cap;
@@ -539,7 +557,13 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                 let at = opening.map_or(at, |opening| {
                     release_front(at, row, column, opening, release)
                 });
-                let fitted = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
+                let fitted = if row == 0 {
+                    support
+                        .as_ref()
+                        .map_or(at, |body| fit_neck_opening(at, body))
+                } else {
+                    fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p))
+                };
                 *point = inverse * (fitted - Vec3::new(0.0, 0.53, -0.15));
             }
             if let Some(support) = support.as_ref().filter(|_| row > 1 && scene.is_none()) {
@@ -1283,6 +1307,33 @@ mod tests {
     }
 
     #[test]
+    fn neck_opening_surrounds_actual_torso_without_climbing_its_cap() {
+        let recipe = study_recipe(outfit::outerwear::OuterwearAppearance::LeatherCloak);
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        for column in 0..=COLUMNS {
+            let collar = recipe.point(0, column) + offset;
+            assert!(
+                (collar.y - 0.565).abs() < 1e-6,
+                "neck opening must stay at the anatomical attachment: {collar:?}"
+            );
+            let query = collar / anatomy::HIP_SCALE;
+            assert!(
+                recipe.support.distance(query) >= LAYER_GAP + 0.008,
+                "neck opening must clear the actual retained torso surface"
+            );
+            assert!(
+                collar.with_y(0.0).length() < 0.18,
+                "collar must remain local to the neck, not encircle an arm"
+            );
+            let next = recipe.point(1, column) + offset;
+            assert!(
+                next.with_y(0.0).length() >= collar.with_y(0.0).length(),
+                "shoulder transition must start outside the fitted opening"
+            );
+        }
+    }
+
+    #[test]
     fn neutral_layered_yokes_have_bounded_height_and_shoulder_slope() {
         for (name, armor) in [
             ("leather-cloak", "hawaiian-shirt"),
@@ -1323,6 +1374,20 @@ mod tests {
                 .zip(&spawned_peaks)
             {
                 assert_eq!(&cloak.rest, rest, "contact must not mutate authored rest");
+                for column in 0..=COLUMNS {
+                    let attachment = cloak.rest[index(0, column)] + Vec3::new(0.0, 0.53, -0.15);
+                    assert!((attachment.y - 0.565).abs() < 1e-6,
+                        "{name}: actual equipped neck opening climbed the support cap: {attachment:?}");
+                    let final_attachment =
+                        cloak.points[index(0, column)] + Vec3::new(0.0, 0.53, -0.15);
+                    assert!(
+                        (final_attachment.with_y(0.0) - attachment.with_y(0.0)).length() < 1e-6,
+                        "{name}: neck attachment must retain its body-fitted opening"
+                    );
+                    let collar_limit = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
+                    assert!(final_attachment.y <= collar_limit + 1e-6,
+                        "{name}: final collar exceeds two exact layer clearances: {final_attachment:?}, limit={collar_limit}");
+                }
                 assert!(
                     cloak
                         .points

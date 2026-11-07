@@ -646,8 +646,9 @@ fn crested(p: &mut Parts) {
 fn visor(p: &mut Parts) {
     dome(p, IRON, true);
     guards(p, IRON, BRASS);
-    // Two curved plates separated by a real horizontal eye opening.
-    for (bottom, top) in [(0.085, 0.18), (0.213, 0.255)] {
+    // The shared human/centaur face has eyes at y=0.16, not at the
+    // eyebrow ridge (y~0.196). Keep the brass lips outside the eye opening.
+    for (bottom, top) in [(0.085, 0.14), (0.18, 0.255)] {
         for i in 0..10 {
             let a = -1.0 + i as f32 * 0.2;
             let b = a + 0.2;
@@ -665,7 +666,7 @@ fn visor(p: &mut Parts) {
             );
         }
     }
-    for y in [0.18, 0.213] {
+    for y in [0.14, 0.18] {
         let path: Vec<_> = (0..=16)
             .map(|i| {
                 let a = -1.0 + i as f32 / 8.0;
@@ -680,7 +681,7 @@ fn visor(p: &mut Parts) {
         );
     }
     for x in [-0.05, -0.025, 0.0, 0.025, 0.05] {
-        for y in [0.11, 0.14, 0.165] {
+        for y in [0.10, 0.115, 0.13] {
             p.matte.blob(
                 Vec3::new(x, y, 0.179 - x * x * 3.9),
                 Vec3::new(0.004, 0.006, 0.002),
@@ -815,18 +816,61 @@ mod tests {
     }
 
     #[test]
-    fn visor_leaves_eye_slit_open_and_covers_lower_face() {
-        let mut p = Parts::default();
-        emit(&mut p, HeadwearKind::Visored);
-        for x in [-0.045, 0.045] {
-            assert!(p
-                .metal
-                .outer_surface(Vec3::new(x, 0.196, 0.0), Vec3::Z)
-                .is_none());
-            assert!(p
-                .metal
-                .outer_surface(Vec3::new(x, 0.14, 0.0), Vec3::Z)
-                .is_some());
+    fn visor_opens_at_actual_human_and_centaur_eyes_and_clears_faces() {
+        for kind in [CreatureModel::Human, CreatureModel::Centaur] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    let look = Look::with_choice(
+                        kind,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let mut face = Parts::default();
+                    human_face(&mut face, &look, true);
+                    let mut helmet = Parts::default();
+                    emit(&mut helmet, HeadwearKind::Visored);
+                    // Independent fixtures from human_face/soft_eyes, shared by
+                    // both rigs. Face and equipment use the same head transform.
+                    // Check a pupil-sized window, not merely one assumed slit ray.
+                    for side in [-1.0, 1.0] {
+                        for dx in [-0.006, 0.0, 0.006] {
+                            for dy in [-0.006, 0.0, 0.006] {
+                                let origin = Vec3::new(side * 0.038 + dx, 0.16 + dy, 0.0);
+                                let eye = face
+                                    .matte
+                                    .outer_surface(origin, Vec3::Z)
+                                    .expect("actual emitted eye-region fixture");
+                                assert!(eye.z > 0.05, "fixture must reach the front of the face");
+                                for material in [&helmet.metal, &helmet.matte] {
+                                    assert!(material.outer_surface(eye, Vec3::Z).is_none(),
+                                        "{kind:?}, woman={woman}, build={build}: blocked eye ray at {origin:?}");
+                                }
+                            }
+                        }
+                    }
+                    // Preserve lower-face protection and an air gap in front of
+                    // cheeks/nose/brows, including the former erroneous slit oracle.
+                    for y in [0.10, 0.12, 0.196, 0.22] {
+                        for x in [-0.038, 0.0, 0.038] {
+                            let origin = Vec3::new(x, y, 0.0);
+                            let skin = face
+                                .matte
+                                .outer_surface(origin, Vec3::Z)
+                                .expect("actual face fixture under plate");
+                            let plate = helmet
+                                .metal
+                                .outer_surface(origin, Vec3::Z)
+                                .expect("visor retains upper and lower plates");
+                            assert!(plate.z - skin.z > 0.015,
+                                "{kind:?}, woman={woman}, build={build}: plate meets face at {origin:?}");
+                        }
+                    }
+                }
+            }
         }
     }
 

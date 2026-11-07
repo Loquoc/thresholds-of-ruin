@@ -2075,3 +2075,36 @@ with the native client `--scene-script FILE --capture NEW_DIRECTORY --offscreen`
 The index identifies each actor's appearance and body. Generated scripts and
 schema tests are preparation, not evidence that these captures have been rendered
 or visually accepted.
+
+### Continuing model and fit refinement
+
+The user requested continuing refinement after reviewing the native renders.
+Catalog coverage, green collision tests, and sampled pose passes are milestones,
+not overall art acceptance. Compare each item both alone and worn against the
+study, then inspect its silhouette, construction, material detail, attachment and
+motion. Preserve body variation and visible underlying layers while iterating.
+
+The November 7 review identified these concrete priorities:
+
+- Fit cape collars around the neck opening rather than over a capped torso
+  support. Remove raised shoulder shelves and keep the drape outside moving
+  arms without turning the cloth into sleeves or oversized boxes.
+- Align visored-helmet sight openings to the actual eye positions. A ray at an
+  assumed brow height is not an eye-clearance witness.
+- Replace shirt shoulder-pad shapes with continuous short cloth sleeves. Give
+  Hawaiian shirts a readable folded collar, placket, buttons and sleeve pattern;
+  retain the adult feminine tied and fitted cuts and armor occlusion.
+- Rebuild helmet cheek guards around cheek and jaw surfaces, improve feather
+  clumps and crest bristles, and make etched-metal patterns readable at worn
+  scale. Recognizability alone does not establish faithful construction.
+- Improve shoe tongue/lacing/quarters, instep-to-shaft continuity and deliberate
+  calf ease. Review side and rear silhouettes as well as frontal fit.
+- Reduce glove cuffs that overwhelm hands, especially centaur fencing gloves,
+  and distinguish quilting, seams and cuff shapes at gameplay scale.
+
+Keep an independent positive shape witness alongside clearance tests: an
+arbitrarily inflated item can pass collision checks while looking wrong. Treat
+failed native tests and visibly poor renders as work to correct, not as reasons
+to loosen the expected fit. Fresh rendered comparisons are required after each
+coherent correction; continue improving the remaining catalog after an initial
+slice is merged.
