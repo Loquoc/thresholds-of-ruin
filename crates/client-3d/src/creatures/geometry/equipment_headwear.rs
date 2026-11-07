@@ -298,8 +298,8 @@ fn fedora_top(a: f32) -> Vec3 {
     // Raised shoulders and a strong front pinch keep the crease visible from
     // gameplay elevation without lowering any surface into the scalp.
     Vec3::new(
-        a.sin() * (0.125 - 0.045 * a.cos().max(0.0).powi(2)),
-        0.405 + 0.034 * a.sin().abs(),
+        a.sin() * (0.125 - 0.055 * a.cos().max(0.0).powi(2)),
+        0.395 + 0.019 * a.sin().abs(),
         a.cos() * 0.13 - 0.012,
     )
 }
@@ -383,13 +383,22 @@ fn conical_hat(p: &mut Parts) {
     for i in 0..16 {
         let a = i as f32 / 16.0;
         let b = (i + 1) as f32 / 16.0;
-        let q = [
-            cone_inlay(p, crescent(a, false)),
-            cone_inlay(p, crescent(b, false)),
-            cone_inlay(p, crescent(b, true)),
-            cone_inlay(p, crescent(a, true)),
-        ];
-        p.metal.quad_out(q, q[0] - Vec3::Z, gold);
+        // Project a fine grid, not just the outline: a broad flat quad
+        // between fitted edges cuts through the curved crown in its middle.
+        // Keep the same 5 mm surface offset rather than floating the entire
+        // crescent forward to conceal that chord-intersection defect.
+        for column in 0..8 {
+            let left = column as f32 / 8.0;
+            let right = (column + 1) as f32 / 8.0;
+            let at = |t, across| crescent(t, false).lerp(crescent(t, true), across);
+            let q = [
+                cone_inlay(p, at(a, left)),
+                cone_inlay(p, at(b, left)),
+                cone_inlay(p, at(b, right)),
+                cone_inlay(p, at(a, right)),
+            ];
+            p.metal.quad_out(q, q[0] - Vec3::Z, gold);
+        }
     }
 }
 
@@ -430,32 +439,66 @@ fn pot(p: &mut Parts) {
 
 fn crystal(p: &mut Parts) {
     let ice = Vec3::new(0.77, 0.88, 0.98);
-    p.ghost.with_opacity(0.25, |glass| {
-        crown(
-            glass,
-            &[(BROW, 0.15), (0.315, 0.145), (0.37, 0.09), (0.405, 0.012)],
-            10,
-            ice,
-            true,
-            false,
-        )
-    });
-    for i in 0..10 {
-        let a = i as f32 * TAU / 10.0;
-        tube(
-            &mut p.satin,
-            &[
-                ring_point(a, BROW, 0.15),
-                ring_point(a, 0.315, 0.145),
-                ring_point(a, 0.37, 0.09),
-                Vec3::new(0.0, 0.405, -0.012),
-            ],
-            &[(0.002, 0.002); 4],
-            ice * 1.15,
-        );
+    let profile = [(BROW, 0.15), (0.315, 0.145), (0.37, 0.09), (0.405, 0.012)];
+    // Broad differently angled glass facets carry the material. Continuous
+    // opaque longitude ribs made the transparent shell read as a wire cage.
+    for row in 0..profile.len() - 1 {
+        for column in 0..10 {
+            let a = column as f32 * TAU / 10.0;
+            let b = (column + 1) as f32 * TAU / 10.0;
+            let q = [
+                ring_point(a, profile[row].0, profile[row].1),
+                ring_point(b, profile[row].0, profile[row].1),
+                ring_point(b, profile[row + 1].0, profile[row + 1].1),
+                ring_point(a, profile[row + 1].0, profile[row + 1].1),
+            ];
+            let radial = Vec3::new(((a + b) * 0.5).sin(), 0.0, ((a + b) * 0.5).cos());
+            let center = (q[0] + q[1] + q[2] + q[3]) * 0.25 + radial * 0.006;
+            let inside = Vec3::new(0.0, center.y, -0.012);
+            for face in 0..4 {
+                let pigment = match (column + row + face) % 4 {
+                    0 => Vec3::new(0.58, 0.75, 0.96),
+                    1 => Vec3::new(0.84, 0.90, 1.0),
+                    2 => Vec3::new(0.69, 0.74, 0.94),
+                    _ => ice,
+                };
+                let opacity = if face == 1 { 0.62 } else { 0.40 };
+                let triangle = [q[face], q[(face + 1) % 4], center];
+                p.ghost
+                    .with_opacity(opacity, |glass| glass.tri_out(triangle, inside, pigment));
+                // Sparse small plane-shaped gleams, rather than a painted
+                // outline around every pane, keep the glass visibly faceted.
+                if (column + row * 3) % 4 == 0 && face == 2 {
+                    let glint = [
+                        center.lerp(q[face], 0.72),
+                        center.lerp(q[(face + 1) % 4], 0.35),
+                        center.lerp(q[face], 0.25),
+                    ]
+                    .map(|v| v + radial * 0.001);
+                    p.satin.tri_out(glint, inside, ice * 1.12);
+                }
+            }
+        }
     }
+    // Close the tiny summit without introducing a second overlapping wall.
+    for column in 0..10 {
+        let a = column as f32 * TAU / 10.0;
+        let b = (column + 1) as f32 * TAU / 10.0;
+        p.ghost.with_opacity(0.4, |glass| {
+            glass.tri_out(
+                [
+                    ring_point(a, 0.405, 0.012),
+                    ring_point(b, 0.405, 0.012),
+                    Vec3::new(0.0, 0.409, -0.012),
+                ],
+                Vec3::Y * 0.38,
+                ice,
+            )
+        });
+    }
+
     for side in [-1.0, 1.0] {
-        p.ghost.with_opacity(0.25, |glass| {
+        p.ghost.with_opacity(0.40, |glass| {
             glass.extrude(
                 &[
                     Vec2::new(-0.07, 0.0),
@@ -472,29 +515,40 @@ fn crystal(p: &mut Parts) {
             )
         });
     }
-    rim(&mut p.satin, BROW, 0.15, 0.004, ice);
+    rim(&mut p.satin, BROW, 0.15, 0.0025, ice);
+}
+
+fn plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
+    // Different lengths and asymmetric arches prevent adjacent feather tips
+    // from joining into the straight edge of a rigid folding fan.
+    let stagger = (lane * 5.7 + layer * 2.3).sin();
+    let arch = 0.17 + layer * 0.035 - 0.05 * lane.abs() + stagger * 0.018;
+    (0..=16)
+        .map(|i| {
+            let t = i as f32 / 16.0;
+            Vec3::new(
+                lane * (0.02 + 0.105 * (t * PI * 0.72).sin()) + stagger * 0.015 * t * t,
+                0.365 + arch * (t * PI * 0.95).sin() - t * t * (0.035 + lane.abs() * 0.025),
+                0.025 - t * (0.235 + layer * 0.035 + stagger * 0.028)
+                    + if white { 0.045 } else { 0.0 },
+            )
+        })
+        .collect()
 }
 
 fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
-    let path: Vec<_> = (0..=10)
+    let path = plume_path(lane, layer, white);
+    let radii: Vec<_> = (0..=16)
         .map(|i| {
-            let t = i as f32 / 10.0;
-            Vec3::new(
-                lane * (0.02 + 0.095 * (t * PI * 0.72).sin()),
-                0.365 + (0.16 + layer * 0.035) * (t * PI * 0.95).sin() - t * t * 0.035,
-                0.025 - t * (0.22 + layer * 0.035) + if white { 0.035 } else { 0.0 },
-            )
-        })
-        .collect();
-    let radii: Vec<_> = (0..=10)
-        .map(|i| {
-            let t = i as f32 / 10.0;
-            let width = (t * PI).sin().max(0.0) * if white { 0.030 } else { 0.040 };
+            let t = i as f32 / 16.0;
+            let notch = if i > 3 && i % 3 == 0 { 0.78 } else { 1.0 };
+            let width = (t * PI).sin().max(0.0) * if white { 0.025 } else { 0.032 } * notch;
             Vec2::new(width.max(0.001), (width * 0.12).max(0.001))
         })
         .collect();
+    let pigment = (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
     b.tube(&path, &radii, 6, &|_, _, t| {
-        (if white { CREAM } else { RED }) * (0.86 + 0.14 * (1.0 - t))
+        pigment * (0.86 + 0.14 * (1.0 - t))
     });
 }
 
@@ -790,6 +844,10 @@ mod tests {
                 .unwrap();
             assert!(center.y >= 0.375, "crease cannot reduce scalp clearance");
             assert!(shoulder.y > center.y + 0.018, "crease must read from above");
+            assert!(
+                shoulder.y < 0.418,
+                "fedora shoulders must not become a tall top-hat crown"
+            );
         }
     }
 
@@ -803,6 +861,25 @@ mod tests {
             let inlay = p.metal.outer_surface(origin, Vec3::Z).unwrap();
             assert!(inlay.z > cloth.z + 0.001, "ornament buried at {x}, {y}");
             assert!(inlay.z < cloth.z + 0.015, "ornament floats off the cone");
+        }
+        // These points are inside the crescent's broad central strip,
+        // away from both its outline and the triangulation's fitted corners.
+        // In particular (0.022, 0.405) lies between x=0.004 and x=0.039:
+        // surface-fitting only the outline must not bury its interior.
+        for x in [0.014, 0.022, 0.030] {
+            for y in [0.397, 0.405, 0.413] {
+                let origin = Vec3::new(x, y, -0.4);
+                let cloth = p.matte.outer_surface(origin, Vec3::Z).unwrap();
+                let inlay = p.metal.outer_surface(origin, Vec3::Z).unwrap();
+                assert!(
+                    inlay.z > cloth.z + 0.001,
+                    "crescent interior buried at {x}, {y}"
+                );
+                assert!(
+                    inlay.z < cloth.z + 0.015,
+                    "crescent interior floats at {x}, {y}"
+                );
+            }
         }
         assert!(
             p.metal
@@ -828,6 +905,40 @@ mod tests {
                     .outer_surface(Vec3::new(i as f32 * 0.02, 0.46, -0.4), Vec3::Z)
                     .is_some(),
                 "plume has a gap in its broad mass at {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn plume_feathers_have_staggered_arches_and_individual_swept_tips() {
+        let paths = [-1.0, -0.5, 0.0, 0.5, 1.0].map(|lane| plume_path(lane, 2.0, false));
+        let peaks = paths
+            .each_ref()
+            .map(|path| path.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max));
+        let low = peaks.iter().copied().fold(f32::INFINITY, f32::min);
+        let high = peaks.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        assert!(
+            high - low > 0.035,
+            "a straight shared top edge reads as a rigid fan"
+        );
+        for path in paths {
+            assert!(path.last().unwrap().z < -0.24);
+            assert!(path.last().unwrap().y < 0.38, "tips fall behind the helmet");
+        }
+    }
+
+    #[test]
+    fn glass_panels_are_not_hidden_by_continuous_opaque_cage_ribs() {
+        let mut p = Parts::default();
+        crystal(&mut p);
+        for column in 0..10 {
+            let a = column as f32 * TAU / 10.0;
+            let direction = Vec3::new(a.sin(), 0.0, a.cos());
+            let origin = Vec3::new(0.0, 0.29, -0.012);
+            assert!(p.ghost.outer_surface(origin, direction).is_some());
+            assert!(
+                p.satin.outer_surface(origin, direction).is_none(),
+                "continuous opaque rib at column {column}"
             );
         }
     }
