@@ -2287,7 +2287,7 @@ fn fit_radial_faces_impl(
             "arm_height_domain":support.arms.map(|_|[low-THICKNESS-LAYER_GAP,high+THICKNESS+LAYER_GAP]),
             "inner_height_domain":support.inner.map(|_|[low-THICKNESS,high+THICKNESS]),
             "arm_radial_domain":support.arms.map(|_|radial_limit+THICKNESS+LAYER_GAP),
-            "inner_radial_domain":support.inner.and_then(|_|if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None}),
+            "inner_radial_domain":support.inner.and(if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None}),
             "reference":reference[vertex].to_array(),"final":(reference[vertex]+directions[vertex]*travel).to_array()}),
         );
     }

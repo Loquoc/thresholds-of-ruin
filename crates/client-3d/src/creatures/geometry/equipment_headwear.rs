@@ -630,10 +630,14 @@ fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
         point.x += (layer - 1.0) * 0.009 * (1.0 - t);
         point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
     }
+    emit_feather_vane(b, &path, lane, layer, white);
+}
+
+fn emit_feather_vane(b: &mut Builder, path: &[Vec3], lane: f32, layer: f32, white: bool) {
     let pigment = (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
     for i in 0..path.len() - 1 {
-        let a = feather_section(&path, i, lane, white);
-        let z = feather_section(&path, i + 1, lane, white);
+        let a = feather_section(path, i, lane, white);
+        let z = feather_section(path, i + 1, lane, white);
         let normal = (a[2] - a[0]).cross(z[1] - a[1]).normalize();
         for half in 0..2 {
             let q = [a[half], z[half], z[half + 1], a[half + 1]];
@@ -652,7 +656,7 @@ fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
         }
     }
     let ridge: Vec<_> = (0..path.len())
-        .map(|i| feather_section(&path, i, lane, white)[1])
+        .map(|i| feather_section(path, i, lane, white)[1])
         .collect();
     let radii: Vec<_> = (0..path.len())
         .map(|i| {
@@ -661,6 +665,36 @@ fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
         })
         .collect();
     tube(b, &ridge, &radii, pigment * 0.72);
+}
+
+// Short overlapping coverts hide the exposed roots between the long cream
+// feathers. Their staggered curved tips stop above the outer collar's points.
+fn cream_covert_path(lane: f32) -> Vec<Vec3> {
+    let root = Vec3::new(lane * 0.012, 0.368, 0.055);
+    let shoulder = Vec3::new(lane * 0.045, 0.418, 0.090);
+    let bend = Vec3::new(lane * 0.095, 0.411, 0.125 - lane.abs() * 0.035);
+    let tip = Vec3::new(
+        lane * 0.120,
+        0.363 + 0.006 * (lane * 7.0).cos(),
+        0.145 - lane.abs() * 0.055,
+    );
+    (0..=16)
+        .map(|i| {
+            let t = i as f32 / 16.0;
+            let u = 1.0 - t;
+            root * u.powi(3)
+                + shoulder * (3.0 * u * u * t)
+                + bend * (3.0 * u * t * t)
+                + tip * t.powi(3)
+        })
+        .collect()
+}
+
+fn cream_coverts(b: &mut Builder) {
+    for i in 0..9 {
+        let lane = i as f32 / 4.0 - 1.0;
+        emit_feather_vane(b, &cream_covert_path(lane), lane, 0.25, true);
+    }
 }
 
 fn plume(p: &mut Parts) {
@@ -681,6 +715,7 @@ fn plume(p: &mut Parts) {
     for feather in 0..7 {
         plume_feather(&mut p.matte, feather as f32 / 3.0 - 1.0, 0.7, true);
     }
+    cream_coverts(&mut p.matte);
     p.metal.blob(
         Vec3::new(0.0, 0.36, 0.015),
         Vec3::new(0.026, 0.025, 0.026),
@@ -1408,6 +1443,55 @@ mod tests {
                     .is_none(),
                 "engraving stays away from the eyes"
             );
+        }
+    }
+
+    #[test]
+    fn cream_coverts_overlap_roots_without_enlarging_outer_spikes() {
+        let mut coverts = Builder::default();
+        cream_coverts(&mut coverts);
+        let (lo, hi) = coverts.bounds();
+        assert!(hi.y < 0.445 && lo.y > 0.325);
+        assert!(
+            hi.x - lo.x < 0.27,
+            "short coverts stay within the existing collar"
+        );
+        // Fixed frontal witnesses target the previously exposed central wedge,
+        // not just each authored feather's own centerline.
+        for y in [0.385, 0.395] {
+            for x in [-0.04, -0.02, 0.0, 0.02, 0.04] {
+                assert!(
+                    coverts
+                        .outer_surface(Vec3::new(x, y, 0.3), Vec3::NEG_Z)
+                        .is_some(),
+                    "overlapping coverts must fill root wedge at {x}, {y}"
+                );
+            }
+        }
+        let mut helmet = Parts::default();
+        dome(&mut helmet, IRON, false);
+        for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            let path = cream_covert_path(lane);
+            assert!(
+                path[8].y > path[16].y + 0.02,
+                "covert curves down after its shoulder"
+            );
+            assert!(
+                path[16].y > plume_path(lane, 0.7, true)[16].y + 0.015,
+                "shorter overlapping tier must not duplicate long pointed tips"
+            );
+            for i in 0..path.len() {
+                for point in feather_section(&path, i, lane, true) {
+                    let origin = Vec3::new(0.0, point.y, -0.012);
+                    let ray = (point - origin).normalize();
+                    if let Some(shell) = helmet.metal.outer_surface(origin, ray) {
+                        assert!(
+                            (point - shell).dot(ray) > 0.008,
+                            "entire covert vane clears the crown"
+                        );
+                    }
+                }
+            }
         }
     }
 
