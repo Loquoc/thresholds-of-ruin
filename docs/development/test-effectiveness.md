@@ -4292,3 +4292,23 @@ corrections are preserved for the next qualification; the prototype is not
 accepted. Separate actual posed head support is required before further visual
 qualification. The main/legacy geometry and absolute 0.649 m collar ceiling,
 clearance, width and motion assertions have not been relaxed.
+
+Separate study-mantle head/neck contact now retains actual emitted triangles
+through the complete Head joint/child transforms, without extra storybook scale
+or changes to arm reach, free-edge release, or legacy hair contacts. The head
+obstacle has its own shared support and participates in bounded initialization,
+finite swept-face certification, and final closed-volume membership. Strict
+release Clippy passed. The focused native checkpoint passed 58 cloak methods
+and failed six; both new actual head-plumbing methods also failed during mantle
+spawn, before their positive integration assertions. These eight failures expose
+the same unresolved attachment feasibility contract, not eight distinct defects.
+The source/lock inputs were unchanged throughout the run.
+
+A tagged neutral leather spawn audit of face [0,1,49] retained all 129 clipped
+polygons, exclusively from the head. Independent full-support optimization and
+its convex-distance certificate give only 27.0201 mm separation at the unchanged
+collar ceiling, below the required 32 mm. Pointwise radial head clearance at the
+new station therefore does not certify the adjacent finite face or its allowed
+vertical motion. No candidate-threshold or clearance relaxation was made. This
+is an experimental local checkpoint with explicit native failures; no fresh
+render or full-suite acceptance is claimed.

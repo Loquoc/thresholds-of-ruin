@@ -94,6 +94,7 @@ pub(super) struct Recipe {
     inner_layer: Option<Entity>,
     scene: Option<super::visual_contact::Scene>,
     contact_surface: Option<Arc<ContactSurface>>,
+    head_contact_surface: Option<Arc<ContactSurface>>,
 }
 
 impl Recipe {
@@ -124,6 +125,7 @@ impl Recipe {
             inner_layer: None,
             scene: None,
             contact_surface: None,
+            head_contact_surface: None,
         };
         recipe.reserve_back_layer(0.0);
         recipe
@@ -148,6 +150,11 @@ impl Recipe {
         if self.cut.is_some() {
             self.contact_surface = Some(surface);
         }
+    }
+
+    pub fn set_head_surface(&mut self, surface: Arc<ContactSurface>) {
+        self.head_contact_surface = Some(surface);
+        self.fitted_outer_collar.take();
     }
 
     /// Fit this shoulder layer to an earlier cloak on the same torso frame.
@@ -294,11 +301,22 @@ impl Recipe {
                             let angle = TAU
                                 - cut.opening * 0.5
                                 - (TAU - cut.opening) * col as f32 / COLUMNS as f32;
-                            *point = supported_outer_collar(
+                            let direction =
                                 Vec3::new(angle.sin() * 0.075, 0.0, angle.cos() * 0.072)
-                                    .normalize(),
-                                &self.support,
-                            )?;
+                                    .normalize();
+                            *point = supported_outer_collar(direction, &self.support)?;
+                            if let Some(head) = &self.head_contact_surface {
+                                *point = head.surface().clearance_point(
+                                    *point,
+                                    direction,
+                                    LAYER_GAP + THICKNESS,
+                                )?;
+                                if self.support.distance(*point / anatomy::HIP_SCALE)
+                                    < LAYER_GAP + 0.0097
+                                {
+                                    return None;
+                                }
+                            }
                         }
                         Some(ring)
                     })
@@ -487,6 +505,7 @@ fn fit_mesh_contact(at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
 fn seat_arm_obstacles(points: &mut [Vec3], rotation: Quat, arms: &LayerSurface) {
     seat_arm_profile(points, rotation, arms, None);
 }
+#[cfg(test)]
 fn seat_arm_profile(
     points: &mut [Vec3],
     rotation: Quat,
@@ -656,6 +675,8 @@ pub(super) struct CloakRig {
     scene: Option<super::visual_contact::Scene>,
     arm_surface: Option<Arc<LayerSurface>>,
     contact_surface: Option<Arc<ContactSurface>>,
+    head_contact_surface: Option<Arc<ContactSurface>>,
+    head_surface: Option<Arc<LayerSurface>>,
     opening: Option<f32>,
     neutral_reach: [f32; 2],
     contact_fallbacks: u64,
@@ -756,6 +777,7 @@ impl CloakRig {
         }
         Some(
             serde_json::json!({"layer":if self.inner_layer.is_some(){"mantle"}else{"main"},
+            "head_triangles":self.head_surface.as_ref().map_or(0,|s|s.triangles.len()),
             "reference_scope":"posed body/arm point fit before inner seating and whole-face constraints; not an unstretched material metric",
             "rest_scope":"neutral recipe rest, already body/arm point-fitted", "seating_valid":self.contact_seating_valid, "radial_witness":self.contact_radial_trace,
             "row_range_order":["radius_min","radius_max","y_min","y_max"],"rows":rows,
@@ -820,6 +842,23 @@ impl CloakRig {
         self.arm_surface = Some(contacts.surface());
         self.contact_cpu_ms[0] += started.elapsed().as_secs_f64() * 1000.0;
         self.contact_surface = Some(contacts);
+        self.invalidate();
+    }
+
+    pub(super) fn set_head_surface(&mut self, contacts: Arc<ContactSurface>) {
+        if !self.wrapped
+            || self.inner_layer.is_none()
+            || self
+                .head_contact_surface
+                .as_ref()
+                .is_some_and(|old| old.parts == contacts.parts)
+        {
+            return;
+        }
+        let started = std::time::Instant::now();
+        self.head_surface = Some(contacts.surface());
+        self.contact_cpu_ms[0] += started.elapsed().as_secs_f64() * 1000.0;
+        self.head_contact_surface = Some(contacts);
         self.invalidate();
     }
 
@@ -1046,6 +1085,12 @@ pub(super) fn spawn(
             .map_or([0.0; 2], |surface| surface.arm_reach()),
         arm_surface,
         contact_surface: recipe.contact_surface,
+        head_surface: recipe
+            .head_contact_surface
+            .as_ref()
+            .filter(|_| recipe.inner_layer.is_some())
+            .map(|h| h.surface()),
+        head_contact_surface: recipe.head_contact_surface,
         contact_fallbacks,
         contact_reference,
         contact_seated: Vec::new(),
@@ -1088,6 +1133,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
         });
     let opening = cloak.opening;
     let outer_attachment = cloak.inner_layer.is_some();
+    let head_contact = cloak.head_surface.clone();
     let mesh_contact = cloak
         .contact_surface
         .as_ref()
@@ -1120,7 +1166,22 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                         // The supported ring is immutable torso-local geometry;
                         // re-running the coarse historical march here would
                         // expand a bracket-refined attachment on every pose.
-                        at
+                        let fixed = rest[i] + Vec3::new(0.0, 0.53, -0.15);
+                        head_contact
+                            .as_ref()
+                            .and_then(|head| {
+                                head.clearance_point(
+                                    fixed,
+                                    fixed.with_y(0.0).normalize_or(Vec3::NEG_Z),
+                                    LAYER_GAP + THICKNESS,
+                                )
+                            })
+                            .filter(|p| {
+                                support.as_ref().is_none_or(|body| {
+                                    body.distance(*p / anatomy::HIP_SCALE) >= LAYER_GAP + 0.0097
+                                })
+                            })
+                            .unwrap_or(fixed)
                     } else {
                         support
                             .as_ref()
@@ -1462,6 +1523,29 @@ impl LayerSurface {
             p += axis * (distance + LAYER_GAP + THICKNESS);
         }
         self.containing_components(p).is_empty().then_some(p)
+    }
+
+    fn clearance_point(&self, mut p: Vec3, axis: Vec3, gap: f32) -> Option<Vec3> {
+        for _ in 0..128 {
+            p = self.outside_point(p, axis)?;
+            let planes = [
+                (Vec3::X, p.x - gap),
+                (Vec3::NEG_X, -p.x - gap),
+                (Vec3::Y, p.y - gap),
+                (Vec3::NEG_Y, -p.y - gap),
+                (Vec3::Z, p.z - gap),
+                (Vec3::NEG_Z, -p.z - gap),
+            ];
+            let distance = self
+                .clipped_candidates(&planes)
+                .map(|&tri| triangle_distance_squared(p, tri).sqrt())
+                .fold(gap, f32::min);
+            if distance >= gap {
+                return Some(p);
+            }
+            p += axis * (gap - distance).max(0.0005);
+        }
+        None
     }
 
     fn new(mesh: &Mesh, rotation: Quat) -> Self {
@@ -1994,6 +2078,7 @@ fn fit_radial_faces(
 struct FaceSupport<'a> {
     inner: Option<&'a LayerSurface>,
     arms: Option<&'a LayerSurface>,
+    head: Option<&'a LayerSurface>,
     profile: Option<&'a [Vec2]>,
 }
 impl<'a> FaceSupport<'a> {
@@ -2002,6 +2087,7 @@ impl<'a> FaceSupport<'a> {
         Self {
             inner: Some(surface),
             arms: None,
+            head: None,
             profile: None,
         }
     }
@@ -2009,6 +2095,7 @@ impl<'a> FaceSupport<'a> {
         Self {
             inner: None,
             arms: Some(surface),
+            head: None,
             profile: None,
         }
     }
@@ -2018,12 +2105,31 @@ impl<'a> FaceSupport<'a> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SupportSource {
+    Inner,
+    Arms,
+    Head,
+}
+impl SupportSource {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Inner => "inner",
+            Self::Arms => "arms",
+            Self::Head => "head",
+        }
+    }
+    fn obstacle(self) -> bool {
+        self != Self::Inner
+    }
+}
+
 #[derive(Clone, Copy)]
 enum FaceOutcome {
     Empty,
     Fit {
         shifts: [f32; 3],
-        plane: (Vec3, f32, Vec3, bool),
+        plane: (Vec3, f32, Vec3, SupportSource),
     },
 }
 
@@ -2063,8 +2169,93 @@ struct ProposalMembership {
     outside: Option<Vec3>,
 }
 
+// Voronoi-region closest point, independent of the test oracle's plane/edge
+// enumeration. Degenerate faces retain their edge-distance contribution.
+fn triangle_distance_squared(p: Vec3, [a, b, c]: [Vec3; 3]) -> f32 {
+    let ab = b - a;
+    let ac = c - a;
+    let ap = p - a;
+    if ab.cross(ac).length_squared() < 1e-16 {
+        return [(a, b), (b, c), (c, a)]
+            .into_iter()
+            .map(|(a, b)| {
+                let e = b - a;
+                let t = ((p - a).dot(e) / e.length_squared().max(1e-16)).clamp(0.0, 1.0);
+                p.distance_squared(a + e * t)
+            })
+            .fold(f32::INFINITY, f32::min);
+    }
+    let d1 = ab.dot(ap);
+    let d2 = ac.dot(ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return p.distance_squared(a);
+    }
+    let bp = p - b;
+    let d3 = ab.dot(bp);
+    let d4 = ac.dot(bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return p.distance_squared(b);
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return p.distance_squared(a + ab * (d1 / (d1 - d3)));
+    }
+    let cp = p - c;
+    let d5 = ab.dot(cp);
+    let d6 = ac.dot(cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return p.distance_squared(c);
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return p.distance_squared(a + ac * (d2 / (d2 - d6)));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        return p.distance_squared(b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6))));
+    }
+    let inv = 1.0 / (va + vb + vc);
+    p.distance_squared(a + ab * (vb * inv) + ac * (vc * inv))
+}
+
+fn outside_obstacles(
+    arms: Option<&LayerSurface>,
+    head: Option<&LayerSurface>,
+    mut p: Vec3,
+    axis: Vec3,
+) -> Option<Vec3> {
+    match (arms, head) {
+        (Some(a), None) => a.outside_point(p, axis),
+        (None, Some(h)) => h.outside_point(p, axis),
+        (None, None) => Some(p),
+        (Some(a), Some(h)) => {
+            for _ in 0..12 {
+                p = a.outside_point(p, axis)?;
+                p = h.outside_point(p, axis)?;
+                if a.containing_components(p).is_empty() {
+                    return Some(p);
+                }
+            }
+            None
+        }
+    }
+}
+
+#[cfg(test)]
 fn memoized_outside_point(
     arms: &LayerSurface,
+    proposed: Vec3,
+    axis: Vec3,
+    entry: &mut Option<ProposalMembership>,
+    enabled: bool,
+    work: &mut FaceFitWork,
+) -> Option<Vec3> {
+    memoized_outside_obstacles(Some(arms), None, proposed, axis, entry, enabled, work)
+}
+
+fn memoized_outside_obstacles(
+    arms: Option<&LayerSurface>,
+    head: Option<&LayerSurface>,
     proposed: Vec3,
     axis: Vec3,
     entry: &mut Option<ProposalMembership>,
@@ -2093,7 +2284,7 @@ fn memoized_outside_point(
     {
         work.membership_calls += 1;
     }
-    let outside = arms.outside_point(proposed, axis);
+    let outside = outside_obstacles(arms, head, proposed, axis);
     if enabled {
         *entry = Some(ProposalMembership { position, outside });
     }
@@ -2331,13 +2522,13 @@ fn fit_radial_faces_impl(
     *trace = None;
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
-    if let Some(arms) = support.arms {
+    for arms in [support.arms, support.head].into_iter().flatten() {
         for (i, &point) in reference.iter().enumerate() {
             if !arms.containing_components(point).is_empty() {
                 return Err(RadialFitFailure {
                     row: i / (COLUMNS + 1),
                     column: i % (COLUMNS + 1),
-                    reason: "arm obstacle initialization remains inside a closed component",
+                    reason: "head/arm obstacle initialization remains inside a closed component",
                     detail: point.to_array(),
                 });
             }
@@ -2367,7 +2558,14 @@ fn fit_radial_faces_impl(
     // band can change height, and arm domains can change radius: key BOTH
     // extents. Roof faces always requery. Cache lasts one pose/support solve.
     let mut face_cache = vec![None; ROWS * COLUMNS * 2];
-    let mut membership_cache = vec![None; if support.arms.is_some() { GRID } else { 0 }];
+    let mut membership_cache = vec![
+        None;
+        if support.arms.is_some() || support.head.is_some() {
+            GRID
+        } else {
+            0
+        }
+    ];
     let mut radial_trace = None;
     let mut volume_trace = None;
     #[cfg(test)]
@@ -2436,8 +2634,11 @@ fn fit_radial_faces_impl(
 
                     let cache_index = (row * COLUMNS + column) * 2 + face_number;
                     let cacheable = cache_enabled && row >= ROOF_ROWS;
-                    let domain_key =
-                        swept_domain_key(high, radial_limit, support.arms.map(|_| endpoints));
+                    let domain_key = swept_domain_key(
+                        high,
+                        radial_limit,
+                        (support.arms.is_some() || support.head.is_some()).then_some(endpoints),
+                    );
                     let cached = face_cache[cache_index].filter(|(key, _)| *key == domain_key);
                     #[cfg(test)]
                     if face_cache[cache_index].is_some() && cached.is_none() {
@@ -2471,23 +2672,32 @@ fn fit_radial_faces_impl(
                                     normals.map(|n| face.iter().all(|&i| n.dot(axes[i]) > 1e-6));
                                 let mut supports = [f32::NEG_INFINITY; FACE_NORMALS];
                                 let mut support_points = [Vec3::ZERO; FACE_NORMALS];
-                                let mut support_is_arm = [false; FACE_NORMALS];
+                                let mut support_is_arm = [SupportSource::Inner; FACE_NORMALS];
                                 #[cfg(test)]
                                 let authored_normal =
                                     cross
                                         .try_normalize()
                                         .map(|n| if n.y < 0.0 { -n } else { n });
                                 #[cfg(test)]
-                                let mut authored_support = (f32::NEG_INFINITY, Vec3::ZERO, false);
+                                let mut authored_support =
+                                    (f32::NEG_INFINITY, Vec3::ZERO, SupportSource::Inner);
                                 let mut found = false;
                                 // Construct only on a cache miss. Inner cloth retains its
                                 // outermost prism; arm hulls use exact ordered endpoints.
-                                let arm_planes = support
-                                    .arms
-                                    .map(|_| arm_contact_planes(vertices, endpoints, &planes));
+                                let arm_planes = (support.arms.is_some() || support.head.is_some())
+                                    .then(|| arm_contact_planes(vertices, endpoints, &planes));
                                 for (surface, domain, is_arm) in [
-                                    (support.inner, inner_planes, false),
-                                    (support.arms, arm_planes.as_deref().unwrap_or(&[]), true),
+                                    (support.inner, inner_planes, SupportSource::Inner),
+                                    (
+                                        support.arms,
+                                        arm_planes.as_deref().unwrap_or(&[]),
+                                        SupportSource::Arms,
+                                    ),
+                                    (
+                                        support.head,
+                                        arm_planes.as_deref().unwrap_or(&[]),
+                                        SupportSource::Head,
+                                    ),
                                 ]
                                 .into_iter()
                                 .filter_map(|(surface, domain, is_arm)| {
@@ -2542,7 +2752,8 @@ fn fit_radial_faces_impl(
                                     return Ok(FaceOutcome::Empty);
                                 }
                                 let mut best: Option<([f32; 3], f32)> = None;
-                                let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO, false);
+                                let mut winning_plane =
+                                    (Vec3::ZERO, 0.0, Vec3::ZERO, SupportSource::Inner);
                                 let mut best_anchor_deficit = f32::INFINITY;
                                 #[cfg(test)]
                                 let mut rejected_plane = None;
@@ -2607,6 +2818,11 @@ fn fit_radial_faces_impl(
                                                 arm_planes.as_deref().unwrap_or(&[]),
                                                 "arms",
                                             ),
+                                            (
+                                                support.head,
+                                                arm_planes.as_deref().unwrap_or(&[]),
+                                                "head",
+                                            ),
                                         ]
                                         .into_iter()
                                         .filter_map(|(s, d, k)| s.map(|s| (s, d, k)))
@@ -2640,13 +2856,13 @@ fn fit_radial_faces_impl(
                                                 "context":audit_context(),"layer":if support.inner.is_some(){"mantle"}else{"main"},"rotation":rotation.to_array(),
                                                 "face":face,"row":row,"column":column,"iteration":iteration,
                                                 "normal":normal.to_array(),"plane":plane,"support_point":witness.to_array(),
-                                                "source":if is_arm {"arms"}else{"inner"},"collar_deficit":best_anchor_deficit,
+                                                "source":is_arm.name(),"collar_deficit":best_anchor_deficit,
                                                 "face_reference":vertices.map(|p|p.to_array()),
                                                 "face_budget_endpoints":endpoints.map(|p|p.to_array()),
                                                 "face_axes":face.map(|i|axes[i].to_array()),"face_budgets":face.map(|i|budgets[i]),
                                                 "authored_plane_probe": authored_normal.map(|n| serde_json::json!({
                                                     "normal": n.to_array(), "plane": authored_support.0 + LAYER_GAP + THICKNESS,
-                                                    "support_point": authored_support.1.to_array(), "source":if authored_support.2 {"arms"}else{"inner"},
+                                                    "support_point": authored_support.1.to_array(), "source":authored_support.2.name(),
                                                     "axis_admissible":face.iter().all(|&i|n.dot(axes[i])>1e-6),
                                                     "predicted_heights":face.map(|i| if n.dot(axes[i])>1e-6 {
                                                         Some(reference[i].y + axes[i].y * (authored_support.0 + LAYER_GAP + THICKNESS - n.dot(reference[i])).max(0.0)/n.dot(axes[i]))
@@ -2736,15 +2952,16 @@ fn fit_radial_faces_impl(
                 }
             }
         }
-        if let Some(arms) = support.arms {
+        if support.arms.is_some() || support.head.is_some() {
             for (i, travel) in travels
                 .iter_mut()
                 .enumerate()
                 .filter(|(_, travel)| **travel > 0.0)
             {
                 let proposed = reference[i] + axes[i] * *travel;
-                let Some(outside) = memoized_outside_point(
-                    arms,
+                let Some(outside) = memoized_outside_obstacles(
+                    support.arms,
+                    support.head,
                     proposed,
                     axes[i],
                     &mut membership_cache[i],
@@ -2839,9 +3056,9 @@ fn fit_radial_faces_impl(
             "face_budgets":face.map(|i|budgets[i]),
             "face_budget_endpoints":face.map(|i|(reference[i]+axes[i]*budgets[i]).to_array()),
             "face_final":face.map(|i|(reference[i]+axes[i]*travels[i]).to_array()),
-            "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"source":if is_arm {"arms"} else {"inner"},
-            "domain_kind":if is_arm {"swept_endpoint_hull_and_prism"}else{"inner_prism"},
-            "height_domain":(!is_arm).then_some([low-THICKNESS,high+THICKNESS]),
+            "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"source":is_arm.name(),
+            "domain_kind":if is_arm.obstacle() {"swept_endpoint_hull_and_prism"}else{"inner_prism"},
+            "height_domain":(!is_arm.obstacle()).then_some([low-THICKNESS,high+THICKNESS]),
             "reference_prism_height":[low,high],
             "inner_height_domain":support.inner.map(|_|[low-THICKNESS,high+THICKNESS]),
             "reference_prism_radial":radial_limit,
@@ -2852,7 +3069,7 @@ fn fit_radial_faces_impl(
     if let Some((vertex, travel, final_point, iteration)) = volume_trace {
         if radial_trace.as_ref().is_none_or(|(old, _)| travel > *old) {
             *trace = Some(
-                serde_json::json!({"source":"arm_volume_exit","vertex":vertex,
+                serde_json::json!({"source":"obstacle_volume_exit","vertex":vertex,
                 "row":vertex/(COLUMNS+1),"column":vertex%(COLUMNS+1),"travel":travel,"iteration":iteration,
                 "reference":reference[vertex].to_array(),"final":final_point.to_array()}),
             );
@@ -3135,12 +3352,28 @@ pub(super) fn place_layers(
         let mut candidate = cloak.points.clone();
         let seating_started = std::time::Instant::now();
         let seated =
-            seat_inner_profile(&mut candidate, rot, &support, Some(&cloak.shoulder_profile));
-        if seated.is_ok() {
-            if let Some(arms) = &cloak.arm_surface {
-                seat_arm_profile(&mut candidate, rot, arms, Some(&cloak.shoulder_profile));
-            }
-        }
+            seat_inner_profile(&mut candidate, rot, &support, Some(&cloak.shoulder_profile))
+                .and_then(|()| {
+                    let offset = Vec3::new(0.0, 0.53, -0.15);
+                    for (i, p) in candidate.iter_mut().enumerate().skip(COLUMNS + 1) {
+                        let at = rot * *p + offset;
+                        let axis = profile_direction(at, cloak.shoulder_profile[i]);
+                        let fitted = outside_obstacles(
+                            cloak.arm_surface.as_deref(),
+                            cloak.head_surface.as_deref(),
+                            at,
+                            axis,
+                        )
+                        .ok_or(RadialFitFailure {
+                            row: i / (COLUMNS + 1),
+                            column: i % (COLUMNS + 1),
+                            reason: "joint obstacle initialization did not exit head and arms",
+                            detail: at.to_array(),
+                        })?;
+                        *p = rot.inverse() * (fitted - offset);
+                    }
+                    Ok(())
+                });
         cloak.contact_cpu_ms[2] += seating_started.elapsed().as_secs_f64() * 1000.0;
         cloak.contact_seated.clone_from(&candidate);
         cloak.contact_seating_valid = seated.is_ok();
@@ -3156,6 +3389,7 @@ pub(super) fn place_layers(
                 FaceSupport {
                     inner: Some(&support),
                     arms: cloak.arm_surface.as_deref(),
+                    head: cloak.head_surface.as_deref(),
                     profile: Some(&cloak.shoulder_profile),
                 },
                 &mut cloak.contact_radial_trace,
@@ -3198,6 +3432,12 @@ pub(super) fn place_layers(
                                 .arm_surface
                                 .iter()
                                 .flat_map(|arms| arms.triangles.iter().copied()),
+                        )
+                        .chain(
+                            cloak
+                                .head_surface
+                                .iter()
+                                .flat_map(|head| head.triangles.iter().copied()),
                         )
                         .collect(),
                 );
@@ -3679,6 +3919,96 @@ mod tests {
     }
 
     #[test]
+    fn head_clearance_initialization_distinguishes_near_and_remote_geometry() {
+        let head = LayerSurface::from_triangles(rounded_cap());
+        let near = Vec3::Z * 0.115;
+        let fitted = head
+            .clearance_point(near, Vec3::Z, LAYER_GAP + THICKNESS)
+            .unwrap();
+        assert!(fitted.z >= 0.132 - 1e-6 && fitted.z < 0.134);
+        assert!(rendered_clearance_checked(&head, fitted, true) >= 0.0099);
+        let remote = LayerSurface::from_triangles(
+            rounded_cap()
+                .into_iter()
+                .map(|tri| tri.map(|p| p + Vec3::Z * 2.0))
+                .collect(),
+        );
+        assert_eq!(
+            remote.clearance_point(Vec3::ZERO, Vec3::Z, LAYER_GAP + THICKNESS),
+            Some(Vec3::ZERO)
+        );
+        let sample = [
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ];
+        assert!(
+            (triangle_distance_squared(Vec3::new(0.0, 0.2, 0.03), sample) - 0.0009).abs() < 1e-7
+        );
+        assert!((triangle_distance_squared(Vec3::new(0.0, -0.2, 0.0), sample) - 0.04).abs() < 1e-7);
+    }
+
+    #[test]
+    fn joint_obstacle_exit_and_cache_finish_outside_head_and_arms() {
+        let a = LayerSurface::from_triangles(rounded_cap());
+        let b = LayerSurface::from_triangles(
+            rounded_cap()
+                .into_iter()
+                .map(|tri| tri.map(|p| p + Vec3::Z * 0.18))
+                .collect(),
+        );
+        for (arms, head) in [(&a, &b), (&b, &a)] {
+            let escaped = outside_obstacles(Some(arms), Some(head), Vec3::ZERO, Vec3::Z).unwrap();
+            assert!(escaped.z >= 0.312 - 1e-6);
+            assert!(
+                arms.containing_components(escaped).is_empty()
+                    && head.containing_components(escaped).is_empty()
+            );
+            let mut entry = None;
+            let mut work = FaceFitWork::default();
+            for _ in 0..2 {
+                assert_eq!(
+                    memoized_outside_obstacles(
+                        Some(arms),
+                        Some(head),
+                        Vec3::ZERO,
+                        Vec3::Z,
+                        &mut entry,
+                        true,
+                        &mut work
+                    ),
+                    Some(escaped)
+                );
+            }
+            assert_eq!(work.membership_calls, 1);
+            assert_eq!(work.membership_hits, 1);
+        }
+    }
+
+    #[test]
+    fn head_only_obstacle_uses_finite_domains_and_exact_cache() {
+        let reference = radial_test_grid();
+        let at = reference[index(8, 0)] + Vec3::new(0.0, 0.53, -0.15);
+        let head = LayerSurface::from_triangles(vec![[
+            at + Vec3::new(-0.03, -0.03, 0.015),
+            at + Vec3::new(0.03, -0.03, 0.015),
+            at + Vec3::new(0.0, 0.03, 0.015),
+        ]]);
+        let support = FaceSupport {
+            inner: None,
+            arms: None,
+            head: Some(&head),
+            profile: None,
+        };
+        let (_, _, success) = assert_face_cache_equivalent(&reference, Quat::IDENTITY, support);
+        assert!(success);
+        let mut points = reference;
+        let mut trace = None;
+        fit_radial_supports_traced(&mut points, Quat::IDENTITY, support, &mut trace).unwrap();
+        assert_eq!(trace.unwrap()["source"], "head");
+    }
+
+    #[test]
     fn proposal_membership_cache_preserves_failed_bounded_exits() {
         let part = super::super::visual_contact::PosedTriangles::new(
             Arc::new(rounded_cap()),
@@ -3747,6 +4077,7 @@ mod tests {
             FaceSupport {
                 inner: Some(&inner),
                 arms: Some(&remote),
+                head: None,
                 profile: None,
             },
             true,
@@ -3764,6 +4095,7 @@ mod tests {
             FaceSupport {
                 inner: Some(&inner),
                 arms: Some(&reached),
+                head: None,
                 profile: None,
             },
             true,
@@ -4016,6 +4348,7 @@ mod tests {
         let support = FaceSupport {
             inner: Some(&inner),
             arms: Some(&arms),
+            head: None,
             profile: None,
         };
         let (cached, uncached, success) =
@@ -6115,6 +6448,36 @@ mod tests {
     }
 
     #[test]
+    fn posed_head_snapshots_invalidate_only_dependent_mantles() {
+        let mut equipment = Equipment::default();
+        equipment.select("leather-cloak").unwrap();
+        let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()))
+            .equipped(equipment);
+        let (_, mut rig, _, _) = super::super::rogue_tests::spawn_one(&look);
+        let posed = Arc::new(ContactSurface::new(
+            super::super::visual_contact::posed_triangles(&rig.cloth_head_contacts, |joint| {
+                Some(Affine3A::from_rotation_translation(
+                    Quat::from_rotation_y(0.1),
+                    rig.rest[joint as usize],
+                ))
+            }),
+        ));
+        assert_eq!(rig.cloaks.len(), 2);
+        rig.cloaks[0].set_head_surface(posed.clone());
+        assert!(rig.cloaks[0].head_surface.is_none());
+        rig.cloaks[1].set_head_surface(posed.clone());
+        assert!(rig.cloaks[1].last_rotation.is_none());
+        let surface = rig.cloaks[1].head_surface.clone().unwrap();
+        rig.cloaks[1].last_rotation = Some(Quat::IDENTITY);
+        rig.cloaks[1].set_head_surface(posed);
+        assert!(Arc::ptr_eq(
+            &surface,
+            rig.cloaks[1].head_surface.as_ref().unwrap()
+        ));
+        assert_eq!(rig.cloaks[1].last_rotation, Some(Quat::IDENTITY));
+    }
+
+    #[test]
     fn posed_cope_triangles_clear_plate_arms_and_scaled_hands() {
         let mut equipment = Equipment::default();
         equipment.select("plate-mail").unwrap();
@@ -6161,7 +6524,11 @@ mod tests {
             let surface = Arc::new(ContactSurface::new(
                 super::super::visual_contact::posed_triangles(&rig.visual_contacts, frame),
             ));
+            let head_contacts = Arc::new(ContactSurface::new(
+                super::super::visual_contact::posed_triangles(&rig.cloth_head_contacts, frame),
+            ));
             for cloak in &mut rig.cloaks {
+                cloak.set_head_surface(head_contacts.clone());
                 cloak.audit_context = serde_json::json!({"actor":"ornamental-cope+plate-mail","fixture":"posed_cope","stage":"pose","angle":angle});
                 cloak.set_contacts(contacts.clone());
                 cloak.set_contact_surface(surface.clone());

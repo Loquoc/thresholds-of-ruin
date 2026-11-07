@@ -2112,6 +2112,15 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 }),
             ))
         });
+        let neutral_head_surface = cut
+            .filter(|cut| cut.shoulder_layer && !kit.rig.cloth_head_contacts.is_empty())
+            .map(|_| {
+                std::sync::Arc::new(super::cloak::ContactSurface::new(
+                    super::visual_contact::posed_triangles(&kit.rig.cloth_head_contacts, |joint| {
+                        Some(Affine3A::from_translation(kit.rig.rest[joint as usize]))
+                    }),
+                ))
+            });
         let fitted = |cut: Option<super::outfit::outerwear::DrapeCut>, extra: f32| {
             let mut recipe =
                 super::cloak::Recipe::new(body, cloak.exterior, cloak.lining, cloak.ragged);
@@ -2164,6 +2173,9 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
             // and duplicates that clearance at the collar attachment.
             let mut mantle = fitted(Some(mantle), 0.0);
             mantle.layer_over(main);
+            if let Some(surface) = &neutral_head_surface {
+                mantle.set_head_surface(surface.clone());
+            }
             kit.cloak(torso, mantle);
         }
     }

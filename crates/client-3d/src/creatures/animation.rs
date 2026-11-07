@@ -351,7 +351,8 @@ fn present_pose(
     }
     record_phase(&mut profile, 1, started);
     let started = profile.as_ref().map(|_| std::time::Instant::now());
-    let contacts = if rig.hair.is_some() || rig.cloaks.iter().any(|cloak| cloak.needs_contacts()) {
+    let needs_cloth_contacts = rig.cloaks.iter().any(|cloak| cloak.needs_contacts());
+    let contacts = if rig.hair.is_some() || needs_cloth_contacts {
         super::visual_contact::posed(&rig.visual_contacts, |joint| {
             rig.joint(joint)
                 .and_then(|entity| joints.get(entity).ok())
@@ -360,24 +361,32 @@ fn present_pose(
     } else {
         Vec::new()
     };
-    let cloth_surface = rig
-        .cloaks
-        .iter()
-        .any(|cloak| cloak.needs_contacts())
-        .then(|| {
-            std::sync::Arc::new(super::cloak::ContactSurface::new(
-                super::visual_contact::posed_triangles(&rig.visual_contacts, |joint| {
-                    rig.joint(joint)
-                        .and_then(|entity| joints.get(entity).ok())
-                        .map(Transform::compute_affine)
-                }),
-            ))
-        });
+    let cloth_surface = needs_cloth_contacts.then(|| {
+        std::sync::Arc::new(super::cloak::ContactSurface::new(
+            super::visual_contact::posed_triangles(&rig.visual_contacts, |joint| {
+                rig.joint(joint)
+                    .and_then(|entity| joints.get(entity).ok())
+                    .map(Transform::compute_affine)
+            }),
+        ))
+    });
+    let head_surface = (needs_cloth_contacts && !rig.cloth_head_contacts.is_empty()).then(|| {
+        std::sync::Arc::new(super::cloak::ContactSurface::new(
+            super::visual_contact::posed_triangles(&rig.cloth_head_contacts, |joint| {
+                rig.joint(joint)
+                    .and_then(|entity| joints.get(entity).ok())
+                    .map(Transform::compute_affine)
+            }),
+        ))
+    });
     for cloak in &mut rig.cloaks {
         if cloak.needs_contacts() {
             cloak.set_contacts(contacts.clone());
             if let Some(surface) = &cloth_surface {
                 cloak.set_contact_surface(surface.clone());
+            }
+            if let Some(surface) = &head_surface {
+                cloak.set_head_surface(surface.clone());
             }
         }
     }

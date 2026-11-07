@@ -1128,6 +1128,9 @@ pub struct Rig {
     /// Instance-owned loose hair fitted against the composed torso layers.
     hair: Option<hair_contact::HairRig>,
     visual_contacts: Vec<visual_contact::Part>,
+    /// Actual head geometry for dependent study mantle collars only. Kept apart
+    /// from arm/hand support so it cannot change legacy hair or cape free edges.
+    cloth_head_contacts: Vec<visual_contact::Part>,
     stride: f32,
     hunch: f32,
     style: Style,

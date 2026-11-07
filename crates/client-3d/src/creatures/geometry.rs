@@ -851,6 +851,8 @@ struct Kit<'a, 'w, 's> {
     ghost: bool,
     /// Only wraparound equipment capes need hand contacts beyond legacy hair profiles.
     study_hand_contacts: bool,
+    /// Only a dependent study mantle needs the actual head at its collar.
+    study_head_contacts: bool,
 }
 
 impl Kit<'_, '_, '_> {
@@ -901,6 +903,17 @@ impl Kit<'_, '_, '_> {
                     self.meshes,
                     proportion,
                     self.study_hand_contacts,
+                ));
+        }
+        if j == J::Head && self.study_head_contacts {
+            self.rig
+                .cloth_head_contacts
+                .push(super::visual_contact::Part::from_model(
+                    vec![J::Head],
+                    &model,
+                    self.meshes,
+                    proportion,
+                    true,
                 ));
         }
 
@@ -1052,6 +1065,7 @@ pub fn spawn(
             cloaks: Vec::new(),
             hair: None,
             visual_contacts: Vec::new(),
+            cloth_head_contacts: Vec::new(),
             ankle_floor: 0.081,
             legs: 1.0,
             limb_roles: [LimbRole::Support; 4],
@@ -1076,6 +1090,13 @@ pub fn spawn(
                 matches!(
                     kind.recipe().cut,
                     super::outfit::outerwear::OuterwearCut::Drape(_)
+                )
+            }),
+        study_head_contacts: look.plan == Plan::Biped
+            && look.equipment.outerwear().is_some_and(|kind| {
+                matches!(
+                    kind.recipe().cut,
+                    super::outfit::outerwear::OuterwearCut::Drape(cut) if cut.shoulder_layer
                 )
             }),
     };
@@ -1155,6 +1176,171 @@ pub fn spawn(
         }
     });
     kit.rig
+}
+
+#[cfg(test)]
+mod mantle_head_contact_tests {
+    use super::*;
+    use bevy::render::mesh::VertexAttributeValues;
+    use std::sync::Arc;
+
+    #[test]
+    fn only_dependent_study_mantles_retain_head_geometry() {
+        let base = Look::of(CreatureModel::Human, 17);
+        let (_, native, _, _) = super::super::rogue_tests::spawn_one(&base);
+        assert!(native.cloth_head_contacts.is_empty());
+        for (name, study, mantle) in [
+            ("cloak", false, false),
+            ("mummy-wrapping", false, false),
+            ("hooded-cloak", true, false),
+            ("coarse-mantelet", true, false),
+            ("leather-cloak", true, true),
+            ("ornamental-cope", true, true),
+        ] {
+            let mut equipment = Equipment::default();
+            equipment.select(name).unwrap();
+            let (_, rig, _, _) =
+                super::super::rogue_tests::spawn_one(&base.clone().equipped(equipment));
+            assert_eq!(rig.cloth_head_contacts.len(), usize::from(mantle), "{name}");
+            assert!(rig
+                .cloth_head_contacts
+                .iter()
+                .all(|part| part.retained_triangle_count() > 0));
+            assert_eq!(
+                rig.visual_contacts.len(),
+                native.visual_contacts.len() + if study { 2 } else { 0 },
+                "head support must not enter arm/hand or legacy hair contacts: {name}"
+            );
+        }
+        let (_, other_plan, _, _) =
+            super::super::rogue_tests::spawn_one(&Look::of(CreatureModel::Centaur, 17));
+        assert!(other_plan.cloth_head_contacts.is_empty());
+    }
+
+    #[test]
+    fn mantle_head_contacts_match_rendered_geometry_after_pose_and_entity_remap() {
+        let mut equipment = Equipment::default();
+        equipment.select("leather-cloak").unwrap();
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            17,
+            Some(Variant {
+                woman: true,
+                build: 2,
+                ..default()
+            }),
+        )
+        .equipped(equipment);
+        let (mut world, mut rig, _, meshes) = super::super::rogue_tests::spawn_one(&look);
+        let head = rig.joint(J::Head).unwrap();
+        let neutral =
+            super::super::visual_contact::posed_triangles(&rig.cloth_head_contacts, |joint| {
+                rig.joint(joint)
+                    .and_then(|entity| world.get::<Transform>(entity))
+                    .map(Transform::compute_affine)
+            });
+        assert_eq!(neutral.len(), 1);
+        assert!(!neutral[0].triangles.is_empty());
+
+        // Read the actual emitted mesh children, including their attachment
+        // proportions, rather than reproducing the contact extraction recipe.
+        let mut rendered_local = Vec::new();
+        for rendered in test_support::joint_meshes(&world, &rig, &meshes, head) {
+            let Some(VertexAttributeValues::Float32x3(points)) =
+                rendered.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("head mesh must provide positions");
+            };
+            let indices: Vec<_> = rendered
+                .mesh
+                .indices()
+                .map(|indices| indices.iter().collect())
+                .unwrap_or_else(|| (0..points.len()).collect());
+            for index in indices {
+                rendered_local.push(
+                    rendered
+                        .transform
+                        .transform_point3(Vec3::from_array(points[index])),
+                );
+            }
+        }
+        assert_eq!(rendered_local.len(), neutral[0].triangles.len() * 3);
+        let sorted = |mut points: Vec<Vec3>| {
+            points.sort_by(|a, b| {
+                a.x.total_cmp(&b.x)
+                    .then_with(|| a.y.total_cmp(&b.y))
+                    .then_with(|| a.z.total_cmp(&b.z))
+            });
+            points
+        };
+        for frame in [
+            *world.get::<Transform>(head).unwrap(),
+            Transform {
+                translation: rig.rest[J::Head as usize] + Vec3::new(0.03, -0.02, 0.04),
+                rotation: Quat::from_rotation_y(0.63) * Quat::from_rotation_x(-0.27),
+                scale: Vec3::new(1.04, 0.98, 1.02),
+            },
+        ] {
+            *world.get_mut::<Transform>(head).unwrap() = frame;
+            let posed =
+                super::super::visual_contact::posed_triangles(&rig.cloth_head_contacts, |joint| {
+                    rig.joint(joint)
+                        .and_then(|entity| world.get::<Transform>(entity))
+                        .map(Transform::compute_affine)
+                });
+            assert_eq!(posed.len(), 1);
+            assert!(Arc::ptr_eq(&neutral[0].triangles, &posed[0].triangles));
+            assert_eq!(posed[0].transform, frame.compute_affine());
+            let actual = sorted(
+                posed[0]
+                    .triangles
+                    .iter()
+                    .flatten()
+                    .map(|point| posed[0].transform.transform_point3(*point))
+                    .collect(),
+            );
+            let expected = sorted(
+                rendered_local
+                    .iter()
+                    .map(|point| frame.compute_affine().transform_point3(*point))
+                    .collect(),
+            );
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                assert!(
+                    actual.distance(expected) < 1e-6,
+                    "head attachment and joint scales must apply exactly once: {actual:?} != {expected:?}"
+                );
+            }
+        }
+
+        let replacement_frame =
+            Transform::from_xyz(0.17, 0.43, -0.08).with_rotation(Quat::from_rotation_z(0.31));
+        let replacement_head = world.spawn(replacement_frame).id();
+        rig.map_render_references(
+            |entity| {
+                if entity == head {
+                    replacement_head
+                } else {
+                    entity
+                }
+            },
+            |mesh| mesh.clone(),
+        );
+        let remapped =
+            super::super::visual_contact::posed_triangles(&rig.cloth_head_contacts, |joint| {
+                rig.joint(joint)
+                    .and_then(|entity| world.get::<Transform>(entity))
+                    .map(Transform::compute_affine)
+            });
+        assert_eq!(remapped.len(), 1);
+        assert_eq!(remapped[0].transform, replacement_frame.compute_affine());
+        assert!(Arc::ptr_eq(&neutral[0].triangles, &remapped[0].triangles));
+        let missing_head =
+            super::super::visual_contact::posed_triangles(&rig.cloth_head_contacts, |joint| {
+                (joint != J::Head).then_some(Affine3A::IDENTITY)
+            });
+        assert!(missing_head.is_empty());
+    }
 }
 
 #[cfg(test)]
