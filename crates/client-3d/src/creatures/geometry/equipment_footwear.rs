@@ -479,35 +479,41 @@ fn walking_upper(p: &mut Parts, last: BootLast, color: Vec3) {
     }
 }
 
-/// A rolled fleece cuff: continuous underfur carries short overlapping
-/// rounded curls. Unlike a hanging fringe, no row is suspended below its coat.
+/// Deep fleece facing with a continuous backing and overlapping long tufts.
+/// Keep the compact cuff envelope, but fill its lower half instead of drawing
+/// two regular bead rows around a thin rope. All pile remains seated in underfur.
 fn snow_cuff(p: &mut Parts, shape: BootShape, build: f32, color: Vec3) {
-    p.matte.torus(
-        Vec3::Y * (shape.top - 0.006 * build),
-        Vec3::Y,
-        shape.radius_top - 0.001 * build,
-        0.016 * build,
-        48,
-        10,
-        color * 0.92,
-    );
-    for row in 0..2 {
-        for i in 0..40 {
-            let angle = (i as f32 + row as f32 * 0.5) * TAU / 40.0;
-            let variation = (i as f32 * 2.4 + row as f32).sin() * 0.5 + 0.5;
-            let center = Vec3::new(
-                angle.sin() * (shape.radius_top + 0.004 * build),
-                shape.top + (0.001 - row as f32 * 0.014) * build,
-                angle.cos() * (shape.radius_top + 0.004 * build),
-            );
-            p.matte.blob(
-                center,
-                Vec3::new(0.010, 0.008 + variation * 0.002, 0.010) * build,
-                (row * 40 + i) as u64,
-                0.0,
-                color * (0.90 + variation * 0.10),
-            );
-        }
+    for depth in [0.006, 0.012] {
+        p.matte.torus(
+            Vec3::Y * (shape.top - depth * build),
+            Vec3::Y,
+            shape.radius_top - 0.001 * build,
+            0.016 * build,
+            48,
+            10,
+            color * 0.92,
+        );
+    }
+    for i in 0..32 {
+        let variation = (i as f32 * 2.4).sin() * 0.5 + 0.5;
+        let stagger = (i as f32 * 1.7).sin();
+        let angle = (i as f32 + stagger * 0.18) * TAU / 32.0;
+        let center = Vec3::new(
+            angle.sin() * (shape.radius_top + 0.008 * build),
+            shape.top + (-0.009 + stagger * 0.001) * build,
+            angle.cos() * (shape.radius_top + 0.008 * build),
+        );
+        p.matte.blob(
+            center,
+            Vec3::new(
+                0.013 + variation * 0.002,
+                0.018 + variation * 0.0015,
+                0.013 + variation * 0.002,
+            ) * build,
+            i as u64,
+            0.10,
+            color * (0.90 + variation * 0.10),
+        );
     }
 }
 
@@ -895,6 +901,39 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn snow_cuff_has_deep_continuous_pile_not_a_thin_rope() {
+        for build in [0.75, 1.0, 1.4] {
+            let shape = fit_shape(
+                FootwearAppearance::SnowBoots,
+                BootShape::fitted(build, -0.24),
+            );
+            let mut cuff = Parts::default();
+            snow_cuff(&mut cuff, shape, build, Vec3::ONE);
+            // These lower-facing witnesses are below the old bead rows and
+            // rounded rope. Probe emitted triangles, not recipe parameters.
+            for depth in [0.021, 0.024] {
+                let origin = Vec3::Y * (shape.top - depth * build);
+                for k in 0..73 {
+                    let angle = (k as f32 + 0.37) * TAU / 73.0;
+                    let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
+                    let hit = cuff
+                        .matte
+                        .outer_surface(origin, ray)
+                        .expect("deep fleece facing has no bare-leather gaps");
+                    assert!(
+                        hit.distance(origin) > shape.radius_top + 0.006 * build,
+                        "lower pile must be substantial, not a dangling tip"
+                    );
+                }
+            }
+            // Recolouring cannot satisfy this silhouette contract. Keep the
+            // existing compact bounds and forward-vamp support test below.
+            let (low, high) = cuff.matte.bounds();
+            assert!(high.y - low.y > 0.037 * build, "deep fleece band");
         }
     }
 
