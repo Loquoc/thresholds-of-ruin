@@ -4357,3 +4357,26 @@ visual acceptance. Neutral row6 width, cope inner-layer attachment, and leather
 tick93 head attachment remain open. Spawn timing now counts head BVH construction
 under support work and the full-face attachment prepass under constraints; these
 are phase wall-time diagnostics, not frame-rate benchmarks.
+
+A subsequent tagged tick93 audit isolated a missing tangential head-plane
+candidate. Normals derived from nearest actual clipped head triangles at the
+existing radial-cap endpoints cleared all 114 queried polygons by 38.29 mm,
+without changing the 32 mm reserve or attachment bounds. The head-only prepass
+now tries at most three such normals only after the original family fails, and
+recomputes each support over every clipped polygon. A decoy-polygon regression
+ensures a nearby triangle cannot hide another controlling surface; original
+candidate ordering, limits, membership and complete domain-growth requery remain.
+Strict release Clippy and all eight attachment methods passed. The complete cloak
+checkpoint reached 76 passed and three unresolved failures. The actual tick93
+case now passes head initialization but fails later on inner-layer attachment,
+so the strike scenario is still rejected. Cope inner attachment and neutral
+row6 width also remain unresolved. No fresh render, full-suite qualification or
+remote publication is claimed for this checkpoint.
+
+Offline current-query analysis further distinguishes the inner attachment issue:
+the cope's capped fixed-radial face is infeasible against inner support alone,
+whereas separate head and inner planes with vertical motion can satisfy those
+same queried polygons below the unchanged height ceiling. This is a bounded
+single-face feasibility result, not proof for changed swept domains, the full
+ring, all incident faces or a production movement rule. No source-separation or
+movement-axis change is included in the checkpoint above.

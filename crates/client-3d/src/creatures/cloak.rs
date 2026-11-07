@@ -2990,6 +2990,8 @@ fn fit_radial_faces_impl(
                                                 "face_reference":vertices.map(|p|p.to_array()),
                                                 "face_budget_endpoints":endpoints.map(|p|p.to_array()),
                                                 "face_axes":face.map(|i|axes[i].to_array()),"face_budgets":face.map(|i|budgets[i]),
+                                                "face_radial_limits":face.map(|i|support.radial_limits.and_then(|limits|limits.get(i)).copied()),
+                                                "collar_ceiling":collar_ceiling,"required_clearance":LAYER_GAP+THICKNESS,
                                                 "authored_plane_probe": authored_normal.map(|n| serde_json::json!({
                                                     "normal": n.to_array(), "plane": authored_support.0 + LAYER_GAP + THICKNESS,
                                                     "support_point": authored_support.1.to_array(), "source":authored_support.2.name(),

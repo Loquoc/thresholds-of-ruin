@@ -10,6 +10,8 @@ struct Work {
     rounds: usize,
     #[cfg(test)]
     queries: usize,
+    #[cfg(test)]
+    fallbacks: usize,
 }
 
 /// All positions are in torso space. Only the first two rings may move, on
@@ -61,6 +63,142 @@ fn domain(
     arm_contact_planes(vertices, endpoints, &prism)
 }
 
+type Candidate = ([f32; 3], f32, Vec3, f32);
+
+fn candidate(
+    normal: Vec3,
+    support: f32,
+    vertices: [Vec3; 3],
+    axes: [Vec3; 3],
+    minimum: [f32; 3],
+    limits: [f32; 3],
+) -> Option<Candidate> {
+    if !normal.is_finite() || axes.iter().any(|axis| normal.dot(*axis) <= 1e-6) {
+        return None;
+    }
+    let plane = support + LAYER_GAP + THICKNESS;
+    let shifts = std::array::from_fn::<_, 3, _>(|i| {
+        ((plane - normal.dot(vertices[i])).max(0.0) / normal.dot(axes[i])).max(minimum[i])
+    });
+    // Reject, never truncate, both the original family and geometry-derived
+    // candidates using exactly the same absolute-radius contract.
+    if shifts.iter().enumerate().any(|(i, &shift)| {
+        !shift.is_finite() || (vertices[i] + axes[i] * shift).with_y(0.0).length() > limits[i]
+    }) {
+        return None;
+    }
+    let cost = shifts.iter().map(|shift| shift * shift).sum::<f32>();
+    Some((shifts, cost, normal, plane))
+}
+
+fn closest_segment(point: Vec3, a: Vec3, b: Vec3) -> Vec3 {
+    let edge = b - a;
+    let length = edge.length_squared();
+    if length <= 1e-20 {
+        a
+    } else {
+        a + edge * ((point - a).dot(edge) / length).clamp(0.0, 1.0)
+    }
+}
+
+// The same Voronoi-region construction as robe contact, with an edge fallback
+// for collapsed clipped fans. No nearest point is inferred from a proxy head.
+fn closest_triangle(point: Vec3, [a, b, c]: [Vec3; 3]) -> Vec3 {
+    let ab = b - a;
+    let ac = c - a;
+    if ab.cross(ac).length_squared() <= 1e-18 {
+        return [(a, b), (b, c), (c, a)]
+            .map(|(a, b)| closest_segment(point, a, b))
+            .into_iter()
+            .min_by(|a, b| {
+                a.distance_squared(point)
+                    .total_cmp(&b.distance_squared(point))
+            })
+            .unwrap();
+    }
+    let ap = point - a;
+    let d1 = ab.dot(ap);
+    let d2 = ac.dot(ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = point - b;
+    let d3 = ab.dot(bp);
+    let d4 = ac.dot(bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return a + ab * (d1 / (d1 - d3));
+    }
+    let cp = point - c;
+    let d5 = ab.dot(cp);
+    let d6 = ac.dot(cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return a + ac * (d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 >= d3 && d5 >= d6 {
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let denominator = 1.0 / (va + vb + vc);
+    a + ab * (vb * denominator) + ac * (vc * denominator)
+}
+
+/// Only a failed original family pays for three closest-point queries and one
+/// complete support projection. Clip one triangle at a time; no mesh is copied.
+fn cap_candidates(
+    head: &LayerSurface,
+    planes: &[(Vec3, f32)],
+    caps: [Vec3; 3],
+) -> [(Option<Vec3>, f32); 3] {
+    let mut closest = [None; 3];
+    let mut distances = [f32::INFINITY; 3];
+    for &triangle in head.clipped_candidates(planes) {
+        let Some((polygon, count)) = clipped_polygon(triangle, planes) else {
+            continue;
+        };
+        // A clip may collapse to a point or segment. Retain those boundary
+        // witnesses as degenerate triangles rather than dropping the support.
+        for fan in 1..count.saturating_sub(1).max(2) {
+            let triangle = [
+                polygon[0],
+                polygon[fan.min(count - 1)],
+                polygon[(fan + 1).min(count - 1)],
+            ];
+            for i in 0..3 {
+                let point = closest_triangle(caps[i], triangle);
+                let distance = point.distance_squared(caps[i]);
+                if distance < distances[i] {
+                    distances[i] = distance;
+                    closest[i] = Some(point);
+                }
+            }
+        }
+    }
+    let normals = std::array::from_fn::<_, 3, _>(|i| {
+        closest[i].and_then(|point| (caps[i] - point).try_normalize())
+    });
+    let mut supports = [f32::NEG_INFINITY; 3];
+    for &triangle in head.clipped_candidates(planes) {
+        if let Some((polygon, count)) = clipped_polygon(triangle, planes) {
+            for (normal, support) in normals.iter().zip(&mut supports) {
+                if let Some(normal) = normal {
+                    for point in &polygon[..count] {
+                        *support = support.max(normal.dot(*point));
+                    }
+                }
+            }
+        }
+    }
+    std::array::from_fn(|i| (normals[i], supports[i]))
+}
+
 fn fit(
     reference: &[Vec3],
     head: &LayerSurface,
@@ -69,6 +207,14 @@ fn fit(
 ) -> Result<Vec<Vec3>, RadialFitFailure> {
     #[cfg(not(test))]
     let _ = work;
+    #[cfg(test)]
+    let audit_enabled = std::env::var_os("TOR_CLOAK_SUPPORT_AUDIT").is_some();
+    #[cfg(test)]
+    let audit_column = std::env::var("TOR_CLOAK_ATTACHMENT_COLUMN")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|&column| column < COLUMNS)
+        .unwrap_or(0);
     if reference.len() != GRID
         || !matches!(radial_limits.len(), ATTACHMENT_VERTICES | GRID)
         || reference.iter().any(|point| !point.is_finite())
@@ -175,33 +321,134 @@ fn fit(
                 if !found {
                     continue;
                 }
-                let mut best: Option<([f32; 3], f32, Vec3, f32)> = None;
+                let minima = face.map(|i| minimum[i]);
+                let limits = face.map(|i| radial_limits[i]);
+                let mut best: Option<Candidate> = None;
                 for ((normal, support), allowed) in
                     normals.into_iter().zip(supports).zip(admissible)
                 {
                     if !allowed {
                         continue;
                     }
-                    let plane = support + LAYER_GAP + THICKNESS;
-                    let shifts = face.map(|i| {
-                        ((plane - normal.dot(reference[i])).max(0.0) / normal.dot(axes[i]))
-                            .max(minimum[i])
-                    });
-                    // Reject this candidate, never truncate a collision solve
-                    // to the anatomical limit or allow aggregation to hide it.
-                    if face.iter().zip(shifts).any(|(&i, shift)| {
-                        !shift.is_finite()
-                            || (reference[i] + axes[i] * shift).with_y(0.0).length()
-                                > radial_limits[i]
-                    }) {
-                        continue;
-                    }
-                    let cost = shifts.iter().map(|shift| shift * shift).sum::<f32>();
-                    if best.is_none_or(|(_, old, _, _)| cost < old) {
-                        best = Some((shifts, cost, normal, plane));
+                    if let Some(proposed) =
+                        candidate(normal, support, vertices, rays, minima, limits)
+                    {
+                        if best.is_none_or(|(_, old, _, _)| proposed.1 < old) {
+                            best = Some(proposed);
+                        }
                     }
                 }
+                #[cfg(test)]
+                let needed_geometry = best.is_none();
+                let geometry_candidates = if best.is_none() {
+                    #[cfg(test)]
+                    {
+                        work.fallbacks += 1;
+                    }
+                    let caps =
+                        std::array::from_fn(|i| rays[i] * limits[i] + Vec3::Y * vertices[i].y);
+                    let geometry_candidates = cap_candidates(head, &planes, caps);
+                    for (normal, support) in geometry_candidates {
+                        if let Some(proposed) = normal.and_then(|normal| {
+                            candidate(normal, support, vertices, rays, minima, limits)
+                        }) {
+                            if best.is_none_or(|(_, old, _, _)| proposed.1 < old) {
+                                best = Some(proposed);
+                            }
+                        }
+                    }
+                    geometry_candidates
+                } else {
+                    [(None, f32::NEG_INFINITY); 3]
+                };
+                #[cfg(not(test))]
+                let _ = geometry_candidates;
                 let Some((shifts, _, normal, plane)) = best else {
+                    #[cfg(test)]
+                    if audit_enabled {
+                        let context = audit_context();
+                        let limits = face.map(|i| radial_limits[i]);
+                        let mut polygons = 0usize;
+                        let mut triangles = 0usize;
+                        for &triangle in head.clipped_candidates(&planes) {
+                            triangles += 1;
+                            if let Some((polygon, count)) = clipped_polygon(triangle, &planes) {
+                                eprintln!(
+                                    "head attachment audit polygon: {}",
+                                    serde_json::json!({
+                                        "context":context,"source":"head","face":face,
+                                        "column":column,"iteration":_round,"polygon":polygons,
+                                        "reference":vertices.map(|p|p.to_array()),
+                                        "budget_endpoints":endpoints.map(|p|p.to_array()),
+                                        "axes":rays.map(|p|p.to_array()),"radial_limits":limits,
+                                        "points":polygon[..count].iter().map(|p|p.to_array()).collect::<Vec<_>>(),
+                                    })
+                                );
+                                polygons += 1;
+                            }
+                        }
+                        let mut candidates: Vec<_> = normals
+                            .into_iter()
+                            .zip(supports)
+                            .zip(admissible)
+                            .enumerate()
+                            .map(|(candidate, ((normal, support), allowed))| {
+                                let plane = support + LAYER_GAP + THICKNESS;
+                                let shifts = allowed.then(|| {
+                                    face.map(|i| {
+                                        ((plane - normal.dot(reference[i])).max(0.0)
+                                            / normal.dot(axes[i]))
+                                        .max(minimum[i])
+                                    })
+                                });
+                                let radii = shifts.map(|shifts| {
+                                    std::array::from_fn::<_, 3, _>(|j| {
+                                        (vertices[j] + rays[j] * shifts[j]).with_y(0.0).length()
+                                    })
+                                });
+                                serde_json::json!({
+                                    "candidate":candidate,"label":format!("normal {candidate}"),
+                                    "normal":normal.to_array(),"admissible":allowed,
+                                    "axis_projections":rays.map(|axis|normal.dot(axis)),
+                                    "support":allowed.then_some(support),"plane":allowed.then_some(plane),
+                                    "face_shifts":shifts,"candidate_radii":radii,
+                                    "within_limits":shifts.zip(radii).is_some_and(|(shifts,radii)| {
+                                        shifts.into_iter().zip(radii).zip(limits).all(|((shift,radius),limit)| {
+                                            shift.is_finite() && radius <= limit
+                                        })
+                                    }),
+                                })
+                            })
+                            .collect();
+                        candidates.extend(geometry_candidates.into_iter().enumerate().map(|(cap, (normal, support))| {
+                            let evaluated = normal.and_then(|normal| candidate(normal, support, vertices, rays, minima, limits));
+                            serde_json::json!({
+                                "candidate":FACE_NORMALS+cap,"label":format!("closest clipped surface to cap {cap}"),
+                                "normal":normal.map(|n|n.to_array()),"support":normal.map(|_|support),
+                                "axis_projections":normal.map(|n|rays.map(|axis|n.dot(axis))),
+                                "within_limits":evaluated.is_some(),
+                                "face_shifts":evaluated.map(|value|value.0),
+                            })
+                        }));
+                        eprintln!(
+                            "head attachment audit complete: {}",
+                            serde_json::json!({
+                                "context":context,"source":"head","status":"no bounded plane",
+                                "face":face,"column":column,"iteration":_round,
+                                "reference":vertices.map(|p|p.to_array()),
+                                "budget_endpoints":endpoints.map(|p|p.to_array()),
+                                "axes":rays.map(|p|p.to_array()),"radial_limits":limits,
+                                "reference_radii":vertices.map(|p|p.with_y(0.0).length()),
+                                "face_budgets":face.map(|i|budgets[i]),
+                                "minimum_exits":face.map(|i|minimum[i]),
+                                "clearance":LAYER_GAP+THICKNESS,
+                                "domain_planes":planes.iter().map(|(normal,offset)| {
+                                    serde_json::json!({"normal":normal.to_array(),"offset":offset})
+                                }).collect::<Vec<_>>(),
+                                "triangles":triangles,"polygons":polygons,"candidates":candidates,
+                            })
+                        );
+                    }
                     return Err(failure(
                         column,
                         "no bounded radial head attachment plane",
@@ -211,14 +458,17 @@ fn fit(
                 #[cfg(not(test))]
                 let _ = (normal, plane);
                 #[cfg(test)]
-                if column == 0 && std::env::var_os("TOR_CLOAK_SUPPORT_AUDIT").is_some() {
+                if audit_enabled && column == audit_column {
                     eprintln!(
                         "head attachment plane: {}",
                         serde_json::json!({
-                            "context":audit_context(),"face":face,"iteration":_round,
+                            "context":audit_context(),"face":face,"column":column,"iteration":_round,
                             "normal":normal.to_array(),"plane":plane,
+                            "candidate_family":if needed_geometry {"head cap closest point"} else {"original"},
                             "reference":vertices.map(|p|p.to_array()),
                             "budget_endpoints":endpoints.map(|p|p.to_array()),
+                            "axes":rays.map(|p|p.to_array()),
+                            "radial_limits":face.map(|i|radial_limits[i]),
                             "candidate":std::array::from_fn::<_,3,_>(|j| (reference[face[j]]+axes[face[j]]*shifts[j]).to_array()),
                             "face_shifts":shifts,
                         })
@@ -364,6 +614,190 @@ mod tests {
         nearest
     }
 
+    fn tangential_head_fixture() -> (Vec<Vec3>, LayerSurface, Vec3, f32) {
+        let mut reference = grid(0.2);
+        for (i, point) in reference.iter_mut().enumerate().take(ATTACHMENT_VERTICES) {
+            let angle = 0.08 * (i % (COLUMNS + 1)) as f32 / COLUMNS as f32;
+            *point = Vec3::new(
+                angle.sin() * 0.2,
+                0.6 + 0.02 * (i / (COLUMNS + 1)) as f32,
+                angle.cos() * 0.2,
+            );
+        }
+        // The independent sheet rises both along the radial direction and
+        // around the collar. It is not aligned with any captured head sample.
+        let normal = Vec3::new(0.75, -0.55, 0.36).normalize();
+        let center = Vec3::new(0.0, 0.62, 0.21) - normal * 0.034;
+        let across = normal.any_orthonormal_vector() * 0.25;
+        let along = normal.cross(across);
+        let [a, b, c, d] = [
+            center - across - along,
+            center + across - along,
+            center + across + along,
+            center - across + along,
+        ];
+        (
+            reference,
+            LayerSurface::from_triangles(vec![[a, b, c], [a, c, d]]),
+            normal,
+            normal.dot(center),
+        )
+    }
+
+    #[test]
+    fn rising_tangential_head_sheet_uses_bounded_geometry_normal_after_old_family_fails() {
+        let (reference, head, normal, plane) = tangential_head_fixture();
+        let limits = [0.21; ATTACHMENT_VERTICES];
+        let mut old_family_failed = false;
+        for face in [
+            [index(0, 0), index(0, 1), index(1, 0)],
+            [index(0, 1), index(1, 1), index(1, 0)],
+        ] {
+            let vertices = face.map(|i| reference[i]);
+            let axes = vertices.map(|p| p.with_y(0.0).normalize());
+            let horizontal = axes.into_iter().sum::<Vec3>().normalize();
+            let planes = domain(vertices, vertices, axes, horizontal);
+            let cross = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]);
+            let authored = if cross.dot(horizontal).abs() > 1e-6 {
+                cross.y / cross.dot(horizontal)
+            } else {
+                0.0
+            };
+            let feasible = face_normals(horizontal, authored).into_iter().any(|n| {
+                let support = head
+                    .triangles
+                    .iter()
+                    .filter_map(|&triangle| clipped_support(triangle, n, &planes))
+                    .reduce(f32::max);
+                support.is_some_and(|support| {
+                    candidate(n, support, vertices, axes, [0.0; 3], [0.21; 3]).is_some()
+                })
+            });
+            old_family_failed |= !feasible;
+        }
+        assert!(
+            old_family_failed,
+            "fixture must reject the original 45-normal family"
+        );
+        let mut work = Work::default();
+        let fitted = fit(&reference, &head, &limits, &mut work).unwrap();
+        assert!(work.fallbacks > 0);
+        assert_eq!(
+            &fitted[ATTACHMENT_VERTICES..],
+            &reference[ATTACHMENT_VERTICES..]
+        );
+        for i in 0..ATTACHMENT_VERTICES {
+            assert_eq!(fitted[i].y, reference[i].y);
+            assert!(fitted[i].with_y(0.0).length() <= limits[i]);
+        }
+        for column in 0..COLUMNS {
+            let [a, b, c, d] = [
+                index(0, column),
+                index(0, column + 1),
+                index(1, column),
+                index(1, column + 1),
+            ];
+            for face in [[a, b, c], [b, d, c]] {
+                for u in 0..=4 {
+                    for v in 0..=4 - u {
+                        let weights = [u as f32 / 4.0, v as f32 / 4.0, (4 - u - v) as f32 / 4.0];
+                        let point = face
+                            .into_iter()
+                            .zip(weights)
+                            .map(|(i, w)| fitted[i] * w)
+                            .sum::<Vec3>();
+                        assert!(normal.dot(point) - plane >= LAYER_GAP + THICKNESS - 2e-5);
+                        assert!(
+                            mesh_distance(point, &head.triangles) >= LAYER_GAP + THICKNESS - 2e-5
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn geometry_candidates_reject_nonpositive_axes_and_insufficient_caps() {
+        let (reference, head, _, _) = tangential_head_fixture();
+        let face = [index(0, 0), index(0, 1), index(1, 0)];
+        let vertices = face.map(|i| reference[i]);
+        let axes = vertices.map(|p| p.with_y(0.0).normalize());
+        for normal in [Vec3::Y, Vec3::NEG_Z] {
+            assert!(candidate(normal, 0.0, vertices, axes, [0.0; 3], [0.21; 3]).is_none());
+        }
+        assert!(candidate(Vec3::Z, 0.3, vertices, axes, [0.0; 3], [0.21; 3]).is_none());
+        assert!(fit_head_attachment(&reference, &head, &[0.21; ATTACHMENT_VERTICES]).is_ok());
+        let limits: Vec<_> = reference[..ATTACHMENT_VERTICES]
+            .iter()
+            .map(|p| p.with_y(0.0).length() + 1e-5)
+            .collect();
+        let error = fit_head_attachment(&reference, &head, &limits).unwrap_err();
+        assert_eq!(error.reason, "no bounded radial head attachment plane");
+        assert_eq!(reference, tangential_head_fixture().0);
+    }
+
+    #[test]
+    fn nearest_polygon_normal_is_rejected_when_a_decoy_controls_full_support() {
+        let vertices = [
+            Vec3::new(0.0, 0.59, 0.2),
+            Vec3::new(0.08f32.sin() * 0.2, 0.59, 0.08f32.cos() * 0.2),
+            Vec3::new(0.0, 0.61, 0.2),
+        ];
+        let axes = vertices.map(|p| p.with_y(0.0).normalize());
+        let caps = std::array::from_fn(|i| axes[i] * 0.25 + Vec3::Y * vertices[i].y);
+        let horizontal = axes.into_iter().sum::<Vec3>().normalize();
+        let planes = domain(vertices, caps, axes, horizontal);
+        let near = sheet(0.213);
+        let decoy = [
+            Vec3::new(-0.028, 0.58, 0.245),
+            Vec3::new(-0.026, 0.62, 0.245),
+            Vec3::new(-0.024, 0.60, 0.245),
+        ];
+        assert!(clipped_polygon(decoy, &planes).is_some());
+        let near_only = LayerSurface::from_triangles(vec![near]);
+        let all = LayerSurface::from_triangles(vec![near, decoy]);
+        let (near_normal, near_support) = cap_candidates(&near_only, &planes, caps)[1];
+        let (all_normal, all_support) = cap_candidates(&all, &planes, caps)[1];
+        let near_normal = near_normal.unwrap();
+        let all_normal = all_normal.unwrap();
+        assert!(
+            near_normal.dot(all_normal) > 0.99999,
+            "decoy must not become this cap's nearest polygon"
+        );
+        assert!(candidate(
+            near_normal,
+            near_support,
+            vertices,
+            axes,
+            [0.0; 3],
+            [0.25; 3]
+        )
+        .is_some());
+        assert!(
+            all_support > near_support + 0.025,
+            "full projection must include the nonnearest decoy"
+        );
+        assert!(candidate(all_normal, all_support, vertices, axes, [0.0; 3], [0.25; 3]).is_none());
+    }
+
+    #[test]
+    fn closest_clipped_triangle_keeps_interior_edge_and_collapsed_witnesses() {
+        let triangle = [Vec3::ZERO, Vec3::X, Vec3::Y];
+        for (point, expected) in [
+            (Vec3::new(0.25, 0.25, 1.0), Vec3::new(0.25, 0.25, 0.0)),
+            (Vec3::new(0.5, -1.0, 0.0), Vec3::X * 0.5),
+            (Vec3::new(-1.0, -1.0, 0.0), Vec3::ZERO),
+        ] {
+            assert!(closest_triangle(point, triangle).distance(expected) < 1e-6);
+        }
+        assert_eq!(closest_triangle(Vec3::Y, [Vec3::ZERO; 3]), Vec3::ZERO);
+        assert!(
+            closest_triangle(Vec3::new(0.4, 1.0, 0.0), [Vec3::ZERO, Vec3::X, Vec3::X])
+                .distance(Vec3::X * 0.4)
+                < 1e-6
+        );
+    }
+
     #[test]
     fn closed_head_first_band_has_independent_sampled_clearance() {
         let reference = grid(0.12);
@@ -449,7 +883,12 @@ mod tests {
             fit_head_attachment(&reference, &remote, &limits).unwrap(),
             reference
         );
-        let fitted = fit_head_attachment(&reference, &near, &limits).unwrap();
+        let mut work = Work::default();
+        let fitted = fit(&reference, &near, &limits, &mut work).unwrap();
+        assert_eq!(
+            work.fallbacks, 0,
+            "successful original families must not invoke geometry candidates"
+        );
         assert!(fitted[0].z >= 0.21 + LAYER_GAP + THICKNESS - 1e-6);
         assert_eq!(
             fit_head_attachment(&reference, &both, &limits).unwrap(),
