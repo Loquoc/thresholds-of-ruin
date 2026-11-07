@@ -225,6 +225,33 @@ impl Recipe {
         point
     }
     fn wrap_point(&self, cut: DrapeCut, row: usize, column: usize) -> Vec3 {
+        self.wrap_geometry(cut, row, column, true)
+    }
+
+    fn shoulder_profile(&self) -> Vec<Vec2> {
+        let Some(cut) = self.cut else {
+            return Vec::new();
+        };
+        (0..GRID)
+            .map(|i| self.shoulder_coefficient(cut, i / (COLUMNS + 1), i % (COLUMNS + 1)))
+            .collect()
+    }
+
+    fn shoulder_coefficient(&self, cut: DrapeCut, row: usize, column: usize) -> Vec2 {
+        if row == 0 {
+            return Vec2::Y;
+        }
+        if row >= YOKE_ROWS {
+            return Vec2::X;
+        }
+        shoulder_coefficient(
+            row,
+            self.wrap_geometry(cut, row - 1, column, false),
+            self.wrap_geometry(cut, row + 1, column, false),
+        )
+    }
+
+    fn wrap_geometry(&self, cut: DrapeCut, row: usize, column: usize, fit: bool) -> Vec3 {
         let t = study_row_fraction(row);
         let u = column as f32 / COLUMNS as f32;
         // Left front edge, around the back, to the right front edge. The
@@ -285,14 +312,15 @@ impl Recipe {
         } else {
             shoulder.lerp(hem, (row - YOKE_ROWS) as f32 / (ROWS - YOKE_ROWS) as f32)
         };
-        if row > 0 {
+        if fit && row > 0 {
+            let axis = profile_direction(at, self.shoulder_coefficient(cut, row, column));
             if let Some(surface) = &self.contact_surface {
-                at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| self.support.distance(p));
-                at = fit_mesh_contact(at, row < YOKE_ROWS, &surface.surface());
+                at = fit_profile_body(at, axis, &|p| self.support.distance(p));
+                at = surface.surface().outside_point(at, axis).unwrap_or(at);
             } else if let Some(scene) = &self.scene {
-                at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.distance(p));
+                at = fit_profile_body(at, axis, &|p| scene.distance(p));
             } else {
-                at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| self.support.distance(p));
+                at = fit_profile_body(at, axis, &|p| self.support.distance(p));
             }
         }
         at - Vec3::new(0.0, 0.53, -0.15)
@@ -334,6 +362,60 @@ fn supported_turnover(
     Vec3::Y * authored.y + direction * radius
 }
 
+// Freeze material-profile coefficients BEFORE contact fitting. A monotone
+// radial/+Y direction preserves the azimuth while following the shoulder's
+// outward normal instead of abruptly switching coordinates at its last band.
+fn shoulder_coefficient(row: usize, before: Vec3, after: Vec3) -> Vec2 {
+    if row == 0 {
+        return Vec2::Y;
+    }
+    if row >= YOKE_ROWS {
+        return Vec2::X;
+    }
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let dr = (after + offset).with_y(0.0).length() - (before + offset).with_y(0.0).length();
+    Vec2::new((before.y - after.y).max(0.0), dr.max(0.0)).normalize_or(Vec2::Y)
+}
+
+fn profile_direction(at: Vec3, coefficient: Vec2) -> Vec3 {
+    at.with_y(0.0).normalize_or(Vec3::NEG_Z) * coefficient.x + Vec3::Y * coefficient.y
+}
+
+fn fit_profile_body(at: Vec3, axis: Vec3, distance: &impl Fn(Vec3) -> f32) -> Vec3 {
+    // Trace inward from a known remote point along the SAME fixed axis used
+    // by layer seating and certification. Keep the previous body's gap.
+    let reserve = if axis.y == 0.0 {
+        LAYER_GAP + 0.010
+    } else {
+        0.025
+    };
+    let mut travel = 1.5;
+    while travel > 0.0 {
+        let probe = at + axis * travel;
+        let gap = distance(probe / anatomy::HIP_SCALE) - reserve;
+        if gap <= 0.0002 {
+            return probe;
+        }
+        travel -= gap.clamp(0.002, 0.02);
+    }
+    at
+}
+
+fn seat_profile_surface(at: Vec3, axis: Vec3, surface: &LayerSurface) -> Vec3 {
+    // The complete line through the authored point retains outermost layer
+    // semantics. Only positive travel is applied; a ray hit is initialization,
+    // never a replacement for the full-face certificate.
+    let Some(bounds) = surface.tree.first() else {
+        return at;
+    };
+    let minimum = (bounds.low * axis).min(bounds.high * axis).element_sum();
+    let extent = (at.dot(axis) - minimum).max(0.0) + THICKNESS;
+    let origin = at - axis * extent;
+    surface.ray(origin, axis).map_or(at, |hit| {
+        at + axis * (hit - extent + LAYER_GAP + THICKNESS).max(0.0)
+    })
+}
+
 /// Inner cloth uses intentional outermost layer seating. Arm obstacles use
 /// membership-gated initialization instead, followed by exact face clearance.
 fn seat_outermost_surface(mut at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
@@ -359,6 +441,7 @@ fn seat_outermost_surface(mut at: Vec3, roof: bool, surface: &LayerSurface) -> V
     at
 }
 
+#[cfg(test)]
 fn fit_mesh_contact(at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
     let axis = if roof {
         Vec3::Y
@@ -370,12 +453,25 @@ fn fit_mesh_contact(at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
     surface.outside_point(at, axis).unwrap_or(at)
 }
 
+#[cfg(test)]
 fn seat_arm_obstacles(points: &mut [Vec3], rotation: Quat, arms: &LayerSurface) {
+    seat_arm_profile(points, rotation, arms, None);
+}
+fn seat_arm_profile(
+    points: &mut [Vec3],
+    rotation: Quat,
+    arms: &LayerSurface,
+    profile: Option<&[Vec2]>,
+) {
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let inverse = rotation.inverse();
     for (i, p) in points.iter_mut().enumerate().skip(COLUMNS + 1) {
         let at = rotation * *p + offset;
-        *p = inverse * (fit_mesh_contact(at, i / (COLUMNS + 1) < YOKE_ROWS, arms) - offset);
+        let axis = profile.map_or_else(
+            || contact_axis(i, at.with_y(0.0).normalize_or(Vec3::NEG_Z)),
+            |profile| profile_direction(at, profile[i]),
+        );
+        *p = inverse * (arms.outside_point(at, axis).unwrap_or(at) - offset);
     }
 }
 
@@ -448,6 +544,7 @@ pub(super) struct CloakRig {
     pub entity: Entity,
     mesh: Handle<Mesh>,
     rest: Vec<Vec3>,
+    shoulder_profile: Vec<Vec2>,
     bindings: Vec<SurfaceBinding<f32>>,
     points: Vec<Vec3>,
     normals: Vec<Vec3>,
@@ -718,6 +815,7 @@ pub(super) fn spawn(
         });
     let support_ms = support_started.elapsed().as_secs_f64() * 1000.0;
     let point_started = std::time::Instant::now();
+    let shoulder_profile = recipe.shoulder_profile();
     let rest: Vec<_> = (0..GRID)
         .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
         .collect();
@@ -743,6 +841,7 @@ pub(super) fn spawn(
             &mut points,
             Quat::IDENTITY,
             surface,
+            &shoulder_profile,
             &mut contact_radial_trace,
         ));
         contact_solves += 1;
@@ -833,6 +932,7 @@ pub(super) fn spawn(
             })
             .collect(),
         rest,
+        shoulder_profile,
         normals,
         last_rotation: None,
         neutral_reach: arm_surface
@@ -890,6 +990,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
         support,
         wrapped,
         scene,
+        shoulder_profile,
         ..
     } = cloak;
     // Each point traces the back on its own, and tracing dominates a worn
@@ -910,11 +1011,18 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                         .as_ref()
                         .map_or(at, |body| fit_neck_opening(at, body))
                 } else if let Some(surface) = &mesh_contact {
-                    let body_fit =
-                        fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.body.distance(p));
-                    fit_mesh_contact(body_fit, row < YOKE_ROWS, surface)
+                    let axis = shoulder_profile.get(i).map_or_else(
+                        || contact_axis(i, at.with_y(0.0).normalize_or(Vec3::NEG_Z)),
+                        |&coefficient| profile_direction(at, coefficient),
+                    );
+                    let body_fit = fit_profile_body(at, axis, &|p| scene.body.distance(p));
+                    surface.outside_point(body_fit, axis).unwrap_or(body_fit)
                 } else {
-                    fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.distance(p))
+                    let axis = shoulder_profile.get(i).map_or_else(
+                        || contact_axis(i, at.with_y(0.0).normalize_or(Vec3::NEG_Z)),
+                        |&coefficient| profile_direction(at, coefficient),
+                    );
+                    fit_profile_body(at, axis, &|p| scene.distance(p))
                 };
                 *point = inverse * (fitted - Vec3::new(0.0, 0.53, -0.15));
             }
@@ -966,6 +1074,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                 &mut cloak.points,
                 rotation,
                 surface,
+                &cloak.shoulder_profile,
                 &mut cloak.contact_radial_trace,
             ));
             cloak.contact_cpu_ms[3] += started.elapsed().as_secs_f64() * 1000.0;
@@ -1667,11 +1776,15 @@ fn fit_arm_cells(
     points: &mut [Vec3],
     rotation: Quat,
     support: &LayerSurface,
+    profile: &[Vec2],
     trace: &mut Option<serde_json::Value>,
 ) -> bool {
-    if let Err(failure) =
-        fit_radial_supports_traced(points, rotation, FaceSupport::arms(support), trace)
-    {
+    if let Err(failure) = fit_radial_supports_traced(
+        points,
+        rotation,
+        FaceSupport::arms(support).with_profile(profile),
+        trace,
+    ) {
         fallback_radial_fit(points, rotation, support, failure);
         true
     } else {
@@ -1731,8 +1844,9 @@ fn fallback_radial_fit(
     }
 }
 
-/// Roof vertices move vertically at fixed XZ; turnover and hanging vertices
-/// move radially at fixed height. Collar anchors retain their absolute ceiling.
+/// Study vertices follow frozen outward normals of the authored shoulder
+/// profile; collar anchors stay vertical and the turnover stays radial.
+/// Collar anchors retain their absolute ceiling.
 /// Every face accepts only normals positive on all incident movement axes.
 /// The fifth query plane bounds the possible outward
 /// travel, so an unrelated cap beyond a collar face cannot move its anchors.
@@ -1754,6 +1868,7 @@ fn fit_radial_faces(
 struct FaceSupport<'a> {
     inner: Option<&'a LayerSurface>,
     arms: Option<&'a LayerSurface>,
+    profile: Option<&'a [Vec2]>,
 }
 impl<'a> FaceSupport<'a> {
     #[cfg(test)]
@@ -1761,13 +1876,19 @@ impl<'a> FaceSupport<'a> {
         Self {
             inner: Some(surface),
             arms: None,
+            profile: None,
         }
     }
     fn arms(surface: &'a LayerSurface) -> Self {
         Self {
             inner: None,
             arms: Some(surface),
+            profile: None,
         }
+    }
+    fn with_profile(mut self, profile: &'a [Vec2]) -> Self {
+        self.profile = (!profile.is_empty()).then_some(profile);
+        self
     }
 }
 
@@ -1798,6 +1919,59 @@ struct FaceFitWork {
     empty_hits: usize,
     #[cfg(test)]
     invalidations: usize,
+    // Proposed-position outside_point calls only, not initial validation or
+    // the individual ray tests performed inside one membership query.
+    #[cfg(test)]
+    membership_calls: usize,
+    #[cfg(test)]
+    membership_hits: usize,
+    #[cfg(test)]
+    membership_changes: usize,
+}
+
+// One entry per vertex, scoped to one solve. Its arm surface and movement axis
+// are fixed throughout that solve; only the exact proposed position is keyed.
+#[derive(Clone, Copy)]
+struct ProposalMembership {
+    position: [u32; 3],
+    outside: Option<Vec3>,
+}
+
+fn memoized_outside_point(
+    arms: &LayerSurface,
+    proposed: Vec3,
+    axis: Vec3,
+    entry: &mut Option<ProposalMembership>,
+    enabled: bool,
+    work: &mut FaceFitWork,
+) -> Option<Vec3> {
+    #[cfg(not(test))]
+    let _ = work;
+    let position = proposed.to_array().map(f32::to_bits);
+    if enabled {
+        if let Some(previous) = entry {
+            if previous.position == position {
+                #[cfg(test)]
+                {
+                    work.membership_hits += 1;
+                }
+                return previous.outside;
+            }
+            #[cfg(test)]
+            {
+                work.membership_changes += 1;
+            }
+        }
+    }
+    #[cfg(test)]
+    {
+        work.membership_calls += 1;
+    }
+    let outside = arms.outside_point(proposed, axis);
+    if enabled {
+        *entry = Some(ProposalMembership { position, outside });
+    }
+    outside
 }
 
 #[cfg(test)]
@@ -1821,6 +1995,7 @@ fn fit_radial_supports_traced(
         support,
         trace,
         true,
+        true,
         &mut FaceFitWork::default(),
     )
 }
@@ -1833,12 +2008,35 @@ fn contact_axis(vertex: usize, radial: Vec3) -> Vec3 {
     }
 }
 
+fn swept_face_bounds(
+    vertices: [Vec3; 3],
+    endpoints: [Vec3; 3],
+    horizontal: Vec3,
+) -> (f32, f32, f32) {
+    let low = vertices.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+    let high = vertices
+        .iter()
+        .chain(&endpoints)
+        .map(|p| p.y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let radial = endpoints
+        .iter()
+        .map(|p| horizontal.dot(*p))
+        .fold(f32::NEG_INFINITY, f32::max);
+    (low, high, radial)
+}
+
+fn face_domain_key(high: f32, radial: f32, arms: bool) -> [u32; 2] {
+    [high.to_bits(), if arms { radial.to_bits() } else { 0 }]
+}
+
 fn fit_radial_faces_impl(
     points: &mut [Vec3],
     rotation: Quat,
     support: FaceSupport<'_>,
     trace: &mut Option<serde_json::Value>,
     cache_enabled: bool,
+    membership_cache_enabled: bool,
     work: &mut FaceFitWork,
 ) -> Result<(), RadialFitFailure> {
     #[cfg(not(test))]
@@ -1865,18 +2063,24 @@ fn fit_radial_faces_impl(
     let axes: Vec<_> = directions
         .iter()
         .enumerate()
-        .map(|(i, &radial)| contact_axis(i, radial))
+        .map(|(i, &radial)| {
+            support.profile.map_or_else(
+                || contact_axis(i, radial),
+                |profile| radial * profile[i].x + Vec3::Y * profile[i].y,
+            )
+        })
         .collect();
     let collar_ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
     let mut travels = vec![0.0f32; GRID];
     let mut budgets = vec![0.0f32; GRID];
-    // Roof budgets are Y travel, NEVER radial extent. Fixed movement axes
-    // keep every angular wedge invariant across both kinds of growth.
-    let mut roof_budgets = [0.0f32; ROOF_VERTICES];
-    // Inner-only hanging domains are invariant; arm obstacle domains change
-    // with radial budgets. Key hanging results by that exact domain extent.
-    // Roof faces always requery. Cache lifetime is one pose/support solve.
+    // Scalar travel follows each frozen axis. Query BOTH radial and Y
+    // endpoint extrema; mixed-axis travel must never enter only one bound.
+
+    // Pure-radial inner hanging domains are invariant. The mixed last shoulder
+    // band can change height, and arm domains can change radius: key BOTH
+    // extents. Roof faces always requery. Cache lasts one pose/support solve.
     let mut face_cache = vec![None; ROWS * COLUMNS * 2];
+    let mut membership_cache = vec![None; if support.arms.is_some() { GRID } else { 0 }];
     let mut radial_trace = None;
     let mut volume_trace = None;
     #[cfg(test)]
@@ -1928,18 +2132,9 @@ fn fit_radial_faces_impl(
                             });
                     let left = horizontal * lo.cos() + tangent * lo.sin();
                     let right = horizontal * hi.cos() + tangent * hi.sin();
-                    let low = vertices.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
-                    let mut high = vertices
-                        .iter()
-                        .map(|p| p.y)
-                        .fold(f32::NEG_INFINITY, f32::max);
-                    for &i in face.iter().filter(|&&i| i < ROOF_VERTICES) {
-                        high = high.max(reference[i].y + roof_budgets[i]);
-                    }
-                    let radial_limit = face
-                        .iter()
-                        .map(|&i| horizontal.dot(reference[i] + directions[i] * budgets[i]))
-                        .fold(f32::NEG_INFINITY, f32::max);
+                    let endpoints = face.map(|i| reference[i] + axes[i] * budgets[i]);
+                    let (low, high, radial_limit) =
+                        swept_face_bounds(vertices, endpoints, horizontal);
                     let planes = [
                         (Vec3::Y, low - THICKNESS),
                         (Vec3::NEG_Y, -high - THICKNESS),
@@ -1958,11 +2153,7 @@ fn fit_radial_faces_impl(
 
                     let cache_index = (row * COLUMNS + column) * 2 + face_number;
                     let cacheable = cache_enabled && row >= ROOF_ROWS;
-                    let domain_key = if support.arms.is_some() {
-                        radial_limit.to_bits()
-                    } else {
-                        0
-                    };
+                    let domain_key = face_domain_key(high, radial_limit, support.arms.is_some());
                     let cached = face_cache[cache_index].filter(|(key, _)| *key == domain_key);
                     #[cfg(test)]
                     if face_cache[cache_index].is_some() && cached.is_none() {
@@ -2059,8 +2250,8 @@ fn fit_radial_faces_impl(
                                     .zip(support_is_arm)
                                 {
                                     // Every later shared-vertex correction must preserve
-                                    // this plane. +Y is valid only on pure-roof faces;
-                                    // mixed roof/side faces need both components.
+                                    // this plane. Test each frozen profile axis, including
+                                    // both components of the shoulder transition.
                                     if face.iter().any(|&i| normal.dot(axes[i]) <= 1e-6) {
                                         continue;
                                     }
@@ -2156,7 +2347,7 @@ fn fit_radial_faces_impl(
                     }
                     for (i, shift) in face.into_iter().zip(shifts) {
                         travels[i] = travels[i].max(shift);
-                        if i >= ROOF_VERTICES
+                        if axes[i].with_y(0.0).length_squared() > 0.0
                             && shift > 0.0
                             && radial_trace.as_ref().is_none_or(|(old, _)| shift > *old)
                         {
@@ -2186,7 +2377,14 @@ fn fit_radial_faces_impl(
                 .filter(|(_, travel)| **travel > 0.0)
             {
                 let proposed = reference[i] + axes[i] * *travel;
-                let Some(outside) = arms.outside_point(proposed, axes[i]) else {
+                let Some(outside) = memoized_outside_point(
+                    arms,
+                    proposed,
+                    axes[i],
+                    &mut membership_cache[i],
+                    membership_cache_enabled,
+                    work,
+                ) else {
                     return Err(RadialFitFailure {
                         row: i / (COLUMNS + 1),
                         column: i % (COLUMNS + 1),
@@ -2205,7 +2403,7 @@ fn fit_radial_faces_impl(
                 let required = (outside - reference[i]).dot(axes[i]);
                 if outside != proposed && required > *travel {
                     *travel = required;
-                    if i >= ROOF_VERTICES
+                    if axes[i].with_y(0.0).length_squared() > 0.0
                         && volume_trace
                             .as_ref()
                             .is_none_or(|(_, old, _, _)| required > *old)
@@ -2218,12 +2416,7 @@ fn fit_radial_faces_impl(
         let expanded = travels
             .iter()
             .zip(&budgets)
-            .skip(ROOF_VERTICES)
-            .any(|(&travel, &budget)| travel > budget)
-            || travels[..ROOF_VERTICES]
-                .iter()
-                .zip(&roof_budgets)
-                .any(|(&travel, &budget)| travel > budget);
+            .any(|(&travel, &budget)| travel > budget);
         if !expanded {
             break;
         }
@@ -2239,7 +2432,7 @@ fn fit_radial_faces_impl(
                 ],
             });
         }
-        for (i, (budget, &travel)) in roof_budgets.iter_mut().zip(&travels).enumerate() {
+        for (i, (budget, &travel)) in budgets.iter_mut().zip(&travels).enumerate() {
             if travel > *budget {
                 *budget = if i <= COLUMNS {
                     (travel + THICKNESS)
@@ -2248,13 +2441,6 @@ fn fit_radial_faces_impl(
                 } else {
                     travel + THICKNESS
                 };
-            }
-        }
-        for (budget, &travel) in budgets.iter_mut().zip(&travels).skip(ROOF_VERTICES) {
-            // Reserve one additional lining thickness when a domain expands. It
-            // avoids asymptotic boundary chasing without changing final travel.
-            if travel > *budget {
-                *budget = travel + THICKNESS;
             }
         }
     }
@@ -2288,7 +2474,7 @@ fn fit_radial_faces_impl(
             "inner_height_domain":support.inner.map(|_|[low-THICKNESS,high+THICKNESS]),
             "arm_radial_domain":support.arms.map(|_|radial_limit+THICKNESS+LAYER_GAP),
             "inner_radial_domain":support.inner.and(if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None}),
-            "reference":reference[vertex].to_array(),"final":(reference[vertex]+directions[vertex]*travel).to_array()}),
+            "reference":reference[vertex].to_array(),"axis":axes[vertex].to_array(),"final":(reference[vertex]+axes[vertex]*travel).to_array()}),
         );
     }
     if let Some((vertex, travel, final_point, iteration)) = volume_trace {
@@ -2473,10 +2659,19 @@ fn seat_layer_collar(
 /// than asking a fixed-height solver to escape a horizontal inner sheet by
 /// moving to its rim. Rays are only initialization: all emitted faces still
 /// require the combined inner-cloth/arm certificate afterwards.
+#[cfg(test)]
 fn seat_inner_layer(
     points: &mut [Vec3],
     rotation: Quat,
     inner: &LayerSurface,
+) -> Result<(), RadialFitFailure> {
+    seat_inner_profile(points, rotation, inner, None)
+}
+fn seat_inner_profile(
+    points: &mut [Vec3],
+    rotation: Quat,
+    inner: &LayerSurface,
+    profile: Option<&[Vec2]>,
 ) -> Result<(), RadialFitFailure> {
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let inverse = rotation.inverse();
@@ -2485,7 +2680,9 @@ fn seat_inner_layer(
     // only the coupled certificate decides the collar's necessary Y travel.
     for (i, point) in points.iter_mut().enumerate().skip(COLUMNS + 1) {
         let at = rotation * *point + offset;
-        let fitted = if i / (COLUMNS + 1) < YOKE_ROWS {
+        let fitted = if let Some(profile) = profile {
+            seat_profile_surface(at, profile_direction(at, profile[i]), inner)
+        } else if i / (COLUMNS + 1) < YOKE_ROWS {
             seat_outermost_surface(at, true, inner)
         } else {
             // Retained cloth reaches the hem. The arm-only contact cutoff
@@ -2563,10 +2760,11 @@ pub(super) fn place_layers(
         cloak.contact_cpu_ms[1] += support_started.elapsed().as_secs_f64() * 1000.0;
         let mut candidate = cloak.points.clone();
         let seating_started = std::time::Instant::now();
-        let seated = seat_inner_layer(&mut candidate, rot, &support);
+        let seated =
+            seat_inner_profile(&mut candidate, rot, &support, Some(&cloak.shoulder_profile));
         if seated.is_ok() {
             if let Some(arms) = &cloak.arm_surface {
-                seat_arm_obstacles(&mut candidate, rot, arms);
+                seat_arm_profile(&mut candidate, rot, arms, Some(&cloak.shoulder_profile));
             }
         }
         cloak.contact_cpu_ms[2] += seating_started.elapsed().as_secs_f64() * 1000.0;
@@ -2584,6 +2782,7 @@ pub(super) fn place_layers(
                 FaceSupport {
                     inner: Some(&support),
                     arms: cloak.arm_surface.as_deref(),
+                    profile: Some(&cloak.shoulder_profile),
                 },
                 &mut cloak.contact_radial_trace,
             )
@@ -2889,6 +3088,15 @@ mod tests {
         rotation: Quat,
         support: FaceSupport<'_>,
     ) -> (FaceFitWork, FaceFitWork, bool) {
+        assert_cache_equivalent(reference, rotation, support, false)
+    }
+
+    fn assert_cache_equivalent(
+        reference: &[Vec3],
+        rotation: Quat,
+        support: FaceSupport<'_>,
+        keep_face_cache: bool,
+    ) -> (FaceFitWork, FaceFitWork, bool) {
         let mut cached = reference.to_vec();
         let mut uncached = reference.to_vec();
         let mut cached_trace = None;
@@ -2901,6 +3109,7 @@ mod tests {
             support,
             &mut cached_trace,
             true,
+            true,
             &mut cached_work,
         );
         let uncached_result = fit_radial_faces_impl(
@@ -2908,6 +3117,7 @@ mod tests {
             rotation,
             support,
             &mut uncached_trace,
+            keep_face_cache,
             false,
             &mut uncached_work,
         );
@@ -2936,10 +3146,22 @@ mod tests {
             "face order, tie winner and final-round witness must agree"
         );
         assert_eq!(cached_work.rounds, uncached_work.rounds);
-        assert_eq!(uncached_work.hits, 0);
+        if keep_face_cache {
+            assert_eq!(cached_work.hits, uncached_work.hits);
+            assert_eq!(cached_work.queries, uncached_work.queries);
+            assert_eq!(cached_work.clips, uncached_work.clips);
+            assert_eq!(cached_work.projections, uncached_work.projections);
+        } else {
+            assert_eq!(uncached_work.hits, 0);
+            assert_eq!(
+                cached_work.queries + cached_work.hits,
+                uncached_work.queries
+            );
+        }
+        assert_eq!(uncached_work.membership_hits, 0);
         assert_eq!(
-            cached_work.queries + cached_work.hits,
-            uncached_work.queries
+            cached_work.membership_calls + cached_work.membership_hits,
+            uncached_work.membership_calls
         );
         assert!(cached_work.clips <= uncached_work.clips);
         assert!(cached_work.projections <= uncached_work.projections);
@@ -2949,6 +3171,146 @@ mod tests {
         }
         eprintln!("face cache work: cached={cached_work:?}, uncached={uncached_work:?}");
         (cached_work, uncached_work, cached_result.is_ok())
+    }
+
+    #[test]
+    fn proposal_membership_cache_reuses_exact_results_and_rechecks_changed_bits() {
+        let arms = LayerSurface::from_triangles(
+            rounded_cap()
+                .into_iter()
+                .map(|tri| tri.map(|p| p + Vec3::Z * 0.5))
+                .collect(),
+        );
+        let mut entry = None;
+        let mut work = FaceFitWork::default();
+        let first = Vec3::new(0.0, 0.0, 0.2);
+        let changed = Vec3::new(f32::from_bits(1), 0.0, 0.2);
+        for proposed in [first, first, changed, changed] {
+            let expected = arms.outside_point(proposed, Vec3::Z);
+            let actual =
+                memoized_outside_point(&arms, proposed, Vec3::Z, &mut entry, true, &mut work);
+            let bits = |p: Option<Vec3>| p.map(|p| p.to_array().map(f32::to_bits));
+            assert_eq!(bits(actual), bits(expected));
+        }
+        assert_eq!(work.membership_calls, 2);
+        assert_eq!(work.membership_hits, 2);
+        assert_eq!(
+            work.membership_changes, 1,
+            "even a one-bit coordinate change must query again"
+        );
+        // Different vertices have different slots even at identical XYZ; their
+        // axes are fixed independently, never part of a global position cache.
+        let inside = Vec3::Z * 0.5;
+        let mut entries = [None; 2];
+        for (slot, axis) in entries.iter_mut().zip([Vec3::X, Vec3::Z]) {
+            assert_eq!(
+                memoized_outside_point(&arms, inside, axis, slot, true, &mut work),
+                arms.outside_point(inside, axis),
+            );
+        }
+        assert_eq!(work.membership_calls, 4);
+        assert_ne!(entries[0].unwrap().outside, entries[1].unwrap().outside);
+    }
+
+    #[test]
+    fn proposal_membership_cache_preserves_failed_bounded_exits() {
+        let part = super::super::visual_contact::PosedTriangles::new(
+            Arc::new(rounded_cap()),
+            Affine3A::IDENTITY,
+        );
+        // Each exit enters the next overlapping component. Thirteen solids
+        // exceed the production twelve-exit budget without changing that gate.
+        let snapshot = ContactSurface::new(
+            (0..13)
+                .map(|i| {
+                    let mut part = part.clone();
+                    part.transform = Affine3A::from_translation(Vec3::Z * (i as f32 * 0.15));
+                    part
+                })
+                .collect(),
+        );
+        let arms = snapshot.surface();
+        assert!(arms.outside_point(Vec3::ZERO, Vec3::Z).is_none());
+        let mut entry = None;
+        let mut work = FaceFitWork::default();
+        for _ in 0..2 {
+            assert!(memoized_outside_point(
+                &arms,
+                Vec3::ZERO,
+                Vec3::Z,
+                &mut entry,
+                true,
+                &mut work
+            )
+            .is_none());
+        }
+        assert_eq!(work.membership_calls, 1);
+        assert_eq!(
+            work.membership_hits, 1,
+            "None is a cached result, not an unqueried entry"
+        );
+        let clear = Vec3::X * 2.0;
+        assert_eq!(
+            memoized_outside_point(&arms, clear, Vec3::Z, &mut entry, true, &mut work),
+            Some(clear)
+        );
+        assert_eq!(work.membership_calls, 2);
+        assert_eq!(work.membership_changes, 1);
+    }
+
+    #[test]
+    fn proposal_membership_cache_is_equivalent_with_fixed_and_growing_face_domains() {
+        let reference = radial_test_grid();
+        let triangle = |z| {
+            [
+                Vec3::new(-0.02, -0.15, z),
+                Vec3::new(0.02, -0.15, z),
+                Vec3::new(0.0, -0.11, z),
+            ]
+        };
+        let inner = LayerSurface::from_triangles(vec![triangle(0.45)]);
+        let remote = LayerSurface::from_triangles(
+            rounded_cap()
+                .into_iter()
+                .map(|tri| tri.map(|p| p + Vec3::X * 2.0))
+                .collect(),
+        );
+        let (cached, uncached, success) = assert_cache_equivalent(
+            &reference,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: Some(&inner),
+                arms: Some(&remote),
+                profile: None,
+            },
+            true,
+        );
+        assert!(success && cached.rounds >= 2);
+        assert!(cached.membership_hits > 0);
+        assert!(
+            cached.membership_calls < uncached.membership_calls,
+            "identical proposals across budget rounds must avoid repeated multi-ray membership"
+        );
+        let reached = LayerSurface::from_triangles(vec![triangle(0.505)]);
+        let (cached, _, success) = assert_cache_equivalent(
+            &reference,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: Some(&inner),
+                arms: Some(&reached),
+                profile: None,
+            },
+            true,
+        );
+        assert!(success && cached.rounds >= 3);
+        assert!(
+            cached.invalidations > 0,
+            "the existing arm-face cache still follows changing domains"
+        );
+        assert!(
+            cached.membership_changes > 0,
+            "changed proposals must not reuse an old outside answer"
+        );
     }
 
     #[test]
@@ -3188,6 +3550,7 @@ mod tests {
         let support = FaceSupport {
             inner: Some(&inner),
             arms: Some(&arms),
+            profile: None,
         };
         let (cached, uncached, success) =
             assert_face_cache_equivalent(&reference, Quat::IDENTITY, support);
@@ -3281,7 +3644,8 @@ mod tests {
             let (cached, uncached, success) = assert_face_cache_equivalent(
                 &cloak.contact_reference,
                 Quat::IDENTITY,
-                FaceSupport::arms(cloak.arm_surface.as_ref().unwrap()),
+                FaceSupport::arms(cloak.arm_surface.as_ref().unwrap())
+                    .with_profile(&cloak.shoulder_profile),
             );
             assert!(success);
             // An already clear pose may finish in one round; the synthetic
@@ -3307,7 +3671,8 @@ mod tests {
             let (cached, uncached, success) = assert_face_cache_equivalent(
                 &cloak.contact_reference,
                 cloak.last_rotation.unwrap(),
-                FaceSupport::arms(cloak.arm_surface.as_ref().unwrap()),
+                FaceSupport::arms(cloak.arm_surface.as_ref().unwrap())
+                    .with_profile(&cloak.shoulder_profile),
             );
             assert!(success);
             // An already clear pose may finish in one round; the synthetic
@@ -3316,6 +3681,149 @@ mod tests {
                 assert!(cached.hits > 0 && cached.queries < uncached.queries);
             }
         }
+    }
+
+    fn test_shoulder_profile(points: &[Vec3]) -> Vec<Vec2> {
+        (0..GRID)
+            .map(|i| {
+                let row = i / (COLUMNS + 1);
+                let col = i % (COLUMNS + 1);
+                shoulder_coefficient(
+                    row,
+                    points[index(row.saturating_sub(1), col)],
+                    points[index((row + 1).min(ROWS), col)],
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn mixed_row_sweep_requeries_high_growth_even_when_radial_extent_is_unchanged() {
+        let grid = radial_test_grid();
+        let profile = test_shoulder_profile(&grid);
+        let vertices = [
+            Vec3::new(-0.01, 0.508, 0.30),
+            Vec3::new(0.01, 0.508, 0.30),
+            Vec3::new(0.0, 0.47, 0.45),
+        ];
+        let axis = profile_direction(vertices[0], profile[index(5, 0)]);
+        let endpoints = [vertices[0] + axis * 0.04, vertices[1], vertices[2]];
+        let initial = swept_face_bounds(vertices, vertices, Vec3::Z);
+        let grown = swept_face_bounds(vertices, endpoints, Vec3::Z);
+        assert_eq!(initial.2, grown.2);
+        assert!(grown.1 > initial.1 + 0.02);
+        assert_ne!(
+            face_domain_key(initial.1, initial.2, true),
+            face_domain_key(grown.1, grown.2, true)
+        );
+        assert_ne!(
+            face_domain_key(initial.1, initial.2, false),
+            face_domain_key(grown.1, grown.2, false)
+        );
+        for bits in 0..8 {
+            let points = std::array::from_fn::<_, 3, _>(|i| {
+                if bits & (1 << i) == 0 {
+                    vertices[i]
+                } else {
+                    endpoints[i]
+                }
+            });
+            for point in points
+                .into_iter()
+                .chain([points.iter().sum::<Vec3>() / 3.0])
+            {
+                assert!(point.y >= grown.0 && point.y <= grown.1 && point.z <= grown.2);
+            }
+        }
+        let obstacle = [
+            Vec3::new(-0.005, 0.528, 0.31),
+            Vec3::new(0.005, 0.528, 0.31),
+            Vec3::new(0.0, 0.528, 0.32),
+        ];
+        assert!(clipped_support(obstacle, Vec3::Y, &[(Vec3::NEG_Y, -initial.1)]).is_none());
+        assert!(clipped_support(obstacle, Vec3::Y, &[(Vec3::NEG_Y, -grown.1)]).is_some());
+    }
+
+    #[test]
+    fn smooth_profile_preserves_turnover_body_reserve() {
+        let grid = radial_test_grid();
+        let profile = test_shoulder_profile(&grid);
+        let at = Vec3::new(0.0, 0.47, 0.10);
+        let axis = profile_direction(at, profile[index(YOKE_ROWS, 0)]);
+        assert_eq!(axis, Vec3::Z);
+        let plane = |p: Vec3| p.z - 0.20;
+        let fitted = fit_profile_body(at, axis, &plane);
+        assert!((fitted.y - at.y).abs() < 1e-6);
+        assert!(
+            plane(fitted / anatomy::HIP_SCALE) > 0.0275,
+            "radial turnover must retain its .030 body reserve, not the .025 roof reserve"
+        );
+    }
+
+    #[test]
+    fn measured_neutral_mixed_plane_has_well_conditioned_profile_motion() {
+        let grid = radial_test_grid();
+        let coefficient = test_shoulder_profile(&grid)[index(5, 3)];
+        let reference = Vec3::new(-0.26514566, 0.5083333, 0.07850698);
+        let normal = Vec3::new(-0.42936885, 0.8944272, 0.12506948);
+        let witness = Vec3::new(-0.28437114, 0.5107909, 0.039386477);
+        let plane = 0.6158914;
+        assert!((normal.dot(witness) + LAYER_GAP + THICKNESS - plane).abs() < 1e-6);
+        let radial = reference.with_y(0.0).normalize();
+        let deficit = plane - normal.dot(reference);
+        let old_travel = deficit / normal.dot(radial);
+        assert!((old_travel - 0.083987765).abs() < 1e-5);
+        let axis = profile_direction(reference, coefficient);
+        assert!(axis.y > 0.0 && axis.with_y(0.0).length() > 0.0);
+        let travel = deficit / normal.dot(axis);
+        let fitted = reference + axis * travel;
+        assert!(normal.dot(fitted) >= plane - 1e-6);
+        assert!(
+            travel < old_travel * 0.6,
+            "the actual unchanged plane margin must not require the measured radial fin"
+        );
+        assert!(
+            fitted.y < 0.565 && fitted.with_y(0.0).length() < reference.with_y(0.0).length() + 0.04
+        );
+    }
+
+    #[test]
+    fn row_five_seating_and_certificate_share_the_frozen_profile_axis() {
+        let mut points = radial_test_grid();
+        let profile = test_shoulder_profile(&points);
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let i = index(5, 0);
+        let before = points[i] + offset;
+        let axis = profile_direction(before, profile[i]);
+        let inner = LayerSurface::from_triangles(vec![
+            [
+                Vec3::new(-0.1, 0.53, 0.20),
+                Vec3::new(0.1, 0.53, 0.20),
+                Vec3::new(0.1, 0.53, 0.50),
+            ],
+            [
+                Vec3::new(-0.1, 0.53, 0.20),
+                Vec3::new(0.1, 0.53, 0.50),
+                Vec3::new(-0.1, 0.53, 0.50),
+            ],
+        ]);
+        seat_inner_profile(&mut points, Quat::IDENTITY, &inner, Some(&profile)).unwrap();
+        let seated = points[i] + offset;
+        let displacement = seated - before;
+        assert!(displacement.y > 0.0 && displacement.z > 0.0);
+        assert!(displacement.cross(axis).length() < 1e-6);
+        assert_eq!(profile[0], Vec2::Y);
+        assert_eq!(profile[index(YOKE_ROWS, 0)], Vec2::X);
+        let support = FaceSupport::inner(&inner).with_profile(&profile);
+        let (cached, _, success) = assert_cache_equivalent(&points, Quat::IDENTITY, support, true);
+        assert!(success && cached.rounds >= 1);
+        let frozen = profile.clone();
+        fit_radial_supports_traced(&mut points, Quat::IDENTITY, support, &mut None).unwrap();
+        assert_eq!(profile, frozen);
+        let final_point = points[i] + offset;
+        assert!((final_point - seated).cross(axis).length() < 1e-6);
+        assert!(rendered_clearance_checked(&inner, final_point, true) > 0.001);
+        assert!((points[index(YOKE_ROWS, 0)] + offset).y == 0.47);
     }
 
     #[test]
@@ -3332,7 +3840,8 @@ mod tests {
             deficit / normal.dot(radial) > 0.48,
             "fixture must reproduce the measured half-metre radial wing"
         );
-        let axis = contact_axis(63, radial);
+        let profile = test_shoulder_profile(&radial_test_grid());
+        let axis = profile_direction(reference, profile[63]);
         assert_eq!(axis, Vec3::Y);
         let fitted = reference + axis * (deficit / normal.dot(axis));
         assert!(normal.dot(fitted) >= plane - 1e-6);
@@ -3342,7 +3851,7 @@ mod tests {
             "the exact plane has bounded vertical clearance, not a radial fin"
         );
         assert_eq!(
-            contact_axis(index(ROOF_ROWS, 0), radial),
+            profile_direction(reference, profile[index(YOKE_ROWS, 0)]),
             radial,
             "turnover and hanging vertices retain their radial coordinate"
         );
@@ -3402,6 +3911,7 @@ mod tests {
             Quat::IDENTITY,
             FaceSupport::inner(&support),
             &mut trace,
+            true,
             true,
             &mut work,
         )

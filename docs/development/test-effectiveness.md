@@ -4212,3 +4212,15 @@ actual shoulders remained rigid and overexpanded. Neither completion nor reduced
 runtime qualifies visual fit. A separate cream-plume silhouette failure found
 that tilted emitted vanes exceeded their centerline height; the production arch
 was lowered while retaining the original height and width bounds.
+
+At `7a0fdfd1`, corrected strict lint allowed native Linux release to reach
+766 passing methods, three cloak failures and one existing ignored method.
+The neutral main transition still converted a 32 mm normal clearance into
+roughly 72 mm of radial travel because its movement direction projected poorly
+onto the winning plane. The strike's mixed boundary similarly retained a
+0.428 m radial shift and a 0.879 m roof peak. A consistent authored-profile
+movement axis addresses preparation/solver mismatch and this conditioning;
+existing body reserves and numerical shape gates remain required. Exact
+within-solve proposed-position memoization separately targets repeated solid
+membership queries without changing successful or failed results. Neither
+analytical conditioning nor cache equivalence replaces native motion evidence.
