@@ -1,6 +1,7 @@
 //! Visual contact profiles derived from composed geometry, in joint-local space.
 use super::*;
 use bevy::render::mesh::VertexAttributeValues;
+use std::sync::Arc;
 
 /// The nearer of two signed distances, keeping `best` on a tie. Unlike
 /// `f32::min`, whose choice between -0 and +0 is unspecified, the result is
@@ -78,9 +79,52 @@ pub(super) struct Part {
     /// Local transforms from the torso to the mesh's joint.
     path: Vec<J>,
     cylinders: Vec<Cylinder>,
+    triangles: Arc<Vec<[Vec3; 3]>>,
 }
+
+/// Immutable rendered geometry and its complete current joint chain. Vertices
+/// already contain the model-child scale; the pose maps directly into scaled
+/// torso coordinates, unlike the legacy cylinder query coordinate transform.
+#[derive(Clone)]
+pub(super) struct PosedTriangles {
+    pub triangles: Arc<Vec<[Vec3; 3]>>,
+    pub transform: Affine3A,
+}
+impl PartialEq for PosedTriangles {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.triangles, &other.triangles) && self.transform == other.transform
+    }
+}
+
+pub(super) fn posed_triangles(
+    parts: &[Part],
+    frame: impl Fn(J) -> Option<Affine3A>,
+) -> Vec<PosedTriangles> {
+    parts
+        .iter()
+        .filter_map(|part| {
+            let transform = part
+                .path
+                .iter()
+                .try_fold(Affine3A::IDENTITY, |pose, &joint| {
+                    frame(joint).map(|local| pose * local)
+                })?;
+            Some(PosedTriangles {
+                triangles: part.triangles.clone(),
+                transform,
+            })
+        })
+        .collect()
+}
+
 impl Part {
-    pub fn from_model(path: Vec<J>, model: &Model, meshes: &mut Assets<Mesh>, scale: Vec3) -> Self {
+    pub fn from_model(
+        path: Vec<J>,
+        model: &Model,
+        meshes: &mut Assets<Mesh>,
+        scale: Vec3,
+        retain_triangles: bool,
+    ) -> Self {
         let mut triangles = Vec::new();
         for (handle, _) in &model.0 {
             let mesh = retained_mesh(meshes, handle);
@@ -100,8 +144,18 @@ impl Part {
         Self {
             path,
             cylinders: profile(&triangles),
+            triangles: Arc::new(if retain_triangles {
+                triangles
+            } else {
+                Vec::new()
+            }),
         }
     }
+    #[cfg(test)]
+    pub(super) fn retained_triangle_count(&self) -> usize {
+        self.triangles.len()
+    }
+
     pub fn posed(
         &self,
         frame: impl Fn(J) -> Option<Affine3A>,
@@ -290,6 +344,70 @@ impl std::ops::Deref for Scene {
 mod tests {
     use super::*;
     #[test]
+    fn retaining_rendered_triangles_does_not_change_legacy_cylinder_profiles() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = Mesh::new(
+            bevy::render::mesh::PrimitiveTopology::TriangleList,
+            bevy::asset::RenderAssetUsages::MAIN_WORLD,
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![[0.0, 0.0, 0.0], [0.1, -0.2, 0.0], [0.0, -0.2, 0.1]],
+        );
+        let model = Model(vec![(meshes.add(mesh), Handle::default())], Vec::new());
+        let scale = Vec3::new(1.1, 0.9, 1.2);
+        let legacy = Part::from_model(vec![J::ArmL], &model, &mut meshes, scale, false);
+        let study = Part::from_model(vec![J::ArmL], &model, &mut meshes, scale, true);
+        assert_eq!(legacy.cylinders, study.cylinders);
+        assert!(legacy.triangles.is_empty());
+        assert_eq!(study.triangles.len(), 1);
+        assert_eq!(study.triangles[0][1], Vec3::new(0.1, -0.2, 0.0) * scale);
+    }
+
+    #[test]
+    fn rendered_triangles_follow_scaled_complete_hand_chain_without_hip_rescaling() {
+        let local = Arc::new(vec![[Vec3::ZERO, Vec3::X * 0.04, Vec3::Y * -0.06]]);
+        let part = Part {
+            path: vec![J::ArmR, J::ForeR, J::HandR],
+            cylinders: profile(&local),
+            triangles: local.clone(),
+        };
+        let arm = Affine3A::from_rotation_translation(
+            Quat::from_rotation_x(-1.1),
+            Vec3::new(-0.25, 0.45, 0.0),
+        );
+        let fore = Affine3A::from_rotation_translation(Quat::from_rotation_z(0.4), Vec3::Y * -0.3);
+        let hand = Affine3A::from_scale_rotation_translation(
+            Vec3::splat(1.22),
+            Quat::from_rotation_x(0.3),
+            Vec3::Y * -0.24,
+        );
+        let frame = |joint| {
+            Some(match joint {
+                J::ArmR => arm,
+                J::ForeR => fore,
+                _ => hand,
+            })
+        };
+        let parts = [part];
+        let surfaces = posed_triangles(&parts, frame);
+        assert_eq!(surfaces.len(), 1);
+        assert!(Arc::ptr_eq(&surfaces[0].triangles, &local));
+        for p in local[0] {
+            let expected = arm.transform_point3(fore.transform_point3(hand.transform_point3(p)));
+            assert!(surfaces[0].transform.transform_point3(p).distance(expected) < 1e-6);
+        }
+        let again = posed_triangles(&parts, frame);
+        assert!(
+            surfaces == again,
+            "same joint frames reuse immutable geometry identity"
+        );
+        assert!(
+            posed_triangles(&parts, |j| if j == J::ForeR { None } else { frame(j) }).is_empty()
+        );
+    }
+
+    #[test]
     fn cloth_hulls_enclose_transformed_contact_cylinders() {
         let mut cylinder = Cylinder::new(Vec3::ZERO, Vec3::Y * 0.2, 0.09);
         cylinder.to_local = Affine3A::from_scale_rotation_translation(
@@ -475,10 +593,12 @@ mod tests {
             Part {
                 path: vec![J::ArmL, J::ForeL],
                 cylinders: vec![cylinder; 2],
+                triangles: Arc::new(Vec::new()),
             },
             Part {
                 path: vec![J::ArmR],
                 cylinders: vec![cylinder],
+                triangles: Arc::new(Vec::new()),
             },
         ];
         let frame = |j| (j != J::ForeL).then_some(Affine3A::from_translation(Vec3::X));
@@ -517,6 +637,7 @@ mod tests {
         let part = Part {
             path: vec![J::ArmL, J::ForeL],
             cylinders: caps,
+            triangles: Arc::new(triangles.to_vec()),
         };
         let upper = Affine3A::from_rotation_z(0.7);
         let lower = Affine3A::from_translation(Vec3::Y * -0.3);

@@ -799,11 +799,66 @@ fn crest_bundle(station: usize, lane: i32) -> ([Vec3; 3], [(f32, f32); 3]) {
     )
 }
 
+// A brush is a dense mass below its fine fringe, not separated long rods.
+// This closed backing prevents background/shadow holes between tapered fibers.
+fn crest_brush_body(b: &mut Builder) {
+    let point = |station: usize, outer: bool, side: f32| {
+        let (path, _) = crest_bundle(station, 0);
+        let mut p = if outer {
+            path[0].lerp(path[2], 0.94)
+        } else {
+            path[0]
+        };
+        p.x = side * if outer { 0.007 } else { 0.009 };
+        p
+    };
+    for station in 0..44 {
+        for side in [-1.0, 1.0] {
+            let q = [
+                point(station, false, side),
+                point(station + 1, false, side),
+                point(station + 1, true, side),
+                point(station, true, side),
+            ];
+            b.quad_out(
+                q,
+                Vec3::new(0.0, 0.40, -0.02),
+                RED * (0.87 + (station % 5) as f32 * 0.018),
+            );
+        }
+        for outer in [false, true] {
+            let q = [
+                point(station, outer, -1.0),
+                point(station + 1, outer, -1.0),
+                point(station + 1, outer, 1.0),
+                point(station, outer, 1.0),
+            ];
+            b.quad_out(
+                q,
+                (point(station, !outer, -1.0) + point(station, !outer, 1.0)) * 0.5,
+                RED * 0.90,
+            );
+        }
+    }
+    for station in [0, 44] {
+        b.quad_out(
+            [
+                point(station, false, -1.0),
+                point(station, true, -1.0),
+                point(station, true, 1.0),
+                point(station, false, 1.0),
+            ],
+            point(if station == 0 { 1 } else { 43 }, false, 0.0),
+            RED * 0.90,
+        );
+    }
+}
+
 fn crested(p: &mut Parts) {
     dome(p, IRON, false);
     guards(p, IRON, BRASS);
-    // Dense tapered bundles, seated in the comb, retain the rigid sagittal
-    // silhouette without the previous thick widening cylinders and flat caps.
+    crest_brush_body(&mut p.matte);
+    // Individual fibers texture the supported body and taper into its fringe.
     for i in 0..45 {
         for lane in -1..=1 {
             let (path, radii) = crest_bundle(i, lane);
@@ -1381,6 +1436,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn crest_side_profile_has_no_between_bundle_voids() {
+        let mut p = Parts::default();
+        crested(&mut p);
+        // Independent profile witnesses halfway between authored stations.
+        // Direct hits on fiber centerlines cannot detect the previous gaps.
+        for station in 2..42 {
+            let angle = -0.85 + (station as f32 + 0.5) * 1.75 / 44.0;
+            for radius in [0.12, 0.17, 0.21, 0.225] {
+                let z_radius = 0.115 + (radius - 0.085) * 0.125 / 0.160;
+                let at = Vec3::new(
+                    0.0,
+                    0.285 + angle.cos() * radius,
+                    -0.02 + angle.sin() * z_radius,
+                );
+                for side in [-1.0, 1.0] {
+                    let hit = p
+                        .matte
+                        .outer_surface(at - Vec3::X * side * 0.10, Vec3::X * side)
+                        .expect("dense brush must cover between-station side rays");
+                    assert!(hit.x.abs() < 0.02, "brush remains a narrow sagittal crest");
+                }
+            }
+        }
+        assert!(
+            p.matte
+                .outer_surface(Vec3::new(-0.1, 0.56, -0.02), Vec3::X)
+                .is_none(),
+            "filling the body must not inflate the crest above its arch"
+        );
     }
 
     #[test]

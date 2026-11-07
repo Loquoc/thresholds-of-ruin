@@ -68,6 +68,19 @@ pub(super) fn torso_envelope(
     cloth
 }
 
+/// Equipped shirts end at the collarbones, not at the anatomical neck cap.
+/// Use this same cut for cloth emission and the reserved support boundary.
+pub(super) fn covers(
+    body: HumanoidBody,
+    bodice: Bodice,
+    neckline: Option<NecklineCut>,
+    at: Vec3,
+) -> bool {
+    at.y <= NecklineCut::COLLAR
+        && bodice_covers(body, bodice, false, at)
+        && !neckline.is_some_and(|cut| cut.open(at))
+}
+
 /// Clip the retained layer exactly at the crop. The neckline reserve is
 /// conservative rather than using a 3D capsule that could cut away visible
 /// scoop cloth. Its allowance is bounded by torso_envelope above the opening.
@@ -78,6 +91,7 @@ pub(super) fn retained_support(
 ) -> crate::sdf::Sculpt {
     use crate::sdf::Shape;
     let mut support = envelope.clone();
+    support.carve(Shape::Beyond(Vec3::Y, NecklineCut::COLLAR), 0.0);
     if let Cover::Crop(Hem::Even) = bodice.cover {
         let bottom = body.bust.map_or(0.27, |bust| bust.fold) - 0.03;
         support.carve(Shape::Beyond(Vec3::NEG_Y, -bottom), 0.0);
@@ -353,6 +367,124 @@ mod tests {
         torso_envelope(kind, body, skin, NecklineCut::resolve(bodice.cut, body))
     }
 
+    // Attachment projection intentionally accepts an exterior residual of up
+    // to 0.2 mm. A tighter physical-clearance witness must solve the root,
+    // rather than treating that approximate attachment point as the surface.
+    fn precise_front_hit(form: &crate::sdf::Sculpt, x: f32, y: f32) -> Vec3 {
+        let coarse = torso_surface_hit(form, x, y, true).unwrap();
+        let mut half = 0.001;
+        let (mut inside, mut outside) = loop {
+            let inside = coarse - Vec3::Z * half;
+            let outside = coarse + Vec3::Z * half;
+            if form.distance(inside) <= 0.0 && form.distance(outside) > 0.0 {
+                break (inside, outside);
+            }
+            half *= 2.0;
+            assert!(
+                half <= 0.032,
+                "could not bracket front support surface near {coarse:?}"
+            );
+        };
+        for _ in 0..24 {
+            let middle = (inside + outside) * 0.5;
+            if form.distance(middle) <= 0.0 {
+                inside = middle;
+            } else {
+                outside = middle;
+            }
+        }
+        let point = (inside + outside) * 0.5;
+        assert!(
+            form.distance(point).abs() < 0.000001,
+            "independent surface root must be accurate to one micron"
+        );
+        point
+    }
+
+    #[test]
+    fn actual_shirts_do_not_add_a_ring_around_the_exposed_neck() {
+        use super::super::{biped::Figure, test_support};
+        use crate::creatures::rogue_tests::spawn_one;
+        use bevy::render::mesh::VertexAttributeValues;
+        for woman in [false, true] {
+            for kind in ShirtAppearance::ALL {
+                let mut look = Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant { woman, ..default() }),
+                );
+                look.equipment.shirt = Some(kind);
+                let body = HumanoidBody::resolve(&look);
+                let figure = Figure::resolve(body, &look);
+                let skin = torso_shape(body, None, figure.trim_neck);
+                let mut original = Parts::default();
+                skin.mesh(
+                    &mut original.matte,
+                    Vec3::new(-0.38, -0.06, -0.21) * body.build.max(1.0),
+                    Vec3::new(0.38, 0.64, 0.24) * body.build.max(1.0),
+                    0.0085,
+                    &|_, _| look.skin,
+                );
+                let (world, rig, _, meshes) = spawn_one(&look);
+                let mut actual = Parts::default();
+                for surface in test_support::joint_meshes(
+                    &world,
+                    &rig,
+                    &meshes,
+                    rig.joints[J::Torso as usize].unwrap(),
+                ) {
+                    let Some(VertexAttributeValues::Float32x3(points)) =
+                        surface.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("torso positions");
+                    };
+                    let indices: Vec<_> = surface.mesh.indices().unwrap().iter().collect();
+                    for tri in indices.as_chunks::<3>().0 {
+                        // joint_meshes includes the rendered torso proportions;
+                        // compare against the recipe-space skin on both sides.
+                        actual.matte.tri(
+                            std::array::from_fn(|i| {
+                                surface
+                                    .transform
+                                    .transform_point3(Vec3::from_array(points[tri[i]]))
+                                    / crate::creatures::anatomy::HIP_SCALE
+                            }),
+                            Vec3::ONE,
+                        );
+                    }
+                }
+                // Exercise the old fitted-band height and the neck-root shell
+                // on front, back and sides, not only the open front predicate.
+                for y in [0.536, 0.544, 0.550, 0.565] {
+                    for direction in [Vec3::Z, Vec3::NEG_Z, Vec3::X, Vec3::NEG_X] {
+                        let origin = Vec3::Y * y;
+                        let before = original.matte.outer_surface(origin, direction).unwrap();
+                        let after = actual.matte.outer_surface(origin, direction).unwrap();
+                        assert!(before.distance(after) < 0.0002,
+                            "{kind:?}, woman={woman}: shirt-colored band/shell enlarged exposed neck at {y}: {before:?} -> {after:?}");
+                    }
+                    assert!(
+                        figure.shirt_support.as_ref().unwrap().distance(Vec3::Y * y)
+                            >= y - NecklineCut::COLLAR - 0.000001,
+                        "outer-layer support must also stop at the shirt collar"
+                    );
+                }
+                let cut = NecklineCut::resolve(figure.outfit.bodice.cut, body);
+                let shoulder = Vec3::new(0.16 * body.shoulders * body.build, 0.525, -0.02);
+                assert!(
+                    covers(body, figure.outfit.bodice, cut, shoulder),
+                    "the repair must retain the shoulder cloth below the collar"
+                );
+                assert!(!covers(
+                    body,
+                    figure.outfit.bodice,
+                    cut,
+                    shoulder + Vec3::Y * 0.006
+                ));
+            }
+        }
+    }
+
     #[test]
     fn emitted_neckline_and_shoulders_are_retained_without_an_inflated_opening() {
         use bevy::render::mesh::VertexAttributeValues;
@@ -376,7 +508,7 @@ mod tests {
                     Vec3::new(0.38, 0.64, 0.28) * body.build.max(1.0),
                     0.0085,
                     &|_, _| Vec3::ONE,
-                    &|at| bodice_covers(body, bodice, false, at) && !cut.open(at),
+                    &|at| covers(body, bodice, Some(cut), at),
                     true,
                 );
                 for fraction in [0.25, 0.50, 0.75] {
@@ -384,7 +516,7 @@ mod tests {
                     for x in [0.0, cut.edge(y) * 0.5] {
                         assert!(actual.matte.outer_surface(Vec3::new(x, y, 0.0), Vec3::Z).is_none(),
                             "no invented cloth across exposed neckline: {kind:?}, woman={woman}, {x}/{y}");
-                        let reserved = torso_surface_hit(&support, x, y, true).unwrap();
+                        let reserved = precise_front_hit(&support, x, y);
                         assert!(skin.distance(reserved) <= 0.0026 * body.build,
                             "neckline reserve exceeds 2.5 mm skin allowance (0.1 mm numerical tolerance): {kind:?}, woman={woman}");
                     }
@@ -407,6 +539,10 @@ mod tests {
                     };
                     for point in points {
                         let at = Vec3::from_array(*point);
+                        assert!(
+                            at.y <= NecklineCut::COLLAR + 0.000001,
+                            "shirt mesh leaked above its exact collar boundary: {at:?}"
+                        );
                         if at.z > 0.0 && at.y > cut.bottom + 0.008 {
                             assert!(
                                 support.distance(at) <= 0.0045,
@@ -465,11 +601,14 @@ mod tests {
             };
             let indices: Vec<_> = surface.mesh.indices().unwrap().iter().collect();
             for tri in indices.as_chunks::<3>().0 {
+                // Undo only the known torso display scale; retain all owned
+                // child-frame transforms before comparing recipe-space skin.
                 rendered.matte.tri(
                     std::array::from_fn(|i| {
                         surface
                             .transform
                             .transform_point3(Vec3::from_array(points[tri[i]]))
+                            / crate::creatures::anatomy::HIP_SCALE
                     }),
                     Vec3::ONE,
                 );

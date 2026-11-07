@@ -4147,3 +4147,17 @@ that band as radial side cloth and retains slope, width and emitted-clearance
 checks. This is continuing production-geometry evidence, not a stale oracle.
 An oversized or flat garment can satisfy collision tests while failing its
 intended appearance; fresh native tests and pixels remain required.
+
+At `411d16e4`, all four native lanes reached the geometry suite: 731 methods
+passed, two shirt witnesses failed, and one existing method was ignored. The
+crop witness compared spawned torso vertices containing the documented HIP scale
+with unscaled recipe geometry; the corrected oracle removes that transform.
+The neckline allowance witness used an attachment ray that can stop 0.2 mm
+outside the isosurface while allowing only 0.1 mm numerical error; it now brackets
+and bisects the actual root before applying the unchanged allowance. These are
+two fixture/oracle causes pending fresh execution, not relaxed fit requirements.
+Native images independently exposed a shirt-colored neck ring and a crest side
+coverage gap. Their production corrections have separate emitted-geometry
+regressions. Passing cape clearance/slope tests did not establish visual quality:
+its six flat cylinder proxies still produced visible shelves, motivating a
+study-cloth-only retained-triangle contact path.

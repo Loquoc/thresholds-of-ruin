@@ -360,9 +360,25 @@ fn present_pose(
     } else {
         Vec::new()
     };
+    let cloth_surface = rig
+        .cloaks
+        .iter()
+        .any(|cloak| cloak.needs_contacts())
+        .then(|| {
+            std::sync::Arc::new(super::cloak::ContactSurface::new(
+                super::visual_contact::posed_triangles(&rig.visual_contacts, |joint| {
+                    rig.joint(joint)
+                        .and_then(|entity| joints.get(entity).ok())
+                        .map(Transform::compute_affine)
+                }),
+            ))
+        });
     for cloak in &mut rig.cloaks {
         if cloak.needs_contacts() {
             cloak.set_contacts(contacts.clone());
+            if let Some(surface) = &cloth_surface {
+                cloak.set_contact_surface(surface.clone());
+            }
         }
     }
     super::cloak::place_layers(

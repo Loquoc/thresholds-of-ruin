@@ -8,6 +8,7 @@ use bevy::render::{
     primitives::Aabb,
 };
 use bevy::tasks::ParallelSliceMut;
+use std::sync::{Arc, OnceLock};
 
 const ROWS: usize = 20;
 // Refine only the shoulder within the existing grid: five roof bands, one
@@ -33,6 +34,37 @@ const LAYER_GAP: f32 = 0.020;
 // This selects a separating plane; it never clamps a collision correction.
 const ROOF_SLOPE_SLACK: f32 = 0.010;
 
+/// One cheap pose snapshot shared by the main cape and mantle. Geometry and
+/// spatial indices are materialized once, only when a joint pose changes.
+pub(super) struct ContactSurface {
+    parts: Vec<super::visual_contact::PosedTriangles>,
+    cached: OnceLock<Arc<LayerSurface>>,
+}
+impl ContactSurface {
+    pub fn new(parts: Vec<super::visual_contact::PosedTriangles>) -> Self {
+        Self {
+            parts,
+            cached: OnceLock::new(),
+        }
+    }
+    fn surface(&self) -> Arc<LayerSurface> {
+        self.cached
+            .get_or_init(|| {
+                Arc::new(LayerSurface::from_triangles(
+                    self.parts
+                        .iter()
+                        .flat_map(|part| {
+                            part.triangles
+                                .iter()
+                                .map(move |tri| tri.map(|p| part.transform.transform_point3(p)))
+                        })
+                        .collect(),
+                ))
+            })
+            .clone()
+    }
+}
+
 pub(super) struct Recipe {
     shoulders: f32,
     yoke: Vec2,
@@ -49,6 +81,7 @@ pub(super) struct Recipe {
     pub embroidery: Option<Vec3>,
     inner_layer: Option<Entity>,
     scene: Option<super::visual_contact::Scene>,
+    contact_surface: Option<Arc<ContactSurface>>,
 }
 
 impl Recipe {
@@ -76,6 +109,7 @@ impl Recipe {
             embroidery: None,
             inner_layer: None,
             scene: None,
+            contact_surface: None,
         };
         recipe.reserve_back_layer(0.0);
         recipe
@@ -89,6 +123,12 @@ impl Recipe {
                 self.support.clone(),
                 contacts,
             ));
+        }
+    }
+
+    pub fn set_contact_surface(&mut self, surface: Arc<ContactSurface>) {
+        if self.cut.is_some() {
+            self.contact_surface = Some(surface);
         }
     }
 
@@ -219,7 +259,10 @@ impl Recipe {
             shoulder.lerp(hem, (row - YOKE_ROWS) as f32 / (ROWS - YOKE_ROWS) as f32)
         };
         if row > 0 {
-            if let Some(scene) = &self.scene {
+            if let Some(surface) = &self.contact_surface {
+                at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| self.support.distance(p));
+                at = fit_mesh_contact(at, row < YOKE_ROWS, &surface.surface());
+            } else if let Some(scene) = &self.scene {
                 at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.distance(p));
             } else {
                 at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| self.support.distance(p));
@@ -227,6 +270,31 @@ impl Recipe {
         }
         at - Vec3::new(0.0, 0.53, -0.15)
     }
+}
+
+/// Point projections use the actual posed rendered surface, not the flat
+/// caps of the legacy hair cylinders. Whole-face constraints follow afterward.
+fn fit_mesh_contact(mut at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
+    if surface.triangles.is_empty() {
+        return at;
+    }
+    if roof {
+        let origin = Vec3::new(at.x, surface.bottom - THICKNESS, at.z);
+        if let Some(distance) = surface.ray(origin, Vec3::Y) {
+            at.y = at.y.max(origin.y + distance + LAYER_GAP + THICKNESS);
+        }
+    } else if at.y >= -0.12 {
+        let origin = Vec3::Y * at.y;
+        let direction = at.with_y(0.0).normalize_or(Vec3::NEG_Z);
+        if let Some(distance) = surface.ray(origin, direction) {
+            let radius = at
+                .with_y(0.0)
+                .length()
+                .max(distance + LAYER_GAP + THICKNESS);
+            at = origin + direction * radius;
+        }
+    }
+    at
 }
 
 /// A neck opening is an annular attachment at fixed anatomical height.
@@ -307,12 +375,23 @@ pub(super) struct CloakRig {
     inner_layer: Option<Entity>,
     last_inner_rotation: Option<Quat>,
     scene: Option<super::visual_contact::Scene>,
-    arm_surface: Option<LayerSurface>,
+    arm_surface: Option<Arc<LayerSurface>>,
+    contact_surface: Option<Arc<ContactSurface>>,
     opening: Option<f32>,
     neutral_reach: [f32; 2],
 }
 
 impl CloakRig {
+    pub(super) fn contact_workload(&self) -> Option<[usize; 3]> {
+        self.contact_surface.as_ref()?;
+        let surface = self.arm_surface.as_ref()?;
+        Some([
+            surface.triangles.len(),
+            surface.tree.len(),
+            surface.bins.iter().map(Vec::len).sum(),
+        ])
+    }
+
     pub(super) fn needs_contacts(&self) -> bool {
         self.wrapped
     }
@@ -325,17 +404,34 @@ impl CloakRig {
                 self.arm_surface = self
                     .scene
                     .as_ref()
-                    .map(|scene| LayerSurface::from_triangles(scene.cloth_hulls()));
+                    .map(|scene| Arc::new(LayerSurface::from_triangles(scene.cloth_hulls())));
                 self.invalidate();
                 return;
             }
         }
         if let Some(scene) = &mut self.scene {
             if scene.set_pose(contacts) {
-                self.arm_surface = Some(LayerSurface::from_triangles(scene.cloth_hulls()));
+                if self.contact_surface.is_none() {
+                    self.arm_surface =
+                        Some(Arc::new(LayerSurface::from_triangles(scene.cloth_hulls())));
+                }
                 self.invalidate();
             }
         }
+    }
+
+    pub(super) fn set_contact_surface(&mut self, contacts: Arc<ContactSurface>) {
+        if !self.wrapped
+            || self
+                .contact_surface
+                .as_ref()
+                .is_some_and(|old| old.parts == contacts.parts)
+        {
+            return;
+        }
+        self.arm_surface = Some(contacts.surface());
+        self.contact_surface = Some(contacts);
+        self.invalidate();
     }
 
     pub(super) fn map_references(
@@ -421,9 +517,15 @@ pub(super) fn spawn(
         .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
         .collect();
     let arm_surface = recipe
-        .scene
+        .contact_surface
         .as_ref()
-        .map(|scene| LayerSurface::from_triangles(scene.cloth_hulls()));
+        .map(|surface| surface.surface())
+        .or_else(|| {
+            recipe
+                .scene
+                .as_ref()
+                .map(|scene| Arc::new(LayerSurface::from_triangles(scene.cloth_hulls())))
+        });
     // Contact fitting is an output, never the next solve's rest shape. In
     // particular, refitting a raised roof changes its inclination and can
     // amplify the same shoulder clearance on every subsequent solve.
@@ -520,8 +622,9 @@ pub(super) fn spawn(
         last_rotation: None,
         neutral_reach: arm_surface
             .as_ref()
-            .map_or([0.0; 2], LayerSurface::arm_reach),
+            .map_or([0.0; 2], |surface| surface.arm_reach()),
         arm_surface,
+        contact_surface: recipe.contact_surface,
         opening: recipe.cut.map(|cut| cut.opening),
         scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
@@ -553,6 +656,10 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
             surface.free_edges(cloak.neutral_reach)
         });
     let opening = cloak.opening;
+    let mesh_contact = cloak
+        .contact_surface
+        .as_ref()
+        .map(|contacts| contacts.surface());
     let CloakRig {
         points,
         bindings,
@@ -579,6 +686,10 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                     support
                         .as_ref()
                         .map_or(at, |body| fit_neck_opening(at, body))
+                } else if let Some(surface) = &mesh_contact {
+                    let body_fit =
+                        fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.body.distance(p));
+                    fit_mesh_contact(body_fit, row < YOKE_ROWS, surface)
                 } else {
                     fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.distance(p))
                 };
@@ -630,6 +741,112 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
     cloak.last_rotation = Some(rotation);
 }
 
+#[derive(Clone, Copy)]
+struct ContactNode {
+    low: Vec3,
+    high: Vec3,
+    start: usize,
+    count: usize,
+    children: Option<[usize; 2]>,
+}
+
+fn contact_tree(
+    triangles: &[[Vec3; 3]],
+    ids: &mut [usize],
+    start: usize,
+    nodes: &mut Vec<ContactNode>,
+) -> usize {
+    let low = ids
+        .iter()
+        .flat_map(|&i| triangles[i])
+        .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+    let high = ids
+        .iter()
+        .flat_map(|&i| triangles[i])
+        .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+    let node = nodes.len();
+    nodes.push(ContactNode {
+        low,
+        high,
+        start,
+        count: ids.len(),
+        children: None,
+    });
+    if ids.len() > 8 {
+        let span = high - low;
+        let axis = if span.x >= span.y && span.x >= span.z {
+            0
+        } else if span.y >= span.z {
+            1
+        } else {
+            2
+        };
+        let middle = ids.len() / 2;
+        ids.select_nth_unstable_by(middle, |&a, &b| {
+            let center = |i: usize| triangles[i].iter().map(|p| p[axis]).sum::<f32>();
+            center(a).total_cmp(&center(b))
+        });
+        let (left, right) = ids.split_at_mut(middle);
+        let a = contact_tree(triangles, left, start, nodes);
+        let b = contact_tree(triangles, right, start + middle, nodes);
+        nodes[node].children = Some([a, b]);
+    }
+    node
+}
+
+struct ContactCandidates<'a> {
+    surface: &'a LayerSurface,
+    planes: &'a [(Vec3, f32)],
+    // Median splitting bounds stack depth by usize::BITS for any Vec length.
+    stack: [usize; usize::BITS as usize],
+    count: usize,
+    leaf: std::ops::Range<usize>,
+}
+impl<'a> Iterator for ContactCandidates<'a> {
+    type Item = &'a [Vec3; 3];
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(i) = self.leaf.next() {
+                return Some(&self.surface.triangles[self.surface.tree_ids[i]]);
+            }
+            if self.count == 0 {
+                return None;
+            }
+            self.count -= 1;
+            let node = self.surface.tree[self.stack[self.count]];
+            if self.planes.iter().any(|&(normal, offset)| {
+                let extreme = Vec3::new(
+                    if normal.x >= 0.0 {
+                        node.high.x
+                    } else {
+                        node.low.x
+                    },
+                    if normal.y >= 0.0 {
+                        node.high.y
+                    } else {
+                        node.low.y
+                    },
+                    if normal.z >= 0.0 {
+                        node.high.z
+                    } else {
+                        node.low.z
+                    },
+                );
+                normal.dot(extreme) < offset - 1e-6
+            }) {
+                continue;
+            }
+            if let Some(children) = node.children {
+                self.stack[self.count] = children[0];
+                self.stack[self.count + 1] = children[1];
+                self.count += 2;
+            } else {
+                self.leaf = node.start..node.start + node.count;
+            }
+        }
+    }
+}
+
 /// Posed triangle contact in the shared torso frame. Height bins keep each
 /// mantle vertex query local without assuming the two hems have equal lengths.
 struct LayerSurface {
@@ -638,6 +855,10 @@ struct LayerSurface {
     first_bin: Vec<usize>,
     bottom: f32,
     height: f32,
+    tree: Vec<ContactNode>,
+    tree_ids: Vec<usize>,
+    #[cfg(test)]
+    closed_faces: OnceLock<Vec<Option<usize>>>,
 }
 
 impl LayerSurface {
@@ -677,7 +898,16 @@ impl LayerSurface {
             .flatten()
             .map(|p| p.y)
             .fold(f32::NEG_INFINITY, f32::max);
+        let mut tree_ids: Vec<_> = (0..triangles.len()).collect();
+        let mut tree = Vec::new();
+        if !triangles.is_empty() {
+            contact_tree(&triangles, &mut tree_ids, 0, &mut tree);
+        }
         let mut surface = Self {
+            #[cfg(test)]
+            closed_faces: OnceLock::new(),
+            tree,
+            tree_ids,
             bins: vec![Vec::new(); 64],
             triangles,
             first_bin: Vec::new(),
@@ -697,6 +927,49 @@ impl LayerSurface {
             }
         }
         surface
+    }
+
+    fn clipped_candidates<'a>(&'a self, planes: &'a [(Vec3, f32)]) -> ContactCandidates<'a> {
+        ContactCandidates {
+            surface: self,
+            planes,
+            stack: [0; usize::BITS as usize],
+            count: usize::from(!self.tree.is_empty()),
+            leaf: 0..0,
+        }
+    }
+
+    fn ray(&self, origin: Vec3, direction: Vec3) -> Option<f32> {
+        let a = direction.any_orthonormal_vector();
+        let b = direction.cross(a);
+        let planes = [
+            (a, a.dot(origin) - 1e-6),
+            (-a, -a.dot(origin) - 1e-6),
+            (b, b.dot(origin) - 1e-6),
+            (-b, -b.dot(origin) - 1e-6),
+        ];
+        let mut far: Option<f32> = None;
+        for tri in self.clipped_candidates(&planes) {
+            let e1 = tri[1] - tri[0];
+            let e2 = tri[2] - tri[0];
+            let cross = direction.cross(e2);
+            let det = e1.dot(cross);
+            if det.abs() < 1e-9 {
+                continue;
+            }
+            let delta = origin - tri[0];
+            let u = delta.dot(cross) / det;
+            let q = delta.cross(e1);
+            let v = direction.dot(q) / det;
+            if u < -1e-6 || v < -1e-6 || u + v > 1.000001 {
+                continue;
+            }
+            let distance = e2.dot(q) / det;
+            if distance >= 0.0 {
+                far = Some(far.map_or(distance, |old| old.max(distance)));
+            }
+        }
+        far
     }
 
     fn bin(&self, y: f32) -> usize {
@@ -792,7 +1065,7 @@ impl LayerSurface {
         }
         let mut supports = [f32::NEG_INFINITY; N];
         let mut found = false;
-        for &triangle in &self.triangles {
+        for &triangle in self.clipped_candidates(&planes) {
             // Reject only if the unclipped triangle cannot improve ANY of
             // the candidate supports. All candidates share one clipping pass.
             if normals
@@ -1186,6 +1459,173 @@ mod tests {
         points.iter().map(|p| Vec3::from_array(*p)).collect()
     }
 
+    fn closed_components(triangles: &[[Vec3; 3]]) -> Vec<Option<usize>> {
+        use std::collections::HashMap;
+        type Point = [i64; 3];
+        let key = |p: Vec3| p.to_array().map(|v| (v as f64 * 100_000.0).round() as i64);
+        let mut edges: HashMap<(Point, Point), Vec<(usize, bool)>> = HashMap::new();
+        let mut parent: Vec<_> = (0..triangles.len()).collect();
+        let mut eligible = vec![false; triangles.len()];
+        fn root(parent: &mut [usize], mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+            i
+        }
+        for (i, tri) in triangles.iter().enumerate() {
+            let keys = tri.map(key);
+            if keys[0] == keys[1]
+                || keys[1] == keys[2]
+                || keys[2] == keys[0]
+                || (tri[1] - tri[0]).cross(tri[2] - tri[0]).length_squared() <= 1e-16
+            {
+                continue;
+            }
+            eligible[i] = true;
+            for [a, b] in [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]] {
+                let (a, b) = (key(a), key(b));
+                if a == b {
+                    continue;
+                }
+                let forward = a < b;
+                edges
+                    .entry(if forward { (a, b) } else { (b, a) })
+                    .or_default()
+                    .push((i, forward));
+            }
+        }
+        for faces in edges.values() {
+            let first = root(&mut parent, faces[0].0);
+            for &(i, _) in &faces[1..] {
+                let other = root(&mut parent, i);
+                parent[other] = first;
+            }
+        }
+        let mut closed = vec![true; triangles.len()];
+        for faces in edges.values() {
+            if faces.len() != 2 || faces[0].1 == faces[1].1 {
+                let group = root(&mut parent, faces[0].0);
+                closed[group] = false;
+            }
+        }
+        (0..triangles.len())
+            .map(|i| {
+                let group = root(&mut parent, i);
+                (closed[group] && eligible[i]).then_some(group)
+            })
+            .collect()
+    }
+
+    // Independent signed mesh witness: winding crossings detect interior
+    // samples; nearest triangle/edge distance detects surface penetration.
+    // This does not use the cloth support-plane construction or cylinder proxy.
+    fn rendered_clearance(surface: &LayerSurface, p: Vec3) -> f32 {
+        rendered_clearance_checked(surface, p, false)
+    }
+
+    fn rendered_clearance_checked(surface: &LayerSurface, p: Vec3, exhaustive: bool) -> f32 {
+        let ray = Vec3::new(1.0, 0.371, 0.173).normalize();
+        let a = ray.any_orthonormal_vector();
+        let b = ray.cross(a);
+        let planes = [
+            (a, a.dot(p) - 1e-6),
+            (-a, -a.dot(p) - 1e-6),
+            (b, b.dot(p) - 1e-6),
+            (-b, -b.dot(p) - 1e-6),
+        ];
+        let mut crossings = Vec::new();
+        let faces: Box<dyn Iterator<Item = &[Vec3; 3]> + '_> = if exhaustive {
+            Box::new(surface.triangles.iter())
+        } else {
+            Box::new(surface.clipped_candidates(&planes))
+        };
+        let closed = surface
+            .closed_faces
+            .get_or_init(|| closed_components(&surface.triangles));
+        for tri in faces {
+            // Iterator references point into this immutable Vec. Integer
+            // address arithmetic identifies its cached topology flag; no raw
+            // pointer is dereferenced. Open cloth patches remain in the
+            // nearest-face test but must not invent a solid interior.
+            let index = (tri as *const [Vec3; 3] as usize - surface.triangles.as_ptr() as usize)
+                / std::mem::size_of::<[Vec3; 3]>();
+            let Some(group) = closed[index] else {
+                continue;
+            };
+            let e1 = tri[1] - tri[0];
+            let e2 = tri[2] - tri[0];
+            let cross = ray.cross(e2);
+            let det = e1.dot(cross);
+            if det.abs() < 1e-9 {
+                continue;
+            }
+            let delta = p - tri[0];
+            let u = delta.dot(cross) / det;
+            let q = delta.cross(e1);
+            let v = ray.dot(q) / det;
+            let t = e2.dot(q) / det;
+            if u >= 0.0 && v >= 0.0 && u + v <= 1.0 && t >= 0.0 {
+                crossings.push((group, t, if det > 0.0 { 1i32 } else { -1 }));
+            }
+        }
+        crossings.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+        let mut i = 0;
+        while i < crossings.len() {
+            let group = crossings[i].0;
+            let mut winding = 0;
+            while i < crossings.len() && crossings[i].0 == group {
+                let at = crossings[i].1;
+                let mut signed = 0;
+                while i < crossings.len()
+                    && crossings[i].0 == group
+                    && (crossings[i].1 - at).abs() < 1e-5
+                {
+                    signed += crossings[i].2;
+                    i += 1;
+                }
+                winding += signed.signum();
+            }
+            if winding != 0 {
+                return -0.001;
+            }
+        }
+        let near = 0.01;
+        let planes = [
+            (Vec3::X, p.x - near),
+            (Vec3::NEG_X, -p.x - near),
+            (Vec3::Y, p.y - near),
+            (Vec3::NEG_Y, -p.y - near),
+            (Vec3::Z, p.z - near),
+            (Vec3::NEG_Z, -p.z - near),
+        ];
+        let mut distance = near;
+        let faces: Box<dyn Iterator<Item = &[Vec3; 3]> + '_> = if exhaustive {
+            Box::new(surface.triangles.iter())
+        } else {
+            Box::new(surface.clipped_candidates(&planes))
+        };
+        for &[a, b, c] in faces {
+            let n = (b - a).cross(c - a);
+            let area = n.length_squared();
+            if area > 1e-16 {
+                let projected = p - n * ((p - a).dot(n) / area);
+                if [(a, b), (b, c), (c, a)]
+                    .iter()
+                    .all(|&(a, b)| (b - a).cross(projected - a).dot(n) >= 0.0)
+                {
+                    distance = distance.min(projected.distance(p));
+                }
+            }
+            for (a, b) in [(a, b), (b, c), (c, a)] {
+                let edge = b - a;
+                let t = ((p - a).dot(edge) / edge.length_squared().max(1e-16)).clamp(0.0, 1.0);
+                distance = distance.min((a + edge * t).distance(p));
+            }
+        }
+        distance
+    }
+
     fn study_recipe(kind: outfit::outerwear::OuterwearAppearance) -> Recipe {
         let body = HumanoidBody::resolve(&Look::with_choice(
             CreatureModel::Human,
@@ -1202,6 +1642,154 @@ mod tests {
         let mut recipe = Recipe::new(body, r.cloth, r.lining, false);
         recipe.set_cut(cut);
         recipe
+    }
+
+    fn rounded_cap() -> Vec<[Vec3; 3]> {
+        let rings = 12;
+        let columns = 32;
+        let point = |row: usize, col: usize| {
+            let theta = PI * row as f32 / rings as f32;
+            let angle = TAU * col as f32 / columns as f32;
+            Vec3::new(
+                theta.sin() * angle.cos(),
+                theta.cos(),
+                theta.sin() * angle.sin(),
+            ) * 0.1
+        };
+        let mut triangles = Vec::new();
+        for row in 0..rings {
+            for col in 0..columns {
+                let [a, b, c, d] = [
+                    point(row, col),
+                    point(row, col + 1),
+                    point(row + 1, col),
+                    point(row + 1, col + 1),
+                ];
+                triangles.extend([[a, c, b], [b, c, d]]);
+            }
+        }
+        triangles
+    }
+
+    #[test]
+    fn rendered_oracle_does_not_treat_open_decoration_as_a_solid() {
+        let surface = LayerSurface::from_triangles(vec![[
+            Vec3::new(0.3, -1.0, -1.0),
+            Vec3::new(0.3, 1.0, -1.0),
+            Vec3::new(0.3, 0.0, 1.0),
+        ]]);
+        assert!(rendered_clearance(&surface, Vec3::ZERO) > 0.001);
+        assert!(rendered_clearance_checked(&surface, Vec3::ZERO, true) > 0.001);
+        assert!(
+            rendered_clearance(&surface, Vec3::new(0.3, 0.0, 0.0)) < 0.001,
+            "open decorations still participate in surface clearance"
+        );
+        let mixed = LayerSurface::from_triangles(
+            rounded_cap()
+                .into_iter()
+                .chain(surface.triangles.iter().copied())
+                .collect(),
+        );
+        assert!(rendered_clearance(&mixed, Vec3::ZERO) < 0.0);
+        assert!(rendered_clearance(&mixed, Vec3::new(0.3, 0.0, 0.0)) < 0.001);
+        assert!(rendered_clearance(&mixed, Vec3::new(0.15, 0.0, 0.0)) > 0.001);
+    }
+
+    #[test]
+    fn real_pauldron_contact_keeps_curvature_instead_of_slab_cap() {
+        let surface = LayerSurface::from_triangles(rounded_cap());
+        let inner = fit_mesh_contact(Vec3::new(0.02, 0.0, 0.0), true, &surface);
+        let outer = fit_mesh_contact(Vec3::new(0.08, 0.0, 0.0), true, &surface);
+        assert!(
+            inner.y - outer.y > 0.025,
+            "rounded shoulder cannot become a flat cylinder lid: {inner:?}, {outer:?}"
+        );
+        assert!(
+            outer.y < 0.105,
+            "outer shoulder must stay below the old .103 cylinder lid plus cloth margin"
+        );
+        assert!(rendered_clearance(&surface, inner) > 0.001);
+        assert!(rendered_clearance(&surface, outer) > 0.001);
+        assert!(
+            rendered_clearance(&surface, Vec3::ZERO) < 0.0,
+            "independent winding oracle must reject an interior point"
+        );
+        let planes = [
+            (Vec3::X, 0.07),
+            (Vec3::NEG_X, -0.09),
+            (Vec3::Z, -0.01),
+            (Vec3::NEG_Z, -0.01),
+        ];
+        let mut candidates = 0;
+        let actual = surface
+            .clipped_candidates(&planes)
+            .filter_map(|&tri| {
+                candidates += 1;
+                clipped_support(tri, Vec3::Y, &planes)
+            })
+            .reduce(f32::max);
+        let expected = surface
+            .triangles
+            .iter()
+            .filter_map(|&tri| clipped_support(tri, Vec3::Y, &planes))
+            .reduce(f32::max);
+        assert!((actual.unwrap() - expected.unwrap()).abs() < 1e-6);
+        assert!(
+            candidates < surface.triangles.len() / 2,
+            "local queries must reject distant faces before clipping"
+        );
+        assert!(surface.tree.len() <= surface.triangles.len() * 2);
+        let mut independent = Builder::default();
+        for &triangle in &surface.triangles {
+            independent.tri(triangle, Vec3::ONE);
+        }
+        for (origin, ray) in [
+            (Vec3::ZERO, Vec3::X),
+            (Vec3::new(0.08, -0.2, 0.0), Vec3::Y),
+            (Vec3::new(0.2, -0.2, 0.0), Vec3::Y),
+            (Vec3::new(-0.2, 0.04, 0.02), Vec3::X),
+        ] {
+            let expected = independent.outer_surface(origin, ray);
+            let actual = surface.ray(origin, ray).map(|d| origin + ray * d);
+            match (actual, expected) {
+                (Some(a), Some(b)) => assert!(a.distance(b) < 1e-5),
+                (None, None) => {}
+                _ => panic!("BVH omitted an exhaustive ray witness"),
+            }
+        }
+    }
+
+    #[test]
+    fn main_and_mantle_share_real_geometry_and_unchanged_pose_cache() {
+        let mut equipment = Equipment::default();
+        equipment.select("leather-cloak").unwrap();
+        let (_, mut rig, _, _) = super::super::rogue_tests::spawn_one(
+            &Look::of(CreatureModel::Human, 18).equipped(equipment),
+        );
+        assert_eq!(rig.cloaks.len(), 2);
+        assert!(Arc::ptr_eq(
+            rig.cloaks[0].arm_surface.as_ref().unwrap(),
+            rig.cloaks[1].arm_surface.as_ref().unwrap()
+        ));
+        let old = rig.cloaks[0].arm_surface.clone().unwrap();
+        let snapshot = rig.cloaks[0].contact_surface.clone().unwrap();
+        let again = Arc::new(ContactSurface::new(snapshot.parts.clone()));
+        rig.cloaks[0].set_contact_surface(again.clone());
+        assert!(Arc::ptr_eq(
+            &old,
+            rig.cloaks[0].arm_surface.as_ref().unwrap()
+        ));
+        assert!(
+            again.cached.get().is_none(),
+            "unchanged poses must not transform triangles or rebuild indices"
+        );
+        eprintln!(
+            "study cloth contact: triangles={}, nodes={}, height_bin_refs={}, triangle_bytes={}",
+            old.triangles.len(),
+            old.tree.len(),
+            old.bins.iter().map(Vec::len).sum::<usize>(),
+            old.triangles.len() * std::mem::size_of::<[Vec3; 3]>()
+        );
     }
 
     #[test]
@@ -1477,7 +2065,7 @@ mod tests {
                                 + face[1] * weights[1]
                                 + face[2] * weights[2])
                                 / weights.into_iter().sum::<f32>();
-                            assert!(scene.distance(p) > 0.001,
+                            assert!(scene.body.distance(p) > 0.001 && rendered_clearance(cloak.arm_surface.as_ref().unwrap(), p * anatomy::HIP_SCALE) > 0.001,
                                 "{name}: descending turnover penetrates actual body/arm support at {p:?}");
                         }
                     }
@@ -1719,6 +2307,13 @@ mod tests {
     fn study_capes_add_complete_hand_contact_chains_without_changing_legacy_profiles() {
         let base = Look::of(CreatureModel::Human, 17);
         let (_, native, _, _) = super::super::rogue_tests::spawn_one(&base);
+        assert!(
+            native
+                .visual_contacts
+                .iter()
+                .all(|part| part.retained_triangle_count() == 0),
+            "legacy hair contacts must not retain study-cloth triangle storage"
+        );
         for (name, added) in [("cloak", 0), ("mummy-wrapping", 0), ("hooded-cloak", 2)] {
             let mut equipment = Equipment::default();
             equipment.select(name).unwrap();
@@ -1727,6 +2322,12 @@ mod tests {
             assert_eq!(
                 rig.visual_contacts.len(),
                 native.visual_contacts.len() + added
+            );
+            assert!(
+                rig.visual_contacts
+                    .iter()
+                    .all(|part| (part.retained_triangle_count() > 0) == (added == 2)),
+                "only study capes retain the actual rendered contact mesh"
             );
             if added == 2 {
                 let neutral = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
@@ -1795,11 +2396,6 @@ mod tests {
                 hand.z < -0.4 && hand.x < -0.3 && hand.y > 0.2,
                 "must reproduce the captured rearward wind-up, not a forward strike: {hand:?}"
             );
-            let contacts = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
-                rig.joint(joint)
-                    .and_then(|e| world.get::<Transform>(e))
-                    .map(Transform::compute_affine)
-            });
             let meshes = world.resource::<Assets<Mesh>>();
             for cloak in &rig.cloaks {
                 let release = cloak
@@ -1840,7 +2436,7 @@ mod tests {
                         let p =
                             (face[0] * weights[0] + face[1] * weights[1] + face[2] * weights[2])
                                 / 3.0;
-                        assert!(contacts.iter().all(|c|c.distance(p)>0.001),
+                        assert!(rendered_clearance(cloak.arm_surface.as_ref().unwrap(), p * anatomy::HIP_SCALE)>0.001,
                             "actual strike cloth faces/lining must clear retained arms: {name}, {p:?}");
                     }
                 }
@@ -1871,7 +2467,7 @@ mod tests {
         );
         let mut released_witnesses = 0;
         for angle in [0.0, -1.15, 0.85] {
-            let contacts = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
+            let frame = |joint| {
                 let rotation = match joint {
                     J::ArmR => Quat::from_rotation_x(angle) * Quat::from_rotation_z(-0.25),
                     J::ForeR => Quat::from_rotation_x(angle * 0.65),
@@ -1886,14 +2482,22 @@ mod tests {
                     rotation,
                     rig.rest[joint as usize],
                 ))
-            });
+            };
+            let contacts = super::super::visual_contact::posed(&rig.visual_contacts, frame);
+            let surface = Arc::new(ContactSurface::new(
+                super::super::visual_contact::posed_triangles(&rig.visual_contacts, frame),
+            ));
             for cloak in &mut rig.cloaks {
                 cloak.set_contacts(contacts.clone());
+                cloak.set_contact_surface(surface.clone());
             }
             let rotation = Quat::from_euler(EulerRot::XYZ, 0.12, -0.18, 0.09);
             place_layers(&mut rig.cloaks, |_| Some(rotation), &mut meshes);
-            let mut tested = 0;
+            let mut tested = 0usize;
             for cloak in &rig.cloaks {
+                let actual = cloak.arm_surface.as_ref().unwrap();
+                assert!(actual.closed_faces.get_or_init(||closed_components(&actual.triangles)).iter().any(Option::is_some),
+                    "actual arm fixture must retain closed components for interior penetration checks");
                 let offset = Vec3::new(0.0, 0.53, -0.15);
                 for column in 0..=COLUMNS {
                     let neck = rotation * cloak.points[index(0, column)] + offset;
@@ -1936,10 +2540,19 @@ mod tests {
                                 + face[1] * b as f32
                                 + face[2] * (4 - a - b) as f32)
                                 / 4.0;
-                            let gap = contacts
-                                .iter()
-                                .map(|c| c.distance(p))
-                                .fold(f32::INFINITY, f32::min);
+                            let gap = rendered_clearance(
+                                cloak.arm_surface.as_ref().unwrap(),
+                                p * anatomy::HIP_SCALE,
+                            );
+                            if tested.is_multiple_of(257) {
+                                let exhaustive = rendered_clearance_checked(
+                                    cloak.arm_surface.as_ref().unwrap(),
+                                    p * anatomy::HIP_SCALE,
+                                    true,
+                                );
+                                assert!((gap-exhaustive).abs()<1e-6,
+                                    "posed actual-mesh broadphase disagrees with exhaustive clearance at {p:?}");
+                            }
                             assert!(gap > 0.001, "posed cloth triangle penetrates actual arm profile: angle={angle}, p={p:?}, gap={gap}");
                             tested += 1;
                         }

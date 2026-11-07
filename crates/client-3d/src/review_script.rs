@@ -713,6 +713,12 @@ fn save_manifest(run: &Run) -> std::io::Result<()> {
     }
     std::fs::rename(temp, target)
 }
+fn cloth_contact_report(workloads: Vec<[usize; 3]>) -> Value {
+    json!({"shared_between_layers":true, "cloaks":workloads.into_iter().map(|[triangles,nodes,bin_refs]| {
+        json!({"triangles":triangles,"bvh_nodes":nodes,"height_bin_references":bin_refs})
+    }).collect::<Vec<_>>()})
+}
+
 #[allow(clippy::too_many_arguments)]
 fn capture(
     mut commands: Commands,
@@ -801,6 +807,7 @@ fn capture(
     let mut states:Vec<Value>=actors.iter().map(|(actor,anim,transform,rig,children)|json!({
         "id":actor.spec.id,"composition":actor.spec,"resolved_key":actor.spec.look().unwrap().key,
         "position":transform.translation.to_array(),"yaw":anim.yaw,"root_children":children.len(),
+        "cloth_contact":cloth_contact_report(rig.cloth_contact_workloads()),
         "joints": ([J::Hips,J::Torso,J::Head,J::HandL,J::HandR,J::LegL,J::LegR,J::ShinL,J::ShinR,J::FootL,J::FootR].into_iter().filter_map(|joint| {
             let entity=rig.joint(joint)?;
             let matrix=joints.get(entity).ok()?.compute_matrix().to_cols_array();
@@ -909,6 +916,24 @@ pub(crate) fn cli(arguments: &[String]) -> Result<(), crate::Error> {
 #[cfg(test)]
 mod timing_tests {
     use super::*;
+    #[test]
+    fn cloth_contact_counts_are_additive_capture_metadata() {
+        let report = cloth_contact_report(vec![[123, 31, 246], [123, 31, 246]]);
+        let manifest = json!({"status":"complete","captures":[{"actors":[{"id":"cape","cloth_contact":report}]}]});
+        let decoded: Value =
+            serde_json::from_slice(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert_eq!(decoded["status"], "complete");
+        assert_eq!(
+            decoded["captures"][0]["actors"][0]["cloth_contact"]["cloaks"][0]["triangles"],
+            123
+        );
+        assert_eq!(
+            decoded["captures"][0]["actors"][0]["cloth_contact"]["cloaks"][1]["bvh_nodes"],
+            31
+        );
+        assert_eq!(cloth_contact_report(Vec::new())["cloaks"], json!([]));
+    }
+
     #[test]
     fn bounded_schedule_counters_preserve_capture_and_failure_schema() {
         let mut timing = ReviewTiming::default();

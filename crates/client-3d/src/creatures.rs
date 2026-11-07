@@ -1162,6 +1162,15 @@ pub(crate) enum Drape {
 }
 
 impl Rig {
+    /// Capture-only workload metadata; main cape and mantle share the posed
+    /// support, so per-cloak counts must not be summed as allocated storage.
+    pub(crate) fn cloth_contact_workloads(&self) -> Vec<[usize; 3]> {
+        self.cloaks
+            .iter()
+            .filter_map(cloak::CloakRig::contact_workload)
+            .collect()
+    }
+
     fn map_render_references(
         &mut self,
         entity: impl Fn(Entity) -> Entity,

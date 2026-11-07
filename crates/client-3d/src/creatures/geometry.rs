@@ -900,6 +900,7 @@ impl Kit<'_, '_, '_> {
                     &model,
                     self.meshes,
                     proportion,
+                    self.study_hand_contacts,
                 ));
         }
 
@@ -1005,6 +1006,7 @@ impl Kit<'_, '_, '_> {
                             &model,
                             self.meshes,
                             Vec3::ONE,
+                            self.study_hand_contacts,
                         ));
                 }
             }

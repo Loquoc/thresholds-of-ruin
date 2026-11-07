@@ -527,10 +527,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
             Vec3::new(0.38, 0.64, 0.24) * b.max(1.0),
             0.0085,
             &|_, _| l.skin,
-            &|at| {
-                bodice_covers(body, outfit.bodice, bare_shoulders, at)
-                    && !neckline.is_some_and(|cut| cut.open(at))
-            },
+            &|at| equipment_shirts::covers(body, outfit.bodice, neckline, at),
             false,
         );
     } else {
@@ -584,10 +581,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
     // Keep the anatomical mesh untouched beneath a separate shirt surface.
     // This also closes the thin edge between a crop/scoop and exposed skin.
     let body_shape = if let Some(cloth) = &figure.shirt_shape {
-        let covered = |at| {
-            bodice_covers(body, outfit.bodice, bare_shoulders, at)
-                && !neckline.is_some_and(|cut| cut.open(at))
-        };
+        let covered = |at| equipment_shirts::covers(body, outfit.bodice, neckline, at);
         cloth.mesh_region(
             &mut p.matte,
             Vec3::new(-0.38, -0.06, -0.21) * b.max(1.0),
@@ -938,7 +932,8 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
             4,
             outfit.collar_edge,
         );
-    } else if !bare_shoulders
+    } else if l.equipment.shirt.is_none()
+        && !bare_shoulders
         && !matches!(outfit.bodice.cover, Cover::Bare | Cover::Bikini)
         && matches!(outfit.bodice.straps, Straps::Shoulders | Straps::Halter)
     {
@@ -2102,6 +2097,21 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
         } else {
             Vec::new()
         };
+        let neutral_surface = cut.map(|_| {
+            std::sync::Arc::new(super::cloak::ContactSurface::new(
+                super::visual_contact::posed_triangles(&kit.rig.visual_contacts, |joint| {
+                    Some(Affine3A::from_scale_rotation_translation(
+                        if matches!(joint, J::HandL | J::HandR) {
+                            Vec3::splat(1.22)
+                        } else {
+                            Vec3::ONE
+                        },
+                        Quat::IDENTITY,
+                        kit.rig.rest[joint as usize],
+                    ))
+                }),
+            ))
+        });
         let fitted = |cut: Option<super::outfit::outerwear::DrapeCut>, extra: f32| {
             let mut recipe =
                 super::cloak::Recipe::new(body, cloak.exterior, cloak.lining, cloak.ragged);
@@ -2135,6 +2145,9 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
             }
             if cut.is_some() {
                 recipe.set_contacts(neutral_contacts.clone());
+                if let Some(surface) = &neutral_surface {
+                    recipe.set_contact_surface(surface.clone());
+                }
             }
             recipe
         };
