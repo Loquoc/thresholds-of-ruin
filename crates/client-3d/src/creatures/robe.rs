@@ -192,6 +192,63 @@ mod art_contract_tests {
     }
 
     #[test]
+    fn retained_short_tunic_support_continues_to_the_robe_hem_without_a_hip_shelf() {
+        let look = Look::of(CreatureModel::Mage, 42);
+        let (_, mut rig, _, _) = super::super::rogue_tests::spawn_one(&look);
+        let robe = rig.robe.as_mut().unwrap();
+        // A broad short skirt ends well above the robe hem. Its support must
+        // not disappear at that boundary and pull the outer cloth inward.
+        let short = retained_skirt_fixture()
+            .into_iter()
+            .map(|triangle| triangle.map(|p| Vec3::new(p.x, 0.04 + (p.y - 0.04) * 0.32, p.z)))
+            .collect::<Vec<_>>();
+        robe.retain_surface(Entity::PLACEHOLDER, short.clone());
+        robe.candidate.copy_from_slice(robe.rest.as_ref());
+        let before = robe.candidate.clone();
+        fit_retained_layers(robe, false);
+        for col in 0..COLUMNS {
+            assert!(
+                robe.candidate[index(ROWS, col)].with_y(0.0).length() > 0.38,
+                "the long robe tapers gradually below the short retained hem"
+            );
+            assert!(
+                robe.candidate[index(ROWS, col)].with_y(0.0).length() < 0.46,
+                "the retained hip width does not make a full-length cylinder"
+            );
+        }
+        for row in 8..=ROWS {
+            for col in 0..COLUMNS {
+                let above = robe.candidate[index(row - 1, col)];
+                let point = robe.candidate[index(row, col)];
+                let drop = robe.candidate[(row - 1) * COLUMNS..row * COLUMNS]
+                    .iter()
+                    .map(|p| p.y)
+                    .fold(f32::INFINITY, f32::min)
+                    - robe.candidate[row * COLUMNS..(row + 1) * COLUMNS]
+                        .iter()
+                        .map(|p| p.y)
+                        .fold(f32::INFINITY, f32::min);
+                assert!(
+                    above.with_y(0.0).length() - point.with_y(0.0).length()
+                        <= 0.20 * drop.max(0.0) + 0.00001,
+                    "no sudden narrowing below retained cloth"
+                );
+            }
+        }
+        for (i, point) in robe.candidate.iter().enumerate() {
+            assert_eq!(
+                point.y, before[i].y,
+                "pattern shaping does not alter floor height"
+            );
+            assert!(point.with_y(0.0).length() >= before[i].with_y(0.0).length() - 0.000001);
+        }
+        assert_eq!(
+            robe.retained[0].rest, short,
+            "retained garment is not reshaped"
+        );
+    }
+
+    #[test]
     fn retained_cloth_bins_include_triangle_crossings_without_vertex_hits() {
         let triangle = [
             Vec3::new(0.50, -1.0, 0.0),
@@ -1776,7 +1833,14 @@ fn fit_retained_layers(robe: &mut RobeRig, neutral: bool) {
             })
     });
     let mut radii = [0.0f32; ROWS + 1];
+    let mut hanging_radius = 0.0f32;
     for row in 0..=ROWS {
+        if row > 0 {
+            // A gentle inward drape below a short underlayer, rather than a
+            // full-length cylinder or an abrupt return to the naked-body fit.
+            let drop = (heights[row - 1].0 - heights[row].0).max(0.0);
+            hanging_radius = (hanging_radius - 0.20 * drop).max(0.0);
+        }
         let low = heights[row.saturating_sub(1)]
             .0
             .min(heights[row].0)
@@ -1791,8 +1855,15 @@ fn fit_retained_layers(robe: &mut RobeRig, neutral: bool) {
                 .iter()
                 .map(|p| p.with_y(0.0).length())
                 .fold(0.0f32, f32::max);
-            radii[row] = (existing.max(retained + 0.022)) / (TAU / COLUMNS as f32).cos();
+            let secant = 1.0 / (TAU / COLUMNS as f32).cos();
+            radii[row] = existing.max(retained + 0.022) * secant;
+            hanging_radius = hanging_radius.max((retained + 0.022) * secant);
         }
+        // Cloth continues to hang from a retained tunic's widest section.
+        // Reverting to the narrow naked-body recipe immediately below its hem
+        // creates a conspicuous cylindrical hip shelf. Carry only retained
+        // cloth's allowance, not temporary leg-contact expansion, downward.
+        radii[row] = radii[row].max(hanging_radius);
     }
     for (row, &radius) in radii.iter().enumerate() {
         if radius <= 0.0 {
@@ -1801,6 +1872,7 @@ fn fit_retained_layers(robe: &mut RobeRig, neutral: bool) {
         for col in 0..COLUMNS {
             let i = index(row, col);
             let y = robe.candidate[i].y;
+            let radius = radius.max(robe.candidate[i].with_y(0.0).length());
             robe.candidate[i] = robe.directions[i] * radius + Vec3::Y * y;
         }
     }

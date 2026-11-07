@@ -474,6 +474,20 @@ pub(super) fn lower_length(appearance: OuterwearAppearance) -> Option<f32> {
     }
 }
 
+// Least slope-limited majorant: preserve every support depth while easing the
+// abrupt end of a retained tunic into a hanging cloth panel.
+fn apron_depth_envelope(depths: &[f32], step: f32) -> Vec<f32> {
+    (0..depths.len())
+        .map(|i| {
+            depths
+                .iter()
+                .enumerate()
+                .map(|(j, z)| z - 0.35 * step * i.abs_diff(j) as f32)
+                .fold(f32::NEG_INFINITY, f32::max)
+        })
+        .collect()
+}
+
 /// Hips-local hanging pieces. `clearance` contains the resolved outermost
 /// hip half-width and front depth. `support` contains the actual retained skirt
 /// and neutral robe outer surfaces in the same unscaled hip-joint frame. Fit
@@ -507,6 +521,7 @@ pub(super) fn emit_lower(
                 .fold(clearance.y, f32::max)
         })
         .collect();
+    let depths = apron_depth_envelope(&depths, length / 20.0);
     for &center in centers {
         let point = |u: f32, t: f32| {
             let row = (t * 20.0).floor() as usize;
@@ -535,9 +550,15 @@ pub(super) fn emit_lower(
                 } else {
                     r.cloth
                 };
-                p.matte.quad_out(q, Vec3::ZERO, color);
-                p.matte
-                    .quad_out(q.map(|v| v - Vec3::Z * 0.004), Vec3::Z, color * 0.8);
+                // A hanging panel is not star-shaped about the hip origin.
+                // Explicit front/back references cannot invert at a support step.
+                let middle = q.iter().copied().sum::<Vec3>() * 0.25;
+                p.matte.quad_out(q, middle - Vec3::Z, color);
+                p.matte.quad_out(
+                    q.map(|v| v - Vec3::Z * 0.004),
+                    middle + Vec3::Z,
+                    color * 0.8,
+                );
             }
         }
         if pocket {
@@ -558,6 +579,19 @@ pub(super) fn emit_lower(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn apron_tunic_end_depths_keep_clearance_without_a_horizontal_shelf() {
+        let support = [0.34, 0.34, 0.34, 0.20, 0.20, 0.20];
+        let depth = apron_depth_envelope(&support, 0.03);
+        for (actual, required) in depth.iter().zip(support) {
+            assert!(*actual >= required);
+        }
+        for pair in depth.windows(2) {
+            assert!((pair[1] - pair[0]).abs() <= 0.010501);
+        }
+        assert_eq!(apron_depth_envelope(&[0.2; 6], 0.03), vec![0.2; 6]);
+    }
+
     fn wearer(woman: bool) -> HumanoidBody {
         HumanoidBody::resolve(&Look::with_choice(
             CreatureModel::Human,

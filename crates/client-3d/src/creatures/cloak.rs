@@ -272,6 +272,7 @@ pub(super) struct CloakRig {
     inner_layer: Option<Entity>,
     last_inner_rotation: Option<Quat>,
     scene: Option<super::visual_contact::Scene>,
+    arm_surface: Option<LayerSurface>,
 }
 
 impl CloakRig {
@@ -284,12 +285,17 @@ impl CloakRig {
         if self.wrapped && self.scene.is_none() {
             if let Some(support) = &self.support {
                 self.scene = Some(super::visual_contact::Scene::new(support.clone(), contacts));
+                self.arm_surface = self
+                    .scene
+                    .as_ref()
+                    .map(|scene| LayerSurface::from_triangles(scene.cloth_hulls()));
                 self.invalidate();
                 return;
             }
         }
         if let Some(scene) = &mut self.scene {
             if scene.set_pose(contacts) {
+                self.arm_surface = Some(LayerSurface::from_triangles(scene.cloth_hulls()));
                 self.invalidate();
             }
         }
@@ -374,9 +380,16 @@ pub(super) fn spawn(
         .0[0]
         .1
         .clone();
-    let rest: Vec<_> = (0..GRID)
+    let mut rest: Vec<_> = (0..GRID)
         .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
         .collect();
+    let arm_surface = recipe
+        .scene
+        .as_ref()
+        .map(|scene| LayerSurface::from_triangles(scene.cloth_hulls()));
+    if let Some(surface) = &arm_surface {
+        fit_arm_cells(&mut rest, Quat::IDENTITY, surface);
+    }
     let mut normals = vec![Vec3::ZERO; GRID];
     surface_normals(&rest, &mut normals);
     let mut indices = Vec::new();
@@ -460,6 +473,7 @@ pub(super) fn spawn(
         rest,
         normals,
         last_rotation: None,
+        arm_surface,
         scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
         inner_layer: recipe.inner_layer,
@@ -532,6 +546,9 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
             }
         }
     });
+    if let Some(surface) = &cloak.arm_surface {
+        fit_arm_cells(&mut cloak.points, rotation, surface);
+    }
     surface_normals(&cloak.points, &mut cloak.normals);
     if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
         write(mesh, &cloak.points, &cloak.normals);
@@ -558,9 +575,30 @@ impl LayerSurface {
             .iter()
             .map(|p| rotation * Vec3::from_array(*p) + Vec3::new(0.0, 0.53, -0.15))
             .collect();
-        let bottom = vertices.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
-        let top = vertices
+        let indices: Vec<_> = mesh
+            .indices()
+            .expect("cloak mesh triangles")
             .iter()
+            .collect();
+        Self::from_triangles(
+            indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|face| face.map(|i| vertices[i]))
+                .collect(),
+        )
+    }
+
+    fn from_triangles(triangles: Vec<[Vec3; 3]>) -> Self {
+        let bottom = triangles
+            .iter()
+            .flatten()
+            .map(|p| p.y)
+            .fold(f32::INFINITY, f32::min);
+        let top = triangles
+            .iter()
+            .flatten()
             .map(|p| p.y)
             .fold(f32::NEG_INFINITY, f32::max);
         let mut surface = Self {
@@ -568,13 +606,7 @@ impl LayerSurface {
             bottom,
             height: (top - bottom).max(0.001),
         };
-        let indices: Vec<_> = mesh
-            .indices()
-            .expect("cloak mesh triangles")
-            .iter()
-            .collect();
-        for face in indices.as_chunks::<3>().0 {
-            let triangle = face.map(|i| vertices[i]);
+        for triangle in triangles {
             let low = triangle.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
             let high = triangle
                 .iter()
@@ -591,7 +623,46 @@ impl LayerSurface {
         (((y - self.bottom) / self.height * 64.0).floor() as isize).clamp(0, 63) as usize
     }
 
+    /// Exact support of inner triangles clipped to an outer cell's complete
+    /// height/angular footprint. A peak between outer vertex rays still
+    /// contributes, unlike pointwise radial sampling.
+    fn support_plane(
+        &self,
+        normal: Vec3,
+        low: f32,
+        high: f32,
+        lower: Vec3,
+        upper: Vec3,
+    ) -> Option<f32> {
+        if high < self.bottom || low > self.bottom + self.height {
+            return None;
+        }
+        let mut support: Option<f32> = None;
+        for bin in self.bin(low)..=self.bin(high) {
+            for &triangle in &self.bins[bin] {
+                let mut polygon = triangle.to_vec();
+                for (plane, offset) in [
+                    (Vec3::Y, low),
+                    (Vec3::NEG_Y, -high),
+                    (lower, -THICKNESS),
+                    (upper, -THICKNESS),
+                ] {
+                    polygon = clip_layer_polygon(&polygon, plane, offset);
+                    if polygon.is_empty() {
+                        break;
+                    }
+                }
+                for point in polygon {
+                    let projected = point.dot(normal);
+                    support = Some(support.map_or(projected, |old| old.max(projected)));
+                }
+            }
+        }
+        support
+    }
+
     /// Outermost intersection with either face or a closed boundary edge.
+    #[cfg(test)]
     fn radius(&self, origin: Vec3, ray: Vec3) -> Option<f32> {
         if origin.y < self.bottom || origin.y > self.bottom + self.height {
             return None;
@@ -618,6 +689,117 @@ impl LayerSurface {
             }
         }
         far
+    }
+}
+
+/// Clip against a closed half-space; extrema of a linear support function
+/// lie at these vertices, including newly created edge intersections.
+fn clip_layer_polygon(points: &[Vec3], normal: Vec3, offset: f32) -> Vec<Vec3> {
+    let mut result = Vec::with_capacity(points.len() + 1);
+    if points.is_empty() {
+        return result;
+    }
+    for i in 0..points.len() {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        let da = normal.dot(a) - offset;
+        let db = normal.dot(b) - offset;
+        if da >= 0.0 {
+            result.push(a);
+        }
+        if (da >= 0.0) != (db >= 0.0) {
+            result.push(a.lerp(b, da / (da - db)));
+        }
+    }
+    result
+}
+
+/// Constrain whole connected cells, not their separate vertices. Directions
+/// and angular footprints remain fixed throughout the sweep; every later
+/// nonnegative correction preserves earlier neighboring support planes.
+fn fit_layer_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
+    fit_cells(points, rotation, support, false);
+}
+
+fn fit_arm_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
+    fit_cells(points, rotation, support, true);
+}
+
+fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface, arms: bool) {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let mut posed: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
+    let directions: Vec<_> = posed
+        .iter()
+        .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
+        .collect();
+    for row in 0..ROWS {
+        for column in 0..COLUMNS {
+            let cell = [
+                index(row, column),
+                index(row, column + 1),
+                index(row + 1, column),
+                index(row + 1, column + 1),
+            ];
+            let normal = cell
+                .iter()
+                .map(|&i| directions[i])
+                .sum::<Vec3>()
+                .normalize_or(Vec3::NEG_Z);
+            let tangent = Vec3::new(normal.z, 0.0, -normal.x);
+            let (low_angle, high_angle) =
+                cell.iter()
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &i| {
+                        let a = directions[i].dot(tangent).atan2(directions[i].dot(normal));
+                        (lo.min(a), hi.max(a))
+                    });
+            let low_ray = normal * low_angle.cos() + tangent * low_angle.sin();
+            let high_ray = normal * high_angle.cos() + tangent * high_angle.sin();
+            let lower = Vec3::new(low_ray.z, 0.0, -low_ray.x);
+            let upper = Vec3::new(-high_ray.z, 0.0, high_ray.x);
+            let (low, high) = cell
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &i| {
+                    (lo.min(posed[i].y), hi.max(posed[i].y))
+                });
+            // Shoulder cells are above the entire contact hull in their
+            // angular footprint. This remains valid after radial mantle fitting.
+            // No unrelated arm in another angular sector raises this yoke.
+            if arms && row < 3 {
+                if let Some(top) = support.support_plane(
+                    Vec3::Y,
+                    support.bottom,
+                    support.bottom + support.height,
+                    lower,
+                    upper,
+                ) {
+                    for i in cell {
+                        posed[i].y = posed[i].y.max(top + LAYER_GAP + THICKNESS);
+                    }
+                }
+                continue;
+            }
+            let Some(plane) =
+                support.support_plane(normal, low - THICKNESS, high + THICKNESS, lower, upper)
+            else {
+                continue;
+            };
+            for i in cell {
+                let denominator = normal.dot(directions[i]);
+                debug_assert!(
+                    denominator > 0.05,
+                    "cloak cell angular footprint must be locally convex"
+                );
+                if denominator > 0.05 {
+                    let deficit =
+                        (plane + LAYER_GAP + THICKNESS * 0.5 - normal.dot(posed[i])).max(0.0);
+                    posed[i] += directions[i] * (deficit / denominator);
+                }
+            }
+        }
+    }
+    let inverse = rotation.inverse();
+    for (point, fitted) in points.iter_mut().zip(posed) {
+        *point = inverse * (fitted - offset);
     }
 }
 
@@ -663,20 +845,7 @@ pub(super) fn place_layers(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
         );
-        let offset = Vec3::new(0.0, 0.53, -0.15);
-        for point in &mut cloak.points {
-            let at = rot * *point + offset;
-            let ray = Vec3::new(at.x, 0.0, at.z).normalize_or(Vec3::NEG_Z);
-            let origin = Vec3::Y * at.y;
-            if let Some(radius) = support.radius(origin, ray) {
-                // Include the mantle lining's half-thickness and a reserve
-                // for interpolation between independently sampled fold grids.
-                let required = radius + LAYER_GAP + THICKNESS * 0.5;
-                if (at - origin).length() < required {
-                    *point = rot.inverse() * (origin + ray * required - offset);
-                }
-            }
-        }
+        fit_layer_cells(&mut cloak.points, rot, &support);
         surface_normals(&cloak.points, &mut cloak.normals);
         if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
             write(mesh, &cloak.points, &cloak.normals);
@@ -717,6 +886,73 @@ mod tests {
     }
 
     #[test]
+    fn mantle_cell_contains_inner_peak_missed_by_both_vertex_rays() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let triangle = [
+            Vec3::new(0.004, 0.34, 0.45),
+            Vec3::new(0.010, 0.34, 0.45),
+            Vec3::new(0.007, 0.36, 0.45),
+        ];
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            triangle.map(|p| (p - offset).to_array()).to_vec(),
+        )
+        .with_inserted_indices(Indices::U32(vec![0, 1, 2]));
+        let support = LayerSurface::new(&mesh, Quat::IDENTITY);
+        let origin = Vec3::Y * 0.35;
+        for x in [0.0, 0.0125] {
+            assert!(
+                support
+                    .radius(origin, Vec3::new(x, 0.0, 0.35).normalize())
+                    .is_none(),
+                "fixture peak must lie between vertex rays"
+            );
+        }
+        let mut points: Vec<_> = (0..GRID)
+            .map(|i| {
+                let x = (i % (COLUMNS + 1)) as f32 / COLUMNS as f32 * 0.6 - 0.3;
+                let y = 0.6 - (i / (COLUMNS + 1)) as f32 / ROWS as f32 * 0.5;
+                Vec3::new(x, y, 0.35) - offset
+            })
+            .collect();
+        fit_layer_cells(&mut points, Quat::IDENTITY, &support);
+        let mut oracle = Builder::default();
+        oracle.tri(triangle, Vec3::ONE);
+        let mut witnesses = 0;
+        for row in 0..ROWS {
+            for col in 0..COLUMNS {
+                let [a, b, c, d] = [
+                    index(row, col),
+                    index(row, col + 1),
+                    index(row + 1, col),
+                    index(row + 1, col + 1),
+                ]
+                .map(|i| points[i] + offset);
+                for face in [[a, b, c], [b, d, c]] {
+                    let center = (face[0] + face[1] + face[2]) / 3.0;
+                    let origin = Vec3::Y * center.y;
+                    if let Some(hit) = oracle.outer_surface(origin, center.with_y(0.0).normalize())
+                    {
+                        witnesses += 1;
+                        assert!(
+                            center.distance(origin) > hit.distance(origin) + 0.001,
+                            "whole mantle face must clear the inter-ray peak"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            witnesses > 0,
+            "interior contact fixture must exercise a face"
+        );
+    }
+
+    #[test]
     fn study_capes_add_complete_hand_contact_chains_without_changing_legacy_profiles() {
         let base = Look::of(CreatureModel::Human, 17);
         let (_, native, _, _) = super::super::rogue_tests::spawn_one(&base);
@@ -753,6 +989,81 @@ mod tests {
                     "posed arms invalidate a still cape"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn posed_cope_triangles_clear_plate_arms_and_scaled_hands() {
+        let mut equipment = Equipment::default();
+        equipment.select("plate-mail").unwrap();
+        equipment.select("ornamental-cope").unwrap();
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            17,
+            Some(Variant {
+                woman: true,
+                build: 2,
+                ..default()
+            }),
+        )
+        .equipped(equipment);
+        let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        assert_eq!(
+            rig.visual_contacts.len(),
+            6,
+            "complete upper/fore/hand meshes"
+        );
+        for angle in [0.0, -1.15, 0.85] {
+            let contacts = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
+                let rotation = match joint {
+                    J::ArmR => Quat::from_rotation_x(angle) * Quat::from_rotation_z(-0.25),
+                    J::ForeR => Quat::from_rotation_x(angle * 0.65),
+                    _ => Quat::IDENTITY,
+                };
+                Some(Affine3A::from_scale_rotation_translation(
+                    if matches!(joint, J::HandL | J::HandR) {
+                        Vec3::splat(1.22)
+                    } else {
+                        Vec3::ONE
+                    },
+                    rotation,
+                    rig.rest[joint as usize],
+                ))
+            });
+            for cloak in &mut rig.cloaks {
+                cloak.set_contacts(contacts.clone());
+            }
+            let rotation = Quat::from_euler(EulerRot::XYZ, 0.12, -0.18, 0.09);
+            place_layers(&mut rig.cloaks, |_| Some(rotation), &mut meshes);
+            let mut tested = 0;
+            for cloak in &rig.cloaks {
+                let mesh = meshes.get(&cloak.mesh).unwrap();
+                let vertices = positions(mesh);
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                for tri in indices.as_chunks::<3>().0 {
+                    let face = tri.map(|i| {
+                        (rotation * vertices[i] + Vec3::new(0.0, 0.53, -0.15)) / anatomy::HIP_SCALE
+                    });
+                    for a in 0..=4 {
+                        for b in 0..=4 - a {
+                            let p = (face[0] * a as f32
+                                + face[1] * b as f32
+                                + face[2] * (4 - a - b) as f32)
+                                / 4.0;
+                            let gap = contacts
+                                .iter()
+                                .map(|c| c.distance(p))
+                                .fold(f32::INFINITY, f32::min);
+                            assert!(gap > 0.001, "posed cloth triangle penetrates actual arm profile: angle={angle}, p={p:?}, gap={gap}");
+                            tested += 1;
+                        }
+                    }
+                }
+            }
+            assert!(
+                tested > 10000,
+                "both linings, cell interiors, edges and boundary faces"
+            );
         }
     }
 

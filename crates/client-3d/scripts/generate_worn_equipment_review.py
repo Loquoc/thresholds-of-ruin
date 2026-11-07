@@ -48,8 +48,8 @@ def sheet(actors, name):
     for a in actors:
         x, y, z = a['position']
         camera = f'detail-{a["id"]}'
-        result['cameras'].append({'id': camera, 'position': [x + 0.35, y + 1.15, z + 3.1],
-                                  'target': [x, y + 0.8, z], 'fov_degrees': 38})
+        result['cameras'].append({'id': camera, 'position': [x + 0.35, y + 1.15, z + 2.3],
+                                  'target': [x, y + 0.8, z], 'fov_degrees': 52})
         closeups.append({'tick': 0, 'name': f'{name}-{camera}', 'camera': camera})
     result['captures'][2:2] = closeups
     return result
@@ -61,7 +61,7 @@ def reviews():
     pages = {}
     for start in range(0, len(names), 8):
         page = f'appearances-{start // 8 + 1:02}'
-        pages[page] = sheet([actor(name, i, [name], outfit='adventurer' if name in names[-10:] else 'native') for i, name in enumerate(names[start:start + 8])], page)
+        pages[page] = sheet([actor(name, i, [name], outfit='adventurer' if name in names[-10:] or name in ('t-shirt', 'hawaiian-shirt') else 'native') for i, name in enumerate(names[start:start + 8])], page)
     layers = [
         actor('shirt-plate-open-cape', 0, ['hawaiian-shirt', 'plate-mail', 'opera-cloak']),
         actor('tshirt-chain-cloak', 1, ['t-shirt', 'chain-mail', 'hooded-cloak']),
@@ -69,7 +69,7 @@ def reviews():
         actor('apron-over-caster-robe', 3, ['apron', 'riding-gloves'], model='Mage'),
         actor('centaur-head-and-hands', 4, ['fedora', 'fencing-gloves'], model='Centaur'),
         actor('cope-and-armor', 5, ['ornamental-cope', 'plate-mail']),
-        actor('feminine-hawaiian-shirt', 6, ['hawaiian-shirt'], woman=True),
+        actor('feminine-hawaiian-shirt', 6, ['hawaiian-shirt'], woman=True, outfit='adventurer'),
         actor('leather-mantle-over-shirt', 7, ['leather-cloak', 'hawaiian-shirt']),
     ]
     pages['layering'] = sheet(layers, 'layering')

@@ -204,6 +204,46 @@ impl Scene {
             groups,
         }
     }
+    /// Closed circumscribed hulls in scaled torso coordinates. Build once per
+    /// changed pose for study cloth, never once per cell or for legacy hair.
+    pub fn cloth_hulls(&self) -> Vec<[Vec3; 3]> {
+        const SIDES: usize = 24;
+        let mut triangles = Vec::with_capacity(self.posed.len() * SIDES * 4);
+        for c in &self.posed {
+            let x = c.direction.any_orthonormal_vector();
+            let z = c.direction.cross(x);
+            let radius = c.radius / (PI / SIDES as f32).cos();
+            let pose = c.to_local.inverse();
+            let point = |end: f32, i: usize| {
+                let angle = TAU * i as f32 / SIDES as f32;
+                pose.transform_point3(
+                    c.center
+                        + c.direction * c.half_length * end
+                        + radius * (x * angle.cos() + z * angle.sin()),
+                ) * anatomy::HIP_SCALE
+            };
+            let center = |end: f32| {
+                pose.transform_point3(c.center + c.direction * c.half_length * end)
+                    * anatomy::HIP_SCALE
+            };
+            for i in 0..SIDES {
+                let [a, b, d, e] = [
+                    point(-1.0, i),
+                    point(-1.0, i + 1),
+                    point(1.0, i),
+                    point(1.0, i + 1),
+                ];
+                triangles.extend([
+                    [a, b, e],
+                    [a, e, d],
+                    [center(-1.0), b, a],
+                    [center(1.0), d, e],
+                ]);
+            }
+        }
+        triangles
+    }
+
     pub fn set_pose(&mut self, posed: Vec<Cylinder>) -> bool {
         if self.posed == posed {
             return false;
@@ -249,6 +289,35 @@ impl std::ops::Deref for Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cloth_hulls_enclose_transformed_contact_cylinders() {
+        let mut cylinder = Cylinder::new(Vec3::ZERO, Vec3::Y * 0.2, 0.09);
+        cylinder.to_local = Affine3A::from_scale_rotation_translation(
+            Vec3::splat(1.22),
+            Quat::from_rotation_x(1.1),
+            Vec3::new(0.3, 0.4, 0.1),
+        )
+        .inverse()
+            * Affine3A::from_scale(anatomy::HIP_SCALE);
+        let scene = Scene::new(crate::sdf::Sculpt::default(), vec![cylinder]);
+        let hull = scene.cloth_hulls();
+        assert_eq!(hull.len(), 24 * 4);
+        for face in hull {
+            for a in 0..=4 {
+                for b in 0..=4 - a {
+                    let p =
+                        (face[0] * a as f32 + face[1] * b as f32 + face[2] * (4 - a - b) as f32)
+                            / 4.0
+                            / anatomy::HIP_SCALE;
+                    assert!(
+                        cylinder.distance(p) >= -0.000001,
+                        "circumscribed contact hull, including scaled hands"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn grouped_scene_queries_match_exhaustive_contacts_across_pose_changes() {
         let mut body = crate::sdf::Sculpt::default();

@@ -15,6 +15,11 @@ class WornReview(unittest.TestCase):
             self.assertEqual(len(script['captures']), 5 + len(script['actors']))
             self.assertTrue(all(a['position'][1] == -0.5 for a in script['actors']))
             self.assertLessEqual(max(c['tick'] for c in script['captures']), 100)
+            for actor in script['actors']:
+                camera = next(c for c in script['cameras'] if c['id'] == f'detail-{actor["id"]}')
+                self.assertLess(camera['position'][2] - actor['position'][2], 2.7,
+                                'detail camera must sit before the neighboring row, not behind it')
+                self.assertGreaterEqual(camera['fov_degrees'], 50)
 
     def test_catalog_and_layer_witnesses_are_complete(self):
         pages = generator.reviews()

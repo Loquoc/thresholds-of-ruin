@@ -890,8 +890,6 @@ impl Kit<'_, '_, '_> {
             J::ArmL | J::ArmR if self.rig.plan == Plan::Biped => Some(vec![j]),
             J::ForeL if self.rig.plan == Plan::Biped => Some(vec![J::ArmL, j]),
             J::ForeR if self.rig.plan == Plan::Biped => Some(vec![J::ArmR, j]),
-            J::HandL if self.study_hand_contacts => Some(vec![J::ArmL, J::ForeL, j]),
-            J::HandR if self.study_hand_contacts => Some(vec![J::ArmR, J::ForeR, j]),
             _ => None,
         };
         if let Some(path) = path {
@@ -990,6 +988,28 @@ impl Kit<'_, '_, '_> {
         build: impl FnOnce(&mut Parts),
     ) {
         let model = self.part(part, build);
+        // Biped hands are attached beneath a separately scaled grip, not built
+        // by joint(). Register the actual cached model at its real boundary.
+        if self.study_hand_contacts {
+            let hand = match part {
+                "handl" => Some((J::HandL, J::ArmL, J::ForeL)),
+                "handr" => Some((J::HandR, J::ArmR, J::ForeR)),
+                _ => None,
+            };
+            if let Some((hand, arm, fore)) = hand {
+                if self.rig.joints[hand as usize] == Some(parent) {
+                    self.rig
+                        .visual_contacts
+                        .push(super::visual_contact::Part::from_model(
+                            vec![arm, fore, hand],
+                            &model,
+                            self.meshes,
+                            Vec3::ONE,
+                        ));
+                }
+            }
+        }
+
         let e = self.commands.spawn((at, Visibility::default())).id();
         let proportion = if part == "cloak" {
             Vec3::new(1.18, 1.0, 1.0)

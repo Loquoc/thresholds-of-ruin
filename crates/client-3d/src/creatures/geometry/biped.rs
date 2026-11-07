@@ -1996,7 +1996,15 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
         });
         let neutral_contacts = if cut.is_some() {
             super::visual_contact::posed(&kit.rig.visual_contacts, |joint| {
-                Some(Affine3A::from_translation(kit.rig.rest[joint as usize]))
+                Some(Affine3A::from_scale_rotation_translation(
+                    if matches!(joint, J::HandL | J::HandR) {
+                        Vec3::splat(1.22)
+                    } else {
+                        Vec3::ONE
+                    },
+                    Quat::IDENTITY,
+                    kit.rig.rest[joint as usize],
+                ))
             })
         } else {
             Vec::new()
