@@ -1180,6 +1180,7 @@ impl Rig {
             *layer = entity(*layer);
         }
         if let Some(robe) = &mut self.robe {
+            robe.map_entities(&entity);
             robe.map_mesh(&mut mesh);
         }
         for cloak in &mut self.cloaks {

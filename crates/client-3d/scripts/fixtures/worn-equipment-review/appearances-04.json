@@ -1,0 +1,594 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1920,
+    1280
+  ],
+  "actors": [
+    {
+      "id": "crystal-helmet",
+      "model": "Human",
+      "seed": 17,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "crystal-helmet"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "plumed-helmet",
+      "model": "Human",
+      "seed": 18,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "plumed-helmet"
+      ],
+      "position": [
+        -1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "etched-helmet",
+      "model": "Human",
+      "seed": 19,
+      "body": {
+        "woman": true,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "etched-helmet"
+      ],
+      "position": [
+        1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "crested-helmet",
+      "model": "Human",
+      "seed": 20,
+      "body": {
+        "woman": false,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "crested-helmet"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "visored-helmet",
+      "model": "Human",
+      "seed": 21,
+      "body": {
+        "woman": true,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "visored-helmet"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "walking-shoes",
+      "model": "Human",
+      "seed": 22,
+      "body": {
+        "woman": false,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "walking-shoes"
+      ],
+      "position": [
+        -1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "hard-shoes",
+      "model": "Human",
+      "seed": 23,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "hard-shoes"
+      ],
+      "position": [
+        1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "jackboots",
+      "model": "Human",
+      "seed": 24,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "jackboots"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    }
+  ],
+  "floor_color": [
+    0.25,
+    0.27,
+    0.3
+  ],
+  "cameras": [
+    {
+      "id": "front",
+      "position": [
+        0,
+        4.2,
+        10.5
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    },
+    {
+      "id": "rear",
+      "position": [
+        0,
+        3.8,
+        -8
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    }
+  ],
+  "events": [
+    {
+      "tick": 1,
+      "actor": "crystal-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "plumed-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "etched-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "crested-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "visored-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "walking-shoes",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "hard-shoes",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "jackboots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "crystal-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "plumed-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "etched-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "crested-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "visored-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "walking-shoes",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "hard-shoes",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "jackboots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "crystal-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "plumed-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "etched-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "crested-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "visored-helmet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "walking-shoes",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "hard-shoes",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "jackboots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "crystal-helmet",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "plumed-helmet",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "etched-helmet",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "crested-helmet",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "visored-helmet",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "walking-shoes",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "hard-shoes",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "jackboots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    }
+  ],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "appearances-04-front",
+      "camera": "front"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-04-rear",
+      "camera": "rear"
+    },
+    {
+      "tick": 28,
+      "name": "appearances-04-walking",
+      "camera": "front"
+    },
+    {
+      "tick": 65,
+      "name": "appearances-04-turning",
+      "camera": "rear"
+    },
+    {
+      "tick": 93,
+      "name": "appearances-04-striking",
+      "camera": "front"
+    }
+  ]
+}

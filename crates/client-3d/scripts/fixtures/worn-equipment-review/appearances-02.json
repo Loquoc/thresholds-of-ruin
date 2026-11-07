@@ -1,0 +1,594 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1920,
+    1280
+  ],
+  "actors": [
+    {
+      "id": "coarse-mantelet",
+      "model": "Human",
+      "seed": 17,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "coarse-mantelet"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "hooded-cloak",
+      "model": "Human",
+      "seed": 18,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "hooded-cloak"
+      ],
+      "position": [
+        -1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "slippery-cloak",
+      "model": "Human",
+      "seed": 19,
+      "body": {
+        "woman": true,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "slippery-cloak"
+      ],
+      "position": [
+        1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "leather-cloak",
+      "model": "Human",
+      "seed": 20,
+      "body": {
+        "woman": false,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "leather-cloak"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "robe",
+      "model": "Human",
+      "seed": 21,
+      "body": {
+        "woman": true,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "robe"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "apron",
+      "model": "Human",
+      "seed": 22,
+      "body": {
+        "woman": false,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "apron"
+      ],
+      "position": [
+        -1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "tattered-cape",
+      "model": "Human",
+      "seed": 23,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "tattered-cape"
+      ],
+      "position": [
+        1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "opera-cloak",
+      "model": "Human",
+      "seed": 24,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "opera-cloak"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    }
+  ],
+  "floor_color": [
+    0.25,
+    0.27,
+    0.3
+  ],
+  "cameras": [
+    {
+      "id": "front",
+      "position": [
+        0,
+        4.2,
+        10.5
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    },
+    {
+      "id": "rear",
+      "position": [
+        0,
+        3.8,
+        -8
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    }
+  ],
+  "events": [
+    {
+      "tick": 1,
+      "actor": "coarse-mantelet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "hooded-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "slippery-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "leather-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "robe",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "apron",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "tattered-cape",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "opera-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "coarse-mantelet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "hooded-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "slippery-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "leather-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "robe",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "apron",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "tattered-cape",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "opera-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "coarse-mantelet",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "hooded-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "slippery-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "leather-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "robe",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "apron",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "tattered-cape",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "opera-cloak",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "coarse-mantelet",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "hooded-cloak",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "slippery-cloak",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "leather-cloak",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "robe",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "apron",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "tattered-cape",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "opera-cloak",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    }
+  ],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "appearances-02-front",
+      "camera": "front"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-rear",
+      "camera": "rear"
+    },
+    {
+      "tick": 28,
+      "name": "appearances-02-walking",
+      "camera": "front"
+    },
+    {
+      "tick": 65,
+      "name": "appearances-02-turning",
+      "camera": "rear"
+    },
+    {
+      "tick": 93,
+      "name": "appearances-02-striking",
+      "camera": "front"
+    }
+  ]
+}

@@ -342,7 +342,20 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
                     LEATHER,
                     0.0,
                 );
-                fist(p, Vec3::Y * -0.3, side, arms.width, l.cloth);
+                if let Some(gloves) = l.equipment.hands {
+                    equipment_gloves::emit_cuff(p, gloves, Vec3::Y * -0.3, arms.width, 1.0);
+                    equipment_gloves::emit_hand(
+                        p,
+                        gloves,
+                        Vec3::Y * -0.3,
+                        side,
+                        arms.width,
+                        false,
+                        false,
+                    );
+                } else {
+                    fist(p, Vec3::Y * -0.3, side, arms.width, l.cloth);
+                }
             });
             let grip = kit
                 .commands

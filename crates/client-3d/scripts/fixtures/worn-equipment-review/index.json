@@ -1,0 +1,623 @@
+[
+  {
+    "page": "appearances-01",
+    "actor": "t-shirt",
+    "equipment": [
+      "t-shirt"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "hawaiian-shirt",
+    "equipment": [
+      "hawaiian-shirt"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "old-gloves",
+    "equipment": [
+      "old-gloves"
+    ],
+    "body": {
+      "woman": true,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "padded-gloves",
+    "equipment": [
+      "padded-gloves"
+    ],
+    "body": {
+      "woman": false,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "riding-gloves",
+    "equipment": [
+      "riding-gloves"
+    ],
+    "body": {
+      "woman": true,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "fencing-gloves",
+    "equipment": [
+      "fencing-gloves"
+    ],
+    "body": {
+      "woman": false,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "mummy-wrapping",
+    "equipment": [
+      "mummy-wrapping"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-01",
+    "actor": "faded-pall",
+    "equipment": [
+      "faded-pall"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "coarse-mantelet",
+    "equipment": [
+      "coarse-mantelet"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "hooded-cloak",
+    "equipment": [
+      "hooded-cloak"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "slippery-cloak",
+    "equipment": [
+      "slippery-cloak"
+    ],
+    "body": {
+      "woman": true,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "leather-cloak",
+    "equipment": [
+      "leather-cloak"
+    ],
+    "body": {
+      "woman": false,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "robe",
+    "equipment": [
+      "robe"
+    ],
+    "body": {
+      "woman": true,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "apron",
+    "equipment": [
+      "apron"
+    ],
+    "body": {
+      "woman": false,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "tattered-cape",
+    "equipment": [
+      "tattered-cape"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-02",
+    "actor": "opera-cloak",
+    "equipment": [
+      "opera-cloak"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "ornamental-cope",
+    "equipment": [
+      "ornamental-cope"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "piece-of-cloth",
+    "equipment": [
+      "piece-of-cloth"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "leather-hat",
+    "equipment": [
+      "leather-hat"
+    ],
+    "body": {
+      "woman": true,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "iron-skull-cap",
+    "equipment": [
+      "iron-skull-cap"
+    ],
+    "body": {
+      "woman": false,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "hard-hat",
+    "equipment": [
+      "hard-hat"
+    ],
+    "body": {
+      "woman": true,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "fedora",
+    "equipment": [
+      "fedora"
+    ],
+    "body": {
+      "woman": false,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "conical-hat",
+    "equipment": [
+      "conical-hat"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-03",
+    "actor": "dented-pot",
+    "equipment": [
+      "dented-pot"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "crystal-helmet",
+    "equipment": [
+      "crystal-helmet"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "plumed-helmet",
+    "equipment": [
+      "plumed-helmet"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "etched-helmet",
+    "equipment": [
+      "etched-helmet"
+    ],
+    "body": {
+      "woman": true,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "crested-helmet",
+    "equipment": [
+      "crested-helmet"
+    ],
+    "body": {
+      "woman": false,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "visored-helmet",
+    "equipment": [
+      "visored-helmet"
+    ],
+    "body": {
+      "woman": true,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "walking-shoes",
+    "equipment": [
+      "walking-shoes"
+    ],
+    "body": {
+      "woman": false,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "hard-shoes",
+    "equipment": [
+      "hard-shoes"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-04",
+    "actor": "jackboots",
+    "equipment": [
+      "jackboots"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "combat-boots",
+    "equipment": [
+      "combat-boots"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "jungle-boots",
+    "equipment": [
+      "jungle-boots"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "hiking-boots",
+    "equipment": [
+      "hiking-boots"
+    ],
+    "body": {
+      "woman": true,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "mud-boots",
+    "equipment": [
+      "mud-boots"
+    ],
+    "body": {
+      "woman": false,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "buckled-boots",
+    "equipment": [
+      "buckled-boots"
+    ],
+    "body": {
+      "woman": true,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "riding-boots",
+    "equipment": [
+      "riding-boots"
+    ],
+    "body": {
+      "woman": false,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "appearances-05",
+    "actor": "snow-boots",
+    "equipment": [
+      "snow-boots"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "shirt-plate-open-cape",
+    "equipment": [
+      "hawaiian-shirt",
+      "plate-mail",
+      "opera-cloak"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "tshirt-chain-cloak",
+    "equipment": [
+      "t-shirt",
+      "chain-mail",
+      "hooded-cloak"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "robe-over-full-skirt",
+    "equipment": [
+      "robe",
+      "padded-gloves"
+    ],
+    "body": {
+      "woman": true,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "apron-over-caster-robe",
+    "equipment": [
+      "apron",
+      "riding-gloves"
+    ],
+    "body": {
+      "woman": false,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "centaur-head-and-hands",
+    "equipment": [
+      "fedora",
+      "fencing-gloves"
+    ],
+    "body": {
+      "woman": true,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "cope-and-armor",
+    "equipment": [
+      "ornamental-cope",
+      "plate-mail"
+    ],
+    "body": {
+      "woman": false,
+      "build": 2,
+      "bust": 2,
+      "figure": 2
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "wrapping-over-shirt",
+    "equipment": [
+      "mummy-wrapping",
+      "t-shirt"
+    ],
+    "body": {
+      "woman": true,
+      "build": 0,
+      "bust": 2,
+      "figure": 0
+    }
+  },
+  {
+    "page": "layering",
+    "actor": "leather-mantle-over-shirt",
+    "equipment": [
+      "leather-cloak",
+      "hawaiian-shirt"
+    ],
+    "body": {
+      "woman": false,
+      "build": 1,
+      "bust": 2,
+      "figure": 1
+    }
+  }
+]

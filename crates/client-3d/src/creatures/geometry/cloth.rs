@@ -720,6 +720,8 @@ pub(in crate::creatures) struct NecklineCut {
     pub wrap: bool,
     /// A closed teardrop beneath the collar rather than a V to it.
     pub keyhole: bool,
+    /// Rounded scoop instead of straight V edges.
+    pub rounded: bool,
 }
 
 impl NecklineCut {
@@ -730,10 +732,11 @@ impl NecklineCut {
     /// follows the chest down the sternum; the edges always keep the fullest
     /// part of each side covered, however deep the plunge.
     pub fn resolve(neckline: Neckline, body: HumanoidBody) -> Option<Self> {
-        let (depth, width, wrap, keyhole) = match neckline {
+        let (depth, width, wrap, keyhole, rounded) = match neckline {
             Neckline::Closed => return None,
-            Neckline::Plunge { depth, width, wrap } => (depth, width, wrap, false),
-            Neckline::Keyhole { depth, width } => (depth, width, false, true),
+            Neckline::Plunge { depth, width, wrap } => (depth, width, wrap, false, false),
+            Neckline::Keyhole { depth, width } => (depth, width, false, true, false),
+            Neckline::Scoop { depth, width } => (depth, width, false, false, true),
         };
         let sh = body.shoulders * body.build;
         let fold = body.bust.map_or(0.3, |bust| bust.fold);
@@ -745,6 +748,7 @@ impl NecklineCut {
             wide: width * sh,
             wrap,
             keyhole,
+            rounded,
         };
         if let Some(bust) = body.bust {
             // At the height of the fullest point the edge stays well inside
@@ -759,7 +763,8 @@ impl NecklineCut {
                 if apex.y > bottom && cut.edge(apex.y) > limit {
                     let t = (apex.y - bottom) / (Self::COLLAR - bottom);
                     cut.point = cut.point.min(limit * 0.5);
-                    cut.wide = cut.point + (limit - cut.point) / t;
+                    let fraction = if cut.rounded { t.sqrt() } else { t };
+                    cut.wide = cut.point + (limit - cut.point) / fraction;
                 }
             }
         }
@@ -768,7 +773,8 @@ impl NecklineCut {
 
     /// The opening's half-width at a height, where it is open at all.
     pub fn edge(&self, y: f32) -> f32 {
-        self.point + (self.wide - self.point) * (y - self.bottom) / (self.collar - self.bottom)
+        let t = (y - self.bottom) / (self.collar - self.bottom);
+        self.point + (self.wide - self.point) * if self.rounded { t.max(0.0).sqrt() } else { t }
     }
 
     /// Whether a point on the front of the torso lies in the opening.

@@ -1,0 +1,594 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1920,
+    1280
+  ],
+  "actors": [
+    {
+      "id": "t-shirt",
+      "model": "Human",
+      "seed": 17,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "t-shirt"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "hawaiian-shirt",
+      "model": "Human",
+      "seed": 18,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "hawaiian-shirt"
+      ],
+      "position": [
+        -1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "old-gloves",
+      "model": "Human",
+      "seed": 19,
+      "body": {
+        "woman": true,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "old-gloves"
+      ],
+      "position": [
+        1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "padded-gloves",
+      "model": "Human",
+      "seed": 20,
+      "body": {
+        "woman": false,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "padded-gloves"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "riding-gloves",
+      "model": "Human",
+      "seed": 21,
+      "body": {
+        "woman": true,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "riding-gloves"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "fencing-gloves",
+      "model": "Human",
+      "seed": 22,
+      "body": {
+        "woman": false,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "fencing-gloves"
+      ],
+      "position": [
+        -1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "mummy-wrapping",
+      "model": "Human",
+      "seed": 23,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "mummy-wrapping"
+      ],
+      "position": [
+        1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "faded-pall",
+      "model": "Human",
+      "seed": 24,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "faded-pall"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    }
+  ],
+  "floor_color": [
+    0.25,
+    0.27,
+    0.3
+  ],
+  "cameras": [
+    {
+      "id": "front",
+      "position": [
+        0,
+        4.2,
+        10.5
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    },
+    {
+      "id": "rear",
+      "position": [
+        0,
+        3.8,
+        -8
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    }
+  ],
+  "events": [
+    {
+      "tick": 1,
+      "actor": "t-shirt",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "hawaiian-shirt",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "old-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "padded-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "riding-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "fencing-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "mummy-wrapping",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "faded-pall",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "t-shirt",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "hawaiian-shirt",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "old-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "padded-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "riding-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "fencing-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "mummy-wrapping",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "faded-pall",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "t-shirt",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "hawaiian-shirt",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "old-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "padded-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "riding-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "fencing-gloves",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "mummy-wrapping",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "faded-pall",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "t-shirt",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "hawaiian-shirt",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "old-gloves",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "padded-gloves",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "riding-gloves",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "fencing-gloves",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "mummy-wrapping",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "faded-pall",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    }
+  ],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "appearances-01-front",
+      "camera": "front"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-01-rear",
+      "camera": "rear"
+    },
+    {
+      "tick": 28,
+      "name": "appearances-01-walking",
+      "camera": "front"
+    },
+    {
+      "tick": 65,
+      "name": "appearances-01-turning",
+      "camera": "rear"
+    },
+    {
+      "tick": 93,
+      "name": "appearances-01-striking",
+      "camera": "front"
+    }
+  ]
+}

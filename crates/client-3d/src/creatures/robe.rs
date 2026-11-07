@@ -48,6 +48,262 @@ const POSE_JOINTS: [J; 8] = [
 mod art_contract_tests {
     use super::*;
 
+    fn retained_skirt_fixture() -> Vec<[Vec3; 3]> {
+        let mut triangles = Vec::new();
+        for row in 0..12 {
+            for col in 0..64 {
+                let at = |r: usize, c: usize| {
+                    let a = c as f32 / 64.0 * TAU;
+                    let y = 0.04 - r as f32 / 12.0 * 0.72;
+                    let radius = 0.26 + r as f32 / 12.0 * 0.24;
+                    Vec3::new(a.sin() * radius, y, a.cos() * radius)
+                };
+                let [a, b, c, d] = [
+                    at(row, col),
+                    at(row, col + 1),
+                    at(row + 1, col),
+                    at(row + 1, col + 1),
+                ];
+                triangles.extend([[a, b, d], [a, d, c]]);
+            }
+        }
+        triangles
+    }
+
+    #[test]
+    fn retained_cloth_bins_include_triangle_crossings_without_vertex_hits() {
+        let triangle = [
+            Vec3::new(0.50, -1.0, 0.0),
+            Vec3::new(0.50, 1.0, 0.0),
+            Vec3::new(0.54, 1.0, 0.02),
+        ];
+        let envelope = RadialEnvelope::new(&[triangle]);
+        assert!(envelope.radius(-0.01, 0.01) >= 0.50);
+        assert_eq!(envelope.radius(1.1, 1.2), 0.0);
+        assert_eq!(RadialEnvelope::new(&[]).radius(-1.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn retained_skirt_pose_invalidates_fixed_leg_fit_and_clears_connected_rings() {
+        let look = Look::of(CreatureModel::Mage, 42);
+        let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        let rest = rig.rest;
+        let robe = rig.robe.as_mut().unwrap();
+        robe.retain_surface(Entity::PLACEHOLDER, retained_skirt_fixture());
+        robe.refresh_layers(&mut meshes);
+        assert!(robe.points[index(ROWS - 3, 0)].z > 0.46);
+        let rotations = [Quat::IDENTITY; JOINTS];
+        let offsets = [Vec3::ZERO; JOINTS];
+        place(robe, &rest, &rotations, &offsets, &mut meshes);
+        let before = robe.points.clone();
+        let tilt = Affine3A::from_quat(Quat::from_rotation_x(0.24));
+        robe.update_layer_transforms(&|_| Some(tilt));
+        assert!(robe.dirty, "cloth motion invalidates unchanged leg pose");
+        place(robe, &rest, &rotations, &offsets, &mut meshes);
+        assert_ne!(robe.points, before);
+        for row in 1..ROWS {
+            for column in 0..COLUMNS {
+                let point = robe.points[index(row, column)];
+                let radius =
+                    retained_radius(&robe.retained, point.y - 0.001, point.y + 0.001, false);
+                if radius > 0.0 {
+                    assert!(
+                        point.with_y(0.0).length() > radius + 0.014,
+                        "row {row} column {column}"
+                    );
+                }
+            }
+        }
+        let after = robe.points.clone();
+        robe.update_layer_transforms(&|_| Some(tilt));
+        assert!(
+            !robe.dirty,
+            "identical support transform preserves fast path"
+        );
+        place(robe, &rest, &rotations, &offsets, &mut meshes);
+        assert_eq!(robe.points, after);
+    }
+
+    #[test]
+    fn tilted_and_falling_retained_robe_preserves_floor_and_final_contact_report() {
+        for angle in [0.32f32, 1.10, 1.45] {
+            let look = Look::of(CreatureModel::Mage, 42);
+            let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+            let rest = rig.rest;
+            let robe = rig.robe.as_mut().unwrap();
+            // Strong narrow-to-wide variation witnesses vertical travel into
+            // a wider section, rather than a constant-radius cylinder.
+            robe.retain_surface(Entity::PLACEHOLDER, retained_skirt_fixture());
+            robe.update_layer_transforms(&|_| {
+                Some(Affine3A::from_quat(Quat::from_rotation_z(0.18)))
+            });
+            let mut rotations = [Quat::IDENTITY; JOINTS];
+            rotations[J::Hips as usize] = Quat::from_rotation_x(angle);
+            rotations[J::LegL as usize] = Quat::from_rotation_x(0.35);
+            rotations[J::ShinL as usize] = Quat::from_rotation_x(-0.4);
+            let mut offsets = [Vec3::ZERO; JOINTS];
+            offsets[J::Hips as usize].y = -0.08;
+            place(robe, &rest, &rotations, &offsets, &mut meshes);
+            let rotation = rotations[J::Lift as usize] * rotations[J::Hips as usize];
+            let origin = offsets[J::Lift as usize]
+                + rotations[J::Lift as usize]
+                    * (rest[J::Hips as usize] + offsets[J::Hips as usize]);
+            let up = rotation.inverse() * Vec3::Y;
+            for (i, point) in robe.points.iter().enumerate() {
+                assert!(point.is_finite());
+                if i / COLUMNS > LOWER_ANCHOR && up.y > 0.3 {
+                    assert!(
+                        (origin + rotation * *point).y >= 0.0319,
+                        "retained shaping reversed floor separation: angle {angle}, vertex {i}"
+                    );
+                }
+                let radius = retained_radius(&robe.retained, point.y, point.y, false);
+                if radius > 0.0 {
+                    assert!(
+                        point.with_y(0.0).length() > radius + 0.012,
+                        "retained contact lost after vertical travel: angle {angle}, vertex {i}"
+                    );
+                }
+            }
+            let limbs = posed_limbs(robe.shapes, robe.boot, &rest, &rotations, &offsets);
+            let feet = posed_feet(robe.feet, &limbs, &rest, &rotations, &offsets);
+            let mut final_report = ContactReport::default();
+            contact_sweep(
+                robe,
+                &body_proxies(&limbs, &feet),
+                up,
+                false,
+                &mut final_report,
+            );
+            assert_eq!(
+                robe.contacts.remaining, final_report.remaining,
+                "published contact report must describe the final mesh, angle {angle}"
+            );
+        }
+    }
+
+    #[test]
+    fn retained_support_planes_only_move_along_ground_tangents() {
+        let look = Look::of(CreatureModel::Mage, 42);
+        let (_, mut rig, _, _) = super::super::rogue_tests::spawn_one(&look);
+        let robe = rig.robe.as_mut().unwrap();
+        robe.retain_surface(Entity::PLACEHOLDER, retained_skirt_fixture());
+        let up = Quat::from_rotation_x(-1.10) * Vec3::Y;
+        // Force a meaningful correction with a thin initial candidate.
+        for i in 0..GRID {
+            robe.candidate[i] = robe.directions[i] * 0.18 + Vec3::Y * robe.rest[i].y;
+        }
+        let before = robe.candidate.clone();
+        constrain_retained_layers(robe, up);
+        let mut corrected = 0;
+        for i in 0..GRID {
+            let delta = robe.candidate[i] - before[i];
+            if delta.length() > 0.001 {
+                corrected += 1;
+            }
+            assert!(
+                delta.dot(up).abs() < 0.00001,
+                "retained solve changed floor height"
+            );
+            let direction = contact_direction(robe.directions[i], up);
+            assert!(delta.dot(direction) >= -0.00001);
+            assert!(delta.cross(direction).length() < 0.00001);
+        }
+        assert!(corrected > COLUMNS * 4);
+    }
+
+    #[test]
+    fn outer_panel_follows_posed_robe_without_mutating_shared_source_mesh() {
+        let look = Look::of(CreatureModel::Mage, 42);
+        let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        let rest = rig.rest;
+        let source = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_POSITION,
+            vec![
+                [-0.06f32, -0.12, 0.18],
+                [0.06, -0.12, 0.18],
+                [0.0, -0.48, 0.18],
+            ],
+        )
+        .with_inserted_indices(Indices::U32(vec![0, 1, 2]));
+        let shared = meshes.add(source);
+        let private_mesh = meshes.get(&shared).unwrap().clone();
+        let private = meshes.add(private_mesh);
+        let original = match meshes
+            .get(&shared)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+        {
+            VertexAttributeValues::Float32x3(p) => p.clone(),
+            _ => panic!("positions"),
+        };
+        let robe = rig.robe.as_mut().unwrap();
+        robe.attach_overlay(Entity::PLACEHOLDER, private.clone(), &meshes);
+        robe.retain_surface(Entity::PLACEHOLDER, retained_skirt_fixture());
+        robe.refresh_layers(&mut meshes);
+        let mut rotations = [Quat::IDENTITY; JOINTS];
+        rotations[J::LegL as usize] = Quat::from_rotation_x(0.65);
+        rotations[J::ShinL as usize] = Quat::from_rotation_x(-0.4);
+        let transform = Affine3A::from_quat(Quat::from_rotation_z(0.16));
+        robe.update_layer_transforms(&|_| Some(transform));
+        place(robe, &rest, &rotations, &[Vec3::ZERO; JOINTS], &mut meshes);
+        let VertexAttributeValues::Float32x3(points) = meshes
+            .get(&private)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+        else {
+            panic!("positions");
+        };
+        let envelope = RadialEnvelope::new(&robe_triangles(&robe.points));
+        for point in points {
+            let at = transform.transform_point3(Vec3::from_array(*point));
+            assert!(at.with_y(0.0).length() > envelope.radius(at.y, at.y) + 0.012);
+        }
+        let VertexAttributeValues::Float32x3(unchanged) = meshes
+            .get(&shared)
+            .unwrap()
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+        else {
+            panic!("positions");
+        };
+        assert_eq!(
+            *unchanged, original,
+            "cached source is not a wearer-owned dynamic mesh"
+        );
+    }
+
+    #[test]
+    fn retained_neutral_envelope_matches_scaled_robe_outer_shell() {
+        for woman in [false, true] {
+            let look = Look::with_choice(
+                CreatureModel::Mage,
+                42,
+                Some(Variant { woman, ..default() }),
+            );
+            let body = HumanoidBody::resolve(&look);
+            let points = neutral_outer_envelope(look.v.shade, body);
+            assert_eq!(points.len(), GRID);
+            assert!(points.iter().all(|p| p.is_finite()));
+            assert!(points.iter().any(|p| p.y < -0.7));
+            for (i, point) in points.iter().enumerate() {
+                let center = neutral(&look, body, i / COLUMNS, i % COLUMNS);
+                let delta = *point - center;
+                assert!(
+                    delta.with_y(0.0).length()
+                        >= THICKNESS * HIP_SCALE.x.min(HIP_SCALE.z) - 0.00001
+                );
+                assert!((point.y - center.y).abs() < 0.00001);
+            }
+        }
+    }
+
     #[test]
     fn art_contract_posed_thigh_mesh_stays_inside_robe_contact_envelopes() {
         let mut materials = Assets::<StandardMaterial>::default();
@@ -438,8 +694,31 @@ struct SurfaceTrim {
     normals: Box<[Vec3]>,
 }
 
+/// Triangles sampled from the exact retained cloth surface, with its rendered
+/// Storybook scale already applied. Only the drape transform remains dynamic.
+struct RetainedSurface {
+    entity: Entity,
+    rest: Vec<[Vec3; 3]>,
+    posed: Vec<[Vec3; 3]>,
+    transform: Affine3A,
+    neutral_envelope: RadialEnvelope,
+    posed_envelope: RadialEnvelope,
+}
+
+/// An independently owned overlay mesh. Rest vertices never accumulate prior
+/// frame displacement and cached garment meshes are never changed in place.
+struct BoundOverlay {
+    entity: Entity,
+    mesh: Handle<Mesh>,
+    rest: Vec<Vec3>,
+    triangles: Vec<[usize; 3]>,
+    transform: Affine3A,
+}
+
 pub(super) struct RobeRig {
     mesh: Handle<Mesh>,
+    retained: Vec<RetainedSurface>,
+    overlays: Vec<BoundOverlay>,
     shapes: [LimbShape; 2],
     boot: BootShape,
     feet: [(Vec3, Vec3); 3],
@@ -461,9 +740,121 @@ pub(super) struct RobeRig {
 impl RobeRig {
     pub(super) fn map_mesh(&mut self, map: &mut impl FnMut(&Handle<Mesh>) -> Handle<Mesh>) {
         self.mesh = map(&self.mesh);
+        for overlay in &mut self.overlays {
+            overlay.mesh = map(&overlay.mesh);
+        }
     }
     pub(super) fn invalidate(&mut self) {
         self.dirty = true;
+    }
+
+    pub(super) fn map_entities(&mut self, map: &impl Fn(Entity) -> Entity) {
+        for layer in &mut self.retained {
+            layer.entity = map(layer.entity);
+        }
+        for overlay in &mut self.overlays {
+            overlay.entity = map(overlay.entity);
+        }
+        self.dirty = true;
+    }
+
+    /// `triangles` are the emitted outer ClothSurface in hips meters, including
+    /// resolved fit, folds, hem, raised trim allowance and Storybook scaling.
+    /// The entity's local transform is applied separately on every frame.
+    pub(super) fn retain_surface(&mut self, entity: Entity, triangles: Vec<[Vec3; 3]>) {
+        let envelope = RadialEnvelope::new(&triangles);
+        self.retained.push(RetainedSurface {
+            neutral_envelope: envelope.clone(),
+            posed_envelope: envelope,
+            entity,
+            posed: triangles.clone(),
+            rest: triangles,
+            transform: Affine3A::IDENTITY,
+        });
+        self.neutral_lengths = None;
+        self.dirty = true;
+    }
+
+    /// Register only a PRIVATE mesh handle, never an entry of PropLibrary.
+    /// The entity is the overlay's drape root; vertices are in that root's
+    /// local frame, with any child scale already baked into them.
+    pub(super) fn attach_overlay(
+        &mut self,
+        entity: Entity,
+        mesh: Handle<Mesh>,
+        meshes: &Assets<Mesh>,
+    ) {
+        let Some(source) = meshes.get(&mesh) else {
+            return;
+        };
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            source.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            return;
+        };
+        let indices: Vec<usize> = source
+            .indices()
+            .map(|indices| indices.iter().collect())
+            .unwrap_or_else(|| (0..points.len()).collect());
+        let triangles = indices
+            .chunks_exact(3)
+            .map(|t| [t[0], t[1], t[2]])
+            .collect();
+        self.overlays.push(BoundOverlay {
+            entity,
+            mesh,
+            triangles,
+            rest: points.iter().copied().map(Vec3::from_array).collect(),
+            transform: Affine3A::IDENTITY,
+        });
+        self.dirty = true;
+    }
+
+    /// Publish neutral garment contact immediately after all supports/overlays
+    /// are registered, before the first rendered frame. Authored leg joints are
+    /// not needed here; place() still initializes its neutral body budget later.
+    pub(super) fn refresh_layers(&mut self, meshes: &mut Assets<Mesh>) {
+        if self.retained.is_empty() && self.overlays.is_empty() {
+            return;
+        }
+        self.candidate.copy_from_slice(self.rest.as_ref());
+        fit_retained_layers(self, false);
+        self.points.copy_from_slice(self.candidate.as_ref());
+        surface_normals(&self.points, &mut self.normals);
+        place_trim(&mut self.trim, &self.points, &self.normals);
+        if let Some(mesh) = meshes.get_mut(&self.mesh) {
+            write_attributes(mesh, &self.points, &self.normals, &self.trim);
+        }
+        place_overlays(self, meshes);
+        self.dirty = true;
+    }
+
+    /// Invoke after publishing this frame's synchronized skirt rotations and
+    /// before place(). A changing drape invalidates fitting even at fixed legs.
+    pub(super) fn update_layer_transforms(
+        &mut self,
+        transform: &impl Fn(Entity) -> Option<Affine3A>,
+    ) {
+        for layer in &mut self.retained {
+            if let Some(next) = transform(layer.entity) {
+                if next != layer.transform {
+                    layer.transform = next;
+                    for (posed, rest) in layer.posed.iter_mut().zip(&layer.rest) {
+                        *posed = rest.map(|point| next.transform_point3(point));
+                    }
+                    layer.posed_envelope = RadialEnvelope::new(&layer.posed);
+                    self.dirty = true;
+                }
+            }
+        }
+        for overlay in &mut self.overlays {
+            if let Some(next) = transform(overlay.entity) {
+                if next != overlay.transform {
+                    overlay.transform = next;
+                    self.dirty = true;
+                }
+            }
+        }
     }
 }
 
@@ -553,6 +944,19 @@ fn neutral_fitted(
     // Hips meshes receive these factors separately. The owned robe is a direct
     // child of the unscaled hip joint, so apply them once to its neutral shape.
     p * HIP_SCALE
+}
+
+/// Read-only neutral outer envelope for fitting separate hip-local garments.
+/// These points already include the storybook hip scale, exactly as spawn's
+/// owned robe mesh does. They do not describe later contact deformation.
+pub(super) fn neutral_outer_envelope(fold_seed: u8, body: HumanoidBody) -> Vec<Vec3> {
+    let belt = belt_radii(body, WAIST_TOP);
+    (0..GRID)
+        .map(|i| {
+            neutral_fitted(fold_seed, body, belt, i / COLUMNS, i % COLUMNS)
+                + shell_offset(i % COLUMNS)
+        })
+        .collect()
 }
 
 fn shell_offset(column: usize) -> Vec3 {
@@ -1058,12 +1462,298 @@ fn lift_weight(row: usize) -> f32 {
     ease(row.saturating_sub(LOWER_ANCHOR) as f32 / (ROWS - LOWER_ANCHOR) as f32)
 }
 
+/// Maximum horizontal radius of a triangle clipped to a height interval.
+/// Checking edges crossing the interval matters: a long triangle can span a
+/// complete robe row while none of its vertices lies inside that row.
+fn triangle_band_radius(triangle: [Vec3; 3], low: f32, high: f32) -> f32 {
+    let min = triangle.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+    let max = triangle
+        .iter()
+        .map(|p| p.y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    if max < low || min > high {
+        return 0.0;
+    }
+    let mut radius = 0.0f32;
+    for i in 0..3 {
+        let a = triangle[i];
+        let b = triangle[(i + 1) % 3];
+        if (low..=high).contains(&a.y) {
+            radius = radius.max(a.with_y(0.0).length());
+        }
+        if (a.y - b.y).abs() > 1e-7 {
+            for y in [low, high] {
+                let t = (y - a.y) / (b.y - a.y);
+                if (0.0..=1.0).contains(&t) {
+                    radius = radius.max(a.lerp(b, t).with_y(0.0).length());
+                }
+            }
+        }
+    }
+    radius
+}
+
+/// Cached conservative horizontal slabs. Rebuilding is linear in triangle
+/// count plus the slabs crossed; each vertex fit then visits only its small
+/// height interval instead of traversing every retained triangle.
+#[derive(Clone)]
+struct RadialEnvelope {
+    low: f32,
+    high: f32,
+    step: f32,
+    radii: [f32; 128],
+}
+impl RadialEnvelope {
+    fn new(triangles: &[[Vec3; 3]]) -> Self {
+        let (low, high) = triangles
+            .iter()
+            .flatten()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.y), hi.max(p.y))
+            });
+        let mut result = Self {
+            low,
+            high,
+            step: ((high - low) / 128.0).max(0.00001),
+            radii: [0.0; 128],
+        };
+        for &triangle in triangles {
+            let min = triangle.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+            let max = triangle
+                .iter()
+                .map(|p| p.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let first = (((min - low) / result.step).floor() as usize).min(127);
+            let last = (((max - low) / result.step).floor() as usize).min(127);
+            for bin in first..=last {
+                let lo = low + bin as f32 * result.step;
+                result.radii[bin] =
+                    result.radii[bin].max(triangle_band_radius(triangle, lo, lo + result.step));
+            }
+        }
+        result
+    }
+    fn radius(&self, low: f32, high: f32) -> f32 {
+        if high < self.low || low > self.high || self.low > self.high {
+            return 0.0;
+        }
+        let first = (((low - self.low) / self.step).floor().max(0.0) as usize).min(127);
+        let last = (((high - self.low) / self.step).floor().max(0.0) as usize).min(127);
+        self.radii[first..=last]
+            .iter()
+            .copied()
+            .fold(0.0f32, f32::max)
+    }
+}
+
+fn retained_radius(layers: &[RetainedSurface], low: f32, high: f32, neutral: bool) -> f32 {
+    layers
+        .iter()
+        .map(|layer| {
+            if neutral {
+                &layer.neutral_envelope
+            } else {
+                &layer.posed_envelope
+            }
+        })
+        .map(|envelope| envelope.radius(low, high))
+        .fold(0.0f32, f32::max)
+}
+
+/// The body fitter is local and preserves its original behavior. A retained
+/// skirt additionally requires a circumferential envelope: fitting only along
+/// robe vertex rays can miss the tip of an underlying fold between columns.
+/// Each pair of connected rings clears *all* retained triangles crossing its
+/// height band. The secant allowance also keeps the connecting planar facets
+/// outside that radius, not just their vertices. This is pattern shaping and
+/// therefore runs BEFORE floor and monotone contact constraints.
+fn fit_retained_layers(robe: &mut RobeRig, neutral: bool) {
+    if robe.retained.is_empty() {
+        return;
+    }
+    let heights: [(f32, f32); ROWS + 1] = std::array::from_fn(|row| {
+        robe.candidate[row * COLUMNS..(row + 1) * COLUMNS]
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.y), hi.max(p.y))
+            })
+    });
+    let mut radii = [0.0f32; ROWS + 1];
+    for row in 0..=ROWS {
+        let low = heights[row.saturating_sub(1)]
+            .0
+            .min(heights[row].0)
+            .min(heights[(row + 1).min(ROWS)].0);
+        let high = heights[row.saturating_sub(1)]
+            .1
+            .max(heights[row].1)
+            .max(heights[(row + 1).min(ROWS)].1);
+        let retained = retained_radius(&robe.retained, low - 0.008, high + 0.008, neutral);
+        if retained > 0.0 {
+            let existing = robe.candidate[row * COLUMNS..(row + 1) * COLUMNS]
+                .iter()
+                .map(|p| p.with_y(0.0).length())
+                .fold(0.0f32, f32::max);
+            radii[row] = (existing.max(retained + 0.022)) / (TAU / COLUMNS as f32).cos();
+        }
+    }
+    for (row, &radius) in radii.iter().enumerate() {
+        if radius <= 0.0 {
+            continue;
+        }
+        for col in 0..COLUMNS {
+            let i = index(row, col);
+            let y = robe.candidate[i].y;
+            robe.candidate[i] = robe.directions[i] * radius + Vec3::Y * y;
+        }
+    }
+}
+
+/// Retained cloth's final support planes use the SAME nonnegative contact
+/// directions as the following body sweeps. Ground-tangent travel preserves
+/// floor height, and later body corrections cannot cross an accepted cloth
+/// plane. The queried band includes the whole cell and the complete remaining
+/// bounded body travel, so a vertical component cannot enter a wider fold.
+fn constrain_retained_layers(robe: &mut RobeRig, up: Vec3) {
+    if robe.retained.is_empty() {
+        return;
+    }
+    let global = retained_radius(&robe.retained, f32::NEG_INFINITY, f32::INFINITY, false);
+    // Bound the complete reachable path before applying any cloth correction.
+    // All moves of a vertex share one direction, so total travel is bounded by
+    // its largest incident plane requirement, plus the later body budget.
+    let travel_heights: [(f32, f32); GRID] = std::array::from_fn(|i| {
+        let column = i % COLUMNS;
+        let row = i / COLUMNS;
+        let direction = contact_direction(robe.directions[i], up);
+        let point = robe.candidate[i];
+        let mut denominator = f32::INFINITY;
+        let mut projection = f32::INFINITY;
+        // A vertex belongs to cells above and below it; their plane normals
+        // are authored by each cell's top ring, whose ellipse can differ.
+        for top in [row.saturating_sub(1), row.min(ROWS - 1)] {
+            for left in [column + COLUMNS - 1, column] {
+                let normal = (robe.directions[index(top, left)]
+                    + robe.directions[index(top, left + 1)])
+                .normalize();
+                denominator = denominator.min(normal.dot(direction));
+                projection = projection.min(normal.dot(point));
+            }
+        }
+        debug_assert!(denominator > 0.05);
+        let remaining =
+            (global + 0.022 - projection).max(0.0) / denominator.max(0.05) + MAX_CONTACT_SHIFT;
+        let end = point.y + direction.y * remaining;
+        (point.y.min(end) - 0.012, point.y.max(end) + 0.012)
+    });
+    for row in 0..ROWS {
+        for column in 0..COLUMNS {
+            let cell = [
+                index(row, column),
+                index(row, column + 1),
+                index(row + 1, column),
+                index(row + 1, column + 1),
+            ];
+            let (low, high) = cell
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(low, high), &i| {
+                    (low.min(travel_heights[i].0), high.max(travel_heights[i].1))
+                });
+            let radius = retained_radius(&robe.retained, low, high, false);
+            if radius <= 0.0 {
+                continue;
+            }
+            let normal =
+                (robe.directions[cell[0]] + robe.directions[cell[1]]).normalize_or(Vec3::Z);
+            for i in cell {
+                let direction = contact_direction(robe.directions[i], up);
+                let denominator = normal.dot(direction);
+                // Neighboring column normals and the upright ground tangent
+                // have a strictly positive dot product. Fallen legacy poses
+                // retain their existing radial contact directions.
+                debug_assert!(denominator > 0.05);
+                let deficit = (radius + 0.022 - normal.dot(robe.candidate[i])).max(0.0);
+                if deficit > 0.0 && denominator > 0.05 {
+                    robe.candidate[i] += direction * (deficit / denominator);
+                }
+            }
+        }
+    }
+}
+
+fn robe_triangles(points: &[Vec3; GRID]) -> Vec<[Vec3; 3]> {
+    let mut triangles = Vec::with_capacity(ROWS * COLUMNS * 2);
+    for row in 0..ROWS {
+        for column in 0..COLUMNS {
+            let a = points[index(row, column)];
+            let b = points[index(row, column + 1)];
+            let c = points[index(row + 1, column)];
+            let d = points[index(row + 1, column + 1)];
+            triangles.extend([[a, b, c], [b, d, c]]);
+        }
+    }
+    triangles
+}
+
+fn place_overlays(robe: &RobeRig, meshes: &mut Assets<Mesh>) {
+    if robe.overlays.is_empty() {
+        return;
+    }
+    let triangles = robe_triangles(&robe.points);
+    let envelope = RadialEnvelope::new(&triangles);
+    for overlay in &robe.overlays {
+        let inverse = overlay.transform.inverse();
+        let reference: Vec<_> = overlay
+            .rest
+            .iter()
+            .map(|&p| overlay.transform.transform_point3(p))
+            .collect();
+        // Protect full triangles, including deliberately coarse strap tails.
+        // Every incident vertex covers the entire height span of the face and
+        // a secant allowance contains the straight chord between its angles.
+        let mut span = 0.025f32;
+        let mut angular_span = 0.0f32;
+        for triangle in &overlay.triangles {
+            for edge in 0..3 {
+                let a = reference[triangle[edge]];
+                let b = reference[triangle[(edge + 1) % 3]];
+                span = span.max((a.y - b.y).abs());
+                let a = a.with_y(0.0).normalize_or(Vec3::Z);
+                let b = b.with_y(0.0).normalize_or(Vec3::Z);
+                angular_span = angular_span.max(a.dot(b).clamp(-1.0, 1.0).acos());
+            }
+        }
+        let chord = angular_span.cos().max(0.1);
+        let posed: Vec<_> = overlay
+            .rest
+            .iter()
+            .map(|&rest| {
+                let mut point = overlay.transform.transform_point3(rest);
+                // The finite band protects overlay triangle interiors as well as
+                // vertices. A hem's returning lip and sash are inside this gap.
+                let radius = envelope.radius(point.y - span, point.y + span);
+                let required = (radius + 0.022) / chord;
+                let current = point.with_y(0.0).length();
+                if radius > 0.0 && current < required {
+                    point = point.with_y(0.0).normalize_or(Vec3::Z) * required + Vec3::Y * point.y;
+                }
+                inverse.transform_point3(point).to_array()
+            })
+            .collect();
+        if let Some(mesh) = meshes.get_mut(&overlay.mesh) {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, posed);
+            mesh.compute_smooth_normals();
+        }
+    }
+}
+
 fn fit_rows(
     robe: &mut RobeRig,
     limbs: &[Limb; 4],
     feet: &[Foot; 2],
     rise: &[f32; COLUMNS],
     lower_only: bool,
+    neutral: bool,
 ) {
     let start = if lower_only {
         (LOWER_ANCHOR + 1) * COLUMNS
@@ -1078,6 +1768,17 @@ fn fit_rows(
         let current = envelope(limbs, origin, direction)
             .max(foot_far(feet[0], origin, direction))
             .max(foot_far(feet[1], origin, direction));
+        let retained = retained_radius(
+            &robe.retained,
+            origin.y - ROW_HEIGHT,
+            origin.y + ROW_HEIGHT,
+            neutral,
+        );
+        let current = if retained > 0.0 {
+            current.max(retained + 0.012)
+        } else {
+            current
+        };
         let fit = (current + 0.010 - radius).max(0.0);
         let waist = ease((WAIST_TOP - base.y) / (WAIST_TOP - TOP));
         // Fit anew at the lifted height; retaining the previous radial max
@@ -1692,6 +2393,8 @@ pub(super) fn spawn(
     commands.entity(hips).add_child(entity);
     RobeRig {
         mesh,
+        retained: Vec::new(),
+        overlays: Vec::new(),
         shapes,
         boot,
         feet,
@@ -1734,14 +2437,15 @@ pub(super) fn place(
         let neutral_off = [Vec3::ZERO; JOINTS];
         let limbs = posed_limbs(robe.shapes, robe.boot, rest, &neutral_rot, &neutral_off);
         let feet = posed_feet(robe.feet, &limbs, rest, &neutral_rot, &neutral_off);
-        fit_rows(robe, &limbs, &feet, &zero_rise, false);
+        fit_rows(robe, &limbs, &feet, &zero_rise, false, true);
         spread_rows(robe, false);
         candidate_rows(robe, &zero_rise);
+        fit_retained_layers(robe, true);
         robe.neutral_lengths = Some(column_lengths(&robe.candidate));
     }
     let limbs = posed_limbs(robe.shapes, robe.boot, rest, rot, off);
     let feet = posed_feet(robe.feet, &limbs, rest, rot, off);
-    fit_rows(robe, &limbs, &feet, &zero_rise, false);
+    fit_rows(robe, &limbs, &feet, &zero_rise, false, false);
     spread_rows(robe, false);
     candidate_rows(robe, &zero_rise);
     let budget = robe.neutral_lengths.unwrap();
@@ -1765,10 +2469,13 @@ pub(super) fn place(
             break;
         }
         rise = next;
-        fit_rows(robe, &limbs, &feet, &rise, true);
+        fit_rows(robe, &limbs, &feet, &rise, true, false);
         spread_rows(robe, true);
         candidate_rows(robe, &rise);
     }
+    // Pattern shaping precedes all floor/contact constraints. It must never
+    // overwrite the x/z components of an already accepted contact correction.
+    fit_retained_layers(robe, false);
     let rotation = rot[J::Lift as usize] * rot[J::Hips as usize];
     let origin = off[J::Lift as usize]
         + rot[J::Lift as usize] * (rest[J::Hips as usize] + off[J::Hips as usize]);
@@ -1789,6 +2496,7 @@ pub(super) fn place(
         }
         robe.candidate[i] = p;
     }
+    constrain_retained_layers(robe, up);
     let proxies = body_proxies(&limbs, &feet);
     // Reuse the no-longer-needed smoothing buffer as cumulative contact travel.
     // Every accepted contact uses these same per-vertex directions. Later
@@ -1825,4 +2533,5 @@ pub(super) fn place(
         robe.last_off = offsets;
         robe.dirty = false;
     }
+    place_overlays(robe, meshes);
 }

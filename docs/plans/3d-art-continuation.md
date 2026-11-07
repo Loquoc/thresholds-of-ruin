@@ -2006,9 +2006,22 @@ humanoid footwear or a full wardrobe merely by having a humanoid upper body.
 
 ### Layering and remaining work
 
-- Add independent shirt and glove selection, then wrapping, mantle, hooded
-  cloak, fitted robe, and apron topology families. A robe and apron occupy the
-  cloak gameplay slot even though their geometry differs from a cape.
+- The second slice adds independent shirt/glove selection and wrapping, mantle,
+  hooded cloak, fitted robe, and apron topology families. The 39-look catalog is
+  addressed through `item.armor.shirt.<name>`, `item.armor.hands.<name>`, and
+  `item.armor.cloak.<name>` in addition to the first-slice head/feet assets. A robe
+  and apron occupy the cloak gameplay slot despite their different geometry.
+  Centaur hand anchors can display gloves without granting torso or boot slots.
+- Short-sleeved shirts retain covered shoulders independently of exposed arms;
+  actual armor coverage suppresses shirt prints/collars. Glove cuffs fit retained
+  sleeves. Study capes have open-front cuts, distinct fullness/hem/folds, lined
+  interiors, and optional shoulder mantles. Adult feminine cuts remain linked to
+  the resolved body, not a replacement standardized torso.
+- Moving layered garments need explicit contact, not merely a larger rest mesh.
+  Retain emitted skirt surfaces and their current transforms for robe fitting.
+  Apron/wrap meshes above independently deforming robes must be instance-owned
+  and follow the solved outer surface. Empty support lists preserve legacy fits.
+  Numeric and native-motion regression tests must verify both layer directions.
 - Resolve shirt, armor, then outerwear before generating geometry. Armor may
   completely conceal a shirt, allowing hidden geometry to be omitted. Preserve
   visible collars, sleeves, necklines and hems. A cape usually leaves underlying
@@ -2049,3 +2062,14 @@ native review in motion. Include varied builds, adult feminine silhouettes,
 non-biped adapters, fully hidden and partly exposed shirts, open capes, and
 walking/attacking/turning/fallen poses. Source and numeric geometry checks alone
 do not establish visual quality or whole-motion clipping correctness.
+
+The deterministic review pack lives in
+`crates/client-3d/scripts/fixtures/worn-equipment-review/`; regenerate it with
+`python crates/client-3d/scripts/generate_worn_equipment_review.py crates/client-3d/scripts/fixtures/worn-equipment-review`.
+Its six bounded scene scripts cover all 39 appearances and layered compositions,
+including centaur head/hands, robe over a full skirt, and apron over a caster robe.
+Each requests front/rear neutral, walking, turning, and striking captures. Render
+with the native client `--scene-script FILE --capture NEW_DIRECTORY --offscreen`.
+The index identifies each actor's appearance and body. Generated scripts and
+schema tests are preparation, not evidence that these captures have been rendered
+or visually accepted.

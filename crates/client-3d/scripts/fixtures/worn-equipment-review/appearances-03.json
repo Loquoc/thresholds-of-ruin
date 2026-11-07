@@ -1,0 +1,594 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1920,
+    1280
+  ],
+  "actors": [
+    {
+      "id": "ornamental-cope",
+      "model": "Human",
+      "seed": 17,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "ornamental-cope"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "piece-of-cloth",
+      "model": "Human",
+      "seed": 18,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "piece-of-cloth"
+      ],
+      "position": [
+        -1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "leather-hat",
+      "model": "Human",
+      "seed": 19,
+      "body": {
+        "woman": true,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "leather-hat"
+      ],
+      "position": [
+        1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "iron-skull-cap",
+      "model": "Human",
+      "seed": 20,
+      "body": {
+        "woman": false,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "iron-skull-cap"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "hard-hat",
+      "model": "Human",
+      "seed": 21,
+      "body": {
+        "woman": true,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "hard-hat"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "fedora",
+      "model": "Human",
+      "seed": 22,
+      "body": {
+        "woman": false,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "fedora"
+      ],
+      "position": [
+        -1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "conical-hat",
+      "model": "Human",
+      "seed": 23,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "conical-hat"
+      ],
+      "position": [
+        1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "dented-pot",
+      "model": "Human",
+      "seed": 24,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "dented-pot"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    }
+  ],
+  "floor_color": [
+    0.25,
+    0.27,
+    0.3
+  ],
+  "cameras": [
+    {
+      "id": "front",
+      "position": [
+        0,
+        4.2,
+        10.5
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    },
+    {
+      "id": "rear",
+      "position": [
+        0,
+        3.8,
+        -8
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    }
+  ],
+  "events": [
+    {
+      "tick": 1,
+      "actor": "ornamental-cope",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "piece-of-cloth",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "leather-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "iron-skull-cap",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "hard-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "fedora",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "conical-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "dented-pot",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "ornamental-cope",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "piece-of-cloth",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "leather-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "iron-skull-cap",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "hard-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "fedora",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "conical-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "dented-pot",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "ornamental-cope",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "piece-of-cloth",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "leather-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "iron-skull-cap",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "hard-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "fedora",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "conical-hat",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "dented-pot",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "ornamental-cope",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "piece-of-cloth",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "leather-hat",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "iron-skull-cap",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "hard-hat",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "fedora",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "conical-hat",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "dented-pot",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    }
+  ],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "appearances-03-front",
+      "camera": "front"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-03-rear",
+      "camera": "rear"
+    },
+    {
+      "tick": 28,
+      "name": "appearances-03-walking",
+      "camera": "front"
+    },
+    {
+      "tick": 65,
+      "name": "appearances-03-turning",
+      "camera": "rear"
+    },
+    {
+      "tick": 93,
+      "name": "appearances-03-striking",
+      "camera": "front"
+    }
+  ]
+}

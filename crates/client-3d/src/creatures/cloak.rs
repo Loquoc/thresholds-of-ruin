@@ -1,5 +1,6 @@
 //! Connected, lined shoulder cloth. Recipes share construction and materials;
 //! each wearer owns the vertices that follow its motion.
+use super::outfit::outerwear::{DrapeCut, DrapeHem};
 use super::{anatomy::HumanoidBody, deformation::SurfaceBinding, *};
 use bevy::asset::RenderAssetUsages;
 use bevy::render::{
@@ -25,6 +26,10 @@ pub(super) struct Recipe {
     exterior: Vec3,
     lining: Vec3,
     ragged: bool,
+    cut: Option<DrapeCut>,
+    pub satin: bool,
+    pub embroidery: Option<Vec3>,
+    inner_layer: Option<Entity>,
 }
 
 impl Recipe {
@@ -43,9 +48,26 @@ impl Recipe {
             exterior,
             lining,
             ragged,
+            cut: None,
+            satin: false,
+            embroidery: None,
+            inner_layer: None,
         };
         recipe.reserve_back_layer(0.0);
         recipe
+    }
+
+    /// Fit this shoulder layer to an earlier cloak on the same torso frame.
+    pub fn layer_over(&mut self, inner: Entity) {
+        self.inner_layer = Some(inner);
+    }
+
+    /// Study garments use an open angular shoulder wrap. Legacy recipes keep
+    /// their original back-sheet coordinates and animation unchanged.
+    pub fn set_cut(&mut self, cut: DrapeCut) {
+        self.length = cut.length;
+        self.cut = Some(cut);
+        self.contact = true;
     }
 
     /// Fit over an actual equipped torso shell and retain that support for
@@ -75,6 +97,9 @@ impl Recipe {
     }
 
     fn point(&self, row: usize, column: usize) -> Vec3 {
+        if let Some(cut) = self.cut {
+            return self.wrap_point(cut, row, column);
+        }
         let t = row as f32 / ROWS as f32;
         let u = column as f32 / COLUMNS as f32 * 2.0 - 1.0;
         let spread = t * t * (3.0 - 2.0 * t);
@@ -108,6 +133,57 @@ impl Recipe {
         }
         point
     }
+    fn wrap_point(&self, cut: DrapeCut, row: usize, column: usize) -> Vec3 {
+        let t = row as f32 / ROWS as f32;
+        let u = column as f32 / COLUMNS as f32;
+        // Left front edge, around the back, to the right front edge. The
+        // unsampled angular gap is a real opening, never a painted seam.
+        let angle = TAU - cut.opening * 0.5 - (TAU - cut.opening) * u;
+        let direction = Vec3::new(angle.sin(), 0.0, angle.cos());
+        let top_y = 0.48 + 0.025 * (-angle.cos()).max(0.0) - 0.025 * angle.sin().abs();
+        let top = geometry::surface_ray_hit(&self.support, Vec3::Y * top_y, direction, 0.025, 0.65)
+            .unwrap_or(Vec3::Y * top_y + direction * self.shoulders)
+            * anatomy::HIP_SCALE;
+        let fold = (angle * cut.folds as f32).cos() * (0.004 + 0.015 * t);
+        let radius = self.shoulders * cut.fullness + fold;
+        let hem_drop = match cut.hem {
+            DrapeHem::Rounded => 0.018 * (angle * 2.0).cos(),
+            DrapeHem::Frayed => 0.035 * (angle * 19.0).sin().abs(),
+            DrapeHem::Torn => 0.10 * (angle * 11.0 + 0.4).cos().abs() + 0.035 * (angle * 5.0).sin(),
+            DrapeHem::Rectangular => 0.13 * angle.sin().abs(),
+        };
+        // A rectangular blanket retains its four lower corners. Round capes
+        // remain elliptic. A broad cope spreads its semicircular skirt.
+        let square = if cut.hem == DrapeHem::Rectangular {
+            1.0 / angle.sin().abs().max(angle.cos().abs()).max(0.1)
+        } else {
+            1.0
+        };
+        let hem = Vec3::new(
+            direction.x * radius * square,
+            0.53 - self.length - hem_drop,
+            direction.z * radius * 0.78 * square,
+        );
+        let mut at = top.lerp(hem, t);
+        if at.y >= 0.075 {
+            let query = at / anatomy::HIP_SCALE;
+            let out = Vec3::new(query.x, 0.0, query.z).normalize_or(direction);
+            if let Some(hit) = geometry::surface_ray_hit(
+                &self.support,
+                Vec3::Y * query.y,
+                out,
+                LAYER_GAP + 0.006,
+                0.70,
+            ) {
+                let hit = hit * anatomy::HIP_SCALE;
+                if Vec2::new(at.x, at.z).length() < Vec2::new(hit.x, hit.z).length() {
+                    at.x = hit.x;
+                    at.z = hit.z;
+                }
+            }
+        }
+        at - Vec3::new(0.0, 0.53, -0.15)
+    }
 }
 
 pub(super) struct CloakRig {
@@ -119,6 +195,9 @@ pub(super) struct CloakRig {
     normals: Vec<Vec3>,
     last_rotation: Option<Quat>,
     support: Option<crate::sdf::Sculpt>,
+    wrapped: bool,
+    inner_layer: Option<Entity>,
+    last_inner_rotation: Option<Quat>,
 }
 
 impl CloakRig {
@@ -128,10 +207,12 @@ impl CloakRig {
         mesh: &mut impl FnMut(&Handle<Mesh>) -> Handle<Mesh>,
     ) {
         self.entity = entity(self.entity);
+        self.inner_layer = self.inner_layer.map(entity);
         self.mesh = mesh(&self.mesh);
     }
     pub(super) fn invalidate(&mut self) {
         self.last_rotation = None;
+        self.last_inner_rotation = None;
     }
 }
 
@@ -179,14 +260,23 @@ pub(super) fn spawn(
     ghost: bool,
 ) -> CloakRig {
     let material = library
-        .get(format!("creature/cloak-material/{ghost}"), meshes, || {
-            let mut parts = Parts::default();
-            parts.matte.tri([Vec3::ZERO, Vec3::X, Vec3::Y], Vec3::ONE);
-            if ghost {
-                parts.ghostify();
-            }
-            parts
-        })
+        .get(
+            format!("creature/cloak-material/{ghost}/{}", recipe.satin),
+            meshes,
+            || {
+                let mut parts = Parts::default();
+                let builder = if recipe.satin {
+                    &mut parts.satin
+                } else {
+                    &mut parts.matte
+                };
+                builder.tri([Vec3::ZERO, Vec3::X, Vec3::Y], Vec3::ONE);
+                if ghost {
+                    parts.ghostify();
+                }
+                parts
+            },
+        )
         .0[0]
         .1
         .clone();
@@ -231,7 +321,18 @@ pub(super) fn spawn(
             1.0,
         ]
     };
-    let colors: Vec<_> = std::iter::repeat_n(pigment(recipe.exterior), GRID)
+    let colors: Vec<_> = (0..GRID)
+        .map(|i| {
+            let row = i / (COLUMNS + 1);
+            let col = i % (COLUMNS + 1);
+            let border = row >= ROWS - 1 || col <= 1 || col >= COLUMNS - 1;
+            let vine = (col % 8 == 2 || col % 8 == 6) && row % 5 <= 1;
+            pigment(if border || vine {
+                recipe.embroidery.unwrap_or(recipe.exterior)
+            } else {
+                recipe.exterior
+            })
+        })
         .chain(std::iter::repeat_n(pigment(recipe.lining), GRID))
         .collect();
     let mut mesh = Mesh::new(
@@ -271,6 +372,9 @@ pub(super) fn spawn(
         rest,
         normals,
         last_rotation: None,
+        wrapped: recipe.cut.is_some(),
+        inner_layer: recipe.inner_layer,
+        last_inner_rotation: None,
         support: recipe.contact.then_some(recipe.support),
     }
 }
@@ -291,6 +395,7 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
         bindings,
         rest,
         support,
+        wrapped,
         ..
     } = cloak;
     // Each point traces the back on its own, and tracing dominates a worn
@@ -305,7 +410,23 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
                 let mut at = rotation * *point + Vec3::new(0.0, 0.53, -0.15);
                 let query = at / anatomy::HIP_SCALE;
                 if query.y >= 0.075 {
-                    if let Some(back) =
+                    if *wrapped {
+                        let out = Vec3::new(query.x, 0.0, query.z).normalize_or(Vec3::NEG_Z);
+                        if let Some(hit) = geometry::surface_ray_hit(
+                            support,
+                            Vec3::Y * query.y,
+                            out,
+                            LAYER_GAP + 0.006,
+                            0.70,
+                        ) {
+                            let hit = hit * anatomy::HIP_SCALE;
+                            if Vec2::new(at.x, at.z).length() < Vec2::new(hit.x, hit.z).length() {
+                                at.x = hit.x;
+                                at.z = hit.z;
+                                *point = inverse * (at - Vec3::new(0.0, 0.53, -0.15));
+                            }
+                        }
+                    } else if let Some(back) =
                         geometry::torso_surface_hit(support, query.x, query.y, false)
                     {
                         // Reserve both faces of the lining after rotation.
@@ -323,6 +444,152 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
     cloak.last_rotation = Some(rotation);
 }
 
+/// Posed triangle contact in the shared torso frame. Height bins keep each
+/// mantle vertex query local without assuming the two hems have equal lengths.
+struct LayerSurface {
+    bins: Vec<Vec<[Vec3; 3]>>,
+    bottom: f32,
+    height: f32,
+}
+
+impl LayerSurface {
+    fn new(mesh: &Mesh, rotation: Quat) -> Self {
+        let Some(VertexAttributeValues::Float32x3(vertices)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("cloak mesh positions");
+        };
+        let vertices: Vec<_> = vertices
+            .iter()
+            .map(|p| rotation * Vec3::from_array(*p) + Vec3::new(0.0, 0.53, -0.15))
+            .collect();
+        let bottom = vertices.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let top = vertices
+            .iter()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mut surface = Self {
+            bins: vec![Vec::new(); 64],
+            bottom,
+            height: (top - bottom).max(0.001),
+        };
+        let indices: Vec<_> = mesh
+            .indices()
+            .expect("cloak mesh triangles")
+            .iter()
+            .collect();
+        for face in indices.as_chunks::<3>().0 {
+            let triangle = face.map(|i| vertices[i]);
+            let low = triangle.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+            let high = triangle
+                .iter()
+                .map(|p| p.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            for bin in surface.bin(low)..=surface.bin(high) {
+                surface.bins[bin].push(triangle);
+            }
+        }
+        surface
+    }
+
+    fn bin(&self, y: f32) -> usize {
+        (((y - self.bottom) / self.height * 64.0).floor() as isize).clamp(0, 63) as usize
+    }
+
+    /// Outermost intersection with either face or a closed boundary edge.
+    fn radius(&self, origin: Vec3, ray: Vec3) -> Option<f32> {
+        if origin.y < self.bottom || origin.y > self.bottom + self.height {
+            return None;
+        }
+        let mut far: Option<f32> = None;
+        for &[a, b, c] in &self.bins[self.bin(origin.y)] {
+            let e1 = b - a;
+            let e2 = c - a;
+            let cross = ray.cross(e2);
+            let determinant = e1.dot(cross);
+            if determinant.abs() < 1e-10 {
+                continue;
+            }
+            let offset = origin - a;
+            let u = offset.dot(cross) / determinant;
+            let q = offset.cross(e1);
+            let v = ray.dot(q) / determinant;
+            if u < -1e-5 || v < -1e-5 || u + v > 1.00001 {
+                continue;
+            }
+            let distance = e2.dot(q) / determinant;
+            if distance >= 0.0 {
+                far = Some(far.map_or(distance, |old| old.max(distance)));
+            }
+        }
+        far
+    }
+}
+
+/// Pose in dependency order, then seat each explicitly linked mantle outside
+/// the inner cloak's actual two-sided mesh. An unlinked cloak retains the
+/// original deformation path and caching behavior.
+pub(super) fn place_layers(
+    cloaks: &mut [CloakRig],
+    rotation: impl Fn(Entity) -> Option<Quat>,
+    meshes: &mut Assets<Mesh>,
+) {
+    for i in 0..cloaks.len() {
+        let (earlier, current) = cloaks.split_at_mut(i);
+        let cloak = &mut current[0];
+        let Some(rot) = rotation(cloak.entity) else {
+            continue;
+        };
+        let Some(inner_entity) = cloak.inner_layer else {
+            place(cloak, rot, meshes);
+            continue;
+        };
+        let inner = earlier
+            .iter()
+            .find(|inner| inner.entity == inner_entity)
+            .expect("a cloak layer must follow its support on the same torso");
+        let Some(inner_rot) = rotation(inner.entity) else {
+            continue;
+        };
+        if cloak
+            .last_rotation
+            .is_some_and(|last| rot.angle_between(last) < 1e-6)
+            && cloak
+                .last_inner_rotation
+                .is_some_and(|last| inner_rot.angle_between(last) < 1e-6)
+        {
+            continue;
+        }
+        // Always start from authored rest geometry when either layer moves;
+        // projecting an already projected mantle accumulates outward drift.
+        cloak.invalidate();
+        place(cloak, rot, meshes);
+        let support = LayerSurface::new(
+            meshes.get(&inner.mesh).expect("inner cloak mesh"),
+            inner_rot,
+        );
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        for point in &mut cloak.points {
+            let at = rot * *point + offset;
+            let ray = Vec3::new(at.x, 0.0, at.z).normalize_or(Vec3::NEG_Z);
+            let origin = Vec3::Y * at.y;
+            if let Some(radius) = support.radius(origin, ray) {
+                // Include the mantle lining's half-thickness and a reserve
+                // for interpolation between independently sampled fold grids.
+                let required = radius + LAYER_GAP + THICKNESS * 0.5;
+                if (at - origin).length() < required {
+                    *point = rot.inverse() * (origin + ray * required - offset);
+                }
+            }
+        }
+        surface_normals(&cloak.points, &mut cloak.normals);
+        if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
+            write(mesh, &cloak.points, &cloak.normals);
+        }
+        cloak.last_inner_rotation = Some(inner_rot);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,6 +601,154 @@ mod tests {
             panic!("cloth positions")
         };
         points.iter().map(|p| Vec3::from_array(*p)).collect()
+    }
+
+    fn study_recipe(kind: outfit::outerwear::OuterwearAppearance) -> Recipe {
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        ));
+        let r = kind.recipe();
+        let outfit::outerwear::OuterwearCut::Drape(cut) = r.cut else {
+            panic!("drape fixture");
+        };
+        let mut recipe = Recipe::new(body, r.cloth, r.lining, false);
+        recipe.set_cut(cut);
+        recipe
+    }
+
+    #[test]
+    fn mantle_clears_main_cloak_at_shared_heights_in_neutral_walk_and_turn() {
+        for name in ["leather-cloak", "ornamental-cope"] {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                7,
+                Some(Variant {
+                    woman: true,
+                    build: 2,
+                    ..default()
+                }),
+            );
+            let mut equipment = Equipment::default();
+            equipment.select(name).unwrap();
+            let (_, mut rig, _, mut meshes) =
+                super::super::rogue_tests::spawn_one(&look.equipped(equipment));
+            assert_eq!(rig.cloaks.len(), 2);
+            let inner = rig.cloaks[0].entity;
+            assert_eq!(rig.cloaks[1].inner_layer, Some(inner));
+            // The mantle and cape deliberately have different angular lag,
+            // including an inner-only move to exercise dependency invalidation.
+            for (cape, mantle) in [
+                (Quat::IDENTITY, Quat::IDENTITY),
+                (Quat::from_rotation_x(0.28), Quat::from_rotation_x(0.13)),
+                (
+                    Quat::from_euler(EulerRot::XYZ, 0.18, 0.27, -0.20),
+                    Quat::from_euler(EulerRot::XYZ, 0.08, -0.10, 0.14),
+                ),
+                (
+                    Quat::from_euler(EulerRot::XYZ, -0.12, -0.23, 0.16),
+                    Quat::from_euler(EulerRot::XYZ, 0.08, -0.10, 0.14),
+                ),
+                (Quat::IDENTITY, Quat::IDENTITY),
+            ] {
+                place_layers(
+                    &mut rig.cloaks,
+                    |entity| Some(if entity == inner { cape } else { mantle }),
+                    &mut meshes,
+                );
+                let offset = Vec3::new(0.0, 0.53, -0.15);
+                // Independent triangle-ray oracle uses the emitted inner mesh,
+                // rather than the solver's binned contact representation.
+                let mesh = meshes.get(&rig.cloaks[0].mesh).unwrap();
+                let inner_points = positions(mesh);
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                let mut support = Builder::default();
+                for face in indices.as_chunks::<3>().0 {
+                    support.tri(face.map(|i| cape * inner_points[i] + offset), Vec3::ONE);
+                }
+                let mesh = meshes.get(&rig.cloaks[1].mesh).unwrap();
+                let points = positions(mesh);
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                let mut contacts = 0;
+                for face in indices.as_chunks::<3>().0 {
+                    let tri = face.map(|i| mantle * points[i] + offset);
+                    let at = (tri[0] + tri[1] + tri[2]) / 3.0;
+                    // Leave the supported yoke boundary out of the hem-motion
+                    // witness; validate actual faces throughout the shared drape.
+                    if !(0.23..0.44).contains(&at.y) {
+                        continue;
+                    }
+                    let origin = Vec3::Y * at.y;
+                    let direction = (at - origin).normalize();
+                    if let Some(hit) = support.outer_surface(origin, direction) {
+                        contacts += 1;
+                        assert!(at.distance(origin) > hit.distance(origin)+0.001,
+                            "{name}: mantle triangle intersects cape at {at:?}, support {hit:?}, poses {cape:?}/{mantle:?}");
+                    }
+                }
+                assert!(contacts > 100, "shared-height mesh contact witness");
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_back_sheet_coordinates_are_unchanged_without_a_cut() {
+        let body = HumanoidBody::resolve(&Look::of(CreatureModel::Human, 7));
+        let recipe = Recipe::new(body, Vec3::ONE, Vec3::ONE, false);
+        assert_eq!(recipe.cut, None);
+        let center = recipe.point(ROWS, COLUMNS / 2);
+        assert!((center - Vec3::new(0.0, -1.098, -0.137)).length() < 1e-5);
+    }
+
+    #[test]
+    fn study_wraps_reach_both_front_edges_and_leave_a_real_opening() {
+        use outfit::outerwear::OuterwearAppearance as A;
+        for kind in A::ALL {
+            if !matches!(kind.recipe().cut, outfit::outerwear::OuterwearCut::Drape(_)) {
+                continue;
+            }
+            let r = study_recipe(kind);
+            let origin = Vec3::new(0.0, 0.53, -0.15);
+            let left = r.point(ROWS, 0) + origin;
+            let right = r.point(ROWS, COLUMNS) + origin;
+            let back = r.point(ROWS, COLUMNS / 2) + origin;
+            assert!(
+                left.x < -0.05 && right.x > 0.05,
+                "{kind:?} has an open front"
+            );
+            assert!(left.z > 0.02 && right.z > 0.02 && back.z < -0.10);
+            for row in 0..=ROWS {
+                for column in 0..=COLUMNS {
+                    assert!(r.point(row, column).is_finite());
+                }
+            }
+        }
+        let short = study_recipe(A::CoarseMantelet);
+        let long = study_recipe(A::OperaCloak);
+        assert!(long.point(ROWS, COLUMNS / 2).y < short.point(ROWS, COLUMNS / 2).y - 0.75);
+        assert!(long.point(ROWS, COLUMNS * 3 / 4).x > short.point(ROWS, COLUMNS * 3 / 4).x + 0.07);
+    }
+
+    #[test]
+    fn angular_wrap_clears_retained_front_back_and_side_armour() {
+        use outfit::outerwear::OuterwearAppearance as A;
+        let mut r = study_recipe(A::OrnamentalCope);
+        let mut armour = r.support.clone();
+        armour.inflate(0.04);
+        r.reserve_body_layer(&armour);
+        for row in 0..=6 {
+            for column in 0..=COLUMNS {
+                let at = (r.point(row, column) + Vec3::new(0.0, 0.53, -0.15)) / anatomy::HIP_SCALE;
+                assert!(
+                    armour.distance(at) >= 0.017,
+                    "outer lining clearance at {row}/{column}"
+                );
+            }
+        }
     }
 
     #[test]

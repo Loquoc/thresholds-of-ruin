@@ -10,7 +10,9 @@ use super::*;
 mod embroidery;
 mod equipment;
 mod native;
+pub(in crate::creatures) mod outerwear;
 mod presets;
+pub(in crate::creatures) mod shirts;
 pub(crate) use equipment::{BodyItem, Composition, Equipment};
 mod royal;
 mod studies;
@@ -235,6 +237,11 @@ pub(crate) enum Outer {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Neckline {
     Closed,
+    /// Rounded knit neckline, fitted to the same chest landmarks as a plunge.
+    Scoop {
+        depth: f32,
+        width: f32,
+    },
     /// A V down the sternum. `depth` runs from 0 at the base of the throat
     /// to 1 at the fold beneath the chest; `width` is the opening's
     /// half-width at the collarbones, as a share of the shoulders. A wrap's
@@ -444,6 +451,8 @@ impl Hem {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Pattern {
     Plain,
+    /// Fixed tropical printed cloth, independent of magical identity.
+    Floral,
     /// A repeatable embroidered motif shared by any cloth surface.
     Brocade {
         thread: Vec3,
@@ -472,6 +481,21 @@ impl Pattern {
         };
         match self {
             Pattern::Plain => base,
+            Pattern::Floral => {
+                let u = ((at.x + at.z * 0.6) / 0.13 + 0.5).rem_euclid(1.0) - 0.5;
+                let v = (at.y / 0.15 + 0.5).rem_euclid(1.0) - 0.5;
+                let radial = Vec2::new(u, v).length();
+                let petal = 0.23 + 0.065 * (v.atan2(u) * 5.0).cos();
+                if radial < 0.065 {
+                    Vec3::new(0.95, 0.72, 0.20)
+                } else if radial < petal {
+                    Vec3::new(0.92, 0.39, 0.17)
+                } else if (u + v * 0.7).abs() < 0.055 && radial < 0.45 {
+                    Vec3::new(0.31, 0.47, 0.20)
+                } else {
+                    base
+                }
+            }
             Pattern::Brocade { thread, motif } => {
                 if motif.stitch(at) {
                     thread

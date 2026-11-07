@@ -5,6 +5,25 @@ use tor_client_common::{AssetTable, Palette};
 /// A visible shape. Eligibility remains server-owned; this is not an item type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WearableLook {
+    TShirt,
+    HawaiianShirt,
+    OldGloves,
+    PaddedGloves,
+    RidingGloves,
+    FencingGloves,
+    MummyWrapping,
+    FadedPall,
+    CoarseMantelet,
+    HoodedCloak,
+    SlipperyCloak,
+    LeatherCloak,
+    Robe,
+    Apron,
+    TatteredCape,
+    OperaCloak,
+    OrnamentalCope,
+    PieceOfCloth,
+
     LeatherHat,
     IronSkullCap,
     HardHat,
@@ -28,7 +47,25 @@ pub enum WearableLook {
     SnowBoots,
 }
 impl WearableLook {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 39] = [
+        Self::TShirt,
+        Self::HawaiianShirt,
+        Self::OldGloves,
+        Self::PaddedGloves,
+        Self::RidingGloves,
+        Self::FencingGloves,
+        Self::MummyWrapping,
+        Self::FadedPall,
+        Self::CoarseMantelet,
+        Self::HoodedCloak,
+        Self::SlipperyCloak,
+        Self::LeatherCloak,
+        Self::Robe,
+        Self::Apron,
+        Self::TatteredCape,
+        Self::OperaCloak,
+        Self::OrnamentalCope,
+        Self::PieceOfCloth,
         Self::LeatherHat,
         Self::IronSkullCap,
         Self::HardHat,
@@ -53,6 +90,25 @@ impl WearableLook {
     ];
     pub const fn name(self) -> &'static str {
         match self {
+            Self::TShirt => "t-shirt",
+            Self::HawaiianShirt => "hawaiian-shirt",
+            Self::OldGloves => "old-gloves",
+            Self::PaddedGloves => "padded-gloves",
+            Self::RidingGloves => "riding-gloves",
+            Self::FencingGloves => "fencing-gloves",
+            Self::MummyWrapping => "mummy-wrapping",
+            Self::FadedPall => "faded-pall",
+            Self::CoarseMantelet => "coarse-mantelet",
+            Self::HoodedCloak => "hooded-cloak",
+            Self::SlipperyCloak => "slippery-cloak",
+            Self::LeatherCloak => "leather-cloak",
+            Self::Robe => "robe",
+            Self::Apron => "apron",
+            Self::TatteredCape => "tattered-cape",
+            Self::OperaCloak => "opera-cloak",
+            Self::OrnamentalCope => "ornamental-cope",
+            Self::PieceOfCloth => "piece-of-cloth",
+
             Self::LeatherHat => "leather-hat",
             Self::IronSkullCap => "iron-skull-cap",
             Self::HardHat => "hard-hat",
@@ -78,6 +134,25 @@ impl WearableLook {
     }
     pub const fn slot(self) -> &'static str {
         match self {
+            Self::TShirt => "shirt",
+            Self::HawaiianShirt => "shirt",
+            Self::OldGloves => "hands_armor",
+            Self::PaddedGloves => "hands_armor",
+            Self::RidingGloves => "hands_armor",
+            Self::FencingGloves => "hands_armor",
+            Self::MummyWrapping => "cloak",
+            Self::FadedPall => "cloak",
+            Self::CoarseMantelet => "cloak",
+            Self::HoodedCloak => "cloak",
+            Self::SlipperyCloak => "cloak",
+            Self::LeatherCloak => "cloak",
+            Self::Robe => "cloak",
+            Self::Apron => "cloak",
+            Self::TatteredCape => "cloak",
+            Self::OperaCloak => "cloak",
+            Self::OrnamentalCope => "cloak",
+            Self::PieceOfCloth => "cloak",
+
             Self::LeatherHat
             | Self::IronSkullCap
             | Self::HardHat
@@ -109,6 +184,45 @@ pub(crate) fn resolve(palette: &Palette, asset: Option<&str>, slot: &str) -> Opt
     static TABLE: OnceLock<AssetTable<WearableLook>> = OnceLock::new();
     let table = TABLE.get_or_init(|| {
         AssetTable::new([
+            ("item.armor.shirt.t-shirt", WearableLook::TShirt),
+            (
+                "item.armor.shirt.hawaiian-shirt",
+                WearableLook::HawaiianShirt,
+            ),
+            ("item.armor.hands.old-gloves", WearableLook::OldGloves),
+            ("item.armor.hands.padded-gloves", WearableLook::PaddedGloves),
+            ("item.armor.hands.riding-gloves", WearableLook::RidingGloves),
+            (
+                "item.armor.hands.fencing-gloves",
+                WearableLook::FencingGloves,
+            ),
+            (
+                "item.armor.cloak.mummy-wrapping",
+                WearableLook::MummyWrapping,
+            ),
+            ("item.armor.cloak.faded-pall", WearableLook::FadedPall),
+            (
+                "item.armor.cloak.coarse-mantelet",
+                WearableLook::CoarseMantelet,
+            ),
+            ("item.armor.cloak.hooded-cloak", WearableLook::HoodedCloak),
+            (
+                "item.armor.cloak.slippery-cloak",
+                WearableLook::SlipperyCloak,
+            ),
+            ("item.armor.cloak.leather-cloak", WearableLook::LeatherCloak),
+            ("item.armor.cloak.robe", WearableLook::Robe),
+            ("item.armor.cloak.apron", WearableLook::Apron),
+            ("item.armor.cloak.tattered-cape", WearableLook::TatteredCape),
+            ("item.armor.cloak.opera-cloak", WearableLook::OperaCloak),
+            (
+                "item.armor.cloak.ornamental-cope",
+                WearableLook::OrnamentalCope,
+            ),
+            (
+                "item.armor.cloak.piece-of-cloth",
+                WearableLook::PieceOfCloth,
+            ),
             ("item.armor.head.leather-hat", WearableLook::LeatherHat),
             ("item.armor.head.iron-skull-cap", WearableLook::IronSkullCap),
             ("item.armor.head.hard-hat", WearableLook::HardHat),
@@ -155,10 +269,11 @@ mod tests {
     #[test]
     fn every_physical_look_requires_palette_approval_and_its_own_slot() {
         for look in WearableLook::ALL {
-            let family = if look.slot() == "head_armor" {
-                "head"
-            } else {
-                "feet"
+            let family = match look.slot() {
+                "head_armor" => "head",
+                "feet_armor" => "feet",
+                "hands_armor" => "hands",
+                slot => slot,
             };
             let asset = format!("item.armor.{family}.{}", look.name());
             let mut palette = Palette::default();
@@ -190,30 +305,45 @@ mod tests {
     fn worn_mapping_preserves_appearance_without_relocating_an_unknown_socket() {
         use crate::{wearing, Wearing};
         use tor_protocol::{ItemClass, WornView};
-        let asset = "item.armor.head.fedora";
-        let mut palette = Palette::default();
-        palette.apply(&PaletteUpdate {
-            revision: 1,
-            body: PaletteBody::Full {
-                assets: [asset.into()].into(),
-            },
-        });
-        let mut piece = WornView {
-            slot: "head_armor".into(),
-            occurrence: 0,
-            class: ItemClass::Armor,
-            appearance: "unidentified hat".into(),
-            asset: Some(asset.into()),
-        };
-        let visible = wearing(&palette, &[piece.clone()]);
-        assert_eq!(visible.head_look, Some(WearableLook::Fedora));
-        assert!(visible.head.is_some());
-        piece.appearance = "a completely different label".into();
-        assert_eq!(wearing(&palette, &[piece.clone()]), visible);
-        piece.slot = "tail_armor".into();
-        assert_eq!(wearing(&palette, &[piece.clone()]), Wearing::default());
-        piece.slot = "head_armor".into();
-        piece.occurrence = 1;
-        assert_eq!(wearing(&palette, &[piece]), Wearing::default());
+        for look in WearableLook::ALL {
+            let family = match look.slot() {
+                "head_armor" => "head",
+                "feet_armor" => "feet",
+                "hands_armor" => "hands",
+                slot => slot,
+            };
+            let asset = format!("item.armor.{family}.{}", look.name());
+            let mut palette = Palette::default();
+            palette.apply(&PaletteUpdate {
+                revision: 1,
+                body: PaletteBody::Full {
+                    assets: [asset.clone()].into(),
+                },
+            });
+            let mut piece = WornView {
+                slot: look.slot().into(),
+                occurrence: 0,
+                class: ItemClass::Armor,
+                appearance: "unidentified wearable".into(),
+                asset: Some(asset),
+            };
+            let visible = wearing(&palette, &[piece.clone()]);
+            let actual = match look.slot() {
+                "head_armor" => visible.head_look,
+                "feet_armor" => visible.feet_look,
+                "shirt" => visible.shirt_look,
+                "hands_armor" => visible.hands_look,
+                "cloak" => visible.back_look,
+                _ => unreachable!(),
+            };
+            assert_eq!(actual, Some(look));
+            piece.appearance = "a completely different label".into();
+            assert_eq!(wearing(&palette, &[piece.clone()]), visible);
+            piece.slot = "tail_armor".into();
+            assert_eq!(wearing(&palette, &[piece.clone()]), Wearing::default());
+            piece.slot = look.slot().into();
+            piece.occurrence = 1;
+            assert_eq!(wearing(&palette, &[piece]), Wearing::default());
+        }
     }
 }

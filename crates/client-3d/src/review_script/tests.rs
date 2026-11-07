@@ -682,3 +682,34 @@ fn walking_carriage_supports_every_adult_female_wardrobe_without_remapping() {
         }
     }
 }
+
+#[test]
+fn modular_worn_equipment_review_fixtures_resolve_all_studies_and_layers() {
+    let fixtures = [
+        include_str!("../../scripts/fixtures/worn-equipment-review/appearances-01.json"),
+        include_str!("../../scripts/fixtures/worn-equipment-review/appearances-02.json"),
+        include_str!("../../scripts/fixtures/worn-equipment-review/appearances-03.json"),
+        include_str!("../../scripts/fixtures/worn-equipment-review/appearances-04.json"),
+        include_str!("../../scripts/fixtures/worn-equipment-review/appearances-05.json"),
+        include_str!("../../scripts/fixtures/worn-equipment-review/layering.json"),
+    ];
+    let mut appearances = std::collections::HashSet::new();
+    for (index, fixture) in fixtures.into_iter().enumerate() {
+        let script = Script::parse(fixture.as_bytes()).unwrap();
+        assert!(script.actors.len() <= 8);
+        assert_eq!(script.captures.len(), 5);
+        for actor in script.actors {
+            actor.look().unwrap();
+            if index < 5 {
+                appearances.extend(actor.equipment);
+            }
+        }
+    }
+    assert_eq!(
+        appearances.len(),
+        tor_client_3d_model::WearableLook::ALL.len()
+    );
+    for appearance in tor_client_3d_model::WearableLook::ALL {
+        assert!(appearances.contains(appearance.name()));
+    }
+}

@@ -337,20 +337,25 @@ fn present_pose(
         }
     }
     record_phase(&mut profile, 0, started);
+    // Retained skirt layers must expose their current synchronized transform
+    // before the robe/outer-panel contact solver consumes them.
+    let started = profile.as_ref().map(|_| std::time::Instant::now());
+    place_segments(rig, anim, fun, joints);
+    swing_drapes(rig, anim, dt, joints);
+    record_phase(&mut profile, 2, started);
     let Rig { rest, robe, .. } = rig;
     let started = (profile.is_some() && robe.is_some()).then(std::time::Instant::now);
     if let Some(robe) = robe {
+        robe.update_layer_transforms(&|entity| joints.get(entity).ok().map(|t| t.compute_affine()));
         super::robe::place(robe, rest, &pose.rot, &pose.off, meshes);
     }
     record_phase(&mut profile, 1, started);
     let started = profile.as_ref().map(|_| std::time::Instant::now());
-    place_segments(rig, anim, fun, joints);
-    swing_drapes(rig, anim, dt, joints);
-    for cloak in &mut rig.cloaks {
-        if let Ok(transform) = joints.get(cloak.entity) {
-            super::cloak::place(cloak, transform.rotation, meshes);
-        }
-    }
+    super::cloak::place_layers(
+        &mut rig.cloaks,
+        |entity| joints.get(entity).ok().map(|transform| transform.rotation),
+        meshes,
+    );
     record_phase(&mut profile, 2, started);
     let started = (profile.is_some() && rig.hair.is_some()).then(std::time::Instant::now);
     let head = rig

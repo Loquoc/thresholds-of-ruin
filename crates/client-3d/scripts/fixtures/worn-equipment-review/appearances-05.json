@@ -1,0 +1,529 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1920,
+    1280
+  ],
+  "actors": [
+    {
+      "id": "combat-boots",
+      "model": "Human",
+      "seed": 17,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "combat-boots"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "jungle-boots",
+      "model": "Human",
+      "seed": 18,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "jungle-boots"
+      ],
+      "position": [
+        -1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "hiking-boots",
+      "model": "Human",
+      "seed": 19,
+      "body": {
+        "woman": true,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "hiking-boots"
+      ],
+      "position": [
+        1.1,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "mud-boots",
+      "model": "Human",
+      "seed": 20,
+      "body": {
+        "woman": false,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "mud-boots"
+      ],
+      "position": [
+        3.3000000000000003,
+        0,
+        0.0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "buckled-boots",
+      "model": "Human",
+      "seed": 21,
+      "body": {
+        "woman": true,
+        "build": 1,
+        "bust": 2,
+        "figure": 1
+      },
+      "outfit": "native",
+      "equipment": [
+        "buckled-boots"
+      ],
+      "position": [
+        -3.3000000000000003,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "riding-boots",
+      "model": "Human",
+      "seed": 22,
+      "body": {
+        "woman": false,
+        "build": 2,
+        "bust": 2,
+        "figure": 2
+      },
+      "outfit": "native",
+      "equipment": [
+        "riding-boots"
+      ],
+      "position": [
+        -1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "snow-boots",
+      "model": "Human",
+      "seed": 23,
+      "body": {
+        "woman": true,
+        "build": 0,
+        "bust": 2,
+        "figure": 0
+      },
+      "outfit": "native",
+      "equipment": [
+        "snow-boots"
+      ],
+      "position": [
+        1.1,
+        0,
+        2.7
+      ],
+      "yaw": 0
+    }
+  ],
+  "floor_color": [
+    0.25,
+    0.27,
+    0.3
+  ],
+  "cameras": [
+    {
+      "id": "front",
+      "position": [
+        0,
+        4.2,
+        10.5
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    },
+    {
+      "id": "rear",
+      "position": [
+        0,
+        3.8,
+        -8
+      ],
+      "target": [
+        0,
+        0.7,
+        1.2
+      ],
+      "fov_degrees": 48
+    }
+  ],
+  "events": [
+    {
+      "tick": 1,
+      "actor": "combat-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "jungle-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "hiking-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "mud-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "buckled-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "riding-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 1,
+      "actor": "snow-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0.4,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "combat-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "jungle-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "hiking-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "mud-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "buckled-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "riding-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 40,
+      "actor": "snow-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          -0.4
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "combat-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "jungle-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "hiking-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "mud-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "buckled-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "riding-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 80,
+      "actor": "snow-boots",
+      "operation": {
+        "type": "velocity",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "combat-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "jungle-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "hiking-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "mud-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "buckled-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "riding-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    },
+    {
+      "tick": 85,
+      "actor": "snow-boots",
+      "operation": {
+        "type": "action",
+        "name": "strike"
+      }
+    }
+  ],
+  "captures": [
+    {
+      "tick": 0,
+      "name": "appearances-05-front",
+      "camera": "front"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-rear",
+      "camera": "rear"
+    },
+    {
+      "tick": 28,
+      "name": "appearances-05-walking",
+      "camera": "front"
+    },
+    {
+      "tick": 65,
+      "name": "appearances-05-turning",
+      "camera": "rear"
+    },
+    {
+      "tick": 93,
+      "name": "appearances-05-striking",
+      "camera": "front"
+    }
+  ]
+}

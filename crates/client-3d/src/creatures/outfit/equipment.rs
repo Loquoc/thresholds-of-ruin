@@ -2,7 +2,10 @@
 //! Offline previews select them by name; live play selects them from the
 //! server's disclosed worn equipment, which stays server-owned.
 use super::super::geometry::equipment_footwear::FootwearAppearance;
+use super::super::geometry::equipment_gloves::GloveAppearance;
 use super::super::geometry::equipment_headwear::HeadwearKind;
+use super::outerwear::{OuterwearAppearance, OuterwearHood};
+use super::shirts::ShirtAppearance;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -90,12 +93,15 @@ impl BodyItem {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum BackItem {
     TravelCloak,
+    Appearance(OuterwearAppearance),
 }
 
 /// Selection is independent of the underlying preset. None restores that
 /// preset's piece; it does not erase it or mutate the wearer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct Equipment {
+    pub shirt: Option<ShirtAppearance>,
+    pub hands: Option<GloveAppearance>,
     pub head: Option<HeadItem>,
     pub feet: Option<FootItem>,
     pub back: Option<BackItem>,
@@ -115,7 +121,11 @@ impl Composition {
     pub fn resolve(look: &Look) -> Self {
         let preset = look.outfit.unwrap_or_else(|| Outfit::native(look));
         Self {
-            outfit: look.equipment.compose(preset),
+            outfit: look.equipment.compose(
+                look.equipment
+                    .shirt
+                    .map_or(preset, |shirt| shirt.compose(preset, look.v.woman)),
+            ),
             body: look.equipment.body,
         }
     }
@@ -131,6 +141,15 @@ impl Equipment {
     /// the body's own costume rather than being stripped.
     pub fn disclosed(wearing: &tor_client_3d_model::Wearing) -> Self {
         Self {
+            shirt: wearing
+                .shirt_look
+                .and_then(|look| ShirtAppearance::parse(look.name())),
+            hands: wearing.hands.map(|_| {
+                wearing
+                    .hands_look
+                    .and_then(|look| GloveAppearance::parse(look.name()))
+                    .unwrap_or(GloveAppearance::OldGloves)
+            }),
             head: wearing.head.map(|_| {
                 wearing
                     .head_look
@@ -143,7 +162,12 @@ impl Equipment {
                     .and_then(|look| FootwearAppearance::parse(look.name()))
                     .map_or(FootItem::LeatherBoots, FootItem::Appearance)
             }),
-            back: wearing.back.map(|_| BackItem::TravelCloak),
+            back: wearing.back.map(|_| {
+                wearing
+                    .back_look
+                    .and_then(|look| OuterwearAppearance::parse(look.name()))
+                    .map_or(BackItem::TravelCloak, BackItem::Appearance)
+            }),
             body: wearing.body.map(BodyItem::of),
         }
     }
@@ -157,10 +181,18 @@ impl Equipment {
         } else if look.plan == Plan::Centaur {
             Self {
                 head: self.head,
+                hands: self.hands,
                 ..Self::default()
             }
         } else {
             Self::default()
+        }
+    }
+
+    pub fn outerwear(self) -> Option<OuterwearAppearance> {
+        match self.back {
+            Some(BackItem::Appearance(kind)) => Some(kind),
+            _ => None,
         }
     }
 
@@ -179,6 +211,18 @@ impl Equipment {
     }
 
     pub fn select(&mut self, name: &str) -> Result<(), String> {
+        if let Some(kind) = GloveAppearance::parse(name) {
+            self.hands = Some(kind);
+            return Ok(());
+        }
+        if let Some(kind) = OuterwearAppearance::parse(name) {
+            self.back = Some(BackItem::Appearance(kind));
+            return Ok(());
+        }
+        if let Some(kind) = ShirtAppearance::parse(name) {
+            self.shirt = Some(kind);
+            return Ok(());
+        }
         if let Some(kind) = HeadwearKind::parse(name) {
             self.head = Some(HeadItem::Appearance(kind));
             return Ok(());
@@ -263,6 +307,22 @@ impl Equipment {
                 });
             }
             base.trimmings.boot_tops = None;
+        }
+        if let Some(kind) = self.hands {
+            base.hands = Pigment::Fixed(kind.color());
+        }
+        if let Some(kind) = self.outerwear() {
+            let recipe = kind.recipe();
+            base.cloak = recipe.cloak();
+            if let Some(robe) = recipe.robe() {
+                base.robe = Some(robe);
+            }
+            if recipe.hood == OuterwearHood::Raised && self.head.is_none() {
+                base.head = Headwear::Hood {
+                    color: recipe.cloth,
+                    pointed: false,
+                };
+            }
         }
         if let Some(BackItem::TravelCloak) = self.back {
             base.cloak = Some(Cloak::new(
@@ -697,6 +757,15 @@ mod study_tests {
                     worn.feet = Some(ItemModel::RingMail);
                     worn.feet_look = Some(appearance);
                 }
+                "shirt" => worn.shirt_look = Some(appearance),
+                "hands_armor" => {
+                    worn.hands = Some(ItemModel::RingMail);
+                    worn.hands_look = Some(appearance);
+                }
+                "cloak" => {
+                    worn.back = Some(ItemModel::RingMail);
+                    worn.back_look = Some(appearance);
+                }
                 _ => unreachable!(),
             }
             let mut preview = Equipment::default();
@@ -706,9 +775,13 @@ mod study_tests {
             let original = Outfit::worn(&base);
             let equipped = base.clone().equipped(preview);
             let resolved = Outfit::worn(&equipped);
-            assert_eq!(resolved.bodice, original.bodice);
+            if appearance.slot() != "shirt" {
+                assert_eq!(resolved.bodice, original.bodice);
+            }
             assert_eq!(resolved.skirt, original.skirt);
-            assert_eq!(resolved.cloak, original.cloak);
+            if appearance.slot() != "cloak" {
+                assert_eq!(resolved.cloak, original.cloak);
+            }
             assert_eq!(
                 Outfit::worn(&equipped.equipped(Equipment::default())),
                 original
@@ -717,15 +790,17 @@ mod study_tests {
     }
 
     #[test]
-    fn centaur_adapter_accepts_headwear_without_inventing_boot_attachments() {
+    fn centaur_adapter_accepts_head_and_handwear_without_inventing_boot_attachments() {
         let body = Look::of(CreatureModel::Centaur, 17);
         let mut equipment = Equipment::default();
         equipment.select("fedora").unwrap();
+        equipment.select("riding-gloves").unwrap();
         assert!(body.clone().composed(Wardrobe::Native, equipment).is_ok());
         equipment.select("riding-boots").unwrap();
         assert!(body.clone().composed(Wardrobe::Native, equipment).is_err());
         let supported = body.clone().equipped(equipment);
         assert!(supported.equipment.head.is_some());
+        assert!(supported.equipment.hands.is_some());
         assert!(supported.equipment.feet.is_none());
         assert_eq!(supported.equipped(Equipment::default()).key, body.key);
     }

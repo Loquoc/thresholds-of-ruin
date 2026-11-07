@@ -9,6 +9,9 @@ use super::outfit::{
 use super::outfit::{Heraldry, Pattern};
 use super::*;
 
+#[cfg(test)]
+mod equipment_layer_tests;
+
 mod accessory_parts;
 mod arm;
 pub(in crate::creatures) use arm::*;
@@ -26,7 +29,10 @@ mod equine_parts;
 #[cfg(test)]
 mod equine_tests;
 pub(in crate::creatures) mod equipment_footwear;
+pub(in crate::creatures) mod equipment_gloves;
 pub(in crate::creatures) mod equipment_headwear;
+mod equipment_outerwear;
+mod equipment_shirts;
 mod face;
 mod feather_parts;
 mod fringe_parts;
@@ -846,7 +852,7 @@ struct Kit<'a, 'w, 's> {
 }
 
 impl Kit<'_, '_, '_> {
-    fn cloak(&mut self, parent: Entity, recipe: super::cloak::Recipe) {
+    fn cloak(&mut self, parent: Entity, recipe: super::cloak::Recipe) -> Entity {
         let cloak = super::cloak::spawn(
             self.commands,
             self.library,
@@ -855,8 +861,13 @@ impl Kit<'_, '_, '_> {
             recipe,
             self.ghost,
         );
-        self.rig.drapes.push((cloak.entity, Drape::Cloak));
+        let entity = cloak.entity;
+        self.rig.drapes.push((entity, Drape::Cloak));
         self.rig.cloaks.push(cloak);
+        if self.rig.cloaks.len() > 1 {
+            super::cloak::place_layers(&mut self.rig.cloaks, |_| Some(Quat::IDENTITY), self.meshes);
+        }
+        entity
     }
     /// A joint at a rest offset from its parent, carrying one cached part.
     fn joint(
