@@ -401,6 +401,136 @@ mod tests {
         point
     }
 
+    // Human's native Hero outfit includes a cowl and shoulder baldric.
+    // Bare-skin witnesses must omit those independent accessories rather than
+    // mistake their triangles for shirt cloth or enlarged anatomy.
+    fn without_independent_torso_accessories(mut look: Look) -> Look {
+        let mut outfit = Outfit::native(&look);
+        assert!(
+            outfit.neck_drape.is_some(),
+            "fixture must expose the retained accessory"
+        );
+        outfit.neck_drape = None;
+        outfit.baldric = None;
+        look.outfit = Some(outfit);
+        look
+    }
+
+    #[test]
+    fn native_cowl_is_the_retained_occluder_at_upper_torso_witnesses() {
+        use super::super::{biped::Figure, test_support};
+        use crate::creatures::rogue_tests::spawn_one;
+        use bevy::render::mesh::VertexAttributeValues;
+        for (woman, kind, origin) in [
+            (false, ShirtAppearance::TShirt, Vec3::new(0.0, 0.536, 0.0)),
+            (
+                true,
+                ShirtAppearance::HawaiianShirt,
+                Vec3::new(-0.025, 0.49, 0.0),
+            ),
+        ] {
+            let mut look = Look::with_choice(
+                CreatureModel::Human,
+                7,
+                Some(Variant { woman, ..default() }),
+            );
+            look.equipment.shirt = Some(kind);
+            let body = HumanoidBody::resolve(&look);
+            let figure = Figure::resolve(body, &look);
+            let cowl = figure
+                .outfit
+                .neck_drape
+                .expect("shirt must retain independent cowl");
+            let mut expected = Parts::default();
+            expected.set_transform(Affine3A::from_translation(Vec3::new(0.0, 0.515, -0.012)));
+            draped_cloth(
+                &mut expected.matte,
+                ClothSurface::new(
+                    SkirtCut::straight(
+                        Vec2::new(0.087, 0.078) * body.build,
+                        Vec2::new(0.15, 0.118) * body.build,
+                    ),
+                    0.045,
+                    8,
+                    -0.025,
+                    u64::from(look.v.pattern),
+                ),
+                cowl.color,
+                None,
+            );
+            expected.set_transform(Affine3A::IDENTITY);
+            let cowl_hit = expected
+                .matte
+                .outer_surface(origin, Vec3::Z)
+                .expect("cowl crosses failing ray");
+            let mut expected_meshes = Assets::<Mesh>::default();
+            let mut materials = Assets::<StandardMaterial>::default();
+            let expected_model = expected.finish(
+                &mut expected_meshes,
+                &crate::props::PropMaterials::new(&mut materials),
+            );
+            let expected_mesh = expected_meshes.get(&expected_model.0[0].0).unwrap();
+            let Some(VertexAttributeValues::Float32x3(points)) =
+                expected_mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("cowl points");
+            };
+            let indices: Vec<_> = expected_mesh.indices().unwrap().iter().collect();
+            let expected_faces: Vec<[Vec3; 3]> = indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|face| face.map(|i| Vec3::from_array(points[i])))
+                .collect();
+            let (world, rig, _, meshes) = spawn_one(&look);
+            let mut actual = Parts::default();
+            let mut identified_cowl_hit = false;
+            for surface in test_support::joint_meshes(
+                &world,
+                &rig,
+                &meshes,
+                rig.joints[J::Torso as usize].unwrap(),
+            ) {
+                let Some(VertexAttributeValues::Float32x3(points)) =
+                    surface.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("torso points");
+                };
+                let indices: Vec<_> = surface.mesh.indices().unwrap().iter().collect();
+                for face in indices.as_chunks::<3>().0 {
+                    let points = face.map(|i| {
+                        surface
+                            .transform
+                            .transform_point3(Vec3::from_array(points[i]))
+                            / crate::creatures::anatomy::HIP_SCALE
+                    });
+                    actual.matte.tri(points, Vec3::ONE);
+                    let mut triangle = Parts::default();
+                    triangle.matte.tri(points, Vec3::ONE);
+                    if triangle
+                        .matte
+                        .outer_surface(origin, Vec3::Z)
+                        .is_some_and(|hit| hit.distance(cowl_hit) < 0.000001)
+                    {
+                        identified_cowl_hit |= expected_faces.iter().any(|expected| {
+                            points
+                                .iter()
+                                .zip(expected)
+                                .all(|(a, b)| a.distance(*b) < 0.000001)
+                        });
+                    }
+                }
+            }
+            assert!(
+                identified_cowl_hit,
+                "actual ray triangle must match independently emitted matte cowl geometry"
+            );
+            let actual_hit = actual.matte.outer_surface(origin, Vec3::Z).unwrap();
+            assert!(actual_hit.distance(cowl_hit) < 0.000001,
+                "retained cowl, not invented shirt cloth, owns this hit: {actual_hit:?}, {cowl_hit:?}");
+        }
+    }
+
     #[test]
     fn actual_shirts_do_not_add_a_ring_around_the_exposed_neck() {
         use super::super::{biped::Figure, test_support};
@@ -414,6 +544,7 @@ mod tests {
                     Some(Variant { woman, ..default() }),
                 );
                 look.equipment.shirt = Some(kind);
+                let look = without_independent_torso_accessories(look);
                 let body = HumanoidBody::resolve(&look);
                 let figure = Figure::resolve(body, &look);
                 let skin = torso_shape(body, None, figure.trim_neck);
@@ -579,6 +710,7 @@ mod tests {
             }),
         )
         .equipped(equipment);
+        let look = without_independent_torso_accessories(look);
         let body = HumanoidBody::resolve(&look);
         let figure = Figure::resolve(body, &look);
         let skin = torso_shape(body, None, figure.trim_neck);

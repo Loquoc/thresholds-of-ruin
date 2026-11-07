@@ -4161,3 +4161,10 @@ coverage gap. Their production corrections have separate emitted-geometry
 regressions. Passing cape clearance/slope tests did not establish visual quality:
 its six flat cylinder proxies still produced visible shelves, motivating a
 study-cloth-only retained-triangle contact path.
+
+The next native head `05490569` passed the corrected lower-crop and reserve-root
+witnesses but exposed another fixture assumption: the Human Hero retains a
+separate neck cowl on the torso. Two upper-skin rays hit that accessory. A new
+triangle-identity witness establishes the emitted cowl hit, while bare-skin
+fixtures explicitly omit independent cowl/baldric pieces. Production accessories
+and strict skin limits are unchanged; native confirmation remains required.
