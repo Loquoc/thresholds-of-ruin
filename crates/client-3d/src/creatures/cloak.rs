@@ -2583,6 +2583,44 @@ fn swept_domain_key(high: f32, radial: f32, endpoints: Option<[Vec3; 3]>) -> [u3
     key
 }
 
+type FeatureSource<'a> = (Option<&'a LayerSurface>, &'a [(Vec3, f32)], SupportSource);
+
+// Proposal geometry does not authorize a plane: every source keeps its own
+// query domain and contributes to this authoritative maximum.
+fn project_feature_support(
+    normal: Vec3,
+    sources: &[FeatureSource<'_>],
+    work: &mut FaceFitWork,
+) -> (f32, Vec3, SupportSource) {
+    #[cfg(not(test))]
+    let _ = work;
+    let mut result = (f32::NEG_INFINITY, Vec3::ZERO, SupportSource::Inner);
+    for &(surface, domain, kind) in sources {
+        let Some(surface) = surface else {
+            continue;
+        };
+        for &triangle in surface.clipped_candidates(domain) {
+            #[cfg(test)]
+            {
+                work.clips += 1;
+            }
+            if let Some((polygon, count)) = clipped_polygon(triangle, domain) {
+                for &point in &polygon[..count] {
+                    #[cfg(test)]
+                    {
+                        work.projections += 1;
+                    }
+                    let value = normal.dot(point);
+                    if value > result.0 {
+                        result = (value, point, kind);
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
 fn fit_radial_faces_impl(
     points: &mut [Vec3],
     rotation: Quat,
@@ -2853,13 +2891,105 @@ fn fit_radial_faces_impl(
                                 let mut best_anchor_deficit = f32::INFINITY;
                                 #[cfg(test)]
                                 let mut rejected_plane = None;
-                                for ((((normal, height), witness), is_arm), allowed) in normals
-                                    .into_iter()
-                                    .zip(supports)
-                                    .zip(support_points)
-                                    .zip(support_is_arm)
-                                    .zip(admissible)
-                                {
+                                // Preserve the original family and tie order. Only a failed
+                                // bounded face pays for at most one actual-feature proposal
+                                // per source, each certified again against ALL sources.
+                                let mut candidates: [(Vec3, f32, Vec3, SupportSource, bool);
+                                    FACE_NORMALS + 3] = std::array::from_fn(|i| {
+                                    if i < FACE_NORMALS {
+                                        (
+                                            normals[i],
+                                            supports[i],
+                                            support_points[i],
+                                            support_is_arm[i],
+                                            admissible[i],
+                                        )
+                                    } else {
+                                        (
+                                            Vec3::ZERO,
+                                            f32::NEG_INFINITY,
+                                            Vec3::ZERO,
+                                            SupportSource::Inner,
+                                            false,
+                                        )
+                                    }
+                                });
+                                let mut candidate_count = FACE_NORMALS;
+                                let mut candidate_index = 0;
+                                loop {
+                                    if candidate_index == FACE_NORMALS && best.is_none() {
+                                        let caps: Option<Vec<Vec3>> = face
+                                            .iter()
+                                            .map(|&i| {
+                                                let mut available =
+                                                    if i <= COLUMNS && axes[i].y > 0.0 {
+                                                        (collar_ceiling - reference[i].y).max(0.0)
+                                                            / axes[i].y
+                                                    } else {
+                                                        f32::INFINITY
+                                                    };
+                                                if let Some(&limit) =
+                                                    support.radial_limits.and_then(|v| v.get(i))
+                                                {
+                                                    let radial = axes[i].with_y(0.0).length();
+                                                    if radial > 0.0 {
+                                                        available = available.min(
+                                                            (limit
+                                                                - reference[i]
+                                                                    .with_y(0.0)
+                                                                    .length())
+                                                            .max(0.0)
+                                                                / radial,
+                                                        );
+                                                    }
+                                                }
+                                                available
+                                                    .is_finite()
+                                                    .then(|| reference[i] + axes[i] * available)
+                                            })
+                                            .collect();
+                                        if let Some(caps) = caps {
+                                            let caps = [caps[0], caps[1], caps[2]];
+                                            let sources = [
+                                                (support.inner, inner_planes, SupportSource::Inner),
+                                                (
+                                                    support.arms,
+                                                    arm_planes.as_deref().unwrap_or(&[]),
+                                                    SupportSource::Arms,
+                                                ),
+                                                (
+                                                    support.head,
+                                                    arm_planes.as_deref().unwrap_or(&[]),
+                                                    SupportSource::Head,
+                                                ),
+                                            ];
+                                            for (surface, domain, _) in sources {
+                                                let Some(surface) = surface else {
+                                                    continue;
+                                                };
+                                                let Some(normal) = attachment::cap_surface_normal(
+                                                    surface, domain, caps,
+                                                ) else {
+                                                    continue;
+                                                };
+                                                if face.iter().any(|&i| normal.dot(axes[i]) <= 1e-6)
+                                                {
+                                                    continue;
+                                                }
+                                                let (height, witness, source) =
+                                                    project_feature_support(normal, &sources, work);
+                                                candidates[candidate_count] =
+                                                    (normal, height, witness, source, true);
+                                                candidate_count += 1;
+                                            }
+                                        }
+                                    }
+                                    if candidate_index == candidate_count {
+                                        break;
+                                    }
+                                    let (normal, height, witness, is_arm, allowed) =
+                                        candidates[candidate_index];
+                                    candidate_index += 1;
                                     // Every later shared-vertex correction must preserve
                                     // this plane. Test each frozen profile axis, including
                                     // both components of the shoulder transition.
@@ -4030,6 +4160,35 @@ mod tests {
             }
         }
         triangles
+    }
+
+    #[test]
+    fn feature_proposal_reprojects_other_sources_in_their_actual_domains() {
+        let triangle = |z| {
+            [
+                Vec3::new(-0.1, 0.0, z),
+                Vec3::new(0.1, 0.0, z),
+                Vec3::new(0.0, 0.2, z),
+            ]
+        };
+        let inner = LayerSurface::from_triangles(vec![triangle(0.1)]);
+        let head = LayerSurface::from_triangles(vec![triangle(0.2), triangle(0.8)]);
+        let domain = [(Vec3::NEG_Z, -0.3)];
+        let sources = [
+            (Some(&inner), &[][..], SupportSource::Inner),
+            (Some(&head), &domain[..], SupportSource::Head),
+        ];
+        let (height, point, source) =
+            project_feature_support(Vec3::Z, &sources, &mut FaceFitWork::default());
+        assert!((height-0.2).abs()<1e-6, "other-source decoy must control instead of proposed inner plane, but outside-domain geometry must not");
+        assert_eq!(point.z, height);
+        assert!(matches!(source, SupportSource::Head));
+        let cap = Vec3::new(0.0, 0.1, 0.15);
+        assert!(cap.z - 0.1 >= LAYER_GAP + THICKNESS);
+        assert!(
+            cap.z - height < LAYER_GAP + THICKNESS,
+            "full reduction rejects a proposal which only clears its originating source"
+        );
     }
 
     #[test]

@@ -4380,3 +4380,20 @@ same queried polygons below the unchanged height ceiling. This is a bounded
 single-face feasibility result, not proof for changed swept domains, the full
 ring, all incident faces or a production movement rule. No source-separation or
 movement-axis change is included in the checkpoint above.
+
+The next tick93 failure exposed a distinct edge-interior omission in the
+authoritative candidate family. A support vertex projects onto the bounded cap
+triangle's edge, giving an independently verified 46.957207 mm separating margin;
+none of the three cap-vertex closest-point normals sufficed. The authoritative
+fallback now proposes at most one closest triangle-feature direction per source,
+only after the original family fails and all three existing travel bounds are
+finite. Every proposal is reduced over all source-specific domains and passes
+the unchanged scalar-axis, radius, height and full-face checks. New feature-pair,
+intersection and other-source-decoy regressions passed. After factoring a complex
+tuple type flagged by Clippy, strict release Clippy passed and the cloak checkpoint
+reached 80 passed, three unresolved failures. The actual tick93 scenario advances
+to another inner face; its complete five-polygon audit has convex separation
+30.044862 mm under current radial caps, below the unchanged 32 mm requirement.
+This new failure is not repairable by merely sampling another plane normal under
+that contract. Cope attachment and neutral width remain rejected as before. No
+fresh rendered acceptance or full-suite qualification is implied.

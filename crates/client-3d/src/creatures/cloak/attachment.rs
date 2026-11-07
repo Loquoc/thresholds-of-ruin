@@ -150,6 +150,134 @@ fn closest_triangle(point: Vec3, [a, b, c]: [Vec3; 3]) -> Vec3 {
     a + ab * (vb * denominator) + ac * (vc * denominator)
 }
 
+fn closest_edge_pair(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> (Vec3, Vec3) {
+    // Double-precision parameters avoid subtracting nearly equal squared
+    // lengths for shallow edge pairs. Returned witnesses remain render-space.
+    let u = (b - a).as_dvec3();
+    let v = (d - c).as_dvec3();
+    let w = (a - c).as_dvec3();
+    let aa = u.length_squared();
+    let ee = v.length_squared();
+    if aa <= 1e-20 {
+        return (a, closest_segment(a, c, d));
+    }
+    if ee <= 1e-20 {
+        return (closest_segment(c, a, b), c);
+    }
+    let cross = u.dot(v);
+    let along_u = u.dot(w);
+    let along_v = v.dot(w);
+    let denominator = u.cross(v).length_squared();
+    let mut s = if denominator > 0.0 {
+        ((cross * along_v - along_u * ee) / denominator).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let mut t = (cross * s + along_v) / ee;
+    if t < 0.0 {
+        t = 0.0;
+        s = (-along_u / aa).clamp(0.0, 1.0);
+    } else if t > 1.0 {
+        t = 1.0;
+        s = ((cross - along_u) / aa).clamp(0.0, 1.0);
+    }
+    (
+        (a.as_dvec3() + u * s).as_vec3(),
+        (c.as_dvec3() + v * t).as_vec3(),
+    )
+}
+
+fn edge_pierces_triangle(a: Vec3, b: Vec3, triangle: [Vec3; 3]) -> bool {
+    let normal = (triangle[1] - triangle[0]).cross(triangle[2] - triangle[0]);
+    let start = normal.dot(a - triangle[0]);
+    let denominator = normal.dot(a - b);
+    if denominator == 0.0 {
+        return false;
+    }
+    let t = start / denominator;
+    if !(0.0..=1.0).contains(&t) {
+        return false;
+    }
+    let point = a.lerp(b, t);
+    closest_triangle(point, triangle).distance_squared(point) <= 1e-14
+}
+
+fn closest_triangle_pair(caps: [Vec3; 3], support: [Vec3; 3]) -> Option<(Vec3, Vec3)> {
+    let mut closest = (caps[0], support[0]);
+    let mut distance = closest.0.distance_squared(closest.1);
+    let mut consider = |pair: (Vec3, Vec3)| {
+        let next = pair.0.distance_squared(pair.1);
+        if next < distance {
+            closest = pair;
+            distance = next;
+        }
+    };
+    for point in caps {
+        consider((point, closest_triangle(point, support)));
+    }
+    for point in support {
+        consider((closest_triangle(point, caps), point));
+    }
+    for i in 0..3 {
+        let (a, b) = (caps[i], caps[(i + 1) % 3]);
+        // Intersecting faces can have no coincident vertices or edge pairs:
+        // an edge piercing the opposite interior is a separate zero case.
+        if edge_pierces_triangle(a, b, support)
+            || edge_pierces_triangle(support[i], support[(i + 1) % 3], caps)
+        {
+            return None;
+        }
+        for j in 0..3 {
+            consider(closest_edge_pair(a, b, support[j], support[(j + 1) % 3]));
+        }
+    }
+    (distance.is_finite() && distance > 1e-14).then_some(closest)
+}
+
+/// Propose one support-to-cap normal from the globally nearest triangle
+/// features in this exact clipped domain. The caller must still project every
+/// support source and enforce all movement-axis and travel-limit constraints.
+pub(super) fn cap_surface_normal(
+    surface: &LayerSurface,
+    planes: &[(Vec3, f32)],
+    caps: [Vec3; 3],
+) -> Option<Vec3> {
+    if caps.iter().any(|p| !p.is_finite())
+        || (caps[1] - caps[0])
+            .cross(caps[2] - caps[0])
+            .length_squared()
+            <= 1e-18
+    {
+        return None;
+    }
+    let mut closest = None;
+    let mut distance = f32::INFINITY;
+    for &triangle in surface.clipped_candidates(planes) {
+        let Some((polygon, count)) = clipped_polygon(triangle, planes) else {
+            continue;
+        };
+        if polygon[..count].iter().any(|p| !p.is_finite()) {
+            return None;
+        }
+        for fan in 1..count.saturating_sub(1).max(2) {
+            let support = [
+                polygon[0],
+                polygon[fan.min(count - 1)],
+                polygon[(fan + 1).min(count - 1)],
+            ];
+            // Any touching/intersecting patch rules out a separating proposal,
+            // including degenerate point/segment patches created by clipping.
+            let pair = closest_triangle_pair(caps, support)?;
+            let next = pair.0.distance_squared(pair.1);
+            if next < distance {
+                closest = Some(pair);
+                distance = next;
+            }
+        }
+    }
+    closest.and_then(|(cap, support)| (cap - support).try_normalize())
+}
+
 /// Only a failed original family pays for three closest-point queries and one
 /// complete support projection. Clip one triangle at a time; no mesh is copied.
 fn cap_candidates(
@@ -795,6 +923,146 @@ mod tests {
             closest_triangle(Vec3::new(0.4, 1.0, 0.0), [Vec3::ZERO, Vec3::X, Vec3::X])
                 .distance(Vec3::X * 0.4)
                 < 1e-6
+        );
+    }
+
+    #[test]
+    fn captured_tick_93_support_vertex_projects_to_cap_edge_interior() {
+        // Actual float32 cap endpoints and the single clipped inner polygon
+        // for leather-cloak tick 93, authoritative face [2, 51, 50].
+        let caps = [
+            Vec3::new(-0.12459273, 0.597, 0.08987747),
+            Vec3::new(-0.24976021, 0.6106703, 0.06458989),
+            Vec3::new(-0.24286704, 0.6029612, 0.086992055),
+        ];
+        let triangle = [
+            Vec3::new(-0.1662941, 0.585, 0.036956266),
+            Vec3::new(-0.1678184, 0.585, 0.031004336),
+            Vec3::new(-0.16875507, 0.5858029, 0.031246567),
+        ];
+        let axes = [
+            Vec3::new(-0.8110071, 0.0, 0.5850363),
+            Vec3::new(-0.96814996, 0.0, 0.25037095),
+            Vec3::new(-0.9414299, 0.0, 0.3372089),
+        ];
+        let surface = LayerSurface::from_triangles(vec![triangle]);
+        for (normal, support) in cap_candidates(&surface, &[], caps) {
+            let normal = normal.unwrap();
+            let margin = caps
+                .iter()
+                .map(|p| normal.dot(*p))
+                .fold(f32::INFINITY, f32::min)
+                - support;
+            assert!(
+                margin < LAYER_GAP + THICKNESS || axes.iter().any(|axis| normal.dot(*axis) <= 1e-6)
+            );
+        }
+        let (cap, support) = closest_triangle_pair(caps, triangle).unwrap();
+        let edge = caps[1] - caps[0];
+        let t = (cap - caps[0]).dot(edge) / edge.length_squared();
+        assert!((t - 0.3876656).abs() < 2e-6);
+        assert!(cap.distance(caps[0] + edge * t) < 1e-6);
+        assert!(support.distance(triangle[0]) < 1e-6);
+        let normal = cap_surface_normal(&surface, &[], caps).unwrap();
+        assert!(normal.dot(Vec3::new(-0.14527598, 0.36841074, 0.91824204)) > 0.99999);
+        let margin = caps
+            .iter()
+            .map(|p| normal.dot(*p))
+            .fold(f32::INFINITY, f32::min)
+            - triangle
+                .iter()
+                .map(|p| normal.dot(*p))
+                .fold(f32::NEG_INFINITY, f32::max);
+        assert!((margin - 0.0469572).abs() < 2e-6);
+        assert!(axes.iter().all(|axis| normal.dot(*axis) > 0.3));
+    }
+
+    #[test]
+    fn cap_surface_pair_finds_both_edge_interiors_and_global_nearest_patch() {
+        let caps = [
+            Vec3::new(-1.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(0.0, -1.0, 2.0),
+        ];
+        let triangle = [
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(1.0, 0.0, -1.0),
+        ];
+        let pair = closest_triangle_pair(caps, triangle).unwrap();
+        assert!(pair.0.distance(Vec3::Z) < 1e-6);
+        assert!(pair.1.length() < 1e-6);
+        let remote = triangle.map(|point| point - Vec3::Z * 4.0);
+        for triangles in [vec![remote, triangle], vec![triangle, remote]] {
+            let surface = LayerSurface::from_triangles(triangles);
+            assert!(
+                cap_surface_normal(&surface, &[], caps)
+                    .unwrap()
+                    .distance(Vec3::Z)
+                    < 1e-6
+            );
+            assert!(cap_surface_normal(&surface, &[(Vec3::X, 5.0)], caps).is_none());
+        }
+        let reversed = LayerSurface::from_triangles(vec![caps]);
+        assert!(
+            cap_surface_normal(&reversed, &[], triangle)
+                .unwrap()
+                .distance(Vec3::NEG_Z)
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn cap_surface_proposal_rejects_collapsed_caps_and_true_intersections() {
+        let caps = [
+            Vec3::new(-1.0, -1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+            Vec3::Y,
+        ];
+        let below = LayerSurface::from_triangles(vec![caps.map(|p| p - Vec3::Z)]);
+        for collapsed in [[Vec3::ZERO; 3], [Vec3::ZERO, Vec3::X, Vec3::X * 2.0]] {
+            assert!(cap_surface_normal(&below, &[], collapsed).is_none());
+        }
+        let mut invalid = caps;
+        invalid[0].x = f32::NAN;
+        assert!(cap_surface_normal(&below, &[], invalid).is_none());
+        assert!(cap_surface_normal(&LayerSurface::from_triangles(Vec::new()), &[], caps).is_none());
+        assert!(cap_surface_normal(&LayerSurface::from_triangles(vec![caps]), &[], caps).is_none());
+        let piercing = [
+            Vec3::new(0.0, -0.5, -1.0),
+            Vec3::new(0.0, -0.5, 1.0),
+            Vec3::new(0.0, 0.5, 1.0),
+        ];
+        assert!(
+            closest_triangle_pair(caps, piercing).is_none(),
+            "edge/face piercing is zero distance even without vertex or edge-pair contact"
+        );
+        assert!(
+            cap_surface_normal(&LayerSurface::from_triangles(vec![piercing]), &[], caps).is_none()
+        );
+        assert!(cap_surface_normal(
+            &LayerSurface::from_triangles(vec![[Vec3::ZERO; 3]]),
+            &[],
+            caps
+        )
+        .is_none());
+        let point = LayerSurface::from_triangles(vec![[Vec3::NEG_Z; 3]]);
+        assert!(
+            cap_surface_normal(&point, &[], caps)
+                .unwrap()
+                .distance(Vec3::Z)
+                < 1e-6
+        );
+        let nearly_parallel =
+            LayerSurface::from_triangles(
+                vec![caps.map(|p| Vec3::new(p.x, p.y, 1e-7 * p.x - 1e-4))],
+            );
+        assert!(
+            cap_surface_normal(&nearly_parallel, &[], caps)
+                .unwrap()
+                .dot(Vec3::Z)
+                > 0.99999,
+            "a disjoint near-parallel pair must not be treated as intersecting"
         );
     }
 
