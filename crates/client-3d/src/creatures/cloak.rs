@@ -273,6 +273,8 @@ pub(super) struct CloakRig {
     last_inner_rotation: Option<Quat>,
     scene: Option<super::visual_contact::Scene>,
     arm_surface: Option<LayerSurface>,
+    opening: Option<f32>,
+    neutral_forward: [f32; 2],
 }
 
 impl CloakRig {
@@ -473,7 +475,11 @@ pub(super) fn spawn(
         rest,
         normals,
         last_rotation: None,
+        neutral_forward: arm_surface
+            .as_ref()
+            .map_or([0.0; 2], LayerSurface::forward_reach),
         arm_surface,
+        opening: recipe.cut.map(|cut| cut.opening),
         scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
         inner_layer: recipe.inner_layer,
@@ -493,6 +499,15 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
     // at the shoulder and introduce it gradually down the private rest grid.
     // Two fixed rows form a supported yoke, rather than a hinge-shaped gap.
     let inverse = rotation.inverse();
+    let release = cloak.arm_surface.as_ref().map_or([0.0; 2], |surface| {
+        let reach = surface.forward_reach();
+        std::array::from_fn(|side| {
+            ((reach[side] - cloak.neutral_forward[side])
+                / cloak.neutral_forward[side].abs().max(0.05))
+            .clamp(0.0, 1.0)
+        })
+    });
+    let opening = cloak.opening;
     let CloakRig {
         points,
         bindings,
@@ -512,6 +527,9 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
                 .evaluate(|&give| inverse * Quat::IDENTITY.slerp(rotation, give) * rest[i]);
             if let Some(scene) = scene.as_ref() {
                 let at = rotation * *point + Vec3::new(0.0, 0.53, -0.15);
+                let at = opening.map_or(at, |opening| {
+                    release_front(at, row, column, opening, release)
+                });
                 let fitted = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
                 *point = inverse * (fitted - Vec3::new(0.0, 0.53, -0.15));
             }
@@ -666,6 +684,41 @@ impl LayerSurface {
         support
     }
 
+    fn forward_reach(&self) -> [f32; 2] {
+        let mut reach = [0.0f32; 2];
+        for p in self.triangles.iter().flatten().filter(|p| p.y >= 0.15) {
+            let side = usize::from(p.x >= 0.0);
+            reach[side] = reach[side].max(p.z);
+        }
+        reach
+    }
+
+    /// Vertical cloth contact is local to the cell's finite footprint. A fist
+    /// in the same angular sector must not lift a neck attachment behind it.
+    fn top_over(&self, points: [Vec3; 4]) -> Option<f32> {
+        let lo = points
+            .into_iter()
+            .fold(Vec3::splat(f32::INFINITY), Vec3::min)
+            - Vec3::splat(THICKNESS);
+        let hi = points
+            .into_iter()
+            .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max)
+            + Vec3::splat(THICKNESS);
+        let planes = [
+            (Vec3::X, lo.x),
+            (Vec3::NEG_X, -hi.x),
+            (Vec3::Z, lo.z),
+            (Vec3::NEG_Z, -hi.z),
+        ];
+        let mut top: Option<f32> = None;
+        for &triangle in &self.triangles {
+            if let Some(value) = clipped_support(triangle, Vec3::Y, &planes) {
+                top = Some(top.map_or(value, |old| old.max(value)));
+            }
+        }
+        top
+    }
+
     /// IDs occur in several height bins, but are yielded only at their first
     /// overlap with this query. Full-height yoke queries no longer clip a face
     /// up to 64 times; geometry storage is also no longer duplicated per bin.
@@ -777,25 +830,38 @@ fn clip_layer_polygon(points: &[Vec3], normal: Vec3, offset: f32) -> Vec<Vec3> {
     result
 }
 
+/// The front edges are free boundaries, not sleeves. A forward lifted arm
+/// sweeps its side of the open cloth behind itself; the neck stays attached.
+/// Neutral coverage is unchanged, and the original radius/height are retained.
+fn release_front(at: Vec3, row: usize, column: usize, opening: f32, release: [f32; 2]) -> Vec3 {
+    let u = column as f32 / COLUMNS as f32;
+    let weight = (row as f32 / 3.0).min(1.0);
+    let target = PI * 0.68;
+    let left = (target - opening * 0.5).max(0.0) * release[0];
+    let right = (target - opening * 0.5).max(0.0) * release[1];
+    let turn = (-left * (1.0 - u) + right * u) * weight;
+    Quat::from_rotation_y(turn) * at
+}
+
 /// Constrain whole connected cells, not their separate vertices. Directions
 /// and angular footprints remain fixed throughout the sweep; every later
 /// nonnegative correction preserves earlier neighboring support planes.
 fn fit_layer_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
-    fit_cells(points, rotation, support, false);
+    fit_cells(points, rotation, support);
 }
 
 fn fit_arm_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
-    fit_cells(points, rotation, support, true);
+    fit_cells(points, rotation, support);
 }
 
-fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface, arms: bool) {
+fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let mut posed: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
     let directions: Vec<_> = posed
         .iter()
         .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
         .collect();
-    for row in 0..ROWS {
+    for row in 3..ROWS {
         for column in 0..COLUMNS {
             let cell = [
                 index(row, column),
@@ -824,26 +890,17 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface, arms: 
                 .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &i| {
                     (lo.min(posed[i].y), hi.max(posed[i].y))
                 });
-            // Shoulder cells are above the entire contact hull in their
-            // angular footprint. This remains valid after radial mantle fitting.
-            // No unrelated arm in another angular sector raises this yoke.
-            if arms && row < 3 {
-                if let Some(top) = support.support_plane(
-                    Vec3::Y,
-                    support.bottom,
-                    support.bottom + support.height,
-                    lower,
-                    upper,
-                ) {
-                    for i in cell {
-                        posed[i].y = posed[i].y.max(top + LAYER_GAP + THICKNESS);
-                    }
-                }
-                continue;
-            }
-            let Some(plane) =
-                support.support_plane(normal, low - THICKNESS, high + THICKNESS, lower, upper)
-            else {
+            let Some(plane) = support.support_plane(
+                normal,
+                low - THICKNESS,
+                if row == 3 {
+                    support.bottom + support.height + THICKNESS
+                } else {
+                    high + THICKNESS
+                },
+                lower,
+                upper,
+            ) else {
                 continue;
             };
             for i in cell {
@@ -856,6 +913,24 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface, arms: 
                     let deficit =
                         (plane + LAYER_GAP + THICKNESS * 0.5 - normal.dot(posed[i])).max(0.0);
                     posed[i] += directions[i] * (deficit / denominator);
+                }
+            }
+        }
+    }
+    // The shoulder is a roof, not a vertical skirt. Solve it last, after
+    // hanging cells have settled their shared shoulder boundary. Row 3's
+    // radial constraint reserves the entire possible upward travel above.
+    for row in (0..3).rev() {
+        for column in 0..COLUMNS {
+            let cell = [
+                index(row, column),
+                index(row, column + 1),
+                index(row + 1, column),
+                index(row + 1, column + 1),
+            ];
+            if let Some(top) = support.top_over(cell.map(|i| posed[i])) {
+                for i in cell {
+                    posed[i].y = posed[i].y.max(top + LAYER_GAP + THICKNESS);
                 }
             }
         }
@@ -904,10 +979,22 @@ pub(super) fn place_layers(
         // projecting an already projected mantle accumulates outward drift.
         cloak.invalidate();
         place(cloak, rot, meshes);
-        let support = LayerSurface::new(
+        let mut support = LayerSurface::new(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
         );
+        // Seat the outer cloth against both retained cloth and the arm hull
+        // in one solve. A changed yoke footprint must not discard the earlier
+        // arm constraint when the mantle is lifted over its inner cape.
+        if let Some(arms) = &cloak.arm_surface {
+            support = LayerSurface::from_triangles(
+                support
+                    .triangles
+                    .into_iter()
+                    .chain(arms.triangles.iter().copied())
+                    .collect(),
+            );
+        }
         fit_layer_cells(&mut cloak.points, rot, &support);
         surface_normals(&cloak.points, &mut cloak.normals);
         if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
@@ -946,6 +1033,49 @@ mod tests {
         let mut recipe = Recipe::new(body, r.cloth, r.lining, false);
         recipe.set_cut(cut);
         recipe
+    }
+
+    #[test]
+    fn yoke_support_is_local_and_arm_release_preserves_neck_attachment() {
+        let distant_fist = [
+            Vec3::new(-0.4, 0.8, 0.4),
+            Vec3::new(-0.5, 0.8, 0.5),
+            Vec3::new(-0.4, 0.9, 0.5),
+        ];
+        let surface = LayerSurface::from_triangles(vec![distant_fist]);
+        let neck = [
+            Vec3::new(-0.05, 0.56, 0.05),
+            Vec3::new(-0.08, 0.56, 0.05),
+            Vec3::new(-0.08, 0.55, 0.08),
+            Vec3::new(-0.05, 0.55, 0.08),
+        ];
+        assert!(
+            surface.top_over(neck).is_none(),
+            "a remote hand in the neck's angular sector cannot lift the attachment"
+        );
+        assert!(surface
+            .top_over([
+                distant_fist[0],
+                distant_fist[1],
+                distant_fist[2],
+                distant_fist[0]
+            ])
+            .is_some());
+        let opening = 1.3;
+        let left = Vec3::new(
+            -(opening * 0.5f32).sin() * 0.4,
+            0.4,
+            (opening * 0.5f32).cos() * 0.4,
+        );
+        assert_eq!(release_front(left, 0, 0, opening, [1.0, 0.0]), left);
+        assert_eq!(release_front(left, 7, 0, opening, [0.0, 0.0]), left);
+        let released = release_front(left, 7, 0, opening, [1.0, 0.0]);
+        assert!(
+            released.z < -0.20,
+            "free edge must sweep behind the fist, not form a sleeve around it"
+        );
+        assert!((released.with_y(0.0).length() - left.with_y(0.0).length()).abs() < 1e-6);
+        assert_eq!(released.y, left.y);
     }
 
     #[test]
@@ -1128,6 +1258,7 @@ mod tests {
             6,
             "complete upper/fore/hand meshes"
         );
+        let mut released_witnesses = 0;
         for angle in [0.0, -1.15, 0.85] {
             let contacts = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
                 let rotation = match joint {
@@ -1152,6 +1283,37 @@ mod tests {
             place_layers(&mut rig.cloaks, |_| Some(rotation), &mut meshes);
             let mut tested = 0;
             for cloak in &rig.cloaks {
+                let offset = Vec3::new(0.0, 0.53, -0.15);
+                for column in 0..=COLUMNS {
+                    let neck = rotation * cloak.points[index(0, column)] + offset;
+                    let rest = cloak.rest[index(0, column)] + offset;
+                    assert!(
+                        neck.with_y(0.0).length() <= rest.with_y(0.0).length() + 0.015,
+                        "neck attachment may not expand into a shoulder loop"
+                    );
+                }
+                if let Some(surface) = &cloak.arm_surface {
+                    let reach = surface.forward_reach();
+                    for side in 0..2 {
+                        if reach[side] - cloak.neutral_forward[side]
+                            < cloak.neutral_forward[side].abs().max(0.05)
+                        {
+                            continue;
+                        }
+                        let columns = if side == 0 {
+                            0..=COLUMNS / 4
+                        } else {
+                            COLUMNS * 3 / 4..=COLUMNS
+                        };
+                        for row in 4..=ROWS {
+                            for col in columns.clone() {
+                                let at = rotation * cloak.points[index(row, col)] + offset;
+                                assert!(at.z < 0.05, "lifted hand must emerge through the released front opening, not an enveloping pouch: {at:?}");
+                            }
+                        }
+                        released_witnesses += 1;
+                    }
+                }
                 let mesh = meshes.get(&cloak.mesh).unwrap();
                 let vertices = positions(mesh);
                 let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
@@ -1180,6 +1342,10 @@ mod tests {
                 "both linings, cell interiors, edges and boundary faces"
             );
         }
+        assert!(
+            released_witnesses > 0,
+            "posed fixture must exercise a forward-released arm opening"
+        );
     }
 
     #[test]

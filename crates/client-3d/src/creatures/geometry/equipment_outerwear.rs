@@ -4,6 +4,16 @@ use crate::creatures::outfit::outerwear::{
     OuterwearAppearance, OuterwearCut, OuterwearFastening, OuterwearNeck,
 };
 
+// Torso-local apron attachment. The lower panel is emitted in the hip frame,
+// so its root must include both the torso joint offset and rendered scale.
+const APRON_WAIST_LOW: f32 = 0.045;
+const APRON_WAIST_HIGH: f32 = 0.069;
+const APRON_ROOT_OVERLAP: f32 = 0.040;
+
+fn apron_panel_top(body: HumanoidBody) -> f32 {
+    body.torso.y + APRON_WAIST_HIGH * storybook_part(Plan::Biped, J::Torso).y + APRON_ROOT_OVERLAP
+}
+
 /// Torso-local decoration. `support` must include every retained shirt and
 /// armour layer; fitting against naked anatomy would bury these outer pieces.
 pub(super) fn emit_torso(
@@ -95,7 +105,14 @@ pub(super) fn emit_torso(
                     );
                 }
             }
-            fitting::fitted_band(&mut p.matte, support, 0.045, 0.069, 0.024, r.cloth * 0.9);
+            fitting::fitted_band(
+                &mut p.matte,
+                support,
+                APRON_WAIST_LOW,
+                APRON_WAIST_HIGH,
+                0.024,
+                r.cloth * 0.9,
+            );
         }
         _ => {}
     }
@@ -507,13 +524,18 @@ pub(super) fn emit_lower(
         _ => return,
     };
     let wraps = matches!(r.cut, OuterwearCut::Wraps { .. });
+    // Preserve the authored hem and pocket proportions. Only the upper edge
+    // extends to overlap the actual torso-bound waistband/bib; translating the
+    // entire panel would shorten it and move its established floor clearance.
+    let top = if wraps { 0.045 } else { apron_panel_top(body) };
+    let height = top - (0.045 - length);
     let centers: &[f32] = if wraps { &[-0.10, 0.075] } else { &[0.0] };
     // A conservative height neighborhood covers the retained mesh's row
     // spacing and the apron panel between its own row vertices. Keep the
     // envelope across the whole panel width so a turn does not expose a fold.
     let depths: Vec<f32> = (0..=20)
         .map(|row| {
-            let y = 0.045 - length * row as f32 / 20.0;
+            let y = top - height * row as f32 / 20.0;
             support
                 .iter()
                 .filter(|p| (p.y - y).abs() <= 0.065)
@@ -521,15 +543,14 @@ pub(super) fn emit_lower(
                 .fold(clearance.y, f32::max)
         })
         .collect();
-    let depths = apron_depth_envelope(&depths, length / 20.0);
+    let depths = apron_depth_envelope(&depths, height / 20.0);
     for &center in centers {
         let point = |u: f32, t: f32| {
             let row = (t * 20.0).floor() as usize;
             let front = depths[row.min(20)].max(depths[(row + 1).min(20)]);
             Vec3::new(
                 center * body.build + u * width * 0.5 * (1.0 + 0.20 * t),
-                0.045
-                    - length * t
+                top - height * t
                     - if wraps {
                         0.025 * u.abs() * t.powi(5)
                     } else {
@@ -579,6 +600,80 @@ pub(super) fn emit_lower(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn apron_panel_overlaps_actual_torso_waistband_on_body_and_robe_variants() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                for model in [CreatureModel::Human, CreatureModel::Mage] {
+                    let look = Look::with_choice(
+                        model,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let body = HumanoidBody::resolve(&look);
+                    let support = torso_garment(body, TorsoMaterial::Cloth, false);
+                    let retained = if model == CreatureModel::Mage {
+                        crate::creatures::robe::neutral_outer_envelope(look.v.shade, body)
+                    } else {
+                        Vec::new()
+                    };
+                    let clearance = Vec2::new(0.25, 0.30);
+                    let mut upper = Parts::default();
+                    upper.set_transform(Affine3A::from_scale_rotation_translation(
+                        storybook_part(Plan::Biped, J::Torso),
+                        Quat::IDENTITY,
+                        body.torso,
+                    ));
+                    emit_torso(&mut upper, OuterwearAppearance::Apron, body, &support);
+                    let mut lower = Parts::default();
+                    emit_lower(
+                        &mut lower,
+                        OuterwearAppearance::Apron,
+                        body,
+                        clearance,
+                        &retained,
+                    );
+                    let (low, high) = lower.matte.bounds();
+                    // Independent world-space witness of the actual band. The
+                    // old hip-local .045 root missed this entire overlap.
+                    let band_y = body.torso.y + 0.057;
+                    for x in [-0.04, 0.0, 0.04] {
+                        let ray = Vec3::new(x, band_y, 0.0);
+                        assert!(
+                            upper.matte.outer_surface(ray, Vec3::Z).is_some(),
+                            "fixture must hit the emitted waistband"
+                        );
+                        assert!(lower.matte.outer_surface(ray, Vec3::Z).is_some(),
+                            "hanging panel overlaps waistband: {model:?}, woman {woman}, build {build}");
+                        for y in [0.055, 0.075, 0.095] {
+                            assert!(
+                                lower
+                                    .matte
+                                    .outer_surface(Vec3::new(x, y, 0.0), Vec3::Z)
+                                    .is_some(),
+                                "no exposed underdress between bib and panel"
+                            );
+                        }
+                    }
+                    assert!(
+                        high.y >= body.torso.y + 0.10,
+                        "reserve overlap for independently moving torso and skirt drape"
+                    );
+                    let length = lower_length(OuterwearAppearance::Apron).unwrap();
+                    assert!(
+                        (low.y - (0.045 - length)).abs() < 0.0001,
+                        "raising root does not move established hem/floor clearance"
+                    );
+                    assert!(low.z > clearance.y, "retained-layer clearance is preserved");
+                }
+            }
+        }
+    }
+
     #[test]
     fn apron_tunic_end_depths_keep_clearance_without_a_horizontal_shelf() {
         let support = [0.34, 0.34, 0.34, 0.20, 0.20, 0.20];
