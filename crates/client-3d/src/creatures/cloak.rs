@@ -379,9 +379,13 @@ pub(super) struct CloakRig {
     contact_surface: Option<Arc<ContactSurface>>,
     opening: Option<f32>,
     neutral_reach: [f32; 2],
+    contact_fallbacks: u64,
 }
 
 impl CloakRig {
+    pub(super) fn contact_fallbacks(&self) -> u64 {
+        self.contact_fallbacks
+    }
     pub(super) fn contact_workload(&self) -> Option<[usize; 3]> {
         self.contact_surface.as_ref()?;
         let surface = self.arm_surface.as_ref()?;
@@ -530,8 +534,11 @@ pub(super) fn spawn(
     // particular, refitting a raised roof changes its inclination and can
     // amplify the same shoulder clearance on every subsequent solve.
     let mut points = rest.clone();
-    if let Some(surface) = &arm_surface {
-        fit_arm_cells(&mut points, Quat::IDENTITY, surface);
+    let mut contact_fallbacks = 0;
+    // A dependent mantle is first fitted by place_layers against its seated
+    // inner cloth, not an incomplete startup-only arm solve.
+    if let (None, Some(surface)) = (recipe.inner_layer, &arm_surface) {
+        contact_fallbacks += u64::from(fit_arm_cells(&mut points, Quat::IDENTITY, surface));
     }
     let mut normals = vec![Vec3::ZERO; GRID];
     surface_normals(&points, &mut normals);
@@ -625,6 +632,7 @@ pub(super) fn spawn(
             .map_or([0.0; 2], |surface| surface.arm_reach()),
         arm_surface,
         contact_surface: recipe.contact_surface,
+        contact_fallbacks,
         opening: recipe.cut.map(|cut| cut.opening),
         scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
@@ -731,7 +739,8 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
     // normals from a contact-deformed surface rather than the posed recipe.
     if fit_arms {
         if let Some(surface) = &cloak.arm_surface {
-            fit_arm_cells(&mut cloak.points, rotation, surface);
+            cloak.contact_fallbacks +=
+                u64::from(fit_arm_cells(&mut cloak.points, rotation, surface));
         }
     }
     surface_normals(&cloak.points, &mut cloak.normals);
@@ -801,6 +810,7 @@ struct ContactCandidates<'a> {
     stack: [usize; usize::BITS as usize],
     count: usize,
     leaf: std::ops::Range<usize>,
+    support_floor: Option<(Vec3, f32)>,
 }
 impl<'a> Iterator for ContactCandidates<'a> {
     type Item = &'a [Vec3; 3];
@@ -814,26 +824,31 @@ impl<'a> Iterator for ContactCandidates<'a> {
             }
             self.count -= 1;
             let node = self.surface.tree[self.stack[self.count]];
-            if self.planes.iter().any(|&(normal, offset)| {
-                let extreme = Vec3::new(
-                    if normal.x >= 0.0 {
-                        node.high.x
-                    } else {
-                        node.low.x
-                    },
-                    if normal.y >= 0.0 {
-                        node.high.y
-                    } else {
-                        node.low.y
-                    },
-                    if normal.z >= 0.0 {
-                        node.high.z
-                    } else {
-                        node.low.z
-                    },
-                );
-                normal.dot(extreme) < offset - 1e-6
-            }) {
+            if self
+                .planes
+                .iter()
+                .chain(self.support_floor.iter())
+                .any(|&(normal, offset)| {
+                    let extreme = Vec3::new(
+                        if normal.x >= 0.0 {
+                            node.high.x
+                        } else {
+                            node.low.x
+                        },
+                        if normal.y >= 0.0 {
+                            node.high.y
+                        } else {
+                            node.low.y
+                        },
+                        if normal.z >= 0.0 {
+                            node.high.z
+                        } else {
+                            node.low.z
+                        },
+                    );
+                    normal.dot(extreme) < offset - 1e-6
+                })
+            {
                 continue;
             }
             if let Some(children) = node.children {
@@ -936,6 +951,7 @@ impl LayerSurface {
             stack: [0; usize::BITS as usize],
             count: usize::from(!self.tree.is_empty()),
             leaf: 0..0,
+            support_floor: None,
         }
     }
 
@@ -997,7 +1013,12 @@ impl LayerSurface {
             (upper, -THICKNESS),
         ];
         let mut support: Option<f32> = None;
-        for triangle in self.candidates(low, high) {
+        // Height bins alone admit every arm in this band. Query the exact
+        // angular/height footprint in the existing BVH instead; a subtree's
+        // AABB also bounds its possible improvement of the current support.
+        // Both rejections are conservative, with no simplification error.
+        let mut candidates = self.clipped_candidates(&planes);
+        while let Some(triangle) = candidates.next() {
             // A triangle's unclipped support bounds all its clipped vertices.
             let bound = triangle
                 .iter()
@@ -1008,6 +1029,7 @@ impl LayerSurface {
             }
             if let Some(value) = clipped_support(*triangle, normal, &planes) {
                 support = Some(support.map_or(value, |old| old.max(value)));
+                candidates.support_floor = support.map(|value| (normal, value));
             }
         }
         support
@@ -1124,6 +1146,7 @@ impl LayerSurface {
     /// IDs occur in several height bins, but are yielded only at their first
     /// overlap with this query. Full-height yoke queries no longer clip a face
     /// up to 64 times; geometry storage is also no longer duplicated per bin.
+    #[cfg(test)]
     fn candidates(&self, low: f32, high: f32) -> impl Iterator<Item = &[Vec3; 3]> {
         let first = self.bin(low);
         (first..=self.bin(high)).flat_map(move |bin| {
@@ -1166,7 +1189,7 @@ impl LayerSurface {
     }
 }
 
-/// A triangle clipped by at most four half-planes has at most seven vertices.
+/// A triangle clipped by at most five half-planes has at most eight vertices.
 /// Fixed scratch buffers avoid heap allocation in the per-cell contact path.
 fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) -> Option<f32> {
     let (polygon, count) = clipped_polygon(triangle, planes)?;
@@ -1180,8 +1203,8 @@ fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) ->
 
 fn clipped_polygon(triangle: [Vec3; 3], planes: &[(Vec3, f32)]) -> Option<([Vec3; 8], usize)> {
     assert!(
-        planes.len() <= 4,
-        "fixed clipping buffers support at most four planes"
+        planes.len() <= 5,
+        "fixed clipping buffers support at most five planes"
     );
     if planes
         .iter()
@@ -1204,7 +1227,7 @@ fn clipped_polygon(triangle: [Vec3; 3], planes: &[(Vec3, f32)]) -> Option<([Vec3
                 next[length] = a;
                 length += 1;
             }
-            if (da >= 0.0) != (db >= 0.0) {
+            if (da > 0.0 && db < 0.0) || (da < 0.0 && db > 0.0) {
                 next[length] = a.lerp(b, da / (da - db));
                 length += 1;
             }
@@ -1272,15 +1295,244 @@ fn release_front(at: Vec3, row: usize, column: usize, opening: f32, release: Fre
 /// Constrain whole connected cells, not their separate vertices. Directions
 /// and angular footprints remain fixed throughout the sweep; every later
 /// nonnegative correction preserves earlier neighboring support planes.
+#[cfg(test)]
 fn fit_layer_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
     fit_cells(points, rotation, support);
 }
 
-fn fit_arm_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
-    fit_cells(points, rotation, support);
+fn fit_arm_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) -> bool {
+    fit_cells(points, rotation, support)
 }
 
-fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
+#[derive(Debug)]
+struct RadialFitFailure {
+    row: usize,
+    column: usize,
+    reason: &'static str,
+    detail: [f32; 3],
+}
+
+fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) -> bool {
+    if let Err(failure) = fit_radial_faces(points, rotation, support) {
+        fallback_radial_fit(points, rotation, support, failure);
+        true
+    } else {
+        false
+    }
+}
+
+fn fallback_radial_fit(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: &LayerSurface,
+    failure: RadialFitFailure,
+) {
+    // Never omit an unseparated face. Keep the previous conservative
+    // solver as the runtime fallback, and make qualification fail loudly.
+    #[cfg(test)]
+    {
+        let _ = (points, rotation, support);
+        panic!(
+            "radial cloth fit infeasible at row {}, column {}: {} {:?}",
+            failure.row, failure.column, failure.reason, failure.detail
+        );
+    }
+    #[cfg(not(test))]
+    {
+        static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!(
+                "radial cloth fit fallback at row {}, column {}: {} {:?}",
+                failure.row, failure.column, failure.reason, failure.detail
+            );
+        }
+        fit_cells_conservative(points, rotation, support);
+    }
+}
+
+/// Fixed-height radial movement preserves every triangle's angular wedge and
+/// vertical interval. The fifth query plane bounds the possible outward
+/// travel, so an unrelated cap beyond a collar face cannot move its anchors.
+/// Any budget expansion restarts every face query. Only a solution contained
+/// in all queried budgets is committed; convexity then contains every final
+/// face, and positive radial corrections preserve all separating planes.
+/// Twelve rounds and a fixed candidate set bound work; exhaustion is reported,
+/// never treated as convergence or an excuse to omit collision constraints.
+fn fit_radial_faces(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: &LayerSurface,
+) -> Result<(), RadialFitFailure> {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
+    let directions: Vec<_> = reference
+        .iter()
+        .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
+        .collect();
+    let mut travels = vec![0.0f32; GRID];
+    let mut budgets = vec![0.0f32; GRID];
+    for iteration in 0..12 {
+        travels.fill(0.0);
+        for row in 0..ROWS {
+            for column in 0..COLUMNS {
+                let [a, b, c, d] = [
+                    index(row, column),
+                    index(row, column + 1),
+                    index(row + 1, column),
+                    index(row + 1, column + 1),
+                ];
+                for face in [[a, b, c], [b, d, c]] {
+                    let vertices = face.map(|i| reference[i]);
+                    let rays = face.map(|i| directions[i]);
+                    let horizontal = rays.iter().copied().sum::<Vec3>().normalize_or(Vec3::NEG_Z);
+                    if rays.iter().any(|ray| horizontal.dot(*ray) <= 0.05) {
+                        return Err(RadialFitFailure {
+                            row,
+                            column,
+                            reason: "nonconvex angular footprint",
+                            detail: [
+                                rays.iter()
+                                    .map(|r| horizontal.dot(*r))
+                                    .fold(f32::INFINITY, f32::min),
+                                0.0,
+                                0.0,
+                            ],
+                        });
+                    }
+                    let tangent = Vec3::new(horizontal.z, 0.0, -horizontal.x);
+                    let (lo, hi) =
+                        rays.iter()
+                            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), ray| {
+                                let angle = ray.dot(tangent).atan2(ray.dot(horizontal));
+                                (lo.min(angle), hi.max(angle))
+                            });
+                    let left = horizontal * lo.cos() + tangent * lo.sin();
+                    let right = horizontal * hi.cos() + tangent * hi.sin();
+                    let low = vertices.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+                    let high = vertices
+                        .iter()
+                        .map(|p| p.y)
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    let radial_limit = face
+                        .iter()
+                        .map(|&i| horizontal.dot(reference[i] + directions[i] * budgets[i]))
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    let planes = [
+                        (Vec3::Y, low - THICKNESS),
+                        (Vec3::NEG_Y, -high - THICKNESS),
+                        (Vec3::new(left.z, 0.0, -left.x), -THICKNESS),
+                        (Vec3::new(-right.z, 0.0, right.x), -THICKNESS),
+                        (-horizontal, -radial_limit - THICKNESS),
+                    ];
+                    let cross = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]);
+                    let authored = if cross.dot(horizontal).abs() > 1e-6 {
+                        (cross.y / cross.dot(horizontal)).clamp(-128.0, 128.0)
+                    } else {
+                        0.0
+                    };
+                    let slopes = [
+                        authored, 0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0,
+                        -0.25, -0.5, -1.0, -2.0, -4.0, -8.0, -16.0, -32.0, -64.0, -128.0,
+                    ];
+                    let normals = slopes.map(|k| (horizontal + Vec3::Y * k).normalize());
+                    let mut supports = [f32::NEG_INFINITY; 22];
+                    let mut found = false;
+                    for &triangle in support.clipped_candidates(&planes) {
+                        if let Some((polygon, count)) = clipped_polygon(triangle, &planes) {
+                            found = true;
+                            for (normal, value) in normals.iter().zip(&mut supports) {
+                                for p in &polygon[..count] {
+                                    *value = value.max(normal.dot(*p));
+                                }
+                            }
+                        }
+                    }
+                    if !found {
+                        continue;
+                    }
+                    let mut best: Option<([f32; 3], f32)> = None;
+                    let mut best_anchor_deficit = f32::INFINITY;
+                    for (normal, height) in normals.into_iter().zip(supports) {
+                        let plane = height + LAYER_GAP + THICKNESS;
+                        let anchor_deficit = face
+                            .iter()
+                            .filter(|&&i| i <= COLUMNS)
+                            .map(|&i| (plane - normal.dot(reference[i])).max(0.0))
+                            .fold(0.0, f32::max);
+                        best_anchor_deficit = best_anchor_deficit.min(anchor_deficit);
+                        let mut shifts = [0.0; 3];
+                        let mut feasible = true;
+                        for (j, &i) in face.iter().enumerate() {
+                            let deficit = (plane - normal.dot(reference[i])).max(0.0);
+                            if i < COLUMNS + 1 {
+                                if deficit > 1e-6 {
+                                    feasible = false;
+                                    break;
+                                }
+                            } else {
+                                shifts[j] = deficit / normal.dot(directions[i]);
+                            }
+                        }
+                        if !feasible {
+                            continue;
+                        }
+                        let cost = shifts.iter().map(|s| s * s).sum::<f32>();
+                        if best.is_none_or(|(_, old)| cost < old) {
+                            best = Some((shifts, cost));
+                        }
+                    }
+                    let Some((shifts, _)) = best else {
+                        return Err(RadialFitFailure {
+                            row,
+                            column,
+                            reason: "no separating plane preserves collar anchors",
+                            detail: [best_anchor_deficit, low, high],
+                        });
+                    };
+                    for (i, shift) in face.into_iter().zip(shifts) {
+                        travels[i] = travels[i].max(shift);
+                    }
+                }
+            }
+        }
+        let expanded = travels
+            .iter()
+            .zip(&budgets)
+            .any(|(&travel, &budget)| travel > budget);
+        if !expanded {
+            break;
+        }
+        if iteration == 11 {
+            return Err(RadialFitFailure {
+                row: 0,
+                column: 0,
+                reason: "radial swept domains did not converge",
+                detail: [
+                    travels.iter().copied().fold(0.0, f32::max),
+                    budgets.iter().copied().fold(0.0, f32::max),
+                    12.0,
+                ],
+            });
+        }
+        for (budget, &travel) in budgets.iter_mut().zip(&travels) {
+            // Reserve one additional lining thickness when a domain expands. It
+            // avoids asymptotic boundary chasing without changing final travel.
+            if travel > *budget {
+                *budget = travel + THICKNESS;
+            }
+        }
+    }
+    // Commit only after every face has a feasible constraint. A diagnostic
+    // failure leaves the original mesh intact for the conservative fallback.
+    let inverse = rotation.inverse();
+    for (i, point) in points.iter_mut().enumerate() {
+        *point = inverse * (reference[i] + directions[i] * travels[i] - offset);
+    }
+    Ok(())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn fit_cells_conservative(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let mut posed: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
     let directions: Vec<_> = posed
@@ -1383,6 +1635,62 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
     }
 }
 
+/// Separate only the anatomical collar from the retained inner cloth. Each
+/// segment's complete projected strip is queried, not just its endpoint rays.
+/// The subsequent radial solve keeps these heights and all collar XZ fixed.
+fn seat_layer_collar(
+    points: &mut [Vec3],
+    rotation: Quat,
+    inner: &LayerSurface,
+) -> Result<(), RadialFitFailure> {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let collar: Vec<_> = points[..=COLUMNS]
+        .iter()
+        .map(|p| rotation * *p + offset)
+        .collect();
+    let mut heights: Vec<_> = collar.iter().map(|p| p.y).collect();
+    for column in 0..COLUMNS {
+        let a = collar[column];
+        let b = collar[column + 1];
+        let along = (b - a).with_y(0.0).normalize_or(Vec3::X);
+        let across = Vec3::new(along.z, 0.0, -along.x);
+        let planes = [
+            (along, along.dot(a) - THICKNESS),
+            (-along, -along.dot(b) - THICKNESS),
+            (across, across.dot(a) - THICKNESS),
+            (-across, -across.dot(a) - THICKNESS),
+        ];
+        let top = inner
+            .clipped_candidates(&planes)
+            .filter_map(|&tri| clipped_support(tri, Vec3::Y, &planes))
+            .reduce(f32::max);
+        if let Some(top) = top {
+            for i in [column, column + 1] {
+                heights[i] = heights[i].max(top + LAYER_GAP + THICKNESS);
+            }
+        }
+    }
+    for (column, (&height, p)) in heights.iter().zip(&collar).enumerate() {
+        if height > p.y.min(0.565) + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK) + 1e-6 {
+            return Err(RadialFitFailure {
+                row: 0,
+                column,
+                reason: "inner cloth exceeds bounded collar seating",
+                detail: [
+                    height,
+                    p.y.min(0.565) + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK),
+                    p.y,
+                ],
+            });
+        }
+    }
+    let inverse = rotation.inverse();
+    for (column, (p, height)) in collar.into_iter().zip(heights).enumerate() {
+        points[column] = inverse * (p.with_y(height) - offset);
+    }
+    Ok(())
+}
+
 /// Pose in dependency order, then seat each explicitly linked mantle outside
 /// the inner cloak's actual two-sided mesh. An unlinked cloak retains the
 /// original deformation path and caching behavior.
@@ -1425,6 +1733,8 @@ pub(super) fn place_layers(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
         );
+        let mut candidate = cloak.points.clone();
+        let seated = seat_layer_collar(&mut candidate, rot, &support);
         // Seat the outer cloth against both retained cloth and the arm hull
         // in one solve. A changed yoke footprint must not discard the earlier
         // arm constraint when the mantle is lifted over its inner cape.
@@ -1437,7 +1747,13 @@ pub(super) fn place_layers(
                     .collect(),
             );
         }
-        fit_layer_cells(&mut cloak.points, rot, &support);
+        match seated.and_then(|()| fit_radial_faces(&mut candidate, rot, &support)) {
+            Ok(()) => cloak.points = candidate,
+            Err(failure) => {
+                cloak.contact_fallbacks += 1;
+                fallback_radial_fit(&mut cloak.points, rot, &support, failure);
+            }
+        }
         surface_normals(&cloak.points, &mut cloak.normals);
         if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
             write(mesh, &cloak.points, &cloak.normals);
@@ -1695,6 +2011,137 @@ mod tests {
         assert!(rendered_clearance(&mixed, Vec3::new(0.15, 0.0, 0.0)) > 0.001);
     }
 
+    fn radial_test_grid() -> Vec<Vec3> {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        (0..GRID)
+            .map(|i| {
+                let row = i / (COLUMNS + 1);
+                let angle = TAU * (i % (COLUMNS + 1)) as f32 / COLUMNS as f32;
+                let (radius, y) = if row <= YOKE_ROWS {
+                    let t = row as f32 / YOKE_ROWS as f32;
+                    (0.12 + 0.24 * t, 0.565 - 0.095 * t + 0.045 * (PI * t).sin())
+                } else {
+                    let t = (row - YOKE_ROWS) as f32 / (ROWS - YOKE_ROWS) as f32;
+                    (0.36 + 0.03 * t, 0.47 - 0.6 * t)
+                };
+                Vec3::new(angle.sin() * radius, y, angle.cos() * radius) - offset
+            })
+            .collect()
+    }
+
+    #[test]
+    fn radial_shoulder_faces_descend_without_raising_or_extruding_a_wall() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        for tilt in [0.0, 0.35] {
+            let rotation = Quat::from_rotation_z(tilt);
+            let support = LayerSurface::from_triangles(
+                rounded_cap()
+                    .into_iter()
+                    .map(|tri| {
+                        tri.map(|p| {
+                            rotation * (p * Vec3::new(0.9, 1.1, 1.0)) + Vec3::new(0.25, 0.4, 0.0)
+                        })
+                    })
+                    .collect(),
+            );
+            let mut points = radial_test_grid();
+            let reference = points.clone();
+            fit_radial_faces(&mut points, Quat::IDENTITY, &support)
+                .expect("bounded curved shoulder must be feasible");
+            for (i, (p, before)) in points.iter().zip(&reference).enumerate() {
+                assert!(
+                    (p.y - before.y).abs() < 1e-6,
+                    "radial fit cannot flatten the authored height profile"
+                );
+                if i <= COLUMNS {
+                    assert!(
+                        (*p - *before).length() < 1e-6,
+                        "collar must remain anchored"
+                    );
+                }
+                if i / (COLUMNS + 1) <= YOKE_ROWS {
+                    assert!(
+                        (*p + offset).with_y(0.0).length() < 0.43,
+                        "shoulder fit cannot become a broad wing: {p:?}"
+                    );
+                }
+            }
+            assert!(
+                points[index(0, COLUMNS / 4)].y - points[index(YOKE_ROWS, COLUMNS / 4)].y > 0.09
+            );
+            for row in 0..ROWS {
+                for column in 0..COLUMNS {
+                    let [a, b, c, d] = [
+                        index(row, column),
+                        index(row, column + 1),
+                        index(row + 1, column),
+                        index(row + 1, column + 1),
+                    ];
+                    for face in [[a, b, c], [b, d, c]] {
+                        for weights in [
+                            [1.0 / 3.0; 3],
+                            [0.6, 0.2, 0.2],
+                            [0.2, 0.6, 0.2],
+                            [0.2, 0.2, 0.6],
+                        ] {
+                            let p = face
+                                .into_iter()
+                                .zip(weights)
+                                .map(|(i, w)| (points[i] + offset) * w)
+                                .sum::<Vec3>();
+                            assert!(
+                                rendered_clearance_checked(&support, p, false) > 0.001,
+                                "curved shoulder triangle contacts support at {p:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn radial_anchor_failure_is_explicit_and_transactional() {
+        let mut points = radial_test_grid();
+        let before = points.clone();
+        let anchor = points[0] + Vec3::new(0.0, 0.53, -0.15);
+        let support = LayerSurface::from_triangles(vec![[
+            anchor - Vec3::X * 0.01,
+            anchor + Vec3::X * 0.01,
+            anchor + Vec3::Y * 0.01,
+        ]]);
+        let failure = fit_radial_faces(&mut points, Quat::IDENTITY, &support).unwrap_err();
+        assert_eq!(failure.row, 0);
+        assert_eq!(
+            points, before,
+            "infeasible anchors must not leave a partially fitted mesh"
+        );
+    }
+
+    #[test]
+    fn collar_seating_preserves_xz_and_rejects_unbounded_lift_transactionally() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        for rise in [0.0, 0.2] {
+            let mut points = radial_test_grid();
+            let before = points.clone();
+            let a = points[0] + offset + Vec3::Y * rise;
+            let b = points[1] + offset + Vec3::Y * rise;
+            let support =
+                LayerSurface::from_triangles(vec![[a, b, (a + b) * 0.5 + Vec3::Z * 0.004]]);
+            let result = seat_layer_collar(&mut points, Quat::IDENTITY, &support);
+            if rise == 0.0 {
+                result.expect("one cloth layer must fit bounded collar reserve");
+                assert!(points[0].y >= before[0].y + LAYER_GAP + THICKNESS - 1e-6);
+                for (p, old) in points.iter().zip(&before) {
+                    assert!((p.with_y(0.0) - old.with_y(0.0)).length() < 1e-6);
+                }
+            } else {
+                assert!(result.is_err());
+                assert_eq!(points, before);
+            }
+        }
+    }
+
     #[test]
     fn real_pauldron_contact_keeps_curvature_instead_of_slab_cap() {
         let surface = LayerSurface::from_triangles(rounded_cap());
@@ -1793,7 +2240,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_clipper_accepts_three_and_four_plane_footprints() {
+    fn fixed_clipper_accepts_three_four_and_five_plane_footprints() {
         let triangle = [
             Vec3::new(-1.0, 0.2, -1.0),
             Vec3::new(2.0, 0.8, -1.0),
@@ -1804,8 +2251,9 @@ mod tests {
             (Vec3::Z, 0.0),
             (Vec3::new(-1.0, 0.0, -1.0).normalize(), -0.5),
             (Vec3::NEG_X, -0.2),
+            (Vec3::NEG_Z, -0.25),
         ];
-        for count in [3, 4] {
+        for count in [3, 4, 5] {
             let footprint = &planes[..count];
             let mut polygon = triangle.to_vec();
             for &(normal, offset) in footprint {
@@ -1828,9 +2276,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "at most four planes")]
+    #[should_panic(expected = "at most five planes")]
     fn fixed_clipper_rejects_unsupported_plane_count_before_clipping() {
-        let _ = clipped_support([Vec3::ZERO; 3], Vec3::Y, &[(Vec3::X, 0.0); 5]);
+        let _ = clipped_support([Vec3::ZERO; 3], Vec3::Y, &[(Vec3::X, 0.0); 6]);
     }
 
     #[test]
@@ -2233,6 +2681,56 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn radial_support_bvh_rejects_remote_geometry_without_contact_lod() {
+        let triangles: Vec<_> = (0..1024)
+            .map(|i| {
+                let angle = TAU * i as f32 / 1024.0;
+                let radial = Vec3::new(angle.sin(), 0.0, angle.cos());
+                [
+                    radial * 0.4,
+                    radial * 0.42 + Vec3::Y * 0.3,
+                    Quat::from_rotation_y(0.003) * radial * 0.4 + Vec3::Y * 0.15,
+                ]
+            })
+            .collect();
+        let surface = LayerSurface::from_triangles(triangles);
+        let planes = [
+            (Vec3::Y, 0.1),
+            (Vec3::NEG_Y, -0.2),
+            (Vec3::X, -0.015),
+            (Vec3::NEG_X, -0.015),
+        ];
+        let count = surface.clipped_candidates(&planes).count();
+        assert!(
+            count < surface.candidates(0.1, 0.2).count() / 8,
+            "angular BVH must reject distant geometry before exact clipping: {count}"
+        );
+        let mut candidates = surface.clipped_candidates(&planes);
+        candidates.support_floor = Some((Vec3::Z, 0.5));
+        assert_eq!(
+            candidates.count(),
+            0,
+            "a support bound above the whole mesh must reject every subtree"
+        );
+        for normal in [Vec3::Z, (Vec3::Z + Vec3::Y).normalize(), Vec3::NEG_Z] {
+            let expected = surface
+                .triangles
+                .iter()
+                .filter_map(|&t| clipped_support(t, normal, &planes))
+                .reduce(f32::max);
+            let mut actual: Option<f32> = None;
+            let mut query = surface.clipped_candidates(&planes);
+            while let Some(&triangle) = query.next() {
+                if let Some(value) = clipped_support(triangle, normal, &planes) {
+                    actual = Some(actual.map_or(value, |old| old.max(value)));
+                    query.support_floor = actual.map(|v| (normal, v));
+                }
+            }
+            assert!((actual.unwrap() - expected.unwrap()).abs() < 1e-6);
         }
     }
 

@@ -334,21 +334,98 @@ pub(super) fn emit(
                 }
             }
             if body.woman {
-                // Knot/tails follow the actual cropped shirt hem, not the
-                // belt below the bare midriff.
-                let hem = body.bust.map_or(0.27, |bust| bust.fold) - 0.03;
-                for side in [-1.0, 1.0] {
-                    patch(
-                        [
-                            Vec2::new(side * 0.005, hem),
-                            Vec2::new(side * 0.055, hem - 0.055),
-                            Vec2::new(side * 0.060, hem - 0.010),
-                            Vec2::new(side * 0.012, hem + 0.018),
-                        ],
-                        color * 1.08,
-                        0.0,
-                    );
+                emit_tie(p, body, surface, armor, color);
+            }
+        }
+    }
+}
+
+/// Gather the cropped front into a small wrapped knot, with folded hanging
+/// ends. Project every sample, including the backs of the tails, so these
+/// details cannot cut through the abdomen as its proportions change.
+fn emit_tie(
+    p: &mut Parts,
+    body: HumanoidBody,
+    surface: &crate::sdf::Sculpt,
+    armor: Option<&crate::sdf::Sculpt>,
+    color: Vec3,
+) {
+    let b = body.build;
+    let hem = body.bust.map_or(0.27, |bust| bust.fold) - 0.03;
+    let mut panel = |points: [Vec3; 4], tint: f32| {
+        let fitted = [points[0], points[3], points[2], points[1]].map(|at| {
+            visible_at(surface, armor, at.truncate()).map(|support| support + Vec3::Z * at.z)
+        });
+        if let [Some(a), Some(b), Some(c), Some(d)] = fitted {
+            // Keep the known outward parameter winding. The spindle poles
+            // and tail tips collapse one triangle; omit it rather than using
+            // a zero normal to infer the orientation of its surviving neighbor.
+            for triangle in [[a, b, c], [a, c, d]] {
+                if (triangle[1] - triangle[0])
+                    .cross(triangle[2] - triangle[0])
+                    .length_squared()
+                    > 1e-16
+                {
+                    p.matte.tri(triangle, color * tint);
                 }
+            }
+        }
+    };
+    // Wrapped spindle: narrow at the two gathered entrances, thick at the
+    // middle. Its back meets the shirt while the front has real relief.
+    let knot = |u: f32, v: f32| {
+        let angle = v * 2.0 * PI;
+        let radius = (PI * u).sin().max(0.0);
+        Vec3::new(
+            (u - 0.5) * 0.044 * b,
+            hem + 0.004 + angle.sin() * radius * 0.013 * b,
+            // Cancel the decal offset: the gathered back sits only 1 mm
+            // off cloth, while its front stands 29 mm proud at unit build.
+            (0.015 + angle.cos() * radius * 0.014) * b - 0.004,
+        )
+    };
+    for row in 0..8 {
+        for column in 0..12 {
+            let u = row as f32 / 8.0;
+            let v = column as f32 / 12.0;
+            panel(
+                [
+                    knot(u, v),
+                    knot(u, v + 1.0 / 12.0),
+                    knot(u + 1.0 / 8.0, v + 1.0 / 12.0),
+                    knot(u + 1.0 / 8.0, v),
+                ],
+                if row == 3 || row == 4 { 0.92 } else { 1.08 },
+            );
+        }
+    }
+    for side in [-1.0, 1.0] {
+        let tail = |u: f32, v: f32| {
+            let angle = v * 2.0 * PI;
+            let width = (0.006 + 0.013 * (PI * u).sin()) * (1.0 - u) * b;
+            let across = angle.cos();
+            Vec3::new(
+                side * (0.012 + 0.030 * u) * b + across * width,
+                hem + 0.003 - 0.061 * u,
+                (0.006
+                    + 0.010 * (1.0 - across.abs()) * (1.0 - u)
+                    + 0.0015 * angle.sin() * (1.0 - u))
+                    * b,
+            )
+        };
+        for row in 0..10 {
+            for column in 0..8 {
+                let u = row as f32 / 10.0;
+                let v = column as f32 / 8.0;
+                panel(
+                    [
+                        tail(u, v),
+                        tail(u + 0.1, v),
+                        tail(u + 0.1, v + 0.125),
+                        tail(u, v + 0.125),
+                    ],
+                    if column < 4 { 1.10 } else { 0.86 },
+                );
             }
         }
     }
@@ -995,6 +1072,132 @@ mod tests {
             leaves > 10 && petals > 10,
             "readable floral sleeve colors: {leaves} leaves, {petals} petals"
         );
+    }
+
+    #[test]
+    fn gathered_tie_has_volume_folded_tails_and_clearance() {
+        use bevy::render::mesh::VertexAttributeValues;
+        for seed in [7, 19, 41] {
+            let body = HumanoidBody::resolve(&Look::with_choice(
+                CreatureModel::Human,
+                seed,
+                Some(Variant {
+                    woman: true,
+                    ..default()
+                }),
+            ));
+            let skin = torso_shape(body, None, false);
+            let shirt = test_envelope(ShirtAppearance::HawaiianShirt, body, &skin);
+            let hem = body.bust.unwrap().fold - 0.03;
+            let mut p = Parts::default();
+            emit_tie(&mut p, body, &shirt, None, Vec3::ONE);
+            let center = p
+                .matte
+                .outer_surface(Vec3::new(0.0, hem + 0.004, 0.0), Vec3::Z)
+                .expect("solid gathered knot at cropped hem");
+            let under = precise_front_hit(&shirt, 0.0, hem + 0.004);
+            assert!(
+                center.z - under.z > 0.027 * body.build,
+                "knot must project beyond a flat applied patch"
+            );
+            for side in [-1.0, 1.0] {
+                let y = hem + 0.003 - 0.061 * 0.5;
+                let x = side * 0.027 * body.build;
+                let ridge = p
+                    .matte
+                    .outer_surface(Vec3::new(x, y, 0.0), Vec3::Z)
+                    .expect("folded tail center");
+                let edge_x = x + 0.008 * body.build;
+                let edge = p
+                    .matte
+                    .outer_surface(Vec3::new(edge_x, y, 0.0), Vec3::Z)
+                    .expect("folded tail edge");
+                let relief = ridge.z - precise_front_hit(&shirt, x, y).z;
+                let edge_relief = edge.z - precise_front_hit(&shirt, edge_x, y).z;
+                assert!(
+                    relief > edge_relief + 0.002 * body.build,
+                    "tail must fold across its width rather than remain flat"
+                );
+            }
+            let mut materials = Assets::<StandardMaterial>::default();
+            let materials = crate::props::PropMaterials::new(&mut materials);
+            let mut meshes = Assets::<Mesh>::default();
+            let model = p.finish(&mut meshes, &materials);
+            let mut attachment = f32::INFINITY;
+            let mut low = f32::INFINITY;
+            let mut high = f32::NEG_INFINITY;
+            for (handle, _) in model.0 {
+                let mesh = meshes.get(&handle).unwrap();
+                let Some(VertexAttributeValues::Float32x3(points)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("tie positions")
+                };
+                let Some(VertexAttributeValues::Float32x3(normals)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+                else {
+                    panic!("tie normals")
+                };
+                let mut pole_samples = 0;
+                for (point, normal) in points.iter().zip(normals) {
+                    let at = Vec3::from_array(*point);
+                    let normal = Vec3::from_array(*normal);
+                    assert!(normal.is_finite() && normal.length_squared() > 0.9);
+                    if (at.x.abs() - 0.022 * body.build).abs() < 0.000001
+                        && (at.y - hem - 0.004).abs() < 0.000001
+                    {
+                        assert!(normal.x * at.x > 0.0, "spindle pole must face outward");
+                        pole_samples += 1;
+                    }
+                }
+                assert!(
+                    pole_samples >= 12,
+                    "both knot ends must survive triangulation"
+                );
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                for face in indices.as_chunks::<3>().0 {
+                    let center = face
+                        .iter()
+                        .map(|&i| Vec3::from_array(points[i]))
+                        .sum::<Vec3>()
+                        / 3.0;
+                    assert!(
+                        skin.distance(center) > 0.0,
+                        "tie triangle cuts the abdomen at {center:?}"
+                    );
+                }
+                for point in points {
+                    let at = Vec3::from_array(*point);
+                    if at.x.abs() < 0.000001 && (at.y - hem - 0.004).abs() < 0.000001 {
+                        attachment = attachment.min(at.z - under.z);
+                    }
+                    low = low.min(at.y);
+                    high = high.max(at.y);
+                    assert!(
+                        skin.distance(at) > 0.0,
+                        "tie penetrates bare abdomen at {at:?}"
+                    );
+                    assert!(
+                        at.x.abs() < 0.060 * body.build,
+                        "tie must leave abdomen exposed"
+                    );
+                }
+            }
+            assert!(
+                attachment > 0.0 && attachment < 0.0013 * body.build,
+                "gathered back must meet the shirt within its 1 mm sewing allowance: {attachment}"
+            );
+            assert!(low < hem - 0.05 && low >= hem - 0.059);
+            assert!(high > hem + 0.01 && high < hem + 0.025);
+            let mut armor = shirt.clone();
+            armor.inflate(0.06);
+            let mut hidden = Parts::default();
+            emit_tie(&mut hidden, body, &shirt, Some(&armor), Vec3::ONE);
+            assert!(
+                hidden.matte.is_empty(),
+                "tie must not appear on enclosing armor"
+            );
+        }
     }
 
     #[test]

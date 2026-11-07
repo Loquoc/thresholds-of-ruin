@@ -31,6 +31,14 @@ def validate_manifest(script, manifest, output):
     if actual != expected:
         raise ValueError('captured names/ticks do not match requested review')
     for shot in manifest['captures']:
+        for actor in shot.get('actors', []):
+            # Older receipts predate this additive diagnostic. New captures
+            # must never turn a conservative solver fallback into acceptance.
+            count = actor.get('cloth_contact', {}).get('solver_fallbacks', 0)
+            if type(count) is not int or count < 0:
+                raise ValueError('invalid cloth solver fallback count')
+            if count:
+                raise ValueError(f'cloth solver fallback for {actor.get("id", "unknown actor")}: {count}')
         if not shot.get('renderer', {}).get('name'):
             raise ValueError('missing actual renderer identity')
         png = output / f'{shot["name"]}.png'

@@ -112,6 +112,14 @@ class RenderReceipt(unittest.TestCase):
                 bad['captures'][0][key] = value
                 with self.assertRaises(ValueError):
                     runner.validate_manifest(script, bad, output)
+            recorded = copy.deepcopy(manifest)
+            recorded['captures'][0]['actors'] = [
+                {'id': 'cope', 'cloth_contact': {'solver_fallbacks': 0}}]
+            runner.validate_manifest(script, recorded, output)
+            for count in [1, 3, -1, True, '0']:
+                recorded['captures'][0]['actors'][0]['cloth_contact']['solver_fallbacks'] = count
+                with self.assertRaisesRegex(ValueError, 'fallback'):
+                    runner.validate_manifest(script, recorded, output)
             (output / 'front.png').unlink()
             with self.assertRaises(ValueError):
                 runner.validate_manifest(script, manifest, output)

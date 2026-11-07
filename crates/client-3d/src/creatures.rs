@@ -1162,6 +1162,14 @@ pub(crate) enum Drape {
 }
 
 impl Rig {
+    /// Cumulative failed solves for this rig only; cache hits are not failures.
+    pub(crate) fn cloth_contact_fallbacks(&self) -> u64 {
+        self.cloaks
+            .iter()
+            .map(cloak::CloakRig::contact_fallbacks)
+            .sum()
+    }
+
     /// Capture-only workload metadata; main cape and mantle share the posed
     /// support, so per-cloak counts must not be summed as allocated storage.
     pub(crate) fn cloth_contact_workloads(&self) -> Vec<[usize; 3]> {
