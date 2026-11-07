@@ -4236,3 +4236,13 @@ rejected 74,488; this is not an executed native first-red result. At `f5daedb3`,
 the restored local optimized build and 12 footwear plus seven glove native tests
 passed. Actual close renders still exposed discontinuous fencing-cuff gold trim,
 so successful geometry tests do not establish visual acceptance.
+
+The fencing-trim defect was reproduced by one new native regression,
+`fencing_embroidery_stays_outside_a_bulging_fitted_cuff`: an intermediate side
+sample put the gold thread 1.10 mm inside the fitted cuff. The production fix
+projects intermediate embroidery samples onto the emitted cuff with bounded
+relief rather than joining distant points through its bulge. At `c02719b3`, all
+eight release glove tests, release Clippy with warnings denied, formatting and
+the renderer build passed. Same-camera front and side captures showed continuous
+gold ribs. This is focused local Linux and visual evidence, not full-suite or
+cross-platform qualification; other equipment fit defects remain open.
