@@ -333,7 +333,9 @@ fn checkpoint_rejects_positional_discovery_target_inside_valid_named_receipt() {
 
     let pool = snapshot_value["actors"].as_u64().unwrap() as usize;
     let mut invalid = valid.clone();
-    let feature = &mut invalid["actors"][pool][OWNER.0.to_string()]["discovery"][0]["feature"];
+    let feature =
+        &mut crate::checkpoint_fixture::actor_mut(&mut invalid, pool, &OWNER.0.to_string())
+            ["discovery"][0]["feature"];
     assert_eq!(
         *feature,
         serde_json::json!({"kind":"guise", "value":SUBJECT.0})

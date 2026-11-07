@@ -16,6 +16,10 @@
 //! through the session's disclosure rules before being sent to a frontend.
 
 #[cfg(test)]
+#[path = "../../simulation/test_support/checkpoint_json.rs"]
+mod checkpoint_fixture;
+
+#[cfg(test)]
 #[path = "../../protocol/tests/support/fixture.rs"]
 mod fixture;
 

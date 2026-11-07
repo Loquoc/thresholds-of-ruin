@@ -525,11 +525,9 @@ fn shift_clock(game: &Game, offset: u64) -> Game {
     let snapshot = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value((snapshot, shared)).unwrap();
     value[0]["tick"] = json!(game.tick().checked_add(offset).unwrap());
-    for actors in value[1]["actors"].as_array_mut().unwrap() {
-        for actor in actors.as_object_mut().unwrap().values_mut() {
-            for key in ["ready_at", "active_since"] {
-                actor[key] = json!(actor[key].as_u64().unwrap().checked_add(offset).unwrap());
-            }
+    for actor in value[1]["actor_records"].as_array_mut().unwrap() {
+        for key in ["ready_at", "active_since"] {
+            actor[key] = json!(actor[key].as_u64().unwrap().checked_add(offset).unwrap());
         }
     }
     let (snapshot, shared) = serde_json::from_value(value).unwrap();

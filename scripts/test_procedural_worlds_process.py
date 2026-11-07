@@ -61,7 +61,7 @@ class ProceduralWorldProcesses(ProcessTestCase):
         with closing(sqlite3.connect(self.save)) as db:
             payload = db.execute("SELECT payload FROM checkpoint").fetchone()[0]
             checkpoint = json.loads(decode_checkpoint_payload(payload))
-            actors = checkpoint["shared"]["actors"][checkpoint["game"]["actors"]]
+            actors = {actor: checkpoint["shared"]["actor_records"][index] for actor, index in checkpoint["shared"]["actors"][checkpoint["game"]["actors"]].items()}
             region = actors["1"]["location"]["region"]
             self.assertEqual((region - 1) // 4 + 1, depth)
             initial_records = db.execute("SELECT count(*) FROM regions").fetchone()[0]
@@ -92,7 +92,7 @@ class ProceduralWorldProcesses(ProcessTestCase):
                 self.assertGreater(db.execute("SELECT count(*) FROM regions").fetchone()[0], initial_records)
                 payload = db.execute("SELECT payload FROM checkpoint").fetchone()[0]
                 checkpoint = json.loads(decode_checkpoint_payload(payload))
-                actors = checkpoint["shared"]["actors"][checkpoint["game"]["actors"]]
+                actors = {actor: checkpoint["shared"]["actor_records"][index] for actor, index in checkpoint["shared"]["actors"][checkpoint["game"]["actors"]].items()}
                 self.assertEqual((actors["1"]["location"]["region"] - 1) // 4 + 1, depth - 4)
 
     def test_declared_depth_26_starts_on_existing_up_port_and_resumes_source_free(self):

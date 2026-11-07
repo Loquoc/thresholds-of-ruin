@@ -6,7 +6,7 @@ work from implemented design records. “Implemented” does not mean balanced,
 fully optimized or qualified for every workload. Follow the
 [testing policy](development/testing.md).
 
-**Current formats:** protocol **69**, save format **67**, scenario format **37**,
+**Current formats:** protocol **69**, save format **68**, scenario format **37**,
 ruleset **`interactions-v58`**, scenario validator **`tor-scenario-50`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,

@@ -85,12 +85,12 @@ fn round_trip(game: &Game) -> Game {
 
 fn actor(value: &Value, id: ActorId) -> &Value {
     let table = value[0]["actors"].as_u64().unwrap() as usize;
-    &value[1]["actors"][table][id.0.to_string()]
+    crate::checkpoint_fixture::actor(&value[1], table, &id.0.to_string())
 }
 
 fn actor_mut(value: &mut Value, id: ActorId) -> &mut Value {
     let table = value[0]["actors"].as_u64().unwrap() as usize;
-    &mut value[1]["actors"][table][id.0.to_string()]
+    crate::checkpoint_fixture::actor_mut(&mut value[1], table, &id.0.to_string())
 }
 
 fn seed(game: &Game, id: ActorId, rows: Value) -> Game {

@@ -170,8 +170,11 @@ fn sequence_rider_changed_copied_dice_reject_at_initial_plan_and_checkpoint_admi
             "changed copied dice {field}"
         );
         let mut bad = stored.clone();
-        bad["actors"][snapshot["actors"].as_u64().unwrap() as usize]["1"]["pending"]["plan"] =
-            forged;
+        crate::checkpoint_fixture::actor_mut(
+            &mut bad,
+            snapshot["actors"].as_u64().unwrap() as usize,
+            "1",
+        )["pending"]["plan"] = forged;
         assert!(
             crate::Game::restore_checkpoint(
                 serde_json::from_value(snapshot.clone()).unwrap(),

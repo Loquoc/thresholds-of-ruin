@@ -425,15 +425,25 @@ fn exact_holds_and_payment_tags_reject_corrupted_checkpoints() {
                 entry["holds"] = json!([hold.clone(), hold]);
             }
             7 => {
-                invalid[1]["actors"][actors][actor.0.to_string()]["pending"]["item_payment"] =
-                    json!({"kind":"settled"})
+                crate::checkpoint_fixture::actor_mut(
+                    &mut invalid[1],
+                    actors,
+                    &actor.0.to_string(),
+                )["pending"]["item_payment"] = json!({"kind":"settled"})
             }
             8 => {
-                invalid[1]["actors"][actors][actor.0.to_string()]["pending"]["item_payment"]
-                    ["refs"][0]["item"] = json!(11)
+                crate::checkpoint_fixture::actor_mut(
+                    &mut invalid[1],
+                    actors,
+                    &actor.0.to_string(),
+                )["pending"]["item_payment"]["refs"][0]["item"] = json!(11)
             }
             9 => {
-                invalid[1]["actors"][actors][actor.0.to_string()]["pending"]["plan"]["supplies"] = json!({"kind":"explicit","items":[{"cost_ordinal":0,"item":10},{"cost_ordinal":0,"item":11}]})
+                crate::checkpoint_fixture::actor_mut(
+                    &mut invalid[1],
+                    actors,
+                    &actor.0.to_string(),
+                )["pending"]["plan"]["supplies"] = json!({"kind":"explicit","items":[{"cost_ordinal":0,"item":10},{"cost_ordinal":0,"item":11}]})
             }
             _ => unreachable!(),
         }
@@ -899,8 +909,8 @@ fn settled_selection_rejects_reusing_one_source_for_two_distinct_cost_ordinals()
     let saved = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value((saved, shared)).unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    value[1]["actors"][actors][actor.0.to_string()]["pending"]["plan"]["supplies"]["items"][1]
-        ["item"] = json!(10);
+    crate::checkpoint_fixture::actor_mut(&mut value[1], actors, &actor.0.to_string())["pending"]
+        ["plan"]["supplies"]["items"][1]["item"] = json!(10);
     let (saved, shared) = serde_json::from_value(value).unwrap();
     assert!(Game::restore_checkpoint(saved, &shared, game.content().clone()).is_err());
 }
@@ -1197,8 +1207,8 @@ fn reject_unissued_paid_source(offset: u64) {
     let mut value = serde_json::to_value((snapshot, shared)).unwrap();
     let next = value[0]["next_item_id"].as_u64().unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    value[1]["actors"][actors][actor.0.to_string()]["pending"]["plan"]["supplies"]["items"][0]
-        ["item"] = json!(next + offset);
+    crate::checkpoint_fixture::actor_mut(&mut value[1], actors, &actor.0.to_string())["pending"]
+        ["plan"]["supplies"]["items"][0]["item"] = json!(next + offset);
     let (snapshot, shared) = serde_json::from_value(value).unwrap();
     assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
 }
@@ -1384,7 +1394,9 @@ fn checkpoint_payment_alias_is_rejected(game: &Game, actor: ActorId, expected: &
         *game
     );
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    let payment = &mut value[1]["actors"][actors][actor.0.to_string()]["pending"]["item_payment"];
+    let payment =
+        &mut crate::checkpoint_fixture::actor_mut(&mut value[1], actors, &actor.0.to_string())
+            ["pending"]["item_payment"];
     assert_eq!(payment["kind"], expected);
     *payment = if expected == "held" {
         let rows = payment["refs"].clone();
@@ -1450,7 +1462,9 @@ fn phase5_container_checkpoint_rejects_positional_preparation() {
     let (game, actor) = tagged_alias_preparation(true);
     let mut value = named_checkpoint_value(&game);
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    let preparation = &mut value[1]["actors"][actors][actor.0.to_string()]["pending"];
+    let preparation =
+        &mut crate::checkpoint_fixture::actor_mut(&mut value[1], actors, &actor.0.to_string())
+            ["pending"];
     assert_eq!(preparation["item_payment"]["kind"], "held");
     *preparation = json!(declared_field_values(
         preparation,
@@ -1605,7 +1619,9 @@ fn phase5_container_checkpoint_rejects_positional_creature_record() {
     let (game, actor) = tagged_alias_preparation(true);
     let mut value = named_checkpoint_value(&game);
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    let creature = &mut value[1]["actors"][actors][actor.0.to_string()]["combat"]["creature"];
+    let creature =
+        &mut crate::checkpoint_fixture::actor_mut(&mut value[1], actors, &actor.0.to_string())
+            ["combat"]["creature"];
     assert_eq!(creature["polymorph_return_pending"], false);
     assert_eq!(creature["cooldowns"].as_array().unwrap().len(), 1);
     assert!(creature["cooldowns"][0]["remaining"].as_u64().unwrap() > 0);

@@ -87,7 +87,7 @@ class WanderingPopulationProcesses(ProcessTestCase):
         activation = authoritative_floor_activation(game["floor_activation"], shared)
         return {"tick": game["tick"], "rules_rng": game["rules_rng"],
                 "population": activation["wandering"],
-                "actors": shared["actors"][game["actors"]],
+                "actors": {actor: shared["actor_records"][index] for actor, index in shared["actors"][game["actors"]].items()},
                 "items": shared["items"][game["items"]]}
 
     def snapshot(self, client):

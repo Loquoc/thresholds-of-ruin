@@ -240,7 +240,9 @@ fn roaming_decision_work_records_growing_personal_history_without_extra_route_se
         if decisions % 8 == 0 {
             let mut shared = tor_simulation::checkpoint::SharedState::default();
             let saved = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
-            let history = saved["combat"]["ai"]["3"]["visits"]
+            let shared = serde_json::to_value(shared).unwrap();
+            let history = shared["ai_records"]
+                [saved["combat"]["ai"]["3"].as_u64().unwrap() as usize]["visits"]
                 .as_array()
                 .unwrap()
                 .len();
@@ -277,11 +279,17 @@ fn player_actions_share_loaded_ai_histories_after_bounded_mature_roaming() {
         if [0, 16, 64].contains(&rounds) {
             let mut shared = tor_simulation::checkpoint::SharedState::default();
             let saved = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
+            let shared = serde_json::to_value(shared).unwrap();
             let histories: Vec<_> = saved["combat"]["ai"]
                 .as_object()
                 .unwrap()
                 .values()
-                .map(|ai| ai["visits"].as_array().unwrap().len())
+                .map(|ai| {
+                    shared["ai_records"][ai.as_u64().unwrap() as usize]["visits"]
+                        .as_array()
+                        .unwrap()
+                        .len()
+                })
                 .collect();
             assert_eq!(histories.len(), 4);
             assert_eq!(game.known_actor_ids().len(), 5);

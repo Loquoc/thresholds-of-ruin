@@ -89,7 +89,12 @@ fn self_device_source(root: &Path, with_other: bool, condition: bool) -> crate::
 
 fn nothing_actor(saved: &Value, actor: ActorId) -> &Value {
     let index = saved["game"]["actors"].as_u64().unwrap() as usize;
-    &saved["shared"]["actors"][index][actor.0.to_string()]
+    let id = actor.0.to_string();
+    let directory = saved["shared"]["actors"][index].as_object().unwrap();
+    if !directory.contains_key(&id) {
+        return &Value::Null;
+    }
+    crate::checkpoint_fixture::actor(&saved["shared"], index, &id)
 }
 fn nothing_items(saved: &Value) -> &serde_json::Map<String, Value> {
     let index = saved["game"]["items"].as_u64().unwrap() as usize;
@@ -2801,12 +2806,14 @@ fn first_contact_stamina(wire: &mut Wire) -> ResourceView {
 fn first_contact_saved_plan_negatives(wire: &Wire, saved: &Value, ordinary: bool) {
     let bytes = serde_json::to_vec(saved).unwrap();
     wire.service.engine.test_restore_checkpoint(&bytes).unwrap();
-    let actors = saved["game"]["actors"].as_u64().unwrap();
+    let actors = saved["game"]["actors"].as_u64().unwrap() as usize;
     let path = format!(
-        "/shared/actors/{actors}/1/pending/plan{}",
+        "/pending/plan{}",
         if ordinary { "" } else { "/delivery/plan" }
     );
-    let baseline = saved.pointer(&path).unwrap();
+    let baseline = crate::checkpoint_fixture::actor(&saved["shared"], actors, "1")
+        .pointer(&path)
+        .unwrap();
     assert_eq!(baseline["traversal"], json!({"kind":"first_body"}));
     assert_eq!(baseline["resolution"], json!({"kind":"checkless"}));
     let mutations = [
@@ -2832,7 +2839,9 @@ fn first_contact_saved_plan_negatives(wire: &Wire, saved: &Value, ordinary: bool
     ];
     for (field, value) in mutations {
         let mut bad = saved.clone();
-        bad.pointer_mut(&path).unwrap()[field] = value;
+        crate::checkpoint_fixture::actor_mut(&mut bad["shared"], actors, "1")
+            .pointer_mut(&path)
+            .unwrap()[field] = value;
         assert!(
             wire.service
                 .engine
@@ -2843,7 +2852,8 @@ fn first_contact_saved_plan_negatives(wire: &Wire, saved: &Value, ordinary: bool
     }
     for field in ["traversal", "resolution"] {
         let mut bad = saved.clone();
-        bad.pointer_mut(&path)
+        crate::checkpoint_fixture::actor_mut(&mut bad["shared"], actors, "1")
+            .pointer_mut(&path)
             .unwrap()
             .as_object_mut()
             .unwrap()

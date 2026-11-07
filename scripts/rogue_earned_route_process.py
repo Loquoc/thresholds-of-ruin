@@ -153,7 +153,8 @@ def read_authoritative_evidence(save, selected):
     branch = saved['current_branch']
     if records and records[-1]['entry']['branch'] != branch:
         raise EvidenceError('Final checkpoint and history branches disagree')
-    actors = saved['shared']['actors'][saved['game']['actors']]
+    actors = {actor: saved['shared']['actor_records'][index]
+              for actor, index in saved['shared']['actors'][saved['game']['actors']].items()}
     creature = copy.deepcopy(actors[str(selected)]['combat']['creature'])
     return {'anchor': {'lineage': base['branch'], 'branch': branch,
                       'history_sequence': sequence, 'entry_id': records[-1]['entry']['id'] if records else None,

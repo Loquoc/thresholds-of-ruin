@@ -36,8 +36,10 @@ class RenderReceipt(unittest.TestCase):
             self.assertEqual([c for batch in batches for c in batch['captures']], script['captures'])
             for batch in batches:
                 self.assertLessEqual(len(batch['captures']), 5)
-                self.assertEqual({k: v for k, v in batch.items() if k != 'captures'},
-                                 {k: v for k, v in script.items() if k != 'captures'})
+                end = max(c['tick'] for c in batch['captures'])
+                self.assertEqual(batch['events'], [e for e in script['events'] if e['tick'] <= end])
+                self.assertEqual({k: v for k, v in batch.items() if k not in ('captures', 'events')},
+                                 {k: v for k, v in script.items() if k not in ('captures', 'events')})
 
     def test_manifest_requires_exact_names_ticks_renderer_and_actual_images(self):
         import copy

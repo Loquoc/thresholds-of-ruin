@@ -43,8 +43,15 @@ def validate_manifest(script, manifest, output):
 
 def capture_batches(script):
     """Bound readback work per process without dropping poses or changing actors."""
-    return [dict(script, captures=script['captures'][i:i + 5])
-            for i in range(0, len(script['captures']), 5)]
+    batches = []
+    for i in range(0, len(script['captures']), 5):
+        captures = script['captures'][i:i + 5]
+        end = max(c['tick'] for c in captures)
+        # The native schema rejects future events after the final capture.
+        # Keep the complete causal prefix for every requested pose.
+        events = [event for event in script['events'] if event['tick'] <= end]
+        batches.append(dict(script, captures=captures, events=events))
+    return batches
 
 
 def main():

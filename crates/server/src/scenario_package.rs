@@ -7496,7 +7496,7 @@ value = 13
             .as_u64()
             .unwrap() as usize;
         let recorded = serde_json::to_value(&shared).unwrap();
-        let ready = &recorded["actors"][pool]["2"]["readied_ambush"];
+        let ready = &crate::checkpoint_fixture::actor(&recorded, pool, "2")["readied_ambush"];
         assert_eq!(ready["state"], "ready");
         assert_eq!(ready["body"], serde_json::to_value(body).unwrap());
         assert_eq!(
@@ -7750,7 +7750,11 @@ value = 13
             ("2", inherited_creature, inherited_body, 73),
             ("3", override_creature, override_body, 89),
         ] {
-            let actor = &shared["actors"][snapshot["actors"].as_u64().unwrap() as usize][id];
+            let actor = crate::checkpoint_fixture::actor(
+                &shared,
+                snapshot["actors"].as_u64().unwrap() as usize,
+                id,
+            );
             let id_number = id.parse::<u64>().unwrap();
             let expected = catalog
                 .prepare(&recipe)
@@ -7772,13 +7776,17 @@ value = 13
             assert_eq!(actor["asset"], "creature.guard");
         }
         assert_eq!(
-            snapshot["combat"]["ai"]["2"]["profile"],
+            shared["ai_records"][snapshot["combat"]["ai"]["2"].as_u64().unwrap() as usize]
+                ["profile"],
             serde_json::json!({"idle": "explore", "doors": false,
                 "care": true, "equipment": true, "loot": true, "gold": false, "flee_percent": 19})
         );
         assert_eq!(
-            shared["actors"][snapshot["actors"].as_u64().unwrap() as usize]["3"]["motion"]
-                ["velocity"],
+            crate::checkpoint_fixture::actor(
+                &shared,
+                snapshot["actors"].as_u64().unwrap() as usize,
+                "3"
+            )["motion"]["velocity"],
             serde_json::json!([1, 0, 0])
         );
         let items = &shared["items"][snapshot["items"].as_u64().unwrap() as usize];

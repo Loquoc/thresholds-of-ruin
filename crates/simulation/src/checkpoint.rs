@@ -1,5 +1,6 @@
 //! Backend-only deterministic checkpoint state. Equal world and navigation
-//! regions, actor tables, map-owner directories, intentions and population states
+//! regions, actor/AI records, actor tables, map-owner directories, intentions and
+//! population states
 //! are encoded once across rewind boundaries.
 //! This module does not perform storage or I/O.
 //!
@@ -108,6 +109,7 @@ pub enum PersistError {
     Physics,
     Spatial,
     RunState,
+    RecordPool,
     Schedule,
     World,
 }
@@ -121,7 +123,7 @@ impl std::error::Error for PersistError {}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {
-    combat: crate::combat::CombatWorld,
+    combat: crate::combat::CombatWorld<usize>,
     rules_rng: u64,
     #[serde(deserialize_with = "read_events")]
     events: Vec<crate::combat::CombatEvent>,
@@ -227,6 +229,9 @@ impl<'de> Deserialize<'de> for RetrievalSnapshot {
     }
 }
 
+#[path = "checkpoint_records.rs"]
+mod record_pool;
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SharedState {
@@ -242,7 +247,16 @@ pub struct SharedState {
     #[serde(with = "explored_map_owners")]
     explored_map_owners: Vec<BTreeMap<ActorId, usize>>,
     items: Vec<BTreeMap<ItemId, Item>>,
-    actors: Vec<BTreeMap<ActorId, ActorRecord>>,
+    #[serde(deserialize_with = "read_actor_directories")]
+    actors: Vec<BTreeMap<ActorId, usize>>,
+    actor_records: record_pool::Pool<ActorRecord>,
+    ai_records: record_pool::Pool<crate::ai::Ai>,
+    // Call-local hints only: canonical record contents and indices remain the
+    // authority. Weak identities prevent ABA without retaining actor payloads.
+    #[serde(skip)]
+    actor_capture_sources: BTreeMap<ActorId, (tor_world::SharedIdentity<Actor>, usize)>,
+    #[serde(skip)]
+    ai_capture_sources: BTreeMap<ActorId, usize>,
     intentions: crate::intention::checkpoint::Pool,
     /// Identical lifecycle states (with their identity directories) across
     /// rewind boundaries are encoded once.
@@ -259,6 +273,67 @@ pub struct SharedState {
     #[serde(deserialize_with = "read_retrieval_policies")]
     retrieval_policies: Vec<Shared<crate::unique_retrieval::UniqueRetrievalPolicy>>,
 }
+/// Actor identities use JSON object keys, preserving the existing directory
+/// shape while replacing each complete value with its checkpoint-local index.
+/// The custom reader rejects duplicates instead of silently overwriting them.
+pub(crate) fn read_actor_directory<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<ActorId, T>, D::Error> {
+    struct Directory<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Directory<T> {
+        type Value = BTreeMap<ActorId, T>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an object with unique nonzero actor identities")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            // Even the shortest nonzero JSON identity/index entry needs more
+            // than four bytes; this cannot shrink the outer archive byte cap.
+            let limit = ARCHIVE_BYTE_LIMIT / 4;
+            if map.size_hint().is_some_and(|size| size > limit) {
+                return Err(serde::de::Error::custom("actor directory exceeds limit"));
+            }
+            let mut directory = BTreeMap::new();
+            while let Some((actor, value)) = map.next_entry::<ActorId, T>()? {
+                if directory.len() >= limit {
+                    return Err(serde::de::Error::custom("actor directory exceeds limit"));
+                }
+                if actor.0 == 0 || directory.insert(actor, value).is_some() {
+                    return Err(serde::de::Error::custom(
+                        "invalid or duplicate actor identity",
+                    ));
+                }
+            }
+            Ok(directory)
+        }
+    }
+    deserializer.deserialize_map(Directory(std::marker::PhantomData))
+}
+
+fn read_actor_directories<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<BTreeMap<ActorId, usize>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(transparent)]
+    struct Directory(#[serde(deserialize_with = "read_actor_directory")] BTreeMap<ActorId, usize>);
+    let directories =
+        crate::bounded::Bounded::<Directory, MAX_CHECKPOINT_ROOTS>::deserialize(deserializer)?.0;
+    let mut unique = BTreeSet::new();
+    if directories
+        .iter()
+        .any(|directory| !unique.insert(&directory.0))
+    {
+        return Err(serde::de::Error::custom("duplicate actor directory"));
+    }
+    drop(unique);
+    Ok(directories
+        .into_iter()
+        .map(|directory| directory.0)
+        .collect())
+}
+
 fn read_population_bases<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Vec<crate::floor_activation::ActivationState>, D::Error> {
@@ -319,6 +394,145 @@ mod explored_map_owners {
 }
 
 impl SharedState {
+    fn capture_actor(&mut self, id: ActorId, actor: &Shared<Actor>) -> usize {
+        if let Some((source, index)) = self.actor_capture_sources.get(&id) {
+            if source.matches(actor) {
+                return *index;
+            }
+        }
+        // Different allocations, including equal values after COW, still use
+        // complete structural deduplication and the same bounded fingerprint.
+        let index = self.actor_records.insert(ActorRecord::capture(actor));
+        self.actor_capture_sources
+            .insert(id, (actor.weak_identity(), index));
+        index
+    }
+
+    fn capture_ai(&mut self, id: ActorId, ai: &crate::ai::Ai) -> usize {
+        if let Some(&index) = self.ai_capture_sources.get(&id) {
+            // Compare the complete value, not Ai's address or just its visits.
+            // Equal shared region buckets avoid traversing unchanged entries.
+            if self.ai_records.get(index) == Some(ai) {
+                return index;
+            }
+        }
+        let index = self.ai_records.insert(ai.clone());
+        self.ai_capture_sources.insert(id, index);
+        index
+    }
+
+    /// Whether every snapshot's expanded actor and AI record bindings fit the
+    /// archive byte ceiling. Aliases within one snapshot are charged repeatedly;
+    /// sharing across retained snapshots does not consume a common budget.
+    /// Writers must check this before publishing a checkpoint, and readers before
+    /// reconstructing actor payloads. Missing references are corruption, not size.
+    ///
+    /// # Errors
+    /// Returns [`PersistError::RecordPool`] for malformed or unused record
+    /// references; these must not be treated as capacity failures.
+    pub fn record_expansion_within_limit(
+        &self,
+        snapshots: &[&Snapshot],
+    ) -> Result<bool, PersistError> {
+        self.record_expansion_with_budget(snapshots, ARCHIVE_BYTE_LIMIT)
+    }
+
+    fn record_expansion_with_budget(
+        &self,
+        snapshots: &[&Snapshot],
+        limit: usize,
+    ) -> Result<bool, PersistError> {
+        // Reject malformed references before charging bytes, so corruption can
+        // never masquerade as a deferrable checkpoint-capacity failure.
+        if !self.record_references_valid(snapshots) {
+            return Err(PersistError::RecordPool);
+        }
+        for snapshot in snapshots {
+            let directory =
+                self.actors
+                    .get(snapshot.actors)
+                    .ok_or(PersistError::MissingShared {
+                        table: "actors",
+                        index: snapshot.actors,
+                    })?;
+            let mut remaining = limit;
+            for &index in directory.values() {
+                let bytes =
+                    self.actor_records
+                        .encoded_bytes(index)
+                        .map_err(|error| match error {
+                            record_pool::SizeError::Missing => PersistError::MissingShared {
+                                table: "actor_records",
+                                index,
+                            },
+                            record_pool::SizeError::Serialization => PersistError::RecordPool,
+                        })?;
+                let Some(next) = remaining.checked_sub(bytes) else {
+                    return Ok(false);
+                };
+                remaining = next;
+            }
+            for &index in snapshot.combat.ai.values() {
+                let bytes = self
+                    .ai_records
+                    .encoded_bytes(index)
+                    .map_err(|error| match error {
+                        record_pool::SizeError::Missing => PersistError::MissingShared {
+                            table: "ai_records",
+                            index,
+                        },
+                        record_pool::SizeError::Serialization => PersistError::RecordPool,
+                    })?;
+                let Some(next) = remaining.checked_sub(bytes) else {
+                    return Ok(false);
+                };
+                remaining = next;
+            }
+        }
+        Ok(true)
+    }
+
+    /// Every actor/AI payload belongs to at least one retained snapshot, and
+    /// every directory reference names a complete decoded record. This check
+    /// binds the entire root set; checking only the current game is insufficient.
+    fn record_references_valid(&self, snapshots: &[&Snapshot]) -> bool {
+        let mut directories = BTreeSet::new();
+        let mut actors = BTreeSet::new();
+        let mut ai = BTreeSet::new();
+        for snapshot in snapshots {
+            let Some(directory) = self.actors.get(snapshot.actors) else {
+                return false;
+            };
+            directories.insert(snapshot.actors);
+            for (&id, &index) in directory {
+                if id.0 == 0 || self.actor_records.encoded_bytes(index).is_err() {
+                    return false;
+                }
+                actors.insert(index);
+            }
+            for (&id, &index) in &snapshot.combat.ai {
+                if id.0 == 0
+                    || !directory.contains_key(&id)
+                    || self.ai_records.encoded_bytes(index).is_err()
+                {
+                    return false;
+                }
+                ai.insert(index);
+            }
+        }
+        directories.len() == self.actors.len()
+            && actors.len() == self.actor_records.len()
+            && ai.len() == self.ai_records.len()
+    }
+
+    // Test-only reference path: clear hints without changing canonical records
+    // or validation state, to compare exact serialized output against cold capture.
+    #[cfg(test)]
+    fn clear_capture_memos(&mut self) {
+        self.actor_capture_sources.clear();
+        self.ai_capture_sources.clear();
+    }
+
     /// Prepare a decoded pool for strict canonical-shape serialization using the
     /// current snapshot and every retained history snapshot. This is not restore
     /// authority: each RestoreContext must still bind its actual roots. Callers
@@ -446,6 +660,10 @@ pub struct RestoreContext<'a> {
     explored_maps: Option<explored_map_regions::RestoreValidation>,
     items: BTreeMap<usize, crate::item_store::ItemStore>,
     actors: BTreeMap<(usize, usize), crate::actor_store::ActorStore>,
+    // Successful ActorRecord restoration depends on its complete payload,
+    // item table and this context's pinned content, not the binding ActorId.
+    // Every boundary still validates actor/world/ownership consistency.
+    actor_records: BTreeMap<(usize, usize), Shared<Actor>>,
     intentions: crate::intention::checkpoint::Restore,
     bodies: BTreeSet<Shared<crate::BodySpec>>,
     item_definitions: BTreeSet<Shared<crate::ItemSpec>>,
@@ -468,6 +686,9 @@ impl<'a> RestoreContext<'a> {
     pub fn bind_spatial_roots(&mut self, snapshots: &[&Snapshot]) -> Result<(), PersistError> {
         if self.spatial.is_some() || snapshots.len() > MAX_CHECKPOINT_ROOTS {
             return Err(PersistError::Spatial);
+        }
+        if !self.shared.record_expansion_within_limit(snapshots)? {
+            return Err(PersistError::RecordPool);
         }
         if !self
             .shared
@@ -528,6 +749,7 @@ impl<'a> RestoreContext<'a> {
             explored_maps: None,
             items: BTreeMap::new(),
             actors: BTreeMap::new(),
+            actor_records: BTreeMap::new(),
             intentions: crate::intention::checkpoint::Restore::default(),
             bodies: BTreeSet::new(),
             item_definitions: BTreeSet::new(),
@@ -750,25 +972,32 @@ impl<'a> RestoreContext<'a> {
                 table: "items",
                 index: item_index,
             })?;
-        let mut entries = records
-            .iter()
-            .map(|(id, record)| {
-                record
-                    .restore(*id, self.content.clone(), items)
-                    .map(|actor| (*id, actor))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
-        self.share_actor_definitions(&mut entries);
-        let actors = crate::actor_store::ActorStore::from_entries(entries);
+        let mut entries = BTreeMap::new();
+        for (&id, &record_index) in records {
+            let key = (record_index, item_index);
+            let actor = if let Some(actor) = self.actor_records.get(&key) {
+                actor.clone()
+            } else {
+                let mut actor = self
+                    .shared
+                    .actor_records
+                    .get(record_index)
+                    .ok_or(PersistError::MissingShared {
+                        table: "actor_records",
+                        index: record_index,
+                    })?
+                    .restore(id, self.content.clone(), items)?;
+                share_definition(&mut self.anatomies, &mut actor.anatomy);
+                share_definition(&mut self.bodies, &mut actor.body);
+                let actor = Shared::new(actor);
+                self.actor_records.insert(key, actor.clone());
+                actor
+            };
+            entries.insert(id, actor);
+        }
+        let actors = crate::actor_store::ActorStore::from_shared_entries(entries);
         self.actors.insert((index, item_index), actors.clone());
         Ok(actors)
-    }
-
-    fn share_actor_definitions(&mut self, actors: &mut BTreeMap<ActorId, Actor>) {
-        for actor in actors.values_mut() {
-            share_definition(&mut self.anatomies, &mut actor.anatomy);
-            share_definition(&mut self.bodies, &mut actor.body);
-        }
     }
 }
 
@@ -818,8 +1047,8 @@ impl Game {
         );
         let actor_records: BTreeMap<_, _> = self
             .actors
-            .iter()
-            .map(|(id, actor)| (*id, ActorRecord::capture(actor)))
+            .checkpoint_sources()
+            .map(|(&id, actor)| (id, shared.capture_actor(id, actor)))
             .collect();
         let explored_map_owners: BTreeMap<_, _> = self
             .explored_maps
@@ -839,7 +1068,13 @@ impl Game {
         Snapshot {
             spatial: shared.spatial.capture_snapshot(&self.spatial_registry),
             chart_history,
-            combat: self.combat.clone(),
+            combat: self.combat.with_ai(
+                self.combat
+                    .ai
+                    .iter()
+                    .map(|(&id, ai)| (id, shared.capture_ai(id, ai)))
+                    .collect(),
+            ),
             rules_rng: self.rules_rng,
             events: self.event_log.clone(),
             event_receipts: self.event_receipts.clone(),
@@ -964,7 +1199,25 @@ impl Game {
         let population_base = snapshot.floor_activation.as_ref().map(|state| state.state);
         let mut game = Self {
             content: context.content.clone(),
-            combat: snapshot.combat,
+            combat: snapshot.combat.with_ai(
+                snapshot
+                    .combat
+                    .ai
+                    .iter()
+                    .map(|(&id, &index)| {
+                        context
+                            .shared
+                            .ai_records
+                            .get(index)
+                            .cloned()
+                            .map(|record| (id, record))
+                            .ok_or(PersistError::MissingShared {
+                                table: "ai_records",
+                                index,
+                            })
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
             rules_rng: snapshot.rules_rng,
             event_log: snapshot.events,
             event_receipts: snapshot.event_receipts,
@@ -1440,7 +1693,7 @@ mod tests {
         assert!(restored.actors[&actor].knowledge.contains(&historical));
         for invalid in ["item", "item.potion", "item.unknown", "item.potion.unknown"] {
             let mut forged = good.clone();
-            forged["actors"][snapshot.actors]["1"]["knowledge"] =
+            forged["actor_records"][shared.actors[snapshot.actors][&ActorId(1)]]["knowledge"] =
                 serde_json::json!([historical.as_str(), invalid]);
             let decoded: SharedState = serde_json::from_value(forged).unwrap();
             assert!(
@@ -1467,7 +1720,8 @@ mod tests {
         let mut shared = SharedState::default();
         let snapshot = game.checkpoint(&mut shared);
         let mut value = serde_json::to_value(&shared).unwrap();
-        value["actors"][snapshot.actors]["1"]["active_since"] = serde_json::json!(game.tick() + 1);
+        value["actor_records"][shared.actors[snapshot.actors][&ActorId(1)]]["active_since"] =
+            serde_json::json!(game.tick() + 1);
         let forged: SharedState = serde_json::from_value(value).unwrap();
         assert_eq!(
             Game::restore_checkpoint(snapshot, &forged, game.content().clone()),
@@ -1515,6 +1769,567 @@ mod tests {
         assert!(context.restore(valid).is_ok());
         assert!(context.restore(other_world).is_err());
         assert!(context.restore(other_actor).is_err());
+    }
+
+    fn pooled_ai_fixture() -> Game {
+        let mut game = Game::two_room_in_stone(42, crate::test_creatures::content());
+        for x in 1..=3 {
+            let actor = game
+                .spawn_actor(
+                    Location {
+                        region: RegionId(1),
+                        position: Position { x, y: 1, z: 0 },
+                    },
+                    NonZeroU64::new(100).unwrap(),
+                )
+                .unwrap();
+            crate::test_creatures::configure(
+                &mut game,
+                actor,
+                "peaceful",
+                crate::test_creatures::species(),
+            );
+            game.configure_ai(actor, crate::ai::AiProfile::default())
+                .unwrap();
+            for x in 1..=4 {
+                game.combat.ai.get_mut(&actor).unwrap().visits.insert(
+                    Location {
+                        region: RegionId(1),
+                        position: Position { x, y: 1, z: 0 },
+                    },
+                    actor.0 + x as u64,
+                );
+            }
+        }
+        game
+    }
+
+    fn assert_capture_sequence_round_trip(
+        snapshots: &[Snapshot],
+        shared: &SharedState,
+        games: &[Game],
+    ) {
+        let bytes = serde_json::to_vec(&(snapshots, shared)).unwrap();
+        let (decoded, shared): (Vec<Snapshot>, SharedState) =
+            serde_json::from_slice(&bytes).unwrap();
+        let mut restore = RestoreContext::new(&shared, games[0].content().clone());
+        restore
+            .bind_spatial_roots(&decoded.iter().collect::<Vec<_>>())
+            .unwrap();
+        let actual: Vec<_> = decoded
+            .into_iter()
+            .map(|root| restore.restore(root).unwrap())
+            .collect();
+        assert_eq!(actual, games);
+    }
+
+    #[test]
+    fn capture_memo_skips_unchanged_actor_fingerprints_and_tracks_cow() {
+        let mut game = pooled_ai_fixture();
+        let original = game.clone();
+        let mut shared = SharedState::default();
+        let mut snapshots = vec![game.checkpoint(&mut shared)];
+        let first_work = shared.actor_records.capture_fingerprint_work();
+        assert_eq!(first_work.0, game.actors.len());
+        assert!(first_work.1 > 0);
+        let mut expected = vec![game.clone()];
+        for _ in 0..8 {
+            snapshots.push(game.checkpoint(&mut shared));
+            expected.push(game.clone());
+        }
+        game.actors.get_mut(&ActorId(1)).unwrap().ready_at += 100;
+        let changed_bytes = serde_json::to_vec(&ActorRecord::capture(&game.actors[&ActorId(1)]))
+            .unwrap()
+            .len();
+        snapshots.push(game.checkpoint(&mut shared));
+        expected.push(game.clone());
+        // Returning to an older immutable source must recover its original index.
+        snapshots.push(original.checkpoint(&mut shared));
+        expected.push(original.clone());
+        let original_bytes =
+            serde_json::to_vec(&ActorRecord::capture(&original.actors[&ActorId(1)]))
+                .unwrap()
+                .len();
+        assert_capture_sequence_round_trip(&snapshots, &shared, &expected);
+        assert_eq!(shared.actor_records.len(), first_work.0 + 1);
+        assert_eq!(
+            shared.actor_records.capture_fingerprint_work(),
+            (
+                first_work.0 + 2,
+                first_work.1 + changed_bytes + original_bytes
+            ),
+            "unchanged source allocations must not be serialized again"
+        );
+    }
+
+    #[test]
+    fn capture_memo_skips_equal_ai_and_detects_profile_state_and_visit_changes() {
+        let mut game = pooled_ai_fixture();
+        let mut shared = SharedState::default();
+        let mut snapshots = vec![game.checkpoint(&mut shared)];
+        let mut expected = vec![game.clone()];
+        let first_work = shared.ai_records.capture_fingerprint_work();
+        assert_eq!(first_work.0, game.combat.ai.len());
+        assert!(first_work.1 > 0);
+        let mut changed_bytes = 0;
+        for change in 0..4 {
+            for _ in 0..4 {
+                snapshots.push(game.checkpoint(&mut shared));
+                expected.push(game.clone());
+            }
+            let ai = game.combat.ai.get_mut(&ActorId(2)).unwrap();
+            match change {
+                0 => ai.profile.flee_percent += 1,
+                1 => ai.state = crate::ai::State::Flee,
+                2 => {
+                    ai.visits.insert(
+                        Location {
+                            region: RegionId(1),
+                            position: Position { x: 1, y: 1, z: 0 },
+                        },
+                        999,
+                    );
+                }
+                _ => {
+                    ai.visits = original_ai_visits();
+                }
+            }
+            changed_bytes += serde_json::to_vec(ai).unwrap().len();
+            snapshots.push(game.checkpoint(&mut shared));
+            expected.push(game.clone());
+        }
+        assert_capture_sequence_round_trip(&snapshots, &shared, &expected);
+        // The final change revisits the complete value after change 1: it
+        // needs a fingerprint on the memo miss, but no new pooled payload.
+        assert_eq!(shared.ai_records.len(), first_work.0 + 3);
+        assert_eq!(
+            shared.ai_records.capture_fingerprint_work(),
+            (first_work.0 + 4, first_work.1 + changed_bytes),
+            "only changed complete AI values require new fingerprints"
+        );
+    }
+
+    fn original_ai_visits() -> crate::navigation_map::RegionMap<Location, u64> {
+        pooled_ai_fixture()
+            .combat
+            .ai
+            .remove(&ActorId(2))
+            .unwrap()
+            .visits
+    }
+
+    #[test]
+    fn capture_memo_preserves_structural_dedup_and_decoded_round_trip_bytes() {
+        let mut game = pooled_ai_fixture();
+        let mut warm = SharedState::default();
+        let mut cold = SharedState::default();
+        let mut warm_roots = Vec::new();
+        let mut cold_roots = Vec::new();
+        let mut expected = Vec::new();
+        for step in 0..5 {
+            if step == 2 {
+                // Equal new allocation must use structural fallback, never mint a record.
+                let actor = game.actors[&ActorId(1)].clone();
+                game.actors.insert(ActorId(1), actor);
+            }
+            if step == 3 {
+                game.actors.get_mut(&ActorId(1)).unwrap().ready_at += 1;
+            }
+            warm_roots.push(game.checkpoint(&mut warm));
+            // Clear only capture hints, keeping the exact same canonical pools.
+            cold.clear_capture_memos();
+            cold_roots.push(game.checkpoint(&mut cold));
+            expected.push(game.clone());
+        }
+        assert_eq!(warm.actor_records.len(), game.actors.len() + 1);
+        assert_eq!(
+            serde_json::to_vec(&(&warm_roots, &warm)).unwrap(),
+            serde_json::to_vec(&(&cold_roots, &cold)).unwrap()
+        );
+        let bytes = serde_json::to_vec(&(&warm_roots, &warm)).unwrap();
+        let (decoded_roots, mut decoded): (Vec<Snapshot>, SharedState) =
+            serde_json::from_slice(&bytes).unwrap();
+        decoded
+            .prepare_spatial_serialization(&decoded_roots.iter().collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(
+            serde_json::to_vec(&(&decoded_roots, &decoded)).unwrap(),
+            bytes
+        );
+        assert_capture_sequence_round_trip(&decoded_roots, &decoded, &expected);
+        assert_capture_sequence_round_trip(&warm_roots, &warm, &expected);
+        assert_capture_sequence_round_trip(&cold_roots, &cold, &expected);
+        assert_eq!(
+            warm.actor_records.capture_fingerprint_work().0,
+            game.actors.len() + 2
+        );
+    }
+
+    #[test]
+    fn retained_ai_records_share_visits_and_restore_independent_mutable_states() {
+        let mut game = pooled_ai_fixture();
+        let mut shared = SharedState::default();
+        let mut expected = Vec::new();
+        let snapshots: Vec<_> = (0..32)
+            .map(|n| {
+                game.actors.get_mut(&ActorId(1)).unwrap().ready_at = 100 + n;
+                if n == 16 {
+                    let at = game.actors[&ActorId(2)].location;
+                    game.combat
+                        .ai
+                        .get_mut(&ActorId(2))
+                        .unwrap()
+                        .visits
+                        .insert(at, 1000);
+                }
+                expected.push(game.clone());
+                game.checkpoint(&mut shared)
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&(snapshots, shared)).unwrap();
+        // This schema-independent witness also fails against the old embedded
+        // AI representation: 32 snapshots multiply three complete visit maps.
+        let visit_fields = std::str::from_utf8(&bytes)
+            .unwrap()
+            .matches("\"visits\":")
+            .count();
+        let (snapshots, shared): (Vec<Snapshot>, SharedState) =
+            serde_json::from_slice(&bytes).unwrap();
+        let mut context = RestoreContext::new(&shared, game.content().clone());
+        context
+            .bind_spatial_roots(&snapshots.iter().collect::<Vec<_>>())
+            .unwrap();
+        let mut restored: Vec<_> = snapshots
+            .into_iter()
+            .map(|s| context.restore(s).unwrap())
+            .collect();
+        assert_eq!(restored, expected);
+        let at = restored[0].actors[&ActorId(2)].location;
+        restored[0]
+            .combat
+            .ai
+            .get_mut(&ActorId(2))
+            .unwrap()
+            .visits
+            .insert(at, 2000);
+        assert_eq!(restored[1], expected[1]);
+        assert_eq!(restored[16], expected[16]);
+        assert_eq!(
+            visit_fields, 4,
+            "only one of three complete AI records changes"
+        );
+    }
+
+    #[test]
+    fn changing_one_actor_does_not_repeat_other_actor_records() {
+        let mut world = World::new(vec![], vec![]).unwrap();
+        world
+            .add_region(tor_world::Region {
+                id: RegionId(1),
+                name: "record pooling".into(),
+                bounds: tor_world::Extent::new(34, 3, 1).unwrap(),
+            })
+            .unwrap();
+        let mut game = Game::new(world, 42, crate::test_creatures::content());
+        for x in 1..=32 {
+            game.spawn_actor(
+                Location {
+                    region: RegionId(1),
+                    position: Position { x, y: 1, z: 0 },
+                },
+                NonZeroU64::new(100).unwrap(),
+            )
+            .unwrap();
+        }
+        let mut one = SharedState::default();
+        let first = game.checkpoint(&mut one);
+        let single_bytes = serde_json::to_vec(&(vec![first], one)).unwrap().len();
+        let mut shared = SharedState::default();
+        let mut expected = Vec::new();
+        let snapshots: Vec<_> = (0..64)
+            .map(|n| {
+                game.actors.get_mut(&ActorId(1)).unwrap().body.mass = 80 + n;
+                expected.push(game.clone());
+                game.checkpoint(&mut shared)
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&(snapshots, shared)).unwrap();
+        let (snapshots, shared): (Vec<Snapshot>, SharedState) =
+            serde_json::from_slice(&bytes).unwrap();
+        let mut context = RestoreContext::new(&shared, game.content().clone());
+        context
+            .bind_spatial_roots(&snapshots.iter().collect::<Vec<_>>())
+            .unwrap();
+        let mut restored: Vec<_> = snapshots
+            .into_iter()
+            .map(|s| context.restore(s).unwrap())
+            .collect();
+        assert_eq!(restored, expected);
+        restored[0].actors.get_mut(&ActorId(2)).unwrap().body.mass += 1;
+        assert_eq!(restored[1], expected[1]);
+        eprintln!(
+            "actor pooling fixture: single={single_bytes}, retained={}",
+            bytes.len()
+        );
+        assert!(
+            bytes.len() < single_bytes * 8,
+            "one changed actor repeated unrelated records: {} versus {}",
+            bytes.len(),
+            single_bytes
+        );
+    }
+
+    #[test]
+    fn expanded_record_budget_charges_aliases_but_not_other_snapshots() {
+        let game = pooled_ai_fixture();
+        let mut shared = SharedState::default();
+        let mut snapshot = game.checkpoint(&mut shared);
+        let total = shared.actors[snapshot.actors]
+            .values()
+            .map(|&index| shared.actor_records.encoded_bytes(index).unwrap())
+            .sum::<usize>()
+            + snapshot
+                .combat
+                .ai
+                .values()
+                .map(|&index| shared.ai_records.encoded_bytes(index).unwrap())
+                .sum::<usize>();
+        assert!(shared
+            .record_expansion_with_budget(&[&snapshot], total)
+            .unwrap());
+        assert!(shared
+            .record_expansion_with_budget(&[&snapshot, &snapshot], total)
+            .unwrap());
+        assert!(!shared
+            .record_expansion_with_budget(&[&snapshot], total - 1)
+            .unwrap());
+        let record = shared.actors[snapshot.actors][&ActorId(1)];
+        let actor_bytes = shared.actor_records.encoded_bytes(record).unwrap();
+        shared.actors[snapshot.actors].insert(ActorId(999), record);
+        assert!(!shared
+            .record_expansion_with_budget(&[&snapshot], total)
+            .unwrap());
+        assert!(shared
+            .record_expansion_with_budget(&[&snapshot], total + actor_bytes)
+            .unwrap());
+        let ai = snapshot.combat.ai[&ActorId(1)];
+        let ai_bytes = shared.ai_records.encoded_bytes(ai).unwrap();
+        snapshot.combat.ai.insert(ActorId(999), ai);
+        assert!(!shared
+            .record_expansion_with_budget(&[&snapshot], total + actor_bytes)
+            .unwrap());
+        assert!(shared
+            .record_expansion_with_budget(&[&snapshot], total + actor_bytes + ai_bytes)
+            .unwrap());
+        let bytes = serde_json::to_vec(&(snapshot, shared)).unwrap();
+        let (snapshot, shared): (Snapshot, SharedState) = serde_json::from_slice(&bytes).unwrap();
+        assert!(shared
+            .record_expansion_with_budget(&[&snapshot], total + actor_bytes + ai_bytes)
+            .unwrap());
+        assert!(!shared
+            .record_expansion_with_budget(&[&snapshot], total + actor_bytes + ai_bytes - 1)
+            .unwrap());
+        assert!(shared.record_expansion_within_limit(&[&snapshot]).unwrap());
+    }
+
+    #[test]
+    fn restored_record_cache_shares_actors_across_distinct_directories() {
+        let mut game = pooled_ai_fixture();
+        let earlier = game.clone();
+        let mut shared = SharedState::default();
+        let before = game.checkpoint(&mut shared);
+        game.actors.get_mut(&ActorId(1)).unwrap().ready_at += 100;
+        let after = game.checkpoint(&mut shared);
+        assert_ne!(before.actors, after.actors);
+        let bytes = serde_json::to_vec(&(vec![before, after], shared)).unwrap();
+        let (snapshots, shared): (Vec<Snapshot>, SharedState) =
+            serde_json::from_slice(&bytes).unwrap();
+        let mut context = RestoreContext::new(&shared, game.content().clone());
+        context
+            .bind_spatial_roots(&snapshots.iter().collect::<Vec<_>>())
+            .unwrap();
+        let mut snapshots = snapshots.into_iter();
+        let mut first = context.restore(snapshots.next().unwrap()).unwrap();
+        let second = context.restore(snapshots.next().unwrap()).unwrap();
+        assert_eq!(first, earlier);
+        assert_eq!(second, game);
+        assert!(
+            std::ptr::eq(&first.actors[&ActorId(2)], &second.actors[&ActorId(2)]),
+            "an unchanged complete actor record was reconstructed for another directory"
+        );
+        first.actors.get_mut(&ActorId(2)).unwrap().body.mass += 1;
+        assert_eq!(second, game);
+    }
+
+    #[test]
+    fn restored_record_cache_is_scoped_to_item_table() {
+        let mut game = pooled_ai_fixture();
+        let at = game.actors[&ActorId(1)].location;
+        let mut spec =
+            crate::ItemSpec::ordinary("item.test.pool-token".parse().unwrap(), "pool token".into());
+        spec.stackable = true;
+        let item = game.place_item_stack(100, at, None, 2, spec).unwrap();
+        let earlier = game.clone();
+        let mut shared = SharedState::default();
+        let before = game.checkpoint(&mut shared);
+        game.items.edit(item, |entry| entry.quantity = 1).unwrap();
+        let after = game.checkpoint(&mut shared);
+        assert_eq!(before.actors, after.actors);
+        assert_ne!(before.items, after.items);
+        let mut context = RestoreContext::new(&shared, game.content().clone());
+        context.bind_spatial_roots(&[&before, &after]).unwrap();
+        let first = context.restore(before).unwrap();
+        let second = context.restore(after).unwrap();
+        assert_eq!(first, earlier);
+        assert_eq!(second, game);
+        assert!(
+            !std::ptr::eq(&first.actors[&ActorId(2)], &second.actors[&ActorId(2)]),
+            "record restoration must not reuse an actor validated against another item table"
+        );
+    }
+
+    #[test]
+    fn pooled_records_reject_missing_unused_duplicate_and_malformed_entries() {
+        let game = pooled_ai_fixture();
+        let mut shared = SharedState::default();
+        let snapshot = game.checkpoint(&mut shared);
+        let good = serde_json::to_value((&snapshot, &shared)).unwrap();
+        let valid: (Snapshot, SharedState) = serde_json::from_value(good.clone()).unwrap();
+        assert_eq!(
+            Game::restore_checkpoint(valid.0, &valid.1, game.content().clone()).unwrap(),
+            game
+        );
+        for field in ["actor_records", "ai_records"] {
+            let mut duplicate = good.clone();
+            let record = duplicate[1][field][0].clone();
+            duplicate[1][field].as_array_mut().unwrap().push(record);
+            assert!(
+                serde_json::from_value::<(Snapshot, SharedState)>(duplicate).is_err(),
+                "duplicate {field}"
+            );
+            let mut missing = good.clone();
+            missing[1].as_object_mut().unwrap().remove(field);
+            assert!(
+                serde_json::from_value::<(Snapshot, SharedState)>(missing).is_err(),
+                "missing {field}"
+            );
+            let mut malformed = good.clone();
+            malformed[1][field][0] = serde_json::json!({"unexpected": true});
+            assert!(
+                serde_json::from_value::<(Snapshot, SharedState)>(malformed).is_err(),
+                "malformed {field}"
+            );
+        }
+        for index in [usize::MAX, 999] {
+            let mut invalid = good.clone();
+            invalid[1]["actors"][0]["1"] = serde_json::json!(index);
+            let (snapshot, shared) =
+                serde_json::from_value::<(Snapshot, SharedState)>(invalid).unwrap();
+            assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
+            let mut invalid = good.clone();
+            invalid[0]["combat"]["ai"]["1"] = serde_json::json!(index);
+            let (snapshot, shared) =
+                serde_json::from_value::<(Snapshot, SharedState)>(invalid).unwrap();
+            assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
+        }
+        for field in ["actor_records", "ai_records"] {
+            let mut unused = good.clone();
+            let mut record = unused[1][field][0].clone();
+            if field == "actor_records" {
+                record["ready_at"] = serde_json::json!(1001);
+            } else {
+                record["profile"]["flee_percent"] = serde_json::json!(26);
+            }
+            unused[1][field].as_array_mut().unwrap().push(record);
+            let (snapshot, shared) =
+                serde_json::from_value::<(Snapshot, SharedState)>(unused).unwrap();
+            assert!(
+                matches!(
+                    Game::restore_checkpoint(snapshot, &shared, game.content().clone()),
+                    Err(PersistError::RecordPool)
+                ),
+                "unused {field} record"
+            );
+        }
+        let mut unknown_actor = good.clone();
+        let index = unknown_actor[0]["combat"]["ai"]
+            .as_object_mut()
+            .unwrap()
+            .remove("1")
+            .unwrap();
+        unknown_actor[0]["combat"]["ai"]["999"] = index;
+        let (snapshot, shared) =
+            serde_json::from_value::<(Snapshot, SharedState)>(unknown_actor).unwrap();
+        assert!(matches!(
+            Game::restore_checkpoint(snapshot, &shared, game.content().clone()),
+            Err(PersistError::RecordPool)
+        ));
+        let mut excessive = good.clone();
+        excessive[1]["actors"] = serde_json::Value::Array(
+            (0..=MAX_CHECKPOINT_ROOTS)
+                .map(|i| serde_json::json!({(i+1).to_string():0}))
+                .collect(),
+        );
+        assert!(serde_json::from_value::<(Snapshot, SharedState)>(excessive).is_err());
+    }
+
+    #[test]
+    fn pooled_record_indices_and_bytes_are_deterministic() {
+        let capture = || {
+            let mut game = pooled_ai_fixture();
+            let mut pool = SharedState::default();
+            let mut snapshots = Vec::new();
+            for value in [10, 20, 10] {
+                let at = game.actors[&ActorId(1)].location;
+                game.combat
+                    .ai
+                    .get_mut(&ActorId(1))
+                    .unwrap()
+                    .visits
+                    .insert(at, value);
+                snapshots.push(game.checkpoint(&mut pool));
+            }
+            serde_json::to_vec(&(snapshots, pool)).unwrap()
+        };
+        assert_eq!(capture(), capture());
+    }
+
+    #[test]
+    fn pooled_actor_and_ai_directories_reject_duplicate_keys_and_unused_directories() {
+        let game = pooled_ai_fixture();
+        let mut shared = SharedState::default();
+        let snapshot = game.checkpoint(&mut shared);
+        let snapshot_json = serde_json::to_string(&snapshot).unwrap();
+        let duplicate_ai = snapshot_json.replace("\"ai\":{\"1\":0", "\"ai\":{\"1\":0,\"1\":0");
+        assert_ne!(snapshot_json, duplicate_ai);
+        assert!(serde_json::from_str::<Snapshot>(&duplicate_ai).is_err());
+        let shared_json = serde_json::to_string(&shared).unwrap();
+        let duplicate_actor =
+            shared_json.replace("\"actors\":[{\"1\":0", "\"actors\":[{\"1\":0,\"1\":0");
+        assert_ne!(shared_json, duplicate_actor);
+        assert!(serde_json::from_str::<SharedState>(&duplicate_actor).is_err());
+        let mut zero_actor = serde_json::to_value(&shared).unwrap();
+        let index = zero_actor["actors"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("1")
+            .unwrap();
+        zero_actor["actors"][0]["0"] = index;
+        assert!(serde_json::from_value::<SharedState>(zero_actor).is_err());
+        let mut duplicate_directory = serde_json::to_value(&shared).unwrap();
+        let directory = duplicate_directory["actors"][0].clone();
+        duplicate_directory["actors"]
+            .as_array_mut()
+            .unwrap()
+            .push(directory);
+        assert!(serde_json::from_value::<SharedState>(duplicate_directory).is_err());
+        let mut value = serde_json::to_value(&shared).unwrap();
+        value["actors"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({}));
+        let shared: SharedState = serde_json::from_value(value).unwrap();
+        assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
     }
 
     #[test]
@@ -2060,13 +2875,12 @@ mod tests {
                 NonZeroU64::new(100).unwrap(),
             )
             .unwrap();
+        // Corrupt the source before capture: canonical pooled records are
+        // immutable, including their fingerprint and encoded-size metadata.
+        let mut forged = game.clone();
+        forged.actors.get_mut(&actor).unwrap().body.eye = [1, 0, 0];
         let mut shared = SharedState::default();
-        let broken = game.checkpoint(&mut shared);
-        shared.actors[broken.actors]
-            .get_mut(&actor)
-            .unwrap()
-            .body
-            .eye = [1, 0, 0];
+        let broken = forged.checkpoint(&mut shared);
         let valid = game.checkpoint(&mut shared);
         let mut context = RestoreContext::new(&shared, game.content().clone());
         context.bind_spatial_roots(&[&broken, &valid]).unwrap();
@@ -2089,16 +2903,15 @@ mod tests {
         game.refresh_navigation();
         let mut shared = SharedState::default();
         let before = game.checkpoint(&mut shared);
-        assert_eq!(
-            Game::restore_checkpoint(before, &shared, game.content().clone()),
-            Ok(game.clone())
-        );
+        let earlier = game.clone();
         game.act(actor, crate::Action::Wait).unwrap();
         let after = game.checkpoint(&mut shared);
-        assert_eq!(
-            Game::restore_checkpoint(after, &shared, game.content().clone()),
-            Ok(game.clone())
-        );
+        let mut context = RestoreContext::new(&shared, game.content().clone());
+        context.bind_spatial_roots(&[&before, &after]).unwrap();
+        assert_eq!(context.restore(before), Ok(earlier));
+        assert_eq!(context.restore(after), Ok(game.clone()));
+        // Each single-root negative fixture owns a matching single-root pool.
+        let mut shared = SharedState::default();
         let mut broken = game.checkpoint(&mut shared);
         broken.navigation.insert(actor, usize::MAX);
         assert!(Game::restore_checkpoint(broken, &shared, game.content().clone()).is_err());
@@ -4098,7 +4911,9 @@ mod explored_map_tests {
             .push(BTreeMap::from([(actor, shared.explored_maps.len() - 1)]));
         super::explored_map_regions::reset_work_counts();
         let mut context = RestoreContext::new(&shared, game.content().clone());
-        context.bind_spatial_roots(&[&forged]).unwrap();
+        context
+            .bind_spatial_roots(&[&before, &after, &forged])
+            .unwrap();
         assert!(context.restore(forged).is_err());
         assert_eq!(
             super::explored_map_regions::work_counts().appearance_cells,
@@ -4654,9 +5469,8 @@ mod explored_map_tests {
         wrong_membership.actors = shared.actors.len() - 1;
         assert!(!shared.explored_map_references_valid([&wrong_membership]));
         let mut zero_actor = game.checkpoint(&mut shared);
-        let record = shared.actors[zero_actor.actors][&actor].clone();
-        shared.actors.push(BTreeMap::from([(ActorId(0), record)]));
-        zero_actor.actors = shared.actors.len() - 1;
+        // Keep the actor directory valid so this independently tests the
+        // explored-map owner's zero identity, not the earlier record-pool gate.
         zero_actor.explored_maps = shared.explored_map_owners.len();
         shared
             .explored_map_owners

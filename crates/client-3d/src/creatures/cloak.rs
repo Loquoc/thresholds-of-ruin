@@ -248,7 +248,8 @@ fn study_pigment(recipe: &Recipe, row: usize, col: usize) -> Vec3 {
     // plain cream. Small paired leaves stay on the interior field.
     let leaf = row > 4
         && row < ROWS - 4
-        && ((row % 6 == 0 && col % 12 == 6) || (row % 6 == 1 && matches!(col % 12, 5 | 7)));
+        && ((row.is_multiple_of(6) && col % 12 == 6)
+            || (row % 6 == 1 && matches!(col % 12, 5 | 7)));
     if edge || leaf {
         gold
     } else if band {

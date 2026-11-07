@@ -36,28 +36,43 @@ performance and scaling work is finished.
 
 ### CH-019: Checkpoint representation and journal durability at the capacity bound
 
-- **Category/status:** robustness and representation cost; active follow-up from
-  the Menagerie checkpoint report on 2026-11-06. Not yet published or qualified.
-- **Evidence:** [simulation checkpoint records](../../crates/simulation/src/checkpoint.rs)
-  retain actor/AI state across rewind roots. Repeated records can approach the
-  fixed 64 MiB checkpoint bound; an optional checkpoint capacity failure can
-  block otherwise legal journal durability in
-  [storage](../../crates/server/src/storage.rs). Existing explicit capacity
-  classification is preserved; this is distinct from the resolved CH-009 finding.
-- **Work in progress:** actor/AI record pooling and journal-only fallback for
-  classified optional-checkpoint capacity failures are implemented locally, with
-  an approved save-format change planned for that separate PR. This register
-  update does not change the current save format or claim that fix is on main.
-- **Verification:** 55 simulation checkpoint tests passed in the local work.
-  Server checkpoint fixture corrections and broader runtime checks remain in
-  progress; actual-process, release-cost and final-head CI qualification remain.
-  The reported deployed save/scenario has not been inspected because the
-  relevant desktop is unavailable. Local fixtures are not that reproduction.
-- **Acceptance:** preserve strict decode/replay, rewind ownership and classified
-  failure distinctions; demonstrate that legal journal work remains durable at
-  the optional checkpoint cap, while unrelated failures still surface. Complete
-  process/recovery and release-cost checks, then required final-head hosted gates
-  before marking this finding resolved.
+- **Category/status:** robustness and representation cost; implementation complete,
+  final integrated qualification pending for the Menagerie report of 2026-11-06.
+- **Resolution:** [checkpoint records](../../crates/simulation/src/checkpoint.rs)
+  pool complete actor/AI values across retained roots, memoize unchanged capture
+  sources, and validate bounded expansion before publication/restoration. Save
+  format 68 is an explicitly approved compatibility break; older saves remain
+  usable only with their matching older executable, not an importer.
+  [Storage](../../crates/server/src/storage.rs) now commits legal journal work
+  without the optional checkpoint only for classified capacity failure. Old
+  checkpoint/region selection remains intact; other errors still block admission
+  and require retry. This preserves CH-009's explicit failure distinction.
+- **Behavior evidence:** the pre-integration repair passed 58 simulation checkpoint
+  tests, 169 affected simulation unit tests, 87 server checkpoint tests, 63 focused
+  integration tests and 19 actual-process checkpoint/background-save tests.
+  The memoized checkpoint code passed all 58 checkpoint tests. After merging
+  `a4a9a274`, all-target Clippy, 63 focused integration tests and 19 freshly built
+  actual-process tests passed again. The first exhaustive run exposed remaining
+  migration fixtures and nullable profiling-count handling; after correction,
+  all 1,348 default-feature server tests, the exact failed streaming-benchmark
+  process test and 67 report-validator tests passed locally. Required final-head
+  hosted gates remain. Two pooled nutrition test-consumer corrections also pass
+  their exact real-process cases. A retained-frame native travel synchronization
+  defect is fixed without relaxing mouse/tick assertions; actual native CI remains
+  required.
+- **Cost evidence:** four balanced release rounds compared `ec134e1c` with
+  `c1e8dab42`. All 16 runs validated with matching work/durability counts.
+  Checkpoint size and save/restart time improved; an earlier consistent interaction
+  regression was no longer observed after capture memoization. Small interaction
+  differences were not uniform across rounds. Raw evidence is retained locally
+  pending permission to publish; this is not an accepted public-ledger entry or
+  a measurement of a later integration revision.
+- **Limits/remaining acceptance:** the private deployed save/scenario and native
+  desktop were unavailable; synthetic workloads are not that reproduction. The
+  fix cannot recover unrecorded in-memory progress from the original failure.
+  Preserve strict decode/replay, rewind ownership, actual-process recovery and
+  failure distinctions. Finish integrated checks and required final-head hosted
+  gates before closing this finding.
 
 ## Retained or resolved findings
 

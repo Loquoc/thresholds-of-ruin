@@ -283,9 +283,14 @@ fn portable_torch_pending_ignition_survives_interval_one_deleted_source_and_exac
         .engine
         .test_restore_checkpoint(&serde_json::to_vec(&pending).unwrap())
         .unwrap();
-    let actors = pending["game"]["actors"].as_u64().unwrap();
-    let plan_path = format!("/shared/actors/{actors}/1/pending/plan");
-    assert_eq!(pending.pointer(&plan_path).unwrap()["kind"], "ignite");
+    let actors = pending["game"]["actors"].as_u64().unwrap() as usize;
+    let plan_path = "/pending/plan";
+    assert_eq!(
+        crate::checkpoint_fixture::actor(&pending["shared"], actors, "1")
+            .pointer(plan_path)
+            .unwrap()["kind"],
+        "ignite"
+    );
     for (field, value) in [
         ("actor", json!(2)),
         ("item", json!(999)),
@@ -294,7 +299,9 @@ fn portable_torch_pending_ignition_survives_interval_one_deleted_source_and_exac
         ("fuel_ticks", json!(1000)),
     ] {
         let mut forged = pending.clone();
-        forged.pointer_mut(&plan_path).unwrap()[field] = value;
+        crate::checkpoint_fixture::actor_mut(&mut forged["shared"], actors, "1")
+            .pointer_mut(plan_path)
+            .unwrap()[field] = value;
         assert!(
             wire.service
                 .engine
@@ -305,8 +312,8 @@ fn portable_torch_pending_ignition_survives_interval_one_deleted_source_and_exac
     }
     for field in ["item", "actor", "preparation"] {
         let mut forged = pending.clone();
-        forged
-            .pointer_mut(&plan_path)
+        crate::checkpoint_fixture::actor_mut(&mut forged["shared"], actors, "1")
+            .pointer_mut(plan_path)
             .unwrap()
             .as_object_mut()
             .unwrap()

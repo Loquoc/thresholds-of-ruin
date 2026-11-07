@@ -104,24 +104,25 @@ Other players can continue acting during a save; those later actions need not be
 covered by its acknowledgement. There is at most one pending save per connection.
 
 A full queue rejects the new command before publication and prompts the worker to
-save the existing prefix. A background failure preserves accepted state and
-pending bytes, reports the problem, and rejects further mutations. I/O and
-unclassified encoding failures retain explicit Save retry. A typed checkpoint
-capacity failure is different: repeating the same immutable snapshot cannot fix
-its raw or compressed size. Save therefore leaves the retained error in place
-without encoding that unchanged snapshot again. If admission already captured a
-newer checkpoint while the failed one was encoding, the newer retained snapshot
-remains eligible for explicit retry; it is not assumed to fit until encoding
-succeeds. Reads and already accepted duplicate requests remain available. No
-error is reported as a successful save.
+save the existing prefix. I/O and unclassified serialization failures preserve
+accepted state and pending bytes, report the problem, and reject further mutations
+until explicit Save retry succeeds. Reads and accepted duplicate requests remain
+available; failed writes are never reported as durable.
 
-Capacity failure does not discard accepted records, fall back to journal-only
-saving, enlarge a format limit or evict history. Pending work remains in memory;
-closing/restarting can lose that unsaved play and is not a repair. The error asks
-the operator to keep the session open and report it, without promising unsupported
-recovery. The last committed database prefix remains unchanged. Capacity fault
-tests use scoped reduced encoder limits; they do not establish a gameplay route
-to the production checkpoint ceiling.
+A classified checkpoint encoder capacity failure instead defers optional
+checkpointing. The oversized capture is dropped rather than repeatedly encoded,
+and the worker commits the admitted journal entries, copied source inputs,
+attachments and generated region rows in their ordinary atomic transaction.
+The last valid checkpoint and all rows needed by its journal tail remain intact;
+checkpoint sequence, checkpoint accounting and collection do not advance.
+Durability and queue accounting advance only after the journal transaction commits.
+Save can therefore succeed for a durable journal target while a separate warning
+explains that checkpointing is deferred and restart may take longer. Subsequent
+periodic captures can restore normal checkpointing; successful capture commits
+clear the warning. At most the in-flight and newest queued captures are retained.
+Neither format limits nor the accepted rewind window are relaxed. Reduced-limit
+fault tests establish fallback correctness, not that ordinary gameplay reaches the
+production capacity ceiling.
 
 Enabling wizard authority remains a synchronous barrier: its permanent marker
 must be saved before privileged commands can execute. Once queued, the lineage
@@ -312,8 +313,8 @@ See the [performance plan](../development/performance.md) and
 `--checkpoint-interval 1024` requests a snapshot after that many accepted journal
 entries since the last periodic capture. Zero disables periodic captures for diagnostic comparisons;
 the maximum is 1,000,000. Captures do not trigger disk writes: the ordinary save
-policy still chooses batch timing. A durable save covers any captured checkpoint
-in its batch. An unsaved snapshot may disappear with an unsaved tail after a crash.
+policy still chooses batch timing. A durable save covers its journal target; an oversized optional checkpoint
+may be deferred while the journal commits. An unsaved snapshot may disappear with an unsaved tail after a crash.
 
 Capture copies the current game and shares the existing immutable rewind
 boundaries. Attachment display revisions, picture bases and presentation caches
@@ -406,10 +407,10 @@ remains at journal sequence zero. One transaction performs these steps:
 Until commit, SQLite rollback recovery preserves the previous selection and rows.
 After commit, the new snapshot and its history are selected together. There is no
 separate manifest rename, generation file deletion, or interval where the only
-recoverable copy of a receipt has been removed. Errors preserve the pending batch
-and snapshot and block further mutation. Retry eligibility follows the failure
-classification above: an unchanged checkpoint with a proven encoder capacity
-failure is not needlessly encoded again.
+recoverable copy of a receipt has been removed. Journal/I/O failures preserve the
+pending batch and any valid capture and block further mutation until retry.
+A proven encoder capacity failure uses the journal-only transaction described
+above: it does not select a checkpoint, rotate history or collect region rows.
 
 Compaction is logical: only one selected checkpoint and the active replay tail
 remain, with obsolete database pages available for reuse. All chronological history,
@@ -474,12 +475,20 @@ linear in retained records. Suffix replay uses the same bounded transaction cand
 as ordinary actions. Disabling captures, increasing the interval, or waiting to persist a new
 capture changes the effective replay bound.
 
-Equal actor tables are encoded once in the shared checkpoint pool and referenced
-by each boundary. Equality compares the complete actor values, including body,
+Checkpoint-local actor directories reference complete actor records; combat AI
+directories reference complete AI records, including visit maps. Equal payloads
+are written once across the current and retained states. Equality includes body,
 combat, timing and motion; actor identity alone never permits sharing distinct
-states. Restore rebuilds the derived topology indexes and shares unchanged actor
-stores with copy-on-write isolation. Invalid pool references fail closed. The
-retained window and 64 MiB writer/reader limits are unchanged.
+states. Restore binds every directory to the full pool, rejecting missing,
+duplicate or unused records, and rebuilds derived topology indexes. Restored
+mutable state retains independent rewind behavior through copy-on-write isolation.
+Each snapshot also charges every actor/AI reference against a 64 MiB expanded-record
+budget before restoration; writer checks use the same budget so compact aliases
+cannot produce an unreadable checkpoint. Cross-snapshot sharing is not charged
+repeatedly against one shared expansion budget. The retained window and original
+64 MiB encoded/decoded limits are unchanged. Unsupported
+save identities are rejected rather than imported; [status](../status.md) owns
+the current format identity.
 
 Required nutrition retains independent digestion and cross-resource regeneration
 fractions. Immutable pinned rules store explicit per-resource numerators and their

@@ -698,6 +698,27 @@ fn modular_worn_equipment_review_fixtures_resolve_all_studies_and_layers() {
         let script = Script::parse(fixture.as_bytes()).unwrap();
         assert!(script.actors.len() <= 8);
         assert_eq!(script.captures.len(), 5 + script.actors.len());
+        let source: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        for captures in source["captures"].as_array().unwrap().chunks(5) {
+            let mut batch = source.clone();
+            batch["captures"] = json!(captures);
+            let end = captures
+                .iter()
+                .map(|c| c["tick"].as_u64().unwrap())
+                .max()
+                .unwrap();
+            if end == 0 {
+                assert!(
+                    Script::parse(&serde_json::to_vec(&batch).unwrap()).is_err(),
+                    "future events must be removed from static capture batches"
+                );
+            }
+            batch["events"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|e| e["tick"].as_u64().unwrap() <= end);
+            Script::parse(&serde_json::to_vec(&batch).unwrap()).unwrap();
+        }
         for actor in script.actors {
             actor.look().unwrap();
             if index < 5 {
