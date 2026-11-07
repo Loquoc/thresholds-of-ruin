@@ -380,9 +380,103 @@ pub(super) struct CloakRig {
     opening: Option<f32>,
     neutral_reach: [f32; 2],
     contact_fallbacks: u64,
+    contact_reference: Vec<Vec3>,
+    contact_cpu_ms: [f64; 4],
+    contact_solves: u64,
 }
 
 impl CloakRig {
+    pub(super) fn contact_diagnostics(&self) -> Option<serde_json::Value> {
+        if !self.wrapped {
+            return None;
+        }
+        let rotation = self.last_rotation.unwrap_or(Quat::IDENTITY);
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let reference = &self.contact_reference;
+        let point = |i: usize| rotation * self.points[i] + offset;
+        let before = |i: usize| rotation * reference[i] + offset;
+        let radius = |p: Vec3| p.with_y(0.0).length();
+        let range = |row: usize, old: bool| {
+            (0..=COLUMNS).fold(
+                [
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                ],
+                |mut r, col| {
+                    let p = if old {
+                        before(index(row, col))
+                    } else {
+                        point(index(row, col))
+                    };
+                    let d = radius(p);
+                    r[0] = r[0].min(d);
+                    r[1] = r[1].max(d);
+                    r[2] = r[2].min(p.y);
+                    r[3] = r[3].max(p.y);
+                    r
+                },
+            )
+        };
+        let rows:Vec<_>=(0..=YOKE_ROWS).map(|row| {
+            let tip=(0..=COLUMNS).map(|col|index(row,col))
+                .max_by(|&a,&b|radius(point(a)).total_cmp(&radius(point(b)))).unwrap();
+            serde_json::json!({"row":row,"reference":range(row,true),"final":range(row,false),
+                "radius_max_vertex":tip,"tip_reference":before(tip).to_array(),"tip_final":point(tip).to_array()})
+        }).collect();
+        let (vertex, travel) = (0..GRID)
+            .map(|i| (i, point(i).distance(before(i))))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .unwrap();
+        let mut inversions = 0;
+        let mut worst_drop = 0.0f32;
+        let mut stretch = (0usize, 0usize, 0.0f32);
+        for row in 0..=YOKE_ROWS {
+            for col in 0..=COLUMNS {
+                let a = index(row, col);
+                if row < YOKE_ROWS {
+                    let drop = radius(point(a)) - radius(point(index(row + 1, col)));
+                    if drop > 1e-6 {
+                        inversions += 1;
+                        worst_drop = worst_drop.max(drop);
+                    }
+                }
+                for b in [
+                    if col < COLUMNS { Some(a + 1) } else { None },
+                    if row < YOKE_ROWS {
+                        Some(a + COLUMNS + 1)
+                    } else {
+                        None
+                    },
+                    if row < YOKE_ROWS && col > 0 {
+                        Some(a + COLUMNS)
+                    } else {
+                        None
+                    },
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    let ratio =
+                        point(a).distance(point(b)) / before(a).distance(before(b)).max(1e-6);
+                    if ratio > stretch.2 {
+                        stretch = (a, b, ratio);
+                    }
+                }
+            }
+        }
+        Some(
+            serde_json::json!({"layer":if self.inner_layer.is_some(){"mantle"}else{"main"},
+            "reference_scope":"posed point fit before whole-face constraints; not an unstretched material metric",
+            "row_range_order":["radius_min","radius_max","y_min","y_max"],"rows":rows,
+            "max_travel":{"vertex":vertex,"row":vertex/(COLUMNS+1),"column":vertex%(COLUMNS+1),"distance":travel,"reference":before(vertex).to_array(),"final":point(vertex).to_array()},
+            "radial_order_inversions":inversions,"max_radial_order_drop":worst_drop,
+            "max_yoke_edge_stretch":{"vertices":[stretch.0,stretch.1],"ratio":stretch.2},
+            "cpu_scope":"cumulative phase wall elapsed ms; shared support lookup includes first materialization; excludes render/GPU wait",
+            "cpu_order":["support_lookup_build","combined_support_build","point_fit_pose_prep","constraints"],"cpu_ms":self.contact_cpu_ms,"solves":self.contact_solves}),
+        )
+    }
     pub(super) fn contact_fallbacks(&self) -> u64 {
         self.contact_fallbacks
     }
@@ -433,7 +527,9 @@ impl CloakRig {
         {
             return;
         }
+        let started = std::time::Instant::now();
         self.arm_surface = Some(contacts.surface());
+        self.contact_cpu_ms[0] += started.elapsed().as_secs_f64() * 1000.0;
         self.contact_surface = Some(contacts);
         self.invalidate();
     }
@@ -517,9 +613,7 @@ pub(super) fn spawn(
         .0[0]
         .1
         .clone();
-    let rest: Vec<_> = (0..GRID)
-        .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
-        .collect();
+    let support_started = std::time::Instant::now();
     let arm_surface = recipe
         .contact_surface
         .as_ref()
@@ -530,15 +624,31 @@ pub(super) fn spawn(
                 .as_ref()
                 .map(|scene| Arc::new(LayerSurface::from_triangles(scene.cloth_hulls())))
         });
+    let support_ms = support_started.elapsed().as_secs_f64() * 1000.0;
+    let point_started = std::time::Instant::now();
+    let rest: Vec<_> = (0..GRID)
+        .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
+        .collect();
+    let point_ms = point_started.elapsed().as_secs_f64() * 1000.0;
     // Contact fitting is an output, never the next solve's rest shape. In
     // particular, refitting a raised roof changes its inclination and can
     // amplify the same shoulder clearance on every subsequent solve.
     let mut points = rest.clone();
+    let contact_reference = if recipe.cut.is_some() {
+        points.clone()
+    } else {
+        Vec::new()
+    };
+    let mut contact_cpu_ms = [support_ms, 0.0, point_ms, 0.0];
+    let mut contact_solves = 0;
+    let constraint_started = std::time::Instant::now();
     let mut contact_fallbacks = 0;
     // A dependent mantle is first fitted by place_layers against its seated
     // inner cloth, not an incomplete startup-only arm solve.
     if let (None, Some(surface)) = (recipe.inner_layer, &arm_surface) {
         contact_fallbacks += u64::from(fit_arm_cells(&mut points, Quat::IDENTITY, surface));
+        contact_solves += 1;
+        contact_cpu_ms[3] += constraint_started.elapsed().as_secs_f64() * 1000.0;
     }
     let mut normals = vec![Vec3::ZERO; GRID];
     surface_normals(&points, &mut normals);
@@ -633,6 +743,9 @@ pub(super) fn spawn(
         arm_surface,
         contact_surface: recipe.contact_surface,
         contact_fallbacks,
+        contact_reference,
+        contact_cpu_ms,
+        contact_solves,
         opening: recipe.cut.map(|cut| cut.opening),
         scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
@@ -653,6 +766,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
     {
         return;
     }
+    let point_started = std::time::Instant::now();
     // The drape entity retains its existing eased swing. Cancel that rotation
     // at the shoulder and introduce it gradually down the private rest grid.
     // The physically fixed collar band forms a supported yoke, not a hinge gap.
@@ -734,13 +848,20 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
             }
         }
     });
+    cloak.contact_cpu_ms[2] += point_started.elapsed().as_secs_f64() * 1000.0;
+    if cloak.wrapped {
+        cloak.contact_reference.clone_from(&cloak.points);
+    }
     // A mantle is fitted once against the combined inner-cloth/arm support
     // below. Pre-fitting its arms here would derive the second roof solve's
     // normals from a contact-deformed surface rather than the posed recipe.
     if fit_arms {
         if let Some(surface) = &cloak.arm_surface {
+            let started = std::time::Instant::now();
             cloak.contact_fallbacks +=
                 u64::from(fit_arm_cells(&mut cloak.points, rotation, surface));
+            cloak.contact_cpu_ms[3] += started.elapsed().as_secs_f64() * 1000.0;
+            cloak.contact_solves += 1;
         }
     }
     surface_normals(&cloak.points, &mut cloak.normals);
@@ -1374,7 +1495,13 @@ fn fit_radial_faces(
     let collar_ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
     let mut travels = vec![0.0f32; GRID];
     let mut budgets = vec![0.0f32; GRID];
+    #[cfg(test)]
+    let mut collar_trace: Option<(f32, String)> = None;
     for iteration in 0..12 {
+        #[cfg(test)]
+        {
+            collar_trace = None;
+        }
         travels.fill(0.0);
         for row in 0..ROWS {
             for column in 0..COLUMNS {
@@ -1461,6 +1588,8 @@ fn fit_radial_faces(
                         continue;
                     }
                     let mut best: Option<([f32; 3], f32)> = None;
+                    #[cfg(test)]
+                    let mut winning_plane = (Vec3::ZERO, 0.0);
                     let mut best_anchor_deficit = f32::INFINITY;
                     for (normal, height) in normals.into_iter().zip(supports) {
                         // Shared collar lifts must preserve every first-band
@@ -1506,6 +1635,10 @@ fn fit_radial_faces(
                         let cost = shifts.iter().map(|s| s * s).sum::<f32>();
                         if best.is_none_or(|(_, old)| cost < old) {
                             best = Some((shifts, cost));
+                            #[cfg(test)]
+                            {
+                                winning_plane = (normal, plane);
+                            }
                         }
                     }
                     let Some((shifts, _)) = best else {
@@ -1516,6 +1649,36 @@ fn fit_radial_faces(
                             detail: [best_anchor_deficit, low, high],
                         });
                     };
+                    #[cfg(test)]
+                    if row == 0 {
+                        let (j, &vertex) = face
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, i)| **i <= COLUMNS)
+                            .max_by(|(a, &ia), (b, &ib)| {
+                                (reference[ia].y + shifts[*a])
+                                    .total_cmp(&(reference[ib].y + shifts[*b]))
+                            })
+                            .unwrap();
+                        let peak = reference[vertex].y + shifts[j];
+                        if peak > collar_ceiling - 0.01
+                            && collar_trace.as_ref().is_none_or(|(old, _)| peak > *old)
+                        {
+                            let collar_cost = face
+                                .iter()
+                                .zip(shifts)
+                                .filter(|(i, _)| **i <= COLUMNS)
+                                .map(|(_, s)| s * s)
+                                .sum::<f32>();
+                            let radial_cost = face
+                                .iter()
+                                .zip(shifts)
+                                .filter(|(i, _)| **i > COLUMNS)
+                                .map(|(_, s)| s * s)
+                                .sum::<f32>();
+                            collar_trace=Some((peak,format!("collar solve vertex={vertex} row={row} column={column} iteration={iteration} reference_y={} final_y={peak} normal={:?} plane={} collar_cost={collar_cost} radial_cost={radial_cost}",reference[vertex].y,winning_plane.0,winning_plane.1)));
+                        }
+                    }
                     for (i, shift) in face.into_iter().zip(shifts) {
                         travels[i] = travels[i].max(shift);
                     }
@@ -1552,6 +1715,10 @@ fn fit_radial_faces(
     }
     // Commit only after every face has a feasible constraint. A diagnostic
     // failure leaves the original mesh intact for the conservative fallback.
+    #[cfg(test)]
+    if let Some((_, trace)) = collar_trace {
+        eprintln!("{trace}");
+    }
     let inverse = rotation.inverse();
     for (i, point) in points.iter_mut().enumerate() {
         let direction = if i <= COLUMNS { Vec3::Y } else { directions[i] };
@@ -1664,9 +1831,10 @@ fn fit_cells_conservative(points: &mut [Vec3], rotation: Quat, support: &LayerSu
     }
 }
 
-/// Separate only the anatomical collar from the retained inner cloth. Each
-/// segment's complete projected strip is queried, not just its endpoint rays.
-/// The subsequent radial solve keeps these heights and all collar XZ fixed.
+/// Former edge-only seating, retained solely as a regression oracle: seating
+/// this strip before the coupled face solve biases its displacement objective
+/// upward and can reject valid bounded attachments before the solve starts.
+#[cfg(test)]
 fn seat_layer_collar(
     points: &mut [Vec3],
     rotation: Quat,
@@ -1758,12 +1926,12 @@ pub(super) fn place_layers(
         // projecting an already projected mantle accumulates outward drift.
         cloak.invalidate();
         place_base(cloak, rot, meshes, false);
+        let support_started = std::time::Instant::now();
         let mut support = LayerSurface::new(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
         );
         let mut candidate = cloak.points.clone();
-        let seated = seat_layer_collar(&mut candidate, rot, &support);
         // Seat the outer cloth against both retained cloth and the arm hull
         // in one solve. A changed yoke footprint must not discard the earlier
         // arm constraint when the mantle is lifted over its inner cape.
@@ -1776,13 +1944,20 @@ pub(super) fn place_layers(
                     .collect(),
             );
         }
-        match seated.and_then(|()| fit_radial_faces(&mut candidate, rot, &support)) {
+        cloak.contact_cpu_ms[1] += support_started.elapsed().as_secs_f64() * 1000.0;
+        let constraint_started = std::time::Instant::now();
+        // Collar and shoulder constraints share one authored baseline. A
+        // preliminary strip-max lift both overconstrains the neck and makes
+        // further collar travel artificially cheap in the joint objective.
+        match fit_radial_faces(&mut candidate, rot, &support) {
             Ok(()) => cloak.points = candidate,
             Err(failure) => {
                 cloak.contact_fallbacks += 1;
                 fallback_radial_fit(&mut cloak.points, rot, &support, failure);
             }
         }
+        cloak.contact_cpu_ms[3] += constraint_started.elapsed().as_secs_f64() * 1000.0;
+        cloak.contact_solves += 1;
         surface_normals(&cloak.points, &mut cloak.normals);
         if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
             write(mesh, &cloak.points, &cloak.normals);
@@ -2142,6 +2317,15 @@ mod tests {
         ]]);
         fit_radial_faces(&mut points, Quat::IDENTITY, &support)
             .expect("finite first-face support must seat the collar inside its existing ceiling");
+        let mut sequential = before.clone();
+        seat_layer_collar(&mut sequential, Quat::IDENTITY, &support).unwrap();
+        fit_radial_faces(&mut sequential, Quat::IDENTITY, &support).unwrap();
+        assert!(
+            points[0].y + 0.001 < sequential[0].y,
+            "one joint solve must avoid the redundant strip-seat lift: joint={:?}, sequential={:?}",
+            points[0],
+            sequential[0]
+        );
         assert!(points[0].y > before[0].y + 0.025);
         for (i, (p, old)) in points.iter().zip(&before).enumerate() {
             if i <= COLUMNS {
@@ -2303,7 +2487,25 @@ mod tests {
         let old = rig.cloaks[0].arm_surface.clone().unwrap();
         let snapshot = rig.cloaks[0].contact_surface.clone().unwrap();
         let again = Arc::new(ContactSurface::new(snapshot.parts.clone()));
+        let cpu_before = rig.cloaks[0].contact_cpu_ms;
         rig.cloaks[0].set_contact_surface(again.clone());
+        assert_eq!(
+            rig.cloaks[0].contact_cpu_ms, cpu_before,
+            "cache hits must not report another build"
+        );
+        for cloak in &rig.cloaks {
+            let report = cloak.contact_diagnostics().unwrap();
+            assert_eq!(report["rows"].as_array().unwrap().len(), YOKE_ROWS + 1);
+            assert!(
+                serde_json::to_vec(&report).unwrap().len() < 8192,
+                "diagnostics must stay bounded per layer"
+            );
+            assert_eq!(cloak.contact_reference.len(), GRID);
+            assert!(cloak
+                .contact_cpu_ms
+                .iter()
+                .all(|ms| ms.is_finite() && *ms >= 0.0));
+        }
         assert!(Arc::ptr_eq(
             &old,
             rig.cloaks[0].arm_surface.as_ref().unwrap()
@@ -2610,8 +2812,27 @@ mod tests {
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
                     .unwrap();
+                eprintln!(
+                    "neutral {name} cloth diagnostics: {}",
+                    cloak.contact_diagnostics().unwrap()
+                );
                 let peak_height = peak.y + offset.y;
                 let rest_height = cloak.rest[peak_index].y + offset.y;
+                let cap_radius = arms
+                    .triangles
+                    .iter()
+                    .flatten()
+                    .filter(|p| p.y >= 0.47 - THICKNESS)
+                    .map(|p| p.with_y(0.0).length())
+                    .fold(0.0f32, f32::max);
+                let radial_limit = cap_radius + 2.0 * (LAYER_GAP + THICKNESS) + THICKNESS;
+                for row in 0..=YOKE_ROWS {
+                    for column in 0..=COLUMNS {
+                        let at = cloak.points[index(row, column)] + offset;
+                        assert!(at.with_y(0.0).length()<=radial_limit,
+                        "{name}: yoke row overexpanded beyond actual cap: row={row} column={column} point={at:?} reference={:?} cap_radius={cap_radius} limit={radial_limit}",cloak.contact_reference[index(row,column)]+offset);
+                    }
+                }
                 assert!(
                     peak_height <= top + 0.12,
                     "{name}: yoke exceeds two-layer allowance: inner={:?}, vertex={peak_index} row={} column={}, actual_height={peak_height}, support_top={top}, limit={}, authored_height={rest_height}, spawned_peak={spawned_peak}, point={peak:?}",
@@ -2978,6 +3199,10 @@ mod tests {
             );
             let meshes = world.resource::<Assets<Mesh>>();
             for cloak in &rig.cloaks {
+                eprintln!(
+                    "tick93 cloth diagnostics: {}",
+                    cloak.contact_diagnostics().unwrap()
+                );
                 let release = cloak
                     .arm_surface
                     .as_ref()

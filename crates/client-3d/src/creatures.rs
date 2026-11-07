@@ -1162,6 +1162,14 @@ pub(crate) enum Drape {
 }
 
 impl Rig {
+    /// Bounded per-layer shape and CPU evidence for review captures.
+    pub(crate) fn cloth_contact_diagnostics(&self) -> Vec<serde_json::Value> {
+        self.cloaks
+            .iter()
+            .filter_map(cloak::CloakRig::contact_diagnostics)
+            .collect()
+    }
+
     /// Cumulative failed solves for this rig only; cache hits are not failures.
     pub(crate) fn cloth_contact_fallbacks(&self) -> u64 {
         self.cloaks
