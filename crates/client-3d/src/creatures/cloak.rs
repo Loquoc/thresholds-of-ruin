@@ -2190,7 +2190,8 @@ enum FaceOutcome {
     Empty,
     Fit {
         shifts: [f32; 3],
-        plane: (Vec3, f32, Vec3, SupportSource),
+        planes: [(Vec3, f32, Vec3, SupportSource); 3],
+        plane_count: usize,
     },
 }
 
@@ -2790,8 +2791,14 @@ fn fit_radial_faces_impl(
                         {
                             work.queries += 1;
                         }
+                        // One immutable hull per face/cache miss, shared by every
+                        // source evaluation. Inner containment keeps its own prism.
+                        let arm_planes = (support.arms.is_some() || support.head.is_some())
+                            .then(|| arm_contact_planes(vertices, endpoints, &planes));
                         let evaluate =
-                            |work: &mut FaceFitWork| -> Result<FaceOutcome, RadialFitFailure> {
+                            |work: &mut FaceFitWork,
+                             source_filter: Option<SupportSource>|
+                             -> Result<FaceOutcome, RadialFitFailure> {
                                 #[cfg(not(test))]
                                 let _ = work;
                                 let cross =
@@ -2816,10 +2823,6 @@ fn fit_radial_faces_impl(
                                 let mut authored_support =
                                     (f32::NEG_INFINITY, Vec3::ZERO, SupportSource::Inner);
                                 let mut found = false;
-                                // Construct only on a cache miss. Inner cloth retains its
-                                // outermost prism; arm hulls use exact ordered endpoints.
-                                let arm_planes = (support.arms.is_some() || support.head.is_some())
-                                    .then(|| arm_contact_planes(vertices, endpoints, &planes));
                                 for (surface, domain, is_arm) in [
                                     (support.inner, inner_planes, SupportSource::Inner),
                                     (
@@ -2835,7 +2838,11 @@ fn fit_radial_faces_impl(
                                 ]
                                 .into_iter()
                                 .filter_map(|(surface, domain, is_arm)| {
-                                    surface.map(|s| (s, domain, is_arm))
+                                    surface
+                                        .filter(|_| {
+                                            source_filter.is_none_or(|wanted| wanted == is_arm)
+                                        })
+                                        .map(|s| (s, domain, is_arm))
                                 }) {
                                     for &triangle in surface.clipped_candidates(domain) {
                                         #[cfg(test)]
@@ -2962,7 +2969,17 @@ fn fit_radial_faces_impl(
                                                     arm_planes.as_deref().unwrap_or(&[]),
                                                     SupportSource::Head,
                                                 ),
-                                            ];
+                                            ]
+                                            .map(|(surface, domain, kind)| {
+                                                (
+                                                    surface.filter(|_| {
+                                                        source_filter
+                                                            .is_none_or(|wanted| wanted == kind)
+                                                    }),
+                                                    domain,
+                                                    kind,
+                                                )
+                                            });
                                             for (surface, domain, _) in sources {
                                                 let Some(surface) = surface else {
                                                     continue;
@@ -3085,8 +3102,13 @@ fn fit_radial_faces_impl(
                                             ),
                                         ]
                                         .into_iter()
-                                        .filter_map(|(s, d, k)| s.map(|s| (s, d, k)))
-                                        {
+                                        .filter_map(|(s, d, k)| {
+                                            s.filter(|_| {
+                                                source_filter
+                                                    .is_none_or(|wanted| wanted.name() == k)
+                                            })
+                                            .map(|s| (s, d, k))
+                                        }) {
                                             for &triangle in surface.clipped_candidates(domain) {
                                                 if let Some((polygon, size)) =
                                                     clipped_polygon(triangle, domain)
@@ -3115,6 +3137,7 @@ fn fit_radial_faces_impl(
                                             serde_json::json!({
                                                 "context":audit_context(),"layer":if support.inner.is_some(){"mantle"}else{"main"},"rotation":rotation.to_array(),
                                                 "face":face,"row":row,"column":column,"iteration":iteration,
+                                                "source_mode":if source_filter.is_some(){"separate_source_planes"}else{"merged_plane"},"evaluated_source":source_filter.map(|s|s.name()),
                                                 "normal":normal.to_array(),"plane":plane,"support_point":witness.to_array(),
                                                 "source":is_arm.name(),"collar_deficit":best_anchor_deficit,
                                                 "face_reference":vertices.map(|p|p.to_array()),
@@ -3143,10 +3166,50 @@ fn fit_radial_faces_impl(
                                 };
                                 Ok(FaceOutcome::Fit {
                                     shifts,
-                                    plane: winning_plane,
+                                    planes: [winning_plane; 3],
+                                    plane_count: 1,
                                 })
                             };
-                        let outcome = evaluate(work)?;
+                        let outcome = if support.inner.is_some() && support.head.is_some() {
+                            // A mantle may pass between the head and inner cloth.
+                            // Each source needs a separate separating plane, but all
+                            // planes use the SAME frozen vertex axes and swept domains.
+                            // Nonnegative shared maxima therefore preserve every plane.
+                            let mut combined = [0.0f32; 3];
+                            let mut planes = [None; 3];
+                            let mut plane_count = 0;
+                            for source in [
+                                SupportSource::Inner,
+                                SupportSource::Arms,
+                                SupportSource::Head,
+                            ] {
+                                if let FaceOutcome::Fit {
+                                    shifts,
+                                    planes: selected,
+                                    plane_count: count,
+                                } = evaluate(work, Some(source))?
+                                {
+                                    plane_count += count;
+                                    for j in 0..3 {
+                                        if planes[j].is_none() || shifts[j] > combined[j] {
+                                            planes[j] = Some(selected[j]);
+                                        }
+                                        combined[j] = combined[j].max(shifts[j]);
+                                    }
+                                }
+                            }
+                            if plane_count == 0 {
+                                FaceOutcome::Empty
+                            } else {
+                                FaceOutcome::Fit {
+                                    shifts: combined,
+                                    planes: planes.map(Option::unwrap),
+                                    plane_count,
+                                }
+                            }
+                        } else {
+                            evaluate(work, None)?
+                        };
                         if cacheable {
                             face_cache[cache_index] = Some((domain_key, outcome));
                         }
@@ -3154,7 +3217,8 @@ fn fit_radial_faces_impl(
                     };
                     let FaceOutcome::Fit {
                         shifts,
-                        plane: winning_plane,
+                        planes: winning_planes,
+                        plane_count,
                     } = outcome
                     else {
                         continue;
@@ -3166,10 +3230,11 @@ fn fit_radial_faces_impl(
                             .enumerate()
                             .filter(|(_, i)| **i <= COLUMNS)
                             .max_by(|(a, &ia), (b, &ib)| {
-                                (reference[ia].y + shifts[*a])
-                                    .total_cmp(&(reference[ib].y + shifts[*b]))
+                                (reference[ia].y + shifts[*a] * axes[ia].y)
+                                    .total_cmp(&(reference[ib].y + shifts[*b] * axes[ib].y))
                             })
                             .unwrap();
+                        let winning_plane = winning_planes[j];
                         let peak = reference[vertex].y + shifts[j] * axes[vertex].y;
                         if peak > collar_ceiling - 0.01
                             && collar_trace.as_ref().is_none_or(|(old, _)| peak > *old)
@@ -3189,7 +3254,9 @@ fn fit_radial_faces_impl(
                             collar_trace=Some((peak,format!("collar solve vertex={vertex} row={row} column={column} iteration={iteration} reference_y={} final_y={peak} normal={:?} plane={} collar_cost={collar_cost} radial_cost={radial_cost}",reference[vertex].y,winning_plane.0,winning_plane.1)));
                         }
                     }
-                    for (i, shift) in face.into_iter().zip(shifts) {
+                    for ((i, shift), winning_plane) in
+                        face.into_iter().zip(shifts).zip(winning_planes)
+                    {
                         travels[i] = travels[i].max(shift);
                         if axes[i].with_y(0.0).length_squared() > 0.0
                             && shift > 0.0
@@ -3203,6 +3270,7 @@ fn fit_radial_faces_impl(
                                     column,
                                     face,
                                     winning_plane,
+                                    plane_count,
                                     low,
                                     high,
                                     radial_limit,
@@ -3326,6 +3394,7 @@ fn fit_radial_faces_impl(
             column,
             face,
             (normal, plane, witness, is_arm),
+            plane_count,
             low,
             high,
             radial_limit,
@@ -3336,6 +3405,8 @@ fn fit_radial_faces_impl(
         *trace = Some(
             serde_json::json!({"vertex":vertex,"face":face,"row":row,"column":column,
             "iteration":iteration,"travel":travel,"normal":normal.to_array(),"plane":plane,
+            "source_mode":if support.inner.is_some() && support.head.is_some(){"separate_source_planes"}else{"merged_plane"},
+            "certified_plane_count":plane_count,"plane_scope":"controlling plane for this vertex; all source planes certified before aggregation",
             "face_reference":face.map(|i|reference[i].to_array()),
             "face_axes":face.map(|i|axes[i].to_array()),
             "face_budgets":face.map(|i|budgets[i]),
@@ -3764,17 +3835,18 @@ pub(super) fn place_layers(
                     }
                 })
             });
-            let mut contact_profile = cloak.shoulder_profile.clone();
+            let contact_profile = &cloak.shoulder_profile;
             if let (Some(head), Some(body), Some(limits)) = (
                 cloak.head_surface.as_deref(),
                 cloak.support.as_ref(),
                 limits.as_ref(),
             ) {
                 fit_mantle_head_reference(&mut candidate, rot, head, body, limits)?;
-                // The head certificate seats this band BELOW the jaw. Its
-                // radial planes cannot survive a later upward-only collar
-                // displacement. Freeze radial axes only after inner seating.
-                contact_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
+                // This radial prepass is initialization, not the final proof.
+                // Requery head, arms and inner cloth from these positions with
+                // the immutable authored smooth profile shared by every source.
+                // The separate head certificate below must accept that motion;
+                // no old prepass plane is assumed to survive it automatically.
             }
             fit_radial_supports_traced(
                 &mut candidate,
@@ -3783,7 +3855,7 @@ pub(super) fn place_layers(
                     inner: Some(&support),
                     arms: cloak.arm_surface.as_deref(),
                     head: cloak.head_surface.as_deref(),
-                    profile: Some(&contact_profile),
+                    profile: Some(contact_profile),
                     radial_limits: limits.as_ref().map(|v| v.as_slice()),
                 },
                 &mut cloak.contact_radial_trace,
@@ -3851,6 +3923,9 @@ pub(super) fn place_layers(
         cloak.last_inner_rotation = Some(inner_rot);
     }
 }
+
+#[cfg(test)]
+mod source_tests;
 
 #[cfg(test)]
 mod tests {

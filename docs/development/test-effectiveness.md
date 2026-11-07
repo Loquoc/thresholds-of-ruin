@@ -4397,3 +4397,24 @@ to another inner face; its complete five-polygon audit has convex separation
 This new failure is not repairable by merely sampling another plane normal under
 that contract. Cope attachment and neutral width remain rejected as before. No
 fresh rendered acceptance or full-suite qualification is implied.
+
+A scoped source-separated experiment certifies each mantle source with its own
+plane on the same immutable per-vertex axes and swept domains, then combines
+scalar travel. It retains a controlling plane per vertex, rather than attributing
+all shared travel to one face-wide source. Three new full-solver methods passed:
+independent inner/head planes with shared vertices, growth and cache parity;
+empty-head/default equivalence; and transactional failure of either source.
+Strict release Clippy passed. Restoring the original near-vertical profile in
+that experiment regressed actual actors: 80 cloak methods passed and six failed.
+Complete single-head-source audits establish current capped-face distances of
+29.898027 mm for cope spawn and 24.670426 mm for leather spawn, both below 32 mm.
+These are movement-contract failures, not a reason to reduce clearance.
+
+The experimental renderer completed neutral and tick93 closeups, but the manifest
+records one fallback initially and 95 by tick93. Actual pixels show tall rigid
+panels above the head and a folded box in motion, so the experiment is explicitly
+rejected. Recorded drape phase wall elapsed was about 70.8 seconds across 93 rig
+steps; this is not a frame-rate benchmark or an isolated algorithm comparison.
+The source-separated mechanism is covered, but the restored near-vertical
+production profile is not suitable. The prior radial profile must remain until
+a shared incident-constraint-derived movement rule passes actual qualification.
