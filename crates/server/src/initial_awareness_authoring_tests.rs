@@ -50,7 +50,18 @@ fn facts(game: &Game) -> (Value, Value) {
     let checkpoint = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
     let table = checkpoint["actors"].as_u64().unwrap() as usize;
     let shared = serde_json::to_value(shared).unwrap();
-    (checkpoint, shared["actors"][table].clone())
+    let actors = shared["actors"][table]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(id, index)| {
+            (
+                id.clone(),
+                shared["actor_records"][index.as_u64().unwrap() as usize].clone(),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    (checkpoint, Value::Object(actors))
 }
 
 #[test]

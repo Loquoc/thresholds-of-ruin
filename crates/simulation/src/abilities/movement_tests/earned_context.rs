@@ -633,7 +633,8 @@ fn pending_recovery_requires_settled_frozen_provenance_in_active_and_detached_re
     let original = serde_json::to_value(&(snapshot, shared)).unwrap();
     for active_since in [400, 402] {
         let mut value = original.clone();
-        value[1]["actors"][0]["2"]["active_since"] = serde_json::json!(active_since);
+        crate::checkpoint_fixture::actor_mut(&mut value[1], 0, "2")["active_since"] =
+            serde_json::json!(active_since);
         let (snapshot, shared) =
             serde_json::from_slice(&serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
@@ -643,8 +644,8 @@ fn pending_recovery_requires_settled_frozen_provenance_in_active_and_detached_re
     let mut shared = crate::checkpoint::SharedState::default();
     let snapshot = active.checkpoint(&mut shared);
     let mut value = serde_json::to_value(&(snapshot, shared)).unwrap();
-    value[1]["actors"][0]["2"]["combat"]["creature"]["health_recovery"]["context"] =
-        serde_json::json!({"kind":"pending","base_period":1200});
+    crate::checkpoint_fixture::actor_mut(&mut value[1], 0, "2")["combat"]["creature"]
+        ["health_recovery"]["context"] = serde_json::json!({"kind":"pending","base_period":1200});
     let (snapshot, shared) = serde_json::from_slice(&serde_json::to_vec(&value).unwrap()).unwrap();
     assert!(Game::restore_checkpoint(snapshot, &shared, active.content().clone()).is_err());
 

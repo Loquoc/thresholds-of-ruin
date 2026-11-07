@@ -143,7 +143,13 @@ def validate_measurements(rows):
         status = row.get("save_status")
         if status is not None:
             require(isinstance(status, dict), "Save status must be an object")
-            nonnegative_counts(status, (field for field in status if field not in ("error", "saving", "overdue")))
+            # No deferred checkpoint is represented by null, not sequence zero.
+            # If present, the sequence still has the ordinary strict count type.
+            nonnegative_counts(status, (
+                field for field in status
+                if field not in ("error", "saving", "overdue")
+                and not (field == "checkpoint_deferred_sequence" and status[field] is None)
+            ))
         if row.get("kind") == "sample":
             phases = row.get("phases_ms")
             require(isinstance(phases, dict), "Missing phases_ms measurements")

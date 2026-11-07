@@ -1374,7 +1374,7 @@ fn form_known(engine: &Engine, id: &str) -> bool {
     let snapshot = engine.game.checkpoint(&mut shared);
     let value = serde_json::to_value((snapshot, shared)).unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    value[1]["actors"][actors]["1"]["recognized_abilities"]
+    crate::checkpoint_fixture::actor(&value[1], actors, "1")["recognized_abilities"]
         .as_array()
         .unwrap()
         .iter()

@@ -324,6 +324,12 @@ impl ActorStore {
         self.entries.iter().map(|(id, actor)| (id, &**actor))
     }
 
+    /// Immutable COW source witnesses for checkpoint-local capture memoization.
+    /// General actor readers keep using `iter`, without ownership handles.
+    pub(crate) fn checkpoint_sources(&self) -> impl Iterator<Item = (&ActorId, &Shared<Actor>)> {
+        self.entries.iter()
+    }
+
     pub fn values(&self) -> impl DoubleEndedIterator<Item = &Actor> + ExactSizeIterator {
         self.entries.values().map(|actor| &**actor)
     }
@@ -344,7 +350,19 @@ impl ActorStore {
         self.entries.contains_key(id)
     }
 
+    #[cfg(test)]
     pub fn from_entries(entries: BTreeMap<ActorId, Actor>) -> Self {
+        Self::from_shared_entries(
+            entries
+                .into_iter()
+                .map(|(id, actor)| (id, Shared::new(actor)))
+                .collect(),
+        )
+    }
+
+    /// Restore pooled payload ownership while rebuilding every identity-scoped
+    /// derived index. A shared actor remains copy-on-write under mutation.
+    pub(crate) fn from_shared_entries(entries: BTreeMap<ActorId, Shared<Actor>>) -> Self {
         let mut mutations = MutationLedger::default();
         let mut regions = Members::default();
         let mut held_owners = Members::default();
@@ -384,12 +402,7 @@ impl ActorStore {
             .filter_map(|(&id, actor)| actor.motion.active_fall.map(|_| id))
             .collect();
         Self {
-            entries: Shared::new(
-                entries
-                    .into_iter()
-                    .map(|(id, actor)| (id, Shared::new(actor)))
-                    .collect(),
-            ),
+            entries: Shared::new(entries),
             regions,
             held_owners,
             timer_deadlines: Shared::new(timer_deadlines),

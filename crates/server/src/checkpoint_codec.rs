@@ -84,6 +84,16 @@ pub(crate) fn write_json_classified<T: Serialize, W: Write>(
     write_encoding_classified(value, output, LIMIT, Compression::fast())
 }
 
+/// A reduced actual-process fault-injection ceiling. It can never expand the
+/// production encoder limit, and does not change decoding or admission limits.
+pub(super) fn write_json_classified_with_limit<T: Serialize, W: Write>(
+    value: &T,
+    output: W,
+    limit: usize,
+) -> Result<W, EncodeError> {
+    write_encoding_classified(value, output, limit.min(LIMIT), Compression::fast())
+}
+
 #[cfg(test)]
 pub(super) fn write_uncompressed_json<T: Serialize>(value: &T) -> io::Result<Vec<u8>> {
     write_encoding(value, Vec::new(), LIMIT, Compression::none())
@@ -234,6 +244,19 @@ pub(super) fn write_json_classified_with_test_limit<T: Serialize, W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_limit_preserves_default_encoding_and_classifies_overflow() {
+        let value = vec!["checkpoint payload"; 32];
+        assert!(matches!(
+            write_json_classified_with_limit(&value, Vec::new(), 0),
+            Err(EncodeError::CapacityExceeded)
+        ));
+        assert_eq!(
+            write_json_classified_with_limit(&value, Vec::new(), usize::MAX).unwrap(),
+            write_json_classified(&value, Vec::new()).unwrap()
+        );
+    }
 
     #[test]
     fn classified_capacity_distinguishes_raw_and_encoded_bounds() {

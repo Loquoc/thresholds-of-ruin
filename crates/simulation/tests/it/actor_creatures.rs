@@ -254,7 +254,8 @@ fn game_checkpoint_rebuilds_creature_caches_and_preserves_next_attack_outcome() 
     let text = std::str::from_utf8(&data).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&data).unwrap();
     let actors = value[0]["actors"].as_u64().unwrap() as usize;
-    for actor in value[1]["actors"][actors].as_object().unwrap().values() {
+    for index in value[1]["actors"][actors].as_object().unwrap().values() {
+        let actor = &value[1]["actor_records"][index.as_u64().unwrap() as usize];
         let creature = &actor["combat"]["creature"];
         assert!(creature.get("maximum_health").is_none());
         assert!(creature.get("derived").is_none());
@@ -350,10 +351,11 @@ fn creature_actor_records_reject_mixed_fields_missing_state_and_stale_anatomy() 
     let mut shared = tor_simulation::checkpoint::SharedState::default();
     let snapshot = game.checkpoint(&mut shared);
     let value = serde_json::to_value((snapshot, shared)).unwrap();
-    assert!(value[1]["actors"][0]["1"]["combat"]["creature"].is_object());
+    assert!(crate::checkpoint_fixture::actor(&value[1], 0, "1")["combat"]["creature"].is_object());
     for field in ["hp", "derived"] {
         let mut forged = value.clone();
-        forged[1]["actors"][0]["1"]["combat"][field] = serde_json::json!(10);
+        crate::checkpoint_fixture::actor_mut(&mut forged[1], 0, "1")["combat"][field] =
+            serde_json::json!(10);
         assert!(serde_json::from_value::<(
             tor_simulation::checkpoint::Snapshot,
             tor_simulation::checkpoint::SharedState
@@ -361,7 +363,7 @@ fn creature_actor_records_reject_mixed_fields_missing_state_and_stale_anatomy() 
         .is_err());
     }
     let mut forged = value.clone();
-    forged[1]["actors"][0]["1"]["combat"]
+    crate::checkpoint_fixture::actor_mut(&mut forged[1], 0, "1")["combat"]
         .as_object_mut()
         .unwrap()
         .remove("creature");
@@ -371,7 +373,8 @@ fn creature_actor_records_reject_mixed_fields_missing_state_and_stale_anatomy() 
     )>(forged)
     .is_err());
     let mut forged = value;
-    forged[1]["actors"][0]["1"]["anatomy"]["slots"] = serde_json::json!([]);
+    crate::checkpoint_fixture::actor_mut(&mut forged[1], 0, "1")["anatomy"]["slots"] =
+        serde_json::json!([]);
     // An out-of-range primary socket is rejected at the anatomy decoder.
     assert!(serde_json::from_value::<(
         tor_simulation::checkpoint::Snapshot,
@@ -379,7 +382,7 @@ fn creature_actor_records_reject_mixed_fields_missing_state_and_stale_anatomy() 
     )>(forged.clone())
     .is_err());
     // A structurally valid but stale anatomy still fails source-aware restore.
-    forged[1]["actors"][0]["1"]["anatomy"] =
+    crate::checkpoint_fixture::actor_mut(&mut forged[1], 0, "1")["anatomy"] =
         serde_json::to_value(tor_simulation::AnatomySpec::default()).unwrap();
     let (snapshot, shared) = serde_json::from_value(forged).unwrap();
     assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());

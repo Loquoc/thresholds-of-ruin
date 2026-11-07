@@ -833,8 +833,9 @@ fn public_plan_review_forged_pending_participation_fails_authored_and_natural_re
         );
         let mut forged = canonical;
         let table = forged[0]["actors"].as_u64().unwrap() as usize;
-        let check = &mut forged[1]["actors"][table][actor.0.to_string()]["pending"]["plan"]
-            ["strikes"][0]["check"];
+        let check =
+            &mut crate::checkpoint_fixture::actor_mut(&mut forged[1], table, &actor.0.to_string())
+                ["pending"]["plan"]["strikes"][0]["check"];
         assert_eq!(check["actor"], json!("user"));
         assert_eq!(check["threshold"]["kind"], json!("fixed"));
         assert_eq!(check["target_participates"], json!(true));

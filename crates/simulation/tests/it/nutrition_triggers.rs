@@ -114,7 +114,7 @@ fn game_with_memory(
     edit(&game, |snapshot, pool| {
         snapshot["rules_rng"] = json!(seed);
         let table = snapshot["actors"].as_u64().unwrap() as usize;
-        pool["actors"][table]["2"]["combat"]["creature"]["nutrition"] = json!({"kind":"required","reserve":reserve,"elapsed":elapsed,"digestion_remainder":0,"regeneration_remainder":0});
+        crate::checkpoint_fixture::actor_mut(pool, table, "2")["combat"]["creature"]["nutrition"] = json!({"kind":"required","reserve":reserve,"elapsed":elapsed,"digestion_remainder":0,"regeneration_remainder":0});
     })
 }
 fn edit(game: &Game, change: impl FnOnce(&mut Value, &mut Value)) -> Game {
@@ -202,7 +202,7 @@ fn behavior_memory_segmentation_preserves_the_final_time_depletion_trigger() {
         let game = game_with_memory(ZERO_WORD_SEED, 0, 0, document(), memory_ticks);
         let mut game = edit(&game, |snapshot, pool| {
             let actors = snapshot["actors"].as_u64().unwrap() as usize;
-            pool["actors"][actors]["2"]["behavior"]["engagement"] = json!({
+            crate::checkpoint_fixture::actor_mut(pool, actors, "2")["behavior"]["engagement"] = json!({
                 "reference":"creature",
                 "target":1, "location":at(1), "last_seen":0});
         });
@@ -253,7 +253,8 @@ fn regeneration_ties_keep_time_depletion_rng_and_expiry_order_after_checkpoint()
         let game = game_with_document(ZERO_WORD_SEED, reserve, 0, authored);
         let mut game = edit(&game, |snapshot, pool| {
             let actors = snapshot["actors"].as_u64().unwrap() as usize;
-            let creature = &mut pool["actors"][actors]["2"]["combat"]["creature"];
+            let creature =
+                &mut crate::checkpoint_fixture::actor_mut(pool, actors, "2")["combat"]["creature"];
             creature["injury"] = json!(1);
             creature["health_recovery"]["elapsed"] = json!(1100);
         });
@@ -305,9 +306,10 @@ fn nonplayer_regeneration_at_ten_ticks_never_draws_before_time_depletion_at_one_
     let mut game = edit(&game, |snapshot, pool| {
         let actors = snapshot["actors"].as_u64().unwrap() as usize;
         for actor in ["1", "2", "3"] {
-            pool["actors"][actors][actor]["turn_ticks"] = json!(10);
+            crate::checkpoint_fixture::actor_mut(pool, actors, actor)["turn_ticks"] = json!(10);
         }
-        let creature = &mut pool["actors"][actors]["2"]["combat"]["creature"];
+        let creature =
+            &mut crate::checkpoint_fixture::actor_mut(pool, actors, "2")["combat"]["creature"];
         creature["injury"] = json!(1);
         creature["health_recovery"]["elapsed"] = json!(1190);
     });
@@ -607,8 +609,7 @@ fn trigger_horizon_failure_rolls_back_time_rng_work_holds_and_events() {
     let mut failed = edit(&base, |snapshot, pool| {
         let tick = u64::MAX - 200;
         snapshot["tick"] = json!(tick);
-        let table = snapshot["actors"].as_u64().unwrap() as usize;
-        for actor in pool["actors"][table].as_object_mut().unwrap().values_mut() {
+        for actor in pool["actor_records"].as_array_mut().unwrap() {
             actor["ready_at"] = json!(tick);
             actor["active_since"] = json!(tick);
         }

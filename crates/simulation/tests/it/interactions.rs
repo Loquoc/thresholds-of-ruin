@@ -729,17 +729,20 @@ fn saved_item_preparation_rejects_missing_ground_and_foreign_items() {
         actors: usize,
         actor: ActorId,
     ) -> Option<&mut serde_json::Value> {
-        value
-            .get_mut("actors")?
-            .get_mut(actors)?
-            .get_mut(actor.0.to_string())?
+        let id = actor.0.to_string();
+        // An absent optional plan must not split a shared actor payload.
+        crate::checkpoint_fixture::actor(value, actors, &id)
+            .get("pending")?
+            .get("plan")?;
+        crate::checkpoint_fixture::actor_mut(value, actors, &id)
             .get_mut("pending")?
             .get_mut("plan")
     }
     // Another actor owns an unrelated pending relocation array. It must not
     // be mistaken for this actor's preparation or become a corruption target.
     assert!(
-        encoded["actors"][actors][other.0.to_string()]["periodic_relocations"]["pending"]
+        crate::checkpoint_fixture::actor(&encoded, actors, &other.0.to_string())
+            ["periodic_relocations"]["pending"]
             .as_array()
             .unwrap()
             .is_empty()
@@ -749,6 +752,27 @@ fn saved_item_preparation_rejects_missing_ground_and_foreign_items() {
     assert_eq!(untouched, encoded);
     assert_eq!(
         preparation_plan(&mut untouched, actors, actor).unwrap()["item"],
+        20
+    );
+    // Exercise the accessor with shared bindings before any corrupt restore.
+    let mut aliased = encoded.clone();
+    let retained = aliased["actors"].as_array().unwrap().len();
+    aliased["actors"]
+        .as_array_mut()
+        .unwrap()
+        .push(encoded["actors"][actors].clone());
+    let before = aliased.clone();
+    assert!(preparation_plan(&mut aliased, actors, other).is_none());
+    assert_eq!(aliased, before);
+    preparation_plan(&mut aliased, actors, actor).unwrap()["item"] = serde_json::json!(999);
+    assert_eq!(
+        crate::checkpoint_fixture::actor(&aliased, actors, &actor.0.to_string())["pending"]["plan"]
+            ["item"],
+        999
+    );
+    assert_eq!(
+        crate::checkpoint_fixture::actor(&aliased, retained, &actor.0.to_string())["pending"]
+            ["plan"]["item"],
         20
     );
     for item in [999, 21, 22] {
@@ -997,7 +1021,7 @@ fn unknown_anatomy_slot_rejects_configuration_and_checkpoint_restore() {
     let mut shared = SharedState::default();
     let snapshot = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value(&shared).unwrap();
-    value["actors"][0][actor.0.to_string()]["anatomy"]["slots"] =
+    crate::checkpoint_fixture::actor_mut(&mut value, 0, &actor.0.to_string())["anatomy"]["slots"] =
         serde_json::json!(["unknown_slot"]);
     let corrupt = serde_json::from_value(value).unwrap();
     assert!(Game::restore_checkpoint(snapshot, &corrupt, game.content().clone()).is_err());
@@ -1068,8 +1092,8 @@ fn shared_grip_capacity_limits_authored_and_paid_equips_without_combat() {
         if capacity == 3 {
             let snapshot = game.checkpoint(&mut shared);
             let mut invalid = serde_json::to_value(&shared).unwrap();
-            invalid["actors"][0][actor.0.to_string()]["anatomy"]["capacities"]["grip"] =
-                serde_json::json!(1);
+            crate::checkpoint_fixture::actor_mut(&mut invalid, 0, &actor.0.to_string())
+                ["anatomy"]["capacities"]["grip"] = serde_json::json!(1);
             let corrupt = serde_json::from_value(invalid).unwrap();
             assert!(Game::restore_checkpoint(snapshot, &corrupt, game.content().clone()).is_err());
         }

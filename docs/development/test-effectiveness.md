@@ -3897,3 +3897,172 @@ preserves the production bound, all ownership/reclamation assertions, and normal
 checkpoint recovery. Cross-batch sharing is not counted by this size proxy.
 Final-head hosted execution remains required; no local behavioral run or isolated
 RSS/timing result is claimed while local storage capacity is constrained.
+
+## Menagerie checkpoint capacity, 6 November 2026
+
+The supplied extended-play incident exposed two related persistence weaknesses:
+whole actor-table and AI-state repetition multiplied large records across the
+bounded rewind window, and optional checkpoint capacity failure stopped legal
+journal batches from becoming durable. The private deployed save was not copied
+into the repository or used as a local fixture; the reported 64 MiB cap incident
+is distinct from the reduced-limit regression below.
+
+Three deliberate regression methods reproduced the intended pre-fix behavior.
+`storage::checkpoint_failure_tests::capacity_deferral_keeps_journal_durable_with_and_without_prior_checkpoint`
+failed at explicit journal flush after a real encoder overflow. The simulation
+`checkpoint::tests::changing_one_actor_does_not_repeat_other_actor_records`
+validated all restored states and mutation isolation, then measured 2,308,224
+bytes for 64 boundaries of 32 actors against 36,787 bytes for one boundary.
+`checkpoint::tests::retained_ai_records_share_visits_and_restore_independent_mutable_states`
+validated restoration/isolation, then found 96 serialized visit maps where four
+complete AI records suffice. These are three sensitivity witnesses, not three
+independent naturally detected production defects or platform-multiplied counts.
+
+Save-format pooling requires current-format fixture updates. Test-only mutable
+actor access preserves the former per-directory mutation boundary through
+copy-on-write; malformed raw references remain raw tests. Historical corruption
+must not silently corrupt a current shared payload and thereby weaken its
+historical-only rejection witness. Verification outcomes are recorded with the
+change; local focused checks do not replace final-head hosted qualification.
+
+The same synthetic actor workload now encodes to 160,170 bytes (93.06% below
+its 2,308,224-byte baseline); its single snapshot is 36,907 bytes. This is a
+serialized-size witness, not a release latency benchmark or a measurement of the
+private Menagerie save. An additional restoration-cache witness first failed at
+rebuilding an unchanged actor across distinct directories, then passed alongside
+item-table scoping and mutation isolation. A deliberately failing generic
+serializer also exposed an intermediate capture panic before the guarded hash
+sink was added; this was an implementation-stage regression, not a separately
+observed gameplay incident. Oversized fingerprinting and other serializer errors
+now have distinct handling, with reader and writer expansion checks kept symmetric.
+
+Broader checkpoint checks also detected stale multi-root fixture API usage:
+full save restoration and boundary equality succeeded, but a later independent
+single-root restore correctly rejected unused records from the multi-root pool.
+Those fixture reads now bind the complete root set before restoring individual
+snapshots, retaining exact equality and corruption-rejection assertions. Three
+independent weapon round-trips now start a fresh pool after changing state rather
+than carrying unreferenced records from the preceding round-trip. A new streaming
+fallback fixture initially assumed that entering a hall implied detachment;
+perception and physical-neighbor pins invalidate that assumption. Its setup must
+prove actual movement and detached references before testing durable row retention.
+These are fixture corrections, not additional observed production incidents.
+The streaming fixture's public position comparison was also observer-relative
+zero; it now verifies authoritative movement-event coordinates and the authored
+start anchor. A subsequent real execution reached valid detached rows but exposed
+a missing NPC-turn driver in the new fixture's continuation, rather than a
+persistence failure. The fixture uses the existing bounded ordinary AI progression
+pattern and keeps unexpected movement failures fatal.
+That corridor had already saved all seven authored source rows before fallback,
+so expecting its source count to grow was an invalid setup oracle. The streaming
+witness instead preserves those exact saved sources and reopens without the
+original package; newly admitted source/generated-row atomicity is independently
+asserted by the transaction-boundary regression. No production source-admission
+requirement is removed.
+
+After these fixture corrections, the focused checkpoint set passed 55 simulation
+and 87 server tests; the four additionally affected simulation fixture modules
+passed 169 tests. Ten actual-process checkpoint tests passed with freshly built
+server, Text and headless clients, including reduced encoder capacity with and
+without an older checkpoint, continued durable play, restart, old-format rejection,
+and a normal-limit 27-actor retention-window workload. These are local focused
+receipts, not hosted or native graphical qualification. The private deployed
+Menagerie scenario was unavailable and is not represented as verified.
+The subsequent targeted integration phase passed 23 server persistence/streaming
+checks and 40 simulation nutrition checks; nine actual-process background-save
+checks also passed. These results include the source-free streaming fallback
+witness and retain the same local-versus-hosted qualification distinction.
+
+Release comparisons found smaller checkpoints and faster restart but repeated
+interaction-latency increases, so a further capture-work regression was added.
+After exact restoration and canonical-byte checks, the intended first-red
+witnesses measured 33 actor fingerprint calls versus five required and 63 AI
+calls versus seven required. A separate equal-allocation/cleared-memo witness
+measured 15 calls versus five. Initial test setup incorrectly expected a revisited
+AI value to create another unique record and attempted unsupported capture into a
+decoded pool; those fixture errors were corrected without relaxing either
+structural deduplication or decoded spatial-authority rules. Reduced fingerprint
+work alone is not evidence that the observed latency difference is resolved.
+The memoized run also exposed one old fixture mutating an internal canonical
+record after capture, leaving its fingerprint metadata stale. It now captures an
+invalid source clone and the valid original separately, retaining invalid-body
+rejection and exact valid restoration without mutable access to pooled records.
+
+The first exhaustive PR 272 run exposed 18 server fixture failures and one real
+profiling-consumer integration defect. Seven server failures came from missing
+current-writer scenario goldens and an obsolete literal save version. Eleven
+came from optional actor/AI absence wrappers, obsolete pooled-record paths and a
+single-root restore of a multi-root hallucination checkpoint. Fixes preserve
+optional absence only in the named wrappers, strict malformed-reference handling,
+COW negative mutations and complete-root restoration. The golden is recorded
+from the current writer; historical fixtures remain unchanged. The profiling
+validator had treated the new nullable deferral sequence as a mandatory numeric
+count. Its regression preserves missing/null/value distinctions and still rejects
+invalid values and null ordinary counts. These failures are distinct from the
+passing focused checks and are not evidence of exhaustive qualification.
+The correction passed all 1,348 default-feature server unit tests, the exact
+previously failing streaming-benchmark process test and 67 report-validator tests;
+three focused validator tests also passed under Python -O. Hosted CI enables four
+additional service-contract-host tests, all green on the first head but not
+included in that local count. The regenerated version-68 scenario golden is
+byte-identical to the preserved version-67 metadata fixture because the independent
+scenario metadata formats did not change. Recording mode was unset for the normal
+writer comparison, round-trip and malformed-schema checks.
+
+Later lanes in the same exhaustive run exposed two nutrition process wrappers
+that still treated pooled actor indices as full records. The wrapper now expands
+complete actor and AI values with independent copies for each binding and retained
+root. Its first-red alias/expansion regression and 15 helper checks pass, as do
+both previously failing real-process nutrition cases using the unchanged current
+production binaries. These are test-consumer corrections, not a relaxation of
+checkpoint validation or the continuation comparisons.
+
+The next [Linux debug Rust lane](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42295919602)
+passed 815 simulation integration tests and failed
+`interactions::saved_item_preparation_rejects_missing_ground_and_foreign_items`
+at its positive preparation lookup. Its local accessor still traversed an actor
+directory binding as a payload. This is one additional stale-fixture root, one
+distinct failing method, independently seen in Linux debug and release, not a
+production decoder failure. The accessor now checks optional preparation through the strict
+pooled-record reader before requesting a COW mutation. Shared-directory assertions
+preserve no mutation for an absent preparation and isolate a present preparation
+from retained bindings; existing invalid-item and frozen-plan rejection assertions
+remain unchanged. Focused Clippy, the exact corrected test and all 816 simulation
+integration tests passed locally. The first broad feedback wrapper rejected two
+successful summaries because an existing bounded anti-spin test runs a child of
+itself; its Cargo exit was zero and checked inputs were unchanged. The exact
+feedback rerun and normal Cargo integration command both passed, with the latter
+confirming all 816 tests and exit zero. This wrapper diagnostic was retained rather
+than called a successful feedback gate. Fixed-head hosted qualification remains
+separate.
+
+The Windows debug native travel failure is independently explained by retained
+frames: a distinct return journey had arrived with one step and admission ready,
+but its picture was still marked not current at tick 100. The mouse path completed;
+the fixture consumed status before presentation. Native travel now uses the same
+arrival/admission/current-picture barrier as automated travel. Scripted regressions
+replay the real test body and frame reader, retaining exact input ordering, distinct
+journey identity and tick 100/200 assertions. The old predicate first failed at the
+original tick assertion for delayed pictures and at the admission witness for
+delayed permission. Mocked OS I/O is not native qualification: the actual native
+Windows/Linux lanes remain required, with no waiver or relaxed assertion.
+The final combined local helper, selection and reporting run passed 77 tests;
+20 documentation checks and whole-scripts Ruff also passed. The registry keeps
+the new scripted class non-graphical and the original native case graphical;
+existing unregistered owners still require exhaustive fallback rather than being
+silently accepted by selective coverage.
+
+The [next PR 272 cohort](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42302778734)
+passed every other actual lane, but Windows release Rust reached its 60-minute
+whole-job limit. Its retained, hash-verified artifact records 54m10s of release
+compilation, all 816 simulation integration tests and the final 29 Service
+contracts passing, and a complete verifier exit zero after 3547.375 seconds.
+GitHub still cancelled the job before completion evidence could qualify it;
+the required aggregates did not pass and no full qualification seal was emitted.
+This is one demonstrated infrastructure-budget defect, not a test failure or a
+waiver. Only Windows release Rust now has a 75-minute job and 70-minute
+verification limit, preserving bounded execution and five minutes of setup and
+evidence margin. A first-red workflow-contract test observed the old `(60, 60)`
+bounds and zero margin; its matrix cases preserve every other lane's limits.
+All test selection, individual test deadlines, gates and evidence requirements
+are unchanged. Fresh hosted qualification remains required after this correction.

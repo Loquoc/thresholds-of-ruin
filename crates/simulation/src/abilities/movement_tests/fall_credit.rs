@@ -463,12 +463,12 @@ fn checkpoint_rejects_future_fall_stamps_and_unissued_episodes() {
         let mut value = saved(&game);
         match corruption {
             "future" => {
-                value[1]["actors"][0]["2"]["motion"]["active_fall"]["started_at"] =
-                    json!(game.tick() + 1)
+                crate::checkpoint_fixture::actor_mut(&mut value[1], 0, "2")["motion"]
+                    ["active_fall"]["started_at"] = json!(game.tick() + 1)
             }
             "unissued" => {
-                value[1]["actors"][0]["2"]["motion"]["active_fall"]["episode"] =
-                    json!(game.physics.next_fall_episode.get())
+                crate::checkpoint_fixture::actor_mut(&mut value[1], 0, "2")["motion"]
+                    ["active_fall"]["episode"] = json!(game.physics.next_fall_episode.get())
             }
             "allocator_zero" => value[0]["physics"]["next_fall_episode"] = json!(0),
             _ => unreachable!(),
@@ -773,9 +773,11 @@ fn checkpoint_rejects_one_episode_claimed_by_two_loaded_actors() {
     let valid = saved(&game);
     assert_eq!(restore(valid.clone(), &game).unwrap(), game);
     let mut forged = valid;
-    let mut duplicate = forged[1]["actors"][0]["2"]["motion"]["active_fall"].clone();
+    let mut duplicate =
+        crate::checkpoint_fixture::actor(&forged[1], 0, "2")["motion"]["active_fall"].clone();
     duplicate["owner"] = json!(TARGET.0);
-    forged[1]["actors"][0]["1"]["motion"]["active_fall"] = duplicate;
+    crate::checkpoint_fixture::actor_mut(&mut forged[1], 0, "1")["motion"]["active_fall"] =
+        duplicate;
     assert!(restore(forged, &game).is_err());
 }
 

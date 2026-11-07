@@ -359,15 +359,20 @@ fn current_and_retained_history_require_matching_cadence_and_reject_impossible_a
     advance_to(&mut game, 100);
     let current = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
     let baseline = serde_json::to_value(&shared).unwrap();
-    for snapshot in [history, current] {
+    let snapshots = [history, current];
+    for snapshot in &snapshots {
         let index = snapshot["actors"].as_u64().unwrap() as usize;
         let restore = |value: serde_json::Value| {
             let shared: crate::checkpoint::SharedState = serde_json::from_value(value).unwrap();
-            Game::restore_checkpoint(
-                serde_json::from_value(snapshot.clone()).unwrap(),
-                &shared,
-                game.content().clone(),
-            )
+            let roots: Vec<crate::checkpoint::Snapshot> = snapshots
+                .iter()
+                .cloned()
+                .map(|root| serde_json::from_value(root).unwrap())
+                .collect();
+            let mut context =
+                crate::checkpoint::RestoreContext::new(&shared, game.content().clone());
+            context.bind_spatial_roots(&roots.iter().collect::<Vec<_>>())?;
+            context.restore(serde_json::from_value(snapshot.clone()).unwrap())
         };
         restore(baseline.clone()).unwrap();
         for (field, value) in [
@@ -375,27 +380,29 @@ fn current_and_retained_history_require_matching_cadence_and_reject_impossible_a
             ("phase", serde_json::json!(u64::MAX)),
         ] {
             let mut invalid = baseline.clone();
-            invalid["actors"][index]["1"]["hallucination"][field] = value;
+            crate::checkpoint_fixture::actor_mut(&mut invalid, index, "1")["hallucination"]
+                [field] = value;
             assert!(matches!(
                 restore(invalid),
                 Err(crate::checkpoint::PersistError::ActorState { actor: OWNER })
             ));
         }
         let mut absent = baseline.clone();
-        absent["actors"][index]["1"]["hallucination"] = serde_json::Value::Null;
+        crate::checkpoint_fixture::actor_mut(&mut absent, index, "1")["hallucination"] =
+            serde_json::Value::Null;
         assert!(matches!(
             restore(absent),
             Err(crate::checkpoint::PersistError::ActorState { actor: OWNER })
         ));
         let mut missing = baseline.clone();
-        missing["actors"][index]["1"]
+        crate::checkpoint_fixture::actor_mut(&mut missing, index, "1")
             .as_object_mut()
             .unwrap()
             .remove("hallucination");
         assert!(serde_json::from_value::<crate::checkpoint::SharedState>(missing).is_err());
         let mut orphan = baseline.clone();
-        orphan["actors"][index]["2"]["hallucination"] =
-            baseline["actors"][index]["1"]["hallucination"].clone();
+        crate::checkpoint_fixture::actor_mut(&mut orphan, index, "2")["hallucination"] =
+            crate::checkpoint_fixture::actor(&baseline, index, "1")["hallucination"].clone();
         assert!(matches!(
             restore(orphan),
             Err(crate::checkpoint::PersistError::ActorState { actor: SUBJECT })
@@ -406,7 +413,8 @@ fn current_and_retained_history_require_matching_cadence_and_reject_impossible_a
             ("remaining_to_shift", 101),
         ] {
             let mut invalid = baseline.clone();
-            invalid["actors"][index]["1"]["hallucination"][field] = serde_json::json!(value);
+            crate::checkpoint_fixture::actor_mut(&mut invalid, index, "1")["hallucination"]
+                [field] = serde_json::json!(value);
             assert!(serde_json::from_value::<crate::checkpoint::SharedState>(invalid).is_err());
         }
     }

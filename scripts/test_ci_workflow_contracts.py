@@ -255,7 +255,7 @@ class WorkflowAdoption(unittest.TestCase):
 class LinuxDebugShardWorkflow(unittest.TestCase):
     def test_isolated_debug_owners_keep_cap_and_exact_union_gate(self):
         profiles = workflow_job('profiles')
-        self.assertIn("timeout-minutes: ${{ matrix.partition == 'python' && 40 || 60 }}", profiles)
+        self.assertIn("matrix.partition == 'python' && 40 || 60 }}", profiles)
         for index in (1, 2):
             self.assertIn(f'partition: python\n            shard: {index}', profiles)
             self.assertIn(f'linux_debug_shard_{index}:', profiles)

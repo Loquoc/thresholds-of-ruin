@@ -70,12 +70,13 @@ fn large_rogue_prebirth_clocks_preserve_every_boundary_with_one_immutable_plan()
     );
     let actor_table = baseline["game"]["actors"].as_u64().unwrap() as usize;
     assert_eq!(
-        baseline["shared"]["actors"][actor_table]["1"]["combat"]["creature"]["nutrition"]["kind"],
+        crate::checkpoint_fixture::actor(&baseline["shared"], actor_table, "1")["combat"]
+            ["creature"]["nutrition"]["kind"],
         "required"
     );
     assert_eq!(
-        baseline["shared"]["actors"][actor_table]["1"]["combat"]["creature"]["nutrition"]
-            ["reserve"],
+        crate::checkpoint_fixture::actor(&baseline["shared"], actor_table, "1")["combat"]
+            ["creature"]["nutrition"]["reserve"],
         1300
     );
     // Production nutrition spends one reserve per100ticks: this6400tick

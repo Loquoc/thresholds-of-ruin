@@ -64,7 +64,7 @@ class PopulationGrowthProcesses(ProcessTestCase):
         self.assertEqual(crc32c(payload), checksum)
         checkpoint = json.loads(decode_checkpoint_payload(payload))
         self.assertFalse(checkpoint["wizard_game"])
-        actors = checkpoint["shared"]["actors"][checkpoint["game"]["actors"]]
+        actors = {actor: checkpoint["shared"]["actor_records"][index] for actor, index in checkpoint["shared"]["actors"][checkpoint["game"]["actors"]].items()}
         return actors[str(actor)]["combat"]["creature"]
 
     def execution_refusal(self, player, *, since=0):

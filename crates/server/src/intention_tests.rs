@@ -2742,7 +2742,8 @@ mod intention_admission_tests {
         let snapshot = serde_json::to_value(engine.game.checkpoint(&mut shared)).unwrap();
         let mut encoded_shared = serde_json::to_value(shared).unwrap();
         let actors = snapshot["actors"].as_u64().unwrap() as usize;
-        let creature = &mut encoded_shared["actors"][actors]["1"]["combat"]["creature"];
+        let creature = &mut crate::checkpoint_fixture::actor_mut(&mut encoded_shared, actors, "1")
+            ["combat"]["creature"];
         creature["injury"] = serde_json::json!(engine.game.health(SimActor(1)).unwrap().1);
         creature["dead"] = serde_json::json!(true);
         let shared = serde_json::from_value(encoded_shared).unwrap();

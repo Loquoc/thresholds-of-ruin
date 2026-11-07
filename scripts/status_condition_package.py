@@ -79,7 +79,7 @@ def checkpoint(test, client):
     lifecycle = (shared["lifecycles"][game["lifecycle"]]
                  if game.get("lifecycle") is not None else None)
     return {"tick": game["tick"], "rules_rng": game["rules_rng"],
-            "actors": copy.deepcopy(shared["actors"][game["actors"]]),
+            "actors": copy.deepcopy({actor: shared["actor_records"][index] for actor, index in shared["actors"][game["actors"]].items()}),
             "items": copy.deepcopy(shared["items"][game["items"]]),
             "frozen_at": copy.deepcopy(lifecycle["stamps"] if lifecycle else {})}
 

@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 67;
+pub(crate) const ARCHIVE_VERSION: u32 = 68;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -3724,6 +3724,12 @@ impl Engine {
                 .unwrap_or("00000000-0000-0000-0000-000000000000"),
             self.archive.records.len() as u64,
         );
+        if !encoded
+            .record_expansion_within_limit()
+            .map_err(|_| storage_failure())?
+        {
+            return Err(storage_failure());
+        }
         let mut counter = Counter(0);
         if compressed {
             crate::storage::checkpoint_codec::write_json(&encoded, &mut counter)

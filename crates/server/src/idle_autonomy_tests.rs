@@ -201,7 +201,11 @@ fn expected_profile(idle: &str, tools: [bool; 4], flee: u32) -> Value {
 fn saved_ai(game: &Game) -> Value {
     let mut shared = tor_simulation::checkpoint::SharedState::default();
     let snapshot = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
-    snapshot["combat"]["ai"]["3"].clone()
+    let directory = snapshot["combat"]["ai"].as_object().unwrap();
+    let Some(record) = directory.get("3") else {
+        return Value::Null;
+    };
+    serde_json::to_value(shared).unwrap()["ai_records"][record.as_u64().unwrap() as usize].clone()
 }
 
 fn commit_ai(game: &mut Game) -> SimAction {
@@ -774,7 +778,27 @@ fn default_enrollment_and_visited_history_survive_source_free_durable_reopen_and
 fn persisted_effective_ai_policy_requires_every_resolved_field_and_valid_values() {
     let game = fixture("rogue.hobgoblin", None, false).unwrap();
     let mut shared = tor_simulation::checkpoint::SharedState::default();
-    let saved = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
+    let snapshot = game.checkpoint(&mut shared);
+    let mut saved = serde_json::to_value((&snapshot, &shared)).unwrap();
+    let original = saved[0]["combat"]["ai"]["3"].as_u64().unwrap() as usize;
+    let references = saved[0]["combat"]["ai"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|index| index.as_u64().unwrap() as usize == original)
+        .count();
+    // Each negative case edits this actor's policy, not another actor sharing
+    // the same initially valid value. Every case below makes the clone distinct.
+    let ai = if references > 1 {
+        let record = saved[1]["ai_records"][original].clone();
+        let records = saved[1]["ai_records"].as_array_mut().unwrap();
+        let index = records.len();
+        records.push(record);
+        saved[0]["combat"]["ai"]["3"] = json!(index);
+        index
+    } else {
+        original
+    };
     for field in [
         "idle",
         "doors",
@@ -785,12 +809,16 @@ fn persisted_effective_ai_policy_requires_every_resolved_field_and_valid_values(
         "flee_percent",
     ] {
         let mut malformed = saved.clone();
-        malformed["combat"]["ai"]["3"]["profile"]
+        malformed[1]["ai_records"][ai]["profile"]
             .as_object_mut()
             .unwrap()
             .remove(field);
         assert!(
-            serde_json::from_value::<tor_simulation::checkpoint::Snapshot>(malformed).is_err(),
+            serde_json::from_value::<(
+                tor_simulation::checkpoint::Snapshot,
+                tor_simulation::checkpoint::SharedState
+            )>(malformed)
+            .is_err(),
             "stored effective {field} cannot inherit authoring defaults"
         );
     }
@@ -802,17 +830,25 @@ fn persisted_effective_ai_policy_requires_every_resolved_field_and_valid_values(
         ("unexpected", json!(true)),
     ] {
         let mut malformed = saved.clone();
-        malformed["combat"]["ai"]["3"]["profile"][field] = value;
+        malformed[1]["ai_records"][ai]["profile"][field] = value;
         assert!(
-            serde_json::from_value::<tor_simulation::checkpoint::Snapshot>(malformed).is_err(),
+            serde_json::from_value::<(
+                tor_simulation::checkpoint::Snapshot,
+                tor_simulation::checkpoint::SharedState
+            )>(malformed)
+            .is_err(),
             "{field}"
         );
     }
     let mut malformed = saved;
-    malformed["combat"]["ai"]["3"]["profile"]["flee_percent"] = json!(101);
-    let rejected = match serde_json::from_value::<tor_simulation::checkpoint::Snapshot>(malformed) {
+    malformed[1]["ai_records"][ai]["profile"]["flee_percent"] = json!(101);
+    let rejected = match serde_json::from_value::<(
+        tor_simulation::checkpoint::Snapshot,
+        tor_simulation::checkpoint::SharedState,
+    )>(malformed)
+    {
         Err(_) => true,
-        Ok(snapshot) => {
+        Ok((snapshot, shared)) => {
             Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err()
         }
     };

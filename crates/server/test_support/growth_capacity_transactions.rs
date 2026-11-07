@@ -123,8 +123,15 @@ pub(crate) fn with_maximum_xp(engine: &Engine) -> Engine {
     )
     .unwrap();
     let mut edited = 0;
-    for pool in disk["shared"]["actors"].as_array_mut().unwrap() {
-        let record = &mut pool["1"]["combat"]["creature"]["earned_progress"];
+    let records: std::collections::BTreeSet<_> = disk["shared"]["actors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|table| table["1"].as_u64().unwrap() as usize)
+        .collect();
+    for index in records {
+        let record =
+            &mut disk["shared"]["actor_records"][index]["combat"]["creature"]["earned_progress"];
         assert!(record.is_object());
         record["earned_xp"] = json!(u64::MAX);
         record["held_xp"] = json!(u64::MAX);

@@ -78,15 +78,32 @@ impl Preparation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct CombatWorld {
+#[serde(
+    deny_unknown_fields,
+    bound(serialize = "A: Serialize", deserialize = "A: Deserialize<'de>")
+)]
+pub(crate) struct CombatWorld<A = crate::ai::Ai> {
     pub run: crate::run_policy::RunMode,
     pub selected: Option<ActorId>,
     pub characters: BTreeSet<ActorId>,
     pub hostility: BTreeMap<String, BTreeSet<String>>,
     #[serde(deserialize_with = "read_input_boundaries")]
     pub input_boundaries: BTreeMap<ActorId, InputEligibility>,
-    pub ai: BTreeMap<ActorId, crate::ai::Ai>,
+    #[serde(deserialize_with = "crate::checkpoint::read_actor_directory")]
+    pub ai: BTreeMap<ActorId, A>,
+}
+
+impl<A> CombatWorld<A> {
+    pub(crate) fn with_ai<B>(&self, ai: BTreeMap<ActorId, B>) -> CombatWorld<B> {
+        CombatWorld {
+            run: self.run.clone(),
+            selected: self.selected,
+            characters: self.characters.clone(),
+            hostility: self.hostility.clone(),
+            input_boundaries: self.input_boundaries.clone(),
+            ai,
+        }
+    }
 }
 
 /// Membership retains Require/Human/Preserve history; this value only gates

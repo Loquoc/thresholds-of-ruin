@@ -199,7 +199,8 @@ fn attach_frozen_member(engine: &mut Engine) {
 fn actor_state(engine: &Engine, actor: u64) -> Value {
     let saved = authority(engine);
     let pool = saved["game"]["actors"].as_u64().unwrap() as usize;
-    let state = saved["shared"]["actors"][pool][actor.to_string()].clone();
+    let state =
+        crate::checkpoint_fixture::actor(&saved["shared"], pool, &actor.to_string()).clone();
     assert!(state.is_object(), "positive control: actor is loaded");
     let lifecycle = saved["game"]["lifecycle"].as_u64().unwrap() as usize;
     let stamp = &saved["shared"]["lifecycles"][lifecycle]["stamps"][actor.to_string()];

@@ -573,7 +573,8 @@ fn past_readiness_restore_requires_current_active_denial_and_known_provenance() 
         ("source", json!(999)),
     ] {
         let mut invalid = pool.clone();
-        invalid["actors"][actor_table]["1"]["combat"]["creature"]["conditions"][0][field] = value;
+        crate::checkpoint_fixture::actor_mut(&mut invalid, actor_table, "1")["combat"]
+            ["creature"]["conditions"][0][field] = value;
         let decoded = serde_json::from_value(invalid);
         assert!(
             decoded.is_err()

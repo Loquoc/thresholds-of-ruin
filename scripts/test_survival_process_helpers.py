@@ -50,7 +50,7 @@ class SavedCheckpointHandles(unittest.TestCase):
         self.expected = {"tick": 75, "rules_rng": 42, "actors": {"1": {"active_since": 50}},
                          "items": {}, "frozen_at": {"1": 50}}
         value = {"game": {"tick": 75, "rules_rng": 42, "actors": 0, "items": 0, "lifecycle": 0},
-                 "shared": {"actors": [self.expected["actors"]], "items": [{}],
+                 "shared": {"actors": [{"1": 0}], "actor_records": [self.expected["actors"]["1"]], "items": [{}],
                             "lifecycles": [{"stamps": self.expected["frozen_at"]}]}}
         raw = json.dumps(value).encode("utf-8")
         payload = HEADER + zlib.compress(raw) + len(raw).to_bytes(4, "little")

@@ -562,19 +562,26 @@ fn pending_current_and_retained_actor_roots_reject_wrong_marker_and_mixed_payloa
     assert!(game.tick() < due);
     let current = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
     let baseline = serde_json::to_value(&shared).unwrap();
-    for snapshot in [history, current] {
+    let snapshots = [history, current];
+    for snapshot in &snapshots {
         let restore = |stored: serde_json::Value| {
-            Game::restore_checkpoint(
-                serde_json::from_value(snapshot.clone()).unwrap(),
-                &serde_json::from_value(stored).unwrap(),
-                game.content().clone(),
-            )
+            let shared = serde_json::from_value(stored).unwrap();
+            let roots: Vec<crate::checkpoint::Snapshot> = snapshots
+                .iter()
+                .cloned()
+                .map(|root| serde_json::from_value(root).unwrap())
+                .collect();
+            let mut context =
+                crate::checkpoint::RestoreContext::new(&shared, game.content().clone());
+            context.bind_spatial_roots(&roots.iter().collect::<Vec<_>>())?;
+            context.restore(serde_json::from_value(snapshot.clone()).unwrap())
         };
         restore(baseline.clone()).unwrap();
         let root = snapshot["actors"].as_u64().unwrap() as usize;
         for mutation in 0..2 {
             let mut invalid = baseline.clone();
-            let effects = &mut invalid["actors"][root]["1"]["pending"]["plan"]["effects"];
+            let effects = &mut crate::checkpoint_fixture::actor_mut(&mut invalid, root, "1")
+                ["pending"]["plan"]["effects"];
             assert_eq!(effects[0]["kind"], serde_json::json!("detect_monsters"));
             if mutation == 0 {
                 effects[0]["id"] = serde_json::json!("fixture_blind");
@@ -587,10 +594,11 @@ fn pending_current_and_retained_actor_roots_reject_wrong_marker_and_mixed_payloa
             assert!(restore(invalid).is_err());
         }
         let mut missing = baseline.clone();
-        missing["actors"][root]["1"]["pending"]["plan"]["effects"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("turn_ticks");
+        crate::checkpoint_fixture::actor_mut(&mut missing, root, "1")["pending"]["plan"]["effects"]
+            [0]
+        .as_object_mut()
+        .unwrap()
+        .remove("turn_ticks");
         assert!(serde_json::from_value::<crate::checkpoint::SharedState>(missing).is_err());
     }
 }
