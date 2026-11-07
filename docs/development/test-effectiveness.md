@@ -4198,3 +4198,17 @@ order, empty hits, shifts, support witnesses and rollback behavior. Its tests
 compare cached and uncached geometry and diagnostics, and separately count work
 in forced multi-round fixtures. Native execution, measured runtime benefit and
 fresh pixels remain required; static or analytical checks are not qualification.
+
+At `ea281e92`, Linux release reached 756 passing methods and four failures. The
+inner-panel regression passed, but the strike escape moved to the mixed roof/
+side boundary: row four rose to about 0.879 m while upper rows stayed near
+0.619 m. The lower unbounded support domain had treated distant arms as inner
+cloth requiring outermost containment. Separating arm collision from inner-layer
+containment therefore needs explicit outside initialization, not another
+unconditional outermost arm ray. New embedded/clear/distant/overlapping/open-face
+and growing-domain witnesses accompany that distinction and cache invalidation.
+The capture produced all 77 images without timeout but rejected solver fallbacks;
+actual shoulders remained rigid and overexpanded. Neither completion nor reduced
+runtime qualifies visual fit. A separate cream-plume silhouette failure found
+that tilted emitted vanes exceeded their centerline height; the production arch
+was lowered while retaining the original height and width bounds.

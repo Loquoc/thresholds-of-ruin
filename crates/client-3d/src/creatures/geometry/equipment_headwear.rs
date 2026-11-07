@@ -583,11 +583,13 @@ fn plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
             if white {
                 // Short cream feathers curl outward over the mount, rather
                 // than reproducing the red plume as a tall pale folding fan.
+                // Leave headroom for outer-lane vane width, which tilts upward
+                // by about 0.02 above its centerline near the shoulder.
                 let angle = lane * 1.30;
                 let radius = 0.015 + 0.155 * (t * PI * 0.5).sin();
                 return Vec3::new(
                     angle.sin() * radius,
-                    0.375 + (0.09 + stagger * 0.008) * (t * PI * 0.85).sin() - 0.075 * t,
+                    0.375 + (0.08 + stagger * 0.008) * (t * PI * 0.85).sin() - 0.075 * t,
                     angle.cos() * radius + 0.045 * (1.0 - t),
                 );
             }
@@ -1433,7 +1435,16 @@ mod tests {
             plume_feather(&mut red, lane, 2.0, false);
         }
         let (lo, hi) = cream.bounds();
-        assert!(hi.y < 0.445 && hi.x - lo.x > 0.30);
+        assert!(
+            hi.y < 0.445,
+            "emitted cream vane height {}, not just centerline height, must stay below 0.445",
+            hi.y
+        );
+        assert!(
+            hi.x - lo.x > 0.30,
+            "cream collar width {} must remain broad",
+            hi.x - lo.x
+        );
         assert!(
             red.bounds().1.y > hi.y + 0.12,
             "red sweep remains the tall silhouette"

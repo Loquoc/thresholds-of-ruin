@@ -51,16 +51,25 @@ impl ContactSurface {
     fn surface(&self) -> Arc<LayerSurface> {
         self.cached
             .get_or_init(|| {
-                Arc::new(LayerSurface::from_triangles(
-                    self.parts
-                        .iter()
-                        .flat_map(|part| {
-                            part.triangles
-                                .iter()
-                                .map(move |tri| tri.map(|p| part.transform.transform_point3(p)))
-                        })
-                        .collect(),
-                ))
+                let mut triangles = Vec::new();
+                let mut groups = Vec::new();
+                let mut offset = 0;
+                for part in &self.parts {
+                    triangles.extend(
+                        part.triangles
+                            .iter()
+                            .map(|tri| tri.map(|p| part.transform.transform_point3(p))),
+                    );
+                    groups.extend(
+                        part.closed_components()
+                            .iter()
+                            .map(|group| group.map(|id| id + offset)),
+                    );
+                    offset += part.closed_component_count();
+                }
+                let surface = LayerSurface::from_triangles(triangles);
+                let _ = surface.obstacle_components.set(groups);
+                Arc::new(surface)
             })
             .clone()
     }
@@ -325,9 +334,9 @@ fn supported_turnover(
     Vec3::Y * authored.y + direction * radius
 }
 
-/// Point projections use the actual posed rendered surface, not the flat
-/// caps of the legacy hair cylinders. Whole-face constraints follow afterward.
-fn fit_mesh_contact(mut at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
+/// Inner cloth uses intentional outermost layer seating. Arm obstacles use
+/// membership-gated initialization instead, followed by exact face clearance.
+fn seat_outermost_surface(mut at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
     if surface.triangles.is_empty() {
         return at;
     }
@@ -336,7 +345,7 @@ fn fit_mesh_contact(mut at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
         if let Some(distance) = surface.ray(origin, Vec3::Y) {
             at.y = at.y.max(origin.y + distance + LAYER_GAP + THICKNESS);
         }
-    } else if at.y >= -0.12 {
+    } else {
         let origin = Vec3::Y * at.y;
         let direction = at.with_y(0.0).normalize_or(Vec3::NEG_Z);
         if let Some(distance) = surface.ray(origin, direction) {
@@ -348,6 +357,26 @@ fn fit_mesh_contact(mut at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
         }
     }
     at
+}
+
+fn fit_mesh_contact(at: Vec3, roof: bool, surface: &LayerSurface) -> Vec3 {
+    let axis = if roof {
+        Vec3::Y
+    } else {
+        at.with_y(0.0).normalize_or(Vec3::NEG_Z)
+    };
+    // The face solver validates initialization and reports an explicit
+    // failure if bounded component exits cannot establish outside membership.
+    surface.outside_point(at, axis).unwrap_or(at)
+}
+
+fn seat_arm_obstacles(points: &mut [Vec3], rotation: Quat, arms: &LayerSurface) {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let inverse = rotation.inverse();
+    for (i, p) in points.iter_mut().enumerate().skip(COLUMNS + 1) {
+        let at = rotation * *p + offset;
+        *p = inverse * (fit_mesh_contact(at, i / (COLUMNS + 1) < YOKE_ROWS, arms) - offset);
+    }
 }
 
 /// A neck opening is an annular attachment at fixed anatomical height.
@@ -1072,11 +1101,144 @@ struct LayerSurface {
     height: f32,
     tree: Vec<ContactNode>,
     tree_ids: Vec<usize>,
+    obstacle_components: OnceLock<Vec<Option<usize>>>,
     #[cfg(test)]
     closed_faces: OnceLock<Vec<Option<usize>>>,
 }
 
 impl LayerSurface {
+    fn obstacle_groups(&self) -> &[Option<usize>] {
+        self.obstacle_components
+            .get_or_init(|| super::visual_contact::closed_components(&self.triangles))
+    }
+
+    /// Signed ray crossings are evaluated only for proven closed components.
+    /// Open decorative skins remain collision triangles, never solid interiors.
+    fn component_crossings(
+        &self,
+        p: Vec3,
+        ray: Vec3,
+        ambiguous: &mut bool,
+    ) -> Vec<(usize, f32, i32)> {
+        let a = ray.any_orthonormal_vector();
+        let b = ray.cross(a);
+        let planes = [
+            (a, a.dot(p) - 1e-6),
+            (-a, -a.dot(p) - 1e-6),
+            (b, b.dot(p) - 1e-6),
+            (-b, -b.dot(p) - 1e-6),
+        ];
+        let groups = self.obstacle_groups();
+        let mut hits = Vec::new();
+        for tri in self.clipped_candidates(&planes) {
+            let index = (tri as *const [Vec3; 3] as usize - self.triangles.as_ptr() as usize)
+                / std::mem::size_of::<[Vec3; 3]>();
+            let Some(group) = groups[index] else { continue };
+            let e1 = tri[1] - tri[0];
+            let e2 = tri[2] - tri[0];
+            let cross = ray.cross(e2);
+            let det = e1.dot(cross);
+            if det.abs() < 1e-9 {
+                continue;
+            }
+            let delta = p - tri[0];
+            let u = delta.dot(cross) / det;
+            let q = delta.cross(e1);
+            let v = ray.dot(q) / det;
+            let distance = e2.dot(q) / det;
+            if u >= -1e-6 && v >= -1e-6 && u + v <= 1.000001 && distance >= 0.0 {
+                if u.abs() < 1e-5 || v.abs() < 1e-5 || (1.0 - u - v).abs() < 1e-5 {
+                    *ambiguous = true;
+                }
+                hits.push((group, distance, if det > 0.0 { 1 } else { -1 }));
+            }
+        }
+        hits.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+        hits
+    }
+
+    fn containing_components(&self, p: Vec3) -> Vec<usize> {
+        let mut answers: Vec<Vec<usize>> = Vec::new();
+        for ray in [
+            Vec3::new(1.0, 0.371, 0.173),
+            Vec3::new(-0.217, 1.0, 0.433),
+            Vec3::new(0.319, -0.271, 1.0),
+            Vec3::new(0.713, 0.337, -0.619),
+        ] {
+            let mut ambiguous = false;
+            let hits = self.component_crossings(p, ray.normalize(), &mut ambiguous);
+            let mut groups = Vec::new();
+            let mut i = 0;
+            while i < hits.len() {
+                let group = hits[i].0;
+                let mut winding = 0;
+                while i < hits.len() && hits[i].0 == group {
+                    let at = hits[i].1;
+                    let mut signed = 0i32;
+                    while i < hits.len() && hits[i].0 == group && (hits[i].1 - at).abs() < 1e-5 {
+                        signed += hits[i].2;
+                        i += 1;
+                    }
+                    winding += signed.signum();
+                }
+                if winding != 0 {
+                    groups.push(group);
+                }
+            }
+            // A ray through an emitted seam is not a reliable inside oracle.
+            // Retry a deterministic independent direction, not a looser gap.
+            if !ambiguous {
+                if answers.contains(&groups) {
+                    return groups;
+                }
+                answers.push(groups);
+            }
+        }
+        // Require agreement of two non-seam directions. No real component
+        // has this ID. The exit lookup then fails, and
+        // initialization is explicitly rejected rather than treating an
+        // all-direction seam ambiguity as certified outside membership.
+        vec![usize::MAX]
+    }
+
+    /// Exit only solids that actually contain this point. A remote arm may
+    /// intersect the outward ray without containing the point: never project
+    /// an already-clear vertex to that arm's far side. Near-surface gap is
+    /// certified by the complete finite face domain, expanded by the gap.
+    fn outside_point(&self, mut p: Vec3, axis: Vec3) -> Option<Vec3> {
+        for _ in 0..12 {
+            let inside = self.containing_components(p);
+            if inside.is_empty() {
+                return Some(p);
+            }
+            let hits = self.component_crossings(p, axis, &mut false);
+            let mut distance = 0.0f32;
+            for group in inside {
+                let mut i = 0;
+                let mut exit = None;
+                while i < hits.len() {
+                    if hits[i].0 != group {
+                        i += 1;
+                        continue;
+                    }
+                    let at = hits[i].1;
+                    let mut signed = 0i32;
+                    while i < hits.len() && hits[i].0 == group && (hits[i].1 - at).abs() < 1e-5 {
+                        signed += hits[i].2;
+                        i += 1;
+                    }
+                    if signed != 0 {
+                        exit = Some(at);
+                        break;
+                    }
+                }
+                distance = distance.max(exit?);
+            }
+            p += axis * (distance + LAYER_GAP + THICKNESS);
+        }
+        self.containing_components(p).is_empty().then_some(p)
+    }
+
     fn new(mesh: &Mesh, rotation: Quat) -> Self {
         let Some(VertexAttributeValues::Float32x3(vertices)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -1119,6 +1281,7 @@ impl LayerSurface {
             contact_tree(&triangles, &mut tree_ids, 0, &mut tree);
         }
         let mut surface = Self {
+            obstacle_components: OnceLock::new(),
             #[cfg(test)]
             closed_faces: OnceLock::new(),
             tree,
@@ -1506,7 +1669,14 @@ fn fit_arm_cells(
     support: &LayerSurface,
     trace: &mut Option<serde_json::Value>,
 ) -> bool {
-    fit_cells(points, rotation, support, trace)
+    if let Err(failure) =
+        fit_radial_supports_traced(points, rotation, FaceSupport::arms(support), trace)
+    {
+        fallback_radial_fit(points, rotation, support, failure);
+        true
+    } else {
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -1517,6 +1687,7 @@ struct RadialFitFailure {
     detail: [f32; 3],
 }
 
+#[cfg(test)]
 fn fit_cells(
     points: &mut [Vec3],
     rotation: Quat,
@@ -1580,11 +1751,32 @@ fn fit_radial_faces(
 }
 
 #[derive(Clone, Copy)]
+struct FaceSupport<'a> {
+    inner: Option<&'a LayerSurface>,
+    arms: Option<&'a LayerSurface>,
+}
+impl<'a> FaceSupport<'a> {
+    #[cfg(test)]
+    fn inner(surface: &'a LayerSurface) -> Self {
+        Self {
+            inner: Some(surface),
+            arms: None,
+        }
+    }
+    fn arms(surface: &'a LayerSurface) -> Self {
+        Self {
+            inner: None,
+            arms: Some(surface),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 enum FaceOutcome {
     Empty,
     Fit {
         shifts: [f32; 3],
-        plane: (Vec3, f32, Vec3),
+        plane: (Vec3, f32, Vec3, bool),
     },
 }
 
@@ -1604,12 +1796,23 @@ struct FaceFitWork {
     hits: usize,
     #[cfg(test)]
     empty_hits: usize,
+    #[cfg(test)]
+    invalidations: usize,
 }
 
+#[cfg(test)]
 fn fit_radial_faces_traced(
     points: &mut [Vec3],
     rotation: Quat,
     support: &LayerSurface,
+    trace: &mut Option<serde_json::Value>,
+) -> Result<(), RadialFitFailure> {
+    fit_radial_supports_traced(points, rotation, FaceSupport::inner(support), trace)
+}
+fn fit_radial_supports_traced(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: FaceSupport<'_>,
     trace: &mut Option<serde_json::Value>,
 ) -> Result<(), RadialFitFailure> {
     fit_radial_faces_impl(
@@ -1633,7 +1836,7 @@ fn contact_axis(vertex: usize, radial: Vec3) -> Vec3 {
 fn fit_radial_faces_impl(
     points: &mut [Vec3],
     rotation: Quat,
-    support: &LayerSurface,
+    support: FaceSupport<'_>,
     trace: &mut Option<serde_json::Value>,
     cache_enabled: bool,
     work: &mut FaceFitWork,
@@ -1643,6 +1846,18 @@ fn fit_radial_faces_impl(
     *trace = None;
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
+    if let Some(arms) = support.arms {
+        for (i, &point) in reference.iter().enumerate() {
+            if !arms.containing_components(point).is_empty() {
+                return Err(RadialFitFailure {
+                    row: i / (COLUMNS + 1),
+                    column: i % (COLUMNS + 1),
+                    reason: "arm obstacle initialization remains inside a closed component",
+                    detail: point.to_array(),
+                });
+            }
+        }
+    }
     let directions: Vec<_> = reference
         .iter()
         .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
@@ -1658,12 +1873,12 @@ fn fit_radial_faces_impl(
     // Roof budgets are Y travel, NEVER radial extent. Fixed movement axes
     // keep every angular wedge invariant across both kinds of growth.
     let mut roof_budgets = [0.0f32; ROOF_VERTICES];
-    // Only hanging faces are cached. Their four query planes, reference
-    // vertices, candidate normals and objective do not depend on either swept
-    // budget. Roof faces are always re-queried after radial/collar growth.
-    // The cache belongs to this solve only, never another pose or support.
+    // Inner-only hanging domains are invariant; arm obstacle domains change
+    // with radial budgets. Key hanging results by that exact domain extent.
+    // Roof faces always requery. Cache lifetime is one pose/support solve.
     let mut face_cache = vec![None; ROWS * COLUMNS * 2];
     let mut radial_trace = None;
+    let mut volume_trace = None;
     #[cfg(test)]
     let mut collar_trace: Option<(f32, String)> = None;
     for iteration in 0..12 {
@@ -1677,6 +1892,7 @@ fn fit_radial_faces_impl(
         }
         travels.fill(0.0);
         radial_trace = None;
+        volume_trace = None;
         for row in 0..ROWS {
             for column in 0..COLUMNS {
                 let [a, b, c, d] = [
@@ -1734,10 +1950,25 @@ fn fit_radial_faces_impl(
                     // Hanging cloth must stay outside the outermost retained
                     // surface, including peaks beyond every vertex ray. Only
                     // the roof uses a finite swept radial footprint.
-                    let planes = &planes[..if row < ROOF_ROWS { 5 } else { 4 }];
+                    let inner_planes = &planes[..if row < ROOF_ROWS { 5 } else { 4 }];
+                    let mut arm_planes = planes;
+                    for (_, offset) in &mut arm_planes {
+                        *offset -= LAYER_GAP;
+                    }
+
                     let cache_index = (row * COLUMNS + column) * 2 + face_number;
                     let cacheable = cache_enabled && row >= ROOF_ROWS;
-                    let outcome = if let Some(outcome) = face_cache[cache_index] {
+                    let domain_key = if support.arms.is_some() {
+                        radial_limit.to_bits()
+                    } else {
+                        0
+                    };
+                    let cached = face_cache[cache_index].filter(|(key, _)| *key == domain_key);
+                    #[cfg(test)]
+                    if face_cache[cache_index].is_some() && cached.is_none() {
+                        work.invalidations += 1;
+                    }
+                    let outcome = if let Some((_, outcome)) = cached {
                         #[cfg(test)]
                         {
                             work.hits += 1;
@@ -1774,30 +2005,42 @@ fn fit_radial_faces_impl(
                                 });
                                 let mut supports = [f32::NEG_INFINITY; 23];
                                 let mut support_points = [Vec3::ZERO; 23];
+                                let mut support_is_arm = [false; 23];
                                 let mut found = false;
-                                for &triangle in support.clipped_candidates(planes) {
-                                    #[cfg(test)]
-                                    {
-                                        work.clips += 1;
-                                    }
-                                    if let Some((polygon, count)) =
-                                        clipped_polygon(triangle, planes)
-                                    {
-                                        found = true;
-                                        for ((normal, value), witness) in normals
-                                            .iter()
-                                            .zip(&mut supports)
-                                            .zip(&mut support_points)
+                                for (surface, domain, is_arm) in [
+                                    (support.inner, inner_planes, false),
+                                    (support.arms, &arm_planes[..], true),
+                                ]
+                                .into_iter()
+                                .filter_map(|(surface, domain, is_arm)| {
+                                    surface.map(|s| (s, domain, is_arm))
+                                }) {
+                                    for &triangle in surface.clipped_candidates(domain) {
+                                        #[cfg(test)]
                                         {
-                                            for p in &polygon[..count] {
-                                                #[cfg(test)]
-                                                {
-                                                    work.projections += 1;
-                                                }
-                                                let projection = normal.dot(*p);
-                                                if projection > *value {
-                                                    *value = projection;
-                                                    *witness = *p;
+                                            work.clips += 1;
+                                        }
+                                        if let Some((polygon, count)) =
+                                            clipped_polygon(triangle, domain)
+                                        {
+                                            found = true;
+                                            for (((normal, value), witness), source) in normals
+                                                .iter()
+                                                .zip(&mut supports)
+                                                .zip(&mut support_points)
+                                                .zip(&mut support_is_arm)
+                                            {
+                                                for p in &polygon[..count] {
+                                                    #[cfg(test)]
+                                                    {
+                                                        work.projections += 1;
+                                                    }
+                                                    let projection = normal.dot(*p);
+                                                    if projection > *value {
+                                                        *value = projection;
+                                                        *witness = *p;
+                                                        *source = is_arm;
+                                                    }
                                                 }
                                             }
                                         }
@@ -1807,10 +2050,13 @@ fn fit_radial_faces_impl(
                                     return Ok(FaceOutcome::Empty);
                                 }
                                 let mut best: Option<([f32; 3], f32)> = None;
-                                let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO);
+                                let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO, false);
                                 let mut best_anchor_deficit = f32::INFINITY;
-                                for ((normal, height), witness) in
-                                    normals.into_iter().zip(supports).zip(support_points)
+                                for (((normal, height), witness), is_arm) in normals
+                                    .into_iter()
+                                    .zip(supports)
+                                    .zip(support_points)
+                                    .zip(support_is_arm)
                                 {
                                     // Every later shared-vertex correction must preserve
                                     // this plane. +Y is valid only on pure-roof faces;
@@ -1848,7 +2094,7 @@ fn fit_radial_faces_impl(
                                     let cost = shifts.iter().map(|s| s * s).sum::<f32>();
                                     if best.is_none_or(|(_, old)| cost < old) {
                                         best = Some((shifts, cost));
-                                        winning_plane = (normal, plane, witness);
+                                        winning_plane = (normal, plane, witness, is_arm);
                                     }
                                 }
                                 let Some((shifts, _)) = best else {
@@ -1867,7 +2113,7 @@ fn fit_radial_faces_impl(
                             };
                         let outcome = evaluate(work)?;
                         if cacheable {
-                            face_cache[cache_index] = Some(outcome);
+                            face_cache[cache_index] = Some((domain_key, outcome));
                         }
                         outcome
                     };
@@ -1933,6 +2179,42 @@ fn fit_radial_faces_impl(
                 }
             }
         }
+        if let Some(arms) = support.arms {
+            for (i, travel) in travels
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, travel)| **travel > 0.0)
+            {
+                let proposed = reference[i] + axes[i] * *travel;
+                let Some(outside) = arms.outside_point(proposed, axes[i]) else {
+                    return Err(RadialFitFailure {
+                        row: i / (COLUMNS + 1),
+                        column: i % (COLUMNS + 1),
+                        reason: "proposed arm-volume exit is ambiguous or unbounded",
+                        detail: proposed.to_array(),
+                    });
+                };
+                if i <= COLUMNS && outside.y > collar_ceiling {
+                    return Err(RadialFitFailure {
+                        row: 0,
+                        column: i,
+                        reason: "arm-volume exit exceeds collar ceiling",
+                        detail: [outside.y, collar_ceiling, reference[i].y],
+                    });
+                }
+                let required = (outside - reference[i]).dot(axes[i]);
+                if outside != proposed && required > *travel {
+                    *travel = required;
+                    if i >= ROOF_VERTICES
+                        && volume_trace
+                            .as_ref()
+                            .is_none_or(|(_, old, _, _)| required > *old)
+                    {
+                        volume_trace = Some((i, required, outside, iteration));
+                    }
+                }
+            }
+        }
         let expanded = travels
             .iter()
             .zip(&budgets)
@@ -1984,16 +2266,39 @@ fn fit_radial_faces_impl(
     }
     if let Some((
         travel,
-        (vertex, row, column, face, (normal, plane, witness), low, high, radial_limit, iteration),
+        (
+            vertex,
+            row,
+            column,
+            face,
+            (normal, plane, witness, is_arm),
+            low,
+            high,
+            radial_limit,
+            iteration,
+        ),
     )) = radial_trace
     {
         *trace = Some(
             serde_json::json!({"vertex":vertex,"face":face,"row":row,"column":column,
             "iteration":iteration,"travel":travel,"normal":normal.to_array(),"plane":plane,
-            "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"height_domain":[low-THICKNESS,high+THICKNESS],
-            "radial_domain":if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None},
+            "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"source":if is_arm {"arms"} else {"inner"},
+            "height_domain":[low-THICKNESS-if is_arm {LAYER_GAP}else{0.0},high+THICKNESS+if is_arm {LAYER_GAP}else{0.0}],
+            "arm_height_domain":support.arms.map(|_|[low-THICKNESS-LAYER_GAP,high+THICKNESS+LAYER_GAP]),
+            "inner_height_domain":support.inner.map(|_|[low-THICKNESS,high+THICKNESS]),
+            "arm_radial_domain":support.arms.map(|_|radial_limit+THICKNESS+LAYER_GAP),
+            "inner_radial_domain":support.inner.and_then(|_|if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None}),
             "reference":reference[vertex].to_array(),"final":(reference[vertex]+directions[vertex]*travel).to_array()}),
         );
+    }
+    if let Some((vertex, travel, final_point, iteration)) = volume_trace {
+        if radial_trace.as_ref().is_none_or(|(old, _)| travel > *old) {
+            *trace = Some(
+                serde_json::json!({"source":"arm_volume_exit","vertex":vertex,
+                "row":vertex/(COLUMNS+1),"column":vertex%(COLUMNS+1),"travel":travel,"iteration":iteration,
+                "reference":reference[vertex].to_array(),"final":final_point.to_array()}),
+            );
+        }
     }
     let inverse = rotation.inverse();
     for (i, point) in points.iter_mut().enumerate() {
@@ -2181,7 +2486,7 @@ fn seat_inner_layer(
     for (i, point) in points.iter_mut().enumerate().skip(COLUMNS + 1) {
         let at = rotation * *point + offset;
         let fitted = if i / (COLUMNS + 1) < YOKE_ROWS {
-            fit_mesh_contact(at, true, inner)
+            seat_outermost_surface(at, true, inner)
         } else {
             // Retained cloth reaches the hem. The arm-only contact cutoff
             // must not suppress seating of a longer inner cape below hips.
@@ -2251,7 +2556,7 @@ pub(super) fn place_layers(
         cloak.invalidate();
         place_base(cloak, rot, meshes, false);
         let support_started = std::time::Instant::now();
-        let mut support = LayerSurface::new(
+        let support = LayerSurface::new(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
         );
@@ -2259,38 +2564,47 @@ pub(super) fn place_layers(
         let mut candidate = cloak.points.clone();
         let seating_started = std::time::Instant::now();
         let seated = seat_inner_layer(&mut candidate, rot, &support);
+        if seated.is_ok() {
+            if let Some(arms) = &cloak.arm_surface {
+                seat_arm_obstacles(&mut candidate, rot, arms);
+            }
+        }
         cloak.contact_cpu_ms[2] += seating_started.elapsed().as_secs_f64() * 1000.0;
         cloak.contact_seated.clone_from(&candidate);
         cloak.contact_seating_valid = seated.is_ok();
-        let support_started = std::time::Instant::now();
-        // Seat the outer cloth against both retained cloth and the arm hull
-        // in one solve. A changed yoke footprint must not discard the earlier
-        // arm constraint when the mantle is lifted over its inner cape.
-        if let Some(arms) = &cloak.arm_surface {
-            support = LayerSurface::from_triangles(
-                support
-                    .triangles
-                    .into_iter()
-                    .chain(arms.triangles.iter().copied())
-                    .collect(),
-            );
-        }
-        cloak.contact_cpu_ms[1] += support_started.elapsed().as_secs_f64() * 1000.0;
+        // Keep containment and obstacle BVHs separate. Arms never inherit
+        // the inner layer's unbounded outermost containment requirement.
         let constraint_started = std::time::Instant::now();
         // Certify the seated reference against BOTH retained surfaces. The
         // one-shot ray offsets do not certify slopes or triangle interiors.
         match seated.and_then(|()| {
-            fit_radial_faces_traced(
+            fit_radial_supports_traced(
                 &mut candidate,
                 rot,
-                &support,
+                FaceSupport {
+                    inner: Some(&support),
+                    arms: cloak.arm_surface.as_deref(),
+                },
                 &mut cloak.contact_radial_trace,
             )
         }) {
             Ok(()) => cloak.points = candidate,
             Err(failure) => {
                 cloak.contact_fallbacks += 1;
-                fallback_radial_fit(&mut cloak.points, rot, &support, failure);
+                let fallback = LayerSurface::from_triangles(
+                    support
+                        .triangles
+                        .iter()
+                        .copied()
+                        .chain(
+                            cloak
+                                .arm_surface
+                                .iter()
+                                .flat_map(|arms| arms.triangles.iter().copied()),
+                        )
+                        .collect(),
+                );
+                fallback_radial_fit(&mut cloak.points, rot, &fallback, failure);
             }
         }
         cloak.contact_cpu_ms[3] += constraint_started.elapsed().as_secs_f64() * 1000.0;
@@ -2573,7 +2887,7 @@ mod tests {
     fn assert_face_cache_equivalent(
         reference: &[Vec3],
         rotation: Quat,
-        support: &LayerSurface,
+        support: FaceSupport<'_>,
     ) -> (FaceFitWork, FaceFitWork, bool) {
         let mut cached = reference.to_vec();
         let mut uncached = reference.to_vec();
@@ -2638,6 +2952,264 @@ mod tests {
     }
 
     #[test]
+    fn arm_membership_handles_opposite_overlaps_open_sheets_and_grazing_rays() {
+        let first = rounded_cap();
+        let second: Vec<_> = first
+            .iter()
+            .map(|tri| {
+                let [a, b, c] = tri.map(|p| p + Vec3::X * 0.03);
+                [a, c, b]
+            })
+            .collect();
+        let posed = ContactSurface::new(vec![
+            super::super::visual_contact::PosedTriangles::new(
+                Arc::new(first.clone()),
+                Affine3A::IDENTITY,
+            ),
+            super::super::visual_contact::PosedTriangles::new(
+                Arc::new(second.clone()),
+                Affine3A::IDENTITY,
+            ),
+        ]);
+        assert_eq!(
+            posed.surface().containing_components(Vec3::X * 0.015).len(),
+            2,
+            "per-part component labels must remain distinct after snapshot merging"
+        );
+        let mut triangles = first.clone();
+        triangles.extend(second);
+        triangles.push([
+            Vec3::new(0.5, -0.2, -0.2),
+            Vec3::new(0.5, 0.2, -0.2),
+            Vec3::new(0.5, 0.0, 0.2),
+        ]);
+        let arms = LayerSurface::from_triangles(triangles);
+        assert_eq!(
+            arms.containing_components(Vec3::X * 0.015).len(),
+            2,
+            "oppositely wound overlapping solids must not cancel union membership"
+        );
+        assert!(
+            arms.containing_components(Vec3::new(0.48, 0.0, 0.0))
+                .is_empty(),
+            "an open sheet ahead of a clear point must not invent a solid interior"
+        );
+        let escaped = arms.outside_point(Vec3::X * 0.015, Vec3::X).unwrap();
+        assert!(rendered_clearance_checked(&arms, escaped, true) > 0.001);
+        let sphere = LayerSurface::from_triangles(first);
+        let ray = Vec3::new(1.0, 0.371, 0.173).normalize();
+        // Aim exactly through emitted vertices and edge midpoints, rather
+        // than relying only on generic rays away from triangulation seams.
+        for tri in sphere.triangles.iter().step_by(37) {
+            for target in [tri[0], (tri[0] + tri[1]) * 0.5] {
+                let point = target - ray * 0.4;
+                for _ in 0..3 {
+                    assert!(sphere.containing_components(point).is_empty(),
+                        "shared-edge/vertex ray crossings must not classify an exterior point as inside: {point:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn arm_membership_preserves_clear_ray_hits_and_exits_embedded_low_hands() {
+        let center = Vec3::new(0.0, -0.13, 0.50);
+        let arms = LayerSurface::from_triangles(
+            rounded_cap()
+                .into_iter()
+                .map(|tri| tri.map(|p| p * 0.4 + center))
+                .collect(),
+        );
+        let clear = Vec3::new(0.0, -0.13, 0.39);
+        assert!(
+            arms.ray(Vec3::Y * clear.y, Vec3::Z).unwrap() > clear.z,
+            "the distant hand really intersects the outward ray"
+        );
+        assert!(arms.containing_components(clear).is_empty());
+        assert_eq!(
+            fit_mesh_contact(clear, false, &arms),
+            clear,
+            "already-outside cloth must not enclose a distant hand"
+        );
+        assert!(!arms.containing_components(center).is_empty());
+        let outside = fit_mesh_contact(center, false, &arms);
+        assert!(outside.y < -0.12 && (outside.y - center.y).abs() < 1e-6);
+        assert!(
+            rendered_clearance_checked(&arms, outside, true) > 0.001,
+            "inside initialization covers low hands without the old height cutoff"
+        );
+        let sheet = LayerSurface::from_triangles(vec![[
+            Vec3::new(-0.02, -0.15, 0.45),
+            Vec3::new(0.02, -0.15, 0.45),
+            Vec3::new(0.0, -0.11, 0.45),
+        ]]);
+        let mut points = radial_test_grid();
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        seat_inner_layer(&mut points, Quat::IDENTITY, &sheet).unwrap();
+        assert!(
+            !arms
+                .containing_components(points[index(ROWS, 0)] + offset)
+                .is_empty(),
+            "inner seating must actually enter the separate arm component in this fixture"
+        );
+        seat_arm_obstacles(&mut points, Quat::IDENTITY, &arms);
+        assert!(
+            rendered_clearance_checked(&arms, points[index(ROWS, 0)] + offset, true) > 0.001,
+            "actual-arm outside membership must be restored after inner seating"
+        );
+    }
+
+    #[test]
+    fn distant_arm_obstacles_do_not_inherit_inner_cloth_containment() {
+        let reference = radial_test_grid();
+        let remote = LayerSurface::from_triangles(vec![[
+            Vec3::new(-0.02, -0.15, 0.70),
+            Vec3::new(0.02, -0.15, 0.70),
+            Vec3::new(0.0, -0.11, 0.70),
+        ]]);
+        let mut obstacle = reference.clone();
+        fit_radial_supports_traced(
+            &mut obstacle,
+            Quat::IDENTITY,
+            FaceSupport::arms(&remote),
+            &mut None,
+        )
+        .unwrap();
+        assert!(
+            obstacle
+                .iter()
+                .zip(&reference)
+                .all(|(a, b)| a.distance(*b) < 1e-6),
+            "a remote obstacle beyond the complete face sweep must not pull the cape outward"
+        );
+        let mut containing = reference.clone();
+        fit_radial_faces(&mut containing, Quat::IDENTITY, &remote).unwrap();
+        assert!(
+            containing[index(ROWS, 0)].z > reference[index(ROWS, 0)].z + 0.25,
+            "retained inner cloth still enforces outermost containment across missed vertex rays"
+        );
+    }
+
+    #[test]
+    fn finite_arm_entry_wall_cannot_leave_proposed_vertices_inside_the_solid() {
+        let vertices = [
+            Vec3::new(-0.10, -0.16, 0.41),
+            Vec3::new(0.10, -0.16, 0.41),
+            Vec3::new(0.10, -0.10, 0.41),
+            Vec3::new(-0.10, -0.10, 0.41),
+            Vec3::new(-0.10, -0.16, 0.55),
+            Vec3::new(0.10, -0.16, 0.55),
+            Vec3::new(0.10, -0.10, 0.55),
+            Vec3::new(-0.10, -0.10, 0.55),
+        ];
+        let faces = [
+            [0, 3, 2],
+            [0, 2, 1],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 7, 6],
+            [3, 6, 2],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        let arms = LayerSurface::from_triangles(
+            faces
+                .into_iter()
+                .map(|face| face.map(|i| vertices[i]))
+                .collect(),
+        );
+        let reference = radial_test_grid();
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let hem = reference[index(ROWS, 0)] + offset;
+        assert!(arms.containing_components(hem).is_empty());
+        let entry_only = Vec3::new(0.0, hem.y, 0.41 + LAYER_GAP + THICKNESS);
+        assert!(
+            rendered_clearance_checked(&arms, entry_only, true) < 0.0,
+            "separating from the entry wall alone enters this thick closed arm"
+        );
+        assert!(arms.outside_point(entry_only, Vec3::Z).unwrap().z >= 0.582 - 1e-6);
+        let support = FaceSupport::arms(&arms);
+        let (cached, _, success) =
+            assert_face_cache_equivalent(&reference, Quat::IDENTITY, support);
+        assert!(success && cached.rounds >= 2 && cached.invalidations > 0);
+        let mut fitted = reference;
+        fit_radial_supports_traced(&mut fitted, Quat::IDENTITY, support, &mut None).unwrap();
+        assert!((fitted[index(ROWS, 0)] + offset).z >= 0.582 - 1e-6);
+        for point in fitted.iter().map(|p| *p + offset) {
+            assert!(rendered_clearance_checked(&arms, point, true) > 0.001,
+                "final vertices must remain outside the solid, not merely beyond its entry face: {point:?}");
+        }
+        for row in ROWS - 2..ROWS {
+            for column in 0..COLUMNS {
+                let [a, b, c, d] = [
+                    index(row, column),
+                    index(row, column + 1),
+                    index(row + 1, column),
+                    index(row + 1, column + 1),
+                ];
+                for face in [[a, b, c], [b, d, c]] {
+                    let [a, b, c] = face.map(|i| fitted[i] + offset);
+                    let normal = (b - a).cross(c - a).normalize_or_zero();
+                    for weights in [
+                        [1.0, 1.0, 1.0],
+                        [2.0, 1.0, 1.0],
+                        [1.0, 2.0, 1.0],
+                        [1.0, 1.0, 2.0],
+                    ] {
+                        let at = (a * weights[0] + b * weights[1] + c * weights[2])
+                            / weights.into_iter().sum::<f32>();
+                        for sign in [-1.0, 1.0] {
+                            let lining = at + normal * sign * THICKNESS * 0.5;
+                            assert!(rendered_clearance_checked(&arms, lining, true) > 0.001,
+                                "finite obstacle fitting must clear complete emitted faces and lining: {lining:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn arm_domain_growth_invalidates_cache_and_discovers_new_contact() {
+        let reference = radial_test_grid();
+        let triangle = |z| {
+            [
+                Vec3::new(-0.02, -0.15, z),
+                Vec3::new(0.02, -0.15, z),
+                Vec3::new(0.0, -0.11, z),
+            ]
+        };
+        let inner = LayerSurface::from_triangles(vec![triangle(0.45)]);
+        let arms = LayerSurface::from_triangles(vec![triangle(0.505)]);
+        let support = FaceSupport {
+            inner: Some(&inner),
+            arms: Some(&arms),
+        };
+        let (cached, uncached, success) =
+            assert_face_cache_equivalent(&reference, Quat::IDENTITY, support);
+        assert!(success && cached.rounds >= 3);
+        assert!(
+            cached.invalidations > 0,
+            "radial growth must discard the earlier no-arm-contact result"
+        );
+        assert!(
+            cached.hits > 0 && cached.queries < uncached.queries,
+            "unchanged face domains still reuse exact results"
+        );
+        let mut fitted = reference.clone();
+        fit_radial_supports_traced(&mut fitted, Quat::IDENTITY, support, &mut None).unwrap();
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        assert!(
+            (fitted[index(ROWS, 0)] + offset).z >= 0.505 + LAYER_GAP + THICKNESS - 1e-6,
+            "newly reached arm face must receive complete separation"
+        );
+    }
+
+    #[test]
     fn face_cache_reuses_hits_and_misses_across_vertical_and_radial_growth() {
         let reference = radial_test_grid();
         let anchor = reference[0] + Vec3::new(0.0, 0.53, -0.15);
@@ -2656,7 +3228,7 @@ mod tests {
         ];
         let surface = LayerSurface::from_triangles(vec![lower, upper, hem]);
         let (cached, uncached, success) =
-            assert_face_cache_equivalent(&reference, Quat::IDENTITY, &surface);
+            assert_face_cache_equivalent(&reference, Quat::IDENTITY, FaceSupport::inner(&surface));
         assert!(success);
         assert!(
             cached.rounds >= 3,
@@ -2677,7 +3249,7 @@ mod tests {
         let (cached, uncached, success) = assert_face_cache_equivalent(
             &reference,
             Quat::IDENTITY,
-            &LayerSurface::from_triangles(Vec::new()),
+            FaceSupport::inner(&LayerSurface::from_triangles(Vec::new())),
         );
         assert!(success);
         assert_eq!(cached.rounds, 1);
@@ -2689,7 +3261,8 @@ mod tests {
             anchor + Vec3::X * 0.01,
             anchor + Vec3::Y * 0.2,
         ]]);
-        let (_, _, success) = assert_face_cache_equivalent(&reference, Quat::IDENTITY, &barrier);
+        let (_, _, success) =
+            assert_face_cache_equivalent(&reference, Quat::IDENTITY, FaceSupport::inner(&barrier));
         assert!(
             !success,
             "must preserve the existing impossible collar failure"
@@ -2708,7 +3281,7 @@ mod tests {
             let (cached, uncached, success) = assert_face_cache_equivalent(
                 &cloak.contact_reference,
                 Quat::IDENTITY,
-                cloak.arm_surface.as_ref().unwrap(),
+                FaceSupport::arms(cloak.arm_surface.as_ref().unwrap()),
             );
             assert!(success);
             // An already clear pose may finish in one round; the synthetic
@@ -2734,7 +3307,7 @@ mod tests {
             let (cached, uncached, success) = assert_face_cache_equivalent(
                 &cloak.contact_reference,
                 cloak.last_rotation.unwrap(),
-                cloak.arm_surface.as_ref().unwrap(),
+                FaceSupport::arms(cloak.arm_surface.as_ref().unwrap()),
             );
             assert!(success);
             // An already clear pose may finish in one round; the synthetic
@@ -2827,7 +3400,7 @@ mod tests {
         fit_radial_faces_impl(
             &mut points,
             Quat::IDENTITY,
-            &support,
+            FaceSupport::inner(&support),
             &mut trace,
             true,
             &mut work,
@@ -2906,7 +3479,7 @@ mod tests {
             ],
         ]);
         let ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
-        let raw = fit_mesh_contact(reference[0] + offset, true, &support);
+        let raw = seat_outermost_surface(reference[0] + offset, true, &support);
         assert!(
             raw.y > ceiling,
             "fixture must retain the raw-ray ceiling overshoot"
@@ -2972,7 +3545,7 @@ mod tests {
         assert_eq!(
             fit_mesh_contact(at, false, &inner),
             at,
-            "arm-only band behavior remains unchanged"
+            "a distant open arm patch does not contain this point"
         );
         seat_inner_layer(&mut points, Quat::IDENTITY, &inner).unwrap();
         let fitted = points[index(ROWS, 0)] + offset;

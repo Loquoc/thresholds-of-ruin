@@ -184,6 +184,41 @@ fn shin_profile(shape: BootShape, shin: LimbShape, trousered: bool, build: f32) 
     required
 }
 
+/// Riding leather is fitted by direction: a rear calf muscle must not
+/// inflate the front and both sides into the same circular goblet shape.
+/// The coarser circular `fit_shin` envelope remains the conservative bound
+/// used by surrounding garments; no anatomy or contact contract is changed.
+fn riding_profile(
+    shape: BootShape,
+    shin: LimbShape,
+    trousered: bool,
+    build: f32,
+) -> [[f32; 48]; 49] {
+    let support = shin_support(shin, trousered, build);
+    let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
+    let outside = low.abs().max(high.abs()).xz().length() + 0.05;
+    let facet = (PI / 48.0).cos();
+    std::array::from_fn(|row| {
+        let t = row as f32 / 48.0;
+        let origin = Vec3::Y * (shape.bottom + (shape.top - shape.bottom) * t);
+        std::array::from_fn(|column| {
+            let angle = column as f32 * TAU / 48.0;
+            let direction = Vec3::new(angle.sin(), 0.0, angle.cos());
+            let mut low = 0.0;
+            let mut high = outside;
+            for _ in 0..18 {
+                let middle = (low + high) * 0.5;
+                if support.distance(origin + direction * middle) <= 0.0 {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            ((high + 0.006 * build) / facet).max(shape.radius_bottom)
+        })
+    })
+}
+
 /// Riding leather follows the calf then narrows again below the knee. Other
 /// study boots retain their authored construction and the same public catalog.
 /// `shape` remains the conservative envelope returned by `fit_shin`, so cloth
@@ -204,17 +239,58 @@ pub(super) fn emit_fitted_shaft(
         emit_shaft(p, appearance, shape, build, side, color, trim);
         return;
     }
-    let radii =
-        shin_profile(shape, shin, trousered, build).map(|radius| radius.max(shape.radius_bottom));
+    let radii = riding_profile(shape, shin, trousered, build);
     let y = |t: f32| shape.bottom + (shape.top - shape.bottom) * t;
-    let radius = |t: f32| {
+    let radius = |t: f32, angle: f32| {
         let row = t.clamp(0.0, 1.0) * 48.0;
         let i = (row.floor() as usize).min(47);
-        radii[i] + (radii[i + 1] - radii[i]) * (row - i as f32)
+        let u = row - i as f32;
+        let column = angle.rem_euclid(TAU) / TAU * 48.0;
+        let j = (column.floor() as usize).min(47);
+        let v = column - j as f32;
+        let next = (j + 1) % 48;
+        let a = radii[i][j] + (radii[i][next] - radii[i][j]) * v;
+        let b = radii[i + 1][j] + (radii[i + 1][next] - radii[i + 1][j]) * v;
+        a + (b - a) * u
     };
-    let path: Vec<_> = (0..49).map(|row| Vec3::Y * y(row as f32 / 48.0)).collect();
-    let girths: Vec<_> = radii.into_iter().map(Vec2::splat).collect();
-    p.satin.tube(&path, &girths, 12, &|_, _, _| color);
+    let point = |row: usize, column: usize| {
+        let angle = column as f32 * TAU / 48.0;
+        Vec3::new(
+            angle.sin() * radii[row][column],
+            y(row as f32 / 48.0),
+            angle.cos() * radii[row][column],
+        )
+    };
+    // Closed shared rings give a continuous silhouette; smoothing affects
+    // shading only, never the fitted supporting surface.
+    p.satin.smooth = true;
+    for row in 0..48 {
+        let inside = Vec3::Y * y((row as f32 + 0.5) / 48.0);
+        for column in 0..48 {
+            let next = (column + 1) % 48;
+            p.satin.quad_out(
+                [
+                    point(row, column),
+                    point(row, next),
+                    point(row + 1, next),
+                    point(row + 1, column),
+                ],
+                inside,
+                color,
+            );
+        }
+    }
+    for row in [0, 48] {
+        let center = Vec3::Y * y(row as f32 / 48.0);
+        let inside = center + Vec3::Y * if row == 0 { 0.01 } else { -0.01 };
+        for column in 0..48 {
+            p.satin.tri_out(
+                [center, point(row, column), point(row, (column + 1) % 48)],
+                inside,
+                color,
+            );
+        }
+    }
     // The piping stays on the curved shaft rather than floating on the old
     // extrapolated cone. Its dipped front/back is the riding study's topline.
     let lip: Vec<_> = (0..=24)
@@ -222,14 +298,14 @@ pub(super) fn emit_fitted_shaft(
             let a = i as f32 * TAU / 24.0;
             let top = shape.top - 0.025 * a.cos().abs();
             let t = (top - shape.bottom) / (shape.top - shape.bottom);
-            Vec3::new(a.sin() * radius(t), top, a.cos() * radius(t))
+            Vec3::new(a.sin() * radius(t, a), top, a.cos() * radius(t, a))
         })
         .collect();
     tube(&mut p.satin, &lip, &vec![(0.004, 0.004); lip.len()], trim);
     let seam: Vec<_> = (2..47)
         .map(|row| {
             let t = row as f32 / 48.0;
-            Vec3::new(0.0, y(t), -radius(t))
+            Vec3::new(0.0, y(t), -radius(t, PI))
         })
         .collect();
     tube(
@@ -238,13 +314,17 @@ pub(super) fn emit_fitted_shaft(
         &vec![(0.003, 0.003); seam.len()],
         color * 1.2,
     );
-    p.satin.torus(
-        Vec3::Y * y(0.13),
-        Vec3::Y,
-        radius(0.13),
-        0.004,
-        12,
-        3,
+    let ankle: Vec<_> = (0..=48)
+        .map(|column| {
+            let angle = column as f32 * TAU / 48.0;
+            let r = radius(0.13, angle);
+            Vec3::new(angle.sin() * r, y(0.13), angle.cos() * r)
+        })
+        .collect();
+    tube(
+        &mut p.satin,
+        &ankle,
+        &vec![(0.004, 0.004); ankle.len()],
         color * 0.6,
     );
 }
@@ -1004,6 +1084,83 @@ mod tests {
             .matte
             .outer_surface(outside_leather, Vec3::Z)
             .is_some());
+    }
+
+    #[test]
+    fn riding_calf_volume_stays_at_rear_instead_of_inflating_front_and_sides() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let body = HumanoidBody::resolve(&Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                ));
+                for trousered in [false, true] {
+                    let shape = fit_shin(
+                        FootwearAppearance::RidingBoots,
+                        BootShape::fitted(body.build, -0.24),
+                        body.shin,
+                        trousered,
+                        body.build,
+                    );
+                    let mut parts = Parts::default();
+                    emit_fitted_shaft(
+                        &mut parts,
+                        FootwearAppearance::RidingBoots,
+                        shape,
+                        body.build,
+                        1.0,
+                        Vec3::ONE,
+                        Vec3::ONE,
+                        body.shin,
+                        trousered,
+                    );
+                    let origin = Vec3::Y * -0.14;
+                    let radius = |direction| {
+                        parts
+                            .satin
+                            .outer_surface(origin, direction)
+                            .unwrap()
+                            .distance(origin)
+                    };
+                    let rear = radius(Vec3::NEG_Z);
+                    let front = radius(Vec3::Z);
+                    let left = radius(Vec3::NEG_X);
+                    let right = radius(Vec3::X);
+                    assert!(rear > front+0.012*body.build,
+                        "rear calf must not balloon the shin front: woman={woman} build={build} trousers={trousered}: {rear}/{front}");
+                    assert!(
+                        rear > right + 0.006 * body.build,
+                        "retain narrower lateral calf silhouette"
+                    );
+                    assert!(
+                        (left - right).abs() < 0.001 * body.build,
+                        "fit remains laterally balanced"
+                    );
+                    // Independently emitted support must still fit at the
+                    // rear, front, and diagonals after removing empty volume.
+                    let mut support = Builder::default();
+                    if trousered {
+                        trouser_leg(&mut support, body.shin, body.build, true, Vec3::ONE);
+                    } else {
+                        sculpted_limb(&mut support, body.shin, Vec3::ONE);
+                    }
+                    for k in 0..61 {
+                        let angle = (k as f32 + 0.39) * TAU / 61.0;
+                        let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
+                        let inner = support.outer_surface(origin, ray).unwrap().distance(origin);
+                        assert!(
+                            radius(ray) > inner + 0.002 * body.build,
+                            "directional shaft must enclose real calf/trouser mesh"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

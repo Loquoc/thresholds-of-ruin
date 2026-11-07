@@ -2028,9 +2028,13 @@ humanoid footwear or a full wardrobe merely by having a humanoid upper body.
   turnover/hanging vertices radially, with bounded collar attachment and swept
   face certification. Neither collision clearance nor numerical convergence
   alone accepts the resulting shape: retain height, width and slope gates.
-  Cache only invariant hanging-face outcomes within one pose solve; changing
-  roof domains must be queried again. Compare cached and uncached geometry and
-  failure results exactly before claiming a performance improvement.
+  Treat arms as finite swept collision obstacles, separately from inner cloth
+  that requires outermost containment. Establish outside membership using closed
+  mesh components; a distant arm ray hit alone must not expand the garment.
+  Open decorative faces still participate in collision, not solid membership.
+  Cache only unchanged face queries within one pose solve, including the arm
+  domain in the key; domain growth must requery obstacles. Compare cached and
+  uncached geometry and failures exactly before claiming a runtime improvement.
 - Resolve shirt, armor, then outerwear before generating geometry. Armor may
   completely conceal a shirt, allowing hidden geometry to be omitted. Preserve
   visible collars, sleeves, necklines and hems. A cape usually leaves underlying

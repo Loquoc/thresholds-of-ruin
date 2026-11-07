@@ -1,7 +1,9 @@
 //! Visual contact profiles derived from composed geometry, in joint-local space.
 use super::*;
 use bevy::render::mesh::VertexAttributeValues;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+mod topology;
 
 /// The nearer of two signed distances, keeping `best` on a tie. Unlike
 /// `f32::min`, whose choice between -0 and +0 is unspecified, the result is
@@ -80,6 +82,7 @@ pub(super) struct Part {
     path: Vec<J>,
     cylinders: Vec<Cylinder>,
     triangles: Arc<Vec<[Vec3; 3]>>,
+    topology: Arc<OnceLock<topology::Topology>>,
 }
 
 /// Immutable rendered geometry and its complete current joint chain. Vertices
@@ -89,7 +92,41 @@ pub(super) struct Part {
 pub(super) struct PosedTriangles {
     pub triangles: Arc<Vec<[Vec3; 3]>>,
     pub transform: Affine3A,
+    topology: Arc<OnceLock<topology::Topology>>,
 }
+impl PosedTriangles {
+    /// Fixtures construct immutable local geometry; production snapshots share
+    /// the owning Part's cache rather than allocating per pose.
+    #[cfg(test)]
+    pub(super) fn new(triangles: Arc<Vec<[Vec3; 3]>>, transform: Affine3A) -> Self {
+        Self {
+            triangles,
+            transform,
+            topology: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// Dense component IDs only for closed, consistently oriented components.
+    /// Open/degenerate faces remain None and still participate in proximity.
+    pub(super) fn closed_components(&self) -> &[Option<usize>] {
+        &self
+            .topology
+            .get_or_init(|| topology::Topology::new(&self.triangles))
+            .faces
+    }
+
+    pub(super) fn closed_component_count(&self) -> usize {
+        self.topology
+            .get_or_init(|| topology::Topology::new(&self.triangles))
+            .count
+    }
+}
+
+/// Classify immutable fixture/local geometry without treating open patches as solids.
+pub(super) fn closed_components(triangles: &[[Vec3; 3]]) -> Vec<Option<usize>> {
+    topology::Topology::new(triangles).faces
+}
+
 impl PartialEq for PosedTriangles {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.triangles, &other.triangles) && self.transform == other.transform
@@ -112,6 +149,7 @@ pub(super) fn posed_triangles(
             Some(PosedTriangles {
                 triangles: part.triangles.clone(),
                 transform,
+                topology: part.topology.clone(),
             })
         })
         .collect()
@@ -144,6 +182,7 @@ impl Part {
         Self {
             path,
             cylinders: profile(&triangles),
+            topology: Arc::new(OnceLock::new()),
             triangles: Arc::new(if retain_triangles {
                 triangles
             } else {
@@ -343,6 +382,114 @@ impl std::ops::Deref for Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn topology_sphere() -> Vec<[Vec3; 3]> {
+        let rings = 8;
+        let columns = 16;
+        let point = |row: usize, col: usize| {
+            let latitude = std::f32::consts::PI * row as f32 / rings as f32;
+            let longitude = std::f32::consts::TAU * col as f32 / columns as f32;
+            Vec3::new(
+                latitude.sin() * longitude.cos(),
+                latitude.cos(),
+                latitude.sin() * longitude.sin(),
+            )
+        };
+        let mut triangles = Vec::new();
+        for row in 0..rings {
+            for col in 0..columns {
+                let [a, b, c, d] = [
+                    point(row, col),
+                    point(row, col + 1),
+                    point(row + 1, col),
+                    point(row + 1, col + 1),
+                ];
+                triangles.extend([[a, c, b], [b, c, d]]);
+            }
+        }
+        triangles
+    }
+
+    #[test]
+    fn topology_distinguishes_closed_spheres_open_patches_and_degenerate_faces() {
+        let sphere = topology_sphere();
+        let closed = PosedTriangles::new(Arc::new(sphere.clone()), Affine3A::IDENTITY);
+        assert_eq!(closed.closed_component_count(), 1);
+        assert!(
+            closed.closed_components().iter().any(Option::is_none),
+            "collapsed pole faces must not count as solid faces"
+        );
+        assert!(closed
+            .closed_components()
+            .iter()
+            .filter(|id| id.is_some())
+            .all(|id| *id == Some(0)));
+        let sheet = [
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(4.0, 1.0, 0.0),
+            Vec3::new(4.0, 0.0, 1.0),
+        ];
+        assert_eq!(closed_components(&[sheet]), vec![None]);
+        let mut mixed = sphere.clone();
+        mixed.extend(sphere.iter().map(|tri| tri.map(|p| p + Vec3::X * 7.0)));
+        mixed.extend([sheet, [Vec3::ZERO; 3]]);
+        let mixed = PosedTriangles::new(Arc::new(mixed), Affine3A::IDENTITY);
+        assert_eq!(mixed.closed_component_count(), 2);
+        let labels = mixed.closed_components();
+        assert_eq!(&labels[labels.len() - 2..], &[None, None]);
+        assert!(labels[..sphere.len()].iter().flatten().all(|&id| id == 0));
+        assert!(labels[sphere.len()..sphere.len() * 2]
+            .iter()
+            .flatten()
+            .all(|&id| id == 1));
+        assert_eq!(
+            labels,
+            closed_components(&mixed.triangles),
+            "component IDs are deterministic and dense"
+        );
+        // One reversed nondegenerate triangle violates opposite edge pairing.
+        let mut reversed = sphere;
+        let i = closed
+            .closed_components()
+            .iter()
+            .position(Option::is_some)
+            .unwrap();
+        reversed[i].swap(1, 2);
+        assert!(closed_components(&reversed).iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn topology_cache_is_shared_across_scaled_poses_and_layer_snapshots() {
+        let triangles = Arc::new(topology_sphere());
+        let part = Part {
+            path: vec![J::ArmR, J::ForeR, J::HandR],
+            cylinders: profile(&triangles),
+            triangles,
+            topology: Arc::new(OnceLock::new()),
+        };
+        let parts = [part];
+        let neutral = posed_triangles(&parts, |_| Some(Affine3A::IDENTITY));
+        assert!(parts[0].topology.get().is_none());
+        let first = neutral[0].closed_components();
+        assert_eq!(neutral[0].closed_component_count(), 1);
+        let moved = posed_triangles(&parts, |_| {
+            Some(Affine3A::from_scale_rotation_translation(
+                Vec3::new(1.22, 0.8, 1.1),
+                Quat::from_rotation_z(0.7),
+                Vec3::new(0.2, -0.3, 0.1),
+            ))
+        });
+        let mantle = moved[0].clone();
+        assert_ne!(neutral[0].transform, moved[0].transform);
+        assert!(Arc::ptr_eq(&neutral[0].triangles, &moved[0].triangles));
+        assert!(Arc::ptr_eq(&neutral[0].topology, &moved[0].topology));
+        assert!(Arc::ptr_eq(&moved[0].topology, &mantle.topology));
+        assert!(std::ptr::eq(first, moved[0].closed_components()));
+        assert!(std::ptr::eq(first, mantle.closed_components()));
+        assert!(posed_triangles(&parts, |joint| (joint != J::ForeR)
+            .then_some(Affine3A::IDENTITY))
+        .is_empty());
+    }
+
     #[test]
     fn retaining_rendered_triangles_does_not_change_legacy_cylinder_profiles() {
         let mut meshes = Assets::<Mesh>::default();
@@ -360,6 +507,9 @@ mod tests {
         let study = Part::from_model(vec![J::ArmL], &model, &mut meshes, scale, true);
         assert_eq!(legacy.cylinders, study.cylinders);
         assert!(legacy.triangles.is_empty());
+        let legacy_pose = posed_triangles(&[legacy], |_| Some(Affine3A::IDENTITY));
+        assert!(legacy_pose[0].closed_components().is_empty());
+        assert_eq!(legacy_pose[0].closed_component_count(), 0);
         assert_eq!(study.triangles.len(), 1);
         assert_eq!(study.triangles[0][1], Vec3::new(0.1, -0.2, 0.0) * scale);
     }
@@ -371,6 +521,7 @@ mod tests {
             path: vec![J::ArmR, J::ForeR, J::HandR],
             cylinders: profile(&local),
             triangles: local.clone(),
+            topology: Arc::new(OnceLock::new()),
         };
         let arm = Affine3A::from_rotation_translation(
             Quat::from_rotation_x(-1.1),
@@ -594,11 +745,13 @@ mod tests {
                 path: vec![J::ArmL, J::ForeL],
                 cylinders: vec![cylinder; 2],
                 triangles: Arc::new(Vec::new()),
+                topology: Arc::new(OnceLock::new()),
             },
             Part {
                 path: vec![J::ArmR],
                 cylinders: vec![cylinder],
                 triangles: Arc::new(Vec::new()),
+                topology: Arc::new(OnceLock::new()),
             },
         ];
         let frame = |j| (j != J::ForeL).then_some(Affine3A::from_translation(Vec3::X));
@@ -638,6 +791,7 @@ mod tests {
             path: vec![J::ArmL, J::ForeL],
             cylinders: caps,
             triangles: Arc::new(triangles.to_vec()),
+            topology: Arc::new(OnceLock::new()),
         };
         let upper = Affine3A::from_rotation_z(0.7);
         let lower = Affine3A::from_translation(Vec3::Y * -0.3);
