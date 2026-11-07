@@ -15,6 +15,9 @@ const GRID: usize = (ROWS + 1) * (COLUMNS + 1);
 const THICKNESS: f32 = 0.012;
 // Reserve lining thickness and interpolation across the curved plate shoulder.
 const LAYER_GAP: f32 = 0.020;
+// A sloped yoke may rise only this much above its exact horizontal fallback.
+// This selects a separating plane; it never clamps a collision correction.
+const ROOF_SLOPE_SLACK: f32 = 0.010;
 
 pub(super) struct Recipe {
     shoulders: f32,
@@ -382,18 +385,22 @@ pub(super) fn spawn(
         .0[0]
         .1
         .clone();
-    let mut rest: Vec<_> = (0..GRID)
+    let rest: Vec<_> = (0..GRID)
         .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
         .collect();
     let arm_surface = recipe
         .scene
         .as_ref()
         .map(|scene| LayerSurface::from_triangles(scene.cloth_hulls()));
+    // Contact fitting is an output, never the next solve's rest shape. In
+    // particular, refitting a raised roof changes its inclination and can
+    // amplify the same shoulder clearance on every subsequent solve.
+    let mut points = rest.clone();
     if let Some(surface) = &arm_surface {
-        fit_arm_cells(&mut rest, Quat::IDENTITY, surface);
+        fit_arm_cells(&mut points, Quat::IDENTITY, surface);
     }
     let mut normals = vec![Vec3::ZERO; GRID];
-    surface_normals(&rest, &mut normals);
+    surface_normals(&points, &mut normals);
     let mut indices = Vec::new();
     for row in 0..ROWS {
         for column in 0..COLUMNS {
@@ -446,7 +453,7 @@ pub(super) fn spawn(
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0; 3]; GRID * 2])
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
     .with_inserted_indices(Indices::U32(indices));
-    write(&mut mesh, &rest, &normals);
+    write(&mut mesh, &points, &normals);
     let mesh = meshes.add(mesh);
     let entity = commands
         .spawn((
@@ -465,7 +472,7 @@ pub(super) fn spawn(
     CloakRig {
         entity,
         mesh,
-        points: rest.clone(),
+        points,
         bindings: (0..=ROWS)
             .map(|row| {
                 let t = row.saturating_sub(1) as f32 / (ROWS - 1) as f32;
@@ -489,6 +496,10 @@ pub(super) fn spawn(
 }
 
 pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>) {
+    place_base(cloak, rotation, meshes, true);
+}
+
+fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, fit_arms: bool) {
     if cloak
         .last_rotation
         .is_some_and(|last| rotation.angle_between(last) < 1e-6)
@@ -562,8 +573,13 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
             }
         }
     });
-    if let Some(surface) = &cloak.arm_surface {
-        fit_arm_cells(&mut cloak.points, rotation, surface);
+    // A mantle is fitted once against the combined inner-cloth/arm support
+    // below. Pre-fitting its arms here would derive the second roof solve's
+    // normals from a contact-deformed surface rather than the posed recipe.
+    if fit_arms {
+        if let Some(surface) = &cloak.arm_surface {
+            fit_arm_cells(&mut cloak.points, rotation, surface);
+        }
     }
     surface_normals(&cloak.points, &mut cloak.normals);
     if let Some(mesh) = meshes.get_mut(&cloak.mesh) {
@@ -715,7 +731,11 @@ impl LayerSurface {
     /// A roof triangle needs an inclined supporting plane, not a horizontal
     /// box enclosing its entire footprint. Expanding the three edge planes by
     /// the lining thickness also protects the emitted offset faces.
-    fn roof_plane(&self, points: [Vec3; 3], normal: Vec3) -> Option<f32> {
+    fn roof_supports<const N: usize>(
+        &self,
+        points: [Vec3; 3],
+        normals: [Vec3; N],
+    ) -> Option<[f32; N]> {
         let mut planes = [(Vec3::ZERO, 0.0); 3];
         for (edge, plane) in planes.iter_mut().enumerate() {
             let a = points[edge];
@@ -728,20 +748,62 @@ impl LayerSurface {
             }
             *plane = (inward, inward.dot(a) - THICKNESS);
         }
-        let mut support: Option<f32> = None;
+        let mut supports = [f32::NEG_INFINITY; N];
+        let mut found = false;
         for &triangle in &self.triangles {
-            let bound = triangle
+            // Reject only if the unclipped triangle cannot improve ANY of
+            // the candidate supports. All candidates share one clipping pass.
+            if normals
                 .iter()
-                .map(|p| normal.dot(*p))
-                .fold(f32::NEG_INFINITY, f32::max);
-            if support.is_some_and(|old| bound <= old) {
+                .zip(&supports)
+                .all(|(normal, &old)| triangle.iter().all(|p| normal.dot(*p) <= old))
+            {
                 continue;
             }
-            if let Some(value) = clipped_support(triangle, normal, &planes) {
-                support = Some(support.map_or(value, |old| old.max(value)));
+            if let Some((polygon, count)) = clipped_polygon(triangle, &planes) {
+                found = true;
+                for (normal, support) in normals.iter().zip(&mut supports) {
+                    for point in &polygon[..count] {
+                        *support = support.max(normal.dot(*point));
+                    }
+                }
             }
         }
-        support
+        found.then_some(supports)
+    }
+
+    #[cfg(test)]
+    fn roof_plane(&self, points: [Vec3; 3], normal: Vec3) -> Option<f32> {
+        self.roof_supports(points, [normal]).map(|values| values[0])
+    }
+
+    fn bounded_roof_plane(&self, points: [Vec3; 3]) -> Option<(Vec3, f32)> {
+        let mut authored = (points[1] - points[0]).cross(points[2] - points[0]);
+        if authored.y < 0.0 {
+            authored = -authored;
+        }
+        // Finite initial slope even for a nearly vertical transition. The
+        // height budget below, not this numerical guard, controls inflation.
+        authored.y = authored.y.max(authored.with_y(0.0).length() * 0.25);
+        authored = authored.normalize_or(Vec3::Y);
+        let normals = [1.0, 0.5, 0.25, 0.125, 0.0]
+            .map(|weight| (authored.with_y(0.0) * weight + Vec3::Y * authored.y).normalize());
+        let supports = self.roof_supports(points, normals)?;
+        let margin = LAYER_GAP + THICKNESS;
+        let horizontal = supports[4] + margin;
+        for (normal, support) in normals.into_iter().zip(supports) {
+            let plane = support + margin;
+            // Preserve an already higher authored point, but do not borrow
+            // the full roof drop as clearance budget at a lower neighbor.
+            if points.iter().all(|p| {
+                let target = p.y + ((plane - normal.dot(*p)) / normal.y).max(0.0);
+                target <= p.y.max(horizontal) + ROOF_SLOPE_SLACK
+            }) {
+                return Some((normal, plane));
+            }
+        }
+        // +Y has exactly the horizontal target, so is always admissible.
+        Some((Vec3::Y, horizontal))
     }
 
     /// IDs occur in several height bins, but are yielded only at their first
@@ -792,6 +854,16 @@ impl LayerSurface {
 /// A triangle clipped by at most four half-planes has at most seven vertices.
 /// Fixed scratch buffers avoid heap allocation in the per-cell contact path.
 fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) -> Option<f32> {
+    let (polygon, count) = clipped_polygon(triangle, planes)?;
+    Some(
+        polygon[..count]
+            .iter()
+            .map(|p| p.dot(normal))
+            .fold(f32::NEG_INFINITY, f32::max),
+    )
+}
+
+fn clipped_polygon(triangle: [Vec3; 3], planes: &[(Vec3, f32)]) -> Option<([Vec3; 8], usize)> {
     assert!(
         planes.len() <= 4,
         "fixed clipping buffers support at most four planes"
@@ -828,12 +900,7 @@ fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) ->
         polygon = next;
         count = length;
     }
-    Some(
-        polygon[..count]
-            .iter()
-            .map(|p| p.dot(normal))
-            .fold(f32::NEG_INFINITY, f32::max),
-    )
+    Some((polygon, count))
 }
 
 /// Clip against a closed half-space; extrema of a linear support function
@@ -983,16 +1050,8 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
             let d = index(row + 1, column + 1);
             for face in [[a, b, c], [b, d, c]] {
                 let triangle = face.map(|i| posed[i]);
-                let mut normal = (triangle[1] - triangle[0]).cross(triangle[2] - triangle[0]);
-                if normal.y < 0.0 {
-                    normal = -normal;
-                }
-                // Almost vertical transition triangles still need an upward
-                // roof constraint. Limit its slope, not its collision margin.
-                normal.y = normal.y.max(normal.with_y(0.0).length() * 0.25);
-                normal = normal.normalize_or(Vec3::Y);
-                if let Some(plane) = support.roof_plane(triangle, normal) {
-                    roofs.push((face, normal, plane + LAYER_GAP + THICKNESS));
+                if let Some((normal, plane)) = support.bounded_roof_plane(triangle) {
+                    roofs.push((face, normal, plane));
                 }
             }
         }
@@ -1046,7 +1105,7 @@ pub(super) fn place_layers(
         // Always start from authored rest geometry when either layer moves;
         // projecting an already projected mantle accumulates outward drift.
         cloak.invalidate();
-        place(cloak, rot, meshes);
+        place_base(cloak, rot, meshes, false);
         let mut support = LayerSurface::new(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
@@ -1145,6 +1204,50 @@ mod tests {
     }
 
     #[test]
+    fn steep_roof_reselects_plane_without_clamping_collision_displacement() {
+        let face = [
+            Vec3::new(0.0, 0.6, 0.0),
+            Vec3::new(0.1, 0.2, 0.0),
+            Vec3::new(0.0, 0.6, 0.1),
+        ];
+        let under = face.map(|p| p - Vec3::Y * 0.01);
+        let surface = LayerSurface::from_triangles(vec![under]);
+        let steep = Vec3::new(4.0, 1.0, 0.0).normalize();
+        let margin = LAYER_GAP + THICKNESS;
+        let old_plane = surface.roof_plane(face, steep).unwrap() + margin;
+        let old_peak = face[0].y + (old_plane - steep.dot(face[0])) / steep.y;
+        let horizontal = surface.roof_plane(face, Vec3::Y).unwrap() + margin;
+        assert!(
+            old_peak > horizontal + 0.09,
+            "fixture must reproduce steep amplification"
+        );
+        let (normal, plane) = surface.bounded_roof_plane(face).unwrap();
+        assert!(
+            normal.y > steep.y,
+            "select a genuinely shallower supporting plane"
+        );
+        let fitted = face.map(|p| p + Vec3::Y * ((plane - normal.dot(p)) / normal.y).max(0.0));
+        for (original, point) in face.into_iter().zip(fitted) {
+            assert!(point.y <= original.y.max(horizontal) + ROOF_SLOPE_SLACK + 1e-6);
+            assert!(normal.dot(point) >= plane - 1e-6);
+        }
+        for a in 0..=8 {
+            for b in 0..=8 - a {
+                let contact =
+                    (under[0] * a as f32 + under[1] * b as f32 + under[2] * (8 - a - b) as f32)
+                        / 8.0;
+                // The complete support face, not just its vertices, remains
+                // behind the selected separator by the original margin.
+                assert!(plane - normal.dot(contact) >= margin - 1e-6);
+            }
+        }
+        assert!(
+            fitted[0].y - fitted[1].y > 0.025,
+            "bounded selection must preserve a downward shoulder slope here"
+        );
+    }
+
+    #[test]
     fn inclined_roof_keeps_slope_and_excludes_bbox_only_obstacles() {
         let face = [
             Vec3::new(0.0, 0.6, 0.0),
@@ -1160,7 +1263,11 @@ mod tests {
             Vec3::new(0.25, 0.9, 0.29),
         ];
         let support = LayerSurface::from_triangles(vec![under, remote]);
-        let plane = support.roof_plane(face, normal).unwrap() + LAYER_GAP + THICKNESS;
+        let (selected, plane) = support.bounded_roof_plane(face).unwrap();
+        assert!(
+            (selected - normal).length() < 1e-6,
+            "safe authored slope should be retained"
+        );
         let fitted = face.map(|p| p + Vec3::Y * ((plane - normal.dot(p)) / normal.y).max(0.0));
         assert!(
             (fitted[0].y - fitted[1].y - 0.15).abs() < 1e-6,
@@ -1187,17 +1294,60 @@ mod tests {
             equipment.select(name).unwrap();
             let (_, mut rig, _, mut meshes) =
                 super::super::rogue_tests::spawn_one(&look.equipped(equipment));
+            let spawned_peaks: Vec<_> = rig
+                .cloaks
+                .iter()
+                .map(|cloak| {
+                    cloak.points[..4 * (COLUMNS + 1)]
+                        .iter()
+                        .map(|p| p.y + 0.53)
+                        .fold(f32::NEG_INFINITY, f32::max)
+                })
+                .collect();
             place_layers(&mut rig.cloaks, |_| Some(Quat::IDENTITY), &mut meshes);
-            for cloak in &rig.cloaks {
+            let initial: Vec<_> = rig
+                .cloaks
+                .iter()
+                .map(|cloak| cloak.points.clone())
+                .collect();
+            let authored: Vec<_> = rig.cloaks.iter().map(|cloak| cloak.rest.clone()).collect();
+            for cloak in &mut rig.cloaks {
+                cloak.invalidate();
+            }
+            place_layers(&mut rig.cloaks, |_| Some(Quat::IDENTITY), &mut meshes);
+            for (((cloak, first), rest), spawned_peak) in rig
+                .cloaks
+                .iter()
+                .zip(&initial)
+                .zip(&authored)
+                .zip(&spawned_peaks)
+            {
+                assert_eq!(&cloak.rest, rest, "contact must not mutate authored rest");
+                assert!(
+                    cloak
+                        .points
+                        .iter()
+                        .zip(first)
+                        .all(|(a, b)| a.distance(*b) < 1e-6),
+                    "neutral refitting must not accumulate roof height"
+                );
                 let offset = Vec3::new(0.0, 0.53, -0.15);
                 let arms = cloak.arm_surface.as_ref().unwrap();
                 let top = arms.bottom + arms.height;
                 let roof = &cloak.points[..4 * (COLUMNS + 1)];
                 // Two cloth layers may reserve their lining and gap, but not
                 // create a raised rigid box above the actual shoulder support.
+                let (peak_index, peak) = roof
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
+                    .unwrap();
+                let peak_height = peak.y + offset.y;
+                let rest_height = cloak.rest[peak_index].y + offset.y;
                 assert!(
-                    roof.iter().all(|p| p.y + offset.y <= top + 0.12),
-                    "{name}: yoke exceeds the two-layer shoulder allowance"
+                    peak_height <= top + 0.12,
+                    "{name}: yoke exceeds two-layer allowance: inner={:?}, vertex={peak_index} row={} column={}, actual_height={peak_height}, support_top={top}, limit={}, authored_height={rest_height}, spawned_peak={spawned_peak}, point={peak:?}",
+                    cloak.inner_layer, peak_index / (COLUMNS + 1), peak_index % (COLUMNS + 1), top + 0.12
                 );
                 for column in [COLUMNS / 4, COLUMNS * 3 / 4] {
                     let neck = cloak.points[index(0, column)];
