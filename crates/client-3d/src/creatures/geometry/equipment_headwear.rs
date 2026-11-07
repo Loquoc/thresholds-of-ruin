@@ -295,12 +295,13 @@ fn leather_hat(p: &mut Parts) {
 }
 
 fn fedora_top(a: f32) -> Vec3 {
-    // Raised shoulders and a strong front pinch keep the crease visible from
-    // gameplay elevation without lowering any surface into the scalp.
+    // A low felt crown, tapered sides and paired front pinches distinguish a
+    // fedora from a tall straight-sided top hat. The crease stays above the
+    // actual head-local cranium, whose crown is at approximately y=0.284.
     Vec3::new(
-        a.sin() * (0.125 - 0.055 * a.cos().max(0.0).powi(2)),
-        0.395 + 0.019 * a.sin().abs(),
-        a.cos() * 0.13 - 0.012,
+        a.sin() * (0.115 - 0.055 * a.cos().max(0.0).powi(2)),
+        0.335 + 0.025 * a.sin().abs(),
+        a.cos() * 0.125 - 0.012,
     )
 }
 
@@ -328,7 +329,7 @@ fn fedora(p: &mut Parts) {
             brown,
         );
         // A long center crease, rather than a single conical indentation.
-        let crease = |v: Vec3| Vec3::new(0.0, 0.375 + 0.016 * ((v.z + 0.012) / 0.13).abs(), v.z);
+        let crease = |v: Vec3| Vec3::new(0.0, 0.312 + 0.016 * ((v.z + 0.012) / 0.125).abs(), v.z);
         p.matte.quad_out(
             [upper[0], upper[1], crease(upper[1]), crease(upper[0])],
             Vec3::Y * 0.30,
@@ -842,11 +843,77 @@ mod tests {
                 .matte
                 .outer_surface(Vec3::new(0.075, 0.30, z), Vec3::Y)
                 .unwrap();
-            assert!(center.y >= 0.375, "crease cannot reduce scalp clearance");
+            assert!(center.y >= 0.312, "crease retains the fitted crown floor");
             assert!(shoulder.y > center.y + 0.018, "crease must read from above");
             assert!(
-                shoulder.y < 0.418,
+                shoulder.y < 0.362,
                 "fedora shoulders must not become a tall top-hat crown"
+            );
+        }
+    }
+
+    #[test]
+    fn low_fedora_clears_actual_human_and_centaur_scalps() {
+        for kind in [CreatureModel::Human, CreatureModel::Centaur] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    let look = Look::with_choice(
+                        kind,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let mut face = Parts::default();
+                    human_face(&mut face, &look, true);
+                    let mut hat = Parts::default();
+                    fedora(&mut hat);
+                    // Face and hat share the same head-local transform in both
+                    // rigs, so compare their emitted surfaces in that frame.
+                    for x in [-0.06, 0.0, 0.06] {
+                        for z in [-0.06, -0.012, 0.04] {
+                            let origin = Vec3::new(x, 0.08, z);
+                            let scalp = face.matte.outer_surface(origin, Vec3::Y).unwrap();
+                            let crown = hat.matte.outer_surface(origin, Vec3::Y).unwrap();
+                            assert!(crown.y - scalp.y > 0.015, "{kind:?}, woman={woman}, build={build}: crown meets scalp at {x}, {z}");
+                        }
+                    }
+                    for y in [0.26, 0.275] {
+                        for column in 0..12 {
+                            let a = column as f32 * TAU / 12.0;
+                            let out = Vec3::new(a.sin(), 0.0, a.cos());
+                            let origin = Vec3::new(0.0, y, -0.012);
+                            let scalp = face.matte.outer_surface(origin, out).unwrap();
+                            let wall = hat.matte.outer_surface(origin, out).unwrap();
+                            assert!(
+                                (wall - scalp).dot(out) > 0.012,
+                                "taper must clear the side of the scalp"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fedora_has_a_low_tapered_crown_and_paired_front_pinches() {
+        let mut p = Parts::default();
+        fedora(&mut p);
+        let (lo, hi) = p.matte.bounds();
+        assert!(
+            hi.y - BROW < 0.12,
+            "crown is no longer a tall top-hat cylinder"
+        );
+        assert!(hi.x - lo.x > 0.44, "the broad felt brim is retained");
+        for side in [-1.0, 1.0] {
+            let front = fedora_top(side * PI * 0.25);
+            let rear = fedora_top(side * PI * 0.75);
+            assert!(
+                front.x.abs() + 0.018 < rear.x.abs(),
+                "paired front pinches narrow the felt crown"
             );
         }
     }
