@@ -81,7 +81,7 @@ fn source(root: &Path, blocked: bool) -> crate::Scenario {
 
 fn actor(saved: &Value) -> &Value {
     let index = saved["game"]["actors"].as_u64().unwrap() as usize;
-    &saved["shared"]["actors"][index][OWNER.0.to_string()]
+    crate::checkpoint_fixture::actor(&saved["shared"], index, &OWNER.0.to_string())
 }
 fn creature(saved: &Value) -> &Value {
     &actor(saved)["combat"]["creature"]

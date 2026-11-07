@@ -119,8 +119,11 @@ fn assert_checkpoint_rejects_progress(game: &Game, value: Value, label: &str) {
     let mut shared = crate::checkpoint::SharedState::default();
     let snapshot = serde_json::to_value(game.checkpoint(&mut shared)).unwrap();
     let mut shared = serde_json::to_value(shared).unwrap();
-    shared["actors"][snapshot["actors"].as_u64().unwrap() as usize]["1"]["pending"]["progress"] =
-        value;
+    crate::checkpoint_fixture::actor_mut(
+        &mut shared,
+        snapshot["actors"].as_u64().unwrap() as usize,
+        "1",
+    )["pending"]["progress"] = value;
     let Ok(shared) = serde_json::from_value::<crate::checkpoint::SharedState>(shared) else {
         assert!(
             !structurally_valid,

@@ -2618,6 +2618,10 @@ impl Service {
             status.overdue.then(|| {
                 "Saving is behind schedule; recent play may be lost if the server stops.".into()
             })
+        }).or_else(|| {
+            status.checkpoint_deferred_sequence.map(|_| {
+                "Checkpoint deferred because it exceeds capacity; journal saving continues. Restart may take longer.".into()
+            })
         });
         if warning != self.save_warning {
             if let Some(message) = &warning {

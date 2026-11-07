@@ -610,8 +610,8 @@ mod tests {
             .as_u64()
             .unwrap() as usize;
         let mut json = serde_json::to_value(&shared).unwrap();
-        json["actors"][pool][SUBJECT.0.to_string()]["readied_ambush"]["at"]["location"]
-            ["position"]["x"] = 6.into();
+        crate::checkpoint_fixture::actor_mut(&mut json, pool, &SUBJECT.0.to_string())
+            ["readied_ambush"]["at"]["location"]["position"]["x"] = 6.into();
         let shared = serde_json::from_value(json).unwrap();
         assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
     }

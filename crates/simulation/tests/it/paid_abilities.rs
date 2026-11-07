@@ -570,7 +570,7 @@ fn paid_preparation_records_reject_orphan_mismatched_and_unissued_holds() {
     let key = actor.0.to_string();
     for kind in 0..6 {
         let mut forged = value.clone();
-        let state = &mut forged[1]["actors"][0][&key];
+        let state = crate::checkpoint_fixture::actor_mut(&mut forged[1], 0, &key);
         match kind {
             0 => state["pending"] = serde_json::Value::Null,
             1 => state["combat"]["creature"]["holds"] = serde_json::json!([]),
@@ -634,7 +634,8 @@ fn checkpoint_rejects_paid_plan_with_all_payment_state_stripped_together() {
     );
     let mut forged = serde_json::to_value((snapshot, shared)).unwrap();
     let actor_table = forged[0]["actors"].as_u64().unwrap() as usize;
-    let state = &mut forged[1]["actors"][actor_table][actor.0.to_string()];
+    let state =
+        crate::checkpoint_fixture::actor_mut(&mut forged[1], actor_table, &actor.0.to_string());
     // Keep a schema-valid free-work representation, so rejection must happen
     // at restore validation rather than merely from missing required fields.
     state["pending"]["plan"]["cost"] = serde_json::Value::Null;

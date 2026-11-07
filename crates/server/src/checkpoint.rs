@@ -82,6 +82,20 @@ impl<'de> Deserialize<'de> for DiskCheckpoint {
     }
 }
 
+impl DiskCheckpoint {
+    /// Compact references must not expand one game beyond the record budget.
+    /// Keep publication and restore limits symmetric; only size, not corrupt
+    /// references, is eligible for optional-checkpoint deferral.
+    pub(crate) fn record_expansion_within_limit(
+        &self,
+    ) -> Result<bool, tor_simulation::checkpoint::PersistError> {
+        let roots: Vec<_> = std::iter::once(&self.game)
+            .chain(self.boundaries.iter().map(|boundary| &boundary.game))
+            .collect();
+        self.shared.record_expansion_within_limit(&roots)
+    }
+}
+
 impl Checkpoint {
     #[cfg(test)]
     pub(crate) fn capture(engine: &Engine) -> Self {
@@ -1032,15 +1046,13 @@ mod tests {
         let disk = Checkpoint::capture(&engine).encode("test", 0);
         let saved = serde_json::to_value(&disk).unwrap();
         let mut count = 0;
-        for pool in saved["shared"]["actors"].as_array().unwrap() {
-            for actor in pool.as_object().unwrap().values() {
-                if actor["combat"].is_object() {
-                    count += 1;
-                    assert!(actor["combat"]["creature"]["build"]["species"].is_string());
-                    assert!(actor["combat"]["creature"]["build"]
-                        .get("catalog")
-                        .is_none());
-                }
+        for actor in saved["shared"]["actor_records"].as_array().unwrap() {
+            if actor["combat"].is_object() {
+                count += 1;
+                assert!(actor["combat"]["creature"]["build"]["species"].is_string());
+                assert!(actor["combat"]["creature"]["build"]
+                    .get("catalog")
+                    .is_none());
             }
         }
         assert!(count > 0);
@@ -1086,12 +1098,10 @@ mod tests {
             Engine::memory(crate::scenario_package::load(&root, 42, None, false).unwrap()).unwrap();
         let mut saved =
             serde_json::to_value(Checkpoint::capture(&engine).encode("test", 0)).unwrap();
-        for pool in saved["shared"]["actors"].as_array_mut().unwrap() {
-            for actor in pool.as_object_mut().unwrap().values_mut() {
-                if actor["combat"].is_object() {
-                    actor["combat"]["creature"]["build"]["species"] =
-                        serde_json::json!("missing_species");
-                }
+        for actor in saved["shared"]["actor_records"].as_array_mut().unwrap() {
+            if actor["combat"].is_object() {
+                actor["combat"]["creature"]["build"]["species"] =
+                    serde_json::json!("missing_species");
             }
         }
         let disk: DiskCheckpoint = serde_json::from_value(saved).unwrap();
@@ -1136,17 +1146,18 @@ mod tests {
             bytes
         );
         let disk: DiskCheckpoint = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(
-            Game::restore_checkpoint(disk.game, &disk.shared, engine.game.content().clone()),
-            Ok(engine.game.clone())
-        );
+        // A pooled checkpoint is validated against all retained roots before
+        // restoring individual boundaries, including their exact navigation.
+        let mut restore = RestoreContext::new(&disk.shared, engine.game.content().clone());
+        let roots: Vec<_> = std::iter::once(&disk.game)
+            .chain(disk.boundaries.iter().map(|boundary| &boundary.game))
+            .collect();
+        restore.bind_spatial_roots(&roots).unwrap();
+        assert_eq!(restore.restore(disk.game), Ok(engine.game.clone()));
         assert_eq!(disk.boundaries.len(), engine.boundaries.len());
         for (saved, original) in disk.boundaries.into_iter().zip(&engine.boundaries) {
             assert_eq!(saved.id, original.id);
-            assert_eq!(
-                Game::restore_checkpoint(saved.game, &disk.shared, engine.game.content().clone()),
-                Ok(original.game.clone())
-            );
+            assert_eq!(restore.restore(saved.game), Ok(original.game.clone()));
         }
     }
 

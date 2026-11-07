@@ -1053,7 +1053,35 @@ class CiWorkflowContract(unittest.TestCase):
 
     def test_partition_budgets_bound_whole_jobs_without_changing_individual_deadlines(self):
         profiles = self.job("profiles")
-        self.assertIn("timeout-minutes: ${{ matrix.partition == 'python' && 40 || 60 }}", profiles)
+        job_expression = re.search(r"^    timeout-minutes: \$\{\{ (.+) \}\}$", profiles, re.M)[1]
+        stage_expression = re.search(r"^        timeout-minutes: \$\{\{ (.+) \}\}$", profiles, re.M)[1]
+
+        def minutes(expression, os_name, profile, partition):
+            values = {"matrix.os": repr(os_name), "matrix.profile": repr(profile),
+                      "matrix.partition": repr(partition), "&&": "and", "||": "or", "==": "=="}
+            tokens = re.findall(r"'[^']*'|\d+|[A-Za-z_.]+|&&|\|\||==|\S", expression)
+            translated = " ".join(token if token.isdigit() or token.startswith("'") else values[token]
+                                  for token in tokens)
+            return eval(translated, {"__builtins__": {}})
+
+        cases = [
+            ("windows-latest", "release", "rust", 75, 70),
+            ("windows-latest", "debug", "rust", 60, 60),
+            ("ubuntu-latest", "release", "rust", 60, 60),
+            ("ubuntu-latest", "debug", "rust", 60, 60),
+            ("windows-latest", "release", "python", 40, 40),
+            ("windows-latest", "debug", "python", 40, 40),
+            ("ubuntu-latest", "release", "python", 40, 40),
+            ("ubuntu-latest", "debug", "python", 40, 40),
+        ]
+        for os_name, profile, partition, job_limit, stage_limit in cases:
+            with self.subTest(os=os_name, profile=profile, partition=partition):
+                self.assertEqual((minutes(job_expression, os_name, profile, partition),
+                                  minutes(stage_expression, os_name, profile, partition)),
+                                 (job_limit, stage_limit))
+        self.assertGreaterEqual(minutes(job_expression, "windows-latest", "release", "rust")
+                                - minutes(stage_expression, "windows-latest", "release", "rust"),
+                                5, "Windows release Rust must retain setup and evidence headroom")
         self.assertIn("timeout-minutes: 50", self.job("windows_python"))
         self.assertIn("timeout-minutes: 40", self.job("windows_binaries"))
         self.assertNotIn("TOR_TEST_TIMEOUT", profiles)

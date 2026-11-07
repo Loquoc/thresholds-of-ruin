@@ -1471,8 +1471,11 @@ mod definition_sharing_tests {
         let snapshot = game.checkpoint(&mut shared);
         let encoded = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(
-            serde_json::to_value(&shared).unwrap()["actors"]
-                [encoded["actors"].as_u64().unwrap() as usize][actor.0.to_string()]["body"],
+            crate::checkpoint_fixture::actor(
+                &serde_json::to_value(&shared).unwrap(),
+                encoded["actors"].as_u64().unwrap() as usize,
+                &actor.0.to_string()
+            )["body"],
             serde_json::to_value(&body).unwrap()
         );
         let decoded = serde_json::from_value(encoded).unwrap();

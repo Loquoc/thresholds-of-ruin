@@ -182,12 +182,10 @@ fn at_tick(game: &Game, tick: u64) -> Game {
     let mut pool = serde_json::to_value(shared).unwrap();
     assert_eq!(game.tick(), 0);
     snapshot["tick"] = serde_json::json!(tick);
-    for table in pool["actors"].as_array_mut().unwrap() {
-        for actor in table.as_object_mut().unwrap().values_mut() {
-            assert_eq!(actor["ready_at"], serde_json::json!(0));
-            actor["ready_at"] = serde_json::json!(tick);
-            actor["active_since"] = serde_json::json!(tick);
-        }
+    for actor in pool["actor_records"].as_array_mut().unwrap() {
+        assert_eq!(actor["ready_at"], serde_json::json!(0));
+        actor["ready_at"] = serde_json::json!(tick);
+        actor["active_since"] = serde_json::json!(tick);
     }
     let shared = serde_json::from_value(pool).unwrap();
     let restored = Game::restore_checkpoint(

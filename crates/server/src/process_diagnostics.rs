@@ -28,6 +28,26 @@ pub fn startup(stage: &str) {
     }
 }
 
+/// Opt-in reduced ceiling for real-process checkpoint-overflow tests. Invalid
+/// configuration remains an error rather than silently disabling the fault.
+/// The encoder separately clamps this value to its production maximum.
+#[cfg(not(test))]
+pub(crate) fn checkpoint_byte_limit() -> std::io::Result<Option<usize>> {
+    match std::env::var("TOR_TEST_CHECKPOINT_BYTE_LIMIT") {
+        Ok(value) => value.parse::<usize>().map(Some).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid test checkpoint byte limit",
+            )
+        }),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid test checkpoint byte limit",
+        )),
+    }
+}
+
 fn marker(base: &Path, suffix: &str) -> PathBuf {
     let mut path = base.as_os_str().to_os_string();
     path.push(suffix);

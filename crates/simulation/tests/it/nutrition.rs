@@ -168,7 +168,8 @@ fn game_with_selected_character(
     game.refresh_navigation();
     edit_checkpoint(&game, |snapshot, pool| {
         let table = snapshot["actors"].as_u64().unwrap() as usize;
-        let record = &mut pool["actors"][table][subject.0.to_string()]["combat"]["creature"];
+        let record = &mut crate::checkpoint_fixture::actor_mut(pool, table, &subject.0.to_string())
+            ["combat"]["creature"];
         record["nutrition"] = required(reserve, elapsed);
         record["health_recovery"]["nutrition"] = recovery(reserve);
     })
@@ -524,17 +525,16 @@ fn eat_schedule_overflow_is_atomic_before_admission_or_item_holding() {
     // clock ceiling using an exempt actor, so no impossible future tick is saved.
     let base = edit_checkpoint(&base, |snapshot, pool| {
         let table = snapshot["actors"].as_u64().unwrap() as usize;
-        pool["actors"][table]["1"]["combat"]["creature"]["nutrition"] = json!({"kind":"exempt"});
+        crate::checkpoint_fixture::actor_mut(pool, table, "1")["combat"]["creature"]["nutrition"] =
+            json!({"kind":"exempt"});
     });
     let duration = base.content().rules().constants().item_timing.consume_turns * 10;
     let mut game = edit_checkpoint(&base, |snapshot, pool| {
         let tick = u64::MAX - duration + 1;
         snapshot["tick"] = json!(tick);
-        for table in pool["actors"].as_array_mut().unwrap() {
-            for actor in table.as_object_mut().unwrap().values_mut() {
-                actor["ready_at"] = json!(tick);
-                actor["active_since"] = json!(tick);
-            }
+        for actor in pool["actor_records"].as_array_mut().unwrap() {
+            actor["ready_at"] = json!(tick);
+            actor["active_since"] = json!(tick);
         }
     });
     let before = game.clone();
@@ -610,7 +610,8 @@ fn regeneration_starvation_wins_eat_completion_tie_without_consuming_the_ration(
         let game = game_with_build(actor, 8, 0, build_with_policy(authored), 10);
         let mut game = edit_checkpoint(&game, |snapshot, pool| {
             let actors = snapshot["actors"].as_u64().unwrap() as usize;
-            let creature = &mut pool["actors"][actors]["1"]["combat"]["creature"];
+            let creature =
+                &mut crate::checkpoint_fixture::actor_mut(pool, actors, "1")["combat"]["creature"];
             creature["nutrition"] = required(0, 0);
             creature["injury"] = json!(1);
             creature["health_recovery"]["elapsed"] = json!(elapsed);
@@ -863,8 +864,8 @@ fn food_and_corpse_classes_do_not_grant_edibility_and_forged_meal_plans_reject()
     let encoded = serde_json::to_value(&snapshot).unwrap();
     let table = encoded["actors"].as_u64().unwrap() as usize;
     let mut forged = serde_json::to_value(shared).unwrap();
-    let amount =
-        &mut forged["actors"][table]["1"]["pending"]["plan"]["effects"][0]["amount"]["amount"];
+    let amount = &mut crate::checkpoint_fixture::actor_mut(&mut forged, table, "1")["pending"]
+        ["plan"]["effects"][0]["amount"]["amount"];
     assert_eq!(*amount, json!(6));
     *amount = json!(7);
     assert!(Game::restore_checkpoint(
@@ -913,8 +914,8 @@ fn contextual_expiry_and_hunger_use_one_rephase_after_pending_frozen_thaw() {
             // earned-first creation of Pending is covered by earned_context.
             game = edit_checkpoint(&game, |snapshot, pool| {
                 let table = snapshot["actors"].as_u64().unwrap() as usize;
-                pool["actors"][table]["2"]["combat"]["creature"]["health_recovery"]["context"] =
-                    json!({"kind":"pending", "base_period":3});
+                crate::checkpoint_fixture::actor_mut(pool, table, "2")["combat"]["creature"]
+                    ["health_recovery"]["context"] = json!({"kind":"pending", "base_period":3});
             });
             let before = CreatureRecord::capture(&game.creature(actor).unwrap());
             rest(&mut game, 500);
@@ -1542,8 +1543,8 @@ fn checkpoint_rejects_a_changed_frozen_meal_die_even_when_both_pools_are_positiv
     let encoded = serde_json::to_value(&shared).unwrap();
     for (field, value) in [("count", 2), ("sides", 5), ("bonus", 4)] {
         let mut changed = encoded.clone();
-        changed["actors"][table]["1"]["pending"]["plan"]["effects"][0]["amount"]["dice"][field] =
-            json!(value);
+        crate::checkpoint_fixture::actor_mut(&mut changed, table, "1")["pending"]["plan"]
+            ["effects"][0]["amount"]["dice"][field] = json!(value);
         assert!(
             Game::restore_checkpoint(
                 serde_json::from_value(serde_json::to_value(&snapshot).unwrap()).unwrap(),
@@ -1650,11 +1651,15 @@ fn pooled_population_item_recipes_retain_distinct_declared_meal_operands() {
         2,
         "pool equality includes the complete item operand"
     );
-    for (snapshot, expected) in snapshots.into_iter().zip(states) {
-        assert_eq!(
-            Game::restore_checkpoint(snapshot, &shared, expected.content().clone()).unwrap(),
-            expected
-        );
+    for (snapshot, expected) in snapshots.iter().zip(states) {
+        let mut restore =
+            tor_simulation::checkpoint::RestoreContext::new(&shared, expected.content().clone());
+        restore
+            .bind_spatial_roots(&snapshots.iter().collect::<Vec<_>>())
+            .unwrap();
+        // Decode this boundary independently while retaining the complete pool root set.
+        let snapshot = serde_json::from_value(serde_json::to_value(snapshot).unwrap()).unwrap();
+        assert_eq!(restore.restore(snapshot).unwrap(), expected);
     }
 }
 
@@ -1681,7 +1686,9 @@ fn assert_rolled_meal_late_failure_is_atomic(charge_regeneration: bool) {
     if charge_regeneration {
         game = edit_checkpoint(&game, |snapshot, pool| {
             let actors = snapshot["actors"].as_u64().unwrap() as usize;
-            let creature = &mut pool["actors"][actors][actor.0.to_string()]["combat"]["creature"];
+            let creature =
+                &mut crate::checkpoint_fixture::actor_mut(pool, actors, &actor.0.to_string())
+                    ["combat"]["creature"];
             creature["injury"] = json!(3);
             creature["health_recovery"]["elapsed"] = json!(96);
         });
@@ -1731,7 +1738,8 @@ fn assert_rolled_meal_late_failure_is_atomic(charge_regeneration: bool) {
     let mut pool = serde_json::to_value(shared).unwrap();
     let actors = snapshot["actors"].as_u64().unwrap() as usize;
     let due = 10;
-    pool["actors"][actors][third.0.to_string()]["ready_at"] = json!(due + 1);
+    crate::checkpoint_fixture::actor_mut(&mut pool, actors, &third.0.to_string())["ready_at"] =
+        json!(due + 1);
     snapshot["combat"]["run"] = json!({"kind":"arena","state":{
         "limits":{"ticks":100000,"actions":10000},"started_at":game.tick(),"actions":0,
         "progress":{"kind":"active","control":{"kind":"paused","remaining":0}},"deceased":null
@@ -1800,8 +1808,8 @@ fn eating_at_full_reserve_or_while_exempt_still_consumes_one_unit_and_one_roll()
         if exempt {
             game = edit_checkpoint(&game, |snapshot, pool| {
                 let actors = snapshot["actors"].as_u64().unwrap() as usize;
-                pool["actors"][actors]["1"]["combat"]["creature"]["nutrition"] =
-                    json!({"kind":"exempt"});
+                crate::checkpoint_fixture::actor_mut(pool, actors, "1")["combat"]["creature"]
+                    ["nutrition"] = json!({"kind":"exempt"});
             });
         }
         food_amount(&mut game, actor, 10, 1, rolled(1, 400, 1099));

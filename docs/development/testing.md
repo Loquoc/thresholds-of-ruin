@@ -808,7 +808,13 @@ in exhaustive mode. A cancelled or unexpectedly skipped constituent cannot pass;
 selected, prose-only and exact-tree post-merge modes have their separately
 validated plans above.
 
-Full-job budgets remain 60 minutes for Rust and 40 minutes for Python/native.
+Full Rust jobs retain 60-minute budgets except Windows release Rust, whose
+75-minute job budget includes a bounded 70-minute verification step and time for
+setup and evidence retention. That lane completed a 59.1-minute verifier but was
+cancelled at its former 60-minute whole-job limit; completed test output does not
+qualify a cancelled job. Other full-profile verification steps remain bounded at
+60 minutes for Rust and 40 minutes for Python/native. Windows Python shard jobs
+retain their existing 50-minute whole-job budget around the 40-minute step.
 These are infrastructure ceilings, not promises of spare capacity or changes to
 individual test deadlines. Use the [current cost baseline](ci-cost-baseline.md)
 and measured selected/full runs to assess headroom; older timings do not prove

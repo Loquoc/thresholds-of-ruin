@@ -362,7 +362,8 @@ fn active_checkpoint_rejects_forged_context_even_when_both_denominators_fit_elap
     let mut shared = tor_simulation::checkpoint::SharedState::default();
     let checkpoint = game.checkpoint(&mut shared);
     let mut value = serde_json::to_value(&(checkpoint, shared)).unwrap();
-    let record = &mut value[1]["actors"][0]["1"]["combat"]["creature"];
+    let record =
+        &mut crate::checkpoint_fixture::actor_mut(&mut value[1], 0, "1")["combat"]["creature"];
     assert_eq!(record["health_recovery"]["context"]["sensed_hostile"], true);
     assert_eq!(record["health_recovery"]["elapsed"], 400);
     record["health_recovery"]["context"]["sensed_hostile"] = false.into();

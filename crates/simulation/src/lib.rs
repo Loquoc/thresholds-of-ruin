@@ -53,6 +53,10 @@
 //! assert_eq!(game, before); // An invalid request changes no authoritative state.
 //! ```
 
+#[cfg(test)]
+#[path = "../test_support/checkpoint_json.rs"]
+mod checkpoint_fixture;
+
 mod item_identity;
 pub use item_identity::{InvalidItemIdentity, ItemIdentity};
 mod item_knowledge;

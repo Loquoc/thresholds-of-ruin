@@ -218,7 +218,7 @@ REVIEWED_OWNERS = {
     'test_text_combat_boundaries_process': ('AttackBoundaryTests', 'TextCombatBoundaryProcesses'),
     'test_text_process': ('TextProcesses',),
     'test_timing_correlation': ('CorrelationEvidenceIdentity', 'TimingCorrelation'),
-    'test_travel_process': ('TravelJournalProcesses', 'TravelProcesses'),
+    'test_travel_process': ('TravelFrameBarriers', 'TravelJournalProcesses', 'TravelProcesses'),
     'test_verify': ('CiPartitions', 'CiPythonEnvironment', 'CiPythonShardPlanning', 'CiWorkflowContract', 'CrossHeadExecution', 'ExecutionEvidence', 'LocalMouseGate', 'LocalMouseWaiver', 'MissingTests', 'ProcessSelection', 'Reporting', 'Selection', 'ServiceContractPlanning', 'Tiers', 'WorkflowShellSelection'),
     'test_wandering_population_process': ('PaidPopulationCompletionTests', 'WanderingPopulationProcesses'),
     'test_wizard_creature_spawn_process': ('WizardCreatureSpawnProcesses',),

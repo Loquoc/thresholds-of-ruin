@@ -181,7 +181,7 @@ fn saved_engine(engine: &Engine) -> Value {
 }
 fn live_actor(saved: &Value, actor: ActorId) -> &Value {
     let index = saved["game"]["actors"].as_u64().unwrap() as usize;
-    &saved["shared"]["actors"][index][actor.0.to_string()]
+    crate::checkpoint_fixture::actor(&saved["shared"], index, &actor.0.to_string())
 }
 fn hp(service: &Service, actor: ActorId) -> u64 {
     service

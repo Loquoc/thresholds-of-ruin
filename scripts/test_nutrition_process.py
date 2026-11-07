@@ -29,8 +29,15 @@ def authoritative_game(checkpoint):
     """Expand current pooled values, preserving every authoritative game field."""
     game = copy.deepcopy(checkpoint["game"])
     shared = checkpoint["shared"]
-    for field, pool in (("actors", "actors"), ("items", "items"),
-                        ("lifecycle", "lifecycles")):
+    # Copy each binding separately: equal pooled values still represent
+    # independent actors/AI, and inspection must not mutate retained roots.
+    game["actors"] = {
+        actor: copy.deepcopy(shared["actor_records"][index])
+        for actor, index in shared["actors"][game["actors"]].items()}
+    game["combat"]["ai"] = {
+        actor: copy.deepcopy(shared["ai_records"][index])
+        for actor, index in game["combat"]["ai"].items()}
+    for field, pool in (("items", "items"), ("lifecycle", "lifecycles")):
         if field in game:
             game[field] = copy.deepcopy(shared[pool][game[field]])
     if "floor_activation" in game:
@@ -51,6 +58,33 @@ def authoritative_game(checkpoint):
 
 
 class FloorActivationCheckpointHelperTests(unittest.TestCase):
+    def test_authoritative_game_expands_pooled_records_without_aliasing_history(self):
+        actor = {"pending": {"remaining": 25}, "combat": {"creature": {
+            "nutrition": {"regeneration_remainder": 2}}}}
+        ai = {"profile": {"flee_percent": 0}, "state": "idle", "visits": {}}
+        root = {"actors": 0, "items": 0, "lifecycle": 0, "world": 0,
+                "navigation": {}, "intentions": {"entries": []},
+                "combat": {"ai": {"1": 0, "2": 0}}}
+        checkpoint = {"game": root, "boundaries": [{"game": copy.deepcopy(root)}],
+                      "shared": {"actors": [{"1": 0, "2": 0}], "actor_records": [actor],
+                                 "ai_records": [ai], "items": [{}], "lifecycles": [{}],
+                                 "worlds": {"instances": [{"geometry": 0, "doors": []}],
+                                            "geometry": [{"regions": []}]},
+                                 "navigation": {"instances": []}, "intentions": {"entries": []}}}
+        original = copy.deepcopy(checkpoint)
+        current = authoritative_game(checkpoint)
+        historical = authoritative_game({**checkpoint, "game": checkpoint["boundaries"][0]["game"]})
+        self.assertEqual(current["actors"], {"1": actor, "2": actor})
+        self.assertEqual(current["combat"]["ai"], {"1": ai, "2": ai})
+        self.assertEqual(current, historical)
+        current["actors"]["1"]["pending"]["remaining"] = 0
+        current["combat"]["ai"]["1"]["profile"]["flee_percent"] = 25
+        self.assertEqual(current["actors"]["2"], actor)
+        self.assertEqual(current["combat"]["ai"]["2"], ai)
+        self.assertEqual(historical["actors"]["1"], actor)
+        self.assertEqual(historical["combat"]["ai"]["1"], ai)
+        self.assertEqual(checkpoint, original)
+
     def test_boundary_clock_drift_is_visible_without_changing_pooled_receipts(self):
         base = {"wandering": None, "plan": {"protagonist": 1},
                 "scopes": {"floor/1": {"depth": 1}}, "members": {"1": "floor/1"},

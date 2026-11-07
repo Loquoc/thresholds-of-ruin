@@ -139,8 +139,8 @@ class FallCreditRetention(unittest.TestCase):
 
             (root / "unrelated.db").write_bytes(b"not a log")
             (root / "startup-00.jsonl").write_bytes(b"startup evidence")
-            checkpoint = {"game": {"actors": "actors"}, "shared": {"actors": {"actors": {
-                "2": {"motion": {"active_fall": {"owner": 1, "episode": 1, "started_at": 110}}}}}}}
+            checkpoint = {"game": {"actors": 0}, "shared": {"actors": [{"2": 0}],
+                "actor_records": [{"motion": {"active_fall": {"owner": 1, "episode": 1, "started_at": 110}}}]}}
             with patch.object(case, "server", side_effect=server), \
                     patch.object(case, "client", side_effect=client), \
                     patch.object(case, "request", side_effect=request), \

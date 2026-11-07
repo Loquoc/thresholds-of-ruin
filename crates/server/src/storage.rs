@@ -97,6 +97,12 @@ impl std::io::Write for HistoryAdmissionCounter {
 }
 
 fn admit_history_checkpoint(checkpoint: &DiskCheckpoint) -> Result<(), Failure> {
+    if !checkpoint
+        .record_expansion_within_limit()
+        .map_err(|_| storage_failure())?
+    {
+        return Err(storage_failure());
+    }
     #[cfg(test)]
     if let Some(limit) = HISTORY_ADMISSION_TEST_LIMIT.with(std::cell::Cell::get) {
         let size = checkpoint_codec::write_json(checkpoint, HistoryAdmissionCounter::default())
@@ -377,9 +383,12 @@ pub struct SaveStatus {
     pub saving: bool,
     /// Whether the oldest uncommitted admission reached the maximum age.
     pub overdue: bool,
+    /// Latest checkpoint omitted because it exceeded the encoder capacity.
+    /// Journal durability continues independently; a later checkpoint clears it.
+    pub checkpoint_deferred_sequence: Option<u64>,
     /// Retained background failure. New mutations are rejected while present.
-    /// An explicit save retries eligible failures; it does not re-encode an
-    /// unchanged checkpoint already known to exceed the capacity limit.
+    /// An explicit save retries journal/serialization failures. Capacity-only
+    /// checkpoint deferrals are reported separately and do not block admission.
     pub error: Option<String>,
     /// Successful background batches since opening this writer.
     pub batches: u64,
@@ -750,6 +759,12 @@ use rusqlite::OptionalExtension;
 
 #[cfg(test)]
 fn encode_checkpoint(checkpoint: &DiskCheckpoint) -> Result<Vec<u8>, Failure> {
+    if !checkpoint
+        .record_expansion_within_limit()
+        .map_err(|_| storage_failure())?
+    {
+        return Err(storage_failure());
+    }
     checkpoint_codec::write_json(checkpoint, Vec::new()).map_err(|_| storage_failure())
 }
 
@@ -1023,41 +1038,46 @@ struct Pending {
     sources: Vec<(u64, Arc<str>)>,
     queued: Instant,
 }
-/// Only an explicit encoder capacity bound is terminal for the same snapshot.
+/// Only an explicit encoder capacity bound defers optional checkpointing.
 /// Other serialization, region and commit failures retain the existing retry path.
 #[derive(Clone, Copy, Debug)]
 enum SaveFailure {
     CheckpointCapacity { sequence: u64 },
     Retryable,
 }
-impl SaveFailure {
-    fn blocks_retry(self, retained_checkpoint: Option<u64>) -> bool {
-        matches!(self, Self::CheckpointCapacity { sequence } if Some(sequence) == retained_checkpoint)
-    }
-    fn message(self, retained_checkpoint: Option<u64>) -> &'static str {
-        if self.blocks_retry(retained_checkpoint) {
-            "Save checkpoint exceeds capacity; recent play is not saved. Retrying this unchanged checkpoint cannot help. Keep this session open and report the error."
-        } else if matches!(self, Self::CheckpointCapacity { .. }) {
-            "Save checkpoint exceeded capacity; a newer checkpoint is retained. Recent play is not saved. Use save to retry."
-        } else {
-            "Background save failed; recent play is not saved. Use save to retry."
-        }
-    }
-}
 
 #[cfg(test)]
 #[path = "storage_checkpoint_failure_tests.rs"]
 mod checkpoint_failure_tests;
+
+fn classify_record_expansion(
+    within_limit: Result<bool, tor_simulation::checkpoint::PersistError>,
+    sequence: u64,
+) -> Result<(), SaveFailure> {
+    match within_limit {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(SaveFailure::CheckpointCapacity { sequence }),
+        Err(_) => Err(SaveFailure::Retryable),
+    }
+}
 
 fn encode_background_checkpoint(
     _shared: &Shared,
     sequence: u64,
     checkpoint: &DiskCheckpoint,
 ) -> Result<Vec<u8>, SaveFailure> {
+    classify_record_expansion(checkpoint.record_expansion_within_limit(), sequence)?;
     #[cfg(test)]
     let encoded = checkpoint_failure_tests::encode(_shared, checkpoint)?;
     #[cfg(not(test))]
-    let encoded = checkpoint_codec::write_json_classified(checkpoint, Vec::new());
+    let encoded = match crate::process_diagnostics::checkpoint_byte_limit()
+        .map_err(|_| SaveFailure::Retryable)?
+    {
+        Some(limit) => {
+            checkpoint_codec::write_json_classified_with_limit(checkpoint, Vec::new(), limit)
+        }
+        None => checkpoint_codec::write_json_classified(checkpoint, Vec::new()),
+    };
     encoded.map_err(|error| match error {
         checkpoint_codec::EncodeError::CapacityExceeded => {
             SaveFailure::CheckpointCapacity { sequence }
@@ -1073,7 +1093,6 @@ struct State {
     checkpoint: Option<(u64, Checkpoint)>,
     last_checkpoint_requested: u64,
     status: SaveStatus,
-    failure: Option<SaveFailure>,
     oldest: Option<Instant>,
     last_activity: Instant,
     force: u64,
@@ -1226,7 +1245,6 @@ impl Store {
                     durable_sequence: sequence,
                     ..SaveStatus::default()
                 },
-                failure: None,
                 oldest: None,
                 last_activity: Instant::now(),
                 force: sequence,
@@ -1483,15 +1501,8 @@ impl Store {
     pub(crate) fn request_flush(&self) -> u64 {
         let mut s = self.0.shared.state.lock().unwrap();
         s.force = s.status.accepted_sequence;
-        let retained_checkpoint = s.checkpoint.as_ref().map(|(seq, _)| *seq);
-        if !s
-            .failure
-            .is_some_and(|failure| failure.blocks_retry(retained_checkpoint))
-        {
-            s.status.error = None;
-            s.failure = None;
-            self.0.shared.wake.notify_one();
-        }
+        s.status.error = None;
+        self.0.shared.wake.notify_one();
         s.force
     }
     pub(crate) fn flush(&self) -> Result<(), Failure> {
@@ -1557,7 +1568,7 @@ fn run_worker(shared: Arc<Shared>, conn: Connection, path: PathBuf) {
             continue;
         }
         let batch: Vec<_> = s.pending.drain(..).collect();
-        let checkpoint = s.checkpoint.take();
+        let mut checkpoint = s.checkpoint.take();
         s.status.saving = true;
         drop(s);
         let start = Instant::now();
@@ -1575,6 +1586,17 @@ fn run_worker(shared: Arc<Shared>, conn: Connection, path: PathBuf) {
                 ))
             })
             .transpose();
+        // A checkpoint is optional compaction, not the durability boundary.
+        // Discard the oversized capture (never retry it) and commit the same
+        // admitted journal/source/region batch against the last good checkpoint.
+        // Newer captures concurrently queued in State remain eligible.
+        let (encoded, deferred) = match encoded {
+            Err(SaveFailure::CheckpointCapacity { sequence }) => {
+                checkpoint = None;
+                (Ok(None), Some(sequence))
+            }
+            other => (other, None),
+        };
         let checkpoint_ms = checkpoint_started
             .elapsed()
             .as_millis()
@@ -1623,6 +1645,9 @@ fn run_worker(shared: Arc<Shared>, conn: Connection, path: PathBuf) {
         });
         let mut s = shared.state.lock().unwrap();
         s.status.saving = false;
+        if let Some(sequence) = deferred {
+            s.status.checkpoint_deferred_sequence = Some(sequence);
+        }
         match outcome {
             Ok(()) => {
                 {
@@ -1635,6 +1660,7 @@ fn run_worker(shared: Arc<Shared>, conn: Connection, path: PathBuf) {
                     s.appended.clear();
                     s.written = Some((state.referenced(), state.watermark));
                     s.status.checkpoint_sequence = *seq;
+                    s.status.checkpoint_deferred_sequence = None;
                     s.status.checkpoints += 1;
                     s.status.checkpoint_bytes = checkpoint_bytes;
                     s.status.last_checkpoint_ms = checkpoint_ms;
@@ -1674,19 +1700,16 @@ fn run_worker(shared: Arc<Shared>, conn: Connection, path: PathBuf) {
                 s.status.last_commit_ms = commit_ms;
                 s.oldest = s.pending.front().map(|p| p.queued);
             }
-            Err(failure) => {
+            Err(_) => {
                 if s.checkpoint.is_none() {
                     s.checkpoint = checkpoint;
                 }
                 for entry in batch.into_iter().rev() {
                     s.pending.push_front(entry);
                 }
-                s.failure = Some(failure);
-                s.status.error = s.failure.map(|failure| {
-                    failure
-                        .message(s.checkpoint.as_ref().map(|(seq, _)| *seq))
-                        .into()
-                });
+                s.status.error = Some(
+                    "Background save failed; recent play is not saved. Use save to retry.".into(),
+                );
                 // Discard uncertain connection state before an explicit retry.
                 drop(s);
                 conn = None;
@@ -2231,9 +2254,9 @@ mod tests {
         }
     }
     /// Steps from the corridor's start to the middle of hall 4.
-    const TO_HALL_4: usize = 76;
+    pub(super) const TO_HALL_4: usize = 76;
 
-    fn corridor() -> Scenario {
+    pub(super) fn corridor() -> Scenario {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/streaming-corridor");
         let mut scenario = crate::scenario_package::load(&root, 5, None, false).unwrap();
@@ -2244,7 +2267,7 @@ mod tests {
         scenario
     }
 
-    fn walk(engine: &mut Engine, direction: crate::journal::Direction, steps: usize) {
+    pub(super) fn walk(engine: &mut Engine, direction: crate::journal::Direction, steps: usize) {
         for _ in 0..steps {
             let revision = engine.causal_boundary(ActorId(1)).unwrap();
             let request = format!("walk-{direction:?}-{revision}");

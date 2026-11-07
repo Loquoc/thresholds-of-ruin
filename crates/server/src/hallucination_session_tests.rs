@@ -641,7 +641,9 @@ fn real_current_and_retained_clock_records_reject_independent_corruption_after_v
         .iter()
         .map(|row| row["game"]["actors"].as_u64().unwrap() as usize)
         .find(|&index| {
-            index != current && !good["shared"]["actors"][index]["1"]["hallucination"].is_null()
+            index != current
+                && !crate::checkpoint_fixture::actor(&good["shared"], index, "1")["hallucination"]
+                    .is_null()
         })
         .expect("a genuine retained hallucinating boundary");
     for index in [current, retained] {
@@ -654,7 +656,8 @@ fn real_current_and_retained_clock_records_reject_independent_corruption_after_v
             "unknown",
         ] {
             let mut bad = good.clone();
-            let clock = &mut bad["shared"]["actors"][index]["1"]["hallucination"];
+            let clock = &mut crate::checkpoint_fixture::actor_mut(&mut bad["shared"], index, "1")
+                ["hallucination"];
             match field {
                 "generation" => clock[field] = json!(clock[field].as_u64().unwrap() + 1),
                 "period" | "remaining_to_shift" => clock[field] = json!(0),
@@ -665,6 +668,12 @@ fn real_current_and_retained_clock_records_reject_independent_corruption_after_v
                 "unknown" => clock["private_index"] = json!(0),
                 _ => unreachable!(),
             }
+            let unchanged = if index == current { retained } else { current };
+            assert_eq!(
+                crate::checkpoint_fixture::actor(&bad["shared"], unchanged, "1"),
+                crate::checkpoint_fixture::actor(&good["shared"], unchanged, "1"),
+                "corrupting one directory must preserve the other boundary"
+            );
             assert!(
                 wire.service
                     .engine
@@ -892,12 +901,22 @@ fn map_learning_is_a_fixed_point_for_current_hallucinated_stair_disclosure() {
     let mut wire = Wire::new(Engine::memory(scenario).unwrap());
     let restore = |wire: &Wire| {
         let saved = wire.checkpoint();
-        Game::restore_checkpoint(
-            serde_json::from_value(saved["game"].clone()).unwrap(),
-            &serde_json::from_value(saved["shared"].clone()).unwrap(),
-            content.clone(),
-        )
-        .unwrap()
+        let shared = serde_json::from_value(saved["shared"].clone()).unwrap();
+        let roots: Vec<tor_simulation::checkpoint::Snapshot> = std::iter::once(&saved["game"])
+            .chain(
+                saved["boundaries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|boundary| &boundary["game"]),
+            )
+            .map(|root| serde_json::from_value(root.clone()).unwrap())
+            .collect();
+        let mut restore = tor_simulation::checkpoint::RestoreContext::new(&shared, content.clone());
+        restore
+            .bind_spatial_roots(&roots.iter().collect::<Vec<_>>())
+            .unwrap();
+        restore.restore(roots.into_iter().next().unwrap()).unwrap()
     };
     let mut sober = restore(&wire);
     drink(&mut wire, 30, "map-fixed-point-dose");

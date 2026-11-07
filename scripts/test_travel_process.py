@@ -7,9 +7,18 @@ from pathlib import Path
 import time
 import threading
 import unittest
+import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from process_harness import ProcessTestCase, SPECTATOR_TOKEN, non_graphical, read_capture
 from stream_relay import StreamRelay
+
+
+def arrived_picture(frame):
+    """Arrival authority, admission and its displayed picture are separate facts."""
+    return ((frame.get("travel") or {}).get("phase") == "arrived"
+            and frame["can_admit_intention"] and frame["observation_current"])
 
 
 class TravelJournalProcesses(ProcessTestCase):
@@ -119,9 +128,6 @@ class TravelProcesses(ProcessTestCase):
         self.assertEqual(selected["state"]["observation"]["tick"], '0')
         self.assertEqual(selected["travel_cursor"], {"x": 5, "y": 0, "z": 0})
         submitted = self.key(ascii_client, "enter")
-        def arrived_picture(frame):
-            return ((frame.get("travel") or {}).get("phase") == "arrived"
-                    and frame["can_admit_intention"] and frame["observation_current"])
         arrived = submitted if arrived_picture(submitted) else self.ascii_frame(ascii_client, arrived_picture)
         self.assertEqual(arrived["travel"]["completed_steps"], "5")
         self.assertEqual(arrived["state"]["observation"]["tick"], '500')
@@ -289,14 +295,17 @@ class TravelProcesses(ProcessTestCase):
         self.ascii_frame(client, lambda f: f.get("travel_cursor") == {"x":1,"y":0,"z":0})
         key("Right", False)
         key("Return", True)
-        arrived = self.ascii_frame(client, lambda f: f.get("travel") and f["travel"]["phase"] == "arrived")
+        # Terminal travel status can arrive before its picture or the next
+        # admission permission, just as on the automation path above.
+        arrived = self.ascii_frame(client, arrived_picture)
         key("Return", False)
         self.assertEqual(arrived["state"]["observation"]["tick"],'100')
         # Click where the map draws the cell travelled from, one step west.
         start = next(t for t in arrived["map_tiles"] if t["position"] == {"x": -1, "y": 0, "z": 0})
         click.update(x=start["center"][0], y=start["center"][1])
         mouse(True)
-        returned = self.ascii_frame(client, lambda f: f.get("travel") and f["travel"]["id"] != arrived["travel"]["id"] and f["travel"]["phase"] == "arrived")
+        returned = self.ascii_frame(client, lambda f: arrived_picture(f)
+            and f["travel"]["id"] != arrived["travel"]["id"])
         mouse(False)
         self.assertEqual(returned["state"]["observation"]["tick"],'200')
         self.assertTrue(read_capture(capture).startswith(b"P6\n1200 800\n255\n"))
@@ -341,6 +350,103 @@ class TravelProcesses(ProcessTestCase):
         synced = self.request(player, {"type":"snapshot"})
         self.assertDisclosedStateEqual(synced["state"], stopped["state"])
         self.assertEqual(synced["travel"], stopped["travel"])
+
+
+class TravelFrameBarriers(unittest.TestCase):
+    """Replay the real native test's waits without qualifying native OS input."""
+
+    def replay_native_journeys(self, *, delayed_leg=None, delayed_fact=None):
+        def frame(tick, *, journey=None, phase="arrived", cursor=None,
+                  current=True, admission=True):
+            return {"type": "frame", "state": {"observation": {"tick": str(tick)}},
+                    "busy": False, "travel_cursor": cursor,
+                    "travel": None if journey is None else {
+                        "id": journey, "phase": phase, "completed_steps": "1"},
+                    "observation_current": current, "can_admit_intention": admission,
+                    "map_tiles": [{"position": {"x": -1, "y": 0, "z": 0},
+                                   "center": [580, 388]}]}
+
+        outbound = frame(100, journey="outbound")
+        returned = frame(200, journey="return")
+        frames = [frame(0), frame(0, cursor={"x": 0, "y": 0, "z": 0}),
+                  frame(0, cursor={"x": 1, "y": 0, "z": 0})]
+
+        def arrival(leg, current):
+            if delayed_leg == leg:
+                frames.append(frame(
+                    (0 if leg == "outbound" else 100) if delayed_fact == "picture"
+                    else (100 if leg == "outbound" else 200),
+                    journey=leg, current=delayed_fact != "picture",
+                    admission=delayed_fact != "admission"))
+            frames.append(current)
+
+        arrival("outbound", outbound)
+        # A current old arrival and a distinct active journey cannot complete
+        # the return wait, even with current pictures and admission permission.
+        frames.extend([outbound, frame(100, journey="return", phase="active")])
+        arrival("return", returned)
+        pending = iter(frames)
+        presented = []
+
+        def until(predicate, seconds, *, include_transcript):
+            self.assertGreater(seconds, 0)
+            for shown in pending:
+                presented.append(shown)
+                line = json.dumps(shown)
+                if predicate(line):
+                    return line
+            self.fail("Native travel wait exhausted the scripted presented frames")
+
+        commands = []
+
+        def native_input(command, **_):
+            commands.append(command)
+            if "mousedown" in command or "mouseup" in command:
+                self.assertTrue(presented[-1]["can_admit_intention"],
+                                "Native journey boundary must wait for admission")
+
+        harness = TravelProcesses("test_native_underscore_and_mouse_click")
+        with tempfile.TemporaryDirectory() as directory:
+            harness.save = Path(directory) / "game.db"
+            harness.address = "scripted-server"
+            client = SimpleNamespace(until=until)
+            with patch.object(harness, "server") as server, \
+                    patch.object(harness, "launch", return_value=client) as launch, \
+                    patch(__name__ + ".os", wraps=os) as platform, \
+                    patch(__name__ + ".subprocess.check_output", return_value="123\n"), \
+                    patch(__name__ + ".subprocess.run", side_effect=native_input), \
+                    patch(__name__ + ".read_capture", return_value=b"P6\n1200 800\n255\n"):
+                platform.name = "posix"
+                platform.environ = {}
+                harness.test_native_underscore_and_mouse_click()
+            server.assert_called_once_with(scenario="travel")
+            launch.assert_called_once_with("tor-client-ascii", [
+                "--connect", "scripted-server", "--report-frames", "--capture",
+                Path(directory) / "travel.ppm"])
+        self.assertIs(presented[-1], returned)
+        self.assertEqual(list(pending), [], "The return wait stopped before its complete picture")
+        self.assertEqual(commands, [
+            ["xdotool", "key", "--window", "123", "underscore"],
+            ["xdotool", "keydown", "--window", "123", "Right"],
+            ["xdotool", "keyup", "--window", "123", "Right"],
+            ["xdotool", "keydown", "--window", "123", "Return"],
+            ["xdotool", "keyup", "--window", "123", "Return"],
+            ["xdotool", "mousemove", "--window", "123", "580", "388", "mousedown", "1"],
+            ["xdotool", "mousemove", "--window", "123", "580", "388", "mouseup", "1"],
+        ])
+
+    def test_current_native_journeys_keep_exact_inputs_and_distinct_arrival(self):
+        self.replay_native_journeys()
+
+    def test_native_arrivals_wait_for_current_pictures(self):
+        for leg in ("outbound", "return"):
+            with self.subTest(leg=leg):
+                self.replay_native_journeys(delayed_leg=leg, delayed_fact="picture")
+
+    def test_native_arrivals_wait_for_admission(self):
+        for leg in ("outbound", "return"):
+            with self.subTest(leg=leg):
+                self.replay_native_journeys(delayed_leg=leg, delayed_fact="admission")
 
 
 if __name__ == "__main__":

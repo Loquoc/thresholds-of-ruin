@@ -216,7 +216,8 @@ fn phase5_purchase_does_not_regrant_starting_ranks_or_reset_runtime_state() {
     let snapshot = original.checkpoint(&mut shared);
     let mut value = serde_json::to_value((snapshot, shared)).unwrap();
     let table = value[0]["actors"].as_u64().unwrap() as usize;
-    let state = &mut value[1]["actors"][table]["1"]["combat"]["creature"];
+    let state =
+        &mut crate::checkpoint_fixture::actor_mut(&mut value[1], table, "1")["combat"]["creature"];
     state["injury"] = json!(2);
     state["received_health_loss_remaining"] = json!(600);
     state["cooldowns"] = json!([{"ability":"basic_melee","remaining":100}]);
@@ -392,7 +393,8 @@ fn phase5_purchase_epoch_exhaustion_rejects_preview_and_commit_without_mutation(
     let snapshot = original.checkpoint(&mut shared);
     let mut value = serde_json::to_value((snapshot, shared)).unwrap();
     let table = value[0]["actors"].as_u64().unwrap() as usize;
-    value[1]["actors"][table]["1"]["combat"]["creature"]["build_epoch"] = json!(u64::MAX);
+    crate::checkpoint_fixture::actor_mut(&mut value[1], table, "1")["combat"]["creature"]
+        ["build_epoch"] = json!(u64::MAX);
     let (snapshot, shared) = serde_json::from_value(value).unwrap();
     let mut game = Game::restore_checkpoint(snapshot, &shared, original.content().clone()).unwrap();
     let before = game.clone();
@@ -649,12 +651,10 @@ fn at_tick(game: &Game, tick: u64) -> Game {
     let mut pool = serde_json::to_value(shared).unwrap();
     assert_eq!(game.tick(), 0);
     snapshot["tick"] = json!(tick);
-    for table in pool["actors"].as_array_mut().unwrap() {
-        for actor in table.as_object_mut().unwrap().values_mut() {
-            assert_eq!(actor["ready_at"], json!(0));
-            actor["ready_at"] = json!(tick);
-            actor["active_since"] = json!(tick);
-        }
+    for actor in pool["actor_records"].as_array_mut().unwrap() {
+        assert_eq!(actor["ready_at"], json!(0));
+        actor["ready_at"] = json!(tick);
+        actor["active_since"] = json!(tick);
     }
     let shared = serde_json::from_value(pool).unwrap();
     Game::restore_checkpoint(
