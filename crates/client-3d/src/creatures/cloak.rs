@@ -381,6 +381,8 @@ pub(super) struct CloakRig {
     neutral_reach: [f32; 2],
     contact_fallbacks: u64,
     contact_reference: Vec<Vec3>,
+    contact_seated: Vec<Vec3>,
+    contact_seating_valid: bool,
     contact_cpu_ms: [f64; 4],
     contact_solves: u64,
 }
@@ -396,7 +398,11 @@ impl CloakRig {
         let point = |i: usize| rotation * self.points[i] + offset;
         let before = |i: usize| rotation * reference[i] + offset;
         let radius = |p: Vec3| p.with_y(0.0).length();
-        let range = |row: usize, old: bool| {
+        let seated = |i: usize| {
+            rotation * self.contact_seated.get(i).copied().unwrap_or(reference[i]) + offset
+        };
+        let rest = |i: usize| self.rest[i] + offset;
+        let range = |row: usize, kind: u8| {
             (0..=COLUMNS).fold(
                 [
                     f32::INFINITY,
@@ -405,10 +411,12 @@ impl CloakRig {
                     f32::NEG_INFINITY,
                 ],
                 |mut r, col| {
-                    let p = if old {
-                        before(index(row, col))
-                    } else {
-                        point(index(row, col))
+                    let i = index(row, col);
+                    let p = match kind {
+                        0 => rest(i),
+                        1 => before(i),
+                        2 => seated(i),
+                        _ => point(i),
                     };
                     let d = radius(p);
                     r[0] = r[0].min(d);
@@ -422,8 +430,8 @@ impl CloakRig {
         let rows:Vec<_>=(0..=YOKE_ROWS).map(|row| {
             let tip=(0..=COLUMNS).map(|col|index(row,col))
                 .max_by(|&a,&b|radius(point(a)).total_cmp(&radius(point(b)))).unwrap();
-            serde_json::json!({"row":row,"reference":range(row,true),"final":range(row,false),
-                "radius_max_vertex":tip,"tip_reference":before(tip).to_array(),"tip_final":point(tip).to_array()})
+            serde_json::json!({"row":row,"rest":range(row,0),"reference":range(row,1),"seated":range(row,2),"final":range(row,3),
+                "radius_max_vertex":tip,"tip_rest":rest(tip).to_array(),"tip_reference":before(tip).to_array(),"tip_seated":seated(tip).to_array(),"tip_final":point(tip).to_array()})
         }).collect();
         let (vertex, travel) = (0..GRID)
             .map(|i| (i, point(i).distance(before(i))))
@@ -468,7 +476,8 @@ impl CloakRig {
         }
         Some(
             serde_json::json!({"layer":if self.inner_layer.is_some(){"mantle"}else{"main"},
-            "reference_scope":"posed point fit before whole-face constraints; not an unstretched material metric",
+            "reference_scope":"posed body/arm point fit before inner seating and whole-face constraints; not an unstretched material metric",
+            "rest_scope":"neutral recipe rest, already body/arm point-fitted", "seating_valid":self.contact_seating_valid,
             "row_range_order":["radius_min","radius_max","y_min","y_max"],"rows":rows,
             "max_travel":{"vertex":vertex,"row":vertex/(COLUMNS+1),"column":vertex%(COLUMNS+1),"distance":travel,"reference":before(vertex).to_array(),"final":point(vertex).to_array()},
             "radial_order_inversions":inversions,"max_radial_order_drop":worst_drop,
@@ -744,6 +753,8 @@ pub(super) fn spawn(
         contact_surface: recipe.contact_surface,
         contact_fallbacks,
         contact_reference,
+        contact_seated: Vec::new(),
+        contact_seating_valid: true,
         contact_cpu_ms,
         contact_solves,
         opening: recipe.cut.map(|cut| cut.opening),
@@ -851,6 +862,8 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
     cloak.contact_cpu_ms[2] += point_started.elapsed().as_secs_f64() * 1000.0;
     if cloak.wrapped {
         cloak.contact_reference.clone_from(&cloak.points);
+        cloak.contact_seated.clear();
+        cloak.contact_seating_valid = true;
     }
     // A mantle is fitted once against the combined inner-cloth/arm support
     // below. Pre-fitting its arms here would derive the second roof solve's
@@ -1888,6 +1901,51 @@ fn seat_layer_collar(
     Ok(())
 }
 
+/// Establish a physically outside reference for every mantle row, rather
+/// than asking a fixed-height solver to escape a horizontal inner sheet by
+/// moving to its rim. Rays are only initialization: all emitted faces still
+/// require the combined inner-cloth/arm certificate afterwards.
+fn seat_inner_layer(
+    points: &mut [Vec3],
+    rotation: Quat,
+    inner: &LayerSurface,
+) -> Result<(), RadialFitFailure> {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let inverse = rotation.inverse();
+    for (i, point) in points.iter_mut().enumerate() {
+        let at = rotation * *point + offset;
+        let fitted = if i / (COLUMNS + 1) < YOKE_ROWS {
+            fit_mesh_contact(at, true, inner)
+        } else {
+            // Retained cloth reaches the hem. The arm-only contact cutoff
+            // must not suppress seating of a longer inner cape below hips.
+            let origin = Vec3::Y * at.y;
+            let direction = at.with_y(0.0).normalize_or(Vec3::NEG_Z);
+            inner.ray(origin, direction).map_or(at, |distance| {
+                origin
+                    + direction
+                        * at.with_y(0.0)
+                            .length()
+                            .max(distance + LAYER_GAP + THICKNESS)
+            })
+        };
+        *point = inverse * (fitted - offset);
+    }
+    let ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
+    for (column, point) in points[..=COLUMNS].iter().enumerate() {
+        let at = rotation * *point + offset;
+        if at.y > ceiling {
+            return Err(RadialFitFailure {
+                row: 0,
+                column,
+                reason: "inner layer seating exceeds collar ceiling",
+                detail: [at.y, ceiling, 0.565],
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Pose in dependency order, then seat each explicitly linked mantle outside
 /// the inner cloak's actual two-sided mesh. An unlinked cloak retains the
 /// original deformation path and caching behavior.
@@ -1931,7 +1989,14 @@ pub(super) fn place_layers(
             meshes.get(&inner.mesh).expect("inner cloak mesh"),
             inner_rot,
         );
+        cloak.contact_cpu_ms[1] += support_started.elapsed().as_secs_f64() * 1000.0;
         let mut candidate = cloak.points.clone();
+        let seating_started = std::time::Instant::now();
+        let seated = seat_inner_layer(&mut candidate, rot, &support);
+        cloak.contact_cpu_ms[2] += seating_started.elapsed().as_secs_f64() * 1000.0;
+        cloak.contact_seated.clone_from(&candidate);
+        cloak.contact_seating_valid = seated.is_ok();
+        let support_started = std::time::Instant::now();
         // Seat the outer cloth against both retained cloth and the arm hull
         // in one solve. A changed yoke footprint must not discard the earlier
         // arm constraint when the mantle is lifted over its inner cape.
@@ -1946,10 +2011,9 @@ pub(super) fn place_layers(
         }
         cloak.contact_cpu_ms[1] += support_started.elapsed().as_secs_f64() * 1000.0;
         let constraint_started = std::time::Instant::now();
-        // Collar and shoulder constraints share one authored baseline. A
-        // preliminary strip-max lift both overconstrains the neck and makes
-        // further collar travel artificially cheap in the joint objective.
-        match fit_radial_faces(&mut candidate, rot, &support) {
+        // Certify the seated reference against BOTH retained surfaces. The
+        // one-shot ray offsets do not certify slopes or triangle interiors.
+        match seated.and_then(|()| fit_radial_faces(&mut candidate, rot, &support)) {
             Ok(()) => cloak.points = candidate,
             Err(failure) => {
                 cloak.contact_fallbacks += 1;
@@ -2231,6 +2295,125 @@ mod tests {
                 Vec3::new(angle.sin() * radius, y, angle.cos() * radius) - offset
             })
             .collect()
+    }
+
+    #[test]
+    fn retained_inner_hem_seating_is_not_limited_by_the_arm_contact_band() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let mut points = radial_test_grid();
+        let at = points[index(ROWS, 0)] + offset;
+        assert!(at.y < -0.12);
+        let inner = LayerSurface::from_triangles(vec![[
+            Vec3::new(-0.02, -0.15, 0.45),
+            Vec3::new(0.02, -0.15, 0.45),
+            Vec3::new(0.0, -0.11, 0.45),
+        ]]);
+        assert_eq!(
+            fit_mesh_contact(at, false, &inner),
+            at,
+            "arm-only band behavior remains unchanged"
+        );
+        seat_inner_layer(&mut points, Quat::IDENTITY, &inner).unwrap();
+        let fitted = points[index(ROWS, 0)] + offset;
+        assert!(fitted.z >= 0.45 + LAYER_GAP + THICKNESS - 1e-6);
+        assert!((fitted.y - at.y).abs() < 1e-6);
+    }
+
+    #[test]
+    fn horizontal_inner_cloth_seats_row_one_vertically_and_keeps_emitted_lining_clear() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let y = 0.57166666;
+        let vertices = [
+            Vec3::new(-0.29, y - THICKNESS * 0.5, -0.29),
+            Vec3::new(0.29, y - THICKNESS * 0.5, -0.29),
+            Vec3::new(0.29, y + THICKNESS * 0.5, -0.29),
+            Vec3::new(-0.29, y + THICKNESS * 0.5, -0.29),
+            Vec3::new(-0.29, y - THICKNESS * 0.5, 0.29),
+            Vec3::new(0.29, y - THICKNESS * 0.5, 0.29),
+            Vec3::new(0.29, y + THICKNESS * 0.5, 0.29),
+            Vec3::new(-0.29, y + THICKNESS * 0.5, 0.29),
+        ];
+        let faces = [
+            [0, 3, 2],
+            [0, 2, 1],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 7, 6],
+            [3, 6, 2],
+        ];
+        for (inner_angle, outer_angle) in [(0.0, 0.0), (0.025, -0.015), (-0.025, 0.015)] {
+            let inner_rotation = Quat::from_rotation_z(inner_angle);
+            let outer_rotation = Quat::from_rotation_z(outer_angle);
+            let support = LayerSurface::from_triangles(
+                faces
+                    .into_iter()
+                    .map(|face| face.map(|i| inner_rotation * (vertices[i] - offset) + offset))
+                    .collect(),
+            );
+            let mut points = radial_test_grid();
+            let before = points.clone();
+            seat_inner_layer(&mut points, outer_rotation, &support)
+                .expect("bounded inner sheet seating");
+            let seated = points.clone();
+            fit_radial_faces(&mut points, outer_rotation, &support)
+                .expect("seated inner sheet face certification");
+            for col in 0..=COLUMNS {
+                let i = index(1, col);
+                let old = outer_rotation * before[i] + offset;
+                let reference = outer_rotation * seated[i] + offset;
+                let final_point = outer_rotation * points[i] + offset;
+                assert!(
+                    reference.y > old.y + 0.02,
+                    "row1 must gain vertical layer separation"
+                );
+                assert!(
+                    (reference.with_y(0.0) - old.with_y(0.0)).length() < 1e-6,
+                    "roof seating must not escape radially"
+                );
+                assert!(final_point.with_y(0.0).length()<=old.with_y(0.0).length()+LAYER_GAP+2.0*THICKNESS,
+                    "certification must not turn the seated first row into a fin: {old:?} -> {final_point:?}");
+            }
+            let mut normals = vec![Vec3::ZERO; GRID];
+            surface_normals(&points, &mut normals);
+            for row in 0..ROWS {
+                for col in 0..COLUMNS {
+                    let [a, b, c, d] = [
+                        index(row, col),
+                        index(row, col + 1),
+                        index(row + 1, col),
+                        index(row + 1, col + 1),
+                    ];
+                    for face in [[a, b, c], [b, d, c]] {
+                        for side in [-0.5, 0.5] {
+                            let emitted = face.map(|i| {
+                                outer_rotation * (points[i] + normals[i] * THICKNESS * side)
+                                    + offset
+                            });
+                            for weights in [
+                                [1.0 / 3.0; 3],
+                                [0.6, 0.2, 0.2],
+                                [0.2, 0.6, 0.2],
+                                [0.2, 0.2, 0.6],
+                            ] {
+                                let p = emitted
+                                    .into_iter()
+                                    .zip(weights)
+                                    .map(|(p, w)| p * w)
+                                    .sum::<Vec3>();
+                                assert!(rendered_clearance_checked(&support,p,true)>0.001,
+                            "seated moving cloth exterior/lining must clear the inner sheet: {p:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
