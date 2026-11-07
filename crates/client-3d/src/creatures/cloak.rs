@@ -3847,6 +3847,27 @@ pub(super) fn place_layers(
                 // attachments even with independently certified source planes.
                 // A replacement must satisfy all incident constraints; until
                 // then each source uses this same frozen bounded radial axis.
+                #[cfg(test)]
+                if std::env::var_os("TOR_CLOAK_ATTACHMENT_AXES").is_some() {
+                    let offset = Vec3::new(0.0, 0.53, -0.15);
+                    let reference: Vec<_> = candidate[..2 * (COLUMNS + 1)]
+                        .iter()
+                        .map(|p| rot * *p + offset)
+                        .collect();
+                    eprintln!(
+                        "attachment axis alternatives: {}",
+                        serde_json::json!({
+                            "context": audit_context(), "layer": "mantle",
+                            "rotation": rot.to_array(),
+                            "scope": "Immutable pre-solve alternatives only; changed axes require fresh domains and all incident face certificates",
+                            "reference": reference.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                            "radial_axes": reference.iter().map(|p| profile_direction(*p, Vec2::X).to_array()).collect::<Vec<_>>(),
+                            "material_axes": reference.iter().enumerate().map(|(i,p)| profile_direction(*p, cloak.shoulder_profile[i]).to_array()).collect::<Vec<_>>(),
+                            "material_coefficients": cloak.shoulder_profile[..2 * (COLUMNS + 1)].iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                            "radial_limits": limits.to_vec(),
+                        })
+                    );
+                }
                 contact_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
             }
             fit_radial_supports_traced(

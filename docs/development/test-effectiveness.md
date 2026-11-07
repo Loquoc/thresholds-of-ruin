@@ -4439,3 +4439,15 @@ that current queried support. This rejects reuse of those selected certificates
 as a universal movement rule, not alternative head planes, changed future domains
 or all physically possible cloth attachments. No angle threshold was added from
 these probes.
+
+A diagnostic-only checkpoint exports exact torso-space radial/material axes,
+reference points and unchanged caps before the mantle override. Strict release
+Clippy passed; the two focused cope/strike methods reproduced their existing
+failures under unchanged input hashes. Exhausting the eight binary choices for
+each failed face found independently checked current-inner-support planes:
+cope's all-material triple has 61.226 mm margin, and changing only the strike
+face's row-one vertex to material has 43.636 mm. These are witnesses for the
+exported current failed source only, not other sources, adjacent faces or new
+swept domains. Optimizer misses are unresolved rather than infeasibility proofs.
+No runtime geometry changed and no fresh render acceptance is claimed. Consistent
+shared-vertex choices and complete fresh-domain certification remain required.
