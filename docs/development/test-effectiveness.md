@@ -4418,3 +4418,24 @@ steps; this is not a frame-rate benchmark or an isolated algorithm comparison.
 The source-separated mechanism is covered, but the restored near-vertical
 production profile is not suitable. The prior radial profile must remain until
 a shared incident-constraint-derived movement rule passes actual qualification.
+
+Keeping the source-separated mechanism while restoring the prior bounded radial
+attachment profile returns the native checkpoint to 83 passed and three unresolved
+cloak failures; strict release Clippy passed. Fresh same-camera neutral pixels
+have zero fallbacks and the prior low but stiff/gapped shoulder silhouette.
+Tick93 records two fallbacks and remains a tall folded box, so neither image
+qualifies visual acceptance. Drape phase wall elapsed was about 74.24 seconds
+across 93 rig steps, without a controlled performance comparison.
+
+Opt-in test diagnostics now retain all selected final-round head-attachment
+planes and completed reference points. An initial six-angle probe was explicitly
+corrected: sampled feasible margins cannot prove an entire independently chosen
+axis region impossible. A stronger, independently reviewed certificate then
+covered one cope vertex's complete bounded displacement polygon while preserving
+its three selected head planes. Its three extreme points are within 13.159809,
+13.554423 and 26.262977 mm of explicit convex combinations of the current inner
+support. Convexity rules out 32 mm separation anywhere in that polygon against
+that current queried support. This rejects reuse of those selected certificates
+as a universal movement rule, not alternative head planes, changed future domains
+or all physically possible cloth attachments. No angle threshold was added from
+these probes.

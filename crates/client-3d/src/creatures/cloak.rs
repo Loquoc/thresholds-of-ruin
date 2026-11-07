@@ -3835,18 +3835,19 @@ pub(super) fn place_layers(
                     }
                 })
             });
-            let contact_profile = &cloak.shoulder_profile;
+            let mut contact_profile = cloak.shoulder_profile.clone();
             if let (Some(head), Some(body), Some(limits)) = (
                 cloak.head_surface.as_deref(),
                 cloak.support.as_ref(),
                 limits.as_ref(),
             ) {
                 fit_mantle_head_reference(&mut candidate, rot, head, body, limits)?;
-                // This radial prepass is initialization, not the final proof.
-                // Requery head, arms and inner cloth from these positions with
-                // the immutable authored smooth profile shared by every source.
-                // The separate head certificate below must accept that motion;
-                // no old prepass plane is assumed to survive it automatically.
+                // Preserve the previous bounded radial initialization.
+                // The original near-vertical profile is infeasible at real jaw
+                // attachments even with independently certified source planes.
+                // A replacement must satisfy all incident constraints; until
+                // then each source uses this same frozen bounded radial axis.
+                contact_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
             }
             fit_radial_supports_traced(
                 &mut candidate,
@@ -3855,7 +3856,7 @@ pub(super) fn place_layers(
                     inner: Some(&support),
                     arms: cloak.arm_surface.as_deref(),
                     head: cloak.head_surface.as_deref(),
-                    profile: Some(contact_profile),
+                    profile: Some(&contact_profile),
                     radial_limits: limits.as_ref().map(|v| v.as_slice()),
                 },
                 &mut cloak.contact_radial_trace,

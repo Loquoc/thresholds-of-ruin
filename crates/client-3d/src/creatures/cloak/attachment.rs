@@ -338,6 +338,15 @@ fn fit(
     #[cfg(test)]
     let audit_enabled = std::env::var_os("TOR_CLOAK_SUPPORT_AUDIT").is_some();
     #[cfg(test)]
+    let audit_all = audit_enabled && std::env::var_os("TOR_CLOAK_ATTACHMENT_ALL").is_some();
+    #[cfg(test)]
+    if audit_all {
+        eprintln!(
+            "head attachment begin: {}",
+            serde_json::json!({"context":audit_context()})
+        );
+    }
+    #[cfg(test)]
     let audit_column = std::env::var("TOR_CLOAK_ATTACHMENT_COLUMN")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
@@ -586,7 +595,7 @@ fn fit(
                 #[cfg(not(test))]
                 let _ = (normal, plane);
                 #[cfg(test)]
-                if audit_enabled && column == audit_column {
+                if audit_enabled && (audit_all || column == audit_column) {
                     eprintln!(
                         "head attachment plane: {}",
                         serde_json::json!({
@@ -644,6 +653,13 @@ fn fit(
             let mut result = reference.to_vec();
             for i in 0..ATTACHMENT_VERTICES {
                 result[i] = reference[i] + axes[i] * travels[i];
+            }
+            #[cfg(test)]
+            if audit_all {
+                eprintln!(
+                    "head attachment complete: {}",
+                    serde_json::json!({"context":audit_context(),"iteration":_round,"points":result[..ATTACHMENT_VERTICES].iter().map(|p|p.to_array()).collect::<Vec<_>>(),"radial_limits":&radial_limits[..ATTACHMENT_VERTICES]})
+                );
             }
             return Ok(result);
         }
