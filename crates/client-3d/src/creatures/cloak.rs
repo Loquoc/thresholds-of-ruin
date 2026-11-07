@@ -16,6 +16,7 @@ const ROWS: usize = 20;
 const YOKE_ROWS: usize = 6;
 // The last yoke band is the descending side of the cap, not its roof.
 const ROOF_ROWS: usize = YOKE_ROWS - 1;
+const ROOF_VERTICES: usize = ROOF_ROWS * (COLUMNS + 1);
 const YOKE_FRACTION: f32 = 0.15;
 
 fn study_row_fraction(row: usize) -> f32 {
@@ -68,6 +69,7 @@ impl ContactSurface {
 pub(super) struct Recipe {
     shoulders: f32,
     yoke: Vec2,
+    fitted_turnover: OnceLock<[Vec3; COLUMNS + 1]>,
     hem: f32,
     top: [Vec3; COLUMNS + 1],
     support: crate::sdf::Sculpt,
@@ -96,6 +98,7 @@ impl Recipe {
                 0.25 * body.shoulders * body.build + 0.115 * body.build,
                 0.17 * body.build,
             ),
+            fitted_turnover: OnceLock::new(),
             hem: 0.36 * body.hips_width * body.build * anatomy::HIP_SCALE.x,
             top: [Vec3::ZERO; COLUMNS + 1],
             support,
@@ -118,6 +121,7 @@ impl Recipe {
     /// Actual rendered arm, sleeve and pauldron profiles, in torso query space.
     /// Call after reserving every torso layer so the scene owns the final union.
     pub fn set_contacts(&mut self, contacts: Vec<super::visual_contact::Cylinder>) {
+        self.fitted_turnover.take();
         if self.cut.is_some() {
             self.scene = Some(super::visual_contact::Scene::new(
                 self.support.clone(),
@@ -127,6 +131,7 @@ impl Recipe {
     }
 
     pub fn set_contact_surface(&mut self, surface: Arc<ContactSurface>) {
+        self.fitted_turnover.take();
         if self.cut.is_some() {
             self.contact_surface = Some(surface);
         }
@@ -140,6 +145,7 @@ impl Recipe {
     /// Study garments use an open angular shoulder wrap. Legacy recipes keep
     /// their original back-sheet coordinates and animation unchanged.
     pub fn set_cut(&mut self, cut: DrapeCut) {
+        self.fitted_turnover.take();
         self.length = cut.length;
         self.cut = Some(cut);
         self.contact = true;
@@ -156,6 +162,7 @@ impl Recipe {
     /// Reserve the selected rear accessory layer before fitting the yoke and
     /// upper drape. A strap belongs underneath the cloak, not half through it.
     pub fn reserve_back_layer(&mut self, depth: f32) {
+        self.fitted_turnover.take();
         // Reserve the lining too: fitting only the middle sheet to an
         // accessory envelope can leave its inner face cutting the strap.
         self.support
@@ -218,7 +225,18 @@ impl Recipe {
         // A cape begins at the neck, travels OVER the deltoid, then hangs.
         // The old first row was below the shoulder and produced open teal
         // shoulder cups and rigid-looking boards down either side.
-        let shoulder = Vec3::new(direction.x * self.yoke.x, 0.47, direction.z * self.yoke.y);
+        let shoulder = self.fitted_turnover.get_or_init(|| {
+            // Resolve only 49 support rays per recipe, not once per grid row.
+            // Both the yoke and the hanging section share this exact ring.
+            let arms = self.contact_surface.as_ref().map(|s| s.surface());
+            std::array::from_fn(|col| {
+                let angle =
+                    TAU - cut.opening * 0.5 - (TAU - cut.opening) * col as f32 / COLUMNS as f32;
+                let authored =
+                    Vec3::new(angle.sin() * self.yoke.x, 0.47, angle.cos() * self.yoke.y);
+                supported_turnover(authored, &self.support, arms.as_deref())
+            })
+        })[column];
         let neck = Vec3::new(direction.x * 0.075, 0.565, direction.z * 0.072);
         // The opening surrounds the neck; it does not sit on the rounded
         // cap of the torso's neck proxy. Derive the connecting shoulder rows
@@ -270,6 +288,41 @@ impl Recipe {
         }
         at - Vec3::new(0.0, 0.53, -0.15)
     }
+}
+
+/// Fit a study turnover around its actual neutral supports at the authored
+/// height. The old ellipse is a no-support fallback, not an immutable width
+/// minimum. Resolve torso and arm hits independently: a missing arm hit must
+/// neither erase the torso nor force the broad authored shoulder back in.
+fn supported_turnover(
+    authored: Vec3,
+    body: &crate::sdf::Sculpt,
+    arms: Option<&LayerSurface>,
+) -> Vec3 {
+    let direction = authored.with_y(0.0).normalize_or(Vec3::NEG_Z);
+    let local = authored / anatomy::HIP_SCALE;
+    let local_direction = local.with_y(0.0).normalize_or(Vec3::NEG_Z);
+    // Same SDF clearance and coordinate convention as fit_wrapped_contact,
+    // but search from outside through the center instead of stopping at the
+    // oversized authored radius. Reject opposite-half-ray hits explicitly.
+    let torso = geometry::surface_ray_hit(
+        body,
+        Vec3::Y * local.y,
+        local_direction,
+        LAYER_GAP + 0.010,
+        1.10,
+    )
+    .filter(|hit| hit.dot(local_direction) >= 0.0)
+    .map(|hit| (hit * anatomy::HIP_SCALE).with_y(0.0).length());
+    let arm = arms
+        .and_then(|surface| surface.ray(Vec3::Y * authored.y, direction))
+        .map(|distance| distance + LAYER_GAP + THICKNESS);
+    let radius = match (torso, arm) {
+        (Some(torso), Some(arm)) => torso.max(arm),
+        (Some(radius), None) | (None, Some(radius)) => radius,
+        (None, None) => return authored,
+    };
+    Vec3::Y * authored.y + direction * radius
 }
 
 /// Point projections use the actual posed rendered surface, not the flat
@@ -1507,9 +1560,9 @@ fn fallback_radial_fit(
     }
 }
 
-/// Noncollar vertices move radially at fixed height. Collar vertices move
-/// vertically at fixed XZ, within the same absolute attachment ceiling; first
-/// faces reserve per-vertex vertical budgets and use upward-facing planes.
+/// Roof vertices move vertically at fixed XZ; turnover and hanging vertices
+/// move radially at fixed height. Collar anchors retain their absolute ceiling.
+/// Every face accepts only normals positive on all incident movement axes.
 /// The fifth query plane bounds the possible outward
 /// travel, so an unrelated cap beyond a collar face cannot move its anchors.
 /// Any radial OR vertical budget expansion restarts every face query. Only a solution contained
@@ -1526,12 +1579,67 @@ fn fit_radial_faces(
     fit_radial_faces_traced(points, rotation, support, &mut None)
 }
 
+#[derive(Clone, Copy)]
+enum FaceOutcome {
+    Empty,
+    Fit {
+        shifts: [f32; 3],
+        plane: (Vec3, f32, Vec3),
+    },
+}
+
+// Work counters are absent from production; the uncached test path exercises
+// the same arithmetic and face order without consulting the memoized results.
+#[derive(Default, Debug)]
+struct FaceFitWork {
+    #[cfg(test)]
+    rounds: usize,
+    #[cfg(test)]
+    queries: usize,
+    #[cfg(test)]
+    clips: usize,
+    #[cfg(test)]
+    projections: usize,
+    #[cfg(test)]
+    hits: usize,
+    #[cfg(test)]
+    empty_hits: usize,
+}
+
 fn fit_radial_faces_traced(
     points: &mut [Vec3],
     rotation: Quat,
     support: &LayerSurface,
     trace: &mut Option<serde_json::Value>,
 ) -> Result<(), RadialFitFailure> {
+    fit_radial_faces_impl(
+        points,
+        rotation,
+        support,
+        trace,
+        true,
+        &mut FaceFitWork::default(),
+    )
+}
+
+fn contact_axis(vertex: usize, radial: Vec3) -> Vec3 {
+    if vertex < ROOF_VERTICES {
+        Vec3::Y
+    } else {
+        radial
+    }
+}
+
+fn fit_radial_faces_impl(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: &LayerSurface,
+    trace: &mut Option<serde_json::Value>,
+    cache_enabled: bool,
+    work: &mut FaceFitWork,
+) -> Result<(), RadialFitFailure> {
+    #[cfg(not(test))]
+    let _ = work;
     *trace = None;
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
@@ -1539,16 +1647,30 @@ fn fit_radial_faces_traced(
         .iter()
         .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
         .collect();
+    let axes: Vec<_> = directions
+        .iter()
+        .enumerate()
+        .map(|(i, &radial)| contact_axis(i, radial))
+        .collect();
     let collar_ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
     let mut travels = vec![0.0f32; GRID];
     let mut budgets = vec![0.0f32; GRID];
-    // Collar budgets are Y travel, NEVER radial extent. Keep them separate
-    // so growth cannot accidentally enlarge the fixed-XZ attachment domain.
-    let mut collar_budgets = [0.0f32; COLUMNS + 1];
+    // Roof budgets are Y travel, NEVER radial extent. Fixed movement axes
+    // keep every angular wedge invariant across both kinds of growth.
+    let mut roof_budgets = [0.0f32; ROOF_VERTICES];
+    // Only hanging faces are cached. Their four query planes, reference
+    // vertices, candidate normals and objective do not depend on either swept
+    // budget. Roof faces are always re-queried after radial/collar growth.
+    // The cache belongs to this solve only, never another pose or support.
+    let mut face_cache = vec![None; ROWS * COLUMNS * 2];
     let mut radial_trace = None;
     #[cfg(test)]
     let mut collar_trace: Option<(f32, String)> = None;
     for iteration in 0..12 {
+        #[cfg(test)]
+        {
+            work.rounds += 1;
+        }
         #[cfg(test)]
         {
             collar_trace = None;
@@ -1563,7 +1685,7 @@ fn fit_radial_faces_traced(
                     index(row + 1, column),
                     index(row + 1, column + 1),
                 ];
-                for face in [[a, b, c], [b, d, c]] {
+                for (face_number, face) in [[a, b, c], [b, d, c]].into_iter().enumerate() {
                     let vertices = face.map(|i| reference[i]);
                     let rays = face.map(|i| directions[i]);
                     let horizontal = rays.iter().copied().sum::<Vec3>().normalize_or(Vec3::NEG_Z);
@@ -1595,8 +1717,8 @@ fn fit_radial_faces_traced(
                         .iter()
                         .map(|p| p.y)
                         .fold(f32::NEG_INFINITY, f32::max);
-                    for &i in face.iter().filter(|&&i| i <= COLUMNS) {
-                        high = high.max(reference[i].y + collar_budgets[i]);
+                    for &i in face.iter().filter(|&&i| i < ROOF_VERTICES) {
+                        high = high.max(reference[i].y + roof_budgets[i]);
                     }
                     let radial_limit = face
                         .iter()
@@ -1613,98 +1735,148 @@ fn fit_radial_faces_traced(
                     // surface, including peaks beyond every vertex ray. Only
                     // the roof uses a finite swept radial footprint.
                     let planes = &planes[..if row < ROOF_ROWS { 5 } else { 4 }];
-                    let cross = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]);
-                    let authored = if cross.dot(horizontal).abs() > 1e-6 {
-                        (cross.y / cross.dot(horizontal)).clamp(-128.0, 128.0)
+                    let cache_index = (row * COLUMNS + column) * 2 + face_number;
+                    let cacheable = cache_enabled && row >= ROOF_ROWS;
+                    let outcome = if let Some(outcome) = face_cache[cache_index] {
+                        #[cfg(test)]
+                        {
+                            work.hits += 1;
+                            work.empty_hits += usize::from(matches!(outcome, FaceOutcome::Empty));
+                        }
+                        outcome
                     } else {
-                        0.0
+                        #[cfg(test)]
+                        {
+                            work.queries += 1;
+                        }
+                        let evaluate =
+                            |work: &mut FaceFitWork| -> Result<FaceOutcome, RadialFitFailure> {
+                                #[cfg(not(test))]
+                                let _ = work;
+                                let cross =
+                                    (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]);
+                                let authored = if cross.dot(horizontal).abs() > 1e-6 {
+                                    (cross.y / cross.dot(horizontal)).clamp(-128.0, 128.0)
+                                } else {
+                                    0.0
+                                };
+                                let slopes = [
+                                    authored, 0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0,
+                                    128.0, -0.25, -0.5, -1.0, -2.0, -4.0, -8.0, -16.0, -32.0,
+                                    -64.0, -128.0,
+                                ];
+                                let normals: [Vec3; 23] = std::array::from_fn(|i| {
+                                    if i < slopes.len() {
+                                        (horizontal + Vec3::Y * slopes[i]).normalize()
+                                    } else {
+                                        Vec3::Y
+                                    }
+                                });
+                                let mut supports = [f32::NEG_INFINITY; 23];
+                                let mut support_points = [Vec3::ZERO; 23];
+                                let mut found = false;
+                                for &triangle in support.clipped_candidates(planes) {
+                                    #[cfg(test)]
+                                    {
+                                        work.clips += 1;
+                                    }
+                                    if let Some((polygon, count)) =
+                                        clipped_polygon(triangle, planes)
+                                    {
+                                        found = true;
+                                        for ((normal, value), witness) in normals
+                                            .iter()
+                                            .zip(&mut supports)
+                                            .zip(&mut support_points)
+                                        {
+                                            for p in &polygon[..count] {
+                                                #[cfg(test)]
+                                                {
+                                                    work.projections += 1;
+                                                }
+                                                let projection = normal.dot(*p);
+                                                if projection > *value {
+                                                    *value = projection;
+                                                    *witness = *p;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if !found {
+                                    return Ok(FaceOutcome::Empty);
+                                }
+                                let mut best: Option<([f32; 3], f32)> = None;
+                                let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO);
+                                let mut best_anchor_deficit = f32::INFINITY;
+                                for ((normal, height), witness) in
+                                    normals.into_iter().zip(supports).zip(support_points)
+                                {
+                                    // Every later shared-vertex correction must preserve
+                                    // this plane. +Y is valid only on pure-roof faces;
+                                    // mixed roof/side faces need both components.
+                                    if face.iter().any(|&i| normal.dot(axes[i]) <= 1e-6) {
+                                        continue;
+                                    }
+                                    let plane = height + LAYER_GAP + THICKNESS;
+                                    let anchor_deficit = face
+                                        .iter()
+                                        .filter(|&&i| i <= COLUMNS)
+                                        .map(|&i| {
+                                            (plane
+                                                - normal.dot(reference[i])
+                                                - normal.y * (collar_ceiling - reference[i].y))
+                                                .max(0.0)
+                                        })
+                                        .fold(0.0, f32::max);
+                                    best_anchor_deficit = best_anchor_deficit.min(anchor_deficit);
+                                    let mut shifts = [0.0; 3];
+                                    let mut feasible = true;
+                                    for (j, &i) in face.iter().enumerate() {
+                                        let deficit = (plane - normal.dot(reference[i])).max(0.0);
+                                        shifts[j] = deficit / normal.dot(axes[i]);
+                                        if i <= COLUMNS
+                                            && reference[i].y + shifts[j] > collar_ceiling
+                                        {
+                                            feasible = false;
+                                            break;
+                                        }
+                                    }
+                                    if !feasible {
+                                        continue;
+                                    }
+                                    let cost = shifts.iter().map(|s| s * s).sum::<f32>();
+                                    if best.is_none_or(|(_, old)| cost < old) {
+                                        best = Some((shifts, cost));
+                                        winning_plane = (normal, plane, witness);
+                                    }
+                                }
+                                let Some((shifts, _)) = best else {
+                                    return Err(RadialFitFailure {
+                                    row,
+                                    column,
+                                    reason:
+                                        "no separating plane preserves bounded collar attachment",
+                                    detail: [best_anchor_deficit, low, high],
+                                });
+                                };
+                                Ok(FaceOutcome::Fit {
+                                    shifts,
+                                    plane: winning_plane,
+                                })
+                            };
+                        let outcome = evaluate(work)?;
+                        if cacheable {
+                            face_cache[cache_index] = Some(outcome);
+                        }
+                        outcome
                     };
-                    let slopes = [
-                        authored, 0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0,
-                        -0.25, -0.5, -1.0, -2.0, -4.0, -8.0, -16.0, -32.0, -64.0, -128.0,
-                    ];
-                    let normals = slopes.map(|k| (horizontal + Vec3::Y * k).normalize());
-                    let mut supports = [f32::NEG_INFINITY; 22];
-                    let mut support_points = [Vec3::ZERO; 22];
-                    let mut found = false;
-                    for &triangle in support.clipped_candidates(planes) {
-                        if let Some((polygon, count)) = clipped_polygon(triangle, planes) {
-                            found = true;
-                            for ((normal, value), witness) in
-                                normals.iter().zip(&mut supports).zip(&mut support_points)
-                            {
-                                for p in &polygon[..count] {
-                                    let projection = normal.dot(*p);
-                                    if projection > *value {
-                                        *value = projection;
-                                        *witness = *p;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !found {
+                    let FaceOutcome::Fit {
+                        shifts,
+                        plane: winning_plane,
+                    } = outcome
+                    else {
                         continue;
-                    }
-                    let mut best: Option<([f32; 3], f32)> = None;
-                    let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO);
-                    let mut best_anchor_deficit = f32::INFINITY;
-                    for ((normal, height), witness) in
-                        normals.into_iter().zip(supports).zip(support_points)
-                    {
-                        // Shared collar lifts must preserve every first-band
-                        // plane, just as radial travel preserves lower ones.
-                        if row == 0 && normal.y < 0.0 {
-                            continue;
-                        }
-                        let plane = height + LAYER_GAP + THICKNESS;
-                        let anchor_deficit = face
-                            .iter()
-                            .filter(|&&i| i <= COLUMNS)
-                            .map(|&i| {
-                                (plane
-                                    - normal.dot(reference[i])
-                                    - normal.y * (collar_ceiling - reference[i].y))
-                                    .max(0.0)
-                            })
-                            .fold(0.0, f32::max);
-                        best_anchor_deficit = best_anchor_deficit.min(anchor_deficit);
-                        let mut shifts = [0.0; 3];
-                        let mut feasible = true;
-                        for (j, &i) in face.iter().enumerate() {
-                            let deficit = (plane - normal.dot(reference[i])).max(0.0);
-                            if i <= COLUMNS {
-                                if deficit > 0.0 {
-                                    if normal.y <= 1e-6 {
-                                        feasible = false;
-                                        break;
-                                    }
-                                    shifts[j] = deficit / normal.y;
-                                }
-                                if reference[i].y + shifts[j] > collar_ceiling {
-                                    feasible = false;
-                                    break;
-                                }
-                            } else {
-                                shifts[j] = deficit / normal.dot(directions[i]);
-                            }
-                        }
-                        if !feasible {
-                            continue;
-                        }
-                        let cost = shifts.iter().map(|s| s * s).sum::<f32>();
-                        if best.is_none_or(|(_, old)| cost < old) {
-                            best = Some((shifts, cost));
-                            winning_plane = (normal, plane, witness);
-                        }
-                    }
-                    let Some((shifts, _)) = best else {
-                        return Err(RadialFitFailure {
-                            row,
-                            column,
-                            reason: "no separating plane preserves bounded collar attachment",
-                            detail: [best_anchor_deficit, low, high],
-                        });
                     };
                     #[cfg(test)]
                     if row == 0 {
@@ -1738,7 +1910,7 @@ fn fit_radial_faces_traced(
                     }
                     for (i, shift) in face.into_iter().zip(shifts) {
                         travels[i] = travels[i].max(shift);
-                        if i > COLUMNS
+                        if i >= ROOF_VERTICES
                             && shift > 0.0
                             && radial_trace.as_ref().is_none_or(|(old, _)| shift > *old)
                         {
@@ -1764,11 +1936,11 @@ fn fit_radial_faces_traced(
         let expanded = travels
             .iter()
             .zip(&budgets)
-            .skip(COLUMNS + 1)
+            .skip(ROOF_VERTICES)
             .any(|(&travel, &budget)| travel > budget)
-            || travels[..=COLUMNS]
+            || travels[..ROOF_VERTICES]
                 .iter()
-                .zip(&collar_budgets)
+                .zip(&roof_budgets)
                 .any(|(&travel, &budget)| travel > budget);
         if !expanded {
             break;
@@ -1785,14 +1957,18 @@ fn fit_radial_faces_traced(
                 ],
             });
         }
-        for (i, (budget, &travel)) in collar_budgets.iter_mut().zip(&travels).enumerate() {
+        for (i, (budget, &travel)) in roof_budgets.iter_mut().zip(&travels).enumerate() {
             if travel > *budget {
-                *budget = (travel + THICKNESS)
-                    .min((collar_ceiling - reference[i].y).max(0.0))
-                    .max(travel);
+                *budget = if i <= COLUMNS {
+                    (travel + THICKNESS)
+                        .min((collar_ceiling - reference[i].y).max(0.0))
+                        .max(travel)
+                } else {
+                    travel + THICKNESS
+                };
             }
         }
-        for (budget, &travel) in budgets.iter_mut().zip(&travels).skip(COLUMNS + 1) {
+        for (budget, &travel) in budgets.iter_mut().zip(&travels).skip(ROOF_VERTICES) {
             // Reserve one additional lining thickness when a domain expands. It
             // avoids asymptotic boundary chasing without changing final travel.
             if travel > *budget {
@@ -1821,7 +1997,7 @@ fn fit_radial_faces_traced(
     }
     let inverse = rotation.inverse();
     for (i, point) in points.iter_mut().enumerate() {
-        let direction = if i <= COLUMNS { Vec3::Y } else { directions[i] };
+        let direction = axes[i];
         *point = inverse * (reference[i] + direction * travels[i] - offset);
     }
     Ok(())
@@ -2394,6 +2570,211 @@ mod tests {
             .collect()
     }
 
+    fn assert_face_cache_equivalent(
+        reference: &[Vec3],
+        rotation: Quat,
+        support: &LayerSurface,
+    ) -> (FaceFitWork, FaceFitWork, bool) {
+        let mut cached = reference.to_vec();
+        let mut uncached = reference.to_vec();
+        let mut cached_trace = None;
+        let mut uncached_trace = None;
+        let mut cached_work = FaceFitWork::default();
+        let mut uncached_work = FaceFitWork::default();
+        let cached_result = fit_radial_faces_impl(
+            &mut cached,
+            rotation,
+            support,
+            &mut cached_trace,
+            true,
+            &mut cached_work,
+        );
+        let uncached_result = fit_radial_faces_impl(
+            &mut uncached,
+            rotation,
+            support,
+            &mut uncached_trace,
+            false,
+            &mut uncached_work,
+        );
+        assert_eq!(
+            cached_result
+                .as_ref()
+                .map_err(|e| (e.row, e.column, e.reason, e.detail)),
+            uncached_result
+                .as_ref()
+                .map_err(|e| (e.row, e.column, e.reason, e.detail)),
+            "memoization must preserve success, failure location and diagnostics"
+        );
+        let bits = |points: &[Vec3]| {
+            points
+                .iter()
+                .map(|p| p.to_array().map(f32::to_bits))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            bits(&cached),
+            bits(&uncached),
+            "every fitted vertex must be bit-for-bit unchanged"
+        );
+        assert_eq!(
+            cached_trace, uncached_trace,
+            "face order, tie winner and final-round witness must agree"
+        );
+        assert_eq!(cached_work.rounds, uncached_work.rounds);
+        assert_eq!(uncached_work.hits, 0);
+        assert_eq!(
+            cached_work.queries + cached_work.hits,
+            uncached_work.queries
+        );
+        assert!(cached_work.clips <= uncached_work.clips);
+        assert!(cached_work.projections <= uncached_work.projections);
+        if cached_result.is_err() {
+            assert_eq!(cached, reference, "failed solves remain transactional");
+            assert!(cached_trace.is_none());
+        }
+        eprintln!("face cache work: cached={cached_work:?}, uncached={uncached_work:?}");
+        (cached_work, uncached_work, cached_result.is_ok())
+    }
+
+    #[test]
+    fn face_cache_reuses_hits_and_misses_across_vertical_and_radial_growth() {
+        let reference = radial_test_grid();
+        let anchor = reference[0] + Vec3::new(0.0, 0.53, -0.15);
+        let lower = [
+            anchor - Vec3::X * 0.01,
+            anchor + Vec3::X * 0.01,
+            anchor + Vec3::Y * 0.01,
+        ];
+        let upper = lower.map(|p| p + Vec3::Y * 0.02);
+        // Retain the independent collar-growth fixture, and force a hanging
+        // radial hit as well. Most other hanging faces are explicit misses.
+        let hem = [
+            Vec3::new(-0.02, -0.15, 0.45),
+            Vec3::new(0.02, -0.15, 0.45),
+            Vec3::new(0.0, -0.11, 0.45),
+        ];
+        let surface = LayerSurface::from_triangles(vec![lower, upper, hem]);
+        let (cached, uncached, success) =
+            assert_face_cache_equivalent(&reference, Quat::IDENTITY, &surface);
+        assert!(success);
+        assert!(
+            cached.rounds >= 3,
+            "must requery newly reached collar support"
+        );
+        assert_eq!(
+            cached.hits,
+            (cached.rounds - 1) * (ROWS - ROOF_ROWS) * COLUMNS * 2
+        );
+        assert!(cached.empty_hits > 0 && cached.empty_hits < cached.hits);
+        assert!(cached.clips < uncached.clips);
+        assert!(cached.projections < uncached.projections);
+    }
+
+    #[test]
+    fn face_cache_preserves_empty_support_and_failed_solve_rollback() {
+        let reference = radial_test_grid();
+        let (cached, uncached, success) = assert_face_cache_equivalent(
+            &reference,
+            Quat::IDENTITY,
+            &LayerSurface::from_triangles(Vec::new()),
+        );
+        assert!(success);
+        assert_eq!(cached.rounds, 1);
+        assert_eq!(cached.queries, uncached.queries);
+        assert_eq!(cached.clips, 0);
+        let anchor = reference[0] + Vec3::new(0.0, 0.53, -0.15);
+        let barrier = LayerSurface::from_triangles(vec![[
+            anchor - Vec3::X * 0.01,
+            anchor + Vec3::X * 0.01,
+            anchor + Vec3::Y * 0.2,
+        ]]);
+        let (_, _, success) = assert_face_cache_equivalent(&reference, Quat::IDENTITY, &barrier);
+        assert!(
+            !success,
+            "must preserve the existing impossible collar failure"
+        );
+    }
+
+    #[test]
+    fn face_cache_matches_actual_neutral_and_tick_93_strike() {
+        let mut equipment = Equipment::default();
+        equipment.select("hooded-cloak").unwrap();
+        let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()))
+            .equipped(equipment);
+        let (mut world, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        place_layers(&mut rig.cloaks, |_| Some(Quat::IDENTITY), &mut meshes);
+        for cloak in &rig.cloaks {
+            let (cached, uncached, success) = assert_face_cache_equivalent(
+                &cloak.contact_reference,
+                Quat::IDENTITY,
+                cloak.arm_surface.as_ref().unwrap(),
+            );
+            assert!(success);
+            // An already clear pose may finish in one round; the synthetic
+            // growth fixture independently requires strict clip/work savings.
+            if cached.rounds > 1 {
+                assert!(cached.hits > 0 && cached.queries < uncached.queries);
+            }
+        }
+        world.insert_resource(meshes);
+        let mut anim = Anim::new(18, Vec3::ZERO);
+        anim.yaw = 0.0;
+        anim.time = 93.0 / 50.0;
+        let phase = (85..93).fold(0.0, |time, _| time + 0.02 / Move::Strike.duration());
+        anim.action = Some((Move::Strike, phase));
+        let actor = world
+            .spawn((rig, anim, Transform::default(), super::super::PoseRefresh))
+            .id();
+        let mut schedule = Schedule::default();
+        schedule.add_systems(super::super::refresh_pose);
+        schedule.run(&mut world);
+        let rig = world.get::<Rig>(actor).unwrap();
+        for cloak in &rig.cloaks {
+            let (cached, uncached, success) = assert_face_cache_equivalent(
+                &cloak.contact_reference,
+                cloak.last_rotation.unwrap(),
+                cloak.arm_surface.as_ref().unwrap(),
+            );
+            assert!(success);
+            // An already clear pose may finish in one round; the synthetic
+            // growth fixture independently requires strict clip/work savings.
+            if cached.rounds > 1 {
+                assert!(cached.hits > 0 && cached.queries < uncached.queries);
+            }
+        }
+    }
+
+    #[test]
+    fn captured_strike_roof_plane_uses_vertical_separation_without_radial_escape() {
+        // Exact tick93 first-red witness from fead943f, vertex63/face[14,63,62].
+        let reference = Vec3::new(-0.15152939, 0.57166666, -0.116466805);
+        let normal = Vec3::new(-0.1049089, 0.99227786, -0.06617203);
+        let witness = Vec3::new(-0.30472833, 0.58165556, -0.13908452);
+        let plane = 0.65033615;
+        assert!((normal.dot(witness) + LAYER_GAP + THICKNESS - plane).abs() < 1e-6);
+        let radial = reference.with_y(0.0).normalize();
+        let deficit = plane - normal.dot(reference);
+        assert!(
+            deficit / normal.dot(radial) > 0.48,
+            "fixture must reproduce the measured half-metre radial wing"
+        );
+        let axis = contact_axis(63, radial);
+        assert_eq!(axis, Vec3::Y);
+        let fitted = reference + axis * (deficit / normal.dot(axis));
+        assert!(normal.dot(fitted) >= plane - 1e-6);
+        assert!(fitted.with_y(0.0).distance(reference.with_y(0.0)) < 1e-6);
+        assert!(
+            fitted.y - reference.y < 0.061 && fitted.y < 0.649,
+            "the exact plane has bounded vertical clearance, not a radial fin"
+        );
+        assert_eq!(
+            contact_axis(index(ROOF_ROWS, 0), radial),
+            radial,
+            "turnover and hanging vertices retain their radial coordinate"
+        );
+    }
+
     #[test]
     fn collar_domain_ignores_an_overhead_obstacle_outside_actual_travel() {
         let offset = Vec3::new(0.0, 0.53, -0.15);
@@ -2442,10 +2823,21 @@ mod tests {
         let support = LayerSurface::from_triangles(vec![lower, upper]);
         let mut points = reference.clone();
         let mut trace = None;
-        fit_radial_faces_traced(&mut points, Quat::IDENTITY, &support, &mut trace)
-            .expect("a newly reached upper obstacle must be included on the next solve round");
+        let mut work = FaceFitWork::default();
+        fit_radial_faces_impl(
+            &mut points,
+            Quat::IDENTITY,
+            &support,
+            &mut trace,
+            true,
+            &mut work,
+        )
+        .expect("a newly reached upper obstacle must be included on the next solve round");
         assert!(points[0].y > low_only[0].y + 0.015);
-        assert!(trace.as_ref().unwrap()["iteration"].as_u64().unwrap() >= 1);
+        assert!(
+            work.rounds >= 2,
+            "newly reached support requires another round even without radial escape"
+        );
         let ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
         for (p, original) in points[..=COLUMNS].iter().zip(&reference) {
             assert!(p.with_y(0.0).distance(original.with_y(0.0)) < 1e-6);
@@ -2686,7 +3078,7 @@ mod tests {
     }
 
     #[test]
-    fn radial_shoulder_faces_descend_without_raising_or_extruding_a_wall() {
+    fn shoulder_faces_keep_supported_roof_and_descending_turnover() {
         let offset = Vec3::new(0.0, 0.53, -0.15);
         for tilt in [0.0, 0.35] {
             let rotation = Quat::from_rotation_z(tilt);
@@ -2705,10 +3097,21 @@ mod tests {
             fit_radial_faces(&mut points, Quat::IDENTITY, &support)
                 .expect("bounded curved shoulder must be feasible");
             for (i, (p, before)) in points.iter().zip(&reference).enumerate() {
-                assert!(
-                    (p.y - before.y).abs() < 1e-6,
-                    "radial fit cannot flatten the authored height profile"
-                );
+                if i < ROOF_VERTICES {
+                    assert!(
+                        p.with_y(0.0).distance(before.with_y(0.0)) < 1e-6,
+                        "roof support cannot escape radially around a shoulder"
+                    );
+                    assert!(
+                        p.y + offset.y <= support.bottom + support.height + 0.12,
+                        "supported roof cannot become a raised tent"
+                    );
+                } else {
+                    assert!(
+                        (p.y - before.y).abs() < 1e-6,
+                        "radial turnover must preserve its descending authored height"
+                    );
+                }
                 if i <= COLUMNS {
                     assert!(
                         (*p - *before).length() < 1e-6,
@@ -2786,6 +3189,8 @@ mod tests {
                     p.y + offset.y
                         <= 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK) + 1e-6
                 );
+            } else if i < ROOF_VERTICES {
+                assert!(p.with_y(0.0).distance(old.with_y(0.0)) < 1e-6);
             } else {
                 assert!((p.y - old.y).abs() < 1e-6);
             }
@@ -3094,6 +3499,108 @@ mod tests {
         for point in under {
             assert!(normal.dot(point) + LAYER_GAP + THICKNESS <= plane + 1e-6);
         }
+    }
+
+    #[test]
+    fn support_derived_turnover_removes_authored_width_floor_but_keeps_armor() {
+        let mut body = crate::sdf::Sculpt::default();
+        body.add(
+            crate::sdf::Shape::Ellipsoid(
+                Vec3::new(0.0, 0.47 / anatomy::HIP_SCALE.y, 0.0),
+                Vec3::new(0.20, 0.10, 0.15),
+            ),
+            0.0,
+        );
+        let authored = Vec3::new(0.375, 0.47, 0.0);
+        let no_arms = LayerSurface::from_triangles(Vec::new());
+        let fitted = supported_turnover(authored, &body, Some(&no_arms));
+        assert!(
+            fitted.x < authored.x - 0.05,
+            "the authored shoulder must not defeat actual narrower support"
+        );
+        assert_eq!(fitted.y, authored.y);
+        assert!(body.distance(fitted / anatomy::HIP_SCALE) >= LAYER_GAP + 0.0098);
+        let armor = LayerSurface::from_triangles(vec![[
+            Vec3::new(0.40, 0.43, -0.04),
+            Vec3::new(0.40, 0.51, -0.04),
+            Vec3::new(0.40, 0.47, 0.04),
+        ]]);
+        let armored = supported_turnover(authored, &body, Some(&armor));
+        assert!(
+            armored.x >= 0.40 + LAYER_GAP + THICKNESS - 1e-6,
+            "real armor must expand beyond the original recipe when required"
+        );
+        let opposite = authored * Vec3::new(-1.0, 1.0, 1.0);
+        let back = supported_turnover(opposite, &body, Some(&armor));
+        let torso_only = supported_turnover(opposite, &body, None);
+        assert!(
+            back.distance(torso_only) < 1e-6,
+            "a no-hit arm direction must still use torso support, not authored width"
+        );
+        assert_eq!(
+            supported_turnover(authored, &crate::sdf::Sculpt::default(), Some(&no_arms)),
+            authored,
+            "missing all support retains the explicit authored fallback"
+        );
+    }
+
+    #[test]
+    fn supported_turnover_cache_tracks_equipment_without_changing_hem_fullness() {
+        let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()));
+        let body = HumanoidBody::resolve(&look);
+        let mut recipe = Recipe::new(body, Vec3::ONE, Vec3::ONE, false);
+        let mut cut = DrapeCut {
+            length: 1.04,
+            fullness: 1.72,
+            folds: 6,
+            opening: 1.45,
+            hem: DrapeHem::Rounded,
+            shoulder_layer: false,
+        };
+        recipe.set_cut(cut);
+        let column = COLUMNS / 4;
+        let edge = recipe.point(YOKE_ROWS, column);
+        let hem = recipe.point(ROWS, column);
+        assert!(recipe.fitted_turnover.get().is_some());
+        cut.fullness += 0.5;
+        recipe.set_cut(cut);
+        assert!(recipe.fitted_turnover.get().is_none());
+        assert!(
+            recipe.point(YOKE_ROWS, column).distance(edge) < 1e-6,
+            "hanging fullness cannot widen the fitted shoulder attachment"
+        );
+        assert!(
+            recipe.point(ROWS, column).distance(hem) > 0.05,
+            "support-derived turnover must preserve independently authored hem fullness"
+        );
+        let ring = recipe.fitted_turnover.get().unwrap();
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        assert!(
+            recipe
+                .point(YOKE_ROWS, column)
+                .distance(ring[column] - offset)
+                < 0.001,
+            "turnover row must share the ring used by both interpolation branches"
+        );
+        let direction = ring[column].with_y(0.0).normalize();
+        let mut armor = crate::sdf::Sculpt::default();
+        armor.add(
+            crate::sdf::Shape::Ellipsoid(
+                (Vec3::Y * 0.47 + direction * 0.46) / anatomy::HIP_SCALE,
+                Vec3::splat(0.05),
+            ),
+            0.0,
+        );
+        recipe.reserve_body_layer(&armor);
+        assert!(
+            recipe.fitted_turnover.get().is_none(),
+            "a retained armor change invalidates the support reference"
+        );
+        let armored = recipe.point(YOKE_ROWS, column) + offset;
+        assert!(
+            armored.with_y(0.0).length() > (edge + offset).with_y(0.0).length() + 0.05,
+            "retained armor remains a real fit constraint, not clipped to the narrower recipe"
+        );
     }
 
     #[test]

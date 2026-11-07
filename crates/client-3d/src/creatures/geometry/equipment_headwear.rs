@@ -580,6 +580,17 @@ fn plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
     (0..=16)
         .map(|i| {
             let t = i as f32 / 16.0;
+            if white {
+                // Short cream feathers curl outward over the mount, rather
+                // than reproducing the red plume as a tall pale folding fan.
+                let angle = lane * 1.30;
+                let radius = 0.015 + 0.155 * (t * PI * 0.5).sin();
+                return Vec3::new(
+                    angle.sin() * radius,
+                    0.375 + (0.09 + stagger * 0.008) * (t * PI * 0.85).sin() - 0.075 * t,
+                    angle.cos() * radius + 0.045 * (1.0 - t),
+                );
+            }
             Vec3::new(
                 lane * (0.02 + 0.105 * (t * PI * 0.72).sin()) + stagger * 0.015 * t * t,
                 0.365 + arch * (t * PI * 0.95).sin() - t * t * (0.035 + lane.abs() * 0.025),
@@ -616,10 +627,6 @@ fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
         let t = i as f32 / 16.0;
         point.x += (layer - 1.0) * 0.009 * (1.0 - t);
         point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
-        if white {
-            point.y -= 0.018 * t;
-            point.z += 0.065 * t;
-        }
     }
     let pigment = (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
     for i in 0..path.len() - 1 {
@@ -1403,6 +1410,61 @@ mod tests {
     }
 
     #[test]
+    fn cream_plume_is_a_low_outward_collar_below_the_red_sweep() {
+        let mut cream = Builder::default();
+        let mut red = Builder::default();
+        for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            let path = plume_path(lane, 0.7, true);
+            let peak = path.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+            let tip = *path.last().unwrap();
+            assert!(
+                peak < 0.44 && peak > 0.395,
+                "cream is a low curled shoulder cluster"
+            );
+            assert!(
+                tip.y < path[0].y - 0.02 && tip.y > 0.325,
+                "tips droop above the helmet, not upright fan edges"
+            );
+            assert!(
+                tip.x.hypot(tip.z) > 0.16,
+                "drooping tips spread outside the crown"
+            );
+            plume_feather(&mut cream, lane, 0.7, true);
+            plume_feather(&mut red, lane, 2.0, false);
+        }
+        let (lo, hi) = cream.bounds();
+        assert!(hi.y < 0.445 && hi.x - lo.x > 0.30);
+        assert!(
+            red.bounds().1.y > hi.y + 0.12,
+            "red sweep remains the tall silhouette"
+        );
+        // Independent frontal witnesses: white mass has moved from the old
+        // tall fan into a low collar, while retaining real visible vane area.
+        for x in [-0.045, 0.0, 0.045] {
+            assert!(cream
+                .outer_surface(Vec3::new(x, 0.40, -0.5), Vec3::Z)
+                .is_some());
+            assert!(cream
+                .outer_surface(Vec3::new(x, 0.48, -0.5), Vec3::Z)
+                .is_none());
+        }
+        let mut helmet = Parts::default();
+        dome(&mut helmet, IRON, false);
+        for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            for point in plume_path(lane, 0.7, true) {
+                let origin = Vec3::new(0.0, point.y, -0.012);
+                let ray = (point - origin).normalize();
+                if let Some(shell) = helmet.metal.outer_surface(origin, ray) {
+                    assert!(
+                        (point - shell).dot(ray) > 0.018,
+                        "cream collar clears the actual crown"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn feather_vanes_have_pointed_tips_asymmetric_barbs_and_a_raised_ridge() {
         for white in [false, true] {
             let path = plume_path(0.5, 1.0, white);
@@ -1431,7 +1493,8 @@ mod tests {
             // Actual emitted surfaces, viewed from either side of the plume.
             for x in [0.025, 0.045] {
                 assert!(
-                    b.outer_surface(Vec3::new(x, 0.46, -0.5), Vec3::Z).is_some(),
+                    b.outer_surface(Vec3::new(x, if white { 0.40 } else { 0.46 }, -0.5), Vec3::Z)
+                        .is_some(),
                     "vane must have area, not merely a thin rachis"
                 );
             }

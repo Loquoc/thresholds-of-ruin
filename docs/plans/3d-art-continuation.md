@@ -2022,6 +2022,15 @@ humanoid footwear or a full wardrobe merely by having a humanoid upper body.
   Apron/wrap meshes above independently deforming robes must be instance-owned
   and follow the solved outer surface. Empty support lists preserve legacy fits.
   Numeric and native-motion regression tests must verify both layer directions.
+- Study-cloth shoulder turnover derives from retained torso/garment/armor and
+  arm support rather than an oversized authored ellipse. Preserve independent
+  hanging fullness. The contact solve moves roof vertices vertically and lower
+  turnover/hanging vertices radially, with bounded collar attachment and swept
+  face certification. Neither collision clearance nor numerical convergence
+  alone accepts the resulting shape: retain height, width and slope gates.
+  Cache only invariant hanging-face outcomes within one pose solve; changing
+  roof domains must be queried again. Compare cached and uncached geometry and
+  failure results exactly before claiming a performance improvement.
 - Resolve shirt, armor, then outerwear before generating geometry. Armor may
   completely conceal a shirt, allowing hidden geometry to be omitted. Preserve
   visible collars, sleeves, necklines and hems. A cape usually leaves underlying

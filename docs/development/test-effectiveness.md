@@ -4178,3 +4178,23 @@ than accepting its conservative geometry. These are new solver defects requiring
 correction, not reasons to loosen the attachment or clearance contracts. The
 first validation exception also stopped unrelated capture batches; the runner
 must retain that failure and continue collecting independent scene evidence.
+
+The `fead943f` Linux release run retained 749 passing methods, four cloak
+failures and one existing ignored method. Its controlling-plane trace exposed
+an ill-conditioned movement rule: a nearly vertical support normal required
+about 0.482 m of radial travel from a roof vertex, although roughly 0.060 m of
+vertical movement separates the same plane. The existing horizontal-inner-cloth
+fixture also caught renewed row-one radial escape after collar point seating
+was removed. These are production fitting defects, not loose visual judgments
+or reasons to relax clearance. Roof-axis and exact steep-plane witnesses retain
+the physical height/width/slope gates and independent lining checks. The neutral
+turnover failure additionally identified an oversized authored lower bound;
+support-derived turnover retains no-hit fallback and independent hem fullness.
+
+Retained partial strike manifests identify constraint solving as the dominant
+cloth phase, but are not FPS measurements. Invariant hanging faces were solved
+again after every roof budget expansion. A per-solve cache retains exact face
+order, empty hits, shifts, support witnesses and rollback behavior. Its tests
+compare cached and uncached geometry and diagnostics, and separately count work
+in forced multi-round fixtures. Native execution, measured runtime benefit and
+fresh pixels remain required; static or analytical checks are not qualification.
