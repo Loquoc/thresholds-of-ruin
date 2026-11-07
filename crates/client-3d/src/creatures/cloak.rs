@@ -2468,6 +2468,11 @@ fn fit_radial_faces_impl(
         *trace = Some(
             serde_json::json!({"vertex":vertex,"face":face,"row":row,"column":column,
             "iteration":iteration,"travel":travel,"normal":normal.to_array(),"plane":plane,
+            "face_reference":face.map(|i|reference[i].to_array()),
+            "face_axes":face.map(|i|axes[i].to_array()),
+            "face_budgets":face.map(|i|budgets[i]),
+            "face_budget_endpoints":face.map(|i|(reference[i]+axes[i]*budgets[i]).to_array()),
+            "face_final":face.map(|i|(reference[i]+axes[i]*travels[i]).to_array()),
             "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"source":if is_arm {"arms"} else {"inner"},
             "height_domain":[low-THICKNESS-if is_arm {LAYER_GAP}else{0.0},high+THICKNESS+if is_arm {LAYER_GAP}else{0.0}],
             "arm_height_domain":support.arms.map(|_|[low-THICKNESS-LAYER_GAP,high+THICKNESS+LAYER_GAP]),
@@ -3564,7 +3569,30 @@ mod tests {
             "unchanged face domains still reuse exact results"
         );
         let mut fitted = reference.clone();
-        fit_radial_supports_traced(&mut fitted, Quat::IDENTITY, support, &mut None).unwrap();
+        let mut trace = None;
+        fit_radial_supports_traced(&mut fitted, Quat::IDENTITY, support, &mut trace).unwrap();
+        let trace = trace.expect("growing arm domain has a controlling face");
+        for field in [
+            "face_reference",
+            "face_axes",
+            "face_budgets",
+            "face_budget_endpoints",
+            "face_final",
+        ] {
+            assert_eq!(trace[field].as_array().unwrap().len(), 3);
+        }
+        for vertex in 0..3 {
+            let budget = trace["face_budgets"][vertex].as_f64().unwrap();
+            let start = &trace["face_reference"][vertex];
+            let direction = &trace["face_axes"][vertex];
+            let end = &trace["face_budget_endpoints"][vertex];
+            for coordinate in 0..3 {
+                let reference = start[coordinate].as_f64().unwrap();
+                let axis = direction[coordinate].as_f64().unwrap();
+                let endpoint = end[coordinate].as_f64().unwrap();
+                assert!((reference + axis * budget - endpoint).abs() < 1e-6);
+            }
+        }
         let offset = Vec3::new(0.0, 0.53, -0.15);
         assert!(
             (fitted[index(ROWS, 0)] + offset).z >= 0.505 + LAYER_GAP + THICKNESS - 1e-6,
