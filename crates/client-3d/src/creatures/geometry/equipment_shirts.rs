@@ -352,17 +352,54 @@ mod tests {
             let shirt = torso_shape(body, None, false);
             let mut p = Parts::default();
             emit(&mut p, ShirtAppearance::HawaiianShirt, body, &shirt, None);
-            let x = 0.10 * body.shoulders * body.build;
-            let origin = Vec3::new(x, 0.465, 0.0);
-            let leaf = p
-                .matte
-                .outer_surface(origin, Vec3::Z)
-                .expect("folded collar leaf");
-            let under = torso_surface_hit(&shirt, x, origin.y, true).unwrap();
-            assert!(
-                leaf.z - under.z > 0.005,
-                "collar turn must have relief, not be painted on"
-            );
+            let neckline = NecklineCut::resolve(
+                Neckline::Plunge {
+                    depth: if woman { 0.65 } else { 0.15 },
+                    width: if woman { 0.16 } else { 0.12 },
+                    wrap: false,
+                },
+                body,
+            )
+            .unwrap();
+            for (index, side) in [-1.0, 1.0].into_iter().enumerate() {
+                let sh = body.shoulders * body.build;
+                let corners = [
+                    Vec2::new(side * 0.040 * sh, 0.523),
+                    Vec2::new(side * 0.10 * sh, 0.500),
+                    Vec2::new(side * 0.142 * sh, 0.434),
+                    Vec2::new(side * (neckline.edge(0.48) + 0.006), 0.465),
+                ];
+                // Witness the interior of an emitted triangle, not a fixed
+                // chest point which lies outside the female collar leaf.
+                // Evaluate its three supporting torso points independently so
+                // chest curvature cannot masquerade as a raised cloth fold.
+                let samples = [(0.5, 0.5), (2.0 / 3.0, 0.5), (2.0 / 3.0, 2.0 / 3.0)];
+                let mut under = Vec3::ZERO;
+                let mut expected_turn = 0.0;
+                for (u, v) in samples {
+                    let at = corners[0]
+                        .lerp(corners[1], u)
+                        .lerp(corners[3].lerp(corners[2], u), v);
+                    under += torso_surface_hit(&shirt, at.x, at.y, true)
+                        .expect("collar triangle must have torso support")
+                        / 3.0;
+                    expected_turn += 0.012 * body.build * (0.2 + 0.8 * (PI * u).sin()) * v / 3.0;
+                }
+                let origin = Vec3::new(under.x, under.y, 0.0);
+                let leaf = p
+                    .matte
+                    .outer_surface(origin, Vec3::Z)
+                    .expect("interior of folded collar triangle");
+                // The emission offset alone (0.004 plus patch layering) is
+                // insufficient: removing the actual fold must fail this test.
+                let base_offset = 0.004 + (index + 1) as f32 * 0.0006;
+                let observed_turn = leaf.z - under.z - base_offset;
+                assert!(expected_turn > 0.005 * body.build);
+                assert!(
+                    (observed_turn - expected_turn).abs() < 0.00002,
+                    "woman={woman}, side={side}: actual fold {observed_turn}, expected {expected_turn}"
+                );
+            }
             let mut armor = shirt.clone();
             armor.inflate(0.05);
             let mut covered = Parts::default();

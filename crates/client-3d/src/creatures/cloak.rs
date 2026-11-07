@@ -10,6 +10,18 @@ use bevy::render::{
 use bevy::tasks::ParallelSliceMut;
 
 const ROWS: usize = 20;
+// Refine only the shoulder within the existing grid: six roof bands and
+// fourteen hanging bands, with no additional vertices or emitted triangles.
+const YOKE_ROWS: usize = 6;
+const YOKE_FRACTION: f32 = 0.15;
+
+fn study_row_fraction(row: usize) -> f32 {
+    if row <= YOKE_ROWS {
+        YOKE_FRACTION * row as f32 / YOKE_ROWS as f32
+    } else {
+        YOKE_FRACTION + (1.0 - YOKE_FRACTION) * (row - YOKE_ROWS) as f32 / (ROWS - YOKE_ROWS) as f32
+    }
+}
 const COLUMNS: usize = 48;
 const GRID: usize = (ROWS + 1) * (COLUMNS + 1);
 const THICKNESS: f32 = 0.012;
@@ -155,7 +167,7 @@ impl Recipe {
         point
     }
     fn wrap_point(&self, cut: DrapeCut, row: usize, column: usize) -> Vec3 {
-        let t = row as f32 / ROWS as f32;
+        let t = study_row_fraction(row);
         let u = column as f32 / COLUMNS as f32;
         // Left front edge, around the back, to the right front edge. The
         // unsampled angular gap is a real opening, never a painted seam.
@@ -170,7 +182,7 @@ impl Recipe {
         // cap of the torso's neck proxy. Derive the connecting shoulder rows
         // from this fitted ring so an enlarged collar cannot fold underneath
         // the next radial row.
-        let neck = if row <= 3 {
+        let neck = if row <= YOKE_ROWS {
             fit_neck_opening(neck, &self.support)
         } else {
             neck
@@ -198,17 +210,17 @@ impl Recipe {
             0.53 - self.length - hem_drop,
             direction.z * radius * 0.78 * square,
         );
-        let mut at = if row <= 3 {
-            let across = row as f32 / 3.0;
+        let mut at = if row <= YOKE_ROWS {
+            let across = row as f32 / YOKE_ROWS as f32;
             neck.lerp(shoulder, across) + Vec3::Y * (0.045 * (across * PI).sin())
         } else {
-            shoulder.lerp(hem, (row - 3) as f32 / (ROWS - 3) as f32)
+            shoulder.lerp(hem, (row - YOKE_ROWS) as f32 / (ROWS - YOKE_ROWS) as f32)
         };
         if row > 0 {
             if let Some(scene) = &self.scene {
-                at = fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p));
+                at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.distance(p));
             } else {
-                at = fit_wrapped_contact(at, row <= 3, &|p| self.support.distance(p));
+                at = fit_wrapped_contact(at, row < YOKE_ROWS, &|p| self.support.distance(p));
             }
         }
         at - Vec3::new(0.0, 0.53, -0.15)
@@ -493,7 +505,11 @@ pub(super) fn spawn(
         points,
         bindings: (0..=ROWS)
             .map(|row| {
-                let t = row.saturating_sub(1) as f32 / (ROWS - 1) as f32;
+                let t = if recipe.cut.is_some() {
+                    (study_row_fraction(row) * ROWS as f32 - 1.0).max(0.0) / (ROWS - 1) as f32
+                } else {
+                    row.saturating_sub(1) as f32 / (ROWS - 1) as f32
+                };
                 SurfaceBinding::single(t * t * (3.0 - 2.0 * t))
             })
             .collect(),
@@ -526,7 +542,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
     }
     // The drape entity retains its existing eased swing. Cancel that rotation
     // at the shoulder and introduce it gradually down the private rest grid.
-    // Two fixed rows form a supported yoke, rather than a hinge-shaped gap.
+    // The physically fixed collar band forms a supported yoke, not a hinge gap.
     let inverse = rotation.inverse();
     let release = cloak
         .arm_surface
@@ -562,7 +578,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                         .as_ref()
                         .map_or(at, |body| fit_neck_opening(at, body))
                 } else {
-                    fit_wrapped_contact(at, row <= 3, &|p| scene.distance(p))
+                    fit_wrapped_contact(at, row < YOKE_ROWS, &|p| scene.distance(p))
                 };
                 *point = inverse * (fitted - Vec3::new(0.0, 0.53, -0.15));
             }
@@ -965,7 +981,7 @@ fn release_front(at: Vec3, row: usize, column: usize, opening: f32, release: Fre
         return at;
     }
     let u = column as f32 / COLUMNS as f32;
-    let weight = (row as f32 / 3.0).min(1.0);
+    let weight = (row as f32 / YOKE_ROWS as f32).min(1.0);
     let left = (release.angles[0] - opening * 0.5).max(0.0) * release.strength[0];
     let right = (release.angles[1] - opening * 0.5).max(0.0) * release.strength[1];
     let base = -opening * 0.5 - (TAU - opening) * u;
@@ -996,7 +1012,7 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
         .iter()
         .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
         .collect();
-    for row in 3..ROWS {
+    for row in YOKE_ROWS..ROWS {
         for column in 0..COLUMNS {
             let cell = [
                 index(row, column),
@@ -1029,7 +1045,7 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
             // shared boundary during its subsequent upward roof correction.
             // Reserve that corridor's top, not an unrelated raised hand on the
             // other side of the wearer. Above it there is no remaining contact.
-            let high = if row == 3 {
+            let high = if row == YOKE_ROWS {
                 support
                     .support_plane(
                         Vec3::Y,
@@ -1065,8 +1081,8 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
     // Freeze every upward plane before applying corrections. Later positive
     // vertical moves preserve all accepted planes; deriving normals from an
     // already raised neighbor instead would propagate a table-shaped roof.
-    let mut roofs = Vec::with_capacity(3 * COLUMNS * 2);
-    for row in 0..3 {
+    let mut roofs = Vec::with_capacity(YOKE_ROWS * COLUMNS * 2);
+    for row in 0..YOKE_ROWS {
         for column in 0..COLUMNS {
             let a = index(row, column);
             let b = index(row, column + 1);
@@ -1307,6 +1323,48 @@ mod tests {
     }
 
     #[test]
+    fn shoulder_turnover_fits_outward_without_inheriting_cap_height() {
+        let mut cap = crate::sdf::Sculpt::default();
+        cap.add(
+            crate::sdf::Shape::Ellipsoid(Vec3::new(0.28, 0.50, 0.0), Vec3::new(0.10, 0.09, 0.09)),
+            0.0,
+        );
+        let authored = Vec3::new(0.29, 0.47, 0.0) * anatomy::HIP_SCALE;
+        let roof = fit_wrapped_contact(authored, true, &|p| cap.distance(p));
+        let turnover = fit_wrapped_contact(authored, false, &|p| cap.distance(p));
+        assert!(
+            roof.y > 0.60,
+            "fixture must reproduce the old cap-top floor"
+        );
+        assert!(
+            (turnover.y - authored.y).abs() < 1e-6,
+            "turnover must fit around the side, not climb above the cap"
+        );
+        assert!(cap.distance(turnover / anatomy::HIP_SCALE) >= LAYER_GAP + 0.008);
+        assert!(
+            turnover.x > roof.x + 0.08,
+            "outward displacement must actually clear the cap"
+        );
+        let recipe = study_recipe(outfit::outerwear::OuterwearAppearance::LeatherCloak);
+        for column in 0..=COLUMNS {
+            let edge = recipe.point(YOKE_ROWS, column) + Vec3::new(0.0, 0.53, -0.15);
+            assert!(
+                (edge.y - 0.47).abs() < 1e-6,
+                "authored turnover inherited cap height: {edge:?}"
+            );
+        }
+        let rows: Vec<_> = (0..=ROWS).map(study_row_fraction).collect();
+        assert_eq!(
+            rows.len(),
+            21,
+            "local yoke refinement must not enlarge the grid"
+        );
+        assert_eq!(rows.len() * (COLUMNS + 1), 1029);
+        assert!((study_row_fraction(YOKE_ROWS) - YOKE_FRACTION).abs() < 1e-6);
+        assert!((study_row_fraction(ROWS) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
     fn neck_opening_surrounds_actual_torso_without_climbing_its_cap() {
         let recipe = study_recipe(outfit::outerwear::OuterwearAppearance::LeatherCloak);
         let offset = Vec3::new(0.0, 0.53, -0.15);
@@ -1349,7 +1407,7 @@ mod tests {
                 .cloaks
                 .iter()
                 .map(|cloak| {
-                    cloak.points[..4 * (COLUMNS + 1)]
+                    cloak.points[..(YOKE_ROWS + 1) * (COLUMNS + 1)]
                         .iter()
                         .map(|p| p.y + 0.53)
                         .fold(f32::NEG_INFINITY, f32::max)
@@ -1399,7 +1457,7 @@ mod tests {
                 let offset = Vec3::new(0.0, 0.53, -0.15);
                 let arms = cloak.arm_surface.as_ref().unwrap();
                 let top = arms.bottom + arms.height;
-                let roof = &cloak.points[..4 * (COLUMNS + 1)];
+                let roof = &cloak.points[..(YOKE_ROWS + 1) * (COLUMNS + 1)];
                 // Two cloth layers may reserve their lining and gap, but not
                 // create a raised rigid box above the actual shoulder support.
                 let (peak_index, peak) = roof
@@ -1416,9 +1474,10 @@ mod tests {
                 );
                 for column in [COLUMNS / 4, COLUMNS * 3 / 4] {
                     let neck = cloak.points[index(0, column)];
-                    let shoulder = cloak.points[index(3, column)];
+                    let shoulder = cloak.points[index(YOKE_ROWS, column)];
+                    let authored_shoulder = cloak.rest[index(YOKE_ROWS, column)];
                     assert!(neck.y - shoulder.y > 0.025,
-                        "{name}: neck-to-shoulder roof must descend, not form a table or raised rim: {neck:?}, {shoulder:?}");
+                        "{name}: neck-to-shoulder roof must descend, not form a table or raised rim: neck={neck:?}, shoulder={shoulder:?}, authored_shoulder={authored_shoulder:?}");
                 }
             }
         }
@@ -1709,7 +1768,7 @@ mod tests {
                 );
                 let rotation = world.get::<Transform>(cloak.entity).unwrap().rotation;
                 let offset = Vec3::new(0.0, 0.53, -0.15);
-                for row in 4..=ROWS {
+                for row in YOKE_ROWS + 1..=ROWS {
                     let edge = rotation * cloak.points[index(row, 0)] + offset;
                     assert!(
                         edge.x.abs().atan2(edge.z) >= release.angles[0] - 0.005,
@@ -1806,7 +1865,7 @@ mod tests {
                         } else {
                             COLUMNS * 3 / 4..=COLUMNS
                         };
-                        for row in 4..=ROWS {
+                        for row in YOKE_ROWS + 1..=ROWS {
                             for col in columns.clone() {
                                 let at = rotation * cloak.points[index(row, col)] + offset;
                                 assert!(at.z < 0.05, "lifted hand must emerge through the released front opening, not an enveloping pouch: {at:?}");
@@ -1854,8 +1913,17 @@ mod tests {
         let r = study_recipe(outfit::outerwear::OuterwearAppearance::HoodedCloak);
         let origin = Vec3::new(0.0, 0.53, -0.15);
         let neck = r.point(0, COLUMNS / 4) + origin;
-        let edge = r.point(3, COLUMNS / 4) + origin;
-        assert!(neck.y > 0.55 && neck.x.abs() < 0.10);
+        let edge = r.point(YOKE_ROWS, COLUMNS / 4) + origin;
+        assert!((neck.y - 0.565).abs() < 1e-6);
+        let neck_query = neck / anatomy::HIP_SCALE;
+        assert!(
+            r.support.distance(neck_query) >= LAYER_GAP + 0.008,
+            "collar opening must clear the actual retained neck geometry"
+        );
+        assert!(
+            neck.with_y(0.0).length() < edge.with_y(0.0).length(),
+            "collar must remain inside the shoulder turnover"
+        );
         assert!(
             edge.x.abs() > neck.x.abs() + 0.17,
             "continuous shoulder slope"

@@ -267,6 +267,138 @@ fn band(p: &mut Parts, shape: BootShape, t: f32, width: f32, color: Vec3) {
     );
 }
 
+/// A thin closed leather panel, with a buried underside rather than a
+/// coplanar decal. Corners follow the shoe last or its raised instep tongue.
+fn leather_panel(builder: &mut Builder, top: [Vec3; 4], color: Vec3) {
+    let bottom = top.map(|point| point - Vec3::Y * 0.003);
+    let inside = (top.iter().copied().sum::<Vec3>() + bottom.iter().copied().sum::<Vec3>()) / 8.0;
+    builder.quad_out(top, inside, color);
+    builder.quad_out(bottom, inside, color * 0.75);
+    for i in 0..4 {
+        let next = (i + 1) % 4;
+        builder.quad_out(
+            [top[i], bottom[i], bottom[next], top[next]],
+            inside,
+            color * 0.85,
+        );
+    }
+}
+
+/// Visible low-shoe construction is on the exposed instep, ahead of the
+/// trouser cuff. The supporting foot and sole remain the original fitted last.
+fn walking_upper(p: &mut Parts, last: BootLast, color: Vec3) {
+    let b = last.build;
+    let mut base = Parts::default();
+    boot_parts::emit(&mut base, last, color);
+    let surface = |x: f32, z: f32| {
+        base.satin
+            .outer_surface(Vec3::new(x * b, -0.08, z * b), Vec3::Y)
+            .expect("walking panel stays on the fitted last")
+    };
+    let tongue_height = |z: f32| surface(0.0, z).y.max(0.035 - (z - 0.045) * 0.65) + 0.004;
+    // Long separate tongue slopes from the ankle into the vamp. Its dark
+    // leather remains visible between the crossings instead of a flat clog.
+    let z_rows = [0.035, 0.055, 0.075, 0.095, 0.118];
+    for pair in z_rows.windows(2) {
+        leather_panel(
+            &mut p.matte,
+            [
+                Vec3::new(-0.019 * b, tongue_height(pair[0]), pair[0] * b),
+                Vec3::new(0.019 * b, tongue_height(pair[0]), pair[0] * b),
+                Vec3::new(0.019 * b, tongue_height(pair[1]), pair[1] * b),
+                Vec3::new(-0.019 * b, tongue_height(pair[1]), pair[1] * b),
+            ],
+            color * 0.57,
+        );
+    }
+    // Raised eyelet facings slope down into the quarters on each side, so
+    // tongue, laces, and heel leather form one continuous constructed upper.
+    for sign in [-1.0, 1.0] {
+        let inner = |z: f32| Vec3::new(sign * 0.025 * b, tongue_height(z) + 0.002, z * b);
+        let outer = |z: f32| surface(sign * 0.046, z) + Vec3::Y * 0.004;
+        for pair in z_rows.windows(2) {
+            leather_panel(
+                &mut p.satin,
+                [
+                    inner(pair[0]),
+                    outer(pair[0]),
+                    outer(pair[1]),
+                    inner(pair[1]),
+                ],
+                color * 0.85,
+            );
+        }
+        let seam: Vec<_> = [-0.025, 0.0, 0.035, 0.07, 0.105]
+            .into_iter()
+            .map(|z| surface(sign * 0.046, z) + Vec3::Y * 0.006)
+            .collect();
+        tube(
+            &mut p.satin,
+            &seam,
+            &vec![(0.0018 * b, 0.0018 * b); seam.len()],
+            color * 0.42,
+        );
+        // The rear quarter overlaps the vamp instead of ending at an ankle ring.
+        for pair in [-0.025, 0.0, 0.035].windows(2) {
+            leather_panel(
+                &mut p.satin,
+                [
+                    surface(sign * 0.025, pair[0]) + Vec3::Y * 0.004,
+                    surface(sign * 0.046, pair[0]) + Vec3::Y * 0.004,
+                    surface(sign * 0.046, pair[1]) + Vec3::Y * 0.004,
+                    surface(sign * 0.025, pair[1]) + Vec3::Y * 0.004,
+                ],
+                color * 0.88,
+            );
+        }
+    }
+    let lace_color = color * 0.20;
+    for z in [0.058, 0.074, 0.090, 0.106] {
+        for sign in [-1.0, 1.0] {
+            let a = Vec3::new(sign * 0.025 * b, tongue_height(z) + 0.007, z * b);
+            let next = z + 0.010;
+            let end = Vec3::new(-sign * 0.025 * b, tongue_height(next) + 0.007, next * b);
+            cord(&mut p.satin, a, end, 0.0032 * b, lace_color);
+            p.metal.torus(
+                a - Vec3::Y * 0.002,
+                Vec3::Y,
+                0.004 * b,
+                0.0013 * b,
+                8,
+                3,
+                color * 0.48,
+            );
+        }
+    }
+    // A curved cap seam and contrasting welt give the rounded toe a separate
+    // leather cap and a substantial supporting sole, as in the study.
+    let cap: Vec<_> = (0..=12)
+        .map(|i| {
+            let x = -0.048 + i as f32 * 0.008;
+            surface(x, 0.135 - 0.012 * (x / 0.048).powi(2)) + Vec3::Y * 0.0025
+        })
+        .collect();
+    tube(
+        &mut p.satin,
+        &cap,
+        &vec![(0.0017 * b, 0.0017 * b); cap.len()],
+        color * 0.35,
+    );
+    let sections = last.sections();
+    for sign in [-1.0, 1.0] {
+        let welt: Vec<_> = sections
+            .iter()
+            .map(|section| Vec3::new(sign * section.width, section.top - 0.002, section.z))
+            .collect();
+        tube(
+            &mut p.matte,
+            &welt,
+            &vec![(0.002 * b, 0.002); welt.len()],
+            color * 0.25,
+        );
+    }
+}
+
 /// Complete ankle-local shoe geometry. The caller supplies the recipe's heel
 /// choice in `last`; no supporting part extends below the shared floor plane.
 pub(super) fn emit_foot(
@@ -280,9 +412,12 @@ pub(super) fn emit_foot(
     boot_parts::emit(p, last, color);
     let b = last.build;
     let sections = last.sections();
+    if appearance == WalkingShoes {
+        walking_upper(p, last, color);
+    }
     let laced = matches!(
         appearance,
-        WalkingShoes | CombatBoots | JungleBoots | HikingBoots | SnowBoots
+        CombatBoots | JungleBoots | HikingBoots | SnowBoots
     );
     if laced {
         // Sample the authored vamp, rather than suspending flat laces above it.
@@ -400,7 +535,8 @@ pub(super) fn emit_shaft(
     );
     match appearance {
         WalkingShoes => {
-            band(p, shape, 0.9, 0.003, trim);
+            // Low dark leather topline, not a contrasting gold ankle bracelet.
+            band(p, shape, 0.88, 0.002, color * 0.48);
         }
         HardShoes => {
             // Front greave and two separate ankle straps.
@@ -562,6 +698,80 @@ pub(super) fn emit_shaft(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn walking_shoe_has_exposed_lacing_tongue_and_quarter_panels_over_its_last() {
+        for build in [0.75, 1.0, 1.4] {
+            let last = BootLast {
+                build,
+                heeled: false,
+            };
+            let mut original = Parts::default();
+            boot_parts::emit(&mut original, last, Vec3::ONE);
+            let mut shoe = Parts::default();
+            emit_foot(
+                &mut shoe,
+                FootwearAppearance::WalkingShoes,
+                last,
+                Vec3::ONE,
+                Vec3::ONE,
+            );
+            for z in [0.079, 0.095, 0.111] {
+                let origin = Vec3::new(0.0, -0.08, z * build);
+                let vamp = original.satin.outer_surface(origin, Vec3::Y).unwrap();
+                let tongue = shoe.matte.outer_surface(origin, Vec3::Y).unwrap();
+                let lace = shoe.satin.outer_surface(origin, Vec3::Y).unwrap();
+                assert!(
+                    tongue.y > vamp.y + 0.002,
+                    "separate tongue stands above vamp"
+                );
+                assert!(
+                    lace.y > tongue.y + 0.002,
+                    "lace crossings stay visible above tongue"
+                );
+            }
+            let origin = Vec3::new(0.035 * build, -0.08, 0.08 * build);
+            assert!(
+                shoe.satin.outer_surface(origin, Vec3::Y).unwrap().y
+                    > original.satin.outer_surface(origin, Vec3::Y).unwrap().y + 0.003,
+                "raised quarter slopes into lacing facing"
+            );
+            assert!(
+                !shoe.metal.is_empty(),
+                "visible eyelets accompany the laces"
+            );
+            // No anatomical support is removed: all original foot/sole rays
+            // remain covered and the supporting plane remains unchanged.
+            for z in [-0.03, 0.02, 0.08, 0.14] {
+                for x in [-0.025, 0.0, 0.025] {
+                    let origin = Vec3::new(x * build, -0.08, z * build);
+                    let inner = original.satin.outer_surface(origin, Vec3::Y).unwrap();
+                    let outer = shoe.satin.outer_surface(origin, Vec3::Y).unwrap();
+                    assert!(outer.y >= inner.y - 1e-6);
+                }
+            }
+            assert!(shoe.matte.bounds().0.y >= BootLast::FLOOR - 1e-6);
+            let contacts = last.contacts();
+            for mesh in [&shoe.satin, &shoe.matte, &shoe.metal] {
+                for z in [0.058, 0.074, 0.09, 0.106] {
+                    for x in [-0.025, 0.0, 0.025] {
+                        if let Some(hit) =
+                            mesh.outer_surface(Vec3::new(x * build, -0.08, z * build), Vec3::Y)
+                        {
+                            assert!(
+                                contacts
+                                    .iter()
+                                    .any(|(center, radii)| ((hit - *center) / *radii)
+                                        .length_squared()
+                                        <= 1.0),
+                                "construction stays within the existing cloth contact envelope"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn study_catalog_has_ten_stable_distinct_names() {
@@ -831,7 +1041,10 @@ mod tests {
                 }
                 assert_eq!(
                     !foot.metal.is_empty(),
-                    appearance == FootwearAppearance::HardShoes
+                    matches!(
+                        appearance,
+                        FootwearAppearance::HardShoes | FootwearAppearance::WalkingShoes
+                    )
                 );
                 let mut shaft = Parts::default();
                 let shape = fit_shape(appearance, BootShape::fitted(build, -0.24));

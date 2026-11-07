@@ -4121,3 +4121,24 @@ hip shelf and apron support steps. New hull/interior, drape-continuity and windi
 regressions accompany those corrections. Fresh hosted numerical and rendered
 qualification remains required; the previous images are not acceptance of the
 revised geometry.
+
+The continuing item-quality review found that some positive geometry oracles
+were checking the wrong anatomical or garment feature. The visored helmet test
+cast at brow height (`y=0.196`) while emitted eyes are centered at `y=0.160`;
+native closeups showed that the plate covered the eyes. The correction aligns
+the opening with the actual eyes and uses emitted-face fixtures across body
+variants. A prior clearance pass was not visual-quality acceptance.
+
+The native run at `c84612f5` exposed a separate new-test fixture error in
+`camp_collar_has_fold_relief_and_remains_hidden_under_armor`: its fixed ray missed
+the female folded leaf. The corrected witness samples the interior of both
+actual leaf triangles, compares against independently averaged torso support,
+and requires the expected fold relief while retaining armor suppression. This
+is one fixture/oracle defect, not evidence that the production fold was missing.
+Fresh native execution and image review remain required for the corrected test.
+
+The same run's cape slope and attachment failures remain unresolved geometry
+evidence. Keep physical attachment, positive shoulder shape and full-face
+clearance witnesses together; an oversized or flat garment can satisfy collision
+tests while failing its intended appearance. Do not classify a visible modeling
+defect as a stale test merely because a prior recipe used different coordinates.

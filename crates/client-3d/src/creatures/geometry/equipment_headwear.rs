@@ -192,36 +192,89 @@ fn rivets(p: &mut Parts, color: Vec3) {
     }
 }
 
-/// Side guards leave the mouth and both eyes open, with an actual rear skirt.
+// Crown-to-jaw envelope: y, lateral radius, forward radius, front edge angle.
+// The eye-height opening stays wide; below it the plates turn toward the cheeks.
+const CHEEK_ROWS: [(f32, f32, f32, f32); 5] = [
+    (BROW, 0.145, 0.1508, 0.80),
+    (0.195, 0.140, 0.154, 0.83),
+    (0.155, 0.137, 0.150, 0.78),
+    (0.115, 0.125, 0.140, 0.67),
+    (0.085, 0.110, 0.125, 0.70),
+];
+const CHEEK_COLUMNS: usize = 8;
+
+fn cheek_point(side: f32, row: usize, column: usize, inner: bool) -> Vec3 {
+    let (y, rx, rz, front) = CHEEK_ROWS[row];
+    let angle = front + (2.05 - front) * column as f32 / CHEEK_COLUMNS as f32;
+    let inset = if inner { 0.006 } else { 0.0 };
+    Vec3::new(
+        side * angle.sin() * (rx - inset),
+        y,
+        angle.cos() * (rz - inset) - 0.012,
+    )
+}
+
+/// Closed curved plates frame the cheeks and taper around the jaw, without
+/// covering the eyes or mouth. Their top edge shares the crown's outer surface.
 fn guards(p: &mut Parts, color: Vec3, trim: Vec3) {
     for side in [-1.0, 1.0] {
-        p.metal.extrude(
-            &[
-                Vec2::new(-0.075, 0.0),
-                Vec2::new(0.06, 0.0),
-                Vec2::new(0.065, -0.11),
-                Vec2::new(0.025, -0.13),
-                Vec2::new(-0.02, -0.055),
-                Vec2::new(-0.075, -0.055),
-            ],
-            Vec3::new(side * 0.135, BROW, -0.02),
-            Vec3::Z,
-            Vec3::Y,
-            0.012,
-            color,
-        );
+        for row in 0..CHEEK_ROWS.len() - 1 {
+            for column in 0..CHEEK_COLUMNS {
+                for inner in [false, true] {
+                    let q = [
+                        cheek_point(side, row, column, inner),
+                        cheek_point(side, row, column + 1, inner),
+                        cheek_point(side, row + 1, column + 1, inner),
+                        cheek_point(side, row + 1, column, inner),
+                    ];
+                    let center = (q[0] + q[2]) * 0.5;
+                    let axis = Vec3::new(0.0, center.y, -0.012);
+                    p.metal.quad_out(
+                        q,
+                        if inner { center * 2.0 - axis } else { axis },
+                        color * if inner { 0.68 } else { 1.0 },
+                    );
+                }
+            }
+            for column in [0, CHEEK_COLUMNS] {
+                p.metal.quad_out(
+                    [
+                        cheek_point(side, row, column, false),
+                        cheek_point(side, row + 1, column, false),
+                        cheek_point(side, row + 1, column, true),
+                        cheek_point(side, row, column, true),
+                    ],
+                    cheek_point(side, row, if column == 0 { 1 } else { column - 1 }, false),
+                    color,
+                );
+            }
+        }
+        for row in [0, CHEEK_ROWS.len() - 1] {
+            for column in 0..CHEEK_COLUMNS {
+                let q = [
+                    cheek_point(side, row, column, false),
+                    cheek_point(side, row, column + 1, false),
+                    cheek_point(side, row, column + 1, true),
+                    cheek_point(side, row, column, true),
+                ];
+                p.metal.quad_out(
+                    q,
+                    q[0] + Vec3::Y * if row == 0 { -0.01 } else { 0.01 },
+                    color,
+                );
+            }
+        }
+        let edge: Vec<_> = (0..CHEEK_ROWS.len())
+            .map(|row| cheek_point(side, row, 0, false))
+            .collect();
         tube(
             &mut p.metal,
-            &[
-                Vec3::new(side * 0.143, BROW, 0.04),
-                Vec3::new(side * 0.143, 0.135, 0.045),
-                Vec3::new(side * 0.143, 0.115, 0.005),
-            ],
-            &[(0.004, 0.004); 3],
+            &edge,
+            &vec![(0.0035, 0.0035); edge.len()],
             trim,
         );
         p.metal.blob(
-            Vec3::new(side * 0.148, 0.235, 0.005),
+            cheek_point(side, 0, 4, false) + Vec3::new(side * 0.003, -0.012, 0.0),
             Vec3::new(0.009, 0.014, 0.014),
             2,
             0.0,
@@ -813,6 +866,109 @@ mod tests {
             get(HeadwearKind::LeatherHat).1.x > -get(HeadwearKind::LeatherHat).0.x + 0.015,
             "leather tip bends sideways"
         );
+    }
+
+    #[test]
+    fn cheek_plates_wrap_forward_taper_and_join_the_crown() {
+        let mut plates = Parts::default();
+        guards(&mut plates, IRON, BRASS);
+        let mut crown = Parts::default();
+        dome(&mut crown, IRON, false);
+        for side in [-1.0, 1.0] {
+            // A front-facing cheek plane, not an edge-on vertical side bar.
+            for y in [0.10, 0.115, 0.13] {
+                assert!(plates
+                    .metal
+                    .outer_surface(Vec3::new(side * 0.09, y, 0.0), Vec3::Z)
+                    .is_some());
+            }
+            let temple = plates
+                .metal
+                .outer_surface(Vec3::new(0.0, 0.195, -0.012), Vec3::X * side)
+                .unwrap();
+            let jaw = plates
+                .metal
+                .outer_surface(Vec3::new(0.0, 0.09, -0.012), Vec3::X * side)
+                .unwrap();
+            assert!(
+                temple.x.abs() - jaw.x.abs() > 0.02,
+                "plate follows the narrowing jaw"
+            );
+            for angle in [1.0f32, 1.4, 1.8] {
+                let ray = Vec3::new(side * angle.sin(), 0.0, angle.cos());
+                let root = plates
+                    .metal
+                    .outer_surface(Vec3::new(0.0, BROW - 0.001, -0.012), ray)
+                    .unwrap();
+                let cap = crown
+                    .metal
+                    .outer_surface(Vec3::new(0.0, BROW + 0.001, -0.012), ray)
+                    .unwrap();
+                assert!(
+                    (root - cap).length() < 0.012,
+                    "plate must join the crown rim"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cheek_plates_clear_actual_faces_without_detached_side_bar_spacing() {
+        let mut plates = Parts::default();
+        guards(&mut plates, IRON, BRASS);
+        for kind in [CreatureModel::Human, CreatureModel::Centaur] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    let look = Look::with_choice(
+                        kind,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let mut face = Parts::default();
+                    human_face(&mut face, &look, true);
+                    for side in [-1.0, 1.0] {
+                        for y in [0.10, 0.13, 0.17, 0.21] {
+                            for angle in [0.95f32, 1.25, 1.6] {
+                                let ray = Vec3::new(side * angle.sin(), 0.0, angle.cos());
+                                let origin = Vec3::new(0.0, y, -0.012);
+                                let skin = face
+                                    .matte
+                                    .outer_surface(origin, ray)
+                                    .expect("actual cheek/temple support");
+                                let outer = plates
+                                    .metal
+                                    .outer_surface(origin, ray)
+                                    .expect("continuous cheek plate");
+                                // Include the 6 mm lining thickness, plus clearance.
+                                let gap = (outer - skin).dot(ray);
+                                assert!(gap > 0.010 && gap < 0.065,
+                                    "{kind:?}, woman={woman}, build={build}: cheek gap {gap} at y={y}, angle={angle}");
+                            }
+                        }
+                        for y in [0.154, 0.16, 0.166] {
+                            assert!(
+                                plates
+                                    .metal
+                                    .outer_surface(Vec3::new(side * 0.044, y, 0.0), Vec3::Z)
+                                    .is_none(),
+                                "cheek plate must not cover eyes"
+                            );
+                        }
+                    }
+                    assert!(
+                        plates
+                            .metal
+                            .outer_surface(Vec3::new(0.0, 0.08, 0.0), Vec3::Z)
+                            .is_none(),
+                        "mouth stays open"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
