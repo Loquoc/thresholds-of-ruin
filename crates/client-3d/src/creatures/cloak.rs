@@ -79,6 +79,7 @@ pub(super) struct Recipe {
     shoulders: f32,
     yoke: Vec2,
     fitted_turnover: OnceLock<[Vec3; COLUMNS + 1]>,
+    fitted_outer_collar: OnceLock<Option<[Vec3; COLUMNS + 1]>>,
     hem: f32,
     top: [Vec3; COLUMNS + 1],
     support: crate::sdf::Sculpt,
@@ -108,6 +109,7 @@ impl Recipe {
                 0.17 * body.build,
             ),
             fitted_turnover: OnceLock::new(),
+            fitted_outer_collar: OnceLock::new(),
             hem: 0.36 * body.hips_width * body.build * anatomy::HIP_SCALE.x,
             top: [Vec3::ZERO; COLUMNS + 1],
             support,
@@ -131,6 +133,7 @@ impl Recipe {
     /// Call after reserving every torso layer so the scene owns the final union.
     pub fn set_contacts(&mut self, contacts: Vec<super::visual_contact::Cylinder>) {
         self.fitted_turnover.take();
+        self.fitted_outer_collar.take();
         if self.cut.is_some() {
             self.scene = Some(super::visual_contact::Scene::new(
                 self.support.clone(),
@@ -141,6 +144,7 @@ impl Recipe {
 
     pub fn set_contact_surface(&mut self, surface: Arc<ContactSurface>) {
         self.fitted_turnover.take();
+        self.fitted_outer_collar.take();
         if self.cut.is_some() {
             self.contact_surface = Some(surface);
         }
@@ -149,12 +153,14 @@ impl Recipe {
     /// Fit this shoulder layer to an earlier cloak on the same torso frame.
     pub fn layer_over(&mut self, inner: Entity) {
         self.inner_layer = Some(inner);
+        self.fitted_outer_collar.take();
     }
 
     /// Study garments use an open angular shoulder wrap. Legacy recipes keep
     /// their original back-sheet coordinates and animation unchanged.
     pub fn set_cut(&mut self, cut: DrapeCut) {
         self.fitted_turnover.take();
+        self.fitted_outer_collar.take();
         self.length = cut.length;
         self.cut = Some(cut);
         self.contact = true;
@@ -172,6 +178,7 @@ impl Recipe {
     /// upper drape. A strap belongs underneath the cloak, not half through it.
     pub fn reserve_back_layer(&mut self, depth: f32) {
         self.fitted_turnover.take();
+        self.fitted_outer_collar.take();
         // Reserve the lining too: fitting only the middle sheet to an
         // accessory envelope can leave its inner face cutting the strap.
         self.support
@@ -279,7 +286,30 @@ impl Recipe {
         // from this fitted ring so an enlarged collar cannot fold underneath
         // the next radial row.
         let neck = if row <= YOKE_ROWS {
-            fit_neck_opening(neck, &self.support)
+            if self.inner_layer.is_some() {
+                self.fitted_outer_collar
+                    .get_or_init(|| {
+                        let mut ring = [Vec3::ZERO; COLUMNS + 1];
+                        for (col, point) in ring.iter_mut().enumerate() {
+                            let angle = TAU
+                                - cut.opening * 0.5
+                                - (TAU - cut.opening) * col as f32 / COLUMNS as f32;
+                            *point = supported_outer_collar(
+                                Vec3::new(angle.sin() * 0.075, 0.0, angle.cos() * 0.072)
+                                    .normalize(),
+                                &self.support,
+                            )?;
+                        }
+                        Some(ring)
+                    })
+                    .as_ref()
+                    .map_or_else(
+                        || fit_neck_opening(neck, &self.support),
+                        |ring| ring[column],
+                    )
+            } else {
+                fit_neck_opening(neck, &self.support)
+            }
         } else {
             neck
         };
@@ -478,6 +508,48 @@ fn seat_arm_profile(
 /// A neck opening is an annular attachment at fixed anatomical height.
 /// Only retained torso/neck support participates here; posed hands are handled
 /// by the complete cell solver, not by wrapping the collar around their reach.
+// A separate outer layer attaches one existing layer reserve above the main
+// station, on the actual neck taper. This is authored initialization, NOT a
+// normal-distance certificate: the full inner/arm solve remains authoritative.
+const OUTER_COLLAR_STATION: f32 = 0.565 + LAYER_GAP + THICKNESS;
+
+fn supported_outer_collar(direction: Vec3, support: &crate::sdf::Sculpt) -> Option<Vec3> {
+    let origin = Vec3::Y * OUTER_COLLAR_STATION;
+    let reserve = LAYER_GAP + 0.010;
+    // A missing expanded neck slice must not be mistaken for the tiny seed.
+    if support.distance(origin / anatomy::HIP_SCALE) >= reserve
+        || support.distance((origin + direction * 1.10) / anatomy::HIP_SCALE) <= reserve
+    {
+        return None;
+    }
+    let field = |radius: f32| {
+        support.distance((origin + direction * radius) / anatomy::HIP_SCALE) - reserve
+    };
+    let mut outside = 1.10;
+    // Retain outside-in root selection, then refine the actual sign bracket.
+    // The old fit marcher's 2mm minimum step is not a root certificate.
+    for _ in 0..=550 {
+        let inside = (outside - field(outside).clamp(0.002, 0.02)).max(0.0);
+        if field(inside) <= 0.0 {
+            let mut low = inside;
+            let mut high = outside;
+            for _ in 0..24 {
+                let middle = (low + high) * 0.5;
+                if field(middle) <= 0.0 {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            let fitted = origin + direction * high;
+            return ((support.distance(fitted / anatomy::HIP_SCALE) - reserve).abs() <= 0.0003)
+                .then_some(fitted);
+        }
+        outside = inside;
+    }
+    None
+}
+
 fn fit_neck_opening(at: Vec3, support: &crate::sdf::Sculpt) -> Vec3 {
     fit_wrapped_contact(at, false, &|p| support.distance(p))
 }
@@ -860,7 +932,11 @@ pub(super) fn spawn(
     let mut contact_cpu_ms = [support_ms, 0.0, point_ms, 0.0];
     let mut contact_solves = 0;
     let constraint_started = std::time::Instant::now();
-    let mut contact_fallbacks = 0;
+    let mut contact_fallbacks = u64::from(
+        recipe.inner_layer.is_some()
+            && recipe.cut.is_some()
+            && recipe.fitted_outer_collar.get().is_none_or(Option::is_none),
+    );
     let mut contact_radial_trace = None;
     // A dependent mantle is first fitted by place_layers against its seated
     // inner cloth, not an incomplete startup-only arm solve.
@@ -1011,6 +1087,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
             surface.free_edges(cloak.neutral_reach)
         });
     let opening = cloak.opening;
+    let outer_attachment = cloak.inner_layer.is_some();
     let mesh_contact = cloak
         .contact_surface
         .as_ref()
@@ -1039,9 +1116,16 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
                     release_front(at, row, column, opening, release)
                 });
                 let fitted = if row == 0 {
-                    support
-                        .as_ref()
-                        .map_or(at, |body| fit_neck_opening(at, body))
+                    if outer_attachment {
+                        // The supported ring is immutable torso-local geometry;
+                        // re-running the coarse historical march here would
+                        // expand a bracket-refined attachment on every pose.
+                        at
+                    } else {
+                        support
+                            .as_ref()
+                            .map_or(at, |body| fit_neck_opening(at, body))
+                    }
                 } else if let Some(surface) = &mesh_contact {
                     let axis = shoulder_profile.get(i).map_or_else(
                         || contact_axis(i, at.with_y(0.0).normalize_or(Vec3::NEG_Z)),
@@ -3141,6 +3225,74 @@ mod tests {
             panic!("cloth positions")
         };
         points.iter().map(|p| Vec3::from_array(*p)).collect()
+    }
+
+    fn rendered_head_surface(world: &World, rig: &Rig, meshes: &Assets<Mesh>) -> LayerSurface {
+        let head = rig.joint(J::Head).expect("head joint");
+        let frame = world.get::<Transform>(head).unwrap().compute_affine();
+        let mut stack = vec![(head, frame)];
+        let mut triangles = Vec::new();
+        while let Some((entity, to_torso)) = stack.pop() {
+            if let Some(mesh) = world.get::<Mesh3d>(entity).and_then(|m| meshes.get(&m.0)) {
+                let vertices = positions(mesh);
+                if let Some(indices) = mesh.indices() {
+                    let indices: Vec<_> = indices.iter().collect();
+                    triangles.extend(
+                        indices
+                            .as_chunks::<3>()
+                            .0
+                            .iter()
+                            .map(|face| face.map(|i| to_torso.transform_point3(vertices[i]))),
+                    );
+                }
+            }
+            if let Some(children) = world.get::<Children>(entity) {
+                for child in children.iter() {
+                    let local = world
+                        .get::<Transform>(child)
+                        .map_or(Affine3A::IDENTITY, |t| t.compute_affine());
+                    stack.push((child, to_torso * local));
+                }
+            }
+        }
+        assert!(
+            !triangles.is_empty(),
+            "actual head/neck meshes must be present"
+        );
+        LayerSurface::from_triangles(triangles)
+    }
+
+    fn assert_supported_attachment_clear(
+        cloak: &CloakRig,
+        rotation: Quat,
+        mesh: &Mesh,
+        head: &LayerSurface,
+    ) {
+        if cloak.inner_layer.is_none() {
+            return;
+        }
+        let body = cloak.support.as_ref().expect("retained torso support");
+        let vertices = positions(mesh);
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        for face in indices.as_chunks::<3>().0.iter().take(4 * COLUMNS) {
+            let face = face.map(|i| rotation * vertices[i] + offset);
+            for a in 0..=6 {
+                for b in 0..=6 - a {
+                    let p =
+                        (face[0] * a as f32 + face[1] * b as f32 + face[2] * (6 - a - b) as f32)
+                            / 6.0;
+                    assert!(
+                        body.distance(p / anatomy::HIP_SCALE) > 0.001,
+                        "outer attachment/first band penetrates retained torso: {p:?}"
+                    );
+                    assert!(
+                        rendered_clearance_checked(head, p, true) > 0.001,
+                        "outer attachment/first band penetrates actual head/neck: {p:?}"
+                    );
+                }
+            }
+        }
     }
 
     fn closed_components(triangles: &[[Vec3; 3]]) -> Vec<Option<usize>> {
@@ -5355,6 +5507,38 @@ mod tests {
     }
 
     #[test]
+    fn mantle_station_refits_all_rays_without_changing_main_or_hanging_pattern() {
+        let main = study_recipe(outfit::outerwear::OuterwearAppearance::LeatherCloak);
+        let mut mantle = study_recipe(outfit::outerwear::OuterwearAppearance::LeatherCloak);
+        mantle.layer_over(Entity::PLACEHOLDER);
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        for column in 0..=COLUMNS {
+            let a = main.point(0, column) + offset;
+            let b = mantle.point(0, column) + offset;
+            assert!((a.y - 0.565).abs() < 1e-6);
+            assert!((b.y - OUTER_COLLAR_STATION).abs() < 1e-6);
+            assert!(mantle.support.distance(b / anatomy::HIP_SCALE) >= LAYER_GAP + 0.0097);
+            assert!(a.with_y(0.0).normalize().dot(b.with_y(0.0).normalize()) > 0.9999);
+            for row in YOKE_ROWS..=ROWS {
+                assert!(
+                    main.point(row, column).distance(mantle.point(row, column)) < 1e-7,
+                    "attachment cannot change turnover/fullness/hem"
+                );
+            }
+        }
+        assert!(mantle.fitted_outer_collar.get().unwrap().is_some());
+        let mut empty = crate::sdf::Sculpt::default();
+        empty.add(
+            crate::sdf::Shape::Ellipsoid(Vec3::new(0.0, -2.0, 0.0), Vec3::splat(0.05)),
+            0.0,
+        );
+        assert!(
+            supported_outer_collar(Vec3::Z, &empty).is_none(),
+            "missing support is not a fitted seed"
+        );
+    }
+
+    #[test]
     fn neck_opening_surrounds_actual_torso_without_climbing_its_cap() {
         let recipe = study_recipe(outfit::outerwear::OuterwearAppearance::LeatherCloak);
         let offset = Vec3::new(0.0, 0.53, -0.15);
@@ -5424,8 +5608,13 @@ mod tests {
                 assert_eq!(&cloak.rest, rest, "contact must not mutate authored rest");
                 for column in 0..=COLUMNS {
                     let attachment = cloak.rest[index(0, column)] + Vec3::new(0.0, 0.53, -0.15);
-                    assert!((attachment.y - 0.565).abs() < 1e-6,
-                        "{name}: actual equipped neck opening climbed the support cap: {attachment:?}");
+                    let station = if cloak.inner_layer.is_some() {
+                        OUTER_COLLAR_STATION
+                    } else {
+                        0.565
+                    };
+                    assert!((attachment.y - station).abs() < 1e-6,
+                        "{name}: attachment departed from its supported layer station: {attachment:?}");
                     let final_attachment =
                         cloak.points[index(0, column)] + Vec3::new(0.0, 0.53, -0.15);
                     assert!(
@@ -5872,6 +6061,7 @@ mod tests {
                 "must reproduce the captured rearward wind-up, not a forward strike: {hand:?}"
             );
             let meshes = world.resource::<Assets<Mesh>>();
+            let head_surface = rendered_head_surface(&world, rig, meshes);
             for cloak in &rig.cloaks {
                 eprintln!(
                     "tick93 cloth diagnostics: {}",
@@ -5902,6 +6092,7 @@ mod tests {
                 let back = rotation * cloak.points[index(ROWS, COLUMNS / 2)] + offset;
                 assert!(back.z < -0.10, "retain continuous hanging back cloth");
                 let mesh = meshes.get(&cloak.mesh).unwrap();
+                assert_supported_attachment_clear(cloak, rotation, mesh, &head_surface);
                 let vertices = positions(mesh);
                 let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
                 for tri in indices.as_chunks::<3>().0 {
@@ -5941,7 +6132,8 @@ mod tests {
         let _stage = AuditContextGuard::enter(
             serde_json::json!({"actor":"ornamental-cope+plate-mail","fixture":"posed_cope","stage":"spawn"}),
         );
-        let (_, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        let (world, mut rig, _, mut meshes) = super::super::rogue_tests::spawn_one(&look);
+        let head_surface = rendered_head_surface(&world, &rig, &meshes);
         assert_eq!(
             rig.visual_contacts.len(),
             6,
@@ -5978,6 +6170,12 @@ mod tests {
             place_layers(&mut rig.cloaks, |_| Some(rotation), &mut meshes);
             let mut tested = 0usize;
             for cloak in &rig.cloaks {
+                assert_supported_attachment_clear(
+                    cloak,
+                    rotation,
+                    meshes.get(&cloak.mesh).unwrap(),
+                    &head_surface,
+                );
                 let actual = cloak.arm_surface.as_ref().unwrap();
                 assert!(actual.closed_faces.get_or_init(||closed_components(&actual.triangles)).iter().any(Option::is_some),
                     "actual arm fixture must retain closed components for interior penetration checks");

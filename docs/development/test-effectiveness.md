@@ -4279,3 +4279,16 @@ outermost-versus-first-exit shortcut: the 30 mm expanded field was monotone on
 the failing rays, with no earlier clear neck corridor. Higher supported points
 permit narrower radii, but an attachment change still requires coherent-ring,
 actual neck/head and first-band torso validation, not just vertex sampling.
+
+The experimental mantle-only attachment station uses one existing 32 mm layer
+reserve above the main station and refits all 49 rays to retained torso support.
+Strict root checks first rejected the old marcher's coarse residual; sign-bracket
+refinement retained the original reserve instead of increasing tolerance. The
+prototype reached past the former collar-plane failures but independent actual
+head/neck witnesses exposed new penetrations near Y=0.603. That checkpoint had
+56 passing cloak methods and four failures, including two reference bugs
+(original elliptical rays and re-marching immutable roots). Those reference
+corrections are preserved for the next qualification; the prototype is not
+accepted. Separate actual posed head support is required before further visual
+qualification. The main/legacy geometry and absolute 0.649 m collar ceiling,
+clearance, width and motion assertions have not been relaxed.
