@@ -789,9 +789,13 @@ impl LayerSurface {
     }
 }
 
-/// A triangle clipped by four half-planes has at most seven vertices.
+/// A triangle clipped by at most four half-planes has at most seven vertices.
 /// Fixed scratch buffers avoid heap allocation in the per-cell contact path.
-fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32); 4]) -> Option<f32> {
+fn clipped_support(triangle: [Vec3; 3], normal: Vec3, planes: &[(Vec3, f32)]) -> Option<f32> {
+    assert!(
+        planes.len() <= 4,
+        "fixed clipping buffers support at most four planes"
+    );
     if planes
         .iter()
         .any(|&(plane, offset)| triangle.iter().all(|p| plane.dot(*p) < offset))
@@ -1097,6 +1101,47 @@ mod tests {
         let mut recipe = Recipe::new(body, r.cloth, r.lining, false);
         recipe.set_cut(cut);
         recipe
+    }
+
+    #[test]
+    fn fixed_clipper_accepts_three_and_four_plane_footprints() {
+        let triangle = [
+            Vec3::new(-1.0, 0.2, -1.0),
+            Vec3::new(2.0, 0.8, -1.0),
+            Vec3::new(-1.0, 0.5, 2.0),
+        ];
+        let planes = [
+            (Vec3::X, 0.0),
+            (Vec3::Z, 0.0),
+            (Vec3::new(-1.0, 0.0, -1.0).normalize(), -0.5),
+            (Vec3::NEG_X, -0.2),
+        ];
+        for count in [3, 4] {
+            let footprint = &planes[..count];
+            let mut polygon = triangle.to_vec();
+            for &(normal, offset) in footprint {
+                polygon = clip_layer_polygon(&polygon, normal, offset);
+            }
+            assert!(
+                !polygon.is_empty(),
+                "fixture must exercise surviving intersections"
+            );
+            let expected = polygon
+                .iter()
+                .map(|p| p.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            let actual = clipped_support(triangle, Vec3::Y, footprint).unwrap();
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "{count}-plane clipping changed support"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "at most four planes")]
+    fn fixed_clipper_rejects_unsupported_plane_count_before_clipping() {
+        let _ = clipped_support([Vec3::ZERO; 3], Vec3::Y, &[(Vec3::X, 0.0); 5]);
     }
 
     #[test]
