@@ -3257,6 +3257,27 @@ fn fit_radial_faces_impl(
                     for ((i, shift), winning_plane) in
                         face.into_iter().zip(shifts).zip(winning_planes)
                     {
+                        #[cfg(test)]
+                        if shift > travels[i]
+                            && std::env::var("TOR_CLOAK_VERTEX_AUDIT")
+                                .ok()
+                                .and_then(|v| v.parse::<usize>().ok())
+                                == Some(i)
+                        {
+                            eprintln!(
+                                "attachment shared vertex constraint: {}",
+                                serde_json::json!({
+                                    "context": audit_context(), "vertex": i, "face": face,
+                                    "iteration": iteration, "shift": shift,
+                                    "previous_shift": travels[i], "source": winning_plane.3.name(),
+                                    "normal": winning_plane.0.to_array(), "plane": winning_plane.1,
+                                    "witness": winning_plane.2.to_array(),
+                                    "face_reference": vertices.map(|p| p.to_array()),
+                                    "face_budget_endpoints": endpoints.map(|p| p.to_array()),
+                                    "face_axes": face.map(|v| axes[v].to_array()),
+                                })
+                            );
+                        }
                         travels[i] = travels[i].max(shift);
                         if axes[i].with_y(0.0).length_squared() > 0.0
                             && shift > 0.0
@@ -3867,6 +3888,25 @@ pub(super) fn place_layers(
                             "radial_limits": limits.to_vec(),
                         })
                     );
+                }
+                #[cfg(test)]
+                if std::env::var_os("TOR_CLOAK_ATTACHMENT_SURFACES").is_some() {
+                    for (name, surface) in [
+                        ("inner", Some(&support)),
+                        ("arms", cloak.arm_surface.as_deref()),
+                        ("head", Some(head)),
+                    ] {
+                        if let Some(surface) = surface {
+                            eprintln!(
+                                "attachment source snapshot: {}",
+                                serde_json::json!({
+                                    "context": audit_context(), "layer": "mantle",
+                                    "rotation": rot.to_array(), "source": name,
+                                    "triangles": surface.triangles.iter().map(|tri| tri.map(|p| p.to_array())).collect::<Vec<_>>(),
+                                })
+                            );
+                        }
+                    }
                 }
                 contact_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
             }

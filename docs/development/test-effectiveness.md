@@ -4451,3 +4451,12 @@ exported current failed source only, not other sources, adjacent faces or new
 swept domains. Optimizer misses are unresolved rather than infeasibility proofs.
 No runtime geometry changed and no fresh render acceptance is claimed. Consistent
 shared-vertex choices and complete fresh-domain certification remain required.
+
+Exact successful-constraint provenance localizes the cope failure further:
+inner face [54,55,103] imposes 93.755 mm outward travel on shoulder vertex 54
+in round zero. The existing 12 mm query reserve expands the neighboring collar
+face's next query; its other two vertices still have zero budget. Isolated
+adaptive face checks do not reproduce that shared-neighbor forcing, illustrating
+why a locally valid axis triple is insufficient. A full-cap common-domain audit
+also remained unresolved and was not treated as geometric impossibility. These
+are diagnostic findings only; the same cope acceptance method still fails.
