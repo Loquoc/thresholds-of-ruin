@@ -29,15 +29,20 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 
 ## Active review queue
 
-The earlier bounded findings have been evaluated and resolved or retained with
-explicit evidence and limits below. The subsequently reported checkpoint-capacity
-issue remains active. This is not a complete audit or a claim that broader
-performance and scaling work is finished.
+The bounded findings, including the subsequently reported checkpoint-capacity
+issue, have been resolved or retained with explicit evidence and limits below.
+There is no active finding in this register. This is not a complete audit or a
+claim that broader performance and scaling work is finished.
+
+## Retained or resolved findings
 
 ### CH-019: Checkpoint representation and journal durability at the capacity bound
 
-- **Category/status:** robustness and representation cost; implementation complete,
-  final integrated qualification pending for the Menagerie report of 2026-11-06.
+- **Category/status:** robustness and representation cost; resolved by
+  [PR 272](https://github.com/KCall360/thresholds-of-ruin/pull/272), merged on
+  2026-11-07 at `855b2dc512614e44cd0d5be889095375e67eda10` after
+  [full exact-head CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42312239517),
+  both platform aggregates and Full PR qualification passed.
 - **Resolution:** [checkpoint records](../../crates/simulation/src/checkpoint.rs)
   pool complete actor/AI values across retained roots, memoize unchanged capture
   sources, and validate bounded expansion before publication/restoration. Save
@@ -55,11 +60,18 @@ performance and scaling work is finished.
   actual-process tests passed again. The first exhaustive run exposed remaining
   migration fixtures and nullable profiling-count handling; after correction,
   all 1,348 default-feature server tests, the exact failed streaming-benchmark
-  process test and 67 report-validator tests passed locally. Required final-head
-  hosted gates remain. Two pooled nutrition test-consumer corrections also pass
-  their exact real-process cases. A retained-frame native travel synchronization
-  defect is fixed without relaxing mouse/tick assertions; actual native CI remains
-  required.
+  process test and 67 report-validator tests passed locally. Nutrition and item-
+  preparation fixture corrections preserve complete pooled values and COW isolation;
+  the corrected simulation integration owner passed all 816 tests. A retained-frame
+  native travel synchronization defect was fixed without relaxing mouse/tick
+  assertions. Final hosted Windows/Linux debug/release and native lanes all passed.
+  The qualification seal binds exact tree `a87f5ccacbe1e76847b4fdcec8388a3078edad93`
+  to the tested main/PR parents. Earlier failed and cancelled cohorts do not supply
+  this qualification. The [main validation](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42319402785)
+  then passed fresh builds, platform-codec tests and 2,017 selected process tests,
+  plus both aggregates, under prior-exact-tree-full-plus-fresh-main assurance.
+  This is fresh integration with retained exhaustive qualification, not a second
+  exhaustive matrix.
 - **Cost evidence:** four balanced release rounds compared `ec134e1c` with
   `c1e8dab42`. All 16 runs validated with matching work/durability counts.
   Checkpoint size and save/restart time improved; an earlier consistent interaction
@@ -67,14 +79,12 @@ performance and scaling work is finished.
   differences were not uniform across rounds. Raw evidence is retained locally
   pending permission to publish; this is not an accepted public-ledger entry or
   a measurement of a later integration revision.
-- **Limits/remaining acceptance:** the private deployed save/scenario and native
+- **Limits:** the private deployed save/scenario and native
   desktop were unavailable; synthetic workloads are not that reproduction. The
   fix cannot recover unrecorded in-memory progress from the original failure.
-  Preserve strict decode/replay, rewind ownership, actual-process recovery and
-  failure distinctions. Finish integrated checks and required final-head hosted
-  gates before closing this finding.
-
-## Retained or resolved findings
+  This closure covers the implemented representation/durability contract and
+  hosted qualification, not private-scenario reproduction or deployment. Strict
+  decode/replay, rewind ownership and failure distinctions remain unchanged.
 
 ### CH-003: Retained presentation and history cost
 

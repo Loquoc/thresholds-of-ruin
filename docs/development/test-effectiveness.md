@@ -4066,3 +4066,18 @@ evidence margin. A first-red workflow-contract test observed the old `(60, 60)`
 bounds and zero margin; its matrix cases preserve every other lane's limits.
 All test selection, individual test deadlines, gates and evidence requirements
 are unchanged. Fresh hosted qualification remains required after this correction.
+
+The [final PR 272 cohort](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42312239517)
+completed successfully on exact head `80fe2b0d35ad42b72932823ec7dca8538f2b674c`:
+all Windows/Linux debug/release and native lanes, both platform aggregates and
+Full PR qualification passed. The verified fresh-full-PR seal binds tree
+`a87f5ccacbe1e76847b4fdcec8388a3078edad93` to the tested main/PR parents.
+Windows release Rust finished with complete receipts and no waived/not-run stages;
+the earlier cancelled cohort was not accepted. PR 272 merged as
+`855b2dc512614e44cd0d5be889095375e67eda10`. These hosted checks do not imply
+reproduction of the unavailable private scenario or a new performance comparison.
+The [main validation](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42319402785)
+then passed with prior-exact-tree-full-plus-fresh-main assurance: fresh application
+builds, platform-codec tests and all 2,017 selected Python process checks, plus both
+platform aggregates. Its verified receipts adopt the successful exact-tree PR
+cohort; this is not a claim that the exhaustive matrix ran again on main.
