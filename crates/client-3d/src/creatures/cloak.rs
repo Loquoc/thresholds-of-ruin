@@ -712,30 +712,36 @@ impl LayerSurface {
         }
     }
 
-    /// Vertical cloth contact is local to the cell's finite footprint. A fist
-    /// in the same angular sector must not lift a neck attachment behind it.
-    fn top_over(&self, points: [Vec3; 4]) -> Option<f32> {
-        let lo = points
-            .into_iter()
-            .fold(Vec3::splat(f32::INFINITY), Vec3::min)
-            - Vec3::splat(THICKNESS);
-        let hi = points
-            .into_iter()
-            .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max)
-            + Vec3::splat(THICKNESS);
-        let planes = [
-            (Vec3::X, lo.x),
-            (Vec3::NEG_X, -hi.x),
-            (Vec3::Z, lo.z),
-            (Vec3::NEG_Z, -hi.z),
-        ];
-        let mut top: Option<f32> = None;
+    /// A roof triangle needs an inclined supporting plane, not a horizontal
+    /// box enclosing its entire footprint. Expanding the three edge planes by
+    /// the lining thickness also protects the emitted offset faces.
+    fn roof_plane(&self, points: [Vec3; 3], normal: Vec3) -> Option<f32> {
+        let mut planes = [(Vec3::ZERO, 0.0); 3];
+        for (edge, plane) in planes.iter_mut().enumerate() {
+            let a = points[edge];
+            let b = points[(edge + 1) % 3];
+            let opposite = points[(edge + 2) % 3];
+            let delta = b - a;
+            let mut inward = Vec3::new(-delta.z, 0.0, delta.x).normalize_or_zero();
+            if inward.dot(opposite - a) < 0.0 {
+                inward = -inward;
+            }
+            *plane = (inward, inward.dot(a) - THICKNESS);
+        }
+        let mut support: Option<f32> = None;
         for &triangle in &self.triangles {
-            if let Some(value) = clipped_support(triangle, Vec3::Y, &planes) {
-                top = Some(top.map_or(value, |old| old.max(value)));
+            let bound = triangle
+                .iter()
+                .map(|p| normal.dot(*p))
+                .fold(f32::NEG_INFINITY, f32::max);
+            if support.is_some_and(|old| bound <= old) {
+                continue;
+            }
+            if let Some(value) = clipped_support(triangle, normal, &planes) {
+                support = Some(support.map_or(value, |old| old.max(value)));
             }
         }
-        top
+        support
     }
 
     /// IDs occur in several height bins, but are yielded only at their first
@@ -924,17 +930,27 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
                 .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &i| {
                     (lo.min(posed[i].y), hi.max(posed[i].y))
                 });
-            let Some(plane) = support.support_plane(
-                normal,
-                low - THICKNESS,
-                if row == 3 {
-                    support.bottom + support.height + THICKNESS
-                } else {
-                    high + THICKNESS
-                },
-                lower,
-                upper,
-            ) else {
+            // Only geometry inside this fixed angular corridor can meet the
+            // shared boundary during its subsequent upward roof correction.
+            // Reserve that corridor's top, not an unrelated raised hand on the
+            // other side of the wearer. Above it there is no remaining contact.
+            let high = if row == 3 {
+                support
+                    .support_plane(
+                        Vec3::Y,
+                        low - THICKNESS,
+                        support.bottom + support.height + THICKNESS,
+                        lower,
+                        upper,
+                    )
+                    .unwrap_or(high)
+                    .max(high)
+            } else {
+                high
+            };
+            let Some(plane) =
+                support.support_plane(normal, low - THICKNESS, high + THICKNESS, lower, upper)
+            else {
                 continue;
             };
             for i in cell {
@@ -951,22 +967,36 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
             }
         }
     }
-    // The shoulder is a roof, not a vertical skirt. Solve it last, after
-    // hanging cells have settled their shared shoulder boundary. Row 3's
-    // radial constraint reserves the entire possible upward travel above.
-    for row in (0..3).rev() {
+    // Freeze every upward plane before applying corrections. Later positive
+    // vertical moves preserve all accepted planes; deriving normals from an
+    // already raised neighbor instead would propagate a table-shaped roof.
+    let mut roofs = Vec::with_capacity(3 * COLUMNS * 2);
+    for row in 0..3 {
         for column in 0..COLUMNS {
-            let cell = [
-                index(row, column),
-                index(row, column + 1),
-                index(row + 1, column),
-                index(row + 1, column + 1),
-            ];
-            if let Some(top) = support.top_over(cell.map(|i| posed[i])) {
-                for i in cell {
-                    posed[i].y = posed[i].y.max(top + LAYER_GAP + THICKNESS);
+            let a = index(row, column);
+            let b = index(row, column + 1);
+            let c = index(row + 1, column);
+            let d = index(row + 1, column + 1);
+            for face in [[a, b, c], [b, d, c]] {
+                let triangle = face.map(|i| posed[i]);
+                let mut normal = (triangle[1] - triangle[0]).cross(triangle[2] - triangle[0]);
+                if normal.y < 0.0 {
+                    normal = -normal;
+                }
+                // Almost vertical transition triangles still need an upward
+                // roof constraint. Limit its slope, not its collision margin.
+                normal.y = normal.y.max(normal.with_y(0.0).length() * 0.25);
+                normal = normal.normalize_or(Vec3::Y);
+                if let Some(plane) = support.roof_plane(triangle, normal) {
+                    roofs.push((face, normal, plane + LAYER_GAP + THICKNESS));
                 }
             }
+        }
+    }
+    for (face, normal, plane) in roofs {
+        for i in face {
+            let rise = ((plane - normal.dot(posed[i])) / normal.y).max(0.0);
+            posed[i].y += rise;
         }
     }
     let inverse = rotation.inverse();
@@ -1070,6 +1100,71 @@ mod tests {
     }
 
     #[test]
+    fn inclined_roof_keeps_slope_and_excludes_bbox_only_obstacles() {
+        let face = [
+            Vec3::new(0.0, 0.6, 0.0),
+            Vec3::new(0.3, 0.45, 0.0),
+            Vec3::new(0.0, 0.6, 0.3),
+        ];
+        let normal = Vec3::new(0.5, 1.0, 0.0).normalize();
+        let under = face.map(|p| p - Vec3::Y * 0.01);
+        // Inside the bounding rectangle, outside the actual triangle.
+        let remote = [
+            Vec3::new(0.25, 0.9, 0.25),
+            Vec3::new(0.29, 0.9, 0.25),
+            Vec3::new(0.25, 0.9, 0.29),
+        ];
+        let support = LayerSurface::from_triangles(vec![under, remote]);
+        let plane = support.roof_plane(face, normal).unwrap() + LAYER_GAP + THICKNESS;
+        let fitted = face.map(|p| p + Vec3::Y * ((plane - normal.dot(p)) / normal.y).max(0.0));
+        assert!(
+            (fitted[0].y - fitted[1].y - 0.15).abs() < 1e-6,
+            "an inclined roof must not become a horizontal shelf"
+        );
+        assert!(
+            fitted.iter().all(|p| p.y < 0.64),
+            "unrelated bbox peak must not lift the roof"
+        );
+        for point in under {
+            assert!(normal.dot(point) + LAYER_GAP + THICKNESS <= plane + 1e-6);
+        }
+    }
+
+    #[test]
+    fn neutral_layered_yokes_have_bounded_height_and_shoulder_slope() {
+        for (name, armor) in [
+            ("leather-cloak", "hawaiian-shirt"),
+            ("ornamental-cope", "plate-mail"),
+        ] {
+            let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()));
+            let mut equipment = Equipment::default();
+            equipment.select(armor).unwrap();
+            equipment.select(name).unwrap();
+            let (_, mut rig, _, mut meshes) =
+                super::super::rogue_tests::spawn_one(&look.equipped(equipment));
+            place_layers(&mut rig.cloaks, |_| Some(Quat::IDENTITY), &mut meshes);
+            for cloak in &rig.cloaks {
+                let offset = Vec3::new(0.0, 0.53, -0.15);
+                let arms = cloak.arm_surface.as_ref().unwrap();
+                let top = arms.bottom + arms.height;
+                let roof = &cloak.points[..4 * (COLUMNS + 1)];
+                // Two cloth layers may reserve their lining and gap, but not
+                // create a raised rigid box above the actual shoulder support.
+                assert!(
+                    roof.iter().all(|p| p.y + offset.y <= top + 0.12),
+                    "{name}: yoke exceeds the two-layer shoulder allowance"
+                );
+                for column in [COLUMNS / 4, COLUMNS * 3 / 4] {
+                    let neck = cloak.points[index(0, column)];
+                    let shoulder = cloak.points[index(3, column)];
+                    assert!(neck.y - shoulder.y > 0.025,
+                        "{name}: neck-to-shoulder roof must descend, not form a table or raised rim: {neck:?}, {shoulder:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn yoke_support_is_local_and_arm_release_preserves_neck_attachment() {
         let distant_fist = [
             Vec3::new(-0.4, 0.8, 0.4),
@@ -1084,17 +1179,12 @@ mod tests {
             Vec3::new(-0.05, 0.55, 0.08),
         ];
         assert!(
-            surface.top_over(neck).is_none(),
+            surface
+                .roof_plane([neck[0], neck[1], neck[2]], Vec3::Y)
+                .is_none(),
             "a remote hand in the neck's angular sector cannot lift the attachment"
         );
-        assert!(surface
-            .top_over([
-                distant_fist[0],
-                distant_fist[1],
-                distant_fist[2],
-                distant_fist[0]
-            ])
-            .is_some());
+        assert!(surface.roof_plane(distant_fist, Vec3::Y).is_some());
         let opening = 1.3;
         let left = Vec3::new(
             -(opening * 0.5f32).sin() * 0.4,
