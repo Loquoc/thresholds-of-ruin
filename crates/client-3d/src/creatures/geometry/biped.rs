@@ -1560,7 +1560,17 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 sculpted_limb(&mut p.matte, body.shin, pants);
             }
             if let Some(kind) = l.equipment.footwear() {
-                equipment_footwear::emit_shaft(p, kind, boot_shape, b, side, boot, kind.trim());
+                equipment_footwear::emit_fitted_shaft(
+                    p,
+                    kind,
+                    boot_shape,
+                    b,
+                    side,
+                    boot,
+                    kind.trim(),
+                    body.shin,
+                    trousered,
+                );
                 return;
             }
             let boot_top = boot_shape.top;
