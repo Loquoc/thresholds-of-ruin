@@ -383,6 +383,7 @@ pub(super) struct CloakRig {
     contact_reference: Vec<Vec3>,
     contact_seated: Vec<Vec3>,
     contact_seating_valid: bool,
+    contact_radial_trace: Option<serde_json::Value>,
     contact_cpu_ms: [f64; 4],
     contact_solves: u64,
 }
@@ -477,7 +478,7 @@ impl CloakRig {
         Some(
             serde_json::json!({"layer":if self.inner_layer.is_some(){"mantle"}else{"main"},
             "reference_scope":"posed body/arm point fit before inner seating and whole-face constraints; not an unstretched material metric",
-            "rest_scope":"neutral recipe rest, already body/arm point-fitted", "seating_valid":self.contact_seating_valid,
+            "rest_scope":"neutral recipe rest, already body/arm point-fitted", "seating_valid":self.contact_seating_valid, "radial_witness":self.contact_radial_trace,
             "row_range_order":["radius_min","radius_max","y_min","y_max"],"rows":rows,
             "max_travel":{"vertex":vertex,"row":vertex/(COLUMNS+1),"column":vertex%(COLUMNS+1),"distance":travel,"reference":before(vertex).to_array(),"final":point(vertex).to_array()},
             "radial_order_inversions":inversions,"max_radial_order_drop":worst_drop,
@@ -652,10 +653,16 @@ pub(super) fn spawn(
     let mut contact_solves = 0;
     let constraint_started = std::time::Instant::now();
     let mut contact_fallbacks = 0;
+    let mut contact_radial_trace = None;
     // A dependent mantle is first fitted by place_layers against its seated
     // inner cloth, not an incomplete startup-only arm solve.
     if let (None, Some(surface)) = (recipe.inner_layer, &arm_surface) {
-        contact_fallbacks += u64::from(fit_arm_cells(&mut points, Quat::IDENTITY, surface));
+        contact_fallbacks += u64::from(fit_arm_cells(
+            &mut points,
+            Quat::IDENTITY,
+            surface,
+            &mut contact_radial_trace,
+        ));
         contact_solves += 1;
         contact_cpu_ms[3] += constraint_started.elapsed().as_secs_f64() * 1000.0;
     }
@@ -755,6 +762,7 @@ pub(super) fn spawn(
         contact_reference,
         contact_seated: Vec::new(),
         contact_seating_valid: true,
+        contact_radial_trace,
         contact_cpu_ms,
         contact_solves,
         opening: recipe.cut.map(|cut| cut.opening),
@@ -864,6 +872,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
         cloak.contact_reference.clone_from(&cloak.points);
         cloak.contact_seated.clear();
         cloak.contact_seating_valid = true;
+        cloak.contact_radial_trace = None;
     }
     // A mantle is fitted once against the combined inner-cloth/arm support
     // below. Pre-fitting its arms here would derive the second roof solve's
@@ -871,8 +880,12 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
     if fit_arms {
         if let Some(surface) = &cloak.arm_surface {
             let started = std::time::Instant::now();
-            cloak.contact_fallbacks +=
-                u64::from(fit_arm_cells(&mut cloak.points, rotation, surface));
+            cloak.contact_fallbacks += u64::from(fit_arm_cells(
+                &mut cloak.points,
+                rotation,
+                surface,
+                &mut cloak.contact_radial_trace,
+            ));
             cloak.contact_cpu_ms[3] += started.elapsed().as_secs_f64() * 1000.0;
             cloak.contact_solves += 1;
         }
@@ -1431,11 +1444,16 @@ fn release_front(at: Vec3, row: usize, column: usize, opening: f32, release: Fre
 /// nonnegative correction preserves earlier neighboring support planes.
 #[cfg(test)]
 fn fit_layer_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
-    fit_cells(points, rotation, support);
+    fit_cells(points, rotation, support, &mut None);
 }
 
-fn fit_arm_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) -> bool {
-    fit_cells(points, rotation, support)
+fn fit_arm_cells(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: &LayerSurface,
+    trace: &mut Option<serde_json::Value>,
+) -> bool {
+    fit_cells(points, rotation, support, trace)
 }
 
 #[derive(Debug)]
@@ -1446,8 +1464,13 @@ struct RadialFitFailure {
     detail: [f32; 3],
 }
 
-fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) -> bool {
-    if let Err(failure) = fit_radial_faces(points, rotation, support) {
+fn fit_cells(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: &LayerSurface,
+    trace: &mut Option<serde_json::Value>,
+) -> bool {
+    if let Err(failure) = fit_radial_faces_traced(points, rotation, support, trace) {
         fallback_radial_fit(points, rotation, support, failure);
         true
     } else {
@@ -1486,19 +1509,30 @@ fn fallback_radial_fit(
 
 /// Noncollar vertices move radially at fixed height. Collar vertices move
 /// vertically at fixed XZ, within the same absolute attachment ceiling; first
-/// faces reserve that complete vertical sweep and use upward-facing planes.
+/// faces reserve per-vertex vertical budgets and use upward-facing planes.
 /// The fifth query plane bounds the possible outward
 /// travel, so an unrelated cap beyond a collar face cannot move its anchors.
-/// Any budget expansion restarts every face query. Only a solution contained
+/// Any radial OR vertical budget expansion restarts every face query. Only a solution contained
 /// in all queried budgets is committed; convexity then contains every final
 /// face, and positive radial corrections preserve all separating planes.
 /// Twelve rounds and a fixed candidate set bound work; exhaustion is reported,
 /// never treated as convergence or an excuse to omit collision constraints.
+#[cfg(test)]
 fn fit_radial_faces(
     points: &mut [Vec3],
     rotation: Quat,
     support: &LayerSurface,
 ) -> Result<(), RadialFitFailure> {
+    fit_radial_faces_traced(points, rotation, support, &mut None)
+}
+
+fn fit_radial_faces_traced(
+    points: &mut [Vec3],
+    rotation: Quat,
+    support: &LayerSurface,
+    trace: &mut Option<serde_json::Value>,
+) -> Result<(), RadialFitFailure> {
+    *trace = None;
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
     let directions: Vec<_> = reference
@@ -1508,6 +1542,10 @@ fn fit_radial_faces(
     let collar_ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
     let mut travels = vec![0.0f32; GRID];
     let mut budgets = vec![0.0f32; GRID];
+    // Collar budgets are Y travel, NEVER radial extent. Keep them separate
+    // so growth cannot accidentally enlarge the fixed-XZ attachment domain.
+    let mut collar_budgets = [0.0f32; COLUMNS + 1];
+    let mut radial_trace = None;
     #[cfg(test)]
     let mut collar_trace: Option<(f32, String)> = None;
     for iteration in 0..12 {
@@ -1516,6 +1554,7 @@ fn fit_radial_faces(
             collar_trace = None;
         }
         travels.fill(0.0);
+        radial_trace = None;
         for row in 0..ROWS {
             for column in 0..COLUMNS {
                 let [a, b, c, d] = [
@@ -1556,8 +1595,8 @@ fn fit_radial_faces(
                         .iter()
                         .map(|p| p.y)
                         .fold(f32::NEG_INFINITY, f32::max);
-                    if row == 0 {
-                        high = high.max(collar_ceiling);
+                    for &i in face.iter().filter(|&&i| i <= COLUMNS) {
+                        high = high.max(reference[i].y + collar_budgets[i]);
                     }
                     let radial_limit = face
                         .iter()
@@ -1586,13 +1625,20 @@ fn fit_radial_faces(
                     ];
                     let normals = slopes.map(|k| (horizontal + Vec3::Y * k).normalize());
                     let mut supports = [f32::NEG_INFINITY; 22];
+                    let mut support_points = [Vec3::ZERO; 22];
                     let mut found = false;
                     for &triangle in support.clipped_candidates(planes) {
                         if let Some((polygon, count)) = clipped_polygon(triangle, planes) {
                             found = true;
-                            for (normal, value) in normals.iter().zip(&mut supports) {
+                            for ((normal, value), witness) in
+                                normals.iter().zip(&mut supports).zip(&mut support_points)
+                            {
                                 for p in &polygon[..count] {
-                                    *value = value.max(normal.dot(*p));
+                                    let projection = normal.dot(*p);
+                                    if projection > *value {
+                                        *value = projection;
+                                        *witness = *p;
+                                    }
                                 }
                             }
                         }
@@ -1601,10 +1647,11 @@ fn fit_radial_faces(
                         continue;
                     }
                     let mut best: Option<([f32; 3], f32)> = None;
-                    #[cfg(test)]
-                    let mut winning_plane = (Vec3::ZERO, 0.0);
+                    let mut winning_plane = (Vec3::ZERO, 0.0, Vec3::ZERO);
                     let mut best_anchor_deficit = f32::INFINITY;
-                    for (normal, height) in normals.into_iter().zip(supports) {
+                    for ((normal, height), witness) in
+                        normals.into_iter().zip(supports).zip(support_points)
+                    {
                         // Shared collar lifts must preserve every first-band
                         // plane, just as radial travel preserves lower ones.
                         if row == 0 && normal.y < 0.0 {
@@ -1648,10 +1695,7 @@ fn fit_radial_faces(
                         let cost = shifts.iter().map(|s| s * s).sum::<f32>();
                         if best.is_none_or(|(_, old)| cost < old) {
                             best = Some((shifts, cost));
-                            #[cfg(test)]
-                            {
-                                winning_plane = (normal, plane);
-                            }
+                            winning_plane = (normal, plane, witness);
                         }
                     }
                     let Some((shifts, _)) = best else {
@@ -1694,6 +1738,25 @@ fn fit_radial_faces(
                     }
                     for (i, shift) in face.into_iter().zip(shifts) {
                         travels[i] = travels[i].max(shift);
+                        if i > COLUMNS
+                            && shift > 0.0
+                            && radial_trace.as_ref().is_none_or(|(old, _)| shift > *old)
+                        {
+                            radial_trace = Some((
+                                shift,
+                                (
+                                    i,
+                                    row,
+                                    column,
+                                    face,
+                                    winning_plane,
+                                    low,
+                                    high,
+                                    radial_limit,
+                                    iteration,
+                                ),
+                            ));
+                        }
                     }
                 }
             }
@@ -1702,7 +1765,11 @@ fn fit_radial_faces(
             .iter()
             .zip(&budgets)
             .skip(COLUMNS + 1)
-            .any(|(&travel, &budget)| travel > budget);
+            .any(|(&travel, &budget)| travel > budget)
+            || travels[..=COLUMNS]
+                .iter()
+                .zip(&collar_budgets)
+                .any(|(&travel, &budget)| travel > budget);
         if !expanded {
             break;
         }
@@ -1710,13 +1777,20 @@ fn fit_radial_faces(
             return Err(RadialFitFailure {
                 row: 0,
                 column: 0,
-                reason: "radial swept domains did not converge",
+                reason: "radial/vertical swept domains did not converge",
                 detail: [
                     travels.iter().copied().fold(0.0, f32::max),
                     budgets.iter().copied().fold(0.0, f32::max),
                     12.0,
                 ],
             });
+        }
+        for (i, (budget, &travel)) in collar_budgets.iter_mut().zip(&travels).enumerate() {
+            if travel > *budget {
+                *budget = (travel + THICKNESS)
+                    .min((collar_ceiling - reference[i].y).max(0.0))
+                    .max(travel);
+            }
         }
         for (budget, &travel) in budgets.iter_mut().zip(&travels).skip(COLUMNS + 1) {
             // Reserve one additional lining thickness when a domain expands. It
@@ -1731,6 +1805,19 @@ fn fit_radial_faces(
     #[cfg(test)]
     if let Some((_, trace)) = collar_trace {
         eprintln!("{trace}");
+    }
+    if let Some((
+        travel,
+        (vertex, row, column, face, (normal, plane, witness), low, high, radial_limit, iteration),
+    )) = radial_trace
+    {
+        *trace = Some(
+            serde_json::json!({"vertex":vertex,"face":face,"row":row,"column":column,
+            "iteration":iteration,"travel":travel,"normal":normal.to_array(),"plane":plane,
+            "support_projection":plane-LAYER_GAP-THICKNESS,"support_point":witness.to_array(),"height_domain":[low-THICKNESS,high+THICKNESS],
+            "radial_domain":if row<ROOF_ROWS {Some(radial_limit+THICKNESS)} else {None},
+            "reference":reference[vertex].to_array(),"final":(reference[vertex]+directions[vertex]*travel).to_array()}),
+        );
     }
     let inverse = rotation.inverse();
     for (i, point) in points.iter_mut().enumerate() {
@@ -1901,7 +1988,7 @@ fn seat_layer_collar(
     Ok(())
 }
 
-/// Establish a physically outside reference for every mantle row, rather
+/// Establish a physically outside reference for the noncollar mantle rows, rather
 /// than asking a fixed-height solver to escape a horizontal inner sheet by
 /// moving to its rim. Rays are only initialization: all emitted faces still
 /// require the combined inner-cloth/arm certificate afterwards.
@@ -1912,7 +1999,10 @@ fn seat_inner_layer(
 ) -> Result<(), RadialFitFailure> {
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let inverse = rotation.inverse();
-    for (i, point) in points.iter_mut().enumerate() {
+    // Keep the anatomical collar as the joint solver's attachment reference.
+    // An unbounded upward ray can hit a remote fold above its finite faces;
+    // only the coupled certificate decides the collar's necessary Y travel.
+    for (i, point) in points.iter_mut().enumerate().skip(COLUMNS + 1) {
         let at = rotation * *point + offset;
         let fitted = if i / (COLUMNS + 1) < YOKE_ROWS {
             fit_mesh_contact(at, true, inner)
@@ -2013,7 +2103,14 @@ pub(super) fn place_layers(
         let constraint_started = std::time::Instant::now();
         // Certify the seated reference against BOTH retained surfaces. The
         // one-shot ray offsets do not certify slopes or triangle interiors.
-        match seated.and_then(|()| fit_radial_faces(&mut candidate, rot, &support)) {
+        match seated.and_then(|()| {
+            fit_radial_faces_traced(
+                &mut candidate,
+                rot,
+                &support,
+                &mut cloak.contact_radial_trace,
+            )
+        }) {
             Ok(()) => cloak.points = candidate,
             Err(failure) => {
                 cloak.contact_fallbacks += 1;
@@ -2295,6 +2392,178 @@ mod tests {
                 Vec3::new(angle.sin() * radius, y, angle.cos() * radius) - offset
             })
             .collect()
+    }
+
+    #[test]
+    fn collar_domain_ignores_an_overhead_obstacle_outside_actual_travel() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let mut points = radial_test_grid();
+        let before = points.clone();
+        let anchor = points[0] + offset;
+        let overhead = LayerSurface::from_triangles(vec![[
+            anchor + Vec3::new(-0.01, 0.07, 0.0),
+            anchor + Vec3::new(0.01, 0.07, 0.0),
+            anchor + Vec3::new(0.0, 0.08, 0.0),
+        ]]);
+        let mut trace = None;
+        fit_radial_faces_traced(&mut points, Quat::IDENTITY, &overhead, &mut trace)
+            .expect("an unreachable overhead obstacle must not consume collar clearance");
+        assert!(points
+            .iter()
+            .zip(&before)
+            .all(|(a, b)| a.distance(*b) < 1e-6));
+        assert!(
+            trace.is_none(),
+            "no radial constraint is needed outside the actual swept domain"
+        );
+    }
+
+    #[test]
+    fn collar_growth_requeries_an_obstacle_above_the_initial_face_domain() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let reference = radial_test_grid();
+        let anchor = reference[0] + offset;
+        let lower = [
+            anchor - Vec3::X * 0.01,
+            anchor + Vec3::X * 0.01,
+            anchor + Vec3::Y * 0.01,
+        ];
+        let upper = lower.map(|p| p + Vec3::Y * 0.02);
+        assert!(upper
+            .iter()
+            .all(|p| p.y > reference[index(1, 0)].y + offset.y + THICKNESS));
+        let mut low_only = reference.clone();
+        fit_radial_faces(
+            &mut low_only,
+            Quat::IDENTITY,
+            &LayerSurface::from_triangles(vec![lower]),
+        )
+        .expect("lower obstacle can be cleared inside the existing ceiling");
+        let support = LayerSurface::from_triangles(vec![lower, upper]);
+        let mut points = reference.clone();
+        let mut trace = None;
+        fit_radial_faces_traced(&mut points, Quat::IDENTITY, &support, &mut trace)
+            .expect("a newly reached upper obstacle must be included on the next solve round");
+        assert!(points[0].y > low_only[0].y + 0.015);
+        assert!(trace.as_ref().unwrap()["iteration"].as_u64().unwrap() >= 1);
+        let ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
+        for (p, original) in points[..=COLUMNS].iter().zip(&reference) {
+            assert!(p.with_y(0.0).distance(original.with_y(0.0)) < 1e-6);
+            assert!(p.y + offset.y <= ceiling);
+        }
+        // Independently sample the actual emitted exterior and lining, not
+        // the BVH or the solver's clipped support projections.
+        let mut normals = vec![Vec3::ZERO; GRID];
+        surface_normals(&points, &mut normals);
+        for col in 0..COLUMNS {
+            let [a, b, c, d] = [
+                index(0, col),
+                index(0, col + 1),
+                index(1, col),
+                index(1, col + 1),
+            ];
+            for face in [[a, b, c], [b, d, c]] {
+                for side in [-1.0, 1.0] {
+                    let emitted =
+                        face.map(|i| points[i] + offset + normals[i] * (side * THICKNESS * 0.5));
+                    for weights in [
+                        [1.0 / 3.0; 3],
+                        [0.6, 0.2, 0.2],
+                        [0.2, 0.6, 0.2],
+                        [0.2, 0.2, 0.6],
+                    ] {
+                        let p = emitted
+                            .into_iter()
+                            .zip(weights)
+                            .map(|(p, w)| p * w)
+                            .sum::<Vec3>();
+                        assert!(
+                            rendered_clearance_checked(&support, p, true) > 0.001,
+                            "newly reached upper obstacle clips emitted collar lining at {p:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn inner_point_ray_overshoot_defers_to_bounded_joint_collar_clearance() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let mut points = radial_test_grid();
+        let reference = points.clone();
+        // A small fold above the front attachment is within its infinite
+        // point ray, but outside every final finite face near that opening.
+        let a = reference[0] + offset + Vec3::Y * 0.062;
+        let panel = [
+            a + Vec3::new(-0.005, 0.0, -0.003),
+            a + Vec3::new(0.005, 0.0, -0.003),
+            a + Vec3::new(0.005, 0.0, 0.003),
+            a + Vec3::new(-0.005, 0.0, 0.003),
+        ];
+        // A separate rear obstacle genuinely requires joint collar lift.
+        // Thus success cannot be obtained by simply ignoring collar contact.
+        let rear = reference[COLUMNS / 2] + offset;
+        let support = LayerSurface::from_triangles(vec![
+            [panel[0], panel[1], panel[2]],
+            [panel[0], panel[2], panel[3]],
+            [
+                rear - Vec3::X * 0.01,
+                rear + Vec3::X * 0.01,
+                rear + Vec3::Y * 0.01,
+            ],
+        ]);
+        let ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
+        let raw = fit_mesh_contact(reference[0] + offset, true, &support);
+        assert!(
+            raw.y > ceiling,
+            "fixture must retain the raw-ray ceiling overshoot"
+        );
+        seat_inner_layer(&mut points, Quat::IDENTITY, &support)
+            .expect("point initialization must leave collar feasibility to complete faces");
+        assert_eq!(&points[..=COLUMNS], &reference[..=COLUMNS]);
+        fit_radial_faces(&mut points, Quat::IDENTITY, &support)
+            .expect("finite joint clearance fits without raising the absolute ceiling");
+        assert!(points[COLUMNS / 2].y > reference[COLUMNS / 2].y + 0.02);
+        assert!(points[0].distance(reference[0]) < 1e-6);
+        for (p, before) in points[..=COLUMNS].iter().zip(&reference) {
+            assert!(p.y + offset.y <= ceiling);
+            assert!(p.with_y(0.0).distance(before.with_y(0.0)) < 1e-6);
+        }
+        let mut normals = vec![Vec3::ZERO; GRID];
+        surface_normals(&points, &mut normals);
+        for row in 0..ROWS {
+            for col in 0..COLUMNS {
+                let [a, b, c, d] = [
+                    index(row, col),
+                    index(row, col + 1),
+                    index(row + 1, col),
+                    index(row + 1, col + 1),
+                ];
+                for face in [[a, b, c], [b, d, c]] {
+                    for side in [-1.0, 1.0] {
+                        let emitted = face
+                            .map(|i| points[i] + offset + normals[i] * (side * THICKNESS * 0.5));
+                        for weights in [
+                            [1.0 / 3.0; 3],
+                            [0.6, 0.2, 0.2],
+                            [0.2, 0.6, 0.2],
+                            [0.2, 0.2, 0.6],
+                        ] {
+                            let p = emitted
+                                .into_iter()
+                                .zip(weights)
+                                .map(|(p, w)| p * w)
+                                .sum::<Vec3>();
+                            assert!(
+                                rendered_clearance_checked(&support, p, true) > 0.001,
+                                "joint collar fitting must retain emitted-face clearance: {p:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
