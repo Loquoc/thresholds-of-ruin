@@ -181,6 +181,15 @@ fn changed_panel_transform_invalidates_contact_with_unchanged_leg_pose() {
         .flatten()
         .all(|value| value.is_finite()));
     assert_panel_bounds(&world, entity, &meshes);
+    // Contact moves the open panel forward rather than inflating it radially.
+    // Every authored edge length and front/lining separation stays intact.
+    for (old, new) in before.iter().zip(&after) {
+        for i in (1..old.len()).step_by(17) {
+            let a = Vec3::from_array(old[i]).distance(Vec3::from_array(old[0]));
+            let b = Vec3::from_array(new[i]).distance(Vec3::from_array(new[0]));
+            assert!((a - b).abs() < 0.0001, "contact must not balloon the panel");
+        }
+    }
     super::super::robe::place(robe, &rest, &rotations, &offsets, &mut meshes);
     for (handle, expected) in handles.iter().zip(after) {
         assert_eq!(

@@ -697,7 +697,7 @@ fn modular_worn_equipment_review_fixtures_resolve_all_studies_and_layers() {
     for (index, fixture) in fixtures.into_iter().enumerate() {
         let script = Script::parse(fixture.as_bytes()).unwrap();
         assert!(script.actors.len() <= 8);
-        assert_eq!(script.captures.len(), 5);
+        assert_eq!(script.captures.len(), 5 + script.actors.len());
         for actor in script.actors {
             actor.look().unwrap();
             if index < 5 {

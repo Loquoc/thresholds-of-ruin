@@ -221,8 +221,12 @@ pub(in crate::creatures) fn emit_cuff(
         let sample = angle.rem_euclid(TAU) / TAU * 96.0;
         let index = (sample.floor() as usize).min(95);
         // The larger neighboring radius is conservative between support rays.
-        let r = fitted[row][index].max(fitted[row][index + 1])
-            - if inner { 0.003 * build } else { 0.0 };
+        // Adjacent axial stations bound a bulging sleeve between cuff rings;
+        // the polygon inradius must also clear the supporting round surface.
+        let support = (row.saturating_sub(1)..=(row + 1).min(8))
+            .map(|r| fitted[r][index].max(fitted[r][index + 1]))
+            .fold(0.0f32, f32::max);
+        let r = support / (PI / 24.0).cos() - if inner { 0.003 * build } else { 0.0 };
         wrist + Vec3::new(angle.cos() * r, (y + wear) * length, angle.sin() * r)
     };
     let color = appearance.color();

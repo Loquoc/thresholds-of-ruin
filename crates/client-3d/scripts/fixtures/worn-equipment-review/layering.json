@@ -24,7 +24,7 @@
       ],
       "position": [
         -3.3000000000000003,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -47,7 +47,7 @@
       ],
       "position": [
         -1.1,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -69,7 +69,7 @@
       ],
       "position": [
         1.1,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -91,7 +91,7 @@
       ],
       "position": [
         3.3000000000000003,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -113,7 +113,7 @@
       ],
       "position": [
         -3.3000000000000003,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -135,7 +135,7 @@
       ],
       "position": [
         -1.1,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -157,7 +157,7 @@
       ],
       "position": [
         1.1,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -179,7 +179,7 @@
       ],
       "position": [
         3.3000000000000003,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -218,6 +218,118 @@
         1.2
       ],
       "fov_degrees": 48
+    },
+    {
+      "id": "detail-shirt-plate-open-cape",
+      "position": [
+        -2.95,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        -3.3000000000000003,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-tshirt-chain-cloak",
+      "position": [
+        -0.7500000000000001,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        -1.1,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-robe-over-full-skirt",
+      "position": [
+        1.4500000000000002,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        1.1,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-apron-over-caster-robe",
+      "position": [
+        3.6500000000000004,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        3.3000000000000003,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-centaur-head-and-hands",
+      "position": [
+        -2.95,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        -3.3000000000000003,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-cope-and-armor",
+      "position": [
+        -0.7500000000000001,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        -1.1,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-wrapping-over-shirt",
+      "position": [
+        1.4500000000000002,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        1.1,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-leather-mantle-over-shirt",
+      "position": [
+        3.6500000000000004,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        3.3000000000000003,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
     }
   ],
   "events": [
@@ -584,6 +696,46 @@
       "tick": 0,
       "name": "layering-rear",
       "camera": "rear"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-shirt-plate-open-cape",
+      "camera": "detail-shirt-plate-open-cape"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-tshirt-chain-cloak",
+      "camera": "detail-tshirt-chain-cloak"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-robe-over-full-skirt",
+      "camera": "detail-robe-over-full-skirt"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-apron-over-caster-robe",
+      "camera": "detail-apron-over-caster-robe"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-centaur-head-and-hands",
+      "camera": "detail-centaur-head-and-hands"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-cope-and-armor",
+      "camera": "detail-cope-and-armor"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-wrapping-over-shirt",
+      "camera": "detail-wrapping-over-shirt"
+    },
+    {
+      "tick": 0,
+      "name": "layering-detail-leather-mantle-over-shirt",
+      "camera": "detail-leather-mantle-over-shirt"
     },
     {
       "tick": 28,

@@ -22,7 +22,7 @@
       ],
       "position": [
         -3.3000000000000003,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -43,7 +43,7 @@
       ],
       "position": [
         -1.1,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -64,7 +64,7 @@
       ],
       "position": [
         1.1,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -85,7 +85,7 @@
       ],
       "position": [
         3.3000000000000003,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -106,7 +106,7 @@
       ],
       "position": [
         -3.3000000000000003,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -127,7 +127,7 @@
       ],
       "position": [
         -1.1,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -148,7 +148,7 @@
       ],
       "position": [
         1.1,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -187,6 +187,104 @@
         1.2
       ],
       "fov_degrees": 48
+    },
+    {
+      "id": "detail-combat-boots",
+      "position": [
+        -2.95,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        -3.3000000000000003,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-jungle-boots",
+      "position": [
+        -0.7500000000000001,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        -1.1,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-hiking-boots",
+      "position": [
+        1.4500000000000002,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        1.1,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-mud-boots",
+      "position": [
+        3.6500000000000004,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        3.3000000000000003,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-buckled-boots",
+      "position": [
+        -2.95,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        -3.3000000000000003,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-riding-boots",
+      "position": [
+        -0.7500000000000001,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        -1.1,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-snow-boots",
+      "position": [
+        1.4500000000000002,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        1.1,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
     }
   ],
   "events": [
@@ -509,6 +607,41 @@
       "tick": 0,
       "name": "appearances-05-rear",
       "camera": "rear"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-combat-boots",
+      "camera": "detail-combat-boots"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-jungle-boots",
+      "camera": "detail-jungle-boots"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-hiking-boots",
+      "camera": "detail-hiking-boots"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-mud-boots",
+      "camera": "detail-mud-boots"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-buckled-boots",
+      "camera": "detail-buckled-boots"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-riding-boots",
+      "camera": "detail-riding-boots"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-05-detail-snow-boots",
+      "camera": "detail-snow-boots"
     },
     {
       "tick": 28,

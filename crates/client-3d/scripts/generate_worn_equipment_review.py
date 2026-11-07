@@ -22,7 +22,7 @@ def actor(name, index, equipment, *, woman=None, model='Human', outfit='native')
             'body': {'woman': index % 2 == 0 if woman is None else woman,
                      'build': index % 3, 'bust': 2, 'figure': index % 3},
             'outfit': outfit, 'equipment': equipment,
-            'position': [(index % 4 - 1.5) * 2.2, 0, (index // 4) * 2.7], 'yaw': 0}
+            'position': [(index % 4 - 1.5) * 2.2, -0.5, (index // 4) * 2.7], 'yaw': 0}
 
 
 def sheet(actors, name):
@@ -33,7 +33,7 @@ def sheet(actors, name):
                                 (80, {'type': 'velocity', 'value': [0, 0, 0]}),
                                 (85, {'type': 'action', 'name': 'strike'})]:
             events.append({'tick': tick, 'actor': a['id'], 'operation': operation})
-    return {'version': 1, 'hz': 50, 'viewport': [1920, 1280], 'actors': actors,
+    result = {'version': 1, 'hz': 50, 'viewport': [1920, 1280], 'actors': actors,
             'floor_color': [0.25, 0.27, 0.30],
             'cameras': [{'id': 'front', 'position': [0, 4.2, 10.5], 'target': [0, 0.7, 1.2], 'fov_degrees': 48},
                         {'id': 'rear', 'position': [0, 3.8, -8], 'target': [0, 0.7, 1.2], 'fov_degrees': 48}],
@@ -42,6 +42,17 @@ def sheet(actors, name):
                          for tick, pose, camera in [(0, 'front', 'front'), (0, 'rear', 'rear'),
                                                     (28, 'walking', 'front'), (65, 'turning', 'rear'),
                                                     (93, 'striking', 'front')]]}
+    # Full sheets establish combinations; individual cameras expose seams,
+    # glove cuffs and footwear that are too small to judge on a contact sheet.
+    closeups = []
+    for a in actors:
+        x, y, z = a['position']
+        camera = f'detail-{a["id"]}'
+        result['cameras'].append({'id': camera, 'position': [x + 0.35, y + 1.15, z + 3.1],
+                                  'target': [x, y + 0.8, z], 'fov_degrees': 38})
+        closeups.append({'tick': 0, 'name': f'{name}-{camera}', 'camera': camera})
+    result['captures'][2:2] = closeups
+    return result
 
 
 def reviews():

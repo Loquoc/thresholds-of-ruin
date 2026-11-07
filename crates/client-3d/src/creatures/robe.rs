@@ -1710,37 +1710,51 @@ fn place_overlays(robe: &RobeRig, meshes: &mut Assets<Mesh>) {
             .iter()
             .map(|&p| overlay.transform.transform_point3(p))
             .collect();
-        // Protect full triangles, including deliberately coarse strap tails.
-        // Every incident vertex covers the entire height span of the face and
-        // a secant allowance contains the straight chord between its angles.
-        let mut span = 0.025f32;
-        let mut angular_span = 0.0f32;
+        // An apron is an open front panel, not a closed radial shell. A
+        // radial secant near the hip axis can spuriously inflate it by 10x.
+        // Keep the authored cut/thickness and translate it only along its
+        // horizontal facing until every full triangle clears the solved robe.
+        let front = overlay
+            .transform
+            .transform_vector3(Vec3::Z)
+            .with_y(0.0)
+            .normalize_or(Vec3::Z);
+        let side = Vec3::Y.cross(front);
+        let mut shift = 0.0f32;
         for triangle in &overlay.triangles {
-            for edge in 0..3 {
-                let a = reference[triangle[edge]];
-                let b = reference[triangle[(edge + 1) % 3]];
-                span = span.max((a.y - b.y).abs());
-                let a = a.with_y(0.0).normalize_or(Vec3::Z);
-                let b = b.with_y(0.0).normalize_or(Vec3::Z);
-                angular_span = angular_span.max(a.dot(b).clamp(-1.0, 1.0).acos());
+            let points = triangle.map(|i| reference[i]);
+            let low = points.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+            let high = points.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+            let radius = envelope.radius(low - 0.012, high + 0.012);
+            if radius <= 0.0 {
+                continue;
             }
+            let left = points
+                .iter()
+                .map(|p| p.dot(side))
+                .fold(f32::INFINITY, f32::min);
+            let right = points
+                .iter()
+                .map(|p| p.dot(side))
+                .fold(f32::NEG_INFINITY, f32::max);
+            let closest = if left <= 0.0 && right >= 0.0 {
+                0.0
+            } else {
+                left.abs().min(right.abs())
+            };
+            if closest >= radius + 0.022 {
+                continue;
+            }
+            let required = ((radius + 0.022).powi(2) - closest.powi(2)).max(0.0).sqrt();
+            let nearest = points
+                .iter()
+                .map(|p| p.dot(front))
+                .fold(f32::INFINITY, f32::min);
+            shift = shift.max(required - nearest);
         }
-        let chord = angular_span.cos().max(0.1);
-        let posed: Vec<_> = overlay
-            .rest
+        let posed: Vec<_> = reference
             .iter()
-            .map(|&rest| {
-                let mut point = overlay.transform.transform_point3(rest);
-                // The finite band protects overlay triangle interiors as well as
-                // vertices. A hem's returning lip and sash are inside this gap.
-                let radius = envelope.radius(point.y - span, point.y + span);
-                let required = (radius + 0.022) / chord;
-                let current = point.with_y(0.0).length();
-                if radius > 0.0 && current < required {
-                    point = point.with_y(0.0).normalize_or(Vec3::Z) * required + Vec3::Y * point.y;
-                }
-                inverse.transform_point3(point).to_array()
-            })
+            .map(|&point| inverse.transform_point3(point + front * shift).to_array())
             .collect();
         if let Some(mesh) = meshes.get_mut(&overlay.mesh) {
             mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, posed);

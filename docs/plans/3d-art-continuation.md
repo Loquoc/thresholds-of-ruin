@@ -2068,7 +2068,9 @@ The deterministic review pack lives in
 `python crates/client-3d/scripts/generate_worn_equipment_review.py crates/client-3d/scripts/fixtures/worn-equipment-review`.
 Its six bounded scene scripts cover all 39 appearances and layered compositions,
 including centaur head/hands, robe over a full skirt, and apron over a caster robe.
-Each requests front/rear neutral, walking, turning, and striking captures. Render
+Each requests front/rear neutral, walking, turning, striking, and individual
+close-up captures (77 images across the pack). Actors stand on the review floor
+at y=-0.5. Render
 with the native client `--scene-script FILE --capture NEW_DIRECTORY --offscreen`.
 The index identifies each actor's appearance and body. Generated scripts and
 schema tests are preparation, not evidence that these captures have been rendered

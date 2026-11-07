@@ -12,7 +12,8 @@ class WornReview(unittest.TestCase):
         for name, script in pages.items():
             self.assertEqual(script, json.loads((fixture / f'{name}.json').read_text()))
             self.assertLessEqual(len(script['actors']), 8)
-            self.assertEqual(len(script['captures']), 5)
+            self.assertEqual(len(script['captures']), 5 + len(script['actors']))
+            self.assertTrue(all(a['position'][1] == -0.5 for a in script['actors']))
             self.assertLessEqual(max(c['tick'] for c in script['captures']), 100)
 
     def test_catalog_and_layer_witnesses_are_complete(self):

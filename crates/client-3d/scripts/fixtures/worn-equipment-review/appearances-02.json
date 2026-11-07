@@ -22,7 +22,7 @@
       ],
       "position": [
         -3.3000000000000003,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -43,7 +43,7 @@
       ],
       "position": [
         -1.1,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -64,7 +64,7 @@
       ],
       "position": [
         1.1,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -85,7 +85,7 @@
       ],
       "position": [
         3.3000000000000003,
-        0,
+        -0.5,
         0.0
       ],
       "yaw": 0
@@ -106,7 +106,7 @@
       ],
       "position": [
         -3.3000000000000003,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -127,7 +127,7 @@
       ],
       "position": [
         -1.1,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -148,7 +148,7 @@
       ],
       "position": [
         1.1,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -169,7 +169,7 @@
       ],
       "position": [
         3.3000000000000003,
-        0,
+        -0.5,
         2.7
       ],
       "yaw": 0
@@ -208,6 +208,118 @@
         1.2
       ],
       "fov_degrees": 48
+    },
+    {
+      "id": "detail-coarse-mantelet",
+      "position": [
+        -2.95,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        -3.3000000000000003,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-hooded-cloak",
+      "position": [
+        -0.7500000000000001,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        -1.1,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-slippery-cloak",
+      "position": [
+        1.4500000000000002,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        1.1,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-leather-cloak",
+      "position": [
+        3.6500000000000004,
+        0.6499999999999999,
+        3.1
+      ],
+      "target": [
+        3.3000000000000003,
+        0.30000000000000004,
+        0.0
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-robe",
+      "position": [
+        -2.95,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        -3.3000000000000003,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-apron",
+      "position": [
+        -0.7500000000000001,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        -1.1,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-tattered-cape",
+      "position": [
+        1.4500000000000002,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        1.1,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
+    },
+    {
+      "id": "detail-opera-cloak",
+      "position": [
+        3.6500000000000004,
+        0.6499999999999999,
+        5.800000000000001
+      ],
+      "target": [
+        3.3000000000000003,
+        0.30000000000000004,
+        2.7
+      ],
+      "fov_degrees": 38
     }
   ],
   "events": [
@@ -574,6 +686,46 @@
       "tick": 0,
       "name": "appearances-02-rear",
       "camera": "rear"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-coarse-mantelet",
+      "camera": "detail-coarse-mantelet"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-hooded-cloak",
+      "camera": "detail-hooded-cloak"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-slippery-cloak",
+      "camera": "detail-slippery-cloak"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-leather-cloak",
+      "camera": "detail-leather-cloak"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-robe",
+      "camera": "detail-robe"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-apron",
+      "camera": "detail-apron"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-tattered-cape",
+      "camera": "detail-tattered-cape"
+    },
+    {
+      "tick": 0,
+      "name": "appearances-02-detail-opera-cloak",
+      "camera": "detail-opera-cloak"
     },
     {
       "tick": 28,
