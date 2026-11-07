@@ -18,6 +18,87 @@ fn visible_at(
     Some(point + Vec3::Z * 0.004)
 }
 
+/// Clothing support is independent of anatomy. Additive unions preserve the
+/// original bust extrema while spanning the concave folds beneath them.
+/// The caller emits only covered cloth; the unchanged skin remains underneath.
+pub(super) fn torso_envelope(
+    kind: ShirtAppearance,
+    body: HumanoidBody,
+    skin: &crate::sdf::Sculpt,
+    neckline: Option<NecklineCut>,
+) -> crate::sdf::Sculpt {
+    use crate::sdf::Shape;
+    let mut cloth = skin.clone();
+    if let Some(bust) = body.bust {
+        bust_underbridge(&mut cloth, &bust, 0.90, 0.002 * body.build, 0.002);
+        // A soft tension panel joins the two lower folds. It does not replace
+        // the separate upper fullness or change the wearer's anatomy.
+        let (left, lr) = bust.mass(-1.0, 0.0);
+        let (right, rr) = bust.mass(1.0, 0.0);
+        cloth.add(
+            Shape::Capsule(left, right, lr.z * 0.55, rr.z * 0.55),
+            0.025 * body.build,
+        );
+    } else if kind == ShirtAppearance::HawaiianShirt {
+        // Woven vacation shirts hang straighter than a fitted knit tee.
+        // Room is local to the waist and ribs, not the shoulder or neck.
+        cloth.add(
+            Shape::Ellipsoid(
+                Vec3::new(0.0, 0.20, -0.005),
+                Vec3::new(
+                    0.179 * body.shoulders.max(body.waist) * body.build,
+                    0.205,
+                    0.127 * body.build,
+                ),
+            ),
+            0.018 * body.build,
+        );
+    }
+    cloth.inflate(0.0025 * body.build);
+    // Extra tension/ease belongs below the opening. Above its lowest point
+    // retain only a 2.5 mm cloth allowance on the exact skin, so conservative
+    // outer-layer fitting cannot turn an exposed neckline into a padded shelf.
+    cloth.carve(
+        Shape::Beyond(Vec3::Y, neckline.map_or(0.53, |cut| cut.bottom)),
+        0.012 * body.build,
+    );
+    let mut upper = skin.clone();
+    upper.inflate(0.0025 * body.build);
+    cloth.union(upper, 0.0);
+    cloth
+}
+
+/// Clip the retained layer exactly at the crop. The neckline reserve is
+/// conservative rather than using a 3D capsule that could cut away visible
+/// scoop cloth. Its allowance is bounded by torso_envelope above the opening.
+pub(super) fn retained_support(
+    body: HumanoidBody,
+    bodice: Bodice,
+    envelope: &crate::sdf::Sculpt,
+) -> crate::sdf::Sculpt {
+    use crate::sdf::Shape;
+    let mut support = envelope.clone();
+    if let Cover::Crop(Hem::Even) = bodice.cover {
+        let bottom = body.bust.map_or(0.27, |bust| bust.fold) - 0.03;
+        support.carve(Shape::Beyond(Vec3::NEG_Y, -bottom), 0.0);
+    }
+    support
+}
+
+/// Parameterize the scoop by width instead of height: equal-height samples
+/// crowd the high sides and leave a sharp-looking two-segment bottom.
+pub(super) fn scoop_binding(cut: NecklineCut) -> Vec<(Vec2, f32)> {
+    (0..=32)
+        .map(|i| {
+            let t = i as f32 / 16.0 - 1.0;
+            let x = t * cut.wide;
+            let u = ((x.abs() - cut.point) / (cut.wide - cut.point)).max(0.0);
+            let y = cut.bottom + (cut.collar - cut.bottom) * u * u;
+            (Vec2::new(x, y - 0.0015), 0.006)
+        })
+        .collect()
+}
+
 /// A single thin cloth surface follows the deltoid into a relaxed short
 /// sleeve. Unlike the costume cap, it has no separate shoulder ball or thick
 /// torus cuff. The anatomy stays untouched underneath.
@@ -262,6 +343,310 @@ pub(super) fn emit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn test_envelope(
+        kind: ShirtAppearance,
+        body: HumanoidBody,
+        skin: &crate::sdf::Sculpt,
+    ) -> crate::sdf::Sculpt {
+        let look = Look::of(CreatureModel::Human, 7);
+        let bodice = kind.compose(Outfit::native(&look), body.woman).bodice;
+        torso_envelope(kind, body, skin, NecklineCut::resolve(bodice.cut, body))
+    }
+
+    #[test]
+    fn emitted_neckline_and_shoulders_are_retained_without_an_inflated_opening() {
+        use bevy::render::mesh::VertexAttributeValues;
+        for woman in [false, true] {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                7,
+                Some(Variant { woman, ..default() }),
+            );
+            let body = HumanoidBody::resolve(&look);
+            let skin = torso_shape(body, None, true);
+            for kind in ShirtAppearance::ALL {
+                let bodice = kind.compose(Outfit::native(&look), woman).bodice;
+                let cut = NecklineCut::resolve(bodice.cut, body).unwrap();
+                let envelope = torso_envelope(kind, body, &skin, Some(cut));
+                let support = retained_support(body, bodice, &envelope);
+                let mut actual = Parts::default();
+                envelope.mesh_region(
+                    &mut actual.matte,
+                    Vec3::new(-0.38, -0.06, -0.21) * body.build.max(1.0),
+                    Vec3::new(0.38, 0.64, 0.28) * body.build.max(1.0),
+                    0.0085,
+                    &|_, _| Vec3::ONE,
+                    &|at| bodice_covers(body, bodice, false, at) && !cut.open(at),
+                    true,
+                );
+                for fraction in [0.25, 0.50, 0.75] {
+                    let y = cut.bottom + (cut.collar - cut.bottom) * fraction;
+                    for x in [0.0, cut.edge(y) * 0.5] {
+                        assert!(actual.matte.outer_surface(Vec3::new(x, y, 0.0), Vec3::Z).is_none(),
+                            "no invented cloth across exposed neckline: {kind:?}, woman={woman}, {x}/{y}");
+                        let reserved = torso_surface_hit(&support, x, y, true).unwrap();
+                        assert!(skin.distance(reserved) <= 0.0026 * body.build,
+                            "neckline reserve exceeds 2.5 mm skin allowance (0.1 mm numerical tolerance): {kind:?}, woman={woman}");
+                    }
+                }
+                let mut meshes = Assets::<Mesh>::default();
+                let mut materials = Assets::<StandardMaterial>::default();
+                let model = actual.finish(
+                    &mut meshes,
+                    &crate::props::PropMaterials::new(&mut materials),
+                );
+                let mut neckline_vertices = 0;
+                let mut shoulder_vertices = 0;
+                for (handle, _) in model.0 {
+                    let Some(VertexAttributeValues::Float32x3(points)) = meshes
+                        .get(&handle)
+                        .unwrap()
+                        .attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("cloth positions");
+                    };
+                    for point in points {
+                        let at = Vec3::from_array(*point);
+                        if at.z > 0.0 && at.y > cut.bottom + 0.008 {
+                            assert!(
+                                support.distance(at) <= 0.0045,
+                                "retained support lost emitted neckline/shoulder cloth at {at:?}"
+                            );
+                            if (at.x.abs() - cut.edge(at.y)).abs() < 0.02 {
+                                neckline_vertices += 1;
+                            }
+                            if at.x.abs() > 0.13 * body.shoulders * body.build && at.y > 0.46 {
+                                shoulder_vertices += 1;
+                            }
+                        }
+                    }
+                }
+                assert!(neckline_vertices > 10 && shoulder_vertices > 10,
+                    "positive coverage witnesses must exercise both edges: {neckline_vertices}/{shoulder_vertices}");
+            }
+        }
+    }
+
+    #[test]
+    fn cropped_shirt_preserves_rendered_bare_skin_and_reserves_only_retained_cloth() {
+        use super::super::{biped::Figure, test_support};
+        use crate::creatures::rogue_tests::spawn_one;
+        use bevy::render::mesh::VertexAttributeValues;
+        let mut equipment = Equipment::default();
+        equipment.select("hawaiian-shirt").unwrap();
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        )
+        .equipped(equipment);
+        let body = HumanoidBody::resolve(&look);
+        let figure = Figure::resolve(body, &look);
+        let skin = torso_shape(body, None, figure.trim_neck);
+        let mut reference = Parts::default();
+        skin.mesh(
+            &mut reference.matte,
+            Vec3::new(-0.38, -0.06, -0.21) * body.build.max(1.0),
+            Vec3::new(0.38, 0.64, 0.24) * body.build.max(1.0),
+            0.0085,
+            &|_, _| look.skin,
+        );
+        let (world, rig, _, meshes) = spawn_one(&look);
+        let torso = rig.joints[J::Torso as usize].unwrap();
+        let mut rendered = Parts::default();
+        for surface in test_support::joint_meshes(&world, &rig, &meshes, torso) {
+            let Some(VertexAttributeValues::Float32x3(points)) =
+                surface.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("torso positions");
+            };
+            let indices: Vec<_> = surface.mesh.indices().unwrap().iter().collect();
+            for tri in indices.chunks_exact(3) {
+                rendered.matte.tri(
+                    std::array::from_fn(|i| {
+                        surface
+                            .transform
+                            .transform_point3(Vec3::from_array(points[tri[i]]))
+                    }),
+                    Vec3::ONE,
+                );
+            }
+        }
+        for x in [-0.025, 0.0, 0.025] {
+            for y in [0.12, 0.16, 0.49] {
+                let origin = Vec3::new(x, y, 0.0);
+                let before = reference.matte.outer_surface(origin, Vec3::Z).unwrap();
+                let after = rendered.matte.outer_surface(origin, Vec3::Z).unwrap();
+                assert!(
+                    before.distance(after) < 0.0002,
+                    "shirt must not reshape exposed crop/neckline skin: {before:?} -> {after:?}"
+                );
+            }
+        }
+        let envelope = figure.shirt_shape.as_ref().unwrap();
+        let retained = figure.shirt_support.as_ref().unwrap();
+        assert!(
+            retained.distance(Vec3::new(0.0, 0.12, 0.0)) > 0.03,
+            "invisible cropped abdomen cannot inflate outer-layer fitting"
+        );
+        let bust = body.bust.unwrap();
+        for side in [-1.0, 1.0] {
+            let x = bust.apex(side).x;
+            let at = torso_surface_hit(envelope, x, bust.fold + 0.015, true).unwrap();
+            assert!(
+                retained.distance(at).abs() < 0.002,
+                "visible lower-bust cloth must remain in retained support"
+            );
+            assert!(
+                figure.waist_support.distance(at) < 0.002,
+                "layer fitting must see the actual rendered shirt envelope"
+            );
+        }
+    }
+
+    #[test]
+    fn independent_cloth_bridges_lower_folds_without_flattening_the_body() {
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        ));
+        let skin = torso_shape(body, None, false);
+        let bust = body.bust.unwrap();
+        let mut old = skin.clone();
+        bust_underbridge(&mut old, &bust, 0.55, 0.0, 0.0);
+        for kind in ShirtAppearance::ALL {
+            let cloth = test_envelope(kind, body, &skin);
+            let mut bridged = 0.0f32;
+            for side in [-1.0, 1.0] {
+                let apex = bust.apex(side);
+                let actual_skin = torso_surface_hit(&skin, apex.x, apex.y, true).unwrap();
+                let fitted = torso_surface_hit(&cloth, apex.x, apex.y, true).unwrap();
+                assert!(fitted.z >= actual_skin.z, "cloth cannot flatten the wearer");
+                assert!(
+                    fitted.z - actual_skin.z < 0.035 * body.build,
+                    "soft fitted fullness must not become a rigid chest plate"
+                );
+                for offset in [-0.025, -0.010, 0.005, 0.020, 0.035] {
+                    let y = bust.fold + offset;
+                    let before = torso_surface_hit(&old, apex.x, y, true).unwrap();
+                    let after = torso_surface_hit(&cloth, apex.x, y, true).unwrap();
+                    bridged = bridged.max(after.z - before.z);
+                    assert!(
+                        after.z - before.z < 0.065 * body.build,
+                        "bounded cloth stand-off, not inflated anatomy"
+                    );
+                }
+            }
+            assert!(
+                bridged > 0.006 * body.build,
+                "must bridge the old under-fold, not just add a thin skin coating: {bridged}"
+            );
+            let waist_skin = torso_surface_hit(&skin, 0.0, 0.12, true).unwrap();
+            let waist_cloth = torso_surface_hit(&cloth, 0.0, 0.12, true).unwrap();
+            assert!(
+                waist_cloth.z - waist_skin.z < 0.015 * body.build,
+                "retain a fitted feminine waist"
+            );
+        }
+    }
+
+    #[test]
+    fn woven_male_shirt_has_bounded_ease_and_armor_keeps_its_original_support() {
+        use super::super::biped::Figure;
+        let base = Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: false,
+                ..default()
+            }),
+        );
+        let body = HumanoidBody::resolve(&base);
+        let skin = torso_shape(body, None, false);
+        let tee = test_envelope(ShirtAppearance::TShirt, body, &skin);
+        let woven = test_envelope(ShirtAppearance::HawaiianShirt, body, &skin);
+        let mut extra = 0.0f32;
+        for y in [0.08, 0.12, 0.16, 0.20] {
+            let tight = torso_surface_hit(&tee, 0.0, y, true).unwrap();
+            let loose = torso_surface_hit(&woven, 0.0, y, true).unwrap();
+            extra = extra.max(loose.z - tight.z);
+            assert!(loose.z - tight.z < 0.035 * body.build);
+        }
+        assert!(
+            extra > 0.004 * body.build,
+            "woven waist must have real ease: {extra}"
+        );
+        let figures: Vec<_> = ShirtAppearance::ALL
+            .into_iter()
+            .map(|kind| {
+                let mut equipment = Equipment::default();
+                equipment.select(kind.name()).unwrap();
+                equipment.select("plate-mail").unwrap();
+                Figure::resolve(body, &base.clone().equipped(equipment))
+            })
+            .collect();
+        let retained_skin = torso_shape(body, None, figures[1].trim_neck);
+        for x in [-0.18, -0.09, 0.0, 0.09, 0.18] {
+            for y in [0.08, 0.20, 0.35, 0.48] {
+                for z in [-0.12, 0.0, 0.12, 0.20] {
+                    let at = Vec3::new(x, y, z);
+                    assert_eq!(
+                        figures[0].equipped_plate.as_ref().unwrap().distance(at),
+                        figures[1].equipped_plate.as_ref().unwrap().distance(at),
+                        "inner shirt choice cannot reshape plate armor"
+                    );
+                    assert_eq!(
+                        figures[1].shirt_shape.as_ref().unwrap().distance(at),
+                        retained_skin.distance(at),
+                        "hidden relaxed envelope must not participate in armor fitting"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scoop_binding_has_a_joined_round_bottom_and_narrow_knit_edge() {
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        ));
+        let cut = NecklineCut::resolve(
+            Neckline::Scoop {
+                depth: 0.28,
+                width: 0.18,
+            },
+            body,
+        )
+        .unwrap();
+        let path = scoop_binding(cut);
+        assert_eq!(path.len(), 33);
+        assert_eq!(
+            path[16].0.x, 0.0,
+            "one shared bottom, not two separated binding tips"
+        );
+        assert!(path.iter().all(|(_, width)| *width <= 0.006));
+        let near = path[17].0 - path[16].0;
+        assert!(
+            near.y.abs() < near.x * 0.20,
+            "bottom tangent must be almost horizontal"
+        );
+        for pair in path.windows(2) {
+            assert!(pair[1].0.x > pair[0].0.x);
+            assert!(pair[0].0.distance(pair[1].0) < 0.025);
+        }
+    }
 
     #[test]
     fn ordinary_shirt_sleeve_is_thin_continuous_cloth_not_a_padded_cap() {

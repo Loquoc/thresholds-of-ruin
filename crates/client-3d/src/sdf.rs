@@ -386,6 +386,34 @@ impl Sculpt {
             },
             paint,
             coverage,
+            None,
+        );
+    }
+
+    /// Emit only one side of a coverage boundary. Partitioning keeps the
+    /// retained vertices on the original surface, including exposed skin.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mesh_region(
+        &self,
+        b: &mut Builder,
+        min: Vec3,
+        max: Vec3,
+        step: f32,
+        paint: &dyn Fn(Vec3, Vec3) -> Vec3,
+        coverage: &dyn Fn(Vec3) -> bool,
+        keep: bool,
+    ) {
+        self.mesh_sampled(
+            b,
+            min,
+            max,
+            Sampling {
+                step,
+                placement: VertexPlacement::Average,
+            },
+            paint,
+            Some(coverage),
+            Some(keep),
         );
     }
 
@@ -410,6 +438,7 @@ impl Sculpt {
                 placement: VertexPlacement::Analytic,
             },
             paint,
+            None,
             None,
         );
     }
@@ -468,6 +497,7 @@ impl Sculpt {
         sampling: Sampling,
         paint: &dyn Fn(Vec3, Vec3) -> Vec3,
         coverage: Option<&dyn Fn(Vec3) -> bool>,
+        keep_region: Option<bool>,
     ) {
         // Align once. A symmetric retry reuses the exact same grid rather than
         // rounding its already aligned bounds a second time.
@@ -735,6 +765,7 @@ impl Sculpt {
                         },
                         paint,
                         coverage,
+                        keep_region,
                     );
                 } else {
                     if crate::props::profile_builds() {
@@ -744,7 +775,18 @@ impl Sculpt {
                     }
                     // Two projected attempts at most, then a nonprojected fine
                     // mesh. Failed attempts never emit partial geometry.
-                    self.mesh_partitioned(b, min, max, step * 0.25, paint, coverage);
+                    self.mesh_sampled(
+                        b,
+                        min,
+                        max,
+                        Sampling {
+                            step: step * 0.25,
+                            placement: VertexPlacement::Average,
+                        },
+                        paint,
+                        coverage,
+                        keep_region,
+                    );
                 }
                 return;
             }
@@ -777,6 +819,9 @@ impl Sculpt {
                 });
                 if let Some(pieces) = partition::split(input, region) {
                     for face in pieces {
+                        if keep_region.is_some_and(|keep| region(face[0].sample) != keep) {
+                            continue;
+                        }
                         b.tri_smooth_shaded(
                             face.map(|v| v.position),
                             face.map(|v| v.normal),
@@ -784,6 +829,11 @@ impl Sculpt {
                             face.map(|v| v.shade),
                         );
                     }
+                    continue;
+                }
+            }
+            if let (Some(region), Some(keep)) = (coverage, keep_region) {
+                if region(tri[0].position) != keep {
                     continue;
                 }
             }
@@ -1059,6 +1109,112 @@ fn painted_cut_edges_do_not_interpolate_between_skin_and_cloth() {
         assert!(
             tri.iter().all(|&i| (colors[i][0] > colors[i][2]) == cloth),
             "one triangle bridges the skin/cloth cut and blends pigment past the intended edge"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn selected_coverage_regions_recombine_to_exact_original_surface() {
+    use crate::props::{Parts, PropMaterials};
+    use bevy::render::mesh::VertexAttributeValues;
+    let mut form = Sculpt::default();
+    form.add(
+        Shape::Ellipsoid(Vec3::ZERO, Vec3::new(0.1, 0.12, 0.09)),
+        0.0,
+    );
+    let region = |p: Vec3| p.y + p.x * 0.3 < 0.023;
+    let emit = |keep: Option<bool>| {
+        let mut parts = Parts::default();
+        if let Some(keep) = keep {
+            form.mesh_region(
+                &mut parts.matte,
+                Vec3::splat(-0.15),
+                Vec3::splat(0.15),
+                0.025,
+                &|_, _| Vec3::ONE,
+                &region,
+                keep,
+            );
+        } else {
+            form.mesh_partitioned(
+                &mut parts.matte,
+                Vec3::splat(-0.15),
+                Vec3::splat(0.15),
+                0.025,
+                &|_, _| Vec3::ONE,
+                Some(&region),
+            );
+        }
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let model = parts.finish(&mut meshes, &PropMaterials::new(&mut materials));
+        let mesh = meshes.get(&model.0[0].0).unwrap();
+        let VertexAttributeValues::Float32x3(points) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+        else {
+            panic!("positions");
+        };
+        let VertexAttributeValues::Float32x3(normals) =
+            mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap()
+        else {
+            panic!("normals");
+        };
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        let mut faces: Vec<_> = indices
+            .chunks_exact(3)
+            .map(|face| {
+                std::array::from_fn::<_, 3, _>(|corner| {
+                    let index = face[corner];
+                    let p = Vec3::from_array(points[index]);
+                    if let Some(keep) = keep {
+                        let signed = p.y + p.x * 0.3 - 0.023;
+                        assert!(
+                            if keep {
+                                signed <= 0.000001
+                            } else {
+                                signed >= -0.000001
+                            },
+                            "rejected coverage leaked into selected mesh: {p}, keep={keep}"
+                        );
+                    }
+                    (
+                        points[index].map(f32::to_bits),
+                        normals[index].map(f32::to_bits),
+                    )
+                })
+            })
+            .collect();
+        faces.sort();
+        faces
+    };
+    let whole = emit(None);
+    let mut retained = emit(Some(true));
+    let rejected = emit(Some(false));
+    assert!(
+        retained.len() > 30 && rejected.len() > 30,
+        "both mixed regions must be witnessed"
+    );
+    retained.extend(rejected);
+    retained.sort();
+    assert_eq!(
+        retained, whole,
+        "selection must preserve exact positions, normals, winding and all cut pieces"
+    );
+    for (coverage, keep) in [(false, true), (true, false)] {
+        let mut empty = Parts::default();
+        form.mesh_region(
+            &mut empty.matte,
+            Vec3::splat(-0.15),
+            Vec3::splat(0.15),
+            0.025,
+            &|_, _| Vec3::ONE,
+            &|_| coverage,
+            keep,
+        );
+        assert!(
+            empty.matte.is_empty(),
+            "a wholly rejected surface must emit nothing"
         );
     }
 }

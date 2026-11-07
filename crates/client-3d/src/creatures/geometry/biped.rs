@@ -40,6 +40,8 @@ pub(super) struct Figure {
     pub(super) native_plate: Option<crate::sdf::Sculpt>,
     pub(super) armor_item: Option<super::outfit::BodyItem>,
     pub(super) equipped_plate: Option<crate::sdf::Sculpt>,
+    pub(super) shirt_shape: Option<crate::sdf::Sculpt>,
+    pub(super) shirt_support: Option<crate::sdf::Sculpt>,
     /// What a belt or waistband clears.
     pub(super) waist_support: crate::sdf::Sculpt,
 }
@@ -128,6 +130,27 @@ impl Figure {
             }
             plate
         });
+        // Keep armor geometry unchanged: its fitted inner shirt uses the
+        // existing support. Exposed shirts receive independent cloth ease.
+        let shirt_shape = l.equipment.shirt.map(|shirt| {
+            let mut skin = torso_shape(body, None, trim_neck);
+            if native_plate.is_some() || composition.body.is_some() {
+                if let (Some(bust), Some(share)) = (body.bust, outfit.bodice.support.share()) {
+                    bust_underbridge(&mut skin, &bust, share, 0.0, 0.0);
+                }
+                skin
+            } else {
+                equipment_shirts::torso_envelope(
+                    shirt,
+                    body,
+                    &skin,
+                    NecklineCut::resolve(outfit.bodice.cut, body),
+                )
+            }
+        });
+        let shirt_support = shirt_shape
+            .as_ref()
+            .map(|shape| equipment_shirts::retained_support(body, outfit.bodice, shape));
         // Every torso armour shares one fitted shell; its recipe dresses the surface.
         let armor_item = composition.body;
         let equipped_plate = armor_item.map(|_| {
@@ -140,6 +163,9 @@ impl Figure {
         });
         let mut waist_support =
             torso_shape(body, cuirass.then_some(TorsoMaterial::Plate), trim_neck);
+        if let Some(shirt) = &shirt_support {
+            waist_support.union(shirt.clone(), 0.0);
+        }
         if let Some(shell) = &shell_shape {
             waist_support.union(shell.clone(), 0.0);
         }
@@ -180,6 +206,8 @@ impl Figure {
             native_plate,
             armor_item,
             equipped_plate,
+            shirt_shape,
+            shirt_support,
             waist_support,
         }
     }
@@ -470,7 +498,9 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
     let neckline = NecklineCut::resolve(outfit.bodice.cut, body);
     let mut body_shape = torso_shape(body, None, trim_neck);
     // The tunic painted on the body carries her chest as it is made to.
-    if let (Some(bust), Some(share)) = (body.bust, outfit.bodice.support.share()) {
+    if let (None, Some(bust), Some(share)) =
+        (l.equipment.shirt, body.bust, outfit.bodice.support.share())
+    {
         bust_underbridge(&mut body_shape, &bust, share, 0.0, 0.0);
     }
     let body_shape = body_shape;
@@ -488,49 +518,89 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         }
         None
     };
-    body_shape.mesh_partitioned(
-        &mut p.matte,
-        Vec3::new(-0.38, -0.06, -0.21) * b.max(1.0),
-        Vec3::new(0.38, 0.64, 0.24) * b.max(1.0),
-        0.0085,
-        &|at, normal| {
-            if outfit.bodice.cover == Cover::Bikini {
-                // Each cup's rim is bound in a darker edge.
-                return match bikini_cover(body, at) {
-                    Some(rim) if rim > 0.86 => outfit.bodice.edge,
-                    Some(_) => tunic * Sculpt::weave(at),
-                    None => l.skin,
-                };
-            }
-            let bare = !bodice_covers(body, outfit.bodice, bare_shoulders, at);
-            // Women's bodices plunge down the sternum, showing the upper
-            // chest and the valley between.
-            if neckline.is_some_and(|cut| cut.open(at)) {
-                return l.skin;
-            }
-            if let Some(pigment) = skin_patch(at, normal) {
-                return pigment;
-            }
-
-            if bare {
-                l.skin
-            } else {
-                let ground = match outfit.bodice.pattern {
-                    Pattern::Brocade { .. } => tunic,
-                    pattern => pattern.paint(tunic, at),
-                };
-                ground * Sculpt::weave(at)
-            }
-        },
-        Some(&|at| {
-            if outfit.bodice.cover == Cover::Bikini {
-                bikini_cover(body, at).is_some()
-            } else {
+    if l.equipment.shirt.is_some() && (native_plate.is_some() || equipped_plate.is_some()) {
+        // The historical armored shirt can coincide with skin. Retain only
+        // exposed skin there, avoiding coplanar skin/cloth triangles.
+        body_shape.mesh_region(
+            &mut p.matte,
+            Vec3::new(-0.38, -0.06, -0.21) * b.max(1.0),
+            Vec3::new(0.38, 0.64, 0.24) * b.max(1.0),
+            0.0085,
+            &|_, _| l.skin,
+            &|at| {
                 bodice_covers(body, outfit.bodice, bare_shoulders, at)
                     && !neckline.is_some_and(|cut| cut.open(at))
-            }
-        }),
-    );
+            },
+            false,
+        );
+    } else {
+        body_shape.mesh_partitioned(
+            &mut p.matte,
+            Vec3::new(-0.38, -0.06, -0.21) * b.max(1.0),
+            Vec3::new(0.38, 0.64, 0.24) * b.max(1.0),
+            0.0085,
+            &|at, normal| {
+                if l.equipment.shirt.is_some() {
+                    return l.skin;
+                }
+                if outfit.bodice.cover == Cover::Bikini {
+                    // Each cup's rim is bound in a darker edge.
+                    return match bikini_cover(body, at) {
+                        Some(rim) if rim > 0.86 => outfit.bodice.edge,
+                        Some(_) => tunic * Sculpt::weave(at),
+                        None => l.skin,
+                    };
+                }
+                let bare = !bodice_covers(body, outfit.bodice, bare_shoulders, at);
+                // Women's bodices plunge down the sternum, showing the upper
+                // chest and the valley between.
+                if neckline.is_some_and(|cut| cut.open(at)) {
+                    return l.skin;
+                }
+                if let Some(pigment) = skin_patch(at, normal) {
+                    return pigment;
+                }
+
+                if bare {
+                    l.skin
+                } else {
+                    let ground = match outfit.bodice.pattern {
+                        Pattern::Brocade { .. } => tunic,
+                        pattern => pattern.paint(tunic, at),
+                    };
+                    ground * Sculpt::weave(at)
+                }
+            },
+            Some(&|at| {
+                if outfit.bodice.cover == Cover::Bikini {
+                    bikini_cover(body, at).is_some()
+                } else {
+                    bodice_covers(body, outfit.bodice, bare_shoulders, at)
+                        && !neckline.is_some_and(|cut| cut.open(at))
+                }
+            }),
+        );
+    }
+    // Keep the anatomical mesh untouched beneath a separate shirt surface.
+    // This also closes the thin edge between a crop/scoop and exposed skin.
+    let body_shape = if let Some(cloth) = &figure.shirt_shape {
+        let covered = |at| {
+            bodice_covers(body, outfit.bodice, bare_shoulders, at)
+                && !neckline.is_some_and(|cut| cut.open(at))
+        };
+        cloth.mesh_region(
+            &mut p.matte,
+            Vec3::new(-0.38, -0.06, -0.21) * b.max(1.0),
+            Vec3::new(0.38, 0.64, 0.28) * b.max(1.0),
+            0.0085,
+            &|at, _| outfit.bodice.pattern.paint(tunic, at) * Sculpt::weave(at),
+            &covered,
+            true,
+        );
+        cloth.clone()
+    } else {
+        body_shape
+    };
     if let Some(shirt) = l.equipment.shirt {
         equipment_shirts::emit(
             p,
@@ -652,7 +722,24 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
             outfit.bodice.edge,
         );
     }
-    if let Some(cut) = neckline.filter(|cut| !cut.keyhole) {
+    if let Some(cut) = neckline.filter(|cut| {
+        cut.rounded
+            && l.equipment.shirt == Some(super::super::outfit::shirts::ShirtAppearance::TShirt)
+    }) {
+        fitted_ribbon(
+            &mut p.matte,
+            &body_shape,
+            &equipment_shirts::scoop_binding(cut),
+            true,
+            0.003,
+            outfit.bodice.edge,
+        );
+    }
+    if let Some(cut) = neckline.filter(|cut| {
+        !cut.keyhole
+            && !(cut.rounded
+                && l.equipment.shirt == Some(super::super::outfit::shirts::ShirtAppearance::TShirt))
+    }) {
         // A sewn edge finishes the neckline on both sides, following
         // the chest's upper slope to the collarbones.
         let edge = outfit.bodice.edge;
@@ -1927,7 +2014,9 @@ fn loose_hair(kit: &mut Kit, figure: &Figure, head: Entity) {
             })
             .collect();
         let mut support = torso_shape(body, None, trim_neck);
-        if let (Some(bust), Some(share)) = (body.bust, outfit.bodice.support.share()) {
+        if let Some(shirt) = &figure.shirt_support {
+            support.union(shirt.clone(), 0.0);
+        } else if let (Some(bust), Some(share)) = (body.bust, outfit.bodice.support.share()) {
             bust_underbridge(&mut support, &bust, share, 0.0, 0.0);
         }
         for layer in [shell_shape, native_plate, equipped_plate]
@@ -2031,6 +2120,9 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 if let Some(plate) = &figure.native_plate {
                     recipe.reserve_body_layer(plate);
                 }
+            }
+            if let Some(shirt) = &figure.shirt_support {
+                recipe.reserve_body_layer(shirt);
             }
             if let Some(armor) = equipped_plate {
                 recipe.reserve_body_layer(armor);

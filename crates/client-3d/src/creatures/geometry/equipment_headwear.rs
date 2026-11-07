@@ -590,20 +590,68 @@ fn plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
         .collect()
 }
 
+// Explicit vanes keep a visible center ridge and pointed, asymmetric barbs.
+// A flattened tube rotates its frame around the bend and reads as folded ribbon.
+fn feather_section(path: &[Vec3], i: usize, lane: f32, white: bool) -> [Vec3; 3] {
+    let t = i as f32 / (path.len() - 1) as f32;
+    let tangent = (path[(i + 1).min(path.len() - 1)] - path[i.saturating_sub(1)]).normalize();
+    let across = (Vec3::X - tangent * tangent.x).normalize();
+    let normal = tangent.cross(across).normalize();
+    let width = (PI * t.powf(0.72)).sin().max(0.0) * if white { 0.022 } else { 0.029 };
+    let left = width * if i % 4 == 1 { 0.72 } else { 1.0 };
+    let right = width * if i % 4 == 3 { 0.74 } else { 0.94 };
+    let lean = lane * 0.002 * (PI * t).sin();
+    [
+        path[i] - across * left.max(0.0002),
+        path[i] + normal * (width * 0.13 + 0.0005) + across * lean,
+        path[i] + across * right.max(0.0002),
+    ]
+}
+
 fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
-    let path = plume_path(lane, layer, white);
-    let radii: Vec<_> = (0..=16)
+    let mut path = plume_path(lane, layer, white);
+    // Cluster roots around the mount rather than gathering every vane into
+    // one fan apex. Cream feathers sit as shorter overlapping shoulder tufts.
+    for (i, point) in path.iter_mut().enumerate() {
+        let t = i as f32 / 16.0;
+        point.x += (layer - 1.0) * 0.009 * (1.0 - t);
+        point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
+        if white {
+            point.y -= 0.018 * t;
+            point.z += 0.065 * t;
+        }
+    }
+    let pigment = (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
+    for i in 0..path.len() - 1 {
+        let a = feather_section(&path, i, lane, white);
+        let z = feather_section(&path, i + 1, lane, white);
+        let normal = (a[2] - a[0]).cross(z[1] - a[1]).normalize();
+        for half in 0..2 {
+            let q = [a[half], z[half], z[half + 1], a[half + 1]];
+            let center = (q[0] + q[2]) * 0.5;
+            b.quad_out(
+                q,
+                center - normal,
+                pigment * if half == 0 { 0.92 } else { 1.06 },
+            );
+            // A separate back surface makes each vane visible from behind.
+            b.quad_out(
+                q.map(|v| v - normal * 0.0006),
+                center + normal,
+                pigment * 0.78,
+            );
+        }
+    }
+    let ridge: Vec<_> = (0..path.len())
+        .map(|i| feather_section(&path, i, lane, white)[1])
+        .collect();
+    let radii: Vec<_> = (0..path.len())
         .map(|i| {
-            let t = i as f32 / 16.0;
-            let notch = if i > 3 && i % 3 == 0 { 0.78 } else { 1.0 };
-            let width = (t * PI).sin().max(0.0) * if white { 0.025 } else { 0.032 } * notch;
-            Vec2::new(width.max(0.001), (width * 0.12).max(0.001))
+            let r = 0.0012 * (1.0 - i as f32 / (path.len() - 1) as f32) + 0.0002;
+            (r, r)
         })
         .collect();
-    let pigment = (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
-    b.tube(&path, &radii, 6, &|_, _, t| {
-        pigment * (0.86 + 0.14 * (1.0 - t))
-    });
+    tube(b, &ridge, &radii, pigment * 0.72);
 }
 
 fn plume(p: &mut Parts) {
@@ -667,20 +715,37 @@ fn etched(p: &mut Parts) {
     );
 }
 
+fn crest_bundle(station: usize, lane: i32) -> ([Vec3; 3], [(f32, f32); 3]) {
+    let a = -0.85 + (station as f32 + lane as f32 * 0.18) * 1.75 / 44.0;
+    let x = lane as f32 * 0.006;
+    let root = Vec3::new(x, 0.285 + a.cos() * 0.085, -0.02 + a.sin() * 0.115);
+    let length = 0.245 + (station as f32 * 2.4 + lane as f32).sin() * 0.004;
+    let tip = Vec3::new(
+        x * 1.2,
+        0.285 + a.cos() * length,
+        -0.02 + a.sin() * (length - 0.005),
+    );
+    (
+        [root, root.lerp(tip, 0.70), tip],
+        [(0.004, 0.0035), (0.003, 0.0025), (0.00045, 0.0004)],
+    )
+}
+
 fn crested(p: &mut Parts) {
     dome(p, IRON, false);
     guards(p, IRON, BRASS);
-    // A rigid sagittal fan differs from the hanging, individual plumes.
-    for i in 0..19 {
-        let a = -0.85 + i as f32 * 1.75 / 18.0;
-        let root = Vec3::new(0.0, 0.285 + a.cos() * 0.085, -0.02 + a.sin() * 0.115);
-        let tip = Vec3::new(0.0, 0.285 + a.cos() * 0.245, -0.02 + a.sin() * 0.24);
-        tube(
-            &mut p.matte,
-            &[root, tip],
-            &[(0.018, 0.010), (0.024, 0.012)],
-            RED * (0.85 + (i % 3) as f32 * 0.10),
-        );
+    // Dense tapered bundles, seated in the comb, retain the rigid sagittal
+    // silhouette without the previous thick widening cylinders and flat caps.
+    for i in 0..45 {
+        for lane in -1..=1 {
+            let (path, radii) = crest_bundle(i, lane);
+            tube(
+                &mut p.matte,
+                &path,
+                &radii,
+                RED * (0.88 + (i % 5) as f32 * 0.025),
+            );
+        }
     }
     let path: Vec<_> = (0..=20)
         .map(|i| {
@@ -1153,6 +1218,74 @@ mod tests {
                 .outer_surface(Vec3::new(0.045, 0.405, -0.4), Vec3::Z)
                 .is_none(),
             "crescent's opening stays unfilled"
+        );
+    }
+
+    #[test]
+    fn feather_vanes_have_pointed_tips_asymmetric_barbs_and_a_raised_ridge() {
+        for white in [false, true] {
+            let path = plume_path(0.5, 1.0, white);
+            let width = |i| {
+                let q = feather_section(&path, i, 0.5, white);
+                q[0].distance(q[2])
+            };
+            assert!(width(5) > 0.03, "feather has a substantial vane");
+            assert!(width(16) < width(5) * 0.03, "tip must narrow to a point");
+            assert!(width(14) < width(5) * 0.5, "last quarter tapers");
+            let q = feather_section(&path, 5, 0.5, white);
+            assert!(
+                path[5].distance(q[0]) < path[5].distance(q[2]) * 0.85,
+                "barb breaks must not be symmetric ribbon notches"
+            );
+            let tangent = (path[6] - path[4]).normalize();
+            let across = (Vec3::X - tangent * tangent.x).normalize();
+            assert!(
+                (q[1] - path[5]).dot(tangent.cross(across)) > 0.002,
+                "center ridge must stand above the vane"
+            );
+            let mut b = Builder::default();
+            plume_feather(&mut b, 0.5, 1.0, white);
+            let (lo, hi) = b.bounds();
+            assert!(lo.is_finite() && hi.is_finite());
+            // Actual emitted surfaces, viewed from either side of the plume.
+            for x in [0.025, 0.045] {
+                assert!(
+                    b.outer_surface(Vec3::new(x, 0.46, -0.5), Vec3::Z).is_some(),
+                    "vane must have area, not merely a thin rachis"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn crest_is_dense_tapered_bundles_seated_in_the_comb() {
+        let mut p = Parts::default();
+        crested(&mut p);
+        for station in [0, 11, 22, 33, 44] {
+            for lane in -1..=1 {
+                let (path, radii) = crest_bundle(station, lane);
+                assert!(path.iter().all(|v| v.is_finite()));
+                assert!(path[0].x.abs() < 0.01, "root remains inside comb width");
+                assert!(
+                    radii[0].0 <= 0.004 && radii[2].0 < radii[0].0 * 0.15,
+                    "fine tapered tips replace broad capped rods"
+                );
+                assert!(radii[1].0 < radii[0].0);
+                let middle = path[0].lerp(path[1], 0.5);
+                assert!(
+                    p.matte
+                        .outer_surface(middle - Vec3::X * 0.1, Vec3::X)
+                        .is_some(),
+                    "bundle has an emitted supported middle"
+                );
+            }
+        }
+        let (a, _) = crest_bundle(21, 0);
+        let (b, _) = crest_bundle(22, 0);
+        assert!(a[0].distance(b[0]) < 0.006, "roots form a dense comb");
+        assert!(
+            a[2].distance(b[2]) < 0.012,
+            "tip spacing preserves coherent fan"
         );
     }
 

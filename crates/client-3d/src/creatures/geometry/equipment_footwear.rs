@@ -399,6 +399,73 @@ fn walking_upper(p: &mut Parts, last: BootLast, color: Vec3) {
     }
 }
 
+/// A rolled fleece cuff: continuous underfur carries short overlapping
+/// rounded curls. Unlike a hanging fringe, no row is suspended below its coat.
+fn snow_cuff(p: &mut Parts, shape: BootShape, build: f32, color: Vec3) {
+    p.matte.torus(
+        Vec3::Y * (shape.top - 0.006 * build),
+        Vec3::Y,
+        shape.radius_top - 0.001 * build,
+        0.016 * build,
+        48,
+        10,
+        color * 0.92,
+    );
+    for row in 0..2 {
+        for i in 0..40 {
+            let angle = (i as f32 + row as f32 * 0.5) * TAU / 40.0;
+            let variation = (i as f32 * 2.4 + row as f32).sin() * 0.5 + 0.5;
+            let center = Vec3::new(
+                angle.sin() * (shape.radius_top + 0.004 * build),
+                shape.top + (0.001 - row as f32 * 0.014) * build,
+                angle.cos() * (shape.radius_top + 0.004 * build),
+            );
+            p.matte.blob(
+                center,
+                Vec3::new(0.010, 0.008 + variation * 0.002, 0.010) * build,
+                (row * 40 + i) as u64,
+                0.0,
+                color * (0.90 + variation * 0.10),
+            );
+        }
+    }
+}
+
+/// Fleece curves across the forward vamp, seated on the actual upper rather
+/// than looping around the ankle in a small horizontal bracelet.
+fn snow_vamp(p: &mut Parts, last: BootLast, color: Vec3) {
+    let mut base = Parts::default();
+    boot_parts::emit(&mut base, last, Vec3::ONE);
+    let b = last.build;
+    let path: Vec<_> = (0..=24)
+        .map(|i| {
+            let angle = -PI * 0.5 + i as f32 * PI / 24.0;
+            let x = angle.sin() * 0.050 * b;
+            let z = (0.120 + angle.cos() * 0.045) * b;
+            base.satin
+                .outer_surface(Vec3::new(x, -0.08, z), Vec3::Y)
+                .expect("snow trim follows the forward vamp")
+                + Vec3::Y * 0.007
+        })
+        .collect();
+    tube(
+        &mut p.matte,
+        &path,
+        &vec![(0.007 * b, 0.007 * b); path.len()],
+        color * 0.92,
+    );
+    for (i, point) in path.into_iter().enumerate() {
+        let variation = (i as f32 * 2.4).sin() * 0.5 + 0.5;
+        p.matte.blob(
+            point + Vec3::Y * 0.002,
+            Vec3::new(0.009, 0.008, 0.009) * b,
+            i as u64,
+            0.0,
+            color * (0.91 + variation * 0.09),
+        );
+    }
+}
+
 /// Complete ankle-local shoe geometry. The caller supplies the recipe's heel
 /// choice in `last`; no supporting part extends below the shared floor plane.
 pub(super) fn emit_foot(
@@ -495,18 +562,7 @@ pub(super) fn emit_foot(
         );
     }
     if appearance == SnowBoots {
-        fur_parts::rim(
-            p,
-            super::super::outfit::Fringe {
-                kind: super::super::outfit::FringeKind::Fur,
-                color: trim,
-                accent: trim * 0.7,
-                length: 0.022,
-            },
-            Vec3::new(0.0, 0.015, 0.065 * b),
-            Vec2::new(0.056 * b, 0.045 * b),
-            0.55,
-        );
+        snow_vamp(p, last, trim);
     }
 }
 
@@ -627,18 +683,7 @@ pub(super) fn emit_shaft(
                 }
             }
             if appearance == SnowBoots {
-                fur_parts::rim(
-                    p,
-                    super::super::outfit::Fringe {
-                        kind: super::super::outfit::FringeKind::Fur,
-                        color: trim,
-                        accent: trim * 0.7,
-                        length: 0.05,
-                    },
-                    Vec3::Y * shape.top,
-                    Vec2::splat(shape.radius_top + 0.002),
-                    build,
-                );
+                snow_cuff(p, shape, build, trim);
             }
         }
         MudBoots => {
@@ -770,6 +815,92 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn snow_fleece_is_a_continuous_compact_roll_and_covers_the_forward_vamp() {
+        for build in [0.75, 1.0, 1.4] {
+            let shape = fit_shape(
+                FootwearAppearance::SnowBoots,
+                BootShape::fitted(build, -0.24),
+            );
+            let mut cuff = Parts::default();
+            snow_cuff(&mut cuff, shape, build, Vec3::ONE);
+            let (low, high) = cuff.matte.bounds();
+            assert!(
+                low.y > shape.top - 0.032 * build,
+                "fleece must not dangle down the shaft"
+            );
+            assert!(high.y < shape.top + 0.016 * build, "compact rounded cuff");
+            let mut shaft = Parts::default();
+            emit_shaft(
+                &mut shaft,
+                FootwearAppearance::SnowBoots,
+                shape,
+                build,
+                1.0,
+                Vec3::ONE,
+                Vec3::ONE,
+            );
+            // Off-grid rays witness a solid rolled lip above the leather and
+            // continuous underfur between curls around the entire boot.
+            for height in [0.004, -0.004, -0.015] {
+                let origin = Vec3::Y * (shape.top + height * build);
+                for k in 0..73 {
+                    let angle = (k as f32 + 0.37) * TAU / 73.0;
+                    let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
+                    let hit = shaft
+                        .matte
+                        .outer_surface(origin, ray)
+                        .expect("opaque fleece around entire rim");
+                    assert!(
+                        hit.distance(origin) > shape.radius_top + 0.003 * build,
+                        "curl gaps must expose underfur, not bare leather"
+                    );
+                }
+            }
+            let last = BootLast {
+                build,
+                heeled: false,
+            };
+            let mut base = Parts::default();
+            boot_parts::emit(&mut base, last, Vec3::ONE);
+            let mut boot = Parts::default();
+            emit_foot(
+                &mut boot,
+                FootwearAppearance::SnowBoots,
+                last,
+                Vec3::ONE,
+                Vec3::ONE,
+            );
+            for x in [-0.025f32, 0.0, 0.025] {
+                let z = 0.120 + 0.045 * (1.0 - (x / 0.05).powi(2)).sqrt();
+                let origin = Vec3::new(x * build, -0.08, z * build);
+                let upper = base.satin.outer_surface(origin, Vec3::Y).unwrap();
+                let fleece = boot
+                    .matte
+                    .outer_surface(origin, Vec3::Y)
+                    .expect("fur spans forward vamp");
+                assert!(
+                    fleece.y > upper.y + 0.005,
+                    "fur lies outside supporting upper"
+                );
+                assert!(
+                    last.contacts()
+                        .iter()
+                        .any(
+                            |(center, radii)| ((fleece - *center) / *radii).length_squared() <= 1.0
+                        ),
+                    "fur stays inside cloth contact envelope"
+                );
+                assert_eq!(
+                    boot.satin.outer_surface(origin, Vec3::Y).unwrap(),
+                    upper,
+                    "snow refinement must retain underlying foot support"
+                );
+            }
+            assert!(boot.matte.bounds().0.y >= BootLast::FLOOR - 1e-6);
         }
     }
 

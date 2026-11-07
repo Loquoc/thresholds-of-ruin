@@ -4137,8 +4137,13 @@ and requires the expected fold relief while retaining armor suppression. This
 is one fixture/oracle defect, not evidence that the production fold was missing.
 Fresh native execution and image review remain required for the corrected test.
 
-The same run's cape slope and attachment failures remain unresolved geometry
-evidence. Keep physical attachment, positive shoulder shape and full-face
-clearance witnesses together; an oversized or flat garment can satisfy collision
-tests while failing its intended appearance. Do not classify a visible modeling
-defect as a stale test merely because a prior recipe used different coordinates.
+The same run's cape slope and attachment failures required physical attachment,
+positive shoulder shape and full-face clearance witnesses together. At
+`e9139635`, all four native platform/profile lanes passed 722 methods and retained
+one strict shoulder-slope failure (plus the existing ignored method). The
+authored turnover was lowered to its intended height, but the upward-only roof
+solver still lifted its descending side band. The next correction classifies
+that band as radial side cloth and retains slope, width and emitted-clearance
+checks. This is continuing production-geometry evidence, not a stale oracle.
+An oversized or flat garment can satisfy collision tests while failing its
+intended appearance; fresh native tests and pixels remain required.

@@ -10,9 +10,11 @@ use bevy::render::{
 use bevy::tasks::ParallelSliceMut;
 
 const ROWS: usize = 20;
-// Refine only the shoulder within the existing grid: six roof bands and
-// fourteen hanging bands, with no additional vertices or emitted triangles.
+// Refine only the shoulder within the existing grid: five roof bands, one
+// descending turnover band and fourteen hanging bands; no mesh growth.
 const YOKE_ROWS: usize = 6;
+// The last yoke band is the descending side of the cap, not its roof.
+const ROOF_ROWS: usize = YOKE_ROWS - 1;
 const YOKE_FRACTION: f32 = 0.15;
 
 fn study_row_fraction(row: usize) -> f32 {
@@ -1012,7 +1014,7 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
         .iter()
         .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
         .collect();
-    for row in YOKE_ROWS..ROWS {
+    for row in ROOF_ROWS..ROWS {
         for column in 0..COLUMNS {
             let cell = [
                 index(row, column),
@@ -1045,7 +1047,7 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
             // shared boundary during its subsequent upward roof correction.
             // Reserve that corridor's top, not an unrelated raised hand on the
             // other side of the wearer. Above it there is no remaining contact.
-            let high = if row == YOKE_ROWS {
+            let high = if row == ROOF_ROWS {
                 support
                     .support_plane(
                         Vec3::Y,
@@ -1081,8 +1083,8 @@ fn fit_cells(points: &mut [Vec3], rotation: Quat, support: &LayerSurface) {
     // Freeze every upward plane before applying corrections. Later positive
     // vertical moves preserve all accepted planes; deriving normals from an
     // already raised neighbor instead would propagate a table-shaped roof.
-    let mut roofs = Vec::with_capacity(YOKE_ROWS * COLUMNS * 2);
-    for row in 0..YOKE_ROWS {
+    let mut roofs = Vec::with_capacity(ROOF_ROWS * COLUMNS * 2);
+    for row in 0..ROOF_ROWS {
         for column in 0..COLUMNS {
             let a = index(row, column);
             let b = index(row, column + 1);
@@ -1455,6 +1457,31 @@ mod tests {
                     "neutral refitting must not accumulate roof height"
                 );
                 let offset = Vec3::new(0.0, 0.53, -0.15);
+                let scene = cloak.scene.as_ref().unwrap();
+                for column in 0..COLUMNS {
+                    let [a, b, c, d] = [
+                        index(ROOF_ROWS, column),
+                        index(ROOF_ROWS, column + 1),
+                        index(YOKE_ROWS, column),
+                        index(YOKE_ROWS, column + 1),
+                    ]
+                    .map(|i| (cloak.points[i] + offset) / anatomy::HIP_SCALE);
+                    for face in [[a, b, c], [b, d, c]] {
+                        for weights in [
+                            [1.0, 1.0, 1.0],
+                            [2.0, 1.0, 1.0],
+                            [1.0, 2.0, 1.0],
+                            [1.0, 1.0, 2.0],
+                        ] {
+                            let p = (face[0] * weights[0]
+                                + face[1] * weights[1]
+                                + face[2] * weights[2])
+                                / weights.into_iter().sum::<f32>();
+                            assert!(scene.distance(p) > 0.001,
+                                "{name}: descending turnover penetrates actual body/arm support at {p:?}");
+                        }
+                    }
+                }
                 let arms = cloak.arm_surface.as_ref().unwrap();
                 let top = arms.bottom + arms.height;
                 let roof = &cloak.points[..(YOKE_ROWS + 1) * (COLUMNS + 1)];
@@ -1476,6 +1503,28 @@ mod tests {
                     let neck = cloak.points[index(0, column)];
                     let shoulder = cloak.points[index(YOKE_ROWS, column)];
                     let authored_shoulder = cloak.rest[index(YOKE_ROWS, column)];
+                    let crest = cloak.points[index(ROOF_ROWS, column)];
+                    assert!(
+                        (shoulder.y - authored_shoulder.y).abs() < 1e-6,
+                        "{name}: descending turnover must not inherit roof lift: {shoulder:?}"
+                    );
+                    let cap_radius = arms
+                        .triangles
+                        .iter()
+                        .flatten()
+                        .filter(|p| p.y >= authored_shoulder.y + offset.y - THICKNESS)
+                        .map(|p| p.with_y(0.0).length())
+                        .fold(0.0f32, f32::max);
+                    // Two complete cloth clearances plus the small angular
+                    // facet allowance; never hide overexpansion by clipping.
+                    let radial_limit = cap_radius + 2.0 * (LAYER_GAP + THICKNESS) + THICKNESS;
+                    for row in [ROOF_ROWS, YOKE_ROWS] {
+                        let at = cloak.points[index(row, column)] + offset;
+                        assert!(at.with_y(0.0).length() <= radial_limit,
+                            "{name}: turnover overexpanded beyond actual cap: row={row}, point={at:?}, cap_radius={cap_radius}, limit={radial_limit}");
+                    }
+                    assert!(crest.y - shoulder.y > 0.025,
+                        "{name}: descending cap side lost its drop: crest={crest:?}, edge={shoulder:?}");
                     assert!(neck.y - shoulder.y > 0.025,
                         "{name}: neck-to-shoulder roof must descend, not form a table or raised rim: neck={neck:?}, shoulder={shoulder:?}, authored_shoulder={authored_shoulder:?}");
                 }
@@ -2014,12 +2063,13 @@ mod tests {
                 let points = positions(mesh);
                 let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
                 let mut contacts = 0;
-                for face in indices.as_chunks::<3>().0 {
+                for (face_index, face) in indices.as_chunks::<3>().0.iter().enumerate() {
                     let tri = face.map(|i| mantle * points[i] + offset);
                     let at = (tri[0] + tri[1] + tri[2]) / 3.0;
-                    // Leave the supported yoke boundary out of the hem-motion
-                    // witness; validate actual faces throughout the shared drape.
-                    if !(0.23..0.44).contains(&at.y) {
+                    // Validate the shared drape and the descending turnover
+                    // band, including both emitted lining/exterior faces.
+                    let turnover_face = face_index / (COLUMNS * 4) == ROOF_ROWS;
+                    if !(0.23..0.44).contains(&at.y) && !turnover_face {
                         continue;
                     }
                     let origin = Vec3::Y * at.y;
