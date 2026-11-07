@@ -10,6 +10,8 @@ use bevy::render::{
 use bevy::tasks::ParallelSliceMut;
 use std::sync::{Arc, OnceLock};
 
+mod attachment;
+
 const ROWS: usize = 20;
 // Refine only the shoulder within the existing grid: five roof bands, one
 // descending turnover band and fourteen hanging bands; no mesh growth.
@@ -533,7 +535,15 @@ fn seat_arm_profile(
 const OUTER_COLLAR_STATION: f32 = 0.565 + LAYER_GAP + THICKNESS;
 
 fn supported_outer_collar(direction: Vec3, support: &crate::sdf::Sculpt) -> Option<Vec3> {
-    let origin = Vec3::Y * OUTER_COLLAR_STATION;
+    supported_collar_station(direction, support, OUTER_COLLAR_STATION)
+}
+
+fn supported_collar_station(
+    direction: Vec3,
+    support: &crate::sdf::Sculpt,
+    station: f32,
+) -> Option<Vec3> {
+    let origin = Vec3::Y * station;
     let reserve = LAYER_GAP + 0.010;
     // A missing expanded neck slice must not be mistaken for the tiny seed.
     if support.distance(origin / anatomy::HIP_SCALE) >= reserve
@@ -664,6 +674,8 @@ pub(super) struct CloakRig {
     mesh: Handle<Mesh>,
     rest: Vec<Vec3>,
     shoulder_profile: Vec<Vec2>,
+    attachment_reference: Vec<Vec3>,
+    attachment_limits: Option<[f32; 2 * (COLUMNS + 1)]>,
     bindings: Vec<SurfaceBinding<f32>>,
     points: Vec<Vec3>,
     normals: Vec<Vec3>,
@@ -784,6 +796,7 @@ impl CloakRig {
             "max_travel":{"vertex":vertex,"row":vertex/(COLUMNS+1),"column":vertex%(COLUMNS+1),"distance":travel,"reference":before(vertex).to_array(),"final":point(vertex).to_array()},
             "radial_order_inversions":inversions,"max_radial_order_drop":worst_drop,
             "max_yoke_edge_stretch":{"vertices":[stretch.0,stretch.1],"ratio":stretch.2},
+            "attachment_reference_radius_max":self.attachment_reference.iter().map(|p|(*p+offset).with_y(0.0).length()).fold(0.0f32,f32::max),
             "cpu_scope":"cumulative phase wall elapsed ms; shared support lookup includes first materialization; excludes render/GPU wait",
             "cpu_order":["support_lookup_build","combined_support_build","point_fit_pose_prep","constraints"],"cpu_ms":self.contact_cpu_ms,"solves":self.contact_solves}),
         )
@@ -955,9 +968,47 @@ pub(super) fn spawn(
     let support_ms = support_started.elapsed().as_secs_f64() * 1000.0;
     let point_started = std::time::Instant::now();
     let shoulder_profile = recipe.shoulder_profile();
-    let rest: Vec<_> = (0..GRID)
+    let mut rest: Vec<_> = (0..GRID)
         .map(|i| recipe.point(i / (COLUMNS + 1), i % (COLUMNS + 1)))
         .collect();
+    let mut attachment_reference = Vec::new();
+    let mut attachment_limits = None;
+    let mut attachment_failed = false;
+    if recipe.inner_layer.is_some() {
+        if let Some(head) = &recipe.head_contact_surface {
+            let offset = Vec3::new(0.0, 0.53, -0.15);
+            attachment_reference.extend_from_slice(&rest[..2 * (COLUMNS + 1)]);
+            // Preserve the original ring's overall neck-localization envelope.
+            // Per-ray torso radii are not a head silhouette: front torso roots
+            // can be narrower than the actual jaw before any cloth correction.
+            // This envelope adds no padding to the old ring's maximum extent.
+            let original_widths = std::array::from_fn(|i| {
+                let column = i % (COLUMNS + 1);
+                let row = i / (COLUMNS + 1);
+                let collar = rest[column] + offset;
+                let ray = collar.with_y(0.0).normalize_or(Vec3::NEG_Z);
+                let original = supported_collar_station(ray, &recipe.support, 0.565)?;
+                let delta = (original - collar).with_y(0.0) * (1.0 - row as f32 / YOKE_ROWS as f32);
+                Some((rest[i] + offset + delta).with_y(0.0).length())
+            });
+            let limits = attachment_radius_envelope(&original_widths)
+                .unwrap_or([f32::NAN; 2 * (COLUMNS + 1)]);
+            if let Err(failure) = fit_mantle_head_reference(
+                &mut rest,
+                Quat::IDENTITY,
+                &head.surface(),
+                &recipe.support,
+                &limits,
+            ) {
+                attachment_failed = true;
+                #[cfg(test)]
+                eprintln!("head attachment initialization failed: {failure:?}");
+                #[cfg(not(test))]
+                warn!("head attachment initialization failed: {failure:?}");
+            }
+            attachment_limits = Some(limits);
+        }
+    }
     let point_ms = point_started.elapsed().as_secs_f64() * 1000.0;
     // Contact fitting is an output, never the next solve's rest shape. In
     // particular, refitting a raised roof changes its inclination and can
@@ -971,11 +1022,12 @@ pub(super) fn spawn(
     let mut contact_cpu_ms = [support_ms, 0.0, point_ms, 0.0];
     let mut contact_solves = 0;
     let constraint_started = std::time::Instant::now();
-    let mut contact_fallbacks = u64::from(
-        recipe.inner_layer.is_some()
-            && recipe.cut.is_some()
-            && recipe.fitted_outer_collar.get().is_none_or(Option::is_none),
-    );
+    let mut contact_fallbacks = u64::from(attachment_failed)
+        + u64::from(
+            recipe.inner_layer.is_some()
+                && recipe.cut.is_some()
+                && recipe.fitted_outer_collar.get().is_none_or(Option::is_none),
+        );
     let mut contact_radial_trace = None;
     // A dependent mantle is first fitted by place_layers against its seated
     // inner cloth, not an incomplete startup-only arm solve.
@@ -1078,6 +1130,8 @@ pub(super) fn spawn(
             .collect(),
         rest,
         shoulder_profile,
+        attachment_reference,
+        attachment_limits,
         normals,
         last_rotation: None,
         neutral_reach: arm_surface
@@ -2080,6 +2134,7 @@ struct FaceSupport<'a> {
     arms: Option<&'a LayerSurface>,
     head: Option<&'a LayerSurface>,
     profile: Option<&'a [Vec2]>,
+    radial_limits: Option<&'a [f32]>,
 }
 impl<'a> FaceSupport<'a> {
     #[cfg(test)]
@@ -2089,6 +2144,7 @@ impl<'a> FaceSupport<'a> {
             arms: None,
             head: None,
             profile: None,
+            radial_limits: None,
         }
     }
     fn arms(surface: &'a LayerSurface) -> Self {
@@ -2097,6 +2153,7 @@ impl<'a> FaceSupport<'a> {
             arms: Some(surface),
             head: None,
             profile: None,
+            radial_limits: None,
         }
     }
     fn with_profile(mut self, profile: &'a [Vec2]) -> Self {
@@ -2549,6 +2606,27 @@ fn fit_radial_faces_impl(
         })
         .collect();
     let collar_ceiling = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
+    if reference[..=COLUMNS].iter().any(|p| p.y > collar_ceiling) {
+        return Err(RadialFitFailure {
+            row: 0,
+            column: 0,
+            reason: "attachment starts above collar ceiling",
+            detail: [collar_ceiling, 0.0, 0.0],
+        });
+    }
+    if let Some(limits) = support.radial_limits {
+        for (i, &limit) in limits.iter().enumerate() {
+            let radius = reference[i].with_y(0.0).length();
+            if !limit.is_finite() || radius > limit {
+                return Err(RadialFitFailure {
+                    row: i / (COLUMNS + 1),
+                    column: i % (COLUMNS + 1),
+                    reason: "attachment reference exceeds radial cap",
+                    detail: [radius, limit, 0.0],
+                });
+            }
+        }
+    }
     let mut travels = vec![0.0f32; GRID];
     let mut budgets = vec![0.0f32; GRID];
     // Scalar travel follows each frozen axis. Query BOTH radial and Y
@@ -2775,9 +2853,28 @@ fn fit_radial_faces_impl(
                                         .iter()
                                         .filter(|&&i| i <= COLUMNS)
                                         .map(|&i| {
+                                            let mut available = if axes[i].y > 0.0 {
+                                                (collar_ceiling - reference[i].y).max(0.0)
+                                                    / axes[i].y
+                                            } else {
+                                                f32::INFINITY
+                                            };
+                                            if let Some(limit) = support
+                                                .radial_limits
+                                                .and_then(|limits| limits.get(i))
+                                            {
+                                                let radial = axes[i].with_y(0.0).length();
+                                                if radial > 0.0 {
+                                                    available = available.min(
+                                                        (limit - reference[i].with_y(0.0).length())
+                                                            .max(0.0)
+                                                            / radial,
+                                                    );
+                                                }
+                                            }
                                             (plane
                                                 - normal.dot(reference[i])
-                                                - normal.y * (collar_ceiling - reference[i].y))
+                                                - normal.dot(axes[i]) * available)
                                                 .max(0.0)
                                         })
                                         .fold(0.0, f32::max);
@@ -2792,7 +2889,22 @@ fn fit_radial_faces_impl(
                                         let deficit = (plane - normal.dot(reference[i])).max(0.0);
                                         shifts[j] = deficit / normal.dot(axes[i]);
                                         if i <= COLUMNS
-                                            && reference[i].y + shifts[j] > collar_ceiling
+                                            && reference[i].y + shifts[j] * axes[i].y
+                                                > collar_ceiling
+                                        {
+                                            feasible = false;
+                                            break;
+                                        }
+                                        if support
+                                            .radial_limits
+                                            .and_then(|limits| limits.get(i))
+                                            .is_some_and(|&limit| {
+                                                !limit.is_finite()
+                                                    || (reference[i] + axes[i] * shifts[j])
+                                                        .with_y(0.0)
+                                                        .length()
+                                                        > limit
+                                            })
                                         {
                                             feasible = false;
                                             break;
@@ -2908,7 +3020,7 @@ fn fit_radial_faces_impl(
                                     .total_cmp(&(reference[ib].y + shifts[*b]))
                             })
                             .unwrap();
-                        let peak = reference[vertex].y + shifts[j];
+                        let peak = reference[vertex].y + shifts[j] * axes[vertex].y;
                         if peak > collar_ceiling - 0.01
                             && collar_trace.as_ref().is_none_or(|(old, _)| peak > *old)
                         {
@@ -2996,6 +3108,19 @@ fn fit_radial_faces_impl(
                 }
             }
         }
+        if let Some(limits) = support.radial_limits {
+            for (i, &limit) in limits.iter().enumerate() {
+                let radius = (reference[i] + axes[i] * travels[i]).with_y(0.0).length();
+                if radius > limit {
+                    return Err(RadialFitFailure {
+                        row: i / (COLUMNS + 1),
+                        column: i % (COLUMNS + 1),
+                        reason: "aggregate attachment exceeds radial cap",
+                        detail: [radius, limit, travels[i]],
+                    });
+                }
+            }
+        }
         let expanded = travels
             .iter()
             .zip(&budgets)
@@ -3017,13 +3142,23 @@ fn fit_radial_faces_impl(
         }
         for (i, (budget, &travel)) in budgets.iter_mut().zip(&travels).enumerate() {
             if travel > *budget {
-                *budget = if i <= COLUMNS {
+                *budget = if i <= COLUMNS && axes[i].y > 0.0 {
                     (travel + THICKNESS)
-                        .min((collar_ceiling - reference[i].y).max(0.0))
+                        .min((collar_ceiling - reference[i].y).max(0.0) / axes[i].y)
                         .max(travel)
                 } else {
                     travel + THICKNESS
                 };
+                if let Some(&limit) = support.radial_limits.and_then(|limits| limits.get(i)) {
+                    let radial = axes[i].with_y(0.0).length();
+                    if radial > 0.0 {
+                        // Bound only the conservative future query budget;
+                        // candidate geometry was already checked, never clamped.
+                        let available =
+                            (limit - reference[i].with_y(0.0).length()).max(0.0) / radial;
+                        *budget = budget.min(available).max(travel);
+                    }
+                }
             }
         }
     }
@@ -3244,6 +3379,92 @@ fn seat_layer_collar(
     Ok(())
 }
 
+fn attachment_radius_envelope(
+    widths: &[Option<f32>; 2 * (COLUMNS + 1)],
+) -> Option<[f32; 2 * (COLUMNS + 1)]> {
+    if widths
+        .iter()
+        .any(|width| width.is_none_or(|w| !w.is_finite() || w <= 0.0))
+    {
+        return None;
+    }
+    let maxima: [f32; 2] = std::array::from_fn(|row| {
+        widths[row * (COLUMNS + 1)..(row + 1) * (COLUMNS + 1)]
+            .iter()
+            .map(|width| width.unwrap())
+            .fold(0.0, f32::max)
+    });
+    Some(std::array::from_fn(|i| maxima[i / (COLUMNS + 1)]))
+}
+
+fn validate_attachment_width(
+    points: &[Vec3],
+    rotation: Quat,
+    widths: &[f32; 2 * (COLUMNS + 1)],
+) -> Result<(), RadialFitFailure> {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    for (i, &limit) in widths.iter().enumerate() {
+        let radius = (rotation * points[i] + offset).with_y(0.0).length();
+        if !limit.is_finite() || radius > limit {
+            return Err(RadialFitFailure {
+                row: i / (COLUMNS + 1),
+                column: i % (COLUMNS + 1),
+                reason: "combined solve exceeded supported attachment envelope",
+                detail: [radius, limit, 0.0],
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Fit the actual first band around head geometry before fixing its collar XZ.
+/// The authoritative all-layer solve follows with fresh swept domains.
+fn fit_mantle_head_reference(
+    points: &mut [Vec3],
+    rotation: Quat,
+    head: &LayerSurface,
+    body: &crate::sdf::Sculpt,
+    limits: &[f32; 2 * (COLUMNS + 1)],
+) -> Result<(), RadialFitFailure> {
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
+    let candidate = attachment::fit_head_attachment(&reference, head, limits)?;
+    // Head-only initialization must not move its first band into retained torso
+    // geometry. The final emitted-head/torso oracle remains independently tested.
+    for row in 0..2 {
+        for column in 0..COLUMNS {
+            let [a, b, c, d] = [
+                index(row, column),
+                index(row, column + 1),
+                index(row + 1, column),
+                index(row + 1, column + 1),
+            ];
+            for face in [[a, b, c], [b, d, c]] {
+                for u in 0..=6 {
+                    for v in 0..=6 - u {
+                        let p = (candidate[face[0]] * u as f32
+                            + candidate[face[1]] * v as f32
+                            + candidate[face[2]] * (6 - u - v) as f32)
+                            / 6.0;
+                        if body.distance(p / anatomy::HIP_SCALE) <= THICKNESS + 0.001 {
+                            return Err(RadialFitFailure {
+                                row,
+                                column,
+                                reason: "head attachment incident band enters retained torso",
+                                detail: p.to_array(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (p, fitted) in points.iter_mut().zip(candidate).take(2 * (COLUMNS + 1)) {
+        *p = rotation.inverse() * (fitted - offset);
+    }
+    Ok(())
+}
+
 /// Establish a physically outside reference for the noncollar mantle rows, rather
 /// than asking a fixed-height solver to escape a horizontal inner sheet by
 /// moving to its rim. Rays are only initialization: all emitted faces still
@@ -3383,6 +3604,28 @@ pub(super) fn place_layers(
         // Certify the seated reference against BOTH retained surfaces. The
         // one-shot ray offsets do not certify slopes or triangle interiors.
         match seated.and_then(|()| {
+            let limits = cloak.attachment_limits.as_ref().map(|widths| {
+                let offset = Vec3::new(0.0, 0.53, -0.15);
+                std::array::from_fn::<_, { 2 * (COLUMNS + 1) }, _>(|i| {
+                    if i <= COLUMNS {
+                        widths[i].min((cloak.rest[i] + offset).with_y(0.0).length() + 0.015)
+                    } else {
+                        widths[i]
+                    }
+                })
+            });
+            let mut contact_profile = cloak.shoulder_profile.clone();
+            if let (Some(head), Some(body), Some(limits)) = (
+                cloak.head_surface.as_deref(),
+                cloak.support.as_ref(),
+                limits.as_ref(),
+            ) {
+                fit_mantle_head_reference(&mut candidate, rot, head, body, limits)?;
+                // The head certificate seats this band BELOW the jaw. Its
+                // radial planes cannot survive a later upward-only collar
+                // displacement. Freeze radial axes only after inner seating.
+                contact_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
+            }
             fit_radial_supports_traced(
                 &mut candidate,
                 rot,
@@ -3390,10 +3633,15 @@ pub(super) fn place_layers(
                     inner: Some(&support),
                     arms: cloak.arm_surface.as_deref(),
                     head: cloak.head_surface.as_deref(),
-                    profile: Some(&cloak.shoulder_profile),
+                    profile: Some(&contact_profile),
+                    radial_limits: limits.as_ref().map(|v| v.as_slice()),
                 },
                 &mut cloak.contact_radial_trace,
-            )
+            )?;
+            if let Some(widths) = &cloak.attachment_limits {
+                validate_attachment_width(&candidate, rot, widths)?;
+            }
+            Ok(())
         }) {
             Ok(()) => cloak.points = candidate,
             Err(failure) => {
@@ -3511,11 +3759,28 @@ mod tests {
         if cloak.inner_layer.is_none() {
             return;
         }
+        assert_eq!(
+            cloak.contact_fallbacks, 0,
+            "attachment or contact fallback is not acceptance"
+        );
         let body = cloak.support.as_ref().expect("retained torso support");
+        if let Some(limits) = &cloak.attachment_limits {
+            let offset = Vec3::new(0.0, 0.53, -0.15);
+            for (i, limit) in limits.iter().enumerate() {
+                assert!(
+                    (cloak.rest[i] + offset).with_y(0.0).length() <= *limit + 1e-6,
+                    "head initialization exceeded the original supported neck footprint"
+                );
+                assert!(
+                    (rotation * cloak.points[i] + offset).with_y(0.0).length() <= *limit + 1e-6,
+                    "final first band exceeded the supported neck footprint"
+                );
+            }
+        }
         let vertices = positions(mesh);
         let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
         let offset = Vec3::new(0.0, 0.53, -0.15);
-        for face in indices.as_chunks::<3>().0.iter().take(4 * COLUMNS) {
+        for face in indices.as_chunks::<3>().0.iter().take(8 * COLUMNS) {
             let face = face.map(|i| rotation * vertices[i] + offset);
             for a in 0..=6 {
                 for b in 0..=6 - a {
@@ -3771,6 +4036,203 @@ mod tests {
         assert!(rendered_clearance(&mixed, Vec3::new(0.15, 0.0, 0.0)) > 0.001);
     }
 
+    #[test]
+    fn captured_head_plane_requires_radial_attachment_motion() {
+        // Native leather spawn face [1,50,49], complete 60-polygon head audit.
+        let normal = Vec3::new(-0.6857347, -0.44721365, 0.57425433);
+        let points = [
+            Vec3::new(-0.10689167, 0.597, 0.094662756),
+            Vec3::new(-0.12577401, 0.60962844, 0.09210095),
+            Vec3::new(-0.11395504, 0.5983333, 0.10292),
+        ];
+        let old_axes = [
+            Vec3::Y,
+            Vec3::new(-0.06497155, 0.9967523, 0.047576927),
+            Vec3::new(-0.07732702, 0.9945568, 0.06983891),
+        ];
+        for (point, old) in points.into_iter().zip(old_axes) {
+            assert!(normal.dot(point) > -0.14292856 + 0.003);
+            assert!(normal.dot(old) < -0.35);
+            assert!(normal.dot(point.with_y(0.0).normalize()) > 0.89);
+        }
+    }
+
+    #[test]
+    fn radial_attachment_uses_real_axis_ceiling_and_rejects_width_overrun() {
+        let offset = Vec3::new(0.0, 0.53, -0.15);
+        let mut reference = radial_test_grid();
+        for (i, p) in reference.iter_mut().enumerate().take(2 * (COLUMNS + 1)) {
+            let at = *p + offset;
+            *p = at.with_y(0.0).normalize() * 0.18
+                + Vec3::Y * (0.60 + (i / (COLUMNS + 1)) as f32 * 0.01)
+                - offset;
+        }
+        let head = LayerSurface::from_triangles(vec![
+            [
+                Vec3::new(-0.035, 0.58, 0.20),
+                Vec3::new(0.035, 0.58, 0.20),
+                Vec3::new(0.035, 0.64, 0.20),
+            ],
+            [
+                Vec3::new(-0.035, 0.58, 0.20),
+                Vec3::new(0.035, 0.64, 0.20),
+                Vec3::new(-0.035, 0.64, 0.20),
+            ],
+        ]);
+        let mut old = reference.clone();
+        assert!(fit_radial_supports_traced(
+            &mut old,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: None,
+                arms: None,
+                head: Some(&head),
+                profile: None,
+                radial_limits: None,
+            },
+            &mut None
+        )
+        .is_err());
+        assert_eq!(old, reference);
+        let profile = vec![Vec2::X; GRID];
+        let widths = [0.26; 2 * (COLUMNS + 1)];
+        let mut fitted = reference.clone();
+        fit_radial_supports_traced(
+            &mut fitted,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: None,
+                arms: None,
+                head: Some(&head),
+                profile: Some(&profile),
+                radial_limits: Some(&widths),
+            },
+            &mut None,
+        )
+        .unwrap();
+        assert!(fitted[0].distance(reference[0]) > 0.049);
+        assert_eq!(fitted[0].y, reference[0].y);
+        validate_attachment_width(&fitted, Quat::IDENTITY, &widths).unwrap();
+        let mut mixed_profile = test_shoulder_profile(&reference);
+        mixed_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
+        assert!(mixed_profile[index(2, 0)].y > 0.0);
+        let mut mixed = reference.clone();
+        fit_radial_supports_traced(
+            &mut mixed,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: None,
+                arms: None,
+                head: Some(&head),
+                profile: Some(&mixed_profile),
+                radial_limits: Some(&widths),
+            },
+            &mut None,
+        )
+        .unwrap();
+        validate_attachment_width(&mixed, Quat::IDENTITY, &widths).unwrap();
+        for column in 0..COLUMNS {
+            let [a, b, c, d] = [
+                index(1, column),
+                index(1, column + 1),
+                index(2, column),
+                index(2, column + 1),
+            ];
+            for face in [[a, b, c], [b, d, c]] {
+                let vertices = face.map(|i| mixed[i] + offset);
+                let normal = (vertices[1] - vertices[0])
+                    .cross(vertices[2] - vertices[0])
+                    .normalize_or(Vec3::Z);
+                for u in 0..=4 {
+                    for v in 0..=4 - u {
+                        let p = (vertices[0] * u as f32
+                            + vertices[1] * v as f32
+                            + vertices[2] * (4 - u - v) as f32)
+                            / 4.0;
+                        for side in [-1.0, 1.0] {
+                            assert!(
+                                rendered_clearance_checked(
+                                    &head,
+                                    p + normal * (side * THICKNESS * 0.5),
+                                    true
+                                ) > 0.001,
+                                "radial-to-mixed incident band intersects actual support"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let tight = [0.21; 2 * (COLUMNS + 1)];
+        let mut rejected = reference.clone();
+        assert!(fit_radial_supports_traced(
+            &mut rejected,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: None,
+                arms: None,
+                head: Some(&head),
+                profile: Some(&profile),
+                radial_limits: Some(&tight),
+            },
+            &mut None
+        )
+        .is_err());
+        assert_eq!(rejected, reference);
+    }
+
+    #[test]
+    fn attachment_envelope_accepts_head_front_without_extending_original_maximum() {
+        let mut widths = [Some(0.1174841); 2 * (COLUMNS + 1)];
+        widths[8] = Some(0.18);
+        widths[index(1, 8)] = Some(0.22);
+        let limits = attachment_radius_envelope(&widths).unwrap();
+        assert!(0.13802217 > widths[0].unwrap());
+        assert!(0.13802217 < limits[0]);
+        assert_eq!(limits[0], 0.18);
+        assert_eq!(limits[index(1, 0)], 0.22);
+        let mut reference: Vec<_> = radial_test_grid()
+            .into_iter()
+            .map(|p| p + Vec3::new(0.0, 0.53, -0.15))
+            .collect();
+        for p in &mut reference[..=COLUMNS] {
+            *p = p.with_y(0.0).normalize() * 0.13802217 + Vec3::Y * p.y;
+        }
+        assert!(attachment::fit_head_attachment(
+            &reference,
+            &LayerSurface::from_triangles(vec![]),
+            &limits
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn attachment_envelope_cannot_hide_one_missing_support_root() {
+        let mut widths = [Some(0.22); 2 * (COLUMNS + 1)];
+        widths[17] = None;
+        assert!(attachment_radius_envelope(&widths).is_none());
+        widths[17] = Some(f32::NAN);
+        assert!(attachment_radius_envelope(&widths).is_none());
+    }
+
+    #[test]
+    fn final_attachment_gate_rejects_mixed_axis_row_one_growth() {
+        let original = radial_test_grid();
+        let limits = [0.20; 2 * (COLUMNS + 1)];
+        validate_attachment_width(&original, Quat::IDENTITY, &limits).unwrap();
+        let mut candidate = original.clone();
+        let i = index(1, 16);
+        let at = candidate[i] + Vec3::new(0.0, 0.53, -0.15);
+        candidate[i] += profile_direction(at, Vec2::splat(std::f32::consts::FRAC_1_SQRT_2)) * 0.07;
+        let rejected = validate_attachment_width(&candidate, Quat::IDENTITY, &limits).unwrap_err();
+        assert_eq!((rejected.row, rejected.column), (1, 16));
+        assert_eq!(
+            original,
+            radial_test_grid(),
+            "a rejected candidate cannot mutate its reference"
+        );
+    }
+
     fn radial_test_grid() -> Vec<Vec3> {
         let offset = Vec3::new(0.0, 0.53, -0.15);
         (0..GRID)
@@ -3999,6 +4461,7 @@ mod tests {
             arms: None,
             head: Some(&head),
             profile: None,
+            radial_limits: None,
         };
         let (_, _, success) = assert_face_cache_equivalent(&reference, Quat::IDENTITY, support);
         assert!(success);
@@ -4079,6 +4542,7 @@ mod tests {
                 arms: Some(&remote),
                 head: None,
                 profile: None,
+                radial_limits: None,
             },
             true,
         );
@@ -4097,6 +4561,7 @@ mod tests {
                 arms: Some(&reached),
                 head: None,
                 profile: None,
+                radial_limits: None,
             },
             true,
         );
@@ -4350,6 +4815,7 @@ mod tests {
             arms: Some(&arms),
             head: None,
             profile: None,
+            radial_limits: None,
         };
         let (cached, uncached, success) =
             assert_face_cache_equivalent(&reference, Quat::IDENTITY, support);

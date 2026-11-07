@@ -4312,3 +4312,32 @@ new station therefore does not certify the adjacent finite face or its allowed
 vertical motion. No candidate-threshold or clearance relaxation was made. This
 is an experimental local checkpoint with explicit native failures; no fresh
 render or full-suite acceptance is claimed.
+
+The bounded head-attachment prototype now certifies the complete first band with
+fixed-Y radial motion before authoritative layered fitting. Its first proposed
+per-ray torso-width cap was disproved by native evidence: an already-clear jaw
+reference required radius 0.13802217 m where the old front torso ray allowed only
+0.1174841 m. The replacement is explicitly a circumscribed radial localization
+envelope from all verified old-station roots, not a claim of unchanged silhouette.
+Missing roots reject initialization; candidate, aggregate and final width checks
+reject excess rather than clamp. Torso witnesses cover both bands incident to the
+moved second ring. Seven helper/envelope/gate methods passed before integration.
+
+An exact same-face audit then isolated the movement-axis defect. A downward and
+outward plane cleared all 60 authoritative head polygons for the spawned leather
+face with 3.60–12.59 mm surplus beyond the existing 32 mm reserve. It was rejected
+solely because the original upward axes had negative dot products with that plane.
+The dependent mantle's first two rings now retain bounded radial axes after inner
+seating, while ceiling arithmetic uses each actual axis and the adjacent mixed
+band keeps its full-face constraints. Main and legacy axes are unchanged.
+
+The resulting frozen release checkpoint passed strict Clippy and 69 cloak
+methods, with four unresolved failures: Human seed18 neutral spawn attachment,
+ornamental-cope spawn attachment, leather tick93 attachment, and neutral row6
+shoulder width. Of two head-plumbing methods, actual posed triangle transforms,
+scaling and entity remapping passed; the selection fixture remained blocked by
+spawn fit. A same-camera neutral render completed with zero solver fallbacks,
+but raised pointed shoulders, stiff panels and dark separations remained visually
+unacceptable. These are local experimental results, not release or full-suite
+qualification. No clearance, ceiling, motion or existing shape threshold was
+relaxed, and no remote publication occurred.
