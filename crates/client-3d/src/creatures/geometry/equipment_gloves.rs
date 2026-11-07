@@ -166,7 +166,7 @@ fn cuff_profile(appearance: GloveAppearance) -> [(f32, f32); 3] {
         GloveAppearance::Old => [(0.0, 0.045), (0.035, 0.044), (0.105, 0.064)],
         GloveAppearance::Padded => [(0.0, 0.047), (0.035, 0.048), (0.110, 0.066)],
         GloveAppearance::Riding => [(0.0, 0.043), (0.035, 0.042), (0.120, 0.063)],
-        GloveAppearance::Fencing => [(0.0, 0.042), (0.030, 0.043), (0.140, 0.082)],
+        GloveAppearance::Fencing => [(0.0, 0.042), (0.030, 0.043), (0.140, 0.072)],
     }
 }
 
@@ -196,7 +196,7 @@ pub(in crate::creatures) fn emit_cuff(
         .collect();
     let fitted: Vec<Vec<f32>> = profile
         .iter()
-        .map(|&(y, radius)| {
+        .map(|&(y, _)| {
             (0..=96)
                 .map(|col| {
                     let a = col as f32 * TAU / 96.0;
@@ -206,13 +206,13 @@ pub(in crate::creatures) fn emit_cuff(
                         .into_iter()
                         .filter_map(|builder| builder.outer_surface(origin, direction))
                         .map(|hit| (hit - origin).dot(direction) + 0.007 * build)
-                        .fold(radius * build, f32::max)
+                        .fold(0.0f32, f32::max)
                 })
                 .collect()
         })
         .collect();
     let point = |row: usize, angle: f32, inner: bool| {
-        let (y, _) = profile[row];
+        let (y, radius) = profile[row];
         let wear = if appearance == GloveAppearance::Old && row == 8 {
             (angle * 5.0).sin() * 0.003
         } else {
@@ -226,7 +226,10 @@ pub(in crate::creatures) fn emit_cuff(
         let support = (row.saturating_sub(1)..=(row + 1).min(8))
             .map(|r| fitted[r][index].max(fitted[r][index + 1]))
             .fold(0.0f32, f32::max);
-        let r = support / (PI / 24.0).cos() - if inner { 0.003 * build } else { 0.0 };
+        // Only actual sleeve clearance propagates between stations. Spreading
+        // the authored flare as well makes the narrow wrist into a bowl.
+        let r = support.max(radius * build) / (PI / 24.0).cos()
+            - if inner { 0.003 * build } else { 0.0 };
         wrist + Vec3::new(angle.cos() * r, (y + wear) * length, angle.sin() * r)
     };
     let color = appearance.color();
@@ -303,20 +306,21 @@ pub(in crate::creatures) fn emit_cuff(
         .map(|v| center + v * build);
         seam(&mut p.metal, &corners, 0.0018 * build, GOLD);
         if appearance == GloveAppearance::Padded {
+            // Continuous crossing stitches form two rows of diamonds. Follow
+            // each sampled ring instead of using a chord which cuts into the
+            // curved cuff and hides most of the quilting beneath its surface.
             for col in 0..12 {
-                let a = col as f32 * TAU / 12.0;
-                seam(
-                    &mut p.matte,
-                    &[point(4, a, false), point(8, a + 0.26, false)],
-                    0.002 * build,
-                    color * 0.65,
-                );
-                seam(
-                    &mut p.matte,
-                    &[point(4, a + 0.26, false), point(8, a, false)],
-                    0.002 * build,
-                    color * 0.65,
-                );
+                for direction in [-1.0, 1.0] {
+                    let path: Vec<_> = (0..=8)
+                        .map(|row| {
+                            let angle = (col as f32 + direction * row as f32 / 4.0)
+                                * TAU / 12.0;
+                            point(row, angle, false)
+                                + Vec3::new(angle.cos(), 0.0, angle.sin()) * (0.001 * build)
+                        })
+                        .collect();
+                    seam(&mut p.matte, &path, 0.0015 * build, THREAD * 0.70);
+                }
             }
         }
     }
@@ -409,6 +413,59 @@ mod tests {
     }
 
     #[test]
+    fn fencing_flare_does_not_spread_into_the_wrist() {
+        for build in [0.83, 1.08] {
+            let mut cuff = Parts::default();
+            emit_cuff(&mut cuff, GloveAppearance::Fencing, Vec3::ZERO, build, 1.0);
+            // This interval lies between authored stations y=.030 and .0575.
+            // Neighbor sampling used to drag a radius above .052 down here.
+            let wrist = cuff
+                .matte
+                .outer_surface(Vec3::Y * 0.031, Vec3::X)
+                .unwrap();
+            let lip = cuff
+                .matte
+                .outer_surface(Vec3::Y * 0.139, Vec3::X)
+                .unwrap();
+            assert!(
+                wrist.x < 0.045 * build,
+                "authored taper inflated: {wrist:?}"
+            );
+            assert!(lip.x > 0.070 * build && lip.x < 0.074 * build);
+        }
+    }
+
+    #[test]
+    fn quilt_stitches_follow_cuff_between_rings() {
+        for build in [0.83, 1.08] {
+            let mut cuff = Parts::default();
+            emit_cuff(&mut cuff, GloveAppearance::Padded, Vec3::ZERO, build, 1.0);
+            // Above the strap, between stitch intersections and away from rims.
+            // The two families must remain visible on both faces of each diamond.
+            for row in [5.5f32, 6.5, 7.5] {
+                let y = 0.035 + (row - 4.0) * (0.110 - 0.035) / 4.0;
+                let authored_radius =
+                    (0.048 + (row - 4.0) * (0.066 - 0.048) / 4.0) * build;
+                for direction in [-1.0, 1.0] {
+                    let angle = direction * row / 4.0 * TAU / 12.0;
+                    let ray = Vec3::new(angle.cos(), 0.0, angle.sin());
+                    let origin = Vec3::Y * y;
+                    let stitch = cuff.matte.outer_surface(origin, ray).unwrap();
+                    let radius = (stitch - origin).dot(ray);
+                    assert!(
+                        radius > authored_radius + 0.001 * build,
+                        "quilt chord buried between rings: {stitch:?}"
+                    );
+                    assert!(
+                        radius < authored_radius + 0.0035 * build,
+                        "oversized wall must not masquerade as stitch relief: {stitch:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn styles_change_geometry_not_only_pigment() {
         let mut padded = Parts::default();
         let mut riding = Parts::default();
@@ -435,7 +492,9 @@ mod tests {
         let mut old = Parts::default();
         emit_cuff(&mut fencing, GloveAppearance::Fencing, Vec3::ZERO, 1.0, 1.0);
         emit_cuff(&mut old, GloveAppearance::Old, Vec3::ZERO, 1.0, 1.0);
-        assert!(fencing.matte.bounds().1.x > old.matte.bounds().1.x + 0.015);
+        // Fencing retains its distinguishing flare without the old bowl width.
+        assert!(fencing.matte.bounds().1.x > old.matte.bounds().1.x + 0.006);
+        assert!(fencing.matte.bounds().1.x < 0.074);
         assert!(fencing.matte.bounds().1.y > old.matte.bounds().1.y + 0.025);
         assert!(fencing.metal.is_empty());
         assert!(!old.metal.is_empty());
