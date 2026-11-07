@@ -4224,3 +4224,15 @@ existing body reserves and numerical shape gates remain required. Exact
 within-solve proposed-position memoization separately targets repeated solid
 membership queries without changing successful or failed results. Neither
 analytical conditioning nor cache equivalence replaces native motion evidence.
+
+Local snow-cuff refinement exposed a contact-envelope mismatch during independent
+source review: the deeper emitted fleece extended beyond the fixed cuff bounds
+used by outer-garment contact. Height and forward-vamp tests did not cover this
+radial cuff escape. The correction derives build-aware bounds including tuft
+jitter, vertical extent, capsule-ring chord inset and shaft interpolation; an
+emitted-cuff vertex regression covers three scales and native, bare and clothed
+fits. An analytic sweep accepted 193,536 candidate samples while the old bounds
+rejected 74,488; this is not an executed native first-red result. At `f5daedb3`,
+the restored local optimized build and 12 footwear plus seven glove native tests
+passed. Actual close renders still exposed discontinuous fencing-cuff gold trim,
+so successful geometry tests do not establish visual acceptance.
