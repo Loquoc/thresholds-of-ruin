@@ -1294,8 +1294,8 @@ mod tests {
                 }
                 if let Some(surface) = &cloak.arm_surface {
                     let reach = surface.forward_reach();
-                    for side in 0..2 {
-                        if reach[side] - cloak.neutral_forward[side]
+                    for (side, &forward) in reach.iter().enumerate() {
+                        if forward - cloak.neutral_forward[side]
                             < cloak.neutral_forward[side].abs().max(0.05)
                         {
                             continue;
