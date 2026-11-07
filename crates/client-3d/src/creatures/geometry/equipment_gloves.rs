@@ -272,17 +272,28 @@ pub(in crate::creatures) fn emit_cuff(
     if appearance == GloveAppearance::Fencing {
         for col in 0..8 {
             let angle = col as f32 * TAU / 8.0;
-            // Repeated scalloped embroidery fans around the broad cuff lip.
-            seam(
-                &mut p.satin,
-                &[
-                    point(8, angle - 0.14, false),
-                    point(4, angle, false),
-                    point(8, angle + 0.14, false),
-                ],
-                0.0013 * build,
-                GOLD,
-            );
+            // Project each leg onto the emitted, sleeve-fitted cuff. A single
+            // lip-to-wrist chord cuts through any intermediate sleeve bulge,
+            // making the gold disappear halfway down the side of the cuff.
+            for side in [-1.0, 1.0] {
+                let path: Vec<_> = (0..=16)
+                    .map(|step| {
+                        let t = step as f32 / 16.0;
+                        let a = angle + side * 0.14 * t;
+                        let direction = Vec3::new(a.cos(), 0.0, a.sin());
+                        let low = profile[4].0 * length;
+                        let high = profile[8].0 * length;
+                        // Sample just inside the open lip to avoid an edge-ray
+                        // miss from floating point rounding at its exact plane.
+                        let y = (low + (high - low) * t).clamp(low + 0.000001, high - 0.000001);
+                        let origin = wrist + Vec3::Y * y;
+                        let fallback = point(4 + step / 4, a, false);
+                        p.matte.outer_surface(origin, direction).unwrap_or(fallback)
+                            + direction * (0.0015 * build)
+                    })
+                    .collect();
+                seam(&mut p.satin, &path, 0.0013 * build, GOLD);
+            }
         }
     } else {
         // Narrow circumferential strap and a framed brass buckle.
@@ -313,8 +324,7 @@ pub(in crate::creatures) fn emit_cuff(
                 for direction in [-1.0, 1.0] {
                     let path: Vec<_> = (0..=8)
                         .map(|row| {
-                            let angle = (col as f32 + direction * row as f32 / 4.0)
-                                * TAU / 12.0;
+                            let angle = (col as f32 + direction * row as f32 / 4.0) * TAU / 12.0;
                             point(row, angle, false)
                                 + Vec3::new(angle.cos(), 0.0, angle.sin()) * (0.001 * build)
                         })
@@ -413,20 +423,52 @@ mod tests {
     }
 
     #[test]
+    fn fencing_embroidery_stays_outside_a_bulging_fitted_cuff() {
+        for build in [0.83, 1.08] {
+            let mut cuff = Parts::default();
+            cuff.matte.blob(
+                Vec3::Y * 0.085,
+                Vec3::new(0.085 * build, 0.065, 0.080 * build),
+                2,
+                0.0,
+                Vec3::ONE,
+            );
+            emit_cuff(&mut cuff, GloveAppearance::Fencing, Vec3::ZERO, build, 1.0);
+            for column in 0..8 {
+                for side in [-1.0, 1.0] {
+                    // Witness between path vertices, not merely its endpoints.
+                    for step in 0..16 {
+                        let t = (step as f32 + 0.5) / 16.0;
+                        let origin = Vec3::Y * (0.030 + 0.110 * t);
+                        let angle = column as f32 * TAU / 8.0 + side * 0.14 * t;
+                        let direction = Vec3::new(angle.cos(), 0.0, angle.sin());
+                        let wall = cuff.matte.outer_surface(origin, direction).unwrap();
+                        let thread = cuff
+                            .satin
+                            .outer_surface(origin, direction)
+                            .expect("continuous gold thread between cuff rings");
+                        let relief = (thread - wall).dot(direction);
+                        assert!(relief > 0.0003 * build,
+                            "gold embroidery sinks into fitted cuff: build={build} t={t} relief={relief}");
+                        assert!(
+                            relief < 0.004 * build,
+                            "embroidery must not float above cuff: {relief}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn fencing_flare_does_not_spread_into_the_wrist() {
         for build in [0.83, 1.08] {
             let mut cuff = Parts::default();
             emit_cuff(&mut cuff, GloveAppearance::Fencing, Vec3::ZERO, build, 1.0);
             // This interval lies between authored stations y=.030 and .0575.
             // Neighbor sampling used to drag a radius above .052 down here.
-            let wrist = cuff
-                .matte
-                .outer_surface(Vec3::Y * 0.031, Vec3::X)
-                .unwrap();
-            let lip = cuff
-                .matte
-                .outer_surface(Vec3::Y * 0.139, Vec3::X)
-                .unwrap();
+            let wrist = cuff.matte.outer_surface(Vec3::Y * 0.031, Vec3::X).unwrap();
+            let lip = cuff.matte.outer_surface(Vec3::Y * 0.139, Vec3::X).unwrap();
             assert!(
                 wrist.x < 0.045 * build,
                 "authored taper inflated: {wrist:?}"
@@ -444,8 +486,7 @@ mod tests {
             // The two families must remain visible on both faces of each diamond.
             for row in [5.5f32, 6.5, 7.5] {
                 let y = 0.035 + (row - 4.0) * (0.110 - 0.035) / 4.0;
-                let authored_radius =
-                    (0.048 + (row - 4.0) * (0.066 - 0.048) / 4.0) * build;
+                let authored_radius = (0.048 + (row - 4.0) * (0.066 - 0.048) / 4.0) * build;
                 for direction in [-1.0, 1.0] {
                     let angle = direction * row / 4.0 * TAU / 12.0;
                     let ray = Vec3::new(angle.cos(), 0.0, angle.sin());
