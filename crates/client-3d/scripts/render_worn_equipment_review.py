@@ -65,7 +65,7 @@ def main():
     receipt = {'status': 'running', 'visual_acceptance': 'not_reviewed',
                'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                'tree': subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=ROOT, text=True).strip(),
-               'binary_sha256': digest(binary), 'scenes': [],
+               'binary_sha256': digest(binary), 'scenes': [], 'failures': [],
                'environment': {k: os.environ[k] for k in ('WGPU_BACKEND', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_INCREMENTAL') if k in os.environ}}
     receipt_path = output / 'receipt.json'
     try:
@@ -83,7 +83,13 @@ def main():
                 with (output / f'{name}.log').open('w') as log:
                     result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, timeout=900, check=False)
                 if result.returncode:
-                    raise RuntimeError(f'{source.name} exited {result.returncode}')
+                    receipt['failures'].append({'script': source.name, 'batch': prepared.name,
+                                                'error': f'native process exited {result.returncode}',
+                                                'seconds': time.monotonic() - started})
+                    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+                    # Every batch owns a new process and output directory. Keep
+                    # independent evidence, but never turn partial work green.
+                    continue
                 manifest = json.loads((target / 'manifest.json').read_text())
                 validate_manifest(batch, manifest, target)
                 receipt['scenes'].append({'script': source.name, 'sha256': digest(source), 'batch': prepared.name,
@@ -93,6 +99,8 @@ def main():
                                                         'sha256': digest(target / f'{shot["name"]}.png')}
                                                        for shot in manifest['captures']]})
                 receipt_path.write_text(json.dumps(receipt, indent=2) + '\n')
+        if receipt['failures']:
+            raise RuntimeError(f"{len(receipt['failures'])} capture batches failed; see retained manifests")
         receipt['status'] = 'complete'
     except Exception as error:
         receipt['status'] = 'failed'

@@ -46,6 +46,42 @@ class RenderReceipt(unittest.TestCase):
                 self.assertEqual({k: v for k, v in batch.items() if k not in ('captures', 'events')},
                                  {k: v for k, v in script.items() if k not in ('captures', 'events')})
 
+    def test_failed_batch_retains_independent_later_evidence_without_acceptance(self):
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import render_worn_equipment_review as runner
+
+        calls = []
+        def process(command, **kwargs):
+            calls.append(command)
+            if len(calls) == 1:
+                return SimpleNamespace(returncode=1)
+            source = Path(command[command.index('--scene-script') + 1])
+            target = Path(command[command.index('--capture') + 1])
+            target.mkdir()
+            script = json.loads(source.read_text())
+            (target / 'manifest.json').write_text(json.dumps({'captures': script['captures']}))
+            return SimpleNamespace(returncode=0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'result'
+            with patch('sys.argv', ['runner', '--binary', '/unused', '--output', str(output)]), \
+                 patch.object(runner.subprocess, 'check_output', return_value='head'), \
+                 patch.object(runner.subprocess, 'run', side_effect=process), \
+                 patch.object(runner, 'digest', return_value='sha'), \
+                 patch.object(runner, 'validate_manifest'):
+                with self.assertRaisesRegex(RuntimeError, '1 capture batches failed'):
+                    runner.main()
+            receipt = json.loads((output / 'receipt.json').read_text())
+            expected = sum(len(runner.capture_batches(script)) for script in generator.reviews().values())
+            self.assertEqual(len(calls), expected)
+            self.assertEqual(len(receipt['scenes']), expected - 1)
+            self.assertEqual(len(receipt['failures']), 1)
+            self.assertEqual(receipt['status'], 'failed')
+            self.assertEqual(receipt['visual_acceptance'], 'not_reviewed')
+            self.assertTrue(any(s['script'] == 'layering.json' for s in receipt['scenes']))
+
     def test_manifest_requires_exact_names_ticks_renderer_and_actual_images(self):
         import copy
         import struct

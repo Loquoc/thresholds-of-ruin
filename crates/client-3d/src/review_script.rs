@@ -46,6 +46,64 @@ enum Phase {
     Finished,
     Failed,
 }
+/// Constant-memory CPU-side schedule wall-time attribution, enabled only by
+/// the offline capture runner. These are durations, not simulation deadlines.
+#[derive(Default)]
+struct ScheduleCost {
+    calls: u64,
+    total: Duration,
+    max: Duration,
+    zero_delta_calls: u64,
+    same_tick_calls: u64,
+    last_tick: Option<u32>,
+    phase_calls: [u64; 7],
+    refresh_rigs: u64,
+}
+impl ScheduleCost {
+    fn record(
+        &mut self,
+        elapsed: Duration,
+        tick: u32,
+        zero_delta: bool,
+        phase: Phase,
+        refresh_rigs: usize,
+    ) {
+        self.calls = self.calls.saturating_add(1);
+        self.total = self.total.saturating_add(elapsed);
+        self.max = self.max.max(elapsed);
+        self.zero_delta_calls = self.zero_delta_calls.saturating_add(u64::from(zero_delta));
+        self.same_tick_calls = self
+            .same_tick_calls
+            .saturating_add(u64::from(self.last_tick == Some(tick)));
+        self.last_tick = Some(tick);
+        let i = phase as usize;
+        self.phase_calls[i] = self.phase_calls[i].saturating_add(1);
+        self.refresh_rigs = self.refresh_rigs.saturating_add(refresh_rigs as u64);
+    }
+    fn report(&self) -> Value {
+        json!({"count":self.calls,"total_ms":self.total.as_secs_f64()*1000.0,
+            "max_ms":self.max.as_secs_f64()*1000.0,"zero_delta_count":self.zero_delta_calls,
+            "same_tick_count":self.same_tick_calls,"refresh_rigs":self.refresh_rigs,
+            "phase_counts": self.phase_calls})
+    }
+}
+#[derive(Resource, Default)]
+struct ReviewTiming {
+    schedules: [ScheduleCost; 2],
+    motion_rigs: u64,
+    motion_phases: [Duration; 4],
+}
+impl ReviewTiming {
+    fn report(&self) -> Value {
+        json!({"version":1,"scope":"CPU-side schedule elapsed wall time; excludes render/GPU wait",
+            "phase_order":["Apply","Pose","Camera","Pending","Advance","Finished","Failed"],
+            "AdvanceReview":self.schedules[0].report(),"RefreshReview":self.schedules[1].report(),
+            "motion_rig_steps":self.motion_rigs,
+            "motion_phase_order":["pose_joints","robe","drapes_segments","hair_contacts"],
+            "motion_phase_total_ms":self.motion_phases.map(|d|d.as_secs_f64()*1000.0)})
+    }
+}
+
 #[derive(Resource)]
 struct Run {
     script: Script,
@@ -156,6 +214,8 @@ fn run(path: &Path, output: &Path, offscreen: bool) -> Result<(), crate::Error> 
             brightness: 180.0,
             ..default()
         })
+        .insert_resource(ReviewTiming::default())
+        .insert_resource(creatures::MotionProfile::default())
         .insert_resource(readiness.clone())
         .insert_resource(Run {
             script,
@@ -523,11 +583,46 @@ fn configure_animation(app: &mut App) {
             .chain(),
     );
 }
+fn timed_animation(world: &mut World, label: impl ScheduleLabel, slot: usize) {
+    // Live playback and ordinary gameplay do not opt into capture accounting.
+    if !world.contains_resource::<ReviewTiming>() {
+        world.run_schedule(label);
+        return;
+    }
+    let (tick, phase) = {
+        let run = world.resource::<Run>();
+        (run.tick, run.phase)
+    };
+    let zero_delta = world.resource::<Time>().delta().is_zero();
+    let refresh_rigs = if slot == 1 {
+        world
+            .query_filtered::<Entity, (With<Rig>, With<creatures::PoseRefresh>)>()
+            .iter(world)
+            .count()
+    } else {
+        0
+    };
+    let start = Instant::now();
+    world.run_schedule(label);
+    let elapsed = start.elapsed();
+    let motion = (slot == 0).then(|| {
+        let profile = world.resource::<creatures::MotionProfile>();
+        (profile.rigs, profile.phases)
+    });
+    let mut timing = world.resource_mut::<ReviewTiming>();
+    timing.schedules[slot].record(elapsed, tick, zero_delta, phase, refresh_rigs);
+    if let Some((rigs, phases)) = motion {
+        timing.motion_rigs = timing.motion_rigs.saturating_add(rigs as u64);
+        for (total, elapsed) in timing.motion_phases.iter_mut().zip(phases) {
+            *total = total.saturating_add(elapsed);
+        }
+    }
+}
 fn advance_animation(world: &mut World) {
-    world.run_schedule(AdvanceReview);
+    timed_animation(world, AdvanceReview, 0);
 }
 fn refresh_animation(world: &mut World) {
-    world.run_schedule(RefreshReview);
+    timed_animation(world, RefreshReview, 1);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -622,6 +717,7 @@ fn save_manifest(run: &Run) -> std::io::Result<()> {
 fn capture(
     mut commands: Commands,
     mut run: ResMut<Run>,
+    timing: Option<Res<ReviewTiming>>,
     readiness: Res<Readiness>,
     offscreen: Option<Res<OffscreenTarget>>,
     mut camera: Query<(&mut Transform, &mut Projection), With<ReviewCamera>>,
@@ -631,6 +727,9 @@ fn capture(
 ) {
     if run.phase == Phase::Finished {
         return;
+    }
+    if let Some(timing) = timing.as_ref() {
+        run.manifest["cpu_timing"] = timing.report();
     }
     let (ready, render_error, adapter) = {
         let state = readiness.0.lock().unwrap();
@@ -718,7 +817,7 @@ fn capture(
         .unwrap()
         .clone();
     let report = json!({"name":shot.name,"tick":run.tick,"clock_ns":run.clock.elapsed().as_nanos().to_string(),
-        "camera":camera_spec,"actors":states,"renderer":adapter});
+        "camera":camera_spec,"actors":states,"renderer":adapter,"cpu_timing":run.manifest.get("cpu_timing")});
     let output = run.output.clone();
     run.phase = Phase::Pending;
     let screenshot = match offscreen {
@@ -805,4 +904,37 @@ fn parse_cli(arguments: &[String]) -> Result<CaptureOptions, crate::Error> {
 pub(crate) fn cli(arguments: &[String]) -> Result<(), crate::Error> {
     let options = parse_cli(arguments)?;
     run(&options.script, &options.output, options.offscreen)
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    #[test]
+    fn bounded_schedule_counters_preserve_capture_and_failure_schema() {
+        let mut timing = ReviewTiming::default();
+        timing.schedules[0].record(Duration::from_millis(3), 7, false, Phase::Apply, 0);
+        timing.schedules[0].record(Duration::from_millis(9), 7, true, Phase::Pending, 0);
+        timing.schedules[0].record(Duration::from_millis(2), 8, false, Phase::Apply, 0);
+        timing.schedules[1].record(Duration::from_millis(5), 8, true, Phase::Pose, 2);
+        let report = timing.report();
+        let advance = &report["AdvanceReview"];
+        assert_eq!(advance["count"], 3);
+        assert_eq!(advance["total_ms"], 14.0);
+        assert_eq!(advance["max_ms"], 9.0);
+        assert_eq!(advance["zero_delta_count"], 1);
+        assert_eq!(advance["same_tick_count"], 1);
+        assert_eq!(advance["phase_counts"][Phase::Apply as usize], 2);
+        assert_eq!(advance["phase_counts"][Phase::Pending as usize], 1);
+        assert_eq!(report["RefreshReview"]["refresh_rigs"], 2);
+        assert_eq!(
+            report["phase_order"].as_array().unwrap().len(),
+            advance["phase_counts"].as_array().unwrap().len()
+        );
+        for status in ["running", "complete", "failed"] {
+            let manifest = json!({"status":status,"cpu_timing":report});
+            let decoded: Value =
+                serde_json::from_slice(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+            assert_eq!(decoded["cpu_timing"], report);
+        }
+    }
 }
