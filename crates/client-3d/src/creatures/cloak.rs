@@ -965,6 +965,11 @@ pub(super) fn spawn(
                 .as_ref()
                 .map(|scene| Arc::new(LayerSurface::from_triangles(scene.cloth_hulls())))
         });
+    let head_surface = recipe
+        .head_contact_surface
+        .as_ref()
+        .filter(|_| recipe.inner_layer.is_some())
+        .map(|head| head.surface());
     let support_ms = support_started.elapsed().as_secs_f64() * 1000.0;
     let point_started = std::time::Instant::now();
     let shoulder_profile = recipe.shoulder_profile();
@@ -974,6 +979,7 @@ pub(super) fn spawn(
     let mut attachment_reference = Vec::new();
     let mut attachment_limits = None;
     let mut attachment_failed = false;
+    let mut attachment_constraint_ms = 0.0;
     if recipe.inner_layer.is_some() {
         if let Some(head) = &recipe.head_contact_surface {
             let offset = Vec3::new(0.0, 0.53, -0.15);
@@ -993,6 +999,7 @@ pub(super) fn spawn(
             });
             let limits = attachment_radius_envelope(&original_widths)
                 .unwrap_or([f32::NAN; 2 * (COLUMNS + 1)]);
+            let attachment_started = std::time::Instant::now();
             if let Err(failure) = fit_mantle_head_reference(
                 &mut rest,
                 Quat::IDENTITY,
@@ -1006,10 +1013,11 @@ pub(super) fn spawn(
                 #[cfg(not(test))]
                 warn!("head attachment initialization failed: {failure:?}");
             }
+            attachment_constraint_ms += attachment_started.elapsed().as_secs_f64() * 1000.0;
             attachment_limits = Some(limits);
         }
     }
-    let point_ms = point_started.elapsed().as_secs_f64() * 1000.0;
+    let point_ms = point_started.elapsed().as_secs_f64() * 1000.0 - attachment_constraint_ms;
     // Contact fitting is an output, never the next solve's rest shape. In
     // particular, refitting a raised roof changes its inclination and can
     // amplify the same shoulder clearance on every subsequent solve.
@@ -1019,8 +1027,8 @@ pub(super) fn spawn(
     } else {
         Vec::new()
     };
-    let mut contact_cpu_ms = [support_ms, 0.0, point_ms, 0.0];
-    let mut contact_solves = 0;
+    let mut contact_cpu_ms = [support_ms, 0.0, point_ms, attachment_constraint_ms];
+    let mut contact_solves = u64::from(attachment_limits.is_some());
     let constraint_started = std::time::Instant::now();
     let mut contact_fallbacks = u64::from(attachment_failed)
         + u64::from(
@@ -1139,11 +1147,7 @@ pub(super) fn spawn(
             .map_or([0.0; 2], |surface| surface.arm_reach()),
         arm_surface,
         contact_surface: recipe.contact_surface,
-        head_surface: recipe
-            .head_contact_surface
-            .as_ref()
-            .filter(|_| recipe.inner_layer.is_some())
-            .map(|h| h.surface()),
+        head_surface,
         head_contact_surface: recipe.head_contact_surface,
         contact_fallbacks,
         contact_reference,
@@ -1917,10 +1921,10 @@ impl LayerSurface {
 
 // Six endpoints have at most twenty supporting triples, tested in both
 // orientations. Degenerate branches emit at most32 planes instead. Intersect
-// with five unit prism planes. A convex polygon gains at most one vertex per
+// with five unit prism planes plus an inward radial bevel. A convex polygon gains at most one vertex per
 // clip; strict crossings avoid duplicates.
 const MAX_HULL_PLANES: usize = 40;
-const MAX_CONTACT_PLANES: usize = MAX_HULL_PLANES + 5;
+const MAX_CONTACT_PLANES: usize = MAX_HULL_PLANES + 6;
 const MAX_CLIPPED_VERTICES: usize = 3 + MAX_CONTACT_PLANES;
 
 /// Fixed scratch buffers keep leaf clipping bounded without heap allocation.
@@ -2547,6 +2551,20 @@ fn arm_contact_planes(
     // not a rounded Minkowski sum. Retain the old unit prism planes as valid
     // bevel constraints: BOTH domains contain the complete clearance sweep.
     planes.extend(prism.iter().map(|&(n, offset)| (n, offset - LAYER_GAP)));
+    // An acute offset hull can include a distant neck cap inward of this
+    // entire face. This unit supporting bevel contains every endpoint and
+    // its clearance neighborhood, without forcing cloth around that cap.
+    let inward = vertices
+        .iter()
+        .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z))
+        .sum::<Vec3>()
+        .normalize_or(Vec3::NEG_Z);
+    let minimum = vertices
+        .iter()
+        .chain(&endpoints)
+        .map(|p| inward.dot(*p))
+        .fold(f32::INFINITY, f32::min);
+    planes.push((inward, minimum - LAYER_GAP - THICKNESS));
     assert!(planes.len() <= MAX_CONTACT_PLANES);
     planes
 }
@@ -5924,6 +5942,68 @@ mod tests {
     }
 
     #[test]
+    fn captured_cope_inward_bevel_rejects_distant_neck_corner() {
+        // Exact spawned cope face[5,54,53], iteration1, source-frozen native trace.
+        let vertices = [
+            Vec3::from_array([0xbdf4612e, 0x3f18d4fe, 0x3d691b38].map(f32::from_bits)),
+            Vec3::from_array([0xbe19a8e7, 0x3f1aacaf, 0x3d65b274].map(f32::from_bits)),
+            Vec3::from_array([0xbe1767e0, 0x3f1bb4ff, 0x3d92b748].map(f32::from_bits)),
+        ];
+        let endpoints = [
+            Vec3::from_array([0xbdf4612e, 0x3f18d4fe, 0x3d691b38].map(f32::from_bits)),
+            Vec3::from_array([0xbe7f19da, 0x3f1aacaf, 0x3dbeaaf6].map(f32::from_bits)),
+            Vec3::from_array([0xbe1767e0, 0x3f1bb4ff, 0x3d92b748].map(f32::from_bits)),
+        ];
+        let witness = Vec3::from_array([0xbd2e5239, 0x3f10a3d7, 0x3c9710b2].map(f32::from_bits));
+        let rays = vertices.map(|p| p.with_y(0.0).normalize());
+        let horizontal = rays.into_iter().sum::<Vec3>().normalize();
+        let tangent = Vec3::new(horizontal.z, 0.0, -horizontal.x);
+        let angles = rays.map(|r| r.dot(tangent).atan2(r.dot(horizontal)));
+        let lo = angles.into_iter().fold(f32::INFINITY, f32::min);
+        let hi = angles.into_iter().fold(f32::NEG_INFINITY, f32::max);
+        let left = horizontal * lo.cos() + tangent * lo.sin();
+        let right = horizontal * hi.cos() + tangent * hi.sin();
+        let (low, high, outer) = swept_face_bounds(vertices, endpoints, horizontal);
+        let prism = [
+            (Vec3::Y, low - THICKNESS),
+            (Vec3::NEG_Y, -high - THICKNESS),
+            (Vec3::new(left.z, 0.0, -left.x), -THICKNESS),
+            (Vec3::new(-right.z, 0.0, right.x), -THICKNESS),
+            (-horizontal, -outer - THICKNESS),
+        ];
+        let mut old = swept_arm_planes(vertices, endpoints);
+        old.extend(prism.map(|(n, h)| (n, h - LAYER_GAP)));
+        assert!(
+            old.iter().all(|(n, h)| n.dot(witness) >= *h - 1e-6),
+            "fixture must reproduce the admitted corner"
+        );
+        let planes = arm_contact_planes(vertices, endpoints, &prism);
+        assert!(planes.iter().any(|(n, h)| *h - n.dot(witness) > 0.05));
+        for mask in 0..8 {
+            let face = std::array::from_fn::<_, 3, _>(|i| {
+                if mask & (1 << i) == 0 {
+                    vertices[i]
+                } else {
+                    endpoints[i]
+                }
+            });
+            for p in face
+                .into_iter()
+                .chain([face.into_iter().sum::<Vec3>() / 3.0])
+            {
+                for n in [Vec3::X, Vec3::Y, Vec3::Z, horizontal, Vec3::ONE.normalize()] {
+                    for sign in [-1.0, 1.0] {
+                        let expanded = p + n * (sign * (LAYER_GAP + THICKNESS));
+                        assert!(planes.iter().all(|(n, h)| n.dot(expanded) >= *h - 1e-6));
+                    }
+                }
+            }
+        }
+        assert_eq!(MAX_CONTACT_PLANES, 46);
+        assert_eq!(MAX_CLIPPED_VERTICES, 49);
+    }
+
+    #[test]
     fn arm_hull_prism_intersection_preserves_clearance_neighborhoods() {
         let vertices = [
             Vec3::new(0.0, 0.4, 0.2),
@@ -6070,6 +6150,37 @@ mod tests {
                 "{count}-plane clipping changed support"
             );
         }
+    }
+
+    #[test]
+    fn maximum_contact_plane_count_matches_dynamic_clipping() {
+        let triangle = [
+            Vec3::new(-3.0, 0.2, -2.0),
+            Vec3::new(3.0, 0.8, -2.0),
+            Vec3::new(0.0, 0.5, 3.0),
+        ];
+        let planes: Vec<_> = (0..MAX_CONTACT_PLANES)
+            .map(|i| {
+                let angle = TAU * i as f32 / MAX_CONTACT_PLANES as f32;
+                (Vec3::new(angle.cos(), 0.0, angle.sin()), -0.5)
+            })
+            .collect();
+        let mut expected = triangle.to_vec();
+        for &(n, h) in &planes {
+            expected = clip_layer_polygon(&expected, n, h);
+        }
+        let (actual, count) = clipped_polygon(triangle, &planes).unwrap();
+        assert_eq!(count, MAX_CONTACT_PLANES);
+        assert_eq!(count, expected.len());
+        let expected_height = expected
+            .iter()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let actual_height = actual[..count]
+            .iter()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!((actual_height - expected_height).abs() < 1e-6);
     }
 
     #[test]

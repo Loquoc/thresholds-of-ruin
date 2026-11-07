@@ -4341,3 +4341,19 @@ but raised pointed shoulders, stiff panels and dark separations remained visuall
 unacceptable. These are local experimental results, not release or full-suite
 qualification. No clearance, ceiling, motion or existing shape threshold was
 relaxed, and no remote publication occurred.
+
+The next exact cope witness was 85.773804 mm inward of every swept endpoint,
+although only a 32 mm neighborhood was required. Adding a unit inward supporting
+bevel to arm/head domains excludes that false corner without changing inner-layer
+containment. Independent endpoint/neighborhood tests and a maximum 46-plane
+fixed-versus-dynamic clipping test passed; scratch capacity is 49 vertices.
+Strict release Clippy passed and the cloak checkpoint reached 72 passed, three
+unresolved acceptance failures. Seed18 neutral spawn/cache now passes. Actual
+head transform/remapping still passes; the selection fixture remains blocked by
+cope spawn. The same-camera zero-fallback render confirms that pointed shoulder
+peaks disappeared: mantle row2 maximum Y fell from 0.71457 m to 0.61455 m and edge
+stretch from 9.67 to 2.51. Broad stiff panels and dark separations still reject
+visual acceptance. Neutral row6 width, cope inner-layer attachment, and leather
+tick93 head attachment remain open. Spawn timing now counts head BVH construction
+under support work and the full-face attachment prepass under constraints; these
+are phase wall-time diagnostics, not frame-rate benchmarks.
