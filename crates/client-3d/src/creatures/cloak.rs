@@ -274,7 +274,7 @@ pub(super) struct CloakRig {
     scene: Option<super::visual_contact::Scene>,
     arm_surface: Option<LayerSurface>,
     opening: Option<f32>,
-    neutral_forward: [f32; 2],
+    neutral_reach: [f32; 2],
 }
 
 impl CloakRig {
@@ -475,9 +475,9 @@ pub(super) fn spawn(
         rest,
         normals,
         last_rotation: None,
-        neutral_forward: arm_surface
+        neutral_reach: arm_surface
             .as_ref()
-            .map_or([0.0; 2], LayerSurface::forward_reach),
+            .map_or([0.0; 2], LayerSurface::arm_reach),
         arm_surface,
         opening: recipe.cut.map(|cut| cut.opening),
         scene: recipe.scene,
@@ -499,14 +499,12 @@ pub(super) fn place(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Me
     // at the shoulder and introduce it gradually down the private rest grid.
     // Two fixed rows form a supported yoke, rather than a hinge-shaped gap.
     let inverse = rotation.inverse();
-    let release = cloak.arm_surface.as_ref().map_or([0.0; 2], |surface| {
-        let reach = surface.forward_reach();
-        std::array::from_fn(|side| {
-            ((reach[side] - cloak.neutral_forward[side])
-                / cloak.neutral_forward[side].abs().max(0.05))
-            .clamp(0.0, 1.0)
-        })
-    });
+    let release = cloak
+        .arm_surface
+        .as_ref()
+        .map_or(FreeEdges::default(), |surface| {
+            surface.free_edges(cloak.neutral_reach)
+        });
     let opening = cloak.opening;
     let CloakRig {
         points,
@@ -684,13 +682,34 @@ impl LayerSurface {
         support
     }
 
-    fn forward_reach(&self) -> [f32; 2] {
+    fn arm_reach(&self) -> [f32; 2] {
         let mut reach = [0.0f32; 2];
         for p in self.triangles.iter().flatten().filter(|p| p.y >= 0.15) {
             let side = usize::from(p.x >= 0.0);
-            reach[side] = reach[side].max(p.z);
+            reach[side] = reach[side].max(p.z.abs());
         }
         reach
+    }
+
+    fn free_edges(&self, neutral: [f32; 2]) -> FreeEdges {
+        let reach = self.arm_reach();
+        let strength = std::array::from_fn(|side| {
+            ((reach[side] - neutral[side]) / neutral[side].max(0.05)).clamp(0.0, 1.0)
+        });
+        let mut angles = [PI * 0.68; 2];
+        for p in self.triangles.iter().flatten().filter(|p| p.y >= 0.15) {
+            let side = usize::from(p.x >= 0.0);
+            if p.z.abs() <= neutral[side] {
+                continue;
+            }
+            let radius = p.with_y(0.0).length();
+            let padding = ((LAYER_GAP + THICKNESS) / radius.max(0.05)).min(1.0).asin();
+            angles[side] = angles[side].max(p.x.abs().atan2(p.z) + padding);
+        }
+        FreeEdges {
+            strength,
+            angles: angles.map(|angle| angle.min(PI - 0.04)),
+        }
     }
 
     /// Vertical cloth contact is local to the cell's finite footprint. A fist
@@ -830,16 +849,31 @@ fn clip_layer_polygon(points: &[Vec3], normal: Vec3, offset: f32) -> Vec<Vec3> {
     result
 }
 
-/// The front edges are free boundaries, not sleeves. A forward lifted arm
-/// sweeps its side of the open cloth behind itself; the neck stays attached.
-/// Neutral coverage is unchanged, and the original radius/height are retained.
-fn release_front(at: Vec3, row: usize, column: usize, opening: f32, release: [f32; 2]) -> Vec3 {
+#[derive(Clone, Copy, Default)]
+struct FreeEdges {
+    strength: [f32; 2],
+    angles: [f32; 2],
+}
+
+/// A lifted arm can be in forward extension OR backward wind-up. Sweep its
+/// free cloth edge beyond the actual posed hull's polar angle, not a fixed
+/// front-only threshold. Neck attachment, radius and cloth topology survive.
+fn release_front(at: Vec3, row: usize, column: usize, opening: f32, release: FreeEdges) -> Vec3 {
+    let strength = release.strength[0].max(release.strength[1]);
+    if strength == 0.0 || row == 0 {
+        return at;
+    }
     let u = column as f32 / COLUMNS as f32;
     let weight = (row as f32 / 3.0).min(1.0);
-    let target = PI * 0.68;
-    let left = (target - opening * 0.5).max(0.0) * release[0];
-    let right = (target - opening * 0.5).max(0.0) * release[1];
-    let turn = (-left * (1.0 - u) + right * u) * weight;
+    let left = (release.angles[0] - opening * 0.5).max(0.0) * release.strength[0];
+    let right = (release.angles[1] - opening * 0.5).max(0.0) * release.strength[1];
+    let base = -opening * 0.5 - (TAU - opening) * u;
+    let actual = at.x.atan2(at.z);
+    let lag = (actual - base + PI).rem_euclid(TAU) - PI;
+    // At full release use the geometric target angle exactly: subtract the
+    // eased cloak rotation/elliptic offset so it cannot put the edge back over
+    // the fist. At rest the authored geometry is untouched.
+    let turn = (-left * (1.0 - u) + right * u - lag * strength) * weight;
     Quat::from_rotation_y(turn) * at
 }
 
@@ -1067,15 +1101,41 @@ mod tests {
             0.4,
             (opening * 0.5f32).cos() * 0.4,
         );
-        assert_eq!(release_front(left, 0, 0, opening, [1.0, 0.0]), left);
-        assert_eq!(release_front(left, 7, 0, opening, [0.0, 0.0]), left);
-        let released = release_front(left, 7, 0, opening, [1.0, 0.0]);
+        assert_eq!(
+            release_front(
+                left,
+                0,
+                0,
+                opening,
+                FreeEdges {
+                    strength: [1.0, 0.0],
+                    angles: [PI * 0.68; 2]
+                }
+            ),
+            left
+        );
+        assert_eq!(
+            release_front(left, 7, 0, opening, FreeEdges::default()),
+            left
+        );
+        let released = release_front(
+            left,
+            7,
+            0,
+            opening,
+            FreeEdges {
+                strength: [1.0, 0.0],
+                angles: [PI * 0.68; 2],
+            },
+        );
         assert!(
             released.z < -0.20,
             "free edge must sweep behind the fist, not form a sleeve around it"
         );
         assert!((released.with_y(0.0).length() - left.with_y(0.0).length()).abs() < 1e-6);
-        assert_eq!(released.y, left.y);
+        // Quat-vector multiplication reconstructs all components; even a
+        // pure Y rotation may round the unchanged Y coordinate by one ULP.
+        assert!((released.y - left.y).abs() <= 4.0 * f32::EPSILON * left.y.abs().max(1.0));
     }
 
     #[test]
@@ -1238,6 +1298,99 @@ mod tests {
     }
 
     #[test]
+    fn captured_tick_93_backward_strike_releases_hand_without_losing_back_cloth() {
+        // Same 50 Hz action event at tick 85 / capture at 93 as the review
+        // fixture. Run the production pose system, not guessed arm rotations.
+        for name in ["hooded-cloak", "leather-cloak", "ornamental-cope"] {
+            let mut equipment = Equipment::default();
+            if name == "ornamental-cope" {
+                equipment.select("plate-mail").unwrap();
+            }
+            equipment.select(name).unwrap();
+            let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()))
+                .equipped(equipment);
+            let (mut world, rig, _, meshes) = super::super::rogue_tests::spawn_one(&look);
+            world.insert_resource(meshes);
+            let mut anim = Anim::new(18, Vec3::ZERO);
+            anim.yaw = 0.0;
+            anim.time = 93.0 / 50.0;
+            let phase = (85..93).fold(0.0, |time, _| time + 0.02 / Move::Strike.duration());
+            assert!((phase - 0.258_064_5).abs() < 1e-7);
+            anim.action = Some((Move::Strike, phase));
+            let actor = world
+                .spawn((rig, anim, Transform::default(), super::super::PoseRefresh))
+                .id();
+            let mut schedule = Schedule::default();
+            schedule.add_systems(super::super::refresh_pose);
+            schedule.run(&mut world);
+            let rig = world.get::<Rig>(actor).unwrap();
+            let hand = [J::ArmR, J::ForeR, J::HandR]
+                .into_iter()
+                .fold(Affine3A::IDENTITY, |pose, joint| {
+                    pose * world
+                        .get::<Transform>(rig.joint(joint).unwrap())
+                        .unwrap()
+                        .compute_affine()
+                })
+                .transform_point3(Vec3::ZERO);
+            assert!(
+                hand.z < -0.4 && hand.x < -0.3 && hand.y > 0.2,
+                "must reproduce the captured rearward wind-up, not a forward strike: {hand:?}"
+            );
+            let contacts = super::super::visual_contact::posed(&rig.visual_contacts, |joint| {
+                rig.joint(joint)
+                    .and_then(|e| world.get::<Transform>(e))
+                    .map(Transform::compute_affine)
+            });
+            let meshes = world.resource::<Assets<Mesh>>();
+            for cloak in &rig.cloaks {
+                let release = cloak
+                    .arm_surface
+                    .as_ref()
+                    .unwrap()
+                    .free_edges(cloak.neutral_reach);
+                assert_eq!(
+                    release.strength[0], 1.0,
+                    "rearward hand must activate release"
+                );
+                assert!(
+                    release.angles[0] > hand.x.abs().atan2(hand.z) + 0.03,
+                    "edge must sweep beyond the actual hand, not stop at a fixed forward target"
+                );
+                let rotation = world.get::<Transform>(cloak.entity).unwrap().rotation;
+                let offset = Vec3::new(0.0, 0.53, -0.15);
+                for row in 4..=ROWS {
+                    let edge = rotation * cloak.points[index(row, 0)] + offset;
+                    assert!(
+                        edge.x.abs().atan2(edge.z) >= release.angles[0] - 0.005,
+                        "safety fitting must not return the edge over the fist: {edge:?}"
+                    );
+                }
+                let back = rotation * cloak.points[index(ROWS, COLUMNS / 2)] + offset;
+                assert!(back.z < -0.10, "retain continuous hanging back cloth");
+                let mesh = meshes.get(&cloak.mesh).unwrap();
+                let vertices = positions(mesh);
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                for tri in indices.as_chunks::<3>().0 {
+                    let face = tri.map(|i| (rotation * vertices[i] + offset) / anatomy::HIP_SCALE);
+                    for weights in [
+                        [1.0, 1.0, 1.0],
+                        [2.0, 1.0, 0.0],
+                        [0.0, 2.0, 1.0],
+                        [1.0, 0.0, 2.0],
+                    ] {
+                        let p =
+                            (face[0] * weights[0] + face[1] * weights[1] + face[2] * weights[2])
+                                / 3.0;
+                        assert!(contacts.iter().all(|c|c.distance(p)>0.001),
+                            "actual strike cloth faces/lining must clear retained arms: {name}, {p:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn posed_cope_triangles_clear_plate_arms_and_scaled_hands() {
         let mut equipment = Equipment::default();
         equipment.select("plate-mail").unwrap();
@@ -1293,11 +1446,9 @@ mod tests {
                     );
                 }
                 if let Some(surface) = &cloak.arm_surface {
-                    let reach = surface.forward_reach();
-                    for (side, &forward) in reach.iter().enumerate() {
-                        if forward - cloak.neutral_forward[side]
-                            < cloak.neutral_forward[side].abs().max(0.05)
-                        {
+                    let release = surface.free_edges(cloak.neutral_reach);
+                    for (side, &strength) in release.strength.iter().enumerate() {
+                        if strength < 1.0 {
                             continue;
                         }
                         let columns = if side == 0 {
