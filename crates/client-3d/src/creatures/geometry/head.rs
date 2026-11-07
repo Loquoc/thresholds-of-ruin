@@ -224,6 +224,14 @@ impl Recipe {
                 }
                 // What the outfit puts on the head.
                 match headwear {
+                    Headwear::Equipment(kind) => {
+                        equipment_headwear::emit(p, kind);
+                        // The crown is tucked into the hat; a fitted braid remains
+                        // visible below it, rather than intersecting its crown.
+                        if fem && grows_scalp_hair(l) {
+                            braid(p, headwear_parts::WINGED_HELM_HAIR_ROOT, hair_color(l));
+                        }
+                    }
                     Headwear::Helm => {
                         tube(
                             &mut p.metal,

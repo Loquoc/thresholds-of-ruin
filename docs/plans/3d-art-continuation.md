@@ -1985,3 +1985,67 @@ source influences is the next structural boundary to test; a single nearest
 segment can switch between differently deformed locks. Mesh normals are already
 recomputed after deformation. This finding does not establish cross-lock binding
 as the sole cause of the remaining visual defect.
+
+## Modular worn-equipment studies
+
+The six November 2026 studies specify 39 physical appearances: eleven hats and
+helmets, two shirts, ten shoes and boots, four gloves, and twelve outerwear
+recipes. These are appearance recipes, not magical item identities. Fixed and
+shuffled appearances must remain distinct concepts; a conical hat, for example,
+does not identify which power the server assigned it.
+
+The first implementation slice adds headwear and footwear recipes to the existing
+independent equipment composition. Preview names are the hyphenated study names
+(for example `fedora`, `crested-helmet`, `hiking-boots`, and `snow-boots`). Live
+selection uses palette-approved `item.armor.head.<name>` and
+`item.armor.feet.<name>` assets in the corresponding disclosed worn socket.
+Existing `helm` and `boots` previews retain their original recipes. No scenario
+stock, save schema, or simulation eligibility changes are part of this slice.
+The centaur has an explicit headwear attachment adapter; it does not acquire
+humanoid footwear or a full wardrobe merely by having a humanoid upper body.
+
+### Layering and remaining work
+
+- Add independent shirt and glove selection, then wrapping, mantle, hooded
+  cloak, fitted robe, and apron topology families. A robe and apron occupy the
+  cloak gameplay slot even though their geometry differs from a cape.
+- Resolve shirt, armor, then outerwear before generating geometry. Armor may
+  completely conceal a shirt, allowing hidden geometry to be omitted. Preserve
+  visible collars, sleeves, necklines and hems. A cape usually leaves underlying
+  gear visible, including during motion, so it must not discard those layers.
+  Hidden surfaces can still be required for fitting and contact.
+- Preserve adult feminine cuts and the existing body variation. Fit the item to
+  the wearer rather than replacing the wearer with a generic body. Keep the same
+  recognizable item design across body variants.
+- Add further visual attachment adapters where an eligible creature needs them.
+  A supported renderer socket is not an authority to wear an item; live clients
+  consume only the server's disclosed worn list.
+- **Future mob definitions need anatomy and equipment-slot information.** The
+  authoritative definitions should describe body parts, size/form restrictions,
+  slot availability and wielding constraints. Keep that simulation contract
+  separate from visual head/hand/torso/foot anchors and fit dimensions. Distinguish
+  putting equipment on from retaining it through a body transformation.
+
+### NetHack reference boundary
+
+The researched baseline is NetHack 3.6.7, specifically
+[`worn.c`](https://github.com/NetHack/NetHack/blob/NetHack-3.6.7_Released/src/worn.c),
+[`mondata.c`](https://github.com/NetHack/NetHack/blob/NetHack-3.6.7_Released/src/mondata.c),
+and [`steed.c`](https://github.com/NetHack/NetHack/blob/NetHack-3.6.7_Released/src/steed.c).
+It is a gameplay reference, not code to copy or an implemented simulation rule.
+Monster armor use is not simply humanoid-only: hands, animal status, body size,
+body shape, horns and wielded weapons affect individual slots. Centaurs and
+slithy forms cannot wear boots; horns conflict with rigid helmets; two-handed
+weapons conflict with shields. Torso armor has additional fit rules. Saddles have
+a separate eligibility rule and are outside these six studies. NetHack 3.7
+changes some details, including giant mummy wrapping, so later adoption must name
+its intended edition rather than mixing rules silently.
+
+### Verification checkpoints
+
+Each slice needs palette/disclosure and unknown-slot tests, reversible independent
+selection, head/loadout cache identity, fitting and emitted-geometry tests, and
+native review in motion. Include varied builds, adult feminine silhouettes,
+non-biped adapters, fully hidden and partly exposed shirts, open capes, and
+walking/attacking/turning/fallen poses. Source and numeric geometry checks alone
+do not establish visual quality or whole-motion clipping correctness.

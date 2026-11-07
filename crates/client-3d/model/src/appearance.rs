@@ -368,6 +368,9 @@ fn item_shape(palette: &Palette, class: ItemClass, asset: Option<&str>) -> ItemM
 /// another part of the body; an empty list leaves the body's own costume.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Wearing {
+    /// Palette-approved physical looks, independent of item effects.
+    pub head_look: Option<crate::WearableLook>,
+    pub feet_look: Option<crate::WearableLook>,
     pub head: Option<ItemModel>,
     pub body: Option<ItemModel>,
     pub hands: Option<ItemModel>,
@@ -407,6 +410,17 @@ pub fn wearing(palette: &Palette, worn: &[WornView]) -> Wearing {
             _ => continue,
         };
         *slot = Some(model);
+        match (piece.slot.as_str(), piece.occurrence) {
+            ("head_armor", 0) => {
+                result.head_look =
+                    crate::wearables::resolve(palette, piece.asset.as_deref(), "head_armor")
+            }
+            ("feet_armor", 0) => {
+                result.feet_look =
+                    crate::wearables::resolve(palette, piece.asset.as_deref(), "feet_armor")
+            }
+            _ => {}
+        }
         if piece.slot == "weapon" && piece.occurrence < 2 {
             result.weapon_surfaces[usize::from(piece.occurrence)] =
                 surface_for_asset(palette, model, piece.asset.as_deref());

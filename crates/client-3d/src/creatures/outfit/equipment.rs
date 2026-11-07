@@ -1,15 +1,19 @@
 //! Independently selected visual pieces composed over a wardrobe preset.
 //! Offline previews select them by name; live play selects them from the
 //! server's disclosed worn equipment, which stays server-owned.
+use super::super::geometry::equipment_footwear::FootwearAppearance;
+use super::super::geometry::equipment_headwear::HeadwearKind;
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HeadItem {
     SteelHelm,
+    Appearance(HeadwearKind),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum FootItem {
     LeatherBoots,
+    Appearance(FootwearAppearance),
 }
 /// Torso armour, one recipe per Rogue body armour in the style guide's order.
 /// The steel breastplate is plate mail's torso.
@@ -127,14 +131,62 @@ impl Equipment {
     /// the body's own costume rather than being stripped.
     pub fn disclosed(wearing: &tor_client_3d_model::Wearing) -> Self {
         Self {
-            head: wearing.head.map(|_| HeadItem::SteelHelm),
-            feet: wearing.feet.map(|_| FootItem::LeatherBoots),
+            head: wearing.head.map(|_| {
+                wearing
+                    .head_look
+                    .and_then(|look| HeadwearKind::parse(look.name()))
+                    .map_or(HeadItem::SteelHelm, HeadItem::Appearance)
+            }),
+            feet: wearing.feet.map(|_| {
+                wearing
+                    .feet_look
+                    .and_then(|look| FootwearAppearance::parse(look.name()))
+                    .map_or(FootItem::LeatherBoots, FootItem::Appearance)
+            }),
             back: wearing.back.map(|_| BackItem::TravelCloak),
             body: wearing.body.map(BodyItem::of),
         }
     }
 
+    /// Renderer attachment support only, never permission to equip an item.
+    /// The centaur has a humanoid head but no boot-shaped feet. Other adapters
+    /// can add supported regions without granting simulation capabilities.
+    pub fn for_body(self, look: &Look) -> Self {
+        if super::dresses(look) {
+            self
+        } else if look.plan == Plan::Centaur {
+            Self {
+                head: self.head,
+                ..Self::default()
+            }
+        } else {
+            Self::default()
+        }
+    }
+
+    pub fn headwear(self) -> Option<HeadwearKind> {
+        self.head.map(|item| match item {
+            HeadItem::SteelHelm => HeadwearKind::Visored,
+            HeadItem::Appearance(kind) => kind,
+        })
+    }
+
+    pub fn footwear(self) -> Option<FootwearAppearance> {
+        match self.feet {
+            Some(FootItem::Appearance(kind)) => Some(kind),
+            _ => None,
+        }
+    }
+
     pub fn select(&mut self, name: &str) -> Result<(), String> {
+        if let Some(kind) = HeadwearKind::parse(name) {
+            self.head = Some(HeadItem::Appearance(kind));
+            return Ok(());
+        }
+        if let Some(kind) = FootwearAppearance::parse(name) {
+            self.feet = Some(FootItem::Appearance(kind));
+            return Ok(());
+        }
         match name {
             "helm" => self.head = Some(HeadItem::SteelHelm),
             "boots" => self.feet = Some(FootItem::LeatherBoots),
@@ -143,7 +195,7 @@ impl Equipment {
                 Some(&(_, item)) => self.body = Some(item),
                 None => {
                     return Err(format!(
-                        "unknown equipment {name}; expected helm, boots, cloak or body armour ({})",
+                        "unknown equipment {name}; expected helm, boots, cloak, a study hat/footwear name, or body armour ({})",
                         BodyItem::NAMES.map(|(spelled, _)| spelled).join(", ")
                     ))
                 }
@@ -178,15 +230,22 @@ impl Equipment {
             // neck jewelry and straps are fitted onto the resolved exterior.
             base.torso_ornament = None;
         }
-        if let Some(HeadItem::SteelHelm) = self.head {
-            base.head = Headwear::Helm;
+        if let Some(item) = self.head {
+            base.head = match item {
+                HeadItem::SteelHelm => Headwear::Helm,
+                HeadItem::Appearance(kind) => Headwear::Equipment(kind),
+            };
             if base.neck_drape.is_some_and(|drape| drape.covered_by_helm) {
                 base.neck_drape = None;
             }
             // Covered decoration is suppressed in the resolved result only.
-            base.trimmings.earrings = None;
+            if matches!(item, HeadItem::SteelHelm)
+                || matches!(item, HeadItem::Appearance(kind) if kind.covers_ears())
+            {
+                base.trimmings.earrings = None;
+            }
         }
-        if let Some(FootItem::LeatherBoots) = self.feet {
+        if let Some(item) = self.feet {
             base.feet = Feet::Boots(Boots {
                 color: LEATHER * 0.75,
                 tall: false,
@@ -194,6 +253,15 @@ impl Equipment {
                 buckles: true,
                 cuffed: false,
             });
+            if let FootItem::Appearance(kind) = item {
+                base.feet = Feet::Boots(Boots {
+                    color: kind.color(),
+                    tall: false,
+                    heel: kind.heeled(),
+                    buckles: false,
+                    cuffed: false,
+                });
+            }
             base.trimmings.boot_tops = None;
         }
         if let Some(BackItem::TravelCloak) = self.back {
@@ -608,5 +676,57 @@ mod armor_tests {
             );
             assert_eq!(Equipment::default().compose(preset), preset);
         }
+    }
+}
+
+#[cfg(test)]
+mod study_tests {
+    use super::*;
+
+    #[test]
+    fn disclosed_studies_match_preview_selection_without_using_item_identity() {
+        use tor_client_3d_model::{ItemModel, WearableLook, Wearing};
+        for appearance in WearableLook::ALL {
+            let mut worn = Wearing::default();
+            match appearance.slot() {
+                "head_armor" => {
+                    worn.head = Some(ItemModel::RingMail);
+                    worn.head_look = Some(appearance);
+                }
+                "feet_armor" => {
+                    worn.feet = Some(ItemModel::RingMail);
+                    worn.feet_look = Some(appearance);
+                }
+                _ => unreachable!(),
+            }
+            let mut preview = Equipment::default();
+            preview.select(appearance.name()).unwrap();
+            assert_eq!(Equipment::disclosed(&worn), preview);
+            let base = Look::of(CreatureModel::Human, 17).dressed(Wardrobe::Bard);
+            let original = Outfit::worn(&base);
+            let equipped = base.clone().equipped(preview);
+            let resolved = Outfit::worn(&equipped);
+            assert_eq!(resolved.bodice, original.bodice);
+            assert_eq!(resolved.skirt, original.skirt);
+            assert_eq!(resolved.cloak, original.cloak);
+            assert_eq!(
+                Outfit::worn(&equipped.equipped(Equipment::default())),
+                original
+            );
+        }
+    }
+
+    #[test]
+    fn centaur_adapter_accepts_headwear_without_inventing_boot_attachments() {
+        let body = Look::of(CreatureModel::Centaur, 17);
+        let mut equipment = Equipment::default();
+        equipment.select("fedora").unwrap();
+        assert!(body.clone().composed(Wardrobe::Native, equipment).is_ok());
+        equipment.select("riding-boots").unwrap();
+        assert!(body.clone().composed(Wardrobe::Native, equipment).is_err());
+        let supported = body.clone().equipped(equipment);
+        assert!(supported.equipment.head.is_some());
+        assert!(supported.equipment.feet.is_none());
+        assert_eq!(supported.equipped(Equipment::default()).key, body.key);
     }
 }

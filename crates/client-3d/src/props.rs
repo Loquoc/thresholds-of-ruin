@@ -2119,6 +2119,17 @@ impl Builder {
         )
     }
 
+    /// Give only geometry emitted in this scope a vertex alpha. Shared material
+    /// settings and previously emitted surfaces retain their existing opacity.
+    pub(crate) fn with_opacity(&mut self, opacity: f32, emit: impl FnOnce(&mut Self)) {
+        assert!(opacity.is_finite() && (0.0..=1.0).contains(&opacity));
+        let first = self.colors.len();
+        emit(self);
+        for color in &mut self.colors[first..] {
+            color[3] *= opacity;
+        }
+    }
+
     /// Take over another builder's finished triangles.
     pub(crate) fn absorb(&mut self, other: Builder) {
         self.positions.extend(other.positions);
@@ -2705,5 +2716,27 @@ impl Builder {
             );
         }
         Some(mesh)
+    }
+}
+
+#[cfg(test)]
+mod scoped_opacity_tests {
+    use super::*;
+
+    #[test]
+    fn glass_opacity_preserves_other_geometry_and_survives_mesh_upload() {
+        let mut b = Builder::default();
+        let triangle = [Vec3::ZERO, Vec3::X, Vec3::Y];
+        b.tri(triangle, Vec3::ONE);
+        b.with_opacity(0.25, |b| b.tri(triangle.map(|v| v + Vec3::Z), Vec3::ONE));
+        b.tri(triangle.map(|v| v + Vec3::Z * 2.0), Vec3::ONE);
+        let mesh = b.finish().unwrap();
+        let Some(bevy::render::mesh::VertexAttributeValues::Float32x4(colors)) =
+            mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("vertex colors missing")
+        };
+        assert_eq!(colors.iter().filter(|c| c[3] == 0.25).count(), 3);
+        assert_eq!(colors.iter().filter(|c| c[3] == 1.0).count(), 6);
     }
 }

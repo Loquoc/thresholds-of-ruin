@@ -295,7 +295,14 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
                     * Affine3A::from_translation(Vec3::Y * -0.08),
             );
             human_face(p, &rider, true);
-            hair(p, &rider, true);
+            if let Some(kind) = l.equipment.headwear() {
+                equipment_headwear::emit(p, kind);
+                if rider.v.woman {
+                    braid(p, headwear_parts::WINGED_HELM_HAIR_ROOT, hair_color(&rider));
+                }
+            } else {
+                hair(p, &rider, true);
+            }
             if !rider.v.woman {
                 beard(p, hair_color(&rider));
             }
