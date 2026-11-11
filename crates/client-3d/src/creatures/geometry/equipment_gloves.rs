@@ -66,30 +66,44 @@ pub(in crate::creatures) fn emit_hand(
     let point = |x: f32, y: f32, z: f32| at + Vec3::new(side * x, y, z) * build;
     match appearance {
         GloveAppearance::Old => {
-            // Irregular repair seams cross the back, with individual stitches.
-            seam(
-                &mut p.matte,
-                &[
-                    point(0.029, 0.018, -0.025),
-                    point(0.032, -0.003, 0.0),
-                    point(0.029, -0.019, 0.026),
-                ],
-                0.0015 * build,
-                color * 0.63,
-            );
-            for i in 0..6 {
-                let t = i as f32 / 5.0;
-                let y = 0.018 - t * 0.037;
-                let z = -0.025 + t * 0.051;
-                seam(
-                    &mut p.matte,
-                    &[
-                        point(0.033, y - 0.004, z - 0.002),
-                        point(0.033, y + 0.004, z + 0.002),
-                    ],
-                    0.0012 * build,
-                    THREAD,
-                );
+            // Project every repair path onto the original palm before emitting
+            // any trim, so crossing stitches do not fit to each other.
+            let fitted = |yz: Vec2, relief: f32| {
+                let direction = Vec3::X * side;
+                let origin = at + Vec3::new(0.0, yz.x, yz.y) * build;
+                p.matte
+                    .outer_surface(origin, direction)
+                    .expect("repair stitches stay over the glove palm")
+                    + direction * (relief * build)
+            };
+            let repair: Vec<_> = (0..=16)
+                .map(|i| {
+                    let t = i as f32 / 8.0;
+                    let yz = if t <= 1.0 {
+                        Vec2::new(0.018, -0.025).lerp(Vec2::new(-0.003, 0.0), t)
+                    } else {
+                        Vec2::new(-0.003, 0.0).lerp(Vec2::new(-0.019, 0.026), t - 1.0)
+                    };
+                    fitted(yz, 0.0004)
+                })
+                .collect();
+            let stitches: Vec<Vec<_>> = (0..6)
+                .map(|i| {
+                    let t = i as f32 / 5.0;
+                    let center = Vec2::new(0.018 - t * 0.037, -0.025 + t * 0.051);
+                    (0..=4)
+                        .map(|j| {
+                            fitted(
+                                center + Vec2::new(0.004, 0.002) * (j as f32 / 2.0 - 1.0),
+                                0.001,
+                            )
+                        })
+                        .collect()
+                })
+                .collect();
+            seam(&mut p.matte, &repair, 0.0015 * build, color * 0.63);
+            for stitch in stitches {
+                seam(&mut p.matte, &stitch, 0.0012 * build, THREAD);
             }
         }
         GloveAppearance::Padded => {
@@ -130,32 +144,49 @@ pub(in crate::creatures) fn emit_hand(
                 color * 0.70,
             );
             for z in [-0.019, 0.019] {
-                seam(
-                    &mut p.matte,
-                    &[
-                        point(0.024, 0.029, z * 0.7),
-                        point(0.032, 0.0, z),
-                        point(0.025, -0.029, z),
-                    ],
-                    0.0014 * build,
-                    THREAD * 0.8,
-                );
+                let path: Vec<_> = (0..=16)
+                    .map(|i| {
+                        let t = i as f32 / 8.0;
+                        let yz = if t <= 1.0 {
+                            Vec2::new(0.029, z * 0.7).lerp(Vec2::new(0.0, z), t)
+                        } else {
+                            Vec2::new(0.0, z).lerp(Vec2::new(-0.029, z), t - 1.0)
+                        };
+                        let direction = Vec3::X * side;
+                        let origin = at + Vec3::new(0.0, yz.x, yz.y) * build;
+                        p.matte
+                            .outer_surface(origin, direction)
+                            .expect("riding stitches stay over the glove palm")
+                            + direction * (0.0005 * build)
+                    })
+                    .collect();
+                seam(&mut p.matte, &path, 0.0014 * build, THREAD * 0.8);
             }
         }
         GloveAppearance::Fencing => {
             // Fine dorsal piping and a small gold stitch ornament. The hand
             // stays slim; the dramatic silhouette belongs to the flared cuff.
             for z in [-0.021, 0.021] {
-                seam(
-                    &mut p.satin,
-                    &[
-                        point(0.023, 0.028, z * 0.7),
-                        point(0.029, 0.0, z),
-                        point(0.023, -0.027, z),
-                    ],
-                    0.001 * build,
-                    GOLD * 0.65,
-                );
+                // Follow the actual open/closed palm, not nominal offsets that
+                // float several millimetres above its curved dorsal surface.
+                // Fine stations also keep the connecting chords seated.
+                let path: Vec<_> = (0..=16)
+                    .map(|i| {
+                        let t = i as f32 / 8.0;
+                        let yz = if t <= 1.0 {
+                            Vec2::new(0.028, z * 0.7).lerp(Vec2::new(0.0, z), t)
+                        } else {
+                            Vec2::new(0.0, z).lerp(Vec2::new(-0.027, z), t - 1.0)
+                        };
+                        let direction = Vec3::X * side;
+                        let origin = at + Vec3::new(0.0, yz.x, yz.y) * build;
+                        p.matte
+                            .outer_surface(origin, direction)
+                            .expect("dorsal piping stays over the glove palm")
+                            + direction * (0.0005 * build)
+                    })
+                    .collect();
+                seam(&mut p.satin, &path, 0.001 * build, GOLD * 0.65);
             }
         }
     }
@@ -258,7 +289,7 @@ pub(in crate::creatures) fn emit_cuff(
         let path: Vec<_> = (0..=24)
             .map(|i| point(row, i as f32 * TAU / 24.0, false))
             .collect();
-        seam(
+        closed_ring(
             &mut p.satin,
             &path,
             0.002 * build,
@@ -300,7 +331,7 @@ pub(in crate::creatures) fn emit_cuff(
         let path: Vec<_> = (0..=32)
             .map(|i| point(4, i as f32 * TAU / 32.0, false))
             .collect();
-        seam(
+        closed_ring(
             &mut p.matte,
             &path,
             0.006 * build,
@@ -341,6 +372,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cuff_rings_have_no_internal_cap_centers() {
+        for (radius, width, ripple) in [
+            (0.045, 0.002, 0.0),
+            (0.064, 0.002, 0.003),
+            (0.048, 0.006, 0.0),
+        ] {
+            let path: Vec<_> = (0..=32)
+                .map(|i| {
+                    let a = i as f32 * TAU / 32.0;
+                    Vec3::new(
+                        radius * a.cos(),
+                        0.12 + ripple * (5.0 * a).sin(),
+                        radius * a.sin(),
+                    )
+                })
+                .collect();
+            let mut parts = Parts::default();
+            closed_ring(&mut parts.satin, &path, width, Vec3::ONE);
+            let mut meshes = Assets::<Mesh>::default();
+            let mut materials = Assets::<StandardMaterial>::default();
+            let model = parts.finish(
+                &mut meshes,
+                &crate::props::PropMaterials::new(&mut materials),
+            );
+            let mut count = 0;
+            for (handle, _) in &model.0 {
+                let mesh = meshes.get(handle).unwrap();
+                let bevy::render::mesh::VertexAttributeValues::Float32x3(vertices) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+                else {
+                    panic!("trim positions")
+                };
+                let bevy::render::mesh::VertexAttributeValues::Float32x3(normals) =
+                    mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap()
+                else {
+                    panic!("trim normals")
+                };
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                for face in indices.as_chunks::<3>().0 {
+                    let q: Vec<_> = face
+                        .iter()
+                        .map(|&i| Vec3::from_array(vertices[i]))
+                        .collect();
+                    let n: Vec3 = face.iter().map(|&i| Vec3::from_array(normals[i])).sum();
+                    assert!(
+                        (q[1] - q[0]).cross(q[2] - q[0]).dot(n) > 0.0,
+                        "outward noncollapsed periodic wall"
+                    );
+                }
+                for vertex in vertices {
+                    let v = Vec3::from_array(*vertex);
+                    let nearest = path
+                        .iter()
+                        .map(|p| v.distance(*p))
+                        .fold(f32::INFINITY, f32::min);
+                    assert!((nearest-width).abs()<0.00001,"closed trim must contain only periodic wall, not cap centers: {v:?} distance={nearest}");
+                    count += 1;
+                }
+            }
+            assert!(count >= 320, "whole periodic ring inspected");
+        }
+    }
+
+    #[test]
     fn exact_names_round_trip_without_power_aliases() {
         for (appearance, name) in GloveAppearance::ALL.into_iter().zip(GloveAppearance::NAMES) {
             assert_eq!(appearance.name(), name);
@@ -377,6 +472,190 @@ mod tests {
                     // Finger tips and palm remain on the authored hand frame.
                     assert!(hi.y < 0.06 * build && lo.y > -0.14 * build);
                     assert!(hi.z > 0.065 * build, "separate thumb retained");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn old_hand_repair_stitches_are_seated_on_open_and_closed_gloves() {
+        let at = Vec3::new(0.013, -0.021, 0.017);
+        for smooth in [false, true] {
+            for open in [false, true] {
+                for build in [0.83, 1.08] {
+                    for side in [-1.0, 1.0] {
+                        let mut bare = Parts::default();
+                        let mut dressed = Parts::default();
+                        if smooth {
+                            bare.soften();
+                            dressed.soften();
+                        }
+                        if open {
+                            open_hand(
+                                &mut bare,
+                                at,
+                                side,
+                                build,
+                                GloveAppearance::Old.color(),
+                                false,
+                            );
+                        } else {
+                            fist(&mut bare, at, side, build, GloveAppearance::Old.color());
+                        }
+                        emit_hand(
+                            &mut dressed,
+                            GloveAppearance::Old,
+                            at,
+                            side,
+                            build,
+                            open,
+                            false,
+                        );
+                        for offset in [-1.0, 0.0, 1.0] {
+                            for (y, z) in [
+                                (0.018, -0.025),
+                                (0.0106, -0.0148),
+                                (0.0032, -0.0046),
+                                (-0.0042, 0.0056),
+                                (-0.0116, 0.0158),
+                                (-0.019, 0.026),
+                            ] {
+                                let origin = at
+                                    + Vec3::new(0.0, y + 0.004 * offset, z + 0.002 * offset)
+                                        * build;
+                                let direction = Vec3::X * side;
+                                let body = bare
+                                    .matte
+                                    .outer_surface(origin, direction)
+                                    .expect("bare palm");
+                                let trim = dressed
+                                    .matte
+                                    .outer_surface(origin, direction)
+                                    .expect("stitched palm");
+                                let gap = (trim - body).dot(direction);
+                                assert!(
+                                    gap > 0.0003 * build && gap < 0.0032 * build,
+                                    "repair stitch must be seated: open={open} smooth={smooth} build={build} side={side} y={y} z={z} gap={gap}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn riding_hand_stitches_are_seated_on_open_and_closed_gloves() {
+        let at = Vec3::new(0.013, -0.021, 0.017);
+        for smooth in [false, true] {
+            for open in [false, true] {
+                for build in [0.83, 1.08] {
+                    for side in [-1.0, 1.0] {
+                        let mut bare = Parts::default();
+                        let mut dressed = Parts::default();
+                        if smooth {
+                            bare.soften();
+                            dressed.soften();
+                        }
+                        if open {
+                            open_hand(
+                                &mut bare,
+                                at,
+                                side,
+                                build,
+                                GloveAppearance::Riding.color(),
+                                false,
+                            );
+                        } else {
+                            fist(&mut bare, at, side, build, GloveAppearance::Riding.color());
+                        }
+                        emit_hand(
+                            &mut dressed,
+                            GloveAppearance::Riding,
+                            at,
+                            side,
+                            build,
+                            open,
+                            false,
+                        );
+                        for seam_side in [-1.0, 1.0] {
+                            for (y, z) in [
+                                (0.029, 0.0133),
+                                (0.0145, 0.01615),
+                                (0.0, 0.019),
+                                (-0.0145, 0.019),
+                                (-0.029, 0.019),
+                            ] {
+                                let origin = at + Vec3::new(0.0, y, seam_side * z) * build;
+                                let direction = Vec3::X * side;
+                                let body = bare
+                                    .matte
+                                    .outer_surface(origin, direction)
+                                    .expect("bare palm");
+                                let trim = dressed
+                                    .matte
+                                    .outer_surface(origin, direction)
+                                    .expect("stitched palm");
+                                let gap = (trim - body).dot(direction);
+                                assert!(
+                                    gap > 0.0003 * build && gap < 0.0025 * build,
+                                    "riding stitch must be seated: open={open} smooth={smooth} build={build} side={side} y={y} z={z} gap={gap}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fencing_hand_piping_is_seated_on_open_and_closed_gloves() {
+        let at = Vec3::new(0.013, -0.021, 0.017);
+        for smooth in [false, true] {
+            for open in [false, true] {
+                for build in [0.83, 1.08] {
+                    for side in [-1.0, 1.0] {
+                        let mut p = Parts::default();
+                        if smooth {
+                            p.soften();
+                        }
+                        emit_hand(
+                            &mut p,
+                            GloveAppearance::Fencing,
+                            at,
+                            side,
+                            build,
+                            open,
+                            false,
+                        );
+                        for seam_side in [-1.0, 1.0] {
+                            for (y, z) in [
+                                (0.028, 0.0147),
+                                (0.014, 0.01785),
+                                (0.0, 0.021),
+                                (-0.0135, 0.021),
+                                (-0.027, 0.021),
+                            ] {
+                                let origin = at + Vec3::new(0.0, y, seam_side * z) * build;
+                                let direction = Vec3::X * side;
+                                let body = p
+                                    .matte
+                                    .outer_surface(origin, direction)
+                                    .expect("glove back");
+                                let piping = p
+                                    .satin
+                                    .outer_surface(origin, direction)
+                                    .expect("continuous dorsal piping");
+                                let gap = (piping - body).dot(direction);
+                                assert!(
+                                    gap > 0.0003 * build && gap < 0.002 * build,
+                                    "piping must be seated, not floating or buried: open={open} smooth={smooth} build={build} side={side} y={y} z={z} gap={gap}"
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -448,8 +727,10 @@ mod tests {
                             .outer_surface(origin, direction)
                             .expect("continuous gold thread between cuff rings");
                         let relief = (thread - wall).dot(direction);
-                        assert!(relief > 0.0003 * build,
-                            "gold embroidery sinks into fitted cuff: build={build} t={t} relief={relief}");
+                        assert!(
+                            relief > 0.0003 * build,
+                            "gold embroidery sinks into fitted cuff: build={build} t={t} relief={relief}"
+                        );
                         assert!(
                             relief < 0.004 * build,
                             "embroidery must not float above cuff: {relief}"

@@ -343,11 +343,29 @@ fn present_pose(
     place_segments(rig, anim, fun, joints);
     swing_drapes(rig, anim, dt, joints);
     record_phase(&mut profile, 2, started);
+    let has_apron = !rig.aprons.is_empty();
+    let has_lower_cloth = rig.robe.is_some() || has_apron;
     let Rig { rest, robe, .. } = rig;
-    let started = (profile.is_some() && robe.is_some()).then(std::time::Instant::now);
+    let started = (profile.is_some() && has_lower_cloth).then(std::time::Instant::now);
     if let Some(robe) = robe {
         robe.update_layer_transforms(&|entity| joints.get(entity).ok().map(|t| t.compute_affine()));
         super::robe::place(robe, rest, &pose.rot, &pose.off, meshes);
+        if has_apron {
+            robe.publish_overlay_baselines(meshes);
+        }
+    }
+    if !rig.aprons.is_empty() {
+        let support = super::visual_contact::posed_triangles(&rig.apron_contacts, |joint| {
+            rig.joint(joint)
+                .and_then(|e| joints.get(e).ok())
+                .map(Transform::compute_affine)
+        });
+        super::apron::place(
+            &mut rig.aprons,
+            &support,
+            |entity| joints.get(entity).ok().map(Transform::compute_affine),
+            meshes,
+        );
     }
     record_phase(&mut profile, 1, started);
     let started = profile.as_ref().map(|_| std::time::Instant::now());

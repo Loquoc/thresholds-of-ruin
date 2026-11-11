@@ -4,7 +4,6 @@ import contextlib
 import io
 import json
 import os
-import re
 from pathlib import Path
 import tempfile
 import subprocess
@@ -29,16 +28,11 @@ class IndependentVerification(unittest.TestCase):
         self.assertLessEqual(module.process_timeout("win32"), 100 * 60)
         self.assertEqual(module.process_timeout("linux"), 50 * 60)
 
-    def test_windows_native_job_reserves_build_and_artifact_headroom(self):
-        workflow = (ROOT / ".github/workflows/client-3d.yml").read_text(encoding="utf-8")
-        self.assertIn("timeout-minutes: ${{ matrix.os == 'windows-latest' && 150 || 120 }}", workflow)
-        # Forty minutes of measured compilation, ninety for native processes,
-        # and fifteen for setup/artifact cleanup fit the bounded Windows job.
-        minutes = int(re.search(r"timeout-minutes: .*&& (\d+) ", workflow)[1])
+    def test_windows_local_verifier_preserves_native_process_budget(self):
         spec = importlib.util.spec_from_file_location("client_3d_verify_job_budget", HERE / "verify.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.assertGreaterEqual(minutes * 60, module.process_timeout("win32") + (40 + 15) * 60)
+        self.assertEqual(module.process_timeout("win32"), 90 * 60)
 
     def test_failed_native_child_retains_evidence_inside_its_verification_logs(self):
         spec = importlib.util.spec_from_file_location("client_3d_verify_artifacts", HERE / "verify.py")
@@ -107,67 +101,19 @@ class IndependentVerification(unittest.TestCase):
                     module.main([])
             self.assertFalse((directory / "target/.verify-3d-owner").exists(), "a failed preflight must release the target owner")
 
-    def test_workflow_requires_an_explicit_client_path_change(self):
-        path = ROOT / ".github/workflows/client-3d.yml"
-        self.assertTrue(path.is_file(), "3D checks need a separate, path-scoped workflow")
-        text = path.read_text(encoding="utf-8")
-        self.assertIn("  workflow_dispatch:", text)
-        self.assertNotIn("paths-ignore:", text)
-        self.assertIn("os: [windows-latest, ubuntu-latest]", text)
-        self.assertIn("profile: [debug, release]", text)
-        for event in ("pull_request", "push"):
-            section = re.split(r"\n  \S", text.split(f"  {event}:\n", 1)[1], maxsplit=1)[0]
-            # Read the checked-in patterns, preserving order. Limit the matcher
-            # to exact paths and directory/**, the only grammar used here.
-            # GitHub applies the last matching rule per file, then runs when
-            # ANY changed file is included (not when every file is included).
-            patterns = re.findall(r'^      - "([^"\n]+)"$', section, re.MULTILINE)
-            self.assertTrue(patterns, event)
-            def selected(paths, rules=patterns):
-                for path in paths:
-                    included = False
-                    for rule in rules:
-                        negative = rule.startswith("!")
-                        pattern = rule[1:] if negative else rule
-                        directory = pattern.endswith("/**")
-                        literal = pattern[:-3] if directory else pattern
-                        self.assertNotRegex(literal, r"[!*?\[\]]", "extend the matcher for new glob syntax")
-                        matches = path.startswith(literal + "/") if directory else path == literal
-                        if matches:
-                            included = not negative
-                    if included:
-                        return True
-                return False
+    def test_hosted_smoke_leaves_full_native_verifier_local(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertFalse((ROOT / ".github/workflows/client-3d.yml").exists())
+        self.assertNotIn("client-3d/scripts/verify.py", workflow)
+        self.assertIn("ci_selected.py smoke-3d --output", workflow)
+        self.assertTrue((HERE / "verify.py").is_file())
 
-            scenario = "crates/client-3d/scenarios/menagerie/"
-            excluded = [scenario + name for name in (
-                "scenario.toml", "index.json", "validation.json",
-                "catalog/actors.toml", "regions/1.toml")]
-            excluded += ["crates/client-3d/scenarios/future/nested/source.toml",
-                         "crates/protocol/src/lib.rs", "crates/client-common/src/lib.rs",
-                         "scenarios/rogue/scenario.toml", "docs/status.md"]
-            included = ["crates/client-3d/" + name for name in (
-                "src/main.rs", "model/src/lib.rs", "model/tests/it/input.rs",
-                "assets/models/body.glb", "scripts/test_client_process.py",
-                "Cargo.toml", "Cargo.lock", "scenarios-other/client.asset")]
-            included += [".github/workflows/client-3d.yml"]
-            for changed in excluded:
-                with self.subTest(event=event, excluded=changed):
-                    self.assertFalse(selected([changed]))
-            self.assertFalse(selected(excluded), "scenario/core-only batches must not start 3D")
-            for changed in included:
-                with self.subTest(event=event, included=changed):
-                    self.assertTrue(selected([changed]))
-                    self.assertTrue(selected([*excluded, changed]), "a scenario exclusion cannot veto a client edit")
-                    self.assertTrue(selected([changed, *excluded]), "file ordering cannot change the trigger")
-            # Guard the regression oracle too: negation is ordered, not a
-            # global blacklist, and later positives can re-include a file.
-            positive = "crates/client-3d/**"
-            negative = "!crates/client-3d/scenarios/**"
-            self.assertFalse(selected([scenario + "scenario.toml"], [positive, negative]))
-            self.assertTrue(selected([scenario + "scenario.toml"], [negative, positive]))
-            self.assertTrue(selected([scenario + "scenario.toml"],
-                                     [positive, negative, scenario + "scenario.toml"]))
+    def test_hosted_consumer_is_scope_admitted(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        job = workflow.split("  selected_consumer:\n", 1)[1].split("  postmerge:\n", 1)[0]
+        for requirement in ("needs: scope", "!cancelled()", "draft == false", "scope.result == 'success'",
+                            "docs_only == 'false'", "consumer_3d == 'true'"):
+            self.assertIn(requirement, job)
 
     def test_profile_plan_preserves_real_process_and_renderer_checks(self):
         path = HERE / "verify.py"
@@ -374,12 +320,14 @@ class NativeDisplayContracts(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self.module().configure(display)
 
-    def test_workflow_configures_the_physical_desktop_before_native_verification(self):
-        workflow = (ROOT / '.github/workflows/client-3d.yml').read_text(encoding='utf-8')
-        setup = 'run: python crates/client-3d/scripts/native_display.py'
-        self.assertIn(setup, workflow)
-        self.assertLess(workflow.index(setup), workflow.index('run: python crates/client-3d/scripts/verify.py'))
-        self.assertIn('--server-args="-screen 0 1920x1080x24"', workflow)
+    def test_hosted_smoke_installs_virtual_display_before_launch(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        job = workflow.split('  selected_consumer:\n', 1)[1].split('  postmerge:\n', 1)[0]
+        self.assertIn('runs-on: ubuntu-latest', job)
+        display = job.index('install -y xvfb xauth xdotool')
+        self.assertLess(display, job.index('ci_selected.py run --lane linux-3d-consumer'))
+        self.assertLess(display, job.index('ci_selected.py smoke-3d --output'))
+        self.assertNotIn('native_display.py', job)
 
     def test_windows_driver_change_requires_success_and_uses_a_temporary_mode(self):
         for code in (0, -2):

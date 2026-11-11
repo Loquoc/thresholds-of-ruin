@@ -20,20 +20,23 @@ def job(name):
     return re.search(r'^  ' + name + r':\n(.*?)(?=^  \w|\Z)', workflow, re.M | re.S)[1]
 
 
-def job_condition(name, scope_result, docs_only, *, cancelled=False, event="push", measure=False, assurance="full"):
+def job_condition(name, scope_result, docs_only, *, cancelled=False, event="push", measure=False, assurance="full",
+                  draft=False, usage='success'):
     """Evaluate only the checked-in scope conditions' small expression vocabulary."""
     expression = re.search(r'^    if: (.+)$', job(name), re.M)[1].strip()
     if expression.startswith('${{') and expression.endswith('}}'):
         expression = expression[3:-2].strip()
-    tokens = re.findall(r"'[^']*'|[A-Za-z_.]+(?:\(\))?|&&|!=|==|[!()]|\S", expression)
+    tokens = re.findall(r"'[^']*'|[A-Za-z_][A-Za-z_0-9.]*(?:\(\))?|&&|\|\||!=|==|[!()]|\S", expression)
     values = {
         'needs.scope.outputs.mode': repr(assurance),
+        'needs.scope.outputs.usage_review': repr(usage),
         'needs.scope.result': repr(scope_result), 'needs.scope.outputs.docs_only': repr(docs_only),
         'always()': 'True', 'cancelled()': repr(cancelled),
         'github.event_name': repr(event), 'inputs.measure_windows_candidate': repr(measure),
+        'github.event.pull_request.draft': repr(draft), 'false': 'False', "'pull_request'": "'pull_request'",
         "'workflow_dispatch'": "'workflow_dispatch'",
         "'success'": "'success'", "'true'": "'true'", "'selected'": "'selected'", "'postmerge'": "'postmerge'",
-        '&&': 'and', '!=': '!=', '==': '==', '!': 'not', '(': '(', ')': ')',
+        '&&': 'and', '||': 'or', '!=': '!=', '==': '==', '!': 'not', '(': '(', ')': ')',
     }
     # Unknown tokens fail rather than silently acquiring different semantics.
     translated = ' '.join(values[token] for token in tokens)
@@ -44,6 +47,12 @@ def job_condition(name, scope_result, docs_only, *, cancelled=False, event="push
 
 
 class WorkflowScopeContract(unittest.TestCase):
+    def test_failed_usage_review_cannot_fall_back_to_exhaustive_work(self):
+        for name in ('dependencies', 'profiles'):
+            for usage in ('failure', 'skipped', ''):
+                with self.subTest(job=name, usage=usage):
+                    self.assertFalse(job_condition(name, 'failure', '', assurance='', usage=usage))
+
     def test_expensive_jobs_require_successful_docs_scope_before_skipping(self):
         for name in ('dependencies', 'profiles'):
             self.assertRegex(job(name), r'needs: (?:scope|\[scope, source_identity\])\n')
@@ -114,9 +123,8 @@ class WorkflowScopeContract(unittest.TestCase):
         self.assertNotIn("mode == 'selected'", condition)
         self.assertIn("docs_only == 'false'", condition)
         self.assertIn("consumer_3d == 'true'", condition)
-        self.assertIn('cargo check --manifest-path crates/client-3d/Cargo.toml --bin tor-client-3d --locked', consumer)
-        self.assertIn('cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d-model --locked', consumer)
-        self.assertIn("shell: bash", consumer)
+        self.assertIn("if: needs.scope.outputs.mode == 'full'", consumer)
+        self.assertIn('python scripts/ci_selected.py smoke-3d --output .local/full-consumer', consumer)
 
     def test_selected_policy_skips_only_full_profiles_not_dependencies(self):
         self.assertFalse(job_condition('profiles', 'success', 'false', assurance='selected'))
@@ -128,7 +136,7 @@ class WorkflowScopeContract(unittest.TestCase):
         body = job('check')
         match = re.search(r"python - <<'PY'\n(.*?)\n          PY", body, re.S)
         program = '\n'.join(line[10:] for line in match[1].splitlines())
-        for apps, consumer in ((False, False), (True, False), (True, True)):
+        for apps, consumer in ((False, False), (False, True), (True, False), (True, True)):
             valid = dict(DOCS_ONLY='false', SCOPE_RESULT='success', TOOLING_RESULT='success', PROFILES_RESULT='skipped',
                          WINDOWS_PYTHON_RESULT='skipped', WINDOWS_BINARIES_RESULT='skipped', DEPENDENCIES_RESULT='success', ASSURANCE_MODE='selected', POSTMERGE_RESULT='skipped', CONSUMER_REQUIRED=str(consumer).lower(),
                          APPLICATIONS_REQUIRED=str(apps).lower(), SELECTED_RUST='success' if apps else 'skipped',

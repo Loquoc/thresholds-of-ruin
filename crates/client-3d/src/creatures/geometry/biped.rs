@@ -20,6 +20,7 @@ pub(super) struct Figure {
     pub(super) boots: Option<super::outfit::Boots>,
     pub(super) shoes: Option<Shoes>,
     pub(super) boot_shape: BootShape,
+    native_shaft: Option<boot_parts::NativeShaft>,
     pub(super) blocky: bool,
     pub(super) furry: bool,
     pub(super) cuirass: bool,
@@ -47,6 +48,32 @@ pub(super) struct Figure {
 }
 
 impl Figure {
+    /// Identical retained support for torso wraps and their sewn tail roots.
+    fn outerwear_support(&self) -> crate::sdf::Sculpt {
+        let mut support = self.shirt_shape.clone().unwrap_or_else(|| {
+            let mut skin = torso_shape(self.body, None, self.trim_neck);
+            if let (None, Some(bust), Some(share)) = (
+                self.look.equipment.shirt,
+                self.body.bust,
+                self.outfit.bodice.support.share(),
+            ) {
+                bust_underbridge(&mut skin, &bust, share, 0.0, 0.0);
+            }
+            skin
+        });
+        for layer in [
+            self.shell_shape.as_ref(),
+            self.native_plate.as_ref(),
+            self.equipped_plate.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            support.union(layer.clone(), 0.0);
+        }
+        support
+    }
+
     pub(super) fn bare_shoulders(&self) -> bool {
         self.bare_arms && self.look.equipment.shirt.is_none()
     }
@@ -107,6 +134,32 @@ impl Figure {
         let barefoot = matches!(outfit.feet, Feet::Bare(_));
         let trousered = matches!(outfit.legs, Legs::Trousers(_));
         let boot = outfit.boot(l.skin);
+        let native_shaft = if boots.is_some()
+            && l.equipment.footwear().is_none()
+            && outfit
+                .trimmings
+                .boot_tops
+                .is_none_or(|f| f.kind == crate::creatures::outfit::FringeKind::Fur)
+            && !blocky
+            && !furry
+        {
+            let mut support = Builder::default();
+            if trousered {
+                trouser_leg(&mut support, body.shin, b, true, pants);
+            } else {
+                sculpted_limb(&mut support, body.shin, pants);
+            }
+            Some(boot_parts::NativeShaft::fitted(boot_shape, &support, b))
+        } else {
+            None
+        };
+        let boot_shape = native_shaft
+            .as_ref()
+            .map_or(boot_shape, |shaft| shaft.envelope(boot_shape));
+        let boot_shape = match (&native_shaft, outfit.trimmings.boot_tops) {
+            (Some(shaft), Some(fringe)) => shaft.fringe_envelope(boot_shape, fringe, b),
+            _ => boot_shape,
+        };
         let sleeve = outfit.sleeve(l.skin);
         let fore_color = outfit.forearm(l.skin);
         let styled = match outfit.arms {
@@ -188,6 +241,7 @@ impl Figure {
             boots,
             shoes,
             boot_shape,
+            native_shaft,
             blocky,
             furry,
             cuirass,
@@ -1095,17 +1149,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         p.set_transform(Affine3A::IDENTITY);
     }
     if let Some(outerwear) = l.equipment.outerwear() {
-        let mut support = body_shape.clone();
-        for layer in [
-            shell_shape.as_ref(),
-            native_plate.as_ref(),
-            equipped_plate.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            support.union(layer.clone(), 0.0);
-        }
+        let support = figure.outerwear_support();
         equipment_outerwear::emit_torso(p, outerwear, body, &support);
     }
 }
@@ -1231,11 +1275,12 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
                     body,
                     Vec2::new(belt.x * skirt_scale.x, belt.y * skirt_scale.z),
                     &lower_support,
+                    &figure.outerwear_support(),
                 )
             });
             // Posed robe contacts mutate these vertices. Never mutate the
             // appearance cache shared by other wearers of the same outfit.
-            if outfit.robe.is_some() {
+            if outfit.robe.is_some() || outerwear == outfit::outerwear::OuterwearAppearance::Apron {
                 for (handle, _) in &mut model.0 {
                     let mut private = super::super::retained_mesh(kit.meshes, handle).clone();
                     private.asset_usage |= bevy::asset::RenderAssetUsages::MAIN_WORLD;
@@ -1261,6 +1306,16 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 }
             });
             kit.commands.entity(hips).add_child(entity);
+            if outerwear == outfit::outerwear::OuterwearAppearance::Apron {
+                for (mesh, _) in &model.0 {
+                    kit.rig.aprons.push(super::super::apron::Panel::new(
+                        entity,
+                        mesh.clone(),
+                        kit.meshes,
+                        outfit.robe.is_some(),
+                    ));
+                }
+            }
             kit.rig.drapes.push((entity, Drape::Skirt(length)));
             overlays.extend(model.0.iter().map(|(mesh, _)| (entity, mesh.clone())));
             // Retained skirt surfaces and their outer apron must use exactly
@@ -1824,19 +1879,25 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
             let boot_top = boot_shape.top;
             if boots.is_some() {
                 if let Some(fringe) = outfit.trimmings.boot_tops {
-                    fringe_parts::rim(
-                        p,
-                        fringe,
-                        Vec3::Y * boot_top,
-                        Vec2::splat(boot_shape.radius_top + 0.008 * b),
-                        b,
-                    );
+                    if let Some(shaft) = &figure.native_shaft {
+                        shaft.fringe(p, fringe, b);
+                    } else {
+                        fringe_parts::rim(
+                            p,
+                            fringe,
+                            Vec3::Y * boot_top,
+                            Vec2::splat(boot_shape.radius_top + 0.008 * b),
+                            b,
+                        );
+                    }
                 }
             }
             // Bare legs end in the foot itself, not in a shaft round the
             // ankle, unless boots are pulled on over them.
             let bare_leg = matches!(outfit.legs, Legs::Bare(_)) && boots.is_none();
-            if !bare_leg && !furry {
+            if let Some(shaft) = &figure.native_shaft {
+                shaft.emit(&mut p.satin, boot);
+            } else if !bare_leg && !furry {
                 p.satin.prism(
                     Vec3::Y * boot_top,
                     Vec3::Y * boot_shape.bottom,
@@ -1874,22 +1935,35 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 }
             } else if boots.is_some_and(|boots| boots.cuffed) {
                 let (radius, thickness) = (boot_shape.cuff_radius, boot_shape.cuff_thickness);
-                p.satin.torus(
-                    Vec3::Y * boot_top,
-                    Vec3::Y,
-                    radius,
-                    thickness,
-                    12,
-                    3,
-                    boot * 1.15,
-                );
+                if let Some(shaft) = &figure.native_shaft {
+                    shaft.band(&mut p.satin, boot_top, thickness, boot * 1.15);
+                } else {
+                    p.satin.torus(
+                        Vec3::Y * boot_top,
+                        Vec3::Y,
+                        radius,
+                        thickness,
+                        12,
+                        3,
+                        boot * 1.15,
+                    );
+                }
             }
             if boots.is_some_and(|boots| boots.buckles) {
                 for y in [-0.3f32, -0.37] {
-                    p.satin
-                        .torus(Vec3::Y * y, Vec3::Y, 0.068 * b, 0.009, 12, 3, boot * 0.6);
+                    if let Some(shaft) = &figure.native_shaft {
+                        shaft.band(&mut p.satin, y, 0.009, boot * 0.6);
+                    } else {
+                        p.satin
+                            .torus(Vec3::Y * y, Vec3::Y, 0.068 * b, 0.009, 12, 3, boot * 0.6);
+                    }
                     p.metal.cuboid(
-                        Vec3::new(side * 0.06 * b, y, 0.02),
+                        figure
+                            .native_shaft
+                            .as_ref()
+                            .map_or(Vec3::new(side * 0.06 * b, y, 0.02), |shaft| {
+                                shaft.buckle(side, y)
+                            }),
                         Vec3::new(0.008, 0.014, 0.014),
                         Quat::IDENTITY,
                         Vec3::new(0.74, 0.5, 0.26),

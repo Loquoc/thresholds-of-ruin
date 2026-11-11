@@ -265,7 +265,7 @@ class PostmergeTests(unittest.TestCase):
         self.assertEqual(self.calls[-1][:2], ['rustup', 'toolchain'])
 
     def test_normal_selected_prose_pr_and_schedule_never_probe_compiler_or_proof(self):
-        for event, mode, prose in [('push', 'selected', False), ('push', 'full', True),
+        for event, mode, prose in [('push', 'full', True),
                                     ('pull_request', 'full', False), ('schedule', 'full', False)]:
             normal = planner.full_plan('a' * 40, 'b' * 40, ['normal'])
             normal['mode'] = mode
@@ -305,7 +305,10 @@ class PostmergeTests(unittest.TestCase):
         self.assertIn('python scripts/ci_postmerge.py aggregate --plan', workflow)
         self.assertIn("os.environ['POSTMERGE_RESULT'] == 'success'", workflow)
         for role in postmerge.TOOLCHAIN_ROLES:
-            self.assertIn('toolchain_' + role + ': ${{ steps.toolchain.outputs.toolchain_' + role + ' }}', workflow)
+            output = 'toolchain_' + role + ': ${{ steps.toolchain.outputs.toolchain_' + role + ' }}'
+            if role == 'consumer':
+                output = 'toolchain_consumer: ${{ steps.toolchain.outputs.toolchain_consumer }}'
+            self.assertIn(output, workflow)
 
     def seal_inputs(self):
         self.fixture()
@@ -544,7 +547,7 @@ class PostmergeTests(unittest.TestCase):
             '3D compatibility (linux-3d-consumer)', 'Rust (ubuntu-latest)', 'Rust (windows-latest)',
             'Full PR qualification'})
         self.assertEqual(skipped, {'Selected (${{ needs.scope.outputs.build_lane }})', 'Selected (${{ needs.scope.outputs.linux_lane }})',
-                                  'Selected (${{ needs.scope.outputs.windows_lane }})', 'Selected (linux-release-python)', 'Post-merge integration'})
+                                  'Selected (${{ needs.scope.outputs.windows_lane }})', 'Selected (linux-release-python)', 'Post-merge integration', 'Selected PR qualification'})
         from test_ci_workflow_contracts import workflow_job
         # Observed REST jobs on full PR run 39867462940 retain skipped expressions verbatim.
         for job, output in (('selected_rust', 'build_lane'), ('selected_linux', 'linux_lane'),

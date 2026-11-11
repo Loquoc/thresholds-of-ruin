@@ -60,31 +60,58 @@ pub(super) fn tricorn(p: &mut Parts, color: Vec3, trim: Vec3) {
 /// A witch's hat: a wide brim, a tall cone bending back to its point, a
 /// band round its foot and a bow with sheer tails falling behind.
 pub(super) fn witch_hat(p: &mut Parts, color: Vec3, band: Vec3) {
-    p.matte.blob(
-        Vec3::new(0.0, BRIM, -0.012),
-        Vec3::new(0.3, 0.014, 0.3),
-        5,
-        0.03,
-        color,
-    );
-    tube(
-        &mut p.matte,
-        &[
+    witch_hat_parts(p, color, band, false);
+}
+
+pub(super) fn open_witch_hat(p: &mut Parts, color: Vec3, band: Vec3) {
+    witch_hat_parts(p, color, band, true);
+}
+
+fn witch_hat_parts(p: &mut Parts, color: Vec3, band: Vec3, hollow: bool) {
+    if hollow {
+        annular_brim(
+            &mut p.matte,
+            BRIM,
+            Vec2::new(0.128, 0.133),
+            Vec2::splat(0.3),
+            0.0,
+            color,
+        );
+    } else {
+        p.matte.blob(
             Vec3::new(0.0, BRIM, -0.012),
-            Vec3::new(0.0, BRIM + 0.11, -0.025),
-            Vec3::new(0.0, BRIM + 0.22, -0.05),
-            Vec3::new(0.0, BRIM + 0.31, -0.1),
-            Vec3::new(0.0, BRIM + 0.36, -0.17),
-        ],
-        &[
-            (0.135, 0.14),
-            (0.1, 0.104),
-            (0.064, 0.066),
-            (0.03, 0.03),
-            (0.004, 0.004),
-        ],
-        color,
-    );
+            Vec3::new(0.3, 0.014, 0.3),
+            5,
+            0.03,
+            color,
+        );
+    }
+    let path = [
+        Vec3::new(0.0, BRIM, -0.012),
+        Vec3::new(0.0, BRIM + 0.11, -0.025),
+        Vec3::new(0.0, BRIM + 0.22, -0.05),
+        Vec3::new(0.0, BRIM + 0.31, -0.1),
+        Vec3::new(0.0, BRIM + 0.36, -0.17),
+    ];
+    let radii = [
+        (0.135, 0.14),
+        (0.1, 0.104),
+        (0.064, 0.066),
+        (0.03, 0.03),
+        (0.004, 0.004),
+    ];
+    if hollow {
+        // Match the horizontal annular brim at the mouth before the cone
+        // begins its backward sweep; a tilted first ring leaves daylight.
+        let mut open_path = path.to_vec();
+        open_path.insert(1, Vec3::new(0.0, BRIM + 0.025, -0.012));
+        let mut open_radii: Vec<_> = radii.iter().map(|&(x, z)| Vec2::new(x, z)).collect();
+        open_radii.insert(1, Vec2::new(0.130, 0.135));
+        p.matte
+            .tube_open_start(&open_path, &open_radii, 10, &|_, _, _| color);
+    } else {
+        tube(&mut p.matte, &path, &radii, color);
+    }
     p.matte.torus(
         Vec3::new(0.0, BRIM + 0.022, -0.015),
         Vec3::Y,

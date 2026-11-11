@@ -208,3 +208,83 @@ pub(super) fn cartoon_eyes(p: &mut Parts, center: Vec3, spread: f32, size: f32, 
         );
     }
 }
+
+/// Closed horizontal trim uses a periodic frame without coincident end caps.
+pub(super) fn closed_ring(b: &mut Builder, points: &[Vec3], width: f32, color: Vec3) {
+    // Callers supply the closing sample. Reuse the first frame exactly instead
+    // of generating two caps and inconsistent one-sided endpoint tangents.
+    let count = points.len() - 1;
+    assert!(count >= 3 && points[0].distance(points[count]) < 0.00001);
+    let vertex = |i: usize, j: usize| {
+        let i = i % count;
+        let tangent = (points[(i + 1) % count] - points[(i + count - 1) % count]).normalize();
+        let across = Vec3::Y.cross(tangent).normalize();
+        let up = across.cross(tangent).normalize();
+        let angle = (j % 10) as f32 * TAU / 10.0;
+        let normal = across * angle.cos() + up * angle.sin();
+        (points[i] + normal * width, normal)
+    };
+    for i in 0..count {
+        for j in 0..10 {
+            let q = [
+                vertex(i, j),
+                vertex(i + 1, j),
+                vertex(i + 1, j + 1),
+                vertex(i, j + 1),
+            ];
+            for ids in [[0, 1, 2], [0, 2, 3]] {
+                b.tri_smooth(ids.map(|k| q[k].0), ids.map(|k| q[k].1), [color; 3]);
+            }
+        }
+    }
+}
+
+/// A brim is an annulus around a head opening, never a flattened solid
+/// ellipsoid through the scalp. Its outer width is independent of crown fit.
+pub(super) fn annular_brim(
+    b: &mut Builder,
+    y: f32,
+    inner: Vec2,
+    outer: Vec2,
+    forward: f32,
+    color: Vec3,
+) {
+    let point = |col: usize, outside: bool, top: bool| {
+        let a = col as f32 * TAU / 64.0;
+        let radius = if outside { outer } else { inner };
+        Vec3::new(
+            a.sin() * radius.x,
+            y + if top { 0.006 } else { -0.006 },
+            a.cos() * radius.y - 0.012 + if outside { forward } else { 0.0 },
+        )
+    };
+    for col in 0..64 {
+        for top in [false, true] {
+            let q = [
+                point(col, false, top),
+                point(col, true, top),
+                point(col + 1, true, top),
+                point(col + 1, false, top),
+            ];
+            b.quad_out(q, Vec3::Y * (y + if top { -0.02 } else { 0.02 }), color);
+        }
+        for outside in [false, true] {
+            let q = [
+                point(col, outside, false),
+                point(col + 1, outside, false),
+                point(col + 1, outside, true),
+                point(col, outside, true),
+            ];
+            let center = Vec3::new(0.0, y, -0.012);
+            b.quad_out(
+                q,
+                if outside {
+                    center
+                } else {
+                    q[0] + q[2] - center
+                },
+                color,
+            );
+        }
+    }
+}

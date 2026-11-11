@@ -11,6 +11,7 @@ import shlex
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from test_verify import workflow_bash
 
@@ -30,19 +31,127 @@ def workflow_job(name):
     return re.search(r'^  ' + re.escape(name) + r':\n(.*?)(?=^  \w|\Z)', text, re.M | re.S)[1]
 
 
-def consumer_permitted(name, *, producer='success', apps='true', mode='full', docs='false', cancelled=False):
+def consumer_permitted(name, *, producer='success', apps='true', mode='full', docs='false', cancelled=False,
+                       event='pull_request', draft=False):
     expression = re.search(r'^    if: \$\{\{ (.+) \}\}$', workflow_job(name), re.M)[1]
     values = {'cancelled()': repr(cancelled), 'needs.scope.result': repr('success'),
+              'needs.scope.outputs.usage_review': repr('success'),
+              'github.event_name': repr(event), 'github.event.pull_request.draft': repr(draft), 'false': 'False',
               'needs.scope.outputs.mode': repr(mode), 'needs.scope.outputs.docs_only': repr(docs),
+              'needs.scope.outputs.consumer_3d': repr('true'),
               'needs.scope.outputs.requires_apps': repr(apps),
               'needs.windows_binaries.result': repr(producer), 'needs.selected_rust.result': repr(producer),
               '&&': 'and', '||': 'or', '!': 'not', '==': '==', '!=': '!=', '(': '(', ')': ')'}
-    tokens = re.findall(r"'[^']*'|[A-Za-z_.]+(?:\(\))?|&&|\|\||!=|==|[!()]|\S", expression)
+    tokens = re.findall(r"'[^']*'|[A-Za-z_][A-Za-z_0-9.]*(?:\(\))?|&&|\|\||!=|==|[!()]|\S", expression)
     translated = ' '.join(token if token.startswith("'") else values[token] for token in tokens)
     return eval(translated, {'__builtins__': {}})
 
 
 class WorkflowAdoption(unittest.TestCase):
+    def test_usage_review_runs_before_core_planning(self):
+        job = self.workflows()['ci.yml']['jobs']['scope']
+        commands = [step.get('run', '') for step in job['steps']]
+        check = commands.index('python3 scripts/ci_usage_review.py')
+        self.assertLess(check, next(i for i, cmd in enumerate(commands) if 'ci_test_plan.py' in cmd))
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/ci_usage_review.py')], cwd=ROOT,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_usage_review_detects_unreviewed_workflow_content(self):
+        import ci_usage_review
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / '.github/workflows'
+            workflows.mkdir(parents=True)
+            source = workflows / 'ci.yml'
+            source.write_bytes(b'name: project verification\r\n')
+            import hashlib
+            reviewed = {'.github/workflows/ci.yml': hashlib.sha256(b'name: project verification\n').hexdigest()}
+            self.assertEqual(ci_usage_review.differences(root, reviewed), [])
+            source.write_bytes(b'name: changed workflow\n')
+            self.assertIn('changed: .github/workflows/ci.yml', ci_usage_review.differences(root, reviewed))
+            (workflows / 'extra.yaml').write_bytes(b'name: unreviewed workflow\n')
+            self.assertIn('unreviewed: .github/workflows/extra.yaml', ci_usage_review.differences(root, reviewed))
+            source.unlink()
+            self.assertIn('missing: .github/workflows/ci.yml', ci_usage_review.differences(root, reviewed))
+
+    def workflows(self):
+        import yaml
+        return {name: yaml.load((ROOT / '.github/workflows' / name).read_text(encoding='utf-8'),
+                               Loader=yaml.BaseLoader) for name in ('ci.yml',)}
+
+    def test_draft_transitions_trigger_the_single_automatic_workflow(self):
+        workflows = self.workflows()
+        self.assertFalse((ROOT / '.github/workflows/client-3d.yml').exists())
+        for name, workflow in [('ci.yml', workflows['ci.yml'])]:
+            with self.subTest(workflow=name):
+                pull_request = workflow['on']['pull_request']
+                self.assertIsInstance(pull_request, dict)
+                self.assertIn('types', pull_request)
+                self.assertEqual(set(pull_request['types']),
+                                 {'opened', 'synchronize', 'reopened', 'ready_for_review', 'converted_to_draft'})
+
+    def test_drafts_do_not_start_core_application_lanes(self):
+        for name in ('profiles', 'windows_binaries', 'windows_python', 'selected_rust',
+                     'selected_linux', 'selected_windows', 'selected_release', 'selected_consumer'):
+            mode = 'selected' if name.startswith('selected_') else 'full'
+            with self.subTest(job=name):
+                self.assertFalse(consumer_permitted(name, mode=mode, draft=True))
+                self.assertTrue(consumer_permitted(name, mode=mode, draft=False))
+                for event in ('push', 'schedule', 'release', 'workflow_dispatch'):
+                    self.assertTrue(consumer_permitted(name, mode=mode, event=event, draft=True))
+                self.assertFalse(consumer_permitted(name, mode=mode, cancelled=True))
+
+    def test_actual_admission_process_rejects_drafts_before_checkout(self):
+        workflow = self.workflows()['ci.yml']
+        for name in ('check',):
+            step = workflow['jobs'][name]['steps'][0]
+            self.assertEqual(step.get('name'), 'Require ready pull request for qualification')
+            self.assertEqual(step['shell'], 'bash')
+            self.assertEqual(step['env'], {'QUALIFICATION_EVENT': '${{ github.event_name }}',
+                                           'QUALIFICATION_DRAFT': '${{ github.event.pull_request.draft }}'})
+            command = shlex.split(step['run'])
+            self.assertEqual(command[:2], ['python', '-c'])
+            for event, draft, passed in (
+                ('pull_request', 'false', True), ('pull_request', 'true', False),
+                ('pull_request', '', False), ('pull_request', 'unknown', False),
+                ('push', 'true', True), ('schedule', '', True),
+                ('workflow_dispatch', 'true', True), ('release', '', True),
+            ):
+                with self.subTest(workflow=name, event=event, draft=draft):
+                    result = subprocess.run([sys.executable, *command[1:]],
+                                            env={**os.environ, 'QUALIFICATION_EVENT': event,
+                                                 'QUALIFICATION_DRAFT': draft},
+                                            capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode == 0, passed, result.stderr)
+                    if not passed:
+                        self.assertIn('Draft feedback is not merge qualification', result.stderr)
+
+    def test_dependency_groups_preserve_individual_major_and_security_updates(self):
+        import yaml
+        config = yaml.load((ROOT / '.github/dependabot.yml').read_text(encoding='utf-8'), Loader=yaml.BaseLoader)
+        self.assertEqual({entry['package-ecosystem'] for entry in config['updates']},
+                         {'cargo', 'github-actions', 'pip'})
+        for entry in config['updates']:
+            with self.subTest(ecosystem=entry['package-ecosystem']):
+                self.assertEqual(entry['schedule']['interval'], 'weekly')
+                self.assertEqual(entry['open-pull-requests-limit'], '5')
+                self.assertNotIn('ignore', entry)
+                self.assertNotIn('allow', entry)
+                self.assertIn('groups', entry)
+                self.assertEqual(len(entry['groups']), 1)
+                [group] = entry['groups'].values()
+                self.assertEqual(group['applies-to'], 'version-updates')
+                self.assertEqual(group['patterns'], ['*'])
+                self.assertEqual(set(group['update-types']), {'minor', 'patch'})
+
+    def test_native_logs_have_explicit_bounded_retention(self):
+        workflow = self.workflows()['ci.yml']
+        uploads = [step for step in workflow['jobs']['selected_consumer']['steps']
+                   if step.get('uses', '').startswith('actions/upload-artifact@')]
+        self.assertEqual(len(uploads), 2)
+        self.assertTrue(all(step['with'].get('retention-days') == '7' for step in uploads))
+
     def test_active_workflow_has_no_retired_generic_pass_adoption(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         for retired in ('python scripts/ci_adoption.py', 'python scripts/ci_head_reuse.py',
@@ -96,6 +205,7 @@ class WorkflowAdoption(unittest.TestCase):
         self.assertEqual(workflow.count('          cache-on-failure: false'), len(caches))
         self.assertGreater(len(caches), 0)
         for expression in expressions:
+            main_only = expression == "job.status == 'success' && github.event_name != 'pull_request_target' && github.ref == 'refs/heads/main'"
             for passed in (False, True):
                 for event in ('push', 'pull_request', 'pull_request_target', 'workflow_dispatch', 'schedule'):
                     for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/188/merge'):
@@ -107,7 +217,7 @@ class WorkflowAdoption(unittest.TestCase):
                             tokens = re.findall(r"'[^']*'|[A-Za-z_.]+(?:\(\))?|&&|\|\||!=|==|[()]|\S", expression)
                             program = ' '.join(token if token.startswith("'") else values[token] for token in tokens)
                             actual = eval(program, {'__builtins__': {}})
-                            expected = passed and event != 'pull_request_target' and (ref == 'refs/heads/main' or event == 'pull_request' and head == 'owner/repo')
+                            expected = passed and event != 'pull_request_target' and (ref == 'refs/heads/main' or not main_only and event == 'pull_request' and head == 'owner/repo')
                             with self.subTest(event=event, ref=ref, head=head, passed=passed):
                                 self.assertEqual(actual, expected)
         # No cross-PR cache namespace override or untrusted-trigger expansion.
@@ -235,12 +345,82 @@ class WorkflowAdoption(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 artifact.package(executables, {'platform': 'Windows'}, output)
 
-    def test_exhaustive_schedule_retains_weekly_budget(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        schedules = re.findall(r'^    - cron: "([^"\n]+)"$', workflow, re.M)
-        self.assertEqual(schedules, ['17 6 * * 1'])
-        self.assertIn('  release:\n    types: [published]', workflow)
-        self.assertIn('  workflow_dispatch:', workflow)
+    def test_no_hosted_workflow_runs_on_a_timer(self):
+        import yaml
+        workflows = {path.name: yaml.load(path.read_text(encoding='utf-8'), Loader=yaml.BaseLoader)
+                     for path in (ROOT / '.github/workflows').glob('*.yml')}
+        core = workflows['ci.yml']
+        self.assertNotIn('schedule', core['on'], 'The migration must not schedule the exhaustive matrix')
+        self.assertEqual(set(core['on']), {'push', 'pull_request', 'workflow_dispatch', 'release'})
+        self.assertEqual(core['on']['push']['branches'], ['main'])
+        self.assertEqual(core['on']['release']['types'], ['published'])
+        scheduled = {name: workflow['on']['schedule'] for name, workflow in workflows.items()
+                     if 'schedule' in workflow['on']}
+        self.assertEqual(scheduled, {})
+
+    def advisory_workflow(self):
+        import yaml
+        path = ROOT / '.github/workflows/dependency-advisories.yml'
+        self.assertTrue(path.is_file(), 'Keep the explicit advisory-only scan available')
+        return yaml.load(path.read_text(encoding='utf-8'), Loader=yaml.BaseLoader)
+
+    def test_advisory_scan_is_one_bounded_blocking_job_with_no_test_qualification(self):
+        workflow = self.advisory_workflow()
+        self.assertEqual(set(workflow['on']), {'workflow_dispatch'})
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        self.assertEqual(set(workflow['jobs']), {'advisories'})
+        job = workflow['jobs']['advisories']
+        self.assertEqual(job['runs-on'], 'ubuntu-latest')
+        self.assertEqual(job['timeout-minutes'], '10')
+        self.assertNotIn('continue-on-error', job)
+        self.assertNotIn('strategy', job)
+        self.assertNotIn('permissions', job)
+        steps = job['steps']
+        self.assertEqual(len(steps), 4)
+        self.assertEqual(steps[0]['name'], 'State advisory-only scope')
+        self.assertEqual(steps[1]['uses'], 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')
+        self.assertEqual(steps[1]['with'], {'ref': '${{ github.sha }}', 'persist-credentials': 'false'})
+        self.assertEqual(steps[2]['run'], 'python3 scripts/ci_usage_review.py')
+        self.assertEqual(steps[3]['uses'], 'EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25')
+        self.assertEqual(steps[3]['with'], {'command': 'check advisories'})
+        for step in steps:
+            self.assertNotIn('continue-on-error', step)
+            self.assertNotIn('if', step)
+        self.assertEqual(workflow['concurrency']['cancel-in-progress'], 'true')
+        self.assertIn('${{ github.ref }}', workflow['concurrency']['group'])
+
+    def test_actual_advisory_scope_step_accepts_only_scan_events_and_never_qualifies_tests(self):
+        step = self.advisory_workflow()['jobs']['advisories']['steps'][0]
+        self.assertEqual(step['env'], {'ADVISORY_EVENT': '${{ github.event_name }}'})
+        self.assertEqual(step['shell'], 'bash')
+        for event in ('schedule', 'workflow_dispatch', 'push', 'pull_request', 'release', '', 'unknown'):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                summary = Path(directory) / 'summary'
+                result = subprocess.run([workflow_bash(), '-e', '-c', step['run']],
+                    env={**os.environ, 'ADVISORY_EVENT': event, 'GITHUB_STEP_SUMMARY': str(summary)},
+                    capture_output=True, text=True, timeout=10)
+                if event == 'workflow_dispatch':
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    text = summary.read_text(encoding='utf-8')
+                    self.assertIn('Dependency advisories only', text)
+                    self.assertIn('does not qualify tests or a merge', text)
+                    self.assertIn('No application builds or test suites', text)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Unsupported advisory event', result.stderr)
+                    self.assertFalse(summary.exists())
+
+    def test_advisory_success_cannot_supply_full_qualification(self):
+        import ci_postmerge
+        advisory = self.advisory_workflow()['jobs']['advisories']
+        row = {'name': advisory['name'], 'run_id': 123, 'head_sha': 'a' * 40,
+               'run_attempt': 1, 'status': 'completed', 'conclusion': 'success'}
+        with self.assertRaisesRegex(ValueError, 'canonical full job roles'):
+            ci_postmerge.validate_jobs([row], {'id': 123, 'head_sha': 'a' * 40, 'run_attempt': 1})
+        for event in ('schedule', 'workflow_dispatch'):
+            with self.subTest(event=event), patch.dict(os.environ, {'GITHUB_EVENT_NAME': event}), \
+                    self.assertRaisesRegex(ValueError, 'only full PR coverage'):
+                ci_postmerge.seal({}, {}, {})
 
     def test_artifact_validation_is_not_test_result_reuse(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()

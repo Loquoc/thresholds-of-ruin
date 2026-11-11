@@ -2017,6 +2017,25 @@ humanoid footwear or a full wardrobe merely by having a humanoid upper body.
   sleeves. Study capes have open-front cuts, distinct fullness/hem/folds, lined
   interiors, and optional shoulder mantles. Adult feminine cuts remain linked to
   the resolved body, not a replacement standardized torso.
+- Wrapping tails attach to an emitted torso winding using the same retained
+  shirt/armor support as the upper wraps, then ease toward the skirt clearance
+  envelope without moving their authored hem. Raising the hip-local root alone
+  does not establish depth contact. Native apron panels now use retained posed
+  leg triangles for local outward contact, preserving waistband pins, hem height
+  and paired thickness. Robe overlays republish their solved baseline even on
+  unchanged poses before apron contact; deformation never accumulates. Exact
+  review walking/strike witnesses and native views cover the repaired knee
+  penetration. Directional clearance is not a general cloth simulation; demands
+  conflicting with pins or the bounded shape allowance are reported as fallbacks.
+- Built-in boot shafts fit retained calf/trouser triangles by direction,
+  with cuffs and buckle bands following the leather. Complete clipped support
+  cells bound sidewall faces, including support between profile rows/rays. The
+  foot last, sole and equipped-footwear path stay independent. The Barbarian
+  study's fur-topped boots use the same fit: underfur and each lock root follow
+  actual leather at their own height, while shoulder fur keeps its old recipe.
+  Human native and Barbarian neutral/walk/strike views qualify the sampled
+  silhouette, not every wardrobe or arbitrary Euclidean clearance at shaft caps.
+  Other future fringe kinds remain on their existing path until qualified.
 - Moving layered garments need explicit contact, not merely a larger rest mesh.
   Retain emitted skirt surfaces and their current transforms for robe fitting.
   Apron/wrap meshes above independently deforming robes must be instance-owned
@@ -2102,6 +2121,11 @@ The November 7 review identified these concrete priorities:
 - Fit cape collars around the neck opening rather than over a capped torso
   support. Remove raised shoulder shelves and keep the drape outside moving
   arms without turning the cloth into sleeves or oversized boxes.
+- Seat headgear on the actual uncovered skull, not a suppressed scalp-hair
+  envelope. Bound both minimum clearance and maximum cavity gap at the brow,
+  roof and guards, preserve actual ears, and check the whole rear attachment
+  rather than only a central contact. Review a plain skull cap and a visor on
+  human and centaur builds before treating a shared fit profile as established.
 - Align visored-helmet sight openings to the actual eye positions. A ray at an
   assumed brow height is not an eye-clearance witness.
 - Replace shirt shoulder-pad shapes with continuous short cloth sleeves. Give

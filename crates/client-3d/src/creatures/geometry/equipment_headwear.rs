@@ -1,5 +1,5 @@
-//! Interchangeable head-local equipment. The brow and hair allowance match
-//! `headwear_parts`; callers apply the resolved head frame, never world offsets.
+//! Interchangeable head-local equipment. Authored silhouettes are fitted to
+//! the uncovered cranium; callers apply the resolved head frame, never world offsets.
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -75,10 +75,31 @@ fn ring_point(angle: f32, y: f32, radius: f32) -> Vec3 {
 }
 
 fn rim(b: &mut Builder, y: f32, radius: f32, width: f32, color: Vec3) {
-    let path: Vec<_> = (0..=32)
-        .map(|i| ring_point(i as f32 * TAU / 32.0, y, radius))
-        .collect();
-    tube(b, &path, &vec![(width, width); path.len()], color);
+    // This is a closed ellipse, not an open tube with two coincident caps.
+    // Periodic frames share the exact seam positions and normals, avoiding the
+    // visible front notch caused by mismatched endpoint tangents and cap disks.
+    const AROUND: usize = 64;
+    const SIDES: usize = 12;
+    let vertex = |i: usize, j: usize| {
+        let a = (i % AROUND) as f32 * TAU / AROUND as f32;
+        let cross = (j % SIDES) as f32 * TAU / SIDES as f32;
+        let outward = Vec3::new(a.sin() * 1.04, 0.0, a.cos()).normalize();
+        let normal = outward * cross.cos() + Vec3::Y * cross.sin();
+        (ring_point(a, y, radius) + normal * width, normal)
+    };
+    for i in 0..AROUND {
+        for j in 0..SIDES {
+            let q = [
+                vertex(i, j),
+                vertex(i + 1, j),
+                vertex(i + 1, j + 1),
+                vertex(i, j + 1),
+            ];
+            for ids in [[0, 1, 2], [0, 2, 3]] {
+                b.tri_smooth(ids.map(|k| q[k].0), ids.map(|k| q[k].1), [color; 3]);
+            }
+        }
+    }
 }
 
 /// Open-bottom, lined crown: no solid sphere occupies the wearer's forehead.
@@ -216,6 +237,20 @@ fn cheek_point(side: f32, row: usize, column: usize, inner: bool) -> Vec3 {
 
 /// Closed curved plates frame the cheeks and taper around the jaw, without
 /// covering the eyes or mouth. Their top edge shares the crown's outer surface.
+const NAPE_BOTTOM: f32 = 0.175;
+
+/// Lower rear opening, shared with the nape-band recipe. Open caps retain
+/// the lowest rim allowance; ornaments never determine hair emergence.
+pub(super) fn rear_hair_edge(kind: HeadwearKind) -> f32 {
+    match kind {
+        HeadwearKind::Plumed
+        | HeadwearKind::Etched
+        | HeadwearKind::Crested
+        | HeadwearKind::Visored => seated_point(Vec3::Y * NAPE_BOTTOM).y,
+        _ => seated_point(Vec3::Y * (BROW - 0.010)).y,
+    }
+}
+
 fn guards(p: &mut Parts, color: Vec3, trim: Vec3) {
     for side in [-1.0, 1.0] {
         for row in 0..CHEEK_ROWS.len() - 1 {
@@ -281,39 +316,94 @@ fn guards(p: &mut Parts, color: Vec3, trim: Vec3) {
             trim,
         );
     }
-    p.metal.extrude(
-        &[
-            Vec2::new(-0.12, 0.0),
-            Vec2::new(0.12, 0.0),
-            Vec2::new(0.135, -0.07),
-            Vec2::new(-0.135, -0.07),
-        ],
-        Vec3::new(0.0, BROW, -0.135),
-        Vec3::X,
-        Vec3::Y,
-        0.013,
-        color,
-    );
+    // Continue the crown and cheek guards around the occiput. A flat nape
+    // rectangle could meet at its center yet leave its outer corners detached.
+    // Rows share the adjacent cheek edge, including the interpolated lower end.
+    let rows = [
+        (BROW, 0.145, 0.1508),
+        (0.195, 0.140, 0.154),
+        (NAPE_BOTTOM, 0.1385, 0.152),
+    ];
+    const COLUMNS: usize = 16;
+    let point = |row: usize, col: usize, inner: bool| {
+        let (y, rx, rz) = rows[row];
+        let angle = 2.05 + (TAU - 4.10) * col as f32 / COLUMNS as f32;
+        let inset = if inner { 0.006 } else { 0.0 };
+        Vec3::new(
+            angle.sin() * (rx - inset),
+            y,
+            angle.cos() * (rz - inset) - 0.012,
+        )
+    };
+    for row in 0..rows.len() - 1 {
+        for col in 0..COLUMNS {
+            for inner in [false, true] {
+                let q = [
+                    point(row, col, inner),
+                    point(row, col + 1, inner),
+                    point(row + 1, col + 1, inner),
+                    point(row + 1, col, inner),
+                ];
+                let axis = Vec3::new(0.0, (q[0].y + q[2].y) * 0.5, -0.012);
+                p.metal.quad_out(
+                    q,
+                    if inner { q[0] + q[2] - axis } else { axis },
+                    color * if inner { 0.68 } else { 1.0 },
+                );
+            }
+        }
+        for col in [0, COLUMNS] {
+            p.metal.quad_out(
+                [
+                    point(row, col, false),
+                    point(row + 1, col, false),
+                    point(row + 1, col, true),
+                    point(row, col, true),
+                ],
+                point(row, if col == 0 { 1 } else { COLUMNS - 1 }, false),
+                color,
+            );
+        }
+    }
+    for row in [0, rows.len() - 1] {
+        for col in 0..COLUMNS {
+            let q = [
+                point(row, col, false),
+                point(row, col, true),
+                point(row, col + 1, true),
+                point(row, col + 1, false),
+            ];
+            p.metal.quad_out(
+                q,
+                q[0] + Vec3::Y * if row == 0 { -0.01 } else { 0.01 },
+                color,
+            );
+        }
+    }
 }
 
 fn leather_hat(p: &mut Parts) {
-    tube(
-        &mut p.matte,
+    // The open mouth starts horizontally in the band. A capped, tilted
+    // tube both cut through the scalp and left a visible gap above the rim.
+    p.matte.tube_open_start(
         &[
             Vec3::new(0.0, BROW, -0.012),
+            Vec3::new(0.0, 0.27, -0.012),
             Vec3::new(0.0, 0.32, -0.025),
             Vec3::new(0.03, 0.395, -0.055),
             Vec3::new(0.12, 0.395, -0.075),
             Vec3::new(0.18, 0.305, -0.085),
         ],
         &[
-            (0.15, 0.153),
-            (0.13, 0.13),
-            (0.075, 0.075),
-            (0.032, 0.032),
-            (0.004, 0.004),
+            Vec2::new(0.15, 0.153),
+            Vec2::splat(0.146),
+            Vec2::splat(0.13),
+            Vec2::splat(0.075),
+            Vec2::splat(0.032),
+            Vec2::splat(0.004),
         ],
-        LEATHER,
+        10,
+        &|_, _, _| LEATHER,
     );
     rim(&mut p.matte, BROW, 0.152, 0.012, LEATHER * 1.25);
     for side in [-1.0, 1.0] {
@@ -360,11 +450,12 @@ fn fedora_top(a: f32) -> Vec3 {
 
 fn fedora(p: &mut Parts) {
     let brown = Vec3::new(0.36, 0.24, 0.15);
-    p.matte.blob(
-        Vec3::new(0.0, BROW, -0.012),
-        Vec3::new(0.235, 0.012, 0.215),
-        4,
-        0.01,
+    annular_brim(
+        &mut p.matte,
+        BROW,
+        Vec2::new(0.140, 0.1456),
+        Vec2::new(0.235, 0.215),
+        0.0,
         brown,
     );
     for i in 0..32 {
@@ -403,7 +494,7 @@ fn cone_inlay(p: &Parts, at: Vec2) -> Vec3 {
 
 fn conical_hat(p: &mut Parts) {
     let blue = Vec3::new(0.09, 0.20, 0.43);
-    headwear_parts::witch_hat(p, blue, BRASS * 0.7);
+    headwear_parts::open_witch_hat(p, blue, BRASS * 0.7);
     let gold = Vec3::new(0.98, 0.78, 0.26);
     for (x, y, size) in [
         (-0.045, 0.34, 0.03),
@@ -613,7 +704,18 @@ fn feather_section(path: &[Vec3], i: usize, lane: f32, white: bool) -> [Vec3; 3]
     let t = i as f32 / (path.len() - 1) as f32;
     let tangent = (path[(i + 1).min(path.len() - 1)] - path[i.saturating_sub(1)]).normalize();
     let across = (Vec3::X - tangent * tangent.x).normalize();
-    let normal = tangent.cross(across).normalize();
+    // Fan the outer red vanes in three dimensions instead of aligning every
+    // width with X. The smooth roll vanishes at root and tip, retaining the
+    // mount and pointed silhouette while exposing actual area from the side.
+    let across = if white {
+        across
+    } else {
+        Quat::from_axis_angle(tangent, 0.50 * lane * (PI * t).sin()) * across
+    };
+    // The cream fan curls forward, while the red plume trails backward.
+    // Reverse the red frame so its ridge rises on the exposed upper side
+    // instead of carving a trough below the vane's shoulder centerline.
+    let normal = tangent.cross(across).normalize() * if white { 1.0 } else { -1.0 };
     let width = (PI * t.powf(0.72)).sin().max(0.0) * if white { 0.022 } else { 0.029 };
     let left = width * if i % 4 == 1 { 0.72 } else { 1.0 };
     let right = width * if i % 4 == 3 { 0.74 } else { 0.94 };
@@ -982,7 +1084,7 @@ fn visor(p: &mut Parts) {
     }
 }
 
-pub(super) fn emit(p: &mut Parts, kind: HeadwearKind) {
+fn emit_authored(p: &mut Parts, kind: HeadwearKind) {
     match kind {
         HeadwearKind::LeatherHat => leather_hat(p),
         HeadwearKind::IronSkullCap => {
@@ -991,11 +1093,12 @@ pub(super) fn emit(p: &mut Parts, kind: HeadwearKind) {
         }
         HeadwearKind::HardHat => {
             dome(p, IRON * 0.85, false);
-            p.metal.blob(
-                Vec3::new(0.0, BROW, 0.04),
-                Vec3::new(0.18, 0.012, 0.19),
-                3,
-                0.0,
+            annular_brim(
+                &mut p.metal,
+                BROW,
+                Vec2::new(0.140, 0.1456),
+                Vec2::new(0.18, 0.20),
+                0.018,
                 IRON,
             );
             tube(
@@ -1038,6 +1141,65 @@ pub(super) fn emit(p: &mut Parts, kind: HeadwearKind) {
     }
 }
 
+/// The authored catalog included a large scalp-hair allowance even though
+/// equipment suppresses that hair. Fit the crown to the actual 96 by 102 mm
+/// cranium instead. Keep the eye opening's height and the lower-face allowance;
+/// taper into the snug brow band rather than uniformly shrinking through ears
+/// and noses. Both fitted equipment and skin inherit the same head frame.
+fn seated_point(at: Vec3) -> Vec3 {
+    let t = ((at.y - 0.18) / (BROW - 0.18)).clamp(0.0, 1.0);
+    let lateral = 0.91 + (0.74 - 0.91) * t;
+    let depth = 0.88 + (0.76 - 0.88) * t;
+    let y = if at.y <= 0.18 {
+        at.y
+    } else if at.y < BROW {
+        0.18 + (at.y - 0.18) * (0.216 - 0.18) / (BROW - 0.18)
+    } else {
+        0.216 + (at.y - BROW) * 0.80
+    };
+    Vec3::new(at.x * lateral, y, -0.012 + (at.z + 0.012) * depth)
+}
+
+pub(super) fn emit(p: &mut Parts, kind: HeadwearKind) {
+    let mut authored = Parts::default();
+    for (source, target) in [
+        (&mut authored.matte, &p.matte),
+        (&mut authored.metal, &p.metal),
+        (&mut authored.satin, &p.satin),
+        (&mut authored.ghost, &p.ghost),
+        (&mut authored.sheer, &p.sheer),
+        (&mut authored.glow, &p.glow),
+    ] {
+        source.res = target.res;
+        source.sides_mul = target.sides_mul;
+        source.smooth = target.smooth;
+    }
+    emit_authored(&mut authored, kind);
+    for (target, source) in [
+        (&mut p.matte, authored.matte),
+        (&mut p.metal, authored.metal),
+        (&mut p.satin, authored.satin),
+        (&mut p.ghost, authored.ghost),
+        (&mut p.sheer, authored.sheer),
+        (&mut p.glow, authored.glow),
+    ] {
+        target.absorb_fitted(source, |mut at| {
+            // This reused cone was authored with a 255 mm brim and a
+            // narrower mouth, unlike the 245 mm equipment dome recipes.
+            if kind == HeadwearKind::ConicalHat {
+                at.y -= 0.010;
+                at.x *= 1.06;
+                at.z = -0.012 + (at.z + 0.012) * 1.06;
+            }
+            let mut fitted = seated_point(at);
+            if kind == HeadwearKind::Fedora && at.y > BROW {
+                fitted.y = 0.216 + (at.y - BROW) * 1.20;
+            }
+            fitted
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1051,6 +1213,234 @@ mod tests {
                 (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
                 |(lo, hi), (a, b)| (lo.min(a), hi.max(b)),
             )
+    }
+
+    #[test]
+    fn fitted_crowns_seat_on_the_actual_brow_without_a_hair_sized_gap() {
+        for kind in HeadwearKind::ALL {
+            let mut hat = Parts::default();
+            emit(&mut hat, kind);
+            for woman in [false, true] {
+                for (model, build) in [CreatureModel::Human, CreatureModel::Centaur]
+                    .into_iter()
+                    .flat_map(|model| (0..3).map(move |build| (model, build)))
+                {
+                    let look = Look::with_choice(
+                        model,
+                        22,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let mut skin = Parts::default();
+                    human_face(&mut skin, &look, true);
+                    for angle in [1.2_f32, PI * 0.5, 2.0, 2.7, PI] {
+                        let direction = Vec3::new(angle.sin(), 0.0, angle.cos());
+                        let origin = Vec3::new(0.0, 0.216, -0.012);
+                        let head = skin.matte.outer_surface(origin, direction).unwrap();
+                        let shell = [&hat.matte, &hat.metal, &hat.satin, &hat.ghost]
+                            .into_iter()
+                            .filter_map(|b| b.inner_surface(origin, direction))
+                            .min_by(|a, b| a.distance(origin).total_cmp(&b.distance(origin)))
+                            .unwrap_or_else(|| panic!("{kind:?}: no crown at the actual brow"));
+                        let gap = (shell - head).dot(direction);
+                        assert!(
+                            (0.004..0.030).contains(&gap),
+                            "{kind:?}: brow gap {gap}, woman={woman}, build={build}, angle={angle}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn open_conical_crown_meets_its_horizontal_brim_in_front() {
+        let mut hat = Parts::default();
+        headwear_parts::open_witch_hat(&mut hat, Vec3::ONE, Vec3::ONE);
+        // Above the brim, outside the lower band's front reach, below the old
+        // tilted tube mouth. A band-only intersection cannot satisfy this ray.
+        assert!(hat
+            .matte
+            .inner_surface(Vec3::new(0.0, 0.265, 0.118), Vec3::Z)
+            .is_some());
+    }
+
+    #[test]
+    fn nape_band_top_joins_the_crown_across_its_whole_rear_arc() {
+        let mut guard = Parts::default();
+        guards(&mut guard, IRON, BRASS);
+        let mut crown = Parts::default();
+        dome(&mut crown, IRON, false);
+        // Side-of-rear witnesses catch a flat panel that contacts only at its
+        // center while its corners project independently behind the helmet.
+        for angle in [2.2_f32, 2.45, 2.7, PI, 3.6, 3.85, 4.0] {
+            let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
+            let band = guard
+                .metal
+                .outer_surface(Vec3::new(0.0, BROW - 0.001, -0.012), ray)
+                .expect("rear band exists across its top arc");
+            let shell = crown
+                .metal
+                .outer_surface(Vec3::new(0.0, BROW + 0.001, -0.012), ray)
+                .expect("crown fixture");
+            assert!(
+                band.distance(shell) < 0.012,
+                "rear band corner detaches at angle={angle}: band={band:?}, crown={shell:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fitted_crown_roofs_clear_the_real_scalp_not_just_the_rim() {
+        let look = Look::with_choice(CreatureModel::Human, 22, None);
+        let mut skin = Parts::default();
+        human_face(&mut skin, &look, true);
+        let mut failures = Vec::new();
+        for kind in HeadwearKind::ALL {
+            let mut hat = Parts::default();
+            emit(&mut hat, kind);
+            for x in [-0.04, 0.0, 0.04] {
+                for z in [-0.05, -0.012, 0.025] {
+                    let origin = Vec3::new(x, 0.235, z);
+                    let head = skin.matte.outer_surface(origin, Vec3::Y).unwrap();
+                    let roof = [&hat.matte, &hat.metal, &hat.satin, &hat.ghost]
+                        .into_iter()
+                        .filter_map(|b| b.inner_surface(origin, Vec3::Y))
+                        .min_by(|a, b| a.y.total_cmp(&b.y));
+                    if let Some(roof) = roof {
+                        if roof.y < head.y + 0.003 {
+                            failures.push(format!(
+                                "{kind:?} roof cuts scalp at {x},{z}: roof={} skin={}",
+                                roof.y, head.y
+                            ));
+                        }
+                        if kind == HeadwearKind::IronSkullCap && roof.y > head.y + 0.055 {
+                            failures.push(format!("skullcap roof floats at {x},{z}"));
+                        }
+                    } else {
+                        failures.push(format!("{kind:?} missing roof at {x},{z}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn fitted_guards_clear_actual_cheeks_and_keep_the_head_frame() {
+        for woman in [false, true] {
+            for (model, build) in [CreatureModel::Human, CreatureModel::Centaur]
+                .into_iter()
+                .flat_map(|model| (0..3).map(move |build| (model, build)))
+            {
+                let look = Look::with_choice(
+                    model,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let mut face = Parts::default();
+                human_face(&mut face, &look, true);
+                for kind in [
+                    HeadwearKind::CrystalHelmet,
+                    HeadwearKind::Plumed,
+                    HeadwearKind::Etched,
+                    HeadwearKind::Crested,
+                    HeadwearKind::Visored,
+                ] {
+                    for frame in [
+                        Affine3A::IDENTITY,
+                        Affine3A::from_scale_rotation_translation(
+                            Vec3::new(1.18, 1.15, 1.16),
+                            Quat::from_rotation_y(0.7),
+                            Vec3::new(0.2, 1.1, -0.4),
+                        ),
+                    ] {
+                        let mut hat = Parts::default();
+                        hat.set_transform(frame);
+                        emit(&mut hat, kind);
+                        for side in [-1.0, 1.0] {
+                            for y in [0.10, 0.13, 0.17, 0.21] {
+                                // Crystal has short faceted temple tabs, not full jaw plates.
+                                if kind == HeadwearKind::CrystalHelmet && y < 0.21 {
+                                    continue;
+                                }
+                                for angle in [1.25_f32, 1.6] {
+                                    let ray = Vec3::new(side * angle.sin(), 0.0, angle.cos());
+                                    let origin = Vec3::new(0.0, y, -0.012);
+                                    let skin = face.matte.outer_surface(origin, ray).unwrap();
+                                    let shell = [&hat.metal, &hat.satin, &hat.ghost]
+                                        .into_iter()
+                                        .filter_map(|b| b.inner_surface(origin, ray))
+                                        .min_by(|a, b| {
+                                            a.distance(origin).total_cmp(&b.distance(origin))
+                                        })
+                                        .unwrap_or_else(|| panic!("{kind:?}: missing fitted guard at y={y}, angle={angle}, side={side}"));
+                                    let gap = (shell - skin).dot(ray);
+                                    assert!((0.002..0.038).contains(&gap),
+                                        "{kind:?}: cheek gap={gap} y={y} angle={angle} woman={woman} build={build}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn closed_rims_have_no_internal_end_caps_or_front_seam() {
+        for (radius, width) in [
+            (0.143, 0.014),
+            (0.146, 0.008),
+            (0.160, 0.009),
+            (0.152, 0.012),
+            (0.150, 0.0025),
+        ] {
+            let mut p = Parts::default();
+            rim(&mut p.matte, BROW, radius, width, Vec3::ONE);
+            let mut meshes = Assets::<Mesh>::default();
+            let mut materials = Assets::<StandardMaterial>::default();
+            let model = p.finish(
+                &mut meshes,
+                &crate::props::PropMaterials::new(&mut materials),
+            );
+            let mut count = 0;
+            for (handle, _) in &model.0 {
+                let mesh = meshes.get(handle).unwrap();
+                let bevy::render::mesh::VertexAttributeValues::Float32x3(vertices) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+                else {
+                    panic!("rim positions");
+                };
+                for vertex in vertices {
+                    let v = Vec3::from_array(*vertex);
+                    // Independent ellipse coordinates: a closed trim has only
+                    // its tube wall, never a cap center on the centerline.
+                    let angle = v.x.atan2((v.z + 0.012) / 1.04);
+                    let center = Vec3::new(
+                        radius * angle.sin(),
+                        BROW,
+                        radius * 1.04 * angle.cos() - 0.012,
+                    );
+                    assert!(
+                        (v.distance(center) - width).abs() < 0.0003,
+                        "closed rim contains an end-cap/seam vertex: {v:?}"
+                    );
+                    count += 1;
+                }
+            }
+            assert!(
+                count >= 64 * 12,
+                "inspect the complete deduplicated ring grid"
+            );
+        }
     }
 
     #[test]
@@ -1070,7 +1460,7 @@ mod tests {
         assert_eq!(HeadwearKind::ALL.len(), HeadwearKind::NAMES.len());
         for kind in HeadwearKind::ALL {
             let mut p = Parts::default();
-            emit(&mut p, kind);
+            emit_authored(&mut p, kind);
             let (lo, hi) = bounds(&p);
             assert!(lo.is_finite() && hi.is_finite(), "{kind:?}");
             assert!(
@@ -1088,7 +1478,7 @@ mod tests {
     fn study_silhouettes_retain_their_defining_features() {
         let get = |kind| {
             let mut p = Parts::default();
-            emit(&mut p, kind);
+            emit_authored(&mut p, kind);
             bounds(&p)
         };
         let cap = get(HeadwearKind::IronSkullCap);
@@ -1257,7 +1647,7 @@ mod tests {
                                 .metal
                                 .outer_surface(origin, Vec3::Z)
                                 .expect("visor retains upper and lower plates");
-                            assert!(plate.z - skin.z > 0.015,
+                            assert!(plate.z - skin.z > 0.006,
                                 "{kind:?}, woman={woman}, build={build}: plate meets face at {origin:?}");
                         }
                     }
@@ -1579,11 +1969,13 @@ mod tests {
                 path[5].distance(q[0]) < path[5].distance(q[2]) * 0.85,
                 "barb breaks must not be symmetric ribbon notches"
             );
-            let tangent = (path[6] - path[4]).normalize();
-            let across = (Vec3::X - tangent * tangent.x).normalize();
+            // Independent head-local up at these known shoulder fixtures.
+            // Repeating the generator's tangent cross-product blessed a
+            // downward trough on the backward-sweeping red feathers.
             assert!(
-                (q[1] - path[5]).dot(tangent.cross(across)) > 0.002,
-                "center ridge must stand above the vane"
+                (q[1] - path[5]).y > 0.002,
+                "center ridge must stand above the vane: white={white} rise={}",
+                (q[1] - path[5]).y
             );
             let mut b = Builder::default();
             plume_feather(&mut b, 0.5, 1.0, white);
@@ -1693,7 +2085,7 @@ mod tests {
                 let surface = feather
                     .outer_surface(Vec3::new(at.x, 0.36, at.z), Vec3::Y)
                     .expect("staggered shoulder has an actual emitted vane");
-                assert!(surface.y >= at.y - 0.002 && surface.y < at.y + 0.035);
+                assert!(surface.y >= at.y - 0.002 && surface.y < at.y + 0.035, "vane shoulder layer={layer} lane={lane} peak={peak} center={at:?} surface={surface:?}");
                 // Full vane crown clearance at the new early/late bends.
                 for i in 2..emitted_path.len() {
                     for point in feather_section(&emitted_path, i, lane, false) {
@@ -1717,6 +2109,26 @@ mod tests {
                 "outer final thirds turn sideways instead of hanging as parallel strips"
             );
             assert!(path[16].z < -0.25, "outward tips retain the back sweep");
+        }
+    }
+
+    #[test]
+    fn outer_red_vanes_present_surface_area_in_side_views() {
+        // Independent straight backward shoulder fixture: parallel X vanes
+        // otherwise disappear edge-on even when their center ridge is raised.
+        let path: Vec<_> = (0..=16)
+            .map(|i| Vec3::new(0.0, 0.50, -0.30 * i as f32 / 16.0))
+            .collect();
+        for lane in [-1.0, 1.0] {
+            let mut vane = Builder::default();
+            emit_feather_vane(&mut vane, &path, lane, 1.0, false);
+            for side in [-1.0, 1.0] {
+                assert!(
+                    vane.outer_surface(Vec3::new(-0.2, 0.50 + side * 0.008, -0.15), Vec3::X)
+                        .is_some(),
+                    "outer red vane must show actual side area: lane={lane} side={side}"
+                );
+            }
         }
     }
 
@@ -1777,12 +2189,12 @@ mod tests {
     #[test]
     fn crystal_uses_translucent_facets_and_solid_facet_edges() {
         let mut p = Parts::default();
-        emit(&mut p, HeadwearKind::CrystalHelmet);
+        emit_authored(&mut p, HeadwearKind::CrystalHelmet);
         assert!(!p.ghost.is_empty());
         assert!(!p.satin.is_empty());
         assert!(p.metal.is_empty());
         let mut iron = Parts::default();
-        emit(&mut iron, HeadwearKind::IronSkullCap);
+        emit_authored(&mut iron, HeadwearKind::IronSkullCap);
         assert!(iron.ghost.is_empty());
         assert!(!iron.metal.is_empty());
     }

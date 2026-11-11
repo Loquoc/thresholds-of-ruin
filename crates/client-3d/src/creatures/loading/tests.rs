@@ -277,7 +277,9 @@ fn transfer_preserves_every_generated_component_and_deformation_reference() {
         world.spawn_empty();
     }
     let mut generator = generator(&world);
-    let mut witnessed = [false; 4];
+    let mut witnessed = [false; 5];
+    let mut apron = Equipment::default();
+    apron.select("apron").unwrap();
     for look in [
         Look::with_choice(
             CreatureModel::Human,
@@ -295,6 +297,7 @@ fn transfer_preserves_every_generated_component_and_deformation_reference() {
         })
         .dressed(Wardrobe::Courtier),
         Look::of(CreatureModel::Mage, 1),
+        Look::of(CreatureModel::Human, 22).equipped(apron),
         Look::of(CreatureModel::Snake, 3),
         Look::of(CreatureModel::Wisp, 3),
     ] {
@@ -303,6 +306,7 @@ fn transfer_preserves_every_generated_component_and_deformation_reference() {
         let expected = component_inventory(&prepared.world, &source_ids);
         let source_rig = prepared.world.get::<Rig>(prepared.root).unwrap();
         witnessed[0] |= source_rig.hair.is_some();
+        witnessed[4] |= !source_rig.aprons.is_empty();
         witnessed[1] |= source_rig.robe.is_some();
         witnessed[2] |= !source_rig.cloaks.is_empty();
         witnessed[3] |= expected.keys().any(|name| name.ends_with("PointLight"));
@@ -379,8 +383,8 @@ fn transfer_preserves_every_generated_component_and_deformation_reference() {
         world.entity_mut(parent).insert(rig);
     }
     assert_eq!(
-        witnessed, [true; 4],
-        "hair, robe, cloak and light positive controls must all be generated"
+        witnessed, [true; 5],
+        "hair, robe, cloak, light and apron positive controls must all be generated"
     );
 }
 

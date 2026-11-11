@@ -314,6 +314,24 @@ class MissingTests(unittest.TestCase):
 
 
 class Tiers(unittest.TestCase):
+    def test_tool_wrapper_applications_are_built_before_python_tools(self):
+        for tier in ('quick', 'push', 'full'):
+            steps = verify.plan(tier, set(), [])
+            names = [name for name, _, _ in steps]
+            build = next(command for name, command, _ in steps if name == 'build-tools')
+            self.assertIn('--workspace', build)
+            self.assertIn('--bins', build)
+            python_step = 'python-debug' if tier == 'full' else 'python-tools'
+            self.assertLess(names.index('build-tools'), names.index(python_step))
+
+    def test_cli_declares_wrapper_application_prerequisites(self):
+        result = subprocess.run([sys.executable, str(verify.SCRIPTS / 'verify.py'), 'quick',
+                                 '--base', 'HEAD', '--jobs', '2', '--dry-run'],
+                                cwd=verify.ROOT, capture_output=True, text=True, check=True)
+        expected = 'build-tools: cargo build --workspace --bins --locked'
+        self.assertIn(expected, result.stdout)
+        self.assertLess(result.stdout.index(expected), result.stdout.index('python-tools:'))
+
     def test_failed_push_is_never_reported_as_complete(self):
         for code in (0, 1):
             with tempfile.TemporaryDirectory() as directory, \
@@ -414,7 +432,7 @@ class Tiers(unittest.TestCase):
                                 cwd=verify.ROOT, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertLess(result.stdout.index("build-tools:"), result.stdout.index("python-debug:"))
-        self.assertIn("cargo build -p tor-server --bin tor-scenario --locked", result.stdout)
+        self.assertIn("cargo build --workspace --bins --locked", result.stdout)
 
     def test_python_rule_tools_build_and_select_the_current_compiler(self):
         for tier, python_step in [("quick", "python-tools"), ("push", "python-tools"), ("full", "python-debug")]:
@@ -423,7 +441,7 @@ class Tiers(unittest.TestCase):
                 names = [name for name, _, _ in steps]
                 self.assertLess(names.index("build-tools"), names.index(python_step))
                 build = next(command for name, command, _ in steps if name == "build-tools")
-                self.assertEqual(build, ["cargo", "build", "-p", "tor-server", "--bin", "tor-scenario", "--locked"])
+                self.assertEqual(build, ["cargo", "build", "--workspace", "--bins", "--locked"])
                 environment = next(environment for name, _, environment in steps if name == python_step)
                 self.assertEqual(Path(environment["TOR_SCENARIO_COMPILER"]), verify.ROOT / "alternate-target/debug" /
                                  ("tor-scenario.exe" if os.name == "nt" else "tor-scenario"))

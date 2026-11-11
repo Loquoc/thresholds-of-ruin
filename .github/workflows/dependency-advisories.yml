@@ -1,0 +1,43 @@
+name: Dependency advisory scan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-advisories-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  advisories:
+    name: Dependency advisories only
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: State advisory-only scope
+        shell: bash
+        env:
+          ADVISORY_EVENT: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          if os.environ['ADVISORY_EVENT'] != 'workflow_dispatch':
+              raise SystemExit('Unsupported advisory event')
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as summary:
+              summary.write('Dependency advisories only; this run does not qualify tests or a merge.\n'
+                            'No application builds or test suites run here.\n')
+          PY
+      - name: Checkout the scanned source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check reviewed CI usage inputs
+        run: python3 scripts/ci_usage_review.py
+      - name: Check the repository dependency advisories
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories

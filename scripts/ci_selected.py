@@ -59,6 +59,46 @@ def validate_python(rows, expected, profile=None):
             and not any(end.get(key) for key in ("waived_tests", "not_started", "batch_errors")), "incomplete terminal test result")
 
 
+SMOKE_ID = 'test_client_process.Native3DProcesses.test_ci_loads_and_accepts_native_input'
+
+
+def consumer_steps():
+    client = ROOT / 'crates/client-3d'
+    target = client / 'target'
+    binaries = target / 'debug'
+    executable = binaries / ('tor-client-3d.exe' if os.name == 'nt' else 'tor-client-3d')
+    smoke = [sys.executable, str(ROOT / 'scripts/test_runner.py'), '--workers', '1', '-v', SMOKE_ID]
+    if sys.platform.startswith('linux') and not os.environ.get('DISPLAY'):
+        smoke = ['xvfb-run', '-a', '-s', '-screen 0 1920x1080x24', *smoke]
+    return [
+        ('consumer-server', ['cargo', 'build', '--locked', '--target-dir', str(target),
+                             '-p', 'tor-server', '--bin', 'tor-server'], {}),
+        ('consumer-client', ['cargo', 'build', '--locked', '--target-dir', str(target),
+                             '--manifest-path', str(client / 'Cargo.toml'), '--bin', 'tor-client-3d'], {}),
+        ('consumer-smoke', smoke, {'_cwd': 'crates/client-3d/scripts', 'TOR_TEST_PROFILE': 'debug',
+                                   'TOR_TEST_BINARIES': str(binaries), 'TOR_3D_TEST_BINARY': str(executable)}),
+    ]
+
+
+def smoke_records(directory):
+    path = directory / 'consumer-smoke-tests.jsonl'
+    validate_python([json.loads(line) for line in path.read_text(encoding='utf-8').splitlines()], [SMOKE_ID], 'debug')
+    return binding(path)
+
+
+def run_consumer(directory):
+    directory.mkdir(parents=True, exist_ok=False)
+    jobs = verify.jobs_for_memory(verify.free_memory_gb(), os.cpu_count())
+    with verify.Lock(ROOT / '.local/verify.lock'):
+        for name, command, environment in consumer_steps():
+            result = verify.run_step(name, command, dict(environment), directory, jobs, False)
+            if result['code'] != 0 or result['note'].startswith('WAIVED'):
+                print(f"{name} failed; see {result['log']}", file=sys.stderr)
+                return 1
+        smoke_records(directory)
+    return 0
+
+
 def steps_for(lane, logs, workers, binaries=None):
     profile = lane["profile"]
     if lane["partition"] == "build":
@@ -66,9 +106,7 @@ def steps_for(lane, logs, workers, binaries=None):
     if lane["partition"] == "rust":
         return verify.plan("full", set(), [], ci_profile="debug", ci_partition="rust", workers=workers)
     if lane["partition"] == "consumer":
-        manifest = "crates/client-3d/Cargo.toml"
-        return [("consumer-check", ["cargo", "check", "--manifest-path", manifest, "--bin", "tor-client-3d", "--locked"], {}),
-                ("consumer-model", ["cargo", "test", "--manifest-path", manifest, "-p", "tor-client-3d-model", "--locked"], {})]
+        return consumer_steps()
     require(lane["partition"] in ("python", "tooling") and profile in ("debug", "release"), "unknown selected lane")
     tooling = lane["partition"] == "tooling"
     steps = []
@@ -112,7 +150,7 @@ def required_stages(lane, test_ids=()):
         "linux-debug-python": ["validate-applications", "python-selected"],
         "windows-debug-python": ["build-applications", "platform-codecs", "python-selected"],
         "linux-release-python": ["build-applications", "release-sentinels", "python-selected"],
-        "linux-3d-consumer": ["consumer-check", "consumer-model"],
+        "linux-3d-consumer": ["consumer-server", "consumer-client", "consumer-smoke"],
     }[lane]
     if 'python-selected' in stages:
         prerequisite = ci_example_prerequisites.stage(test_ids, 'release' if lane == 'linux-release-python' else 'debug')
@@ -152,6 +190,8 @@ def validate_files(plan, receipt, directory):
                     and result.get("run") == result["selected"]
                     and all(type(result.get(key)) is int and result[key] == 0 for key in ("failures", "errors", "skipped")),
                     "incomplete production Service execution")
+    if lane["partition"] == "consumer":
+        require(smoke_records(directory) == receipt["smoke_record"], '3D smoke evidence differs from receipt')
     if lane["test_ids"]:
         raw = bound_bytes(directory, receipt["python_record"])
         validate_python([json.loads(line) for line in raw.decode("utf-8").splitlines()], lane["test_ids"], lane["profile"])
@@ -236,6 +276,10 @@ def run(plan, lane_id, directory, binary_artifact=None, produce_binaries=None):
         steps.append(("publish-applications", [sys.executable, str(ROOT / "scripts/ci_binary_artifact.py"),
                       "build", "--profile", "debug", "--output", str(produce_binaries.resolve())], {}))
     require([name for name, _, _ in steps] == required_stages(lane_id, lane["test_ids"]), "execution plan lacks a required role")
+    import ci_postmerge
+    import ci_contract_reuse
+    compiler = ci_postmerge.toolchain()
+    build_configuration = ci_contract_reuse.build_policy()
     results = []
     failure = None
     with verify.Lock(ROOT / ".local/verify.lock"):
@@ -248,6 +292,7 @@ def run(plan, lane_id, directory, binary_artifact=None, produce_binaries=None):
                 break
     try:
         require(len(results) == len(steps) and failure is None, "incomplete selected lane")
+        smoke_record = smoke_records(directory) if lane["partition"] == "consumer" else None
         if lane["test_ids"]:
             rows = [json.loads(line) for line in (directory / "python-selected-tests.jsonl").read_text(encoding="utf-8").splitlines()]
             validate_python(rows, lane["test_ids"], lane["profile"])
@@ -258,17 +303,22 @@ def run(plan, lane_id, directory, binary_artifact=None, produce_binaries=None):
         if lane["partition"] == "tooling":
             ci_no_build.validate_audit(directory / "no-build")
         clean_source()
-        require(planner.current_plan() == plan, "checked inputs or plan changed during execution")
+        require(planner.normal_plan() == plan, "checked inputs or plan changed during execution")
+        require(ci_postmerge.toolchain() == compiler, 'compiler changed during selected execution')
+        require(ci_contract_reuse.build_policy() == build_configuration, 'build configuration changed during selected execution')
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         failure = str(error)
     receipt = {"policy_version": planner.POLICY_VERSION, "assurance": "selected-pr-contracts", "lane": lane_id,
                "source_sha": plan["source_sha"], "source_tree": plan["source_tree"], "plan_sha256": planner.digest(plan),
-               "passed": failure is None, "evidence_origin": "fresh", "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+               "passed": failure is None, "evidence_origin": "fresh", "toolchain": compiler,
+               "build_configuration": build_configuration, "run_id": os.environ.get("GITHUB_RUN_ID", ""),
                "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""), "test_ids": lane["test_ids"], "failure": failure,
                "steps": [{"step": row["step"], "code": row["code"], "seconds": row["seconds"],
                           "record": binding(row["log"])} for row in results]}
     if lane["test_ids"] and (directory / "python-selected-tests.jsonl").is_file():
         receipt["python_record"] = binding(directory / "python-selected-tests.jsonl")
+    if not failure and smoke_record is not None:
+        receipt["smoke_record"] = smoke_record
     if lane["partition"] == "tooling":
         receipt["no_build_records"] = {"manifest": binding(directory / "no-build/manifest.json"),
                                       "audit": binding(directory / "no-build/audit.jsonl")}
@@ -293,8 +343,14 @@ def main(argv=None):
     execute.add_argument("--produce-binaries", type=Path)
     aggregate = commands.add_parser("aggregate")
     aggregate.add_argument("--receipts", type=Path, required=True)
+    smoke = commands.add_parser('smoke-3d')
+    smoke.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
-    plan = planner.current_plan()
+    if args.command == 'smoke-3d':
+        return run_consumer(args.output.resolve())
+    # Scope alone admits retained coverage. Once admitted to a fresh lane,
+    # independently rederive Git selection without racing newly available proof.
+    plan = planner.normal_plan()
     if args.command == "run":
         return run(plan, args.lane, args.output.resolve(), args.binaries, args.produce_binaries)
     paths = sorted(args.receipts.glob("*/receipt.json"))
@@ -302,7 +358,7 @@ def main(argv=None):
     validate_receipts(plan, receipts)
     for receipt, path in zip(receipts, paths):
         validate_files(plan, receipt, path.parent)
-    print("Selected contract assurance complete; exhaustive matrix coverage is a distinct scheduled/on-demand result.")
+    print("Fresh selected contract assurance complete; exhaustive matrix coverage is a distinct on-demand/release result.")
     return 0
 
 

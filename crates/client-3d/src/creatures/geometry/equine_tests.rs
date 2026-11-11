@@ -229,3 +229,36 @@ fn centaur_rider_deltoid_caps_belong_to_the_animated_arms() {
         }
     }
 }
+
+#[test]
+fn centaur_equipment_preserves_selected_bob_bun_and_braid_on_spawned_head() {
+    for style in [2, 3, 4] {
+        let mut equipment = Equipment::default();
+        equipment.select("crested-helmet").unwrap();
+        let look = Look::with_choice(
+            CreatureModel::Centaur,
+            77,
+            Some(Variant {
+                woman: true,
+                build: 0,
+                bust: 0,
+                figure: 1,
+                hair: style,
+                ..default()
+            }),
+        )
+        .equipped(equipment);
+        let (world, rig, _, meshes) = spawn_one(&look);
+        let points = vertices(&world, &rig, &meshes, rig.joint(J::Head).unwrap());
+        // Actual spawned head mesh, after its local transforms: only the
+        // selected plait has a long central tail below the neck attachment.
+        let tail = points
+            .iter()
+            .any(|p| p.y < -0.08 && p.z < -0.10 && p.x.abs() < 0.06);
+        assert_eq!(
+            tail,
+            style == 3,
+            "Centaur hair={style}: wrong long-tail identity"
+        );
+    }
+}

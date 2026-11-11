@@ -1,0 +1,582 @@
+{
+  "review": "2026-11-10 remaining-owner source review",
+  "production_reads_this_catalog": false,
+  "owners": [
+    {
+      "owner": "test_active_mob_performance_report.DemandDrivenActiveMobReportTests",
+      "resource": "tooling",
+      "assertion_review": "Explicit current/legacy observer counts, missing-field mutations and independent replay/activity rejection; synthetic report rows.",
+      "witness_methods": [
+        "test_current_and_historical_contracts_are_explicit_and_both_valid",
+        "test_partial_or_mixed_ownership_never_qualifies_as_legacy"
+      ]
+    },
+    {
+      "owner": "test_ci_workflow_contracts.LinuxDebugShardWorkflow",
+      "resource": "tooling",
+      "assertion_review": "Inspects shard caps, attempt-bound names and exact-union validation commands; never runs the workflow.",
+      "witness_methods": [
+        "test_isolated_debug_owners_keep_cap_and_exact_union_gate"
+      ]
+    },
+    {
+      "owner": "test_cloak_sweep_audit.SweptFaceAudit",
+      "resource": "tooling",
+      "assertion_review": "Independent convex-contact examples, conservative degeneracies and corrupt/missing-trace rejection; mathematical fixtures only.",
+      "witness_methods": [
+        "test_bbox_false_contact_is_excluded_but_real_interior_is_not",
+        "test_clearance_expansion_is_not_a_raw_hull_test",
+        "test_all_independent_segments_and_convex_faces_remain_contained",
+        "test_planar_collinear_and_point_sweeps_are_bounded_conservatively",
+        "test_missing_and_corrupt_evidence_never_claims_exclusion",
+        "test_excluded_inner_peak_does_not_waive_layer_containment",
+        "test_capture_traversal_finds_only_actual_witnesses"
+      ]
+    },
+    {
+      "owner": "test_creature_process.ArenaPreparationSynchronization",
+      "resource": "tooling",
+      "assertion_review": "Fake Driver supplies early Ready/old snapshot/ability-start frames; only the causal start satisfies the barrier.",
+      "witness_methods": [
+        "test_waits_for_ability_start_not_early_ready_or_old_snapshot"
+      ]
+    },
+    {
+      "owner": "test_creature_wizard_ordering.OwnedHitDieWizardOrdering",
+      "resource": "tooling",
+      "assertion_review": "Mocks server, Text mutator, observer and compiler; checks each mutation syncs its own socket and refused sync stops.",
+      "witness_methods": [
+        "test_each_owned_hd_mutation_synchronizes_its_own_text_socket_in_both_orders",
+        "test_rejected_sync_stops_before_any_mutation_without_retry"
+      ]
+    },
+    {
+      "owner": "test_equipment_performance_report.EquipmentReport",
+      "resource": "tooling",
+      "assertion_review": "Synthetic four-size report matrix, malformed sample rejection and example routing; no benchmark execution.",
+      "witness_methods": [
+        "test_complete_positive_matrix",
+        "test_rejects_missing_duplicate_and_invalid_samples",
+        "test_perf_compare_owns_equipment_example"
+      ]
+    },
+    {
+      "owner": "test_model_performance_report.ModelReport",
+      "resource": "tooling",
+      "assertion_review": "Synthetic model counts/timings and hair phase containment; parse/extract routing never builds or renders models.",
+      "witness_methods": [
+        "test_complete_repeatable_workload",
+        "test_incomplete_duplicate_and_reordered_reports",
+        "test_malformed_samples_and_missing_reuse",
+        "test_phase_timings_are_complete_finite_and_within_total",
+        "test_hair_subphases_fit_inside_hair_time",
+        "test_harness_routes_and_extracts_the_model_workload"
+      ]
+    },
+    {
+      "owner": "test_perf_compare.BuildRouting",
+      "resource": "tooling",
+      "assertion_review": "Mocks subprocess.run; checks per-worktree manifest routing and rejects colliding outputs before a build call.",
+      "witness_methods": [
+        "test_separate_workspace_builds_use_each_tree_manifest",
+        "test_colliding_example_outputs_are_rejected_before_building"
+      ]
+    },
+    {
+      "owner": "test_performance_driver.DisclosedStateComparison",
+      "resource": "tooling",
+      "assertion_review": "Constructed owner/spectator frames check exact public fields, private redaction, causal wait receipts and nonmutation.",
+      "witness_methods": [
+        "test_cross_attachment_identity_is_not_disclosed_content",
+        "test_spectator_presentation_requires_exact_public_fields_and_redaction",
+        "test_wait_presentation_requires_exact_receipt_and_every_visual_field"
+      ]
+    },
+    {
+      "owner": "test_performance_driver.PlacePictureDemand",
+      "resource": "tooling",
+      "assertion_review": "Constructed histories and fake Client test public/private wait demands and separate causal/current-picture metrics.",
+      "witness_methods": [
+        "test_spectator_wait_requires_every_public_entry_but_no_private_wizard_history",
+        "test_current_picture_demand_keeps_causal_ready_metrics"
+      ]
+    },
+    {
+      "owner": "test_performance_report.BoundaryProofWorkTests",
+      "resource": "tooling",
+      "assertion_review": "Synthetic work counters require atomic proof fields, exact observer accounting, door allowance and zero-work waits.",
+      "witness_methods": [
+        "test_complete_boundary_proofs_replace_eager_disclosure_requirements",
+        "test_proof_fields_are_atomic_and_strict_nonnegative_integer_counts",
+        "test_every_observer_requires_exactly_one_proof_or_cold_comparison",
+        "test_proofs_do_not_hide_missing_or_repeated_rich_work",
+        "test_door_validation_keeps_its_single_extra_projection_allowance",
+        "test_wait_retains_its_zero_work_contract_with_zero_boundary_proofs",
+        "test_absent_proof_fields_cannot_relax_legacy_work_requirements"
+      ]
+    },
+    {
+      "owner": "test_performance_report.DemandDrivenObserverWorkTests",
+      "resource": "tooling",
+      "assertion_review": "Synthetic version/marker profiles require each observer stage exactly once and reject eager display work.",
+      "witness_methods": [
+        "test_explicit_v3_reowns_complete_observer_work_without_eager_display",
+        "test_marker_and_version_cannot_be_missing_unknown_or_mixed",
+        "test_every_stage_is_required_exactly_once_and_eager_work_stays_zero"
+      ]
+    },
+    {
+      "owner": "test_performance_report.SaveStatusMeasurementTests",
+      "resource": "tooling",
+      "assertion_review": "Constructed save-status rows distinguish missing/null/zero deferral and reject invalid count values.",
+      "witness_methods": [
+        "test_optional_checkpoint_deferral_preserves_missing_null_and_sequence",
+        "test_present_checkpoint_deferral_requires_nonnegative_integer",
+        "test_nullable_deferral_does_not_relax_other_count_fields"
+      ]
+    },
+    {
+      "owner": "test_process_fixture_identities.ProcessFixtureIdentities",
+      "resource": "tooling",
+      "assertion_review": "Builds authoring dictionaries and reads TOML; compiler subprocesses are mocked, with explicit identity/appearance assertions.",
+      "witness_methods": [
+        "test_service_fixtures_have_current_explicit_metadata_without_starting_host",
+        "test_wire_recording_helpers_author_explicit_paired_identity_metadata"
+      ]
+    },
+    {
+      "owner": "test_process_harness.CausalPictureCompletion",
+      "resource": "tooling",
+      "assertion_review": "Fake frame queue exercises real completion predicates; checks lifecycle ordering, one observation demand and exact state comparison.",
+      "witness_methods": [
+        "test_dirty_outcome_before_lifecycle_waits_for_automatic_picture",
+        "test_causal_only_outcome_requests_one_nonresetting_current_picture",
+        "test_picture_before_lifecycle_and_noqueued_acceptance_are_already_current",
+        "test_noqueued_acceptance_with_pending_visual_demand_waits",
+        "test_disclosed_comparison_ignores_only_picture_identity_not_mechanics"
+      ]
+    },
+    {
+      "owner": "test_process_harness.CompactDetectionMemory",
+      "resource": "tooling",
+      "assertion_review": "Mocked detection-memory frame/command returns verify compact hydration uses inspection without losing memory assertions.",
+      "witness_methods": [
+        "test_compact_background_preserves_full_memory_assertion_without_snapshot"
+      ]
+    },
+    {
+      "owner": "test_process_harness.InspectionGenerationComparison",
+      "resource": "tooling",
+      "assertion_review": "Constructed inspection dictionaries allow only attachment-local revision drift and reject authority/content differences.",
+      "witness_methods": [
+        "test_only_issued_report_generation_is_attachment_local"
+      ]
+    },
+    {
+      "owner": "test_process_harness.NativeCommandLetterFixture",
+      "resource": "tooling",
+      "assertion_review": "Mocks native key/text/frame injection on both OS paths; verifies exactly one letter and release on duplicate/error.",
+      "witness_methods": [
+        "test_each_platform_owns_exactly_one_letter_injection",
+        "test_duplicate_edit_is_rejected_immediately_and_releases_windows_key",
+        "test_windows_key_is_released_when_frame_wait_fails"
+      ]
+    },
+    {
+      "owner": "test_process_harness.SpectatorStateComparison",
+      "resource": "tooling",
+      "assertion_review": "Constructed directional spectator projection rejects private leaks, missing keys and public/position differences without mutation.",
+      "witness_methods": [
+        "test_exact_projection_is_directional_and_does_not_mutate_either_state",
+        "test_rejects_identity_knowledge_leaks_missing_fields_and_public_differences",
+        "test_non_item_state_and_ground_position_remain_exact"
+      ]
+    },
+    {
+      "owner": "test_projectile_process.ProjectileSettle",
+      "resource": "tooling",
+      "assertion_review": "Mocks snapshot/request/act; checks peer readiness, one checked wait, rejection and finite settlement bounds; no server.",
+      "witness_methods": [
+        "test_player_completion_between_snapshots_does_not_require_target_wait",
+        "test_unready_target_and_still_pending_player_remain_a_failure",
+        "test_ready_target_advances_player_with_an_ordinary_wait",
+        "test_initially_finished_player_needs_no_peer_request",
+        "test_wait_errors_and_finite_progress_bound_remain_failures"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.DrainRefusalRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Checks actual factory identity without running it, then fake lifecycle cleanup/publication and atomic failure preservation.",
+      "witness_methods": [
+        "test_factory_selects_existing_non_graphical_actual_text_case",
+        "test_drain_refusal_snapshot_is_preserved_only_after_cleanup",
+        "test_drain_refusal_failed_cleanup_does_not_publish_partial_sample"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.FirstContactRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Checks actual factory identity without running it; synthetic reach/effect artifacts require cleanup and valid discriminators.",
+      "witness_methods": [
+        "test_factory_selects_non_graphical_actual_paid_capture_case",
+        "test_both_actual_artifacts_are_preserved_only_after_cleanup",
+        "test_failed_cleanup_or_missing_variants_never_publish_partial_samples"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.GrowthRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Fake lifecycle and synthetic acquisition/credit diagnostics preserve both results atomically after cleanup.",
+      "witness_methods": [
+        "test_factory_selects_actual_non_graphical_granted_ability_case",
+        "test_both_actual_results_publish_after_successful_cleanup",
+        "test_cleanup_or_invalid_result_keeps_existing_samples_atomically"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.HallucinationRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Fake lifecycle/raw snapshots enforce visual/extension/cure, every body occurrence, privacy and inclusive duration endpoints.",
+      "witness_methods": [
+        "test_factory_selects_actual_non_graphical_text_cadence_source_free_case",
+        "test_three_raw_snapshots_publish_only_after_all_lifecycle_hooks",
+        "test_two_lawful_body_occurrences_preserve_every_raw_row",
+        "test_second_peer_or_contradictory_same_target_occurrence_rejects_atomically",
+        "test_shared_process_sample_helper_preserves_and_checks_every_body_occurrence",
+        "test_both_inclusive_duration_endpoints_accept_only_exact_base_turn_extension",
+        "test_any_lifecycle_failure_prevents_all_three_samples",
+        "test_invalid_visual_extension_cure_authority_or_private_clock_never_partially_publishes"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.HasteRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Fake lifecycle and synthetic haste/overdose diagnostics preserve both branches and reject bad rest/cleanup.",
+      "witness_methods": [
+        "test_factory_selects_actual_non_graphical_privileged_paid_doses",
+        "test_both_real_branches_publish_only_after_successful_cleanup",
+        "test_cleanup_or_invalid_branch_retains_prior_samples_atomically"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.RecorderCaptureStorageTests",
+      "resource": "tooling",
+      "assertion_review": "Mocks ProcessTestCase.launch and all nested lifecycle setup; verifies per-launch capture options and restoration after failure.",
+      "witness_methods": [
+        "test_headless_recording_uses_existing_lossless_per_launch_capture",
+        "test_capture_preserves_explicit_none_and_positional_process_class",
+        "test_other_recorded_processes_keep_their_exact_launch_options",
+        "test_nested_case_capture_restores_launch_after_success_and_failure"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.SelfDeviceRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Factory identity inspection plus fake self-device lifecycle; failed cleanup cannot publish a partial sample.",
+      "witness_methods": [
+        "test_factory_selects_existing_non_graphical_actual_text_case",
+        "test_self_device_snapshot_is_preserved_only_after_cleanup",
+        "test_self_device_failed_cleanup_does_not_publish_partial_sample"
+      ]
+    },
+    {
+      "owner": "test_record_wire_samples.TorchRecordingContracts",
+      "resource": "tooling",
+      "assertion_review": "Factory identity inspection plus fake torch states; validates explicit on/off commands, fuel states and cleanup atomicity.",
+      "witness_methods": [
+        "test_factory_selects_non_graphical_actual_adventure_source_free_case",
+        "test_both_server_states_publish_after_successful_cleanup_only",
+        "test_failed_cleanup_or_invalid_off_state_never_partially_publishes"
+      ]
+    },
+    {
+      "owner": "test_retention_measure.RetentionMeasurement",
+      "resource": "tooling",
+      "assertion_review": "Synthetic eight-case measurement rows test decoding, identity/count recovery and completeness; enforces local-only driver entry points.",
+      "witness_methods": [
+        "test_all_eight_cases_validate_and_decode",
+        "test_rejects_missing_duplicate_and_wrong_identity_output",
+        "test_rejects_wrong_counts_recovery_and_nonfinite_samples",
+        "test_complete_matrix_and_distribution_require_every_round",
+        "test_expensive_diagnostics_remain_local_only"
+      ]
+    },
+    {
+      "owner": "test_rogue_acceptance.Acceptance",
+      "resource": "tooling",
+      "assertion_review": "Constructed campaign/species summaries validate depth, death cause, food bands and explicitly retained waiver outcomes.",
+      "witness_methods": [
+        "test_level_bands_are_one_shallow_and_two_deep",
+        "test_depth_four_share_ignores_harness_errors",
+        "test_starvation_share_counts_deaths_with_an_empty_reserve",
+        "test_starvation_is_judged_by_the_hunger_at_death",
+        "test_the_named_cause_of_death_decides_starvation",
+        "test_a_waived_check_keeps_its_result_and_is_listed",
+        "test_food_is_judged_against_the_model_ratio",
+        "test_food_model_ratio_uses_the_campaign_pace",
+        "test_species_ignore_rare_attackers_and_flag_out_of_band_ratios"
+      ]
+    },
+    {
+      "owner": "test_rogue_detection_content.RogueDetectionContent",
+      "resource": "tooling",
+      "assertion_review": "Reads authored TOML and identity tables; checks exact detection effects, labels, species tuples and unchanged stock/kits.",
+      "witness_methods": [
+        "test_three_opt_in_doses_are_sole_self_effect_chart_operations",
+        "test_single_marker_is_pure_target_wide_refresh_without_authored_duration",
+        "test_species_labels_are_explicit_source_owned_tuples_not_character_names",
+        "test_two_potion_labels_preserve_old_appearances_and_exact_identity_capacity",
+        "test_supplement_enables_detection_without_changing_old_stock_or_kits"
+      ]
+    },
+    {
+      "owner": "test_rogue_drain_content.RogueDrainContent",
+      "resource": "tooling",
+      "assertion_review": "Reads authored TOML; independently checks paid self-device drain definition and unchanged live stock/kits.",
+      "witness_methods": [
+        "test_drain_life_is_paid_self_device_with_never_discovery",
+        "test_drain_keeps_legacy_device_stock_and_starting_kits_unchanged"
+      ]
+    },
+    {
+      "owner": "test_rogue_earned_route_process_support.RestoredPictureIdentity",
+      "resource": "tooling",
+      "assertion_review": "Constructed restored pictures allow only snapshot/revision drift; tick, observation, memory and history differences reject.",
+      "witness_methods": [
+        "test_only_attachment_picture_capabilities_change"
+      ]
+    },
+    {
+      "owner": "test_rogue_first_contact_content.RogueFirstContactContent",
+      "resource": "tooling",
+      "assertion_review": "Reads authored/shared TOML; independently checks cancellation/missile effects, exact cancellable-source scope and preserved kits.",
+      "witness_methods": [
+        "test_cancellation_is_checkless_first_body_never_identifying",
+        "test_missile_is_one_lore_agility_save_with_one_d4_plus_one_on_failure",
+        "test_first_contact_catalog_does_not_change_live_eight_or_starting_kits",
+        "test_cancellation_metadata_marks_only_reviewed_special_sources"
+      ]
+    },
+    {
+      "owner": "test_rogue_generation_probe.Pooling",
+      "resource": "tooling",
+      "assertion_review": "Constructed generation rows verify pooled rates/z score and seed range expansion; no probe process runs.",
+      "witness_methods": [
+        "test_pooled_food_rate_and_z_score",
+        "test_seed_ranges"
+      ]
+    },
+    {
+      "owner": "test_rogue_growth_content.RogueGrowthContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML and explicit identity oracle; validates dedicated growth effects, cosmetic capacity and preserved restoration/stock.",
+      "witness_methods": [
+        "test_gain_strength_is_dedicated_on_use_dose",
+        "test_raise_level_is_dedicated_on_use_dose",
+        "test_growth_adds_two_distinct_potion_identities_and_cosmetics",
+        "test_growth_supplement_preserves_existing_restoration_stock_and_kits"
+      ]
+    },
+    {
+      "owner": "test_rogue_hallucination_content.RogueHallucinationContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; exact hallucination duration/condition/cure/label assertions preserve old stock and kit rules.",
+      "witness_methods": [
+        "test_dose_uses_base_turn_recipe_and_on_use_recognition",
+        "test_marker_is_a_single_pure_target_wide_extend_condition",
+        "test_only_extra_healing_cures_exact_marker_unconditionally",
+        "test_old_appearances_are_preserved_and_new_identity_has_distinct_label",
+        "test_supplement_preserves_existing_potion_stock_and_starter_kits"
+      ]
+    },
+    {
+      "owner": "test_rogue_haste_content.RogueHasteContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; exact haste/rest timing/lifetime assertions preserve other condition policies and kits.",
+      "witness_methods": [
+        "test_haste_potion_uses_shared_condition_and_dedicated_rest_on_use",
+        "test_haste_keeps_distinct_potion_identity_without_replacing_old_cosmetics",
+        "test_only_shared_haste_opts_into_mixed_lifetime_and_rest_is_dedicated",
+        "test_haste_supplement_preserves_existing_device_stock_and_starter_kits"
+      ]
+    },
+    {
+      "owner": "test_rogue_item_model_coverage.RogueItemModelCoverage",
+      "resource": "tooling",
+      "assertion_review": "Reads committed JSON/TOML/Rust source and invokes a data-only scene generator; validates identity/form/appearance mapping, never renders.",
+      "witness_methods": [
+        "test_rogue_identity_hierarchy_preserves_all_old_equivalence_groups",
+        "test_seeded_names_have_explicit_paired_identity_records",
+        "test_all_74_hierarchical_appearance_assets_have_family_bounded_surfaces",
+        "test_authored_appearance_records_preserve_explicit_label_key_pairs",
+        "test_all_catalog_identities_and_physical_forms_resolve_expected_recipes",
+        "test_review_generator_covers_every_form_and_every_public_appearance_label",
+        "test_dungeon_review_scenes_use_normal_camera_and_real_picker",
+        "test_persistence_review_changes_only_names_not_appearance_or_pose"
+      ]
+    },
+    {
+      "owner": "test_rogue_item_stages_process.RogueItemStageProcesses",
+      "resource": "application",
+      "assertion_review": "ProcessTestCase runs the real tor-scenario compiler on positive and mutated copied packages; requires binary producer.",
+      "witness_methods": [
+        "test_rogue_stages_compile_and_invalid_variants_reject",
+        "test_grouped_missiles_use_their_own_quantity"
+      ]
+    },
+    {
+      "owner": "test_rogue_light_content.RogueLightContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; exact paid room-light self-device definition and unchanged live stock/kits.",
+      "witness_methods": [
+        "test_room_light_is_paid_self_device_with_on_use_discovery",
+        "test_light_keeps_legacy_device_stock_and_starting_kits_unchanged"
+      ]
+    },
+    {
+      "owner": "test_rogue_mapping_content.RogueMappingContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; exact topology-map operation, scroll appearance capacity and unchanged starting kit.",
+      "witness_methods": [
+        "test_mapping_is_sole_on_use_readable_operation",
+        "test_mapping_and_food_scroll_labels_extend_exact_existing_capacity",
+        "test_mapping_supplement_preserves_starter_kit"
+      ]
+    },
+    {
+      "owner": "test_rogue_nothing_content.RogueNothingContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; exact paid no-op definition, forms/appearance capacity and unchanged eight-device stock.",
+      "witness_methods": [
+        "test_opt_in_nothing_has_exact_paid_noop_definition",
+        "test_live_device_stock_remains_exactly_eight_original_choices",
+        "test_distinct_appearances_cover_opt_in_catalog_identities"
+      ]
+    },
+    {
+      "owner": "test_rogue_pacing_model.PacingModel",
+      "resource": "tooling",
+      "assertion_review": "Loads authored growth/population and computes bounded analytical expectations against independent tier/level/rate assertions.",
+      "witness_methods": [
+        "test_growth_values_come_from_the_package_overrides",
+        "test_hobgoblin_threat_tier_by_hand",
+        "test_kills_per_floor_follow_the_package_and_wandering_rate",
+        "test_committed_values_stay_within_one_level_of_the_rogue_model",
+        "test_steeper_thresholds_fall_behind_deep"
+      ]
+    },
+    {
+      "owner": "test_rogue_presentation_vectors.RoguePresentationVectors",
+      "resource": "tooling",
+      "assertion_review": "Reads rosters and computes an independent unsigned selector with fixed vectors and distinct visual/monster-sense channels.",
+      "witness_methods": [
+        "test_unsigned_recipe_has_independent_fixed_reference_vectors",
+        "test_complete_authored_rosters_keep_visual_and_monster_sense_channels_distinct"
+      ]
+    },
+    {
+      "owner": "test_rogue_profile_content.RogueProfileContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; independently checks locked schedule, capability flags, kit, exact source differences and item/rider/healing rules.",
+      "witness_methods": [
+        "test_one_preset_with_a_locked_scheduled_build",
+        "test_capabilities_disable_owner_choices_corpses_and_flight",
+        "test_rogue_starting_kit_has_no_bandages",
+        "test_no_bandage_stock_or_universal_care",
+        "test_item_stages_follow_rogue_generation",
+        "test_only_listed_sources_differ_from_the_starter_package",
+        "test_confusion_lengthens_as_in_rogue",
+        "test_signature_effects_follow_rogue_rates",
+        "test_orcs_are_greedy_and_every_other_species_keeps_its_disposition",
+        "test_rogue_monsters_never_flee_on_low_health",
+        "test_rogue_value_tuning_in_rules"
+      ]
+    },
+    {
+      "owner": "test_rogue_reference_model.ReferenceModel",
+      "resource": "tooling",
+      "assertion_review": "Pure Fraction/dice/reference calculations and in-process JSON CLI; hand-derived XP, food, trap and healing expectations.",
+      "witness_methods": [
+        "test_experience_levels_follow_the_threshold_table",
+        "test_depth_one_draws_the_first_five_species_equally",
+        "test_deep_index_redistributes_onto_the_last_five",
+        "test_wandering_rerolls_excluded_species",
+        "test_kill_xp_uses_level_one_hp_adjustment",
+        "test_deep_monsters_gain_level_lower_armor_and_xp",
+        "test_initial_monsters_per_floor",
+        "test_wandering_rate",
+        "test_food_with_drought_guarantee_exceeds_ordinary_rate",
+        "test_drought_forces_food_on_the_fourth_foodless_level",
+        "test_traps_start_at_depth_four",
+        "test_doctor_rate",
+        "test_expectations_are_monotonic_in_level_and_report_json"
+      ]
+    },
+    {
+      "owner": "test_rogue_reference_targets.ReferenceTargets",
+      "resource": "tooling",
+      "assertion_review": "Pure hit/save/damage distributions and in-process JSON CLI; independent probability and actions-to-kill expectations.",
+      "witness_methods": [
+        "test_swing_uses_a_zero_based_d20",
+        "test_saving_throw",
+        "test_every_species_has_a_target_at_its_typical_depth",
+        "test_actions_to_kill_counts_granular_attacks",
+        "test_signature_effects_combine_any_hit_with_their_rider",
+        "test_report_is_strict_json"
+      ]
+    },
+    {
+      "owner": "test_rogue_species_tuning.SpeciesTuning",
+      "resource": "tooling",
+      "assertion_review": "Synthetic TOML and study rows test bounded tuning proposals, comment-preserving edits, natural accuracy and zero removal.",
+      "witness_methods": [
+        "test_proposals_move_health_to_target_and_step_other_values_by_one",
+        "test_ratios_inside_the_band_keep_values",
+        "test_apply_edits_values_in_place",
+        "test_inline_melee_tables_are_tuned_in_place",
+        "test_rejected_births_back_off_health",
+        "test_natural_attack_accuracy_uses_an_attack_attribute_modifier",
+        "test_zero_values_remove_the_modifier"
+      ]
+    },
+    {
+      "owner": "test_rogue_torch_content.RogueTorchContent",
+      "resource": "tooling",
+      "assertion_review": "Reads TOML; exact finite held-light/tool socket definitions, primary socket preservation and no live stock insertion.",
+      "witness_methods": [
+        "test_torch_is_one_hand_nonmagical_finite_light_without_weapon_attack",
+        "test_authored_tool_sockets_append_without_changing_old_indices_or_capacity",
+        "test_torch_is_not_added_to_live_stock_or_starting_kits"
+      ]
+    },
+    {
+      "owner": "test_save_backpressure_process.SaveBackpressure",
+      "resource": "application",
+      "assertion_review": "ProcessTestCase launches real server/headless clients, holds SQLite exclusively and checks queued-save/held-command release and durability.",
+      "witness_methods": [
+        "test_lagging_storage_answers_save_behind_and_holds_commands"
+      ]
+    },
+    {
+      "owner": "test_scenario_capabilities_process.ScenarioCapabilityProcesses",
+      "resource": "application",
+      "assertion_review": "ProcessTestCase runs real compiler/server/clients; checks authored growth, no corpses, live kit and rejected capability/schedule mutations.",
+      "witness_methods": [
+        "test_locked_owner_grows_its_scheduled_row_and_the_kill_leaves_no_corpse",
+        "test_rogue_package_starts_locked_with_rogue_kit_and_no_care",
+        "test_rogue_adventurer_grows_its_scheduled_row_through_ordinary_play",
+        "test_compiler_rejects_a_schedule_without_authored_growth_and_unknown_switches"
+      ]
+    },
+    {
+      "owner": "test_strike_sequences_process.InitialSequencePeerTests",
+      "resource": "tooling",
+      "assertion_review": "Mocks package/server/client/request/act/frame and stops before save/UI; peer refresh then one checked wait, rejection prevents prefix wait.",
+      "witness_methods": [
+        "test_every_initial_prefix_refreshes_peer_then_submits_exactly_one_checked_wait",
+        "test_every_initial_prefix_refuses_rejected_peer_wait_without_retry_or_prefix_wait"
+      ]
+    }
+  ]
+}

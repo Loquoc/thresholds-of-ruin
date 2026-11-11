@@ -596,3 +596,291 @@ pub(super) fn hair(p: &mut Parts, l: &Look, with_fall: bool) {
         }
     }
 }
+
+/// Visible hair retained beneath equipment, separate from the covered scalp.
+pub(super) fn equipment_hair(p: &mut Parts, l: &Look, kind: equipment_headwear::HeadwearKind) {
+    if !grows_scalp_hair(l) {
+        return;
+    }
+    let style = hair_style(l);
+    // Short male cuts are entirely covered. A tied-back style retains its tail.
+    if !l.v.woman && style != 4 {
+        return;
+    }
+    let edge = equipment_headwear::rear_hair_edge(kind);
+    let face = face_shape(l, true);
+    let root = |x: f32, y: f32, thickness: f32| {
+        let (at, normal) = torso_surface_frame(&face.form, Vec2::new(x, y), false);
+        // Bury only the innermost quarter of the lock in the skin, so its
+        // attachment remains continuous without reserving a whole scalp wig.
+        at + normal * thickness * 0.75
+    };
+    let color = hair_color(l);
+    // A thin scalp-following prefix runs inside the rear cavity. Only the
+    // bulky style is below the opening: hiding the entire prefix would leave
+    // an artificial shaved strip between the rear band and retained hair.
+    for k in -4..=4 {
+        let x = k as f32 * 0.014;
+        let bottom_x = x * if l.v.woman && matches!(style, 0 | 4) {
+            1.0
+        } else {
+            0.25
+        };
+        let scalp = |x, y| {
+            let (at, normal) = torso_surface_frame(&face.form, Vec2::new(x, y), false);
+            at + normal * 0.003
+        };
+        lock(
+            &mut p.matte,
+            &[
+                scalp(x, edge + 0.008),
+                scalp(x, edge - 0.018),
+                scalp(bottom_x, 0.115),
+            ],
+            0.014,
+            0.003,
+            color * (0.94 + 0.015 * (k + 4) as f32),
+        );
+    }
+    let pony = |p: &mut Parts, width: f32| {
+        let top = root(0.0, edge - 0.032, width * 0.4);
+        p.matte
+            .torus(top, Vec3::NEG_Z, width * 0.30, 0.005, 10, 4, color * 0.6);
+        lock(
+            &mut p.matte,
+            &[
+                top,
+                top + Vec3::new(0.0, -0.045, -0.04),
+                Vec3::new(0.0, 0.025, top.z - 0.045),
+                Vec3::new(0.0, -0.07, top.z - 0.01),
+            ],
+            width,
+            width * 0.7,
+            color,
+        );
+    };
+    if !l.v.woman {
+        pony(p, 0.032);
+        return;
+    }
+    match style {
+        1 => pony(p, 0.050),
+        2 => {
+            // A low bun instead of replacing the selected style with a braid.
+            let radius = 0.040;
+            let at = root(0.0, (edge - radius - 0.006).min(0.15), radius);
+            p.matte
+                .blob(at, Vec3::new(0.047, radius, radius), 2, 0.0, color);
+            p.matte
+                .torus(at, Vec3::NEG_Z, 0.036, 0.006, 12, 4, color * 0.75);
+        }
+        3 => {
+            // Preserve the ordinary plait's anatomical length and rhythm.
+            let top = root(0.0, (edge - 0.036).min(0.13), 0.032);
+            braid(p, top, color);
+        }
+        _ => {
+            // Bob and loose hair emerge as broad, separate rear locks. Roots
+            // follow the actual skull, while their full widths clear the rim.
+            let long = style == 0;
+            for k in 0..7 {
+                let x = (k as f32 - 3.0) * 0.018;
+                let y = edge - 0.026;
+                let top = root(x, y, 0.018);
+                let end_y = if long {
+                    -0.13 - 0.025 * (k % 2) as f32
+                } else {
+                    0.035 + 0.005 * (k % 2) as f32
+                };
+                lock(
+                    &mut p.matte,
+                    &[
+                        top,
+                        Vec3::new(x * 1.10, 0.09, top.z - 0.012),
+                        Vec3::new(x * 1.13, end_y, top.z - if long { 0.025 } else { 0.005 }),
+                    ],
+                    0.026,
+                    0.020,
+                    color * (0.92 + 0.025 * (k % 4) as f32),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod equipment_hair_tests {
+    use super::*;
+
+    #[test]
+    fn feminine_crested_bob_stays_below_rear_shell_and_retains_short_cut() {
+        // Exact native failure: seed 77, thin woman, hair 4 is a bob, not a braid.
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            77,
+            Some(Variant {
+                woman: true,
+                build: 0,
+                bust: 0,
+                figure: 1,
+                hair: 4,
+                ..default()
+            }),
+        );
+        assert_eq!(hair_style(&look), 4);
+        let mut retained = Parts::default();
+        equipment_hair(
+            &mut retained,
+            &look,
+            equipment_headwear::HeadwearKind::Crested,
+        );
+        let (lo, hi) = retained.matte.bounds();
+        // The bulky old braid crossed the rim; a thin scalp prefix may sit
+        // safely inside the rear cavity. Actual interval checks below reject
+        // shell penetration, including this exact fixture.
+        assert!(
+            hi.y < 0.20,
+            "hair protrudes through closed rear band: {hi:?}"
+        );
+        assert!(lo.y > 0.0, "bob replaced by a long plait: {lo:?}");
+        assert!(
+            hi.x - lo.x > 0.10,
+            "bob must retain a broad rear silhouette"
+        );
+    }
+    #[test]
+    fn retained_styles_clear_actual_rear_shells_across_human_and_centaur_heads() {
+        for model in [CreatureModel::Human, CreatureModel::Centaur] {
+            for kind in equipment_headwear::HeadwearKind::ALL {
+                let mut hat = Parts::default();
+                equipment_headwear::emit(&mut hat, kind);
+                for style in 0..5 {
+                    let look = Look::with_choice(
+                        model,
+                        77,
+                        Some(Variant {
+                            woman: true,
+                            build: style % 3,
+                            hair: style,
+                            ..default()
+                        }),
+                    );
+                    let mut retained = Parts::default();
+                    equipment_hair(&mut retained, &look, kind);
+                    let (lo, hi) = retained.matte.bounds();
+                    assert!(
+                        lo.is_finite() && hi.is_finite() && hi.distance(lo) > 0.05,
+                        "style was deleted"
+                    );
+                    for x in [-0.10, -0.075, -0.04, 0.0, 0.008, 0.04, 0.075, 0.10] {
+                        for y in [0.09, 0.13, 0.17, 0.18, 0.195, 0.215, 0.235] {
+                            let origin = Vec3::new(x, y, 0.0);
+                            let Some(near) = retained.matte.inner_surface(origin, Vec3::NEG_Z)
+                            else {
+                                continue;
+                            };
+                            let far = retained.matte.outer_surface(origin, Vec3::NEG_Z).unwrap();
+                            for armor in [&hat.matte, &hat.metal, &hat.satin, &hat.ghost] {
+                                if let Some(a) = armor.inner_surface(origin, Vec3::NEG_Z) {
+                                    let b = armor.outer_surface(origin, Vec3::NEG_Z).unwrap();
+                                    assert!(near.z < b.z - 0.001 || far.z > a.z + 0.001,
+                                        "{model:?} {kind:?} style={style} x={x} y={y}: hair {near:?}..{far:?}, armor {a:?}..{b:?}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn covered_hair_keeps_bun_braid_bob_and_loose_silhouettes_distinct() {
+        let mut dimensions = Vec::new();
+        for style in 0..5 {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                77,
+                Some(Variant {
+                    woman: true,
+                    hair: style,
+                    ..default()
+                }),
+            );
+            let mut p = Parts::default();
+            equipment_hair(&mut p, &look, equipment_headwear::HeadwearKind::Crested);
+            let (lo, hi) = p.matte.bounds();
+            dimensions.push((lo, hi));
+        }
+        let width = |i: usize| dimensions[i].1.x - dimensions[i].0.x;
+        assert!(
+            width(0) > 0.14 && dimensions[0].0.y < -0.10,
+            "long loose locks"
+        );
+        assert!(dimensions[1].0.y < -0.05 && width(1) < 0.17, "ponytail");
+        assert!(dimensions[2].0.y > 0.07 && width(2) > 0.08, "compact bun");
+        assert!(
+            dimensions[3].0.y < -0.17 && width(3) < 0.17,
+            "long narrow plait"
+        );
+        assert!(
+            dimensions[4].0.y > 0.0 && width(4) > 0.14,
+            "short broad bob"
+        );
+    }
+
+    #[test]
+    fn selected_bob_and_braid_reach_the_actual_head_recipe() {
+        for style in [3, 4] {
+            let mut equipment = Equipment::default();
+            equipment.select("crested-helmet").unwrap();
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                77,
+                Some(Variant {
+                    woman: true,
+                    build: 0,
+                    bust: 0,
+                    figure: 1,
+                    hair: style,
+                    ..default()
+                }),
+            )
+            .equipped(equipment);
+            let mut p = Parts::default();
+            head::Recipe::resolve(&look).emit(&mut p, &look, HumanoidBody::resolve(&look));
+            // Below the head/neck recipe: a normal braid reaches here, a bob
+            // does not. Coordinates include the female 1.1 scale about y=.08.
+            let tail = p
+                .matte
+                .outer_surface(Vec3::new(0.008, -0.12, 0.0), Vec3::NEG_Z);
+            assert_eq!(
+                tail.is_some(),
+                style == 3,
+                "actual head recipe style={style}"
+            );
+        }
+    }
+
+    #[test]
+    fn equipment_retains_only_uncovered_male_tail_and_respects_bald_species() {
+        for style in 0..5 {
+            let mut look = Look::with_choice(
+                CreatureModel::Human,
+                77,
+                Some(Variant {
+                    woman: false,
+                    hair: style,
+                    ..default()
+                }),
+            );
+            let mut p = Parts::default();
+            equipment_hair(&mut p, &look, equipment_headwear::HeadwearKind::Visored);
+            assert_eq!(p.matte.bounds().0.is_finite(), style == 4);
+            look.style = Style::Guardian;
+            let mut bald = Parts::default();
+            equipment_hair(&mut bald, &look, equipment_headwear::HeadwearKind::Visored);
+            assert!(!bald.matte.bounds().0.is_finite());
+        }
+    }
+}

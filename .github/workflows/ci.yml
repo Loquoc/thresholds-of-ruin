@@ -4,10 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
-  # Weekly exhaustive qualification is distinct from selected PR/main assurance.
-  schedule:
-    - cron: "17 6 * * 1"
+  # Release verification is tied to a published version of this project.
   release:
     types: [published]
 
@@ -28,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      usage_review: ${{ steps.usage_review.outcome }}
       docs_only: ${{ steps.scope.outputs.docs_only }}
       mode: ${{ steps.plan.outputs.mode }}
       postmerge_release: ${{ steps.plan.outputs.postmerge_release }}
@@ -43,6 +43,9 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Check reviewed CI usage inputs
+        id: usage_review
+        run: python3 scripts/ci_usage_review.py
       - name: Check documentation and local links
         run: python3 -m unittest discover -s scripts -p test_documentation.py -v
       - name: Classify complete change scope
@@ -60,6 +63,7 @@ jobs:
           path: .local/ci-plan/plan.json
           include-hidden-files: true
           if-no-files-found: error
+          retention-days: 2
 
   tooling:
     name: Repository tooling lint
@@ -84,7 +88,7 @@ jobs:
   dependencies:
     name: Dependencies (${{ matrix.checks }})
     needs: scope
-    if: ${{ !cancelled() && !(needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'true') }}
+    if: ${{ !cancelled() && needs.scope.outputs.usage_review == 'success' && !(needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -92,7 +96,7 @@ jobs:
       matrix:
         checks: [advisories, bans licenses sources]
     # A newly published advisory shouldn't block unrelated pull requests; it
-    # still fails pushes to main and the weekly scheduled run.
+    # still fails pushes to main and explicit full runs.
     continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' }}
     steps:
       - name: Checkout exact source
@@ -121,7 +125,7 @@ jobs:
       contents: read
       actions: read
       pull-requests: read
-    if: ${{ !cancelled() && needs.scope.outputs.mode != 'selected' && needs.scope.outputs.mode != 'postmerge' && !(needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'true') }}
+    if: ${{ !cancelled() && needs.scope.outputs.usage_review == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.outputs.mode != 'selected' && needs.scope.outputs.mode != 'postmerge' && !(needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'true') }}
     runs-on: ${{ matrix.os }}
     # Expose the effective verifier build flags before rust-cache computes its key.
     env:
@@ -250,7 +254,7 @@ jobs:
   windows_binaries:
     name: Full applications (windows-latest, ${{ matrix.profile }})
     needs: scope
-    if: ${{ !cancelled() && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'full' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'full' }}
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
@@ -328,7 +332,7 @@ jobs:
       contents: read
       actions: read
       pull-requests: read
-    if: ${{ !cancelled() && needs.windows_binaries.result == 'success' && needs.scope.outputs.mode != 'selected' && needs.scope.outputs.mode != 'postmerge' && !(needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'true') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.windows_binaries.result == 'success' && needs.scope.outputs.mode != 'selected' && needs.scope.outputs.mode != 'postmerge' && !(needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'true') }}
     runs-on: ${{ matrix.os }}
     # Expose the effective verifier build flags before rust-cache computes its key.
     env:
@@ -442,7 +446,7 @@ jobs:
   selected_rust:
     name: Selected (${{ needs.scope.outputs.build_lane }})
     needs: [scope]
-    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' && needs.scope.outputs.requires_apps == 'true' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' && needs.scope.outputs.requires_apps == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -512,7 +516,7 @@ jobs:
       actions: read
     name: Selected (${{ needs.scope.outputs.linux_lane }})
     needs: [scope, selected_rust]
-    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' && (needs.selected_rust.result == 'success' || needs.scope.outputs.requires_apps == 'false') }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' && (needs.selected_rust.result == 'success' || needs.scope.outputs.requires_apps == 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -575,7 +579,7 @@ jobs:
   selected_windows:
     name: Selected (${{ needs.scope.outputs.windows_lane }})
     needs: [scope]
-    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' }}
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -633,7 +637,7 @@ jobs:
   selected_release:
     name: Selected (linux-release-python)
     needs: [scope]
-    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' && needs.scope.outputs.requires_apps == 'true' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.mode == 'selected' && needs.scope.outputs.requires_apps == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -689,15 +693,16 @@ jobs:
 
   selected_consumer:
     name: 3D compatibility (linux-3d-consumer)
-    needs: [scope]
+    needs: scope
     outputs:
       toolchain_consumer: ${{ steps.toolchain.outputs.toolchain_consumer }}
-    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.consumer_3d == 'true' }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.scope.result == 'success' && needs.scope.outputs.docs_only == 'false' && needs.scope.outputs.consumer_3d == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
     steps:
       - name: Checkout exact source and complete scope
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -705,8 +710,8 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Install Rust and lint tools
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
       - name: Restore dependency build candidates
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -714,35 +719,16 @@ jobs:
           shared-key: selected-v2-${{ runner.os }}-debug-consumer-${{ hashFiles('Cargo.toml') }}
           save-if: ${{ job.status == 'success' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
           cache-on-failure: false
-      - name: Install minimal 3D compile dependencies
-        if: runner.os == 'Linux'
-        run: python scripts/ci_consumer_dependencies.py
-      - name: Require native Windows desktop
-        if: runner.os == 'Windows'
-        run: python -c "import ctypes; assert ctypes.windll.user32.GetDesktopWindow(), 'A native Windows desktop is required'"
-      - name: Install pinned test environment
-        shell: bash
+      - name: Install 3D build and display dependencies
         run: |
-          python -m venv .local/arena-search-python
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            task_bin=".local/arena-search-python/Scripts"
-            task_python="$task_bin/python.exe"
-          else
-            task_bin=".local/arena-search-python/bin"
-            task_python="$task_bin/python"
-          fi
-          "$task_python" -m pip install --disable-pip-version-check --require-hashes -r .github/requirements-arena-search.txt
-          "$task_python" -c "import os, sys; from pathlib import Path; Path(os.environ['GITHUB_PATH']).open('a', encoding='utf-8').write(str(Path(sys.executable).absolute().parent) + '\n')"
+          python scripts/ci_consumer_dependencies.py
+          timeout --kill-after=10s 3m sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 install -y xvfb xauth xdotool libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libvulkan1 mesa-vulkan-drivers
       - name: Execute fresh selected contract assurance
-        if: needs.scope.outputs.mode == 'selected'
+        if: ${{ needs.scope.outputs.mode == 'selected' }}
         run: python scripts/ci_selected.py run --lane linux-3d-consumer --output .local/selected/linux-3d-consumer
-      - name: Execute fresh exhaustive consumer compatibility
+      - name: Build and smoke test the 3D client
         if: needs.scope.outputs.mode == 'full'
-        shell: bash
-        run: |
-          mkdir -p .local/full-consumer
-          cargo check --manifest-path crates/client-3d/Cargo.toml --bin tor-client-3d --locked 2>&1 | tee .local/full-consumer/check.log
-          cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d-model --locked 2>&1 | tee .local/full-consumer/model.log
+        run: python scripts/ci_selected.py smoke-3d --output .local/full-consumer
       - name: Preserve exhaustive consumer logs
         if: always() && needs.scope.outputs.mode == 'full'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -751,7 +737,7 @@ jobs:
           path: .local/full-consumer/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
       - name: Preserve selected evidence
         if: always() && needs.scope.outputs.mode == 'selected'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -760,11 +746,11 @@ jobs:
           path: .local/selected/linux-3d-consumer/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Record the actual compatibility compiler
         id: toolchain
-        if: success() && !cancelled()
+        if: ${{ success() && !cancelled() }}
         run: python scripts/ci_postmerge.py toolchain --role consumer
 
 
@@ -795,12 +781,14 @@ jobs:
       - name: Install the scope-resolved compiler
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: Restore compilation candidates, never test passes
+        if: needs.scope.outputs.requires_apps == 'true'
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           shared-key: postmerge-v1-${{ runner.os }}-debug-${{ hashFiles('Cargo.lock', 'scripts/ci_postmerge.py') }}
           save-if: ${{ job.status == 'success' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
           cache-on-failure: false
       - name: Install ordinary native build headers
+        if: needs.scope.outputs.requires_apps == 'true'
         run: |
           timeout --kill-after=10s 2m sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
           timeout --kill-after=10s 3m sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends libx11-dev libxcursor-dev libxrandr-dev
@@ -820,6 +808,38 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+  selected_qualification:
+    name: Selected PR qualification
+    needs: [scope, tooling, dependencies, check, selected_rust, selected_linux, selected_windows, selected_release, selected_consumer]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main' && needs.scope.outputs.mode == 'selected' && needs.scope.outputs.docs_only == 'false' && needs.check.result == 'success' }}
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the tested selected merge tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reconcile fresh lanes and seal selected coverage only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --pattern 'selected-receipt-*-attempt-${{ github.run_attempt }}' --dir .local/selected-seal
+          python scripts/ci_contract_reuse.py seal-selected --directory .local/selected-seal --output .local/selected-qualification/qualification.json
+      - name: Retain exact-tree selected qualification
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: selected-pr-qualification-attempt-${{ github.run_attempt }}
+          path: .local/selected-qualification/qualification.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 2
 
   full_qualification:
     name: Full PR qualification
@@ -861,6 +881,12 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     steps:
+      - name: Require ready pull request for qualification
+        shell: bash
+        env:
+          QUALIFICATION_EVENT: ${{ github.event_name }}
+          QUALIFICATION_DRAFT: ${{ github.event.pull_request.draft }}
+        run: python -c "import os; ready = os.environ['QUALIFICATION_EVENT'] != 'pull_request' or os.environ['QUALIFICATION_DRAFT'] == 'false'; raise SystemExit(0 if ready else 'Draft feedback is not merge qualification; mark this PR ready for review')"
       - name: Checkout exact source for shard coverage
         if: needs.scope.outputs.docs_only == 'false'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

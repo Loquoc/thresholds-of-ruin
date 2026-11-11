@@ -236,11 +236,9 @@ impl Recipe {
                 match headwear {
                     Headwear::Equipment(kind) => {
                         equipment_headwear::emit(p, kind);
-                        // The crown is tucked into the hat; a fitted braid remains
-                        // visible below it, rather than intersecting its crown.
-                        if fem && grows_scalp_hair(l) {
-                            braid(p, headwear_parts::WINGED_HELM_HAIR_ROOT, hair_color(l));
-                        }
+                        // Covered scalp stays hidden; the selected hairstyle
+                        // emerges below the equipment's actual rear opening.
+                        equipment_hair(p, l, kind);
                     }
                     Headwear::Helm => {
                         tube(

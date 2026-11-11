@@ -54,10 +54,10 @@ def decode(raw):
         raise ValueError('JSON nesting bound') from error
 
 
-def toolchain(value=None):
+def toolchain(value=None, *, environment=None):
     if value is None:
-        rust = subprocess.check_output(['rustc', '-Vv'], text=True, timeout=20)
-        cargo = subprocess.check_output(['cargo', '-V'], text=True, timeout=20).strip()
+        rust = subprocess.check_output(['rustc', '-Vv'], text=True, timeout=20, env=environment)
+        cargo = subprocess.check_output(['cargo', '-V'], text=True, timeout=20, env=environment).strip()
         fields = dict(line.split(': ', 1) for line in rust.splitlines() if ': ' in line)
         value = {'release': fields['release'], 'commit': fields['commit-hash'], 'cargo': cargo}
     if isinstance(value, str):
@@ -206,7 +206,7 @@ def job_roles():
                 for shard in (1, 2):
                     success.add(f'Rust ({system}, {profile}, python shard {shard})')
     skipped = {'Selected (${{ needs.scope.outputs.build_lane }})', 'Selected (${{ needs.scope.outputs.linux_lane }})', 'Selected (${{ needs.scope.outputs.windows_lane }})',
-               'Selected (linux-release-python)', 'Post-merge integration'}
+               'Selected (linux-release-python)', 'Post-merge integration', 'Selected PR qualification'}
     return success, skipped
 
 
@@ -233,7 +233,7 @@ def timestamp(value):
     return parsed.timestamp()
 
 
-def fetch_candidate(current, event, api, *, now=None):
+def fetch_candidate(current, event, api, *, now=None, contract=None):
     """Resolve exactly one merged PR and its newest canonical CI run; never search back."""
     now = time.time() if now is None else now
     require(event.get('ref') == 'refs/heads/main' and event.get('forced') is False
@@ -247,7 +247,8 @@ def fetch_candidate(current, event, api, *, now=None):
     require(pr.get('merged_at') and pr.get('state') == 'closed' and pr.get('merge_commit_sha') == current['source_sha']
             and pr['head']['repo']['full_name'] == pr['base']['repo']['full_name'] == current['repository']
             and pr['base']['ref'] == 'main' and pr['head']['sha'] == current['parents'][1], 'foreign/unmerged PR')
-    runs = complete(api.get('/actions/workflows/ci.yml/runs?event=pull_request&head_sha='
+    workflow = contract.workflow if contract else WORKFLOW
+    runs = complete(api.get('/actions/workflows/' + Path(workflow).name + '/runs?event=pull_request&head_sha='
                             + pr['head']['sha'] + '&per_page=100'), 'workflow_runs')
     require(runs and all(isinstance(row, dict) and type(row.get('run_number')) is int for row in runs),
             'missing canonical PR run')
@@ -256,15 +257,15 @@ def fetch_candidate(current, event, api, *, now=None):
     run = max(runs, key=lambda row: row['run_number'])
     require(type(run.get('id')) is int and type(run.get('run_attempt')) is int and run['run_attempt'] > 0,
             'invalid qualification run')
-    require(run.get('event') == 'pull_request' and run.get('path') == WORKFLOW
+    require(run.get('event') == 'pull_request' and run.get('path') == workflow
             and run.get('head_sha') == pr['head']['sha'] and run['head_repository']['full_name'] == current['repository']
             and run.get('status') == 'completed' and run.get('conclusion') == 'success', 'newest run not successful canonical PR')
     finished = timestamp(run['updated_at'])
     require(0 <= now - finished <= MAX_AGE and finished <= timestamp(pr['merged_at']) <= now, 'stale or post-merge qualification')
-    validate_jobs(complete(api.get(f'/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100'), 'jobs'), run)
+    jobs = complete(api.get(f'/actions/runs/{run["id"]}/jobs?filter=latest&per_page=100'), 'jobs')
     artifacts = complete(api.get(f'/actions/runs/{run["id"]}/artifacts?per_page=100'), 'artifacts')
     require(all(isinstance(row, dict) for row in artifacts), 'malformed artifact metadata')
-    name = f'full-pr-qualification-attempt-{run["run_attempt"]}'
+    name = (contract.artifact if contract else 'full-pr-qualification') + f'-attempt-{run["run_attempt"]}'
     candidates = [row for row in artifacts if row.get('name') == name]
     require(len(candidates) == 1, 'missing or duplicate qualification artifact')
     artifact = candidates[0]
@@ -288,10 +289,13 @@ def fetch_candidate(current, event, api, *, now=None):
         except zlib.error as error:
             raise ValueError('invalid qualification compression') from error
     require(isinstance(qualified, dict), 'qualification is not an object')
-    require(type(qualified.get('version')) is int and qualified['version'] == VERSION and qualified.get('assurance') == 'fresh-full-pr'
+    assurance = contract.assurance if contract else 'fresh-full-pr'
+    require(type(qualified.get('version')) is int and qualified['version'] == VERSION and qualified.get('assurance') == assurance
             and qualified.get('run_id') == str(run['id']) and qualified.get('attempt') == str(run['run_attempt'])
             and type(qualified.get('pr_number')) is int and qualified['pr_number'] == pr['number'], 'qualification origin')
-    require(qualified.get('groups') == dict.fromkeys(FULL_GROUPS, 'success'), 'incomplete qualification gates')
+    if contract is None:
+        require(qualified.get('groups') == dict.fromkeys(FULL_GROUPS, 'success'), 'incomplete qualification gates')
+        validate_jobs(jobs, run)
     for key in ('repository', 'source_tree', 'parents', 'workflow_blob', 'policy_version', 'inventory_sha256', 'smoke_ids'):
         require(qualified.get(key) == current[key], 'qualification differs: ' + key)
     source = qualified.get('source_sha')
@@ -300,10 +304,14 @@ def fetch_candidate(current, event, api, *, now=None):
     require(isinstance(tested, dict), 'tested Git object is not an object')
     require(tested.get('sha') == source and tested['tree']['sha'] == current['source_tree']
             and [row['sha'] for row in tested['parents']] == current['parents'], 'tested Git tree/parents differ')
-    identities = qualified.get('toolchains', {})
-    require(isinstance(identities, dict) and set(identities) == set(TOOLCHAIN_ROLES), 'missing tested compiler roles')
-    normalized = [toolchain(value) for value in identities.values()]
-    require(len({planner.digest(value) for value in normalized}) == 1, 'tested compiler identities disagree')
+    if contract:
+        contract.validate(qualified, current)
+        contract.validate_jobs(jobs, run, qualified)
+    else:
+        identities = qualified.get('toolchains', {})
+        require(isinstance(identities, dict) and set(identities) == set(TOOLCHAIN_ROLES), 'missing tested compiler roles')
+        normalized = [toolchain(value) for value in identities.values()]
+        require(len({planner.digest(value) for value in normalized}) == 1, 'tested compiler identities disagree')
     return {'qualification': qualified, 'artifact_id': artifact['id'], 'artifact_digest': artifact['digest'],
             'qualified_at': run['updated_at'], 'main': current}
 
@@ -322,6 +330,7 @@ def resolve(normal, event, root=ROOT):
         require(actual == proof['qualification']['toolchains']['consumer'], 'current compiler changed')
         proof['current_toolchain'] = actual
         return {**normal, 'mode': 'postmerge', 'assurance': 'prior-exact-tree-full-plus-fresh-main',
+                'requires_apps': True,
                 'reasons': ['exact merged tree has canonical full PR qualification'], 'consumer_3d': False,
                 'postmerge_proof': proof}
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
@@ -330,6 +339,9 @@ def resolve(normal, event, root=ROOT):
 
 
 def validate_local(plan, root=ROOT):
+    if plan.get('assurance') == 'prior-exact-tree-selected-plus-fresh-main':
+        import ci_contract_reuse
+        return ci_contract_reuse.validate_selected(plan, root)
     require(plan.get('mode') == 'postmerge' and os.environ.get('GITHUB_EVENT_NAME') == 'push', 'not a postmerge run')
     require(plan.get('assurance') == 'prior-exact-tree-full-plus-fresh-main'
             and plan.get('consumer_3d') is False and plan.get('lanes') == [], 'incorrect retained assurance')
@@ -351,14 +363,22 @@ def validate_local(plan, root=ROOT):
     return proof
 
 
-def smoke_steps(workers):
-    return [
+def smoke_steps(workers, applications=True):
+    steps = [
         ('build-applications', ['cargo', 'build', '--workspace', '--bins', '--locked']),
         ('platform-codecs', ['cargo', 'test', '-p', 'tor-protocol', '-p', 'tor-client-common', '--locked',
                              '--features', 'tor-client-common/test-support']),
         ('python-postmerge', ['<python>', 'scripts/test_runner.py', '--workers', str(workers),
                               '--from-file', '.local/postmerge/selected-ids.txt', '-v']),
     ]
+    return steps if applications else steps[-1:]
+
+
+def integration_scope(proof):
+    qualified = proof['qualification']
+    applications = qualified.get('assurance') != 'fresh-selected-pr' or qualified['selection']['requires_apps']
+    ids = proof['main']['smoke_ids']
+    return applications, ids if applications else [identity for identity in ids if identity not in SMOKE_IDS]
 
 
 def smoke(plan):
@@ -371,31 +391,41 @@ def smoke(plan):
     require(not verify.running_builds(), 'another Cargo target owner is active')
     logs = ROOT / '.local/postmerge'
     logs.mkdir(parents=True, exist_ok=False)
-    ids = proof['main']['smoke_ids']
+    applications, ids = integration_scope(proof)
     (logs / 'selected-ids.txt').write_text('\n'.join(ids) + '\n', encoding='utf-8')
     workers = verify.test_workers(verify.free_memory_gb(), os.cpu_count())
     jobs = verify.jobs_for_memory(verify.free_memory_gb(), os.cpu_count())
     target = Path(os.environ.get('CARGO_TARGET_DIR', ROOT / 'target')).resolve() / 'debug'
     environment = {'TOR_TEST_PROFILE': 'debug', 'TOR_TEST_BINARIES': str(target),
                    'TOR_SCENARIO_COMPILER': str(target / 'tor-scenario')}
+    if not applications:
+        import ci_no_build
+        environment.update(ci_no_build.prepare(logs / 'no-build'))
+        ci_no_build.probe(logs / 'no-build', environment)
     results = []
     with verify.Lock(ROOT / '.local/verify.lock'):
-        for name, recipe in smoke_steps(workers):
+        for name, recipe in smoke_steps(workers, applications):
             command = [sys.executable if arg == '<python>' else arg for arg in recipe]
             result = verify.run_step(name, command, dict(environment), logs, jobs, False)
             results.append({'step': name, 'recipe': recipe, 'code': result['code']})
             require(result['code'] == 0, 'fresh postmerge stage failed: ' + name)
     rows = [decode(line) for line in (logs / 'python-postmerge-tests.jsonl').read_text().splitlines()]
     ci_selected.validate_python(rows, ids, 'debug')
+    if not applications:
+        ci_no_build.validate_audit(logs / 'no-build')
     require(context() == proof['main'], 'source/run/inventory changed during postmerge integration')
     receipt = {'version': VERSION, 'proof_sha256': planner.digest(proof), 'main': proof['main'],
                'toolchain': actual, 'workers': workers, 'steps': results}
+    if not applications:
+        receipt['no_build_records'] = {name: ci_selected.binding(logs / 'no-build' / filename)
+                                       for name, filename in (('manifest', 'manifest.json'), ('audit', 'audit.jsonl'))}
     (logs / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
 
 
 def validate_smoke(plan, directory):
     import ci_selected
     proof = validate_local(plan)
+    applications, ids = integration_scope(proof)
     receipt = decode((directory / 'receipt.json').read_bytes())
     require(type(receipt.get('version')) is int and receipt['version'] == VERSION and receipt.get('proof_sha256') == planner.digest(proof)
             and receipt.get('main') == proof['main'] and receipt.get('toolchain') == proof['current_toolchain'],
@@ -405,9 +435,15 @@ def validate_smoke(plan, directory):
     require(isinstance(receipt.get('steps'), list)
             and all(isinstance(row, dict) and type(row.get('code')) is int for row in receipt['steps']), 'invalid stage status type')
     require(receipt.get('steps') == [{'step': name, 'recipe': command, 'code': 0}
-                                    for name, command in smoke_steps(workers)], 'missing/extra/failed smoke stage')
+                                    for name, command in smoke_steps(workers, applications)], 'missing/extra/failed smoke stage')
     rows = [decode(line) for line in (directory / 'python-postmerge-tests.jsonl').read_text().splitlines()]
-    ci_selected.validate_python(rows, proof['main']['smoke_ids'], 'debug')
+    ci_selected.validate_python(rows, ids, 'debug')
+    if not applications:
+        import ci_no_build
+        require(set(receipt.get('no_build_records', {})) == {'manifest', 'audit'}, 'missing main no-build audit')
+        for record in receipt['no_build_records'].values():
+            ci_selected.bound_bytes(directory / 'no-build', record)
+        ci_no_build.validate_audit(directory / 'no-build', check_tools=False)
 
 
 def main(argv=None):
@@ -436,6 +472,9 @@ def main(argv=None):
             smoke(plan)
         else:
             validate_smoke(plan, args.directory)
+            if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
+                with Path(summary).open('a', encoding='utf-8') as handle:
+                    handle.write(plan['assurance'] + ': retained PR coverage plus independently checked fresh main integration.\n')
     return 0
 
 

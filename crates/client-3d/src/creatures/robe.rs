@@ -929,6 +929,12 @@ pub(super) struct RobeRig {
 }
 
 impl RobeRig {
+    /// Republish immutable overlay rest against the current solved robe even
+    /// on a pose-cache hit, before a separate apron contact pass consumes it.
+    pub(super) fn publish_overlay_baselines(&self, meshes: &mut Assets<Mesh>) {
+        place_overlays(self, meshes);
+    }
+
     pub(super) fn map_mesh(&mut self, map: &mut impl FnMut(&Handle<Mesh>) -> Handle<Mesh>) {
         self.mesh = map(&self.mesh);
         for overlay in &mut self.overlays {

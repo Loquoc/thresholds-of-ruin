@@ -12,6 +12,18 @@ use std::sync::{Arc, OnceLock};
 
 mod attachment;
 
+#[cfg(test)]
+mod connected_yoke;
+#[cfg(test)]
+mod connected_yoke_curved;
+
+/// Head attachment is a physical obligation, independent of cloth layering.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeadAttachmentPolicy {
+    None,
+    SupportedCollar,
+}
+
 const ROWS: usize = 20;
 // Refine only the shoulder within the existing grid: five roof bands, one
 // descending turnover band and fourteen hanging bands; no mesh growth.
@@ -94,6 +106,7 @@ pub(super) struct Recipe {
     pub satin: bool,
     pub embroidery: Option<Vec3>,
     inner_layer: Option<Entity>,
+    head_attachment: HeadAttachmentPolicy,
     scene: Option<super::visual_contact::Scene>,
     contact_surface: Option<Arc<ContactSurface>>,
     head_contact_surface: Option<Arc<ContactSurface>>,
@@ -125,6 +138,7 @@ impl Recipe {
             satin: false,
             embroidery: None,
             inner_layer: None,
+            head_attachment: HeadAttachmentPolicy::None,
             scene: None,
             contact_surface: None,
             head_contact_surface: None,
@@ -162,6 +176,7 @@ impl Recipe {
     /// Fit this shoulder layer to an earlier cloak on the same torso frame.
     pub fn layer_over(&mut self, inner: Entity) {
         self.inner_layer = Some(inner);
+        self.head_attachment = HeadAttachmentPolicy::SupportedCollar;
         self.fitted_outer_collar.take();
     }
 
@@ -295,7 +310,7 @@ impl Recipe {
         // from this fitted ring so an enlarged collar cannot fold underneath
         // the next radial row.
         let neck = if row <= YOKE_ROWS {
-            if self.inner_layer.is_some() {
+            if self.head_attachment == HeadAttachmentPolicy::SupportedCollar {
                 self.fitted_outer_collar
                     .get_or_init(|| {
                         let mut ring = [Vec3::ZERO; COLUMNS + 1];
@@ -425,6 +440,13 @@ fn shoulder_coefficient(row: usize, before: Vec3, after: Vec3) -> Vec2 {
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let dr = (after + offset).with_y(0.0).length() - (before + offset).with_y(0.0).length();
     Vec2::new((before.y - after.y).max(0.0), dr.max(0.0)).normalize_or(Vec2::Y)
+}
+
+fn freeze_mantle_attachment_profile(profile: &mut [Vec2]) {
+    // Keep the neck attachment at its supported height. Shoulder vertices
+    // retain their authored normal, including the shared row-one/two band.
+    // Forcing that band radially carries inner shoulder peaks into the collar.
+    profile[..=COLUMNS].fill(Vec2::X);
 }
 
 fn profile_direction(at: Vec3, coefficient: Vec2) -> Vec3 {
@@ -683,6 +705,7 @@ pub(super) struct CloakRig {
     support: Option<crate::sdf::Sculpt>,
     wrapped: bool,
     inner_layer: Option<Entity>,
+    head_attachment: HeadAttachmentPolicy,
     last_inner_rotation: Option<Quat>,
     scene: Option<super::visual_contact::Scene>,
     arm_surface: Option<Arc<LayerSurface>>,
@@ -860,7 +883,7 @@ impl CloakRig {
 
     pub(super) fn set_head_surface(&mut self, contacts: Arc<ContactSurface>) {
         if !self.wrapped
-            || self.inner_layer.is_none()
+            || self.head_attachment == HeadAttachmentPolicy::None
             || self
                 .head_contact_surface
                 .as_ref()
@@ -968,7 +991,7 @@ pub(super) fn spawn(
     let head_surface = recipe
         .head_contact_surface
         .as_ref()
-        .filter(|_| recipe.inner_layer.is_some())
+        .filter(|_| recipe.head_attachment == HeadAttachmentPolicy::SupportedCollar)
         .map(|head| head.surface());
     let support_ms = support_started.elapsed().as_secs_f64() * 1000.0;
     let point_started = std::time::Instant::now();
@@ -980,7 +1003,7 @@ pub(super) fn spawn(
     let mut attachment_limits = None;
     let mut attachment_failed = false;
     let mut attachment_constraint_ms = 0.0;
-    if recipe.inner_layer.is_some() {
+    if recipe.head_attachment == HeadAttachmentPolicy::SupportedCollar {
         if let Some(head) = &recipe.head_contact_surface {
             let offset = Vec3::new(0.0, 0.53, -0.15);
             attachment_reference.extend_from_slice(&rest[..2 * (COLUMNS + 1)]);
@@ -1032,7 +1055,7 @@ pub(super) fn spawn(
     let constraint_started = std::time::Instant::now();
     let mut contact_fallbacks = u64::from(attachment_failed)
         + u64::from(
-            recipe.inner_layer.is_some()
+            recipe.head_attachment == HeadAttachmentPolicy::SupportedCollar
                 && recipe.cut.is_some()
                 && recipe.fitted_outer_collar.get().is_none_or(Option::is_none),
         );
@@ -1160,6 +1183,7 @@ pub(super) fn spawn(
         scene: recipe.scene,
         wrapped: recipe.cut.is_some(),
         inner_layer: recipe.inner_layer,
+        head_attachment: recipe.head_attachment,
         last_inner_rotation: None,
         support: recipe.contact.then_some(recipe.support),
     }
@@ -1190,7 +1214,7 @@ fn place_base(cloak: &mut CloakRig, rotation: Quat, meshes: &mut Assets<Mesh>, f
             surface.free_edges(cloak.neutral_reach)
         });
     let opening = cloak.opening;
-    let outer_attachment = cloak.inner_layer.is_some();
+    let outer_attachment = cloak.head_attachment == HeadAttachmentPolicy::SupportedCollar;
     let head_contact = cloak.head_surface.clone();
     let mesh_contact = cloak
         .contact_surface
@@ -2195,10 +2219,27 @@ enum FaceOutcome {
     },
 }
 
+// Test-only ownership for a diagnostic solve. Immutable boundary vertices keep
+// their original, nonzero movement axes; any positive requested travel rejects
+// the whole solve rather than being clamped or silently discarded.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+struct OwnedBandProbe {
+    first_band: usize,
+    end_band: usize,
+    pinned_row: usize,
+}
+
 // Work counters are absent from production; the uncached test path exercises
 // the same arithmetic and face order without consulting the memoized results.
 #[derive(Default, Debug)]
 struct FaceFitWork {
+    #[cfg(test)]
+    owned_band_probe: Option<OwnedBandProbe>,
+    #[cfg(test)]
+    owned_face_visits: Vec<usize>,
+    #[cfg(test)]
+    rejected_boundary_travel: Option<serde_json::Value>,
     #[cfg(test)]
     rounds: usize,
     #[cfg(test)]
@@ -2622,6 +2663,319 @@ fn project_feature_support(
     result
 }
 
+/// Read-only, test-only support audit. No mesh, body, shape or membership
+/// acceptance is represented by this type, even when all slacks are positive.
+#[cfg(test)]
+struct XyzSupportInput {
+    reference: [Vec3; 3],
+    baseline_endpoints: [Vec3; 3],
+    candidate: [Vec3; 3],
+    axes: [Vec3; 3],
+    regions: [(Vec3, Vec3); 3],
+    pinned: [bool; 3],
+    roof: bool,
+    normal: Vec3,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct XyzSupportReceipt {
+    required_plane: f32,
+    witness: Vec3,
+    source: SupportSource,
+    slacks: [f32; 3],
+    projections: usize,
+}
+
+#[cfg(test)]
+fn xyz_support_domains(input: &XyzSupportInput) -> Result<[Vec<(Vec3, f32)>; 4], &'static str> {
+    let mut corners = Vec::with_capacity(24);
+    for i in 0..3 {
+        let (lo, hi) = input.regions[i];
+        if !lo.is_finite() || !hi.is_finite() || !lo.cmple(hi).all() {
+            return Err("invalid XYZ region");
+        }
+        for p in [
+            input.reference[i],
+            input.baseline_endpoints[i],
+            input.candidate[i],
+        ] {
+            if !p.is_finite() || !p.cmpge(lo).all() || !p.cmple(hi).all() {
+                return Err("XYZ region excludes reference, baseline or candidate");
+            }
+        }
+        if input.pinned[i]
+            && (input.candidate[i].to_array().map(f32::to_bits)
+                != input.reference[i].to_array().map(f32::to_bits)
+                || lo != input.reference[i]
+                || hi != input.reference[i])
+        {
+            return Err("pinned XYZ coordinate or region changed");
+        }
+        for x in [lo.x, hi.x] {
+            for y in [lo.y, hi.y] {
+                for z in [lo.z, hi.z] {
+                    corners.push(Vec3::new(x, y, z));
+                }
+            }
+        }
+    }
+    let rays = input
+        .reference
+        .map(|p| p.with_y(0.0).normalize_or(Vec3::NEG_Z));
+    let horizontal = rays.iter().copied().sum::<Vec3>().normalize_or(Vec3::NEG_Z);
+    if rays.iter().any(|r| horizontal.dot(*r) <= 0.05) {
+        return Err("nonconvex reference angular footprint");
+    }
+    if corners.iter().any(|p| horizontal.dot(*p) <= 1e-6) {
+        return Err("XYZ region crosses reference angular hemisphere");
+    }
+    let tangent = Vec3::new(horizontal.z, 0.0, -horizontal.x);
+    let angular = |points: &[Vec3]| {
+        let (lo, hi) = points
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), p| {
+                let angle = p.dot(tangent).atan2(p.dot(horizontal));
+                (lo.min(angle), hi.max(angle))
+            });
+        (
+            horizontal * lo.cos() + tangent * lo.sin(),
+            horizontal * hi.cos() + tangent * hi.sin(),
+        )
+    };
+    let prism = |left: Vec3, right: Vec3, low: f32, high: f32, radial: f32| {
+        [
+            (Vec3::Y, low - THICKNESS),
+            (Vec3::NEG_Y, -high - THICKNESS),
+            (Vec3::new(left.z, 0.0, -left.x), -THICKNESS),
+            (Vec3::new(-right.z, 0.0, right.x), -THICKNESS),
+            (-horizontal, -radial - THICKNESS),
+        ]
+    };
+    let (left, right) = angular(&rays);
+    let (low, high, radial) =
+        swept_face_bounds(input.reference, input.baseline_endpoints, horizontal);
+    let baseline = prism(left, right, low, high, radial);
+    let baseline_arm = arm_contact_planes(input.reference, input.baseline_endpoints, &baseline);
+    let (left, right) = angular(&corners);
+    let low = corners.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+    let high = corners
+        .iter()
+        .map(|p| p.y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let radial = corners
+        .iter()
+        .map(|p| horizontal.dot(*p))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let expanded = prism(left, right, low, high, radial);
+    let mut expanded_arm = Vec::with_capacity(6);
+    for n in [
+        Vec3::X,
+        Vec3::NEG_X,
+        Vec3::Y,
+        Vec3::NEG_Y,
+        Vec3::Z,
+        Vec3::NEG_Z,
+    ] {
+        let minimum = corners
+            .iter()
+            .map(|p| n.dot(*p))
+            .fold(f32::INFINITY, f32::min);
+        expanded_arm.push((n, minimum - LAYER_GAP - THICKNESS));
+    }
+    let count = if input.roof { 5 } else { 4 };
+    Ok([
+        baseline[..count].to_vec(),
+        expanded[..count].to_vec(),
+        baseline_arm,
+        expanded_arm,
+    ])
+}
+
+#[cfg(test)]
+fn audit_xyz_support(
+    input: &XyzSupportInput,
+    support: FaceSupport<'_>,
+) -> Result<XyzSupportReceipt, &'static str> {
+    if !input.normal.is_finite() || (input.normal.length_squared() - 1.0).abs() > 1e-5 {
+        return Err("XYZ support normal is not unit");
+    }
+    if input
+        .axes
+        .iter()
+        .any(|a| !a.is_finite() || input.normal.dot(*a) <= 1e-6)
+    {
+        return Err("XYZ support normal violates original axis gate");
+    }
+    let domains = xyz_support_domains(input)?;
+    // UNION is a maximum over independently clipped domain components, never
+    // their intersection. Keep baseline source obligations even if expanded
+    // region construction or f32 rounding would exclude a baseline polygon.
+    let sources = [
+        (support.inner, domains[0].as_slice(), SupportSource::Inner),
+        (support.inner, domains[1].as_slice(), SupportSource::Inner),
+        (support.arms, domains[2].as_slice(), SupportSource::Arms),
+        (support.arms, domains[3].as_slice(), SupportSource::Arms),
+        (support.head, domains[2].as_slice(), SupportSource::Head),
+        (support.head, domains[3].as_slice(), SupportSource::Head),
+    ];
+    let mut work = FaceFitWork::default();
+    let (value, witness, source) = project_feature_support(input.normal, &sources, &mut work);
+    let required_plane = value + LAYER_GAP + THICKNESS;
+    Ok(XyzSupportReceipt {
+        required_plane,
+        witness,
+        source,
+        slacks: input
+            .candidate
+            .map(|p| input.normal.dot(p) - required_plane),
+        projections: work.projections,
+    })
+}
+
+/// Immutable borrowed source/reference epoch, local to a support-only audit.
+/// Revision equality is checked before any face query; no receipt cache exists.
+#[cfg(test)]
+struct XyzBatchEpoch<'a> {
+    revision: u64,
+    reference: &'a [Vec3],
+    baseline_endpoints: &'a [Vec3],
+    axes: &'a [Vec3],
+    support: FaceSupport<'a>,
+}
+
+#[cfg(test)]
+struct XyzBatchRequest<'a> {
+    expected_revision: u64,
+    candidate: &'a [Vec3],
+    regions: &'a [(Vec3, Vec3)],
+    owned_faces: &'a [usize],
+    free_vertices: &'a [usize],
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct XyzBatchReceipt {
+    revision: u64,
+    faces: Vec<serde_json::Value>,
+    support_pass: usize,
+    support_failure: usize,
+    unsupported: usize,
+}
+
+#[cfg(test)]
+fn audit_xyz_downstream_batch(
+    epoch: &XyzBatchEpoch<'_>,
+    request: &XyzBatchRequest<'_>,
+) -> Result<XyzBatchReceipt, &'static str> {
+    if epoch.revision != request.expected_revision {
+        return Err("stale XYZ batch source/reference epoch");
+    }
+    if [
+        epoch.reference.len(),
+        epoch.baseline_endpoints.len(),
+        epoch.axes.len(),
+        request.candidate.len(),
+        request.regions.len(),
+    ]
+    .into_iter()
+    .any(|n| n != GRID)
+    {
+        return Err("XYZ batch requires complete grid inputs");
+    }
+    if !request
+        .owned_faces
+        .iter()
+        .copied()
+        .eq(3 * COLUMNS * 2..ROWS * COLUMNS * 2)
+    {
+        return Err("XYZ batch requires canonical complete downstream face ownership");
+    }
+    if !request.free_vertices.iter().copied().eq(index(4, 0)..GRID) {
+        return Err("XYZ batch requires all downstream free vertex ownership");
+    }
+    let bits = |p: Vec3| p.to_array().map(f32::to_bits);
+    for i in 0..index(4, 0) {
+        let reference = bits(epoch.reference[i]);
+        if bits(request.candidate[i]) != reference
+            || bits(epoch.baseline_endpoints[i]) != reference
+            || bits(request.regions[i].0) != reference
+            || bits(request.regions[i].1) != reference
+        {
+            return Err("XYZ batch pinned or unowned coordinates/regions changed");
+        }
+    }
+    let mut receipt = XyzBatchReceipt {
+        revision: epoch.revision,
+        faces: Vec::with_capacity(request.owned_faces.len()),
+        support_pass: 0,
+        support_failure: 0,
+        unsupported: 0,
+    };
+    for &face_id in request.owned_faces {
+        let row = face_id / (COLUMNS * 2);
+        let column = face_id % (COLUMNS * 2) / 2;
+        let a = index(row, column);
+        let face = if face_id.is_multiple_of(2) {
+            [a, a + 1, a + COLUMNS + 1]
+        } else {
+            [a + 1, a + COLUMNS + 2, a + COLUMNS + 1]
+        };
+        let axes = face.map(|i| epoch.axes[i]);
+        let normal = axes.iter().copied().sum::<Vec3>().try_normalize();
+        let result = normal
+            .ok_or("XYZ batch chosen normal is degenerate")
+            .and_then(|normal| {
+                audit_xyz_support(
+                    &XyzSupportInput {
+                        reference: face.map(|i| epoch.reference[i]),
+                        baseline_endpoints: face.map(|i| epoch.baseline_endpoints[i]),
+                        candidate: face.map(|i| request.candidate[i]),
+                        axes,
+                        regions: face.map(|i| request.regions[i]),
+                        pinned: face.map(|i| i < index(4, 0)),
+                        roof: row < ROOF_ROWS,
+                        normal,
+                    },
+                    epoch.support,
+                )
+            });
+        let (status, details) = match result {
+            Ok(r) => {
+                let pass = r.slacks.iter().all(|s| *s >= 0.0);
+                if pass {
+                    receipt.support_pass += 1;
+                } else {
+                    receipt.support_failure += 1;
+                }
+                (
+                    if pass {
+                        "chosen_normal_support_pass"
+                    } else {
+                        "chosen_normal_support_failure"
+                    },
+                    serde_json::json!({
+                        "empty_support":r.required_plane == f32::NEG_INFINITY,
+                        "required_plane":r.required_plane,"source":r.source.name(),
+                        "witness":r.witness.to_array(),"vertex_slacks":r.slacks,"projections":r.projections,
+                    }),
+                )
+            }
+            Err(reason) => {
+                receipt.unsupported += 1;
+                ("unsupported", serde_json::json!({"reason":reason}))
+            }
+        };
+        receipt.faces.push(serde_json::json!({"face_id":face_id,"face":face,"status":status,"normal":normal.map(|n|n.to_array()),"details":details}));
+    }
+    assert_eq!(receipt.faces.len(), request.owned_faces.len());
+    assert_eq!(
+        receipt.support_pass + receipt.support_failure + receipt.unsupported,
+        receipt.faces.len()
+    );
+    Ok(receipt)
+}
+
 fn fit_radial_faces_impl(
     points: &mut [Vec3],
     rotation: Quat,
@@ -2634,6 +2988,13 @@ fn fit_radial_faces_impl(
     #[cfg(not(test))]
     let _ = work;
     *trace = None;
+    #[cfg(test)]
+    if let Some(probe) = work.owned_band_probe {
+        assert!(probe.first_band < probe.end_band && probe.end_band <= ROWS);
+        assert_eq!(probe.pinned_row, probe.first_band);
+        work.owned_face_visits.clear();
+        work.rejected_boundary_travel = None;
+    }
     let offset = Vec3::new(0.0, 0.53, -0.15);
     let reference: Vec<_> = points.iter().map(|p| rotation * *p + offset).collect();
     for arms in [support.arms, support.head].into_iter().flatten() {
@@ -2718,6 +3079,13 @@ fn fit_radial_faces_impl(
         radial_trace = None;
         volume_trace = None;
         for row in 0..ROWS {
+            #[cfg(test)]
+            if work
+                .owned_band_probe
+                .is_some_and(|probe| row < probe.first_band || row >= probe.end_band)
+            {
+                continue;
+            }
             for column in 0..COLUMNS {
                 let [a, b, c, d] = [
                     index(row, column),
@@ -2726,6 +3094,11 @@ fn fit_radial_faces_impl(
                     index(row + 1, column + 1),
                 ];
                 for (face_number, face) in [[a, b, c], [b, d, c]].into_iter().enumerate() {
+                    #[cfg(test)]
+                    if work.owned_band_probe.is_some() {
+                        work.owned_face_visits
+                            .push((row * COLUMNS + column) * 2 + face_number);
+                    }
                     let vertices = face.map(|i| reference[i]);
                     let rays = face.map(|i| directions[i]);
                     let horizontal = rays.iter().copied().sum::<Vec3>().normalize_or(Vec3::NEG_Z);
@@ -3157,12 +3530,11 @@ fn fit_radial_faces_impl(
                                         );
                                     }
                                     return Err(RadialFitFailure {
-                                    row,
-                                    column,
-                                    reason:
-                                        "no separating plane preserves bounded collar attachment",
-                                    detail: [best_anchor_deficit, low, high],
-                                });
+                                        row,
+                                        column,
+                                        reason: "no separating plane preserves bounded collar attachment",
+                                        detail: [best_anchor_deficit, low, high],
+                                    });
                                 };
                                 Ok(FaceOutcome::Fit {
                                     shifts,
@@ -3251,12 +3623,41 @@ fn fit_radial_faces_impl(
                                 .filter(|(i, _)| **i > COLUMNS)
                                 .map(|(_, s)| s * s)
                                 .sum::<f32>();
-                            collar_trace=Some((peak,format!("collar solve vertex={vertex} row={row} column={column} iteration={iteration} reference_y={} final_y={peak} normal={:?} plane={} collar_cost={collar_cost} radial_cost={radial_cost}",reference[vertex].y,winning_plane.0,winning_plane.1)));
+                            collar_trace = Some((
+                                peak,
+                                format!(
+                                    "collar solve vertex={vertex} row={row} column={column} iteration={iteration} reference_y={} final_y={peak} normal={:?} plane={} collar_cost={collar_cost} radial_cost={radial_cost}",
+                                    reference[vertex].y, winning_plane.0, winning_plane.1
+                                ),
+                            ));
                         }
                     }
                     for ((i, shift), winning_plane) in
                         face.into_iter().zip(shifts).zip(winning_planes)
                     {
+                        #[cfg(test)]
+                        if work.owned_band_probe.is_some_and(|probe| {
+                            i / (COLUMNS + 1) == probe.pinned_row && shift > 0.0
+                        }) {
+                            work.rejected_boundary_travel = Some(serde_json::json!({
+                                "vertex":i, "face":face, "iteration":iteration,
+                                "requested_travel":shift, "source":winning_plane.3.name(),
+                                "normal":winning_plane.0.to_array(), "plane":winning_plane.1,
+                                "support_point":winning_plane.2.to_array(),
+                                "reference":reference[i].to_array(), "axis":axes[i].to_array(),
+                                "proposed":(reference[i] + axes[i] * shift).to_array(),
+                                "face_reference":vertices.map(|p|p.to_array()),
+                                "face_budget_endpoints":endpoints.map(|p|p.to_array()),
+                                "certified_plane_count":plane_count,
+                            }));
+                            return Err(RadialFitFailure {
+                                row,
+                                column,
+                                reason:
+                                    "diagnostic owned-band solve requires pinned boundary travel",
+                                detail: [i as f32, shift, axes[i].length()],
+                            });
+                        }
                         #[cfg(test)]
                         if shift > travels[i]
                             && std::env::var("TOR_CLOAK_VERTEX_AUDIT")
@@ -3454,6 +3855,17 @@ fn fit_radial_faces_impl(
     }
     let inverse = rotation.inverse();
     for (i, point) in points.iter_mut().enumerate() {
+        #[cfg(test)]
+        if work.owned_band_probe.is_some_and(|probe| {
+            let row = i / (COLUMNS + 1);
+            row <= probe.pinned_row || row > probe.end_band
+        }) {
+            assert_eq!(
+                travels[i], 0.0,
+                "unowned or pinned travel cannot be committed"
+            );
+            continue;
+        }
         let direction = axes[i];
         *point = inverse * (reference[i] + direction * travels[i] - offset);
     }
@@ -3766,6 +4178,509 @@ fn seat_inner_profile(
     Ok(())
 }
 
+/// Diagnostic only: sample the actual retained body field on both rendered
+/// sides after a counterfactual main arch reduction. A positive sampled minimum
+/// is not a continuous clearance certificate or a native re-fit.
+/// Replay complete hanging-face static certificates with actual native f32
+/// source polygons. No optimizer, physical-body or whole-garment acceptance.
+#[cfg(test)]
+fn diagnostic_inner_surface(raw: Option<&[[[f32; 3]; 3]]>) -> Option<LayerSurface> {
+    raw.map(|triangles| {
+        assert!(!triangles.is_empty(), "empty diagnostic MAIN epoch");
+        let points: Vec<_> = triangles
+            .iter()
+            .map(|triangle| triangle.map(Vec3::from_array))
+            .collect();
+        assert!(
+            points.iter().flatten().all(|p| p.is_finite()),
+            "nonfinite diagnostic MAIN epoch"
+        );
+        LayerSurface::from_triangles(points)
+    })
+}
+
+#[cfg(test)]
+fn audit_connected_candidate_support(
+    inner: &LayerSurface,
+    arms: &LayerSurface,
+    head: &LayerSurface,
+) {
+    let Some(path) = std::env::var_os("TOR_CLOAK_CONNECTED_SUPPORT") else {
+        return;
+    };
+    #[derive(serde::Deserialize)]
+    struct Certificate {
+        face: [usize; 3],
+        normal: [f32; 3],
+    }
+    #[derive(serde::Deserialize)]
+    struct Input {
+        reference: Vec<[f32; 3]>,
+        candidate: Vec<[f32; 3]>,
+        certificates: Vec<Certificate>,
+        #[serde(default)]
+        angular_domain: bool,
+        #[serde(default)]
+        general_normal: bool,
+        #[serde(default)]
+        diagnostic_inner_triangles: Option<Vec<[[f32; 3]; 3]>>,
+    }
+    let input: Input = serde_json::from_slice(&std::fs::read(path).expect("support input"))
+        .expect("support input schema");
+    let external_inner = diagnostic_inner_surface(input.diagnostic_inner_triangles.as_deref());
+    let inner = external_inner.as_ref().unwrap_or(inner);
+    assert_eq!(input.reference.len(), GRID);
+    assert_eq!(input.candidate.len(), GRID);
+    assert!(
+        !inner.triangles.is_empty() && !arms.triangles.is_empty() && !head.triangles.is_empty()
+    );
+    let reference: Vec<_> = input
+        .reference
+        .iter()
+        .copied()
+        .map(Vec3::from_array)
+        .collect();
+    let candidate: Vec<_> = input
+        .candidate
+        .iter()
+        .copied()
+        .map(Vec3::from_array)
+        .collect();
+    assert!(reference.iter().chain(&candidate).all(|p| p.is_finite()));
+    for (i, (&a, &b)) in reference.iter().zip(&candidate).enumerate() {
+        if i < YOKE_ROWS * (COLUMNS + 1) {
+            assert_eq!(a, b);
+        } else {
+            assert_eq!(a.y, b.y);
+            let axis = a.with_y(0.0).normalize();
+            let delta = b - a;
+            assert!(delta.dot(axis) >= -1e-7 && delta.cross(axis).length() < 1e-6);
+        }
+    }
+    let mut expected = std::collections::BTreeSet::new();
+    for row in YOKE_ROWS..ROWS {
+        for col in 0..COLUMNS {
+            let a = index(row, col);
+            let b = a + 1;
+            let c = a + COLUMNS + 1;
+            let d = c + 1;
+            expected.extend([[a, b, c], [b, d, c]]);
+        }
+    }
+    let count = expected.len();
+    assert_eq!(input.certificates.len(), count);
+    let mut minimum = f32::INFINITY;
+    let mut failed = Vec::new();
+    let mut work = FaceFitWork::default();
+    for cert in input.certificates {
+        assert!(
+            expected.remove(&cert.face),
+            "duplicate or unowned certificate"
+        );
+        let face = cert.face.map(|i| candidate[i]);
+        let normal = Vec3::from_array(cert.normal);
+        assert!(
+            normal.is_finite()
+                && (normal.length_squared() - 1.0).abs() < 1e-5
+                && (input.general_normal || normal.y.abs() < 1e-6)
+        );
+        assert!(cert
+            .face
+            .iter()
+            .all(|&i| normal.dot(reference[i].with_y(0.0).normalize()) > 1e-6));
+        let lo = face.iter().map(|p| p.y).fold(f32::INFINITY, f32::min) - LAYER_GAP - THICKNESS;
+        let hi = face.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max) + LAYER_GAP + THICKNESS;
+        let mut domain = vec![(Vec3::Y, lo), (Vec3::NEG_Y, -hi)];
+        if input.angular_domain {
+            let original = cert.face.map(|i| reference[i]);
+            let centroid = original.iter().copied().sum::<Vec3>() / 3.0;
+            for p in original {
+                let mut tangent = Vec3::new(p.z, 0.0, -p.x).normalize();
+                if tangent.dot(centroid) < 0.0 {
+                    tangent = -tangent;
+                }
+                // A ray of an interior vertex need not bound the entire face.
+                // Only retain containing halfspaces, never clip a query corner.
+                if original.iter().all(|q| tangent.dot(*q) >= -1e-7)
+                    && face.iter().all(|q| tangent.dot(*q) >= -1e-7)
+                {
+                    // Extra f32 containment allowance preserves the32mm proof.
+                    domain.push((tangent, -LAYER_GAP - THICKNESS - 1e-6));
+                }
+            }
+            assert!(domain.len() >= 4, "missing angular boundaries");
+        }
+        let sources = [
+            (Some(inner), domain.as_slice(), SupportSource::Inner),
+            (Some(arms), domain.as_slice(), SupportSource::Arms),
+            (Some(head), domain.as_slice(), SupportSource::Head),
+        ];
+        let (support, witness, source) = project_feature_support(normal, &sources, &mut work);
+        assert!(support.is_finite(), "empty support is not a certificate");
+        let gap = face
+            .iter()
+            .map(|p| normal.dot(*p))
+            .fold(f32::INFINITY, f32::min)
+            - support;
+        minimum = minimum.min(gap);
+        if gap < LAYER_GAP + THICKNESS {
+            failed.push(serde_json::json!({"face":cert.face,"gap":gap,"witness":witness.to_array(),"source":format!("{source:?}")}));
+        }
+    }
+    assert!(expected.is_empty());
+    eprintln!(
+        "connected candidate native support replay: {}",
+        serde_json::json!({
+            "context":audit_context(),"faces":count,"source_counts":[inner.triangles.len(),arms.triangles.len(),head.triangles.len()],
+            "external_MAIN_epoch":external_inner.is_some(),"angular_domain":input.angular_domain,"general_normal":input.general_normal,"minimum_height_clipped_plane_gap":minimum,"failed_faces":failed,
+            "all_faces_verified":failed.is_empty(),
+            "scope":"Complete static hanging middle-face replay using native f32 full polygons and original radial axes. Height-expanded domains, optionally expanded containing angular halfspaces with excluded-source Euclidean separation. This does not assert equivalence to legacy native swept membership. INNER may be explicitly supplied diagnostic rebuilt MAIN geometry; arms/head are actual fixture sources. No runtime garment reconstruction or junction/self/body/motion acceptance."
+        })
+    );
+}
+
+/// Read-only actual fixture body/armor sampling for an external diagnostic mesh.
+/// A sample receipt is never continuous physical acceptance or a mesh commit.
+#[cfg(test)]
+fn audit_connected_candidate_body(inner: &CloakRig) {
+    let Some(path) = std::env::var_os("TOR_CLOAK_CONNECTED_CANDIDATE") else {
+        return;
+    };
+    #[derive(serde::Deserialize)]
+    struct Candidate {
+        vertices: Vec<[f32; 3]>,
+        faces: Vec<[usize; 3]>,
+    }
+    let bytes = std::fs::read(path).expect("diagnostic candidate input");
+    let candidate: Candidate = serde_json::from_slice(&bytes).expect("diagnostic candidate schema");
+    let body = inner.support.as_ref().expect("actual MAIN body support");
+    assert!(!candidate.faces.is_empty());
+    assert!(candidate.vertices.iter().flatten().all(|v| v.is_finite()));
+    let mut minimum = f32::INFINITY;
+    let mut witness = Vec3::ZERO;
+    let mut face_id = 0;
+    let mut samples = 0;
+    let mut inside = 0;
+    for (id, indices) in candidate.faces.iter().enumerate() {
+        assert!(indices.iter().all(|&i| i < candidate.vertices.len()));
+        let face = indices.map(|i| Vec3::from_array(candidate.vertices[i]));
+        for a in 0..=3 {
+            for b in 0..=3 - a {
+                let point =
+                    (face[0] * a as f32 + face[1] * b as f32 + face[2] * (3 - a - b) as f32) / 3.0;
+                let distance = body.distance(point / anatomy::HIP_SCALE);
+                samples += 1;
+                inside += usize::from(distance < 0.0);
+                if distance < minimum {
+                    minimum = distance;
+                    witness = point;
+                    face_id = id;
+                }
+            }
+        }
+    }
+    eprintln!(
+        "connected candidate actual body audit: {}",
+        serde_json::json!({
+            "context":audit_context(), "faces":candidate.faces.len(),"samples":samples,
+            "body_field_minimum":minimum,"witness":witness.to_array(),"face":face_id,
+            "inside_samples":inside,
+            "scope":"Actual fixture MAIN body/armor field, candidate rendered face samples only; no continuous qualification, collision exclusion or commit"
+        })
+    );
+}
+
+#[cfg(test)]
+fn audit_main_arch_support(inner: &CloakRig, rotation: Quat, mesh: &Mesh) {
+    audit_connected_candidate_body(inner);
+    let Some(body) = inner.support.as_ref() else {
+        return;
+    };
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    for reduction in [0.0, 0.020] {
+        let mut points = inner.points.clone();
+        let mut refit_max = 0.0f32;
+        for (i, point) in points.iter_mut().enumerate() {
+            let row = i / (COLUMNS + 1);
+            if row > 0 && row < YOKE_ROWS {
+                let mut at = rotation * *point + offset;
+                at.y -= reduction * (PI * row as f32 / YOKE_ROWS as f32).sin();
+                let axis = profile_direction(at, inner.shoulder_profile[i]);
+                let fitted = fit_profile_body(at, axis, &|p| body.distance(p));
+                refit_max = refit_max.max(at.distance(fitted));
+                *point = rotation.inverse() * (at - offset);
+            }
+        }
+        let mut normals = inner.normals.clone();
+        surface_normals(&points, &mut normals);
+        let mut changed = mesh.clone();
+        write(&mut changed, &points, &normals);
+        let surface = LayerSurface::new(&changed, rotation);
+        let mut minimum = f32::INFINITY;
+        let mut witness = Vec3::ZERO;
+        let mut witness_face = 0;
+        let mut samples = 0;
+        for (face_id, face) in surface
+            .triangles
+            .iter()
+            .enumerate()
+            .take(4 * YOKE_ROWS * COLUMNS)
+        {
+            for a in 0..=6 {
+                for b in 0..=6 - a {
+                    let point =
+                        (face[0] * a as f32 + face[1] * b as f32 + face[2] * (6 - a - b) as f32)
+                            / 6.0;
+                    let distance = body.distance(point / anatomy::HIP_SCALE);
+                    samples += 1;
+                    if distance < minimum {
+                        minimum = distance;
+                        witness = point;
+                        witness_face = face_id;
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "main arch support audit: {}",
+            serde_json::json!({
+                "context":audit_context(), "reduction":reduction,
+                "body_field_minimum":minimum, "witness":witness.to_array(),
+                "witness_face":witness_face, "samples":samples,
+                "max_point_refit_displacement":refit_max,
+                "scope":"Actual body field sampled on rebuilt two-sided main mesh; no continuous certificate, arm clearance or native re-fit implied"
+            })
+        );
+    }
+}
+
+/// Test-only native prerequisite and downstream probe. Never changes the
+/// runtime candidate or accepts a partial downstream result as a whole cape.
+#[cfg(test)]
+fn audit_row3_native_probe(
+    cloak: &CloakRig,
+    inner: &CloakRig,
+    rotations: (Quat, Quat),
+    inner_mesh: &Mesh,
+    candidate: &[Vec3],
+    limits: &[f32],
+) {
+    let (rotation, inner_rotation) = rotations;
+    let offset = Vec3::new(0.0, 0.53, -0.15);
+    let boundary = index(3, 0)..index(4, 0);
+    let torso: Vec<_> = candidate.iter().map(|p| rotation * *p + offset).collect();
+    for reduction in [0.0, 0.020] {
+        let mut inner_points = inner.points.clone();
+        for (i, point) in inner_points.iter_mut().enumerate() {
+            let row = i / (COLUMNS + 1);
+            if row > 0 && row < YOKE_ROWS {
+                let mut at = inner_rotation * *point + offset;
+                at.y -= reduction * (PI * row as f32 / YOKE_ROWS as f32).sin();
+                *point = inner_rotation.inverse() * (at - offset);
+            }
+        }
+        let mut normals = inner.normals.clone();
+        surface_normals(&inner_points, &mut normals);
+        let mut mesh = inner_mesh.clone();
+        write(&mut mesh, &inner_points, &normals);
+        let inner_surface = LayerSurface::new(&mesh, inner_rotation);
+        let mut boundary_rows = Vec::new();
+        for i in boundary.clone() {
+            let p = torso[i];
+            let memberships: Vec<_> = [
+                ("arms", cloak.arm_surface.as_deref()),
+                ("head", cloak.head_surface.as_deref()),
+            ]
+            .into_iter()
+            .filter_map(|(source, surface)| surface.map(|surface| (source, surface)))
+            .map(|(source, surface)| {
+                let components = surface.containing_components(p);
+                serde_json::json!({
+                    "source":source, "outside":components.is_empty(),
+                    "ambiguous":components.contains(&usize::MAX), "components":components,
+                })
+            })
+            .collect();
+            let clearances: Vec<_> = [
+                ("inner", Some(&inner_surface)),
+                ("arms", cloak.arm_surface.as_deref()),
+                ("head", cloak.head_surface.as_deref()),
+            ]
+            .into_iter()
+            .filter_map(|(source, surface)| surface.map(|surface| (source, surface)))
+            .map(|(source, surface)| {
+                let (triangle, distance) = surface
+                    .triangles
+                    .iter()
+                    .enumerate()
+                    .map(|(j, &triangle)| (j, triangle_distance_squared(p, triangle).sqrt()))
+                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                    .unwrap_or((0, f32::INFINITY));
+                serde_json::json!({"source":source,"distance":distance,"triangle":triangle})
+            })
+            .collect();
+            boundary_rows.push(serde_json::json!({
+                "vertex":i, "point":p.to_array(), "point_bits":p.to_array().map(f32::to_bits),
+                "memberships":memberships, "point_clearances":clearances,
+                "body_field":cloak.support.as_ref().map(|body|body.distance(p / anatomy::HIP_SCALE)),
+            }));
+        }
+        if std::env::var_os("TOR_CLOAK_XYZ_SUPPORT_PROBE").is_some() {
+            let face = [index(3, 0), index(3, 1), index(4, 0)];
+            let reference = face.map(|i| torso[i]);
+            let axes = face.map(|i| {
+                let radial = torso[i].with_y(0.0).normalize_or(Vec3::NEG_Z);
+                radial * cloak.shoulder_profile[i].x + Vec3::Y * cloak.shoulder_profile[i].y
+            });
+            let normal = (axes[0] + axes[1] + axes[2]).normalize();
+            let mut regions = reference.map(|p| (p, p));
+            regions[2] = (
+                reference[2] - Vec3::splat(0.005),
+                reference[2] + Vec3::splat(0.005),
+            );
+            let input = XyzSupportInput {
+                reference,
+                baseline_endpoints: reference,
+                candidate: reference,
+                axes,
+                regions,
+                pinned: [true, true, false],
+                roof: true,
+                normal,
+            };
+            let before = candidate.to_vec();
+            let result = audit_xyz_support(
+                &input,
+                FaceSupport {
+                    inner: Some(&inner_surface),
+                    arms: cloak.arm_surface.as_deref(),
+                    head: cloak.head_surface.as_deref(),
+                    profile: None,
+                    radial_limits: None,
+                },
+            );
+            assert_eq!(before, candidate);
+            eprintln!(
+                "XYZ native support-only receipt: {}",
+                serde_json::json!({
+                    "context":audit_context(), "reduction":reduction, "face":face,
+                    "reference":reference.map(|p|p.to_array()),"normal":normal.to_array(),
+                    "owned_faces_evaluated":1,"complete_downstream":false,
+                    "physical_shape_membership":"not_evaluated", "commit_allowed":false,
+                    "error":result.as_ref().err(),
+                    "support":result.as_ref().ok().map(|r|serde_json::json!({
+                        "required_plane":r.required_plane,"witness":r.witness.to_array(),
+                        "source":r.source.name(),"vertex_slacks":r.slacks,"projections":r.projections,
+                    })),
+                })
+            );
+        }
+        if reduction == 0.0 && std::env::var_os("TOR_CLOAK_XYZ_BATCH_PROBE").is_some() {
+            let axes: Vec<_> = torso
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    p.with_y(0.0).normalize_or(Vec3::NEG_Z) * cloak.shoulder_profile[i].x
+                        + Vec3::Y * cloak.shoulder_profile[i].y
+                })
+                .collect();
+            let regions: Vec<_> = torso.iter().map(|&p| (p, p)).collect();
+            let owned_faces: Vec<_> = (3 * COLUMNS * 2..ROWS * COLUMNS * 2).collect();
+            let free_vertices: Vec<_> = (index(4, 0)..GRID).collect();
+            let epoch = XyzBatchEpoch {
+                revision: 1,
+                reference: &torso,
+                baseline_endpoints: &torso,
+                axes: &axes,
+                support: FaceSupport {
+                    inner: Some(&inner_surface),
+                    arms: cloak.arm_surface.as_deref(),
+                    head: cloak.head_surface.as_deref(),
+                    profile: None,
+                    radial_limits: None,
+                },
+            };
+            let request = XyzBatchRequest {
+                expected_revision: 1,
+                candidate: &torso,
+                regions: &regions,
+                owned_faces: &owned_faces,
+                free_vertices: &free_vertices,
+            };
+            let receipt = audit_xyz_downstream_batch(&epoch, &request)
+                .expect("immutable baseline batch inputs");
+            eprintln!(
+                "XYZ native downstream batch receipt: {}",
+                serde_json::json!({
+                    "context":audit_context(),"source_epoch_revision":receipt.revision,"reduction":reduction,
+                    "owned_bands":[3,ROWS],"owned_free_vertices":free_vertices,"owned_xyz_variables":free_vertices.len()*3,
+                    "expected_faces":owned_faces.len(),"accounted_faces":receipt.faces.len(),"complete_accounting":receipt.faces.len()==owned_faces.len(),
+                    "support_pass":receipt.support_pass,"support_failure":receipt.support_failure,"unsupported":receipt.unsupported,
+                    "normal_policy":"normalized sum of immutable original material axes per face",
+                    "region_policy":"singleton reference boxes; baseline endpoints equal reference; native baseline/expanded union domains",
+                    "physical_shape_membership":"not_evaluated","commit_allowed":false,"faces":receipt.faces,
+                    "source_triangle_counts":[inner_surface.triangles.len(),cloak.arm_surface.as_ref().map_or(0,|s|s.triangles.len()),cloak.head_surface.as_ref().map_or(0,|s|s.triangles.len())],
+                })
+            );
+        }
+        let mut proposed = candidate.to_vec();
+        let mut work = FaceFitWork {
+            owned_band_probe: Some(OwnedBandProbe {
+                first_band: 3,
+                end_band: ROWS,
+                pinned_row: 3,
+            }),
+            ..Default::default()
+        };
+        let result = fit_radial_faces_impl(
+            &mut proposed,
+            rotation,
+            FaceSupport {
+                inner: Some(&inner_surface),
+                arms: cloak.arm_surface.as_deref(),
+                head: cloak.head_surface.as_deref(),
+                profile: Some(&cloak.shoulder_profile),
+                radial_limits: Some(limits),
+            },
+            &mut None,
+            true,
+            true,
+            &mut work,
+        );
+        let bits = |p: &Vec3| p.to_array().map(f32::to_bits);
+        let pinned_unchanged = boundary
+            .clone()
+            .all(|i| bits(&proposed[i]) == bits(&candidate[i]));
+        let transactional = result.is_ok() || proposed == candidate;
+        assert!(pinned_unchanged && transactional);
+        let unique_faces: std::collections::BTreeSet<_> =
+            work.owned_face_visits.iter().copied().collect();
+        eprintln!(
+            "row3 native probe: {}",
+            serde_json::json!({
+                "context":audit_context(), "reduction":reduction,
+                "owned_bands":[3,ROWS], "pinned_row":3, "expected_owned_faces":(ROWS-3)*COLUMNS*2,
+                "visited_unique_faces":unique_faces.len(), "visited_faces":unique_faces,
+                "rounds":work.rounds, "boundary":boundary_rows,
+                "downstream_success":result.is_ok(), "pinned_unchanged_bits":pinned_unchanged,
+                "transactional_on_failure":transactional,
+                "failure":result.as_ref().err().map(|f|serde_json::json!({
+                    "row":f.row,"column":f.column,"reason":f.reason,"detail":f.detail,
+                })),
+                "rejected_boundary_travel":work.rejected_boundary_travel,
+                "scope":"Native point membership/admissibility and explicitly owned downstream attempt only; unchanged nonzero axes and gates; no upper patch, complete mesh, continuous body support or rendered acceptance",
+            })
+        );
+        eprintln!(
+            "row3 native probe inner source: {}",
+            serde_json::json!({
+                "context":audit_context(),"reduction":reduction,
+                "triangles":inner_surface.triangles.iter().map(|tri|tri.map(|p|p.to_array())).collect::<Vec<_>>(),
+            })
+        );
+    }
+}
+
 /// Pose in dependency order, then seat each explicitly linked mantle outside
 /// the inner cloak's actual two-sided mesh. An unlinked cloak retains the
 /// original deformation path and caching behavior.
@@ -3862,12 +4777,35 @@ pub(super) fn place_layers(
                 cloak.support.as_ref(),
                 limits.as_ref(),
             ) {
+                #[cfg(test)]
+                if std::env::var_os("TOR_CLOAK_JOINT_REFERENCE").is_some() {
+                    audit_main_arch_support(inner, inner_rot, meshes.get(&inner.mesh).unwrap());
+                    audit_connected_candidate_support(&support, cloak.arm_surface.as_deref().expect("actual arm surface"), head);
+                    let offset = Vec3::new(0.0, 0.53, -0.15);
+                    let reference: Vec<_> = candidate.iter().map(|p| rot * *p + offset).collect();
+                    eprintln!("joint attachment reference: {}", serde_json::json!({
+                        "context": audit_context(), "layer": "mantle", "stage": "before_head_initialization",
+                        "rotation": rot.to_array(), "offset": offset.to_array(),
+                        "reference": reference.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                        "authored_rest_local": cloak.rest.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                        "authored_rest_torso": cloak.rest.iter().map(|p| (rot * *p + offset).to_array()).collect::<Vec<_>>(),
+                        "shoulder_profile": cloak.shoulder_profile.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
+                        "radial_limits": limits.to_vec(), "columns": COLUMNS, "rows": ROWS,
+                        "collar_ceiling": 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK),
+                        "required_clearance": LAYER_GAP + THICKNESS, "thickness": THICKNESS,
+                        "roof_rows": ROOF_ROWS,
+                        "scope": "Diagnostic pre-head reference only; no solved geometry or acceptance is implied"
+                    }));
+                }
+                #[cfg(test)]
+                if std::env::var_os("TOR_CLOAK_PINNED_ROW3_PROBE").is_some() {
+                    audit_row3_native_probe(cloak, inner, (rot, inner_rot),
+                        meshes.get(&inner.mesh).unwrap(), &candidate, limits);
+                }
                 fit_mantle_head_reference(&mut candidate, rot, head, body, limits)?;
-                // Preserve the previous bounded radial initialization.
-                // The original near-vertical profile is infeasible at real jaw
-                // attachments even with independently certified source planes.
-                // A replacement must satisfy all incident constraints; until
-                // then each source uses this same frozen bounded radial axis.
+                // Only the collar uses fixed-height radial motion. Each shared
+                // shoulder vertex keeps one immutable material axis; all sources
+                // and both incident bands are certified from fresh domains.
                 #[cfg(test)]
                 if std::env::var_os("TOR_CLOAK_ATTACHMENT_AXES").is_some() {
                     let offset = Vec3::new(0.0, 0.53, -0.15);
@@ -3908,7 +4846,7 @@ pub(super) fn place_layers(
                         }
                     }
                 }
-                contact_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
+                freeze_mantle_attachment_profile(&mut contact_profile);
             }
             fit_radial_supports_traced(
                 &mut candidate,
@@ -3992,6 +4930,90 @@ mod source_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connected_yoke_angular_domain_retains_crossing_polygons_and_gap() {
+        let gap = LAYER_GAP + THICKNESS;
+        assert!((gap - 0.032).abs() < 1e-7);
+        let domain = [(Vec3::X, -gap), (Vec3::Y, -gap), (Vec3::NEG_Y, -gap)];
+        let outside = [
+            Vec3::new(-0.04, 0.0, 0.5),
+            Vec3::new(-0.05, 0.01, 0.5),
+            Vec3::new(-0.05, -0.01, 0.6),
+        ];
+        assert!(clipped_polygon(outside, &domain).is_none());
+        let query = [
+            Vec3::new(0.0, 0.0, 0.1),
+            Vec3::new(0.01, 0.0, 0.1),
+            Vec3::new(0.0, 0.0, 0.2),
+        ];
+        for a in query {
+            for b in outside {
+                assert!(a.distance(b) >= gap);
+            }
+        }
+        // A source crossing the boundary must retain its clipped polygon,
+        // including intersections that are not original triangle vertices.
+        let crossing = [
+            Vec3::new(-0.06, 0.0, 0.5),
+            Vec3::new(0.02, 0.0, 0.5),
+            Vec3::new(-0.06, 0.01, 0.6),
+        ];
+        let (poly, n) = clipped_polygon(crossing, &domain).expect("crossing retained");
+        assert_eq!(n, 3);
+        assert_eq!(
+            poly[..n]
+                .iter()
+                .filter(|p| (p.x + gap).abs() < 1e-6)
+                .count(),
+            2
+        );
+        assert!(poly[..n].iter().all(|p| p.x >= -gap - 1e-7));
+        // The separation argument cannot be used for a query outside the
+        // unexpanded containing halfspace, even if the source was excluded.
+        assert!(Vec3::new(-0.039, 0.0, 0.5).distance(outside[0]) < gap);
+    }
+
+    #[test]
+    fn connected_yoke_tilted_normal_keeps_unit_distance_and_radial_motion() {
+        let n = Vec3::new(1.0, 0.75, 0.0).normalize();
+        let axis = Vec3::X;
+        let source = [Vec3::ZERO, Vec3::Z * 0.1, Vec3::new(-0.075, 0.1, 0.0)];
+        let (poly, count) = clipped_polygon(source, &[(Vec3::Y, -0.1), (Vec3::NEG_Y, -0.1)])
+            .expect("complete source");
+        let support = poly[..count]
+            .iter()
+            .map(|p| n.dot(*p))
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(support.abs() < 1e-7);
+        let reference = Vec3::new(0.0, -0.02, 0.0);
+        let gap = LAYER_GAP + THICKNESS;
+        let travel = (support + gap - n.dot(reference)) / n.dot(axis);
+        let candidate = reference + axis * travel;
+        assert_eq!(candidate.y, reference.y);
+        assert!((n.dot(candidate) - support - gap).abs() < 1e-7);
+        assert!(source.iter().all(|p| candidate.distance(*p) >= gap));
+        assert!(n.y.abs() > 0.5 && n.dot(axis) > 0.0);
+        // Raw non-unit projection would not represent the same metric gap.
+        assert!(((n * 2.0).dot(candidate) - 2.0 * support - gap).abs() > 0.01);
+    }
+
+    #[test]
+    fn connected_yoke_external_main_epoch_is_explicit_and_noncommitting() {
+        assert!(diagnostic_inner_surface(None).is_none());
+        let original = [[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]];
+        let mut replacement = original;
+        for point in &mut replacement[0] {
+            point[2] = 0.2;
+        }
+        let surface = diagnostic_inner_surface(Some(&replacement)).expect("explicit epoch");
+        assert_eq!(surface.triangles.len(), 1);
+        assert!(surface.triangles[0].iter().all(|p| p.z == 0.2));
+        assert_eq!(original[0][0], [0.0, 0.0, 0.0]);
+        assert!(std::panic::catch_unwind(|| diagnostic_inner_surface(Some(&[]))).is_err());
+        replacement[0][0][0] = f32::NAN;
+        assert!(std::panic::catch_unwind(|| diagnostic_inner_surface(Some(&replacement))).is_err());
+    }
 
     fn positions(mesh: &Mesh) -> Vec<Vec3> {
         let Some(VertexAttributeValues::Float32x3(points)) =
@@ -4317,7 +5339,10 @@ mod tests {
         ];
         let (height, point, source) =
             project_feature_support(Vec3::Z, &sources, &mut FaceFitWork::default());
-        assert!((height-0.2).abs()<1e-6, "other-source decoy must control instead of proposed inner plane, but outside-domain geometry must not");
+        assert!(
+            (height - 0.2).abs() < 1e-6,
+            "other-source decoy must control instead of proposed inner plane, but outside-domain geometry must not"
+        );
         assert_eq!(point.z, height);
         assert!(matches!(source, SupportSource::Head));
         let cap = Vec3::new(0.0, 0.1, 0.15);
@@ -4350,6 +5375,26 @@ mod tests {
         assert!(rendered_clearance(&mixed, Vec3::ZERO) < 0.0);
         assert!(rendered_clearance(&mixed, Vec3::new(0.3, 0.0, 0.0)) < 0.001);
         assert!(rendered_clearance(&mixed, Vec3::new(0.15, 0.0, 0.0)) > 0.001);
+    }
+
+    #[test]
+    fn mantle_radial_collar_preserves_authored_shoulder_motion() {
+        let original: Vec<_> = (0..GRID)
+            .map(|i| match i / (COLUMNS + 1) {
+                0 => Vec2::Y,
+                YOKE_ROWS.. => Vec2::X,
+                _ => Vec2::new(0.2, 0.98).normalize(),
+            })
+            .collect();
+        let mut fitted = original.clone();
+        freeze_mantle_attachment_profile(&mut fitted);
+        assert!(fitted[..=COLUMNS].iter().all(|axis| *axis == Vec2::X));
+        assert_eq!(
+            &fitted[COLUMNS + 1..],
+            &original[COLUMNS + 1..],
+            "head attachment must not replace the shoulder material axes"
+        );
+        assert_eq!(original[0], Vec2::Y, "the immutable recipe is unchanged");
     }
 
     #[test]
@@ -4429,51 +5474,55 @@ mod tests {
         assert!(fitted[0].distance(reference[0]) > 0.049);
         assert_eq!(fitted[0].y, reference[0].y);
         validate_attachment_width(&fitted, Quat::IDENTITY, &widths).unwrap();
-        let mut mixed_profile = test_shoulder_profile(&reference);
-        mixed_profile[..2 * (COLUMNS + 1)].fill(Vec2::X);
-        assert!(mixed_profile[index(2, 0)].y > 0.0);
-        let mut mixed = reference.clone();
-        fit_radial_supports_traced(
-            &mut mixed,
-            Quat::IDENTITY,
-            FaceSupport {
-                inner: None,
-                arms: None,
-                head: Some(&head),
-                profile: Some(&mixed_profile),
-                radial_limits: Some(&widths),
-            },
-            &mut None,
-        )
-        .unwrap();
-        validate_attachment_width(&mixed, Quat::IDENTITY, &widths).unwrap();
-        for column in 0..COLUMNS {
-            let [a, b, c, d] = [
-                index(1, column),
-                index(1, column + 1),
-                index(2, column),
-                index(2, column + 1),
-            ];
-            for face in [[a, b, c], [b, d, c]] {
-                let vertices = face.map(|i| mixed[i] + offset);
-                let normal = (vertices[1] - vertices[0])
-                    .cross(vertices[2] - vertices[0])
-                    .normalize_or(Vec3::Z);
-                for u in 0..=4 {
-                    for v in 0..=4 - u {
-                        let p = (vertices[0] * u as f32
-                            + vertices[1] * v as f32
-                            + vertices[2] * (4 - u - v) as f32)
-                            / 4.0;
-                        for side in [-1.0, 1.0] {
-                            assert!(
-                                rendered_clearance_checked(
-                                    &head,
-                                    p + normal * (side * THICKNESS * 0.5),
-                                    true
-                                ) > 0.001,
-                                "radial-to-mixed incident band intersects actual support"
-                            );
+        for radial_rows in [2, 1] {
+            let mut mixed_profile = test_shoulder_profile(&reference);
+            mixed_profile[..radial_rows * (COLUMNS + 1)].fill(Vec2::X);
+            assert!(mixed_profile[index(radial_rows, 0)].y > 0.0);
+            let mut mixed = reference.clone();
+            fit_radial_supports_traced(
+                &mut mixed,
+                Quat::IDENTITY,
+                FaceSupport {
+                    inner: None,
+                    arms: None,
+                    head: Some(&head),
+                    profile: Some(&mixed_profile),
+                    radial_limits: Some(&widths),
+                },
+                &mut None,
+            )
+            .unwrap();
+            validate_attachment_width(&mixed, Quat::IDENTITY, &widths).unwrap();
+            for row in 0..2 {
+                for column in 0..COLUMNS {
+                    let [a, b, c, d] = [
+                        index(row, column),
+                        index(row, column + 1),
+                        index(row + 1, column),
+                        index(row + 1, column + 1),
+                    ];
+                    for face in [[a, b, c], [b, d, c]] {
+                        let vertices = face.map(|i| mixed[i] + offset);
+                        let normal = (vertices[1] - vertices[0])
+                            .cross(vertices[2] - vertices[0])
+                            .normalize_or(Vec3::Z);
+                        for u in 0..=4 {
+                            for v in 0..=4 - u {
+                                let p = (vertices[0] * u as f32
+                                    + vertices[1] * v as f32
+                                    + vertices[2] * (4 - u - v) as f32)
+                                    / 4.0;
+                                for side in [-1.0, 1.0] {
+                                    assert!(
+                                        rendered_clearance_checked(
+                                            &head,
+                                            p + normal * (side * THICKNESS * 0.5),
+                                            true
+                                        ) > 0.001,
+                                        "radial-to-mixed incident band intersects actual support"
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -4547,6 +5596,442 @@ mod tests {
             radial_test_grid(),
             "a rejected candidate cannot mutate its reference"
         );
+    }
+
+    #[test]
+    fn pinned_band_probe_owns_downstream_faces_and_preserves_boundary_bits() {
+        let reference = radial_test_grid();
+        let empty = LayerSurface::from_triangles(vec![]);
+        let mut points = reference.clone();
+        let mut work = FaceFitWork {
+            owned_band_probe: Some(OwnedBandProbe {
+                first_band: 3,
+                end_band: ROWS,
+                pinned_row: 3,
+            }),
+            ..Default::default()
+        };
+        fit_radial_faces_impl(
+            &mut points,
+            Quat::IDENTITY,
+            FaceSupport::arms(&empty),
+            &mut None,
+            true,
+            true,
+            &mut work,
+        )
+        .unwrap();
+        let unique: std::collections::BTreeSet<_> =
+            work.owned_face_visits.iter().copied().collect();
+        assert_eq!(unique.len(), (ROWS - 3) * COLUMNS * 2);
+        assert_eq!(unique.first(), Some(&(3 * COLUMNS * 2)));
+        assert_eq!(unique.last(), Some(&(ROWS * COLUMNS * 2 - 1)));
+        for i in 0..index(4, 0) {
+            assert_eq!(
+                points[i].to_array().map(f32::to_bits),
+                reference[i].to_array().map(f32::to_bits)
+            );
+        }
+        assert!(work.rejected_boundary_travel.is_none());
+    }
+
+    #[test]
+    fn pinned_band_probe_rejects_requested_boundary_travel_transactionally() {
+        let reference = radial_test_grid();
+        let at = reference[index(8, 0)] + Vec3::new(0.0, 0.53, -0.15);
+        let head = LayerSurface::from_triangles(vec![[
+            at + Vec3::new(-0.03, -0.03, 0.015),
+            at + Vec3::new(0.03, -0.03, 0.015),
+            at + Vec3::new(0.0, 0.03, 0.015),
+        ]]);
+        let mut points = reference.clone();
+        let mut work = FaceFitWork {
+            owned_band_probe: Some(OwnedBandProbe {
+                first_band: 8,
+                end_band: ROWS,
+                pinned_row: 8,
+            }),
+            ..Default::default()
+        };
+        let failure = fit_radial_faces_impl(
+            &mut points,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: None,
+                arms: None,
+                head: Some(&head),
+                profile: None,
+                radial_limits: None,
+            },
+            &mut None,
+            true,
+            true,
+            &mut work,
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.reason,
+            "diagnostic owned-band solve requires pinned boundary travel"
+        );
+        assert_eq!(
+            points, reference,
+            "pinned rejection must not commit any coordinates"
+        );
+        let request = work.rejected_boundary_travel.unwrap();
+        assert!(request["requested_travel"].as_f64().unwrap() > 0.0);
+        assert_eq!(request["source"], "head");
+        assert!(
+            failure.detail[2] > 0.99,
+            "a fixed vertex must retain its nonzero axis"
+        );
+        assert!(work.owned_face_visits.iter().all(|&i| i >= 8 * COLUMNS * 2));
+    }
+
+    #[test]
+    fn pinned_band_probe_allows_owned_descendant_travel_without_boundary_drift() {
+        let reference = radial_test_grid();
+        let at = reference[index(16, 0)] + Vec3::new(0.0, 0.53, -0.15);
+        let head = LayerSurface::from_triangles(vec![[
+            at + Vec3::new(-0.03, -0.03, 0.015),
+            at + Vec3::new(0.03, -0.03, 0.015),
+            at + Vec3::new(0.0, 0.03, 0.015),
+        ]]);
+        let mut points = reference.clone();
+        let mut work = FaceFitWork {
+            owned_band_probe: Some(OwnedBandProbe {
+                first_band: 8,
+                end_band: ROWS,
+                pinned_row: 8,
+            }),
+            ..Default::default()
+        };
+        fit_radial_faces_impl(
+            &mut points,
+            Quat::IDENTITY,
+            FaceSupport {
+                inner: None,
+                arms: None,
+                head: Some(&head),
+                profile: None,
+                radial_limits: None,
+            },
+            &mut None,
+            true,
+            true,
+            &mut work,
+        )
+        .unwrap();
+        for i in 0..index(9, 0) {
+            assert_eq!(
+                points[i].to_array().map(f32::to_bits),
+                reference[i].to_array().map(f32::to_bits)
+            );
+        }
+        assert!(points[index(16, 0)].distance(reference[index(16, 0)]) > 0.001);
+        assert!(work.rejected_boundary_travel.is_none());
+        let unique: std::collections::BTreeSet<_> =
+            work.owned_face_visits.iter().copied().collect();
+        assert_eq!(unique.len(), (ROWS - 8) * COLUMNS * 2);
+    }
+
+    fn xyz_probe_input() -> XyzSupportInput {
+        let reference = [
+            Vec3::new(0.20, 0.50, -0.02),
+            Vec3::new(0.20, 0.50, 0.02),
+            Vec3::new(0.25, 0.45, 0.0),
+        ];
+        XyzSupportInput {
+            reference,
+            baseline_endpoints: reference,
+            candidate: reference,
+            axes: [Vec3::X; 3],
+            regions: reference.map(|p| (p, p)),
+            pinned: [true, true, false],
+            roof: false,
+            normal: Vec3::X,
+        }
+    }
+
+    #[test]
+    fn xyz_domain_oracle_retains_unbounded_inner_and_native_projection_parity() {
+        let input = xyz_probe_input();
+        let inner = LayerSurface::from_triangles(vec![[
+            Vec3::new(1.0, 0.2, 0.0),
+            Vec3::new(2.0, 0.2, 0.0),
+            Vec3::new(1.0, 0.6, 0.0),
+        ]]);
+        let domains = xyz_support_domains(&input).unwrap();
+        assert_eq!(domains[0].len(), 4);
+        let native = project_feature_support(
+            Vec3::X,
+            &[(Some(&inner), &domains[0], SupportSource::Inner)],
+            &mut FaceFitWork::default(),
+        );
+        let receipt = audit_xyz_support(
+            &input,
+            FaceSupport {
+                inner: Some(&inner),
+                arms: None,
+                head: None,
+                profile: None,
+                radial_limits: None,
+            },
+        )
+        .unwrap();
+        // y=.438 intersects the sloping source edge at x=1.405. No original
+        // triangle vertex lies in the narrow inner height slab.
+        assert!((native.0 - 1.405).abs() < 2e-6);
+        assert_eq!(
+            receipt.required_plane.to_bits(),
+            (native.0 + LAYER_GAP + THICKNESS).to_bits()
+        );
+        assert!((receipt.required_plane - 1.437).abs() < 2e-6);
+        assert_eq!(receipt.source, SupportSource::Inner);
+        assert!(receipt.projections > 0 && receipt.slacks.iter().all(|s| *s < 0.0));
+        assert!(inner.triangles[0].iter().all(|p| *p != receipt.witness));
+        let mut roof = input;
+        roof.roof = true;
+        let roof_result = audit_xyz_support(
+            &roof,
+            FaceSupport {
+                inner: Some(&inner),
+                arms: None,
+                head: None,
+                profile: None,
+                radial_limits: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(roof_result.required_plane, f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn xyz_domain_oracle_expands_sweep_and_projects_all_source_unions() {
+        let mut input = xyz_probe_input();
+        input.regions[2] = (Vec3::new(0.23, 0.39, -0.06), Vec3::new(0.28, 0.48, 0.06));
+        let domains = xyz_support_domains(&input).unwrap();
+        let p = Vec3::new(0.25, 0.40, 0.055);
+        assert!(domains[0].iter().any(|(n, b)| n.dot(p) < *b));
+        assert!(domains[1].iter().all(|(n, b)| n.dot(p) >= *b));
+        for (lo, hi) in input.regions {
+            for x in [lo.x, hi.x] {
+                for y in [lo.y, hi.y] {
+                    for z in [lo.z, hi.z] {
+                        let corner = Vec3::new(x, y, z);
+                        assert!(domains[3]
+                            .iter()
+                            .all(|(n, b)| n.dot(corner) - LAYER_GAP - THICKNESS >= *b - 1e-7));
+                    }
+                }
+            }
+        }
+        let triangle = |x| {
+            [
+                Vec3::new(x, 0.395, -0.005),
+                Vec3::new(x, 0.405, -0.005),
+                Vec3::new(x, 0.400, 0.005),
+            ]
+        };
+        let inner = LayerSurface::from_triangles(vec![triangle(0.25)]);
+        let arms = LayerSurface::from_triangles(vec![triangle(0.27)]);
+        let head = LayerSurface::from_triangles(vec![triangle(0.29)]);
+        let result = audit_xyz_support(
+            &input,
+            FaceSupport {
+                inner: Some(&inner),
+                arms: Some(&arms),
+                head: Some(&head),
+                profile: None,
+                radial_limits: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.source, SupportSource::Head);
+        assert!((result.required_plane - 0.322).abs() < 1e-6);
+        let baseline = project_feature_support(
+            Vec3::X,
+            &[(Some(&head), &domains[2], SupportSource::Head)],
+            &mut FaceFitWork::default(),
+        );
+        assert_eq!(
+            baseline.0,
+            f32::NEG_INFINITY,
+            "new downward support must not already lie in baseline domain"
+        );
+    }
+
+    #[test]
+    fn xyz_domain_oracle_rejects_pin_region_and_axis_changes_without_mutation() {
+        let empty = LayerSurface::from_triangles(vec![]);
+        let mut input = xyz_probe_input();
+        let original = input.candidate;
+        input.candidate[0].y += 0.001;
+        input.regions[0].1.y += 0.002;
+        assert_eq!(
+            audit_xyz_support(&input, FaceSupport::arms(&empty)).unwrap_err(),
+            "pinned XYZ coordinate or region changed"
+        );
+        assert_eq!(
+            input.candidate[0].y,
+            original[0].y + 0.001,
+            "oracle must not clamp even rejected inputs"
+        );
+        let mut input = xyz_probe_input();
+        input.normal = Vec3::NEG_X;
+        assert_eq!(
+            audit_xyz_support(&input, FaceSupport::arms(&empty)).unwrap_err(),
+            "XYZ support normal violates original axis gate"
+        );
+        input.normal = Vec3::X * 2.0;
+        assert_eq!(
+            audit_xyz_support(&input, FaceSupport::arms(&empty)).unwrap_err(),
+            "XYZ support normal is not unit"
+        );
+        input.normal = Vec3::X;
+        input.regions[2].0.x = -0.1;
+        assert_eq!(
+            audit_xyz_support(&input, FaceSupport::arms(&empty)).unwrap_err(),
+            "XYZ region crosses reference angular hemisphere"
+        );
+        input.regions[2] = (Vec3::ZERO, Vec3::ZERO);
+        assert_eq!(
+            audit_xyz_support(&input, FaceSupport::arms(&empty)).unwrap_err(),
+            "XYZ region excludes reference, baseline or candidate"
+        );
+    }
+
+    struct XyzBatchFixture {
+        reference: Vec<Vec3>,
+        axes: Vec<Vec3>,
+        regions: Vec<(Vec3, Vec3)>,
+        faces: Vec<usize>,
+        free: Vec<usize>,
+    }
+
+    fn xyz_batch_fixture() -> XyzBatchFixture {
+        let reference: Vec<_> = radial_test_grid()
+            .into_iter()
+            .map(|p| p + Vec3::new(0.0, 0.53, -0.15))
+            .collect();
+        let axes = reference
+            .iter()
+            .map(|p| p.with_y(0.0).normalize())
+            .collect();
+        let regions = reference.iter().map(|&p| (p, p)).collect();
+        XyzBatchFixture {
+            reference,
+            axes,
+            regions,
+            faces: (3 * COLUMNS * 2..ROWS * COLUMNS * 2).collect(),
+            free: (index(4, 0)..GRID).collect(),
+        }
+    }
+
+    fn run_xyz_batch_fixture(
+        f: &XyzBatchFixture,
+        revision: u64,
+        candidate: &[Vec3],
+        faces: &[usize],
+        free: &[usize],
+    ) -> Result<XyzBatchReceipt, &'static str> {
+        let empty = LayerSurface::from_triangles(vec![]);
+        let epoch = XyzBatchEpoch {
+            revision: 7,
+            reference: &f.reference,
+            baseline_endpoints: &f.reference,
+            axes: &f.axes,
+            support: FaceSupport::arms(&empty),
+        };
+        audit_xyz_downstream_batch(
+            &epoch,
+            &XyzBatchRequest {
+                expected_revision: revision,
+                candidate,
+                regions: &f.regions,
+                owned_faces: faces,
+                free_vertices: free,
+            },
+        )
+    }
+
+    #[test]
+    fn xyz_batch_accounts_every_owned_face_without_mutation_or_acceptance() {
+        let f = xyz_batch_fixture();
+        let before = f.reference.clone();
+        let r = run_xyz_batch_fixture(&f, 7, &f.reference, &f.faces, &f.free).unwrap();
+        assert_eq!(r.revision, 7);
+        assert_eq!(r.faces.len(), 1632);
+        assert_eq!(
+            (r.support_pass, r.support_failure, r.unsupported),
+            (1632, 0, 0)
+        );
+        assert_eq!(f.free.len(), 833);
+        for (i, row) in r.faces.iter().enumerate() {
+            assert_eq!(row["face_id"].as_u64().unwrap() as usize, 288 + i);
+            assert_eq!(row["status"], "chosen_normal_support_pass");
+            assert_eq!(row["details"]["empty_support"], true);
+        }
+        assert_eq!(f.reference, before);
+    }
+
+    #[test]
+    fn xyz_batch_rejects_stale_epoch_duplicate_missing_faces_and_vertices() {
+        let f = xyz_batch_fixture();
+        assert_eq!(
+            run_xyz_batch_fixture(&f, 6, &f.reference, &f.faces, &f.free).unwrap_err(),
+            "stale XYZ batch source/reference epoch"
+        );
+        let mut duplicate = f.faces.clone();
+        duplicate[1] = duplicate[0];
+        for faces in [&duplicate[..], &f.faces[1..]] {
+            assert_eq!(
+                run_xyz_batch_fixture(&f, 7, &f.reference, faces, &f.free).unwrap_err(),
+                "XYZ batch requires canonical complete downstream face ownership"
+            );
+        }
+        assert_eq!(
+            run_xyz_batch_fixture(&f, 7, &f.reference, &f.faces, &f.free[1..]).unwrap_err(),
+            "XYZ batch requires all downstream free vertex ownership"
+        );
+    }
+
+    #[test]
+    fn xyz_batch_rejects_pinned_and_unowned_edits_without_clamping() {
+        let mut f = xyz_batch_fixture();
+        for i in [0, index(3, 0), index(3, COLUMNS)] {
+            let mut changed = f.reference.clone();
+            changed[i].y += 0.001;
+            let before = changed.clone();
+            assert_eq!(
+                run_xyz_batch_fixture(&f, 7, &changed, &f.faces, &f.free).unwrap_err(),
+                "XYZ batch pinned or unowned coordinates/regions changed"
+            );
+            assert_eq!(changed, before);
+        }
+        f.regions[index(3, 0)].1.y += 0.001;
+        assert_eq!(
+            run_xyz_batch_fixture(&f, 7, &f.reference, &f.faces, &f.free).unwrap_err(),
+            "XYZ batch pinned or unowned coordinates/regions changed"
+        );
+    }
+
+    #[test]
+    fn xyz_batch_unsupported_faces_remain_in_complete_accounting() {
+        let mut f = xyz_batch_fixture();
+        f.axes[index(4, 0)] = Vec3::ZERO;
+        let r = run_xyz_batch_fixture(&f, 7, &f.reference, &f.faces, &f.free).unwrap();
+        assert_eq!(r.faces.len(), 1632);
+        assert_eq!(
+            (r.support_pass, r.support_failure, r.unsupported),
+            (1629, 0, 3)
+        );
+        let unsupported: Vec<_> = r
+            .faces
+            .iter()
+            .filter(|v| v["status"] == "unsupported")
+            .map(|v| v["face_id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(unsupported, vec![288, 289, 384]);
     }
 
     fn radial_test_grid() -> Vec<Vec3> {
@@ -4945,8 +6430,10 @@ mod tests {
             for target in [tri[0], (tri[0] + tri[1]) * 0.5] {
                 let point = target - ray * 0.4;
                 for _ in 0..3 {
-                    assert!(sphere.containing_components(point).is_empty(),
-                        "shared-edge/vertex ray crossings must not classify an exterior point as inside: {point:?}");
+                    assert!(
+                        sphere.containing_components(point).is_empty(),
+                        "shared-edge/vertex ray crossings must not classify an exterior point as inside: {point:?}"
+                    );
                 }
             }
         }
@@ -5081,8 +6568,10 @@ mod tests {
         fit_radial_supports_traced(&mut fitted, Quat::IDENTITY, support, &mut None).unwrap();
         assert!((fitted[index(ROWS, 0)] + offset).z >= 0.582 - 1e-6);
         for point in fitted.iter().map(|p| *p + offset) {
-            assert!(rendered_clearance_checked(&arms, point, true) > 0.001,
-                "final vertices must remain outside the solid, not merely beyond its entry face: {point:?}");
+            assert!(
+                rendered_clearance_checked(&arms, point, true) > 0.001,
+                "final vertices must remain outside the solid, not merely beyond its entry face: {point:?}"
+            );
         }
         for row in ROWS - 2..ROWS {
             for column in 0..COLUMNS {
@@ -5105,8 +6594,10 @@ mod tests {
                             / weights.into_iter().sum::<f32>();
                         for sign in [-1.0, 1.0] {
                             let lining = at + normal * sign * THICKNESS * 0.5;
-                            assert!(rendered_clearance_checked(&arms, lining, true) > 0.001,
-                                "finite obstacle fitting must clear complete emitted faces and lining: {lining:?}");
+                            assert!(
+                                rendered_clearance_checked(&arms, lining, true) > 0.001,
+                                "finite obstacle fitting must clear complete emitted faces and lining: {lining:?}"
+                            );
                         }
                     }
                 }
@@ -5773,8 +7264,11 @@ mod tests {
                     (reference.with_y(0.0) - old.with_y(0.0)).length() < 1e-6,
                     "roof seating must not escape radially"
                 );
-                assert!(final_point.with_y(0.0).length()<=old.with_y(0.0).length()+LAYER_GAP+2.0*THICKNESS,
-                    "certification must not turn the seated first row into a fin: {old:?} -> {final_point:?}");
+                assert!(
+                    final_point.with_y(0.0).length()
+                        <= old.with_y(0.0).length() + LAYER_GAP + 2.0 * THICKNESS,
+                    "certification must not turn the seated first row into a fin: {old:?} -> {final_point:?}"
+                );
             }
             let mut normals = vec![Vec3::ZERO; GRID];
             surface_normals(&points, &mut normals);
@@ -5803,8 +7297,10 @@ mod tests {
                                     .zip(weights)
                                     .map(|(p, w)| p * w)
                                     .sum::<Vec3>();
-                                assert!(rendered_clearance_checked(&support,p,true)>0.001,
-                            "seated moving cloth exterior/lining must clear the inner sheet: {p:?}");
+                                assert!(
+                                    rendered_clearance_checked(&support, p, true) > 0.001,
+                                    "seated moving cloth exterior/lining must clear the inner sheet: {p:?}"
+                                );
                             }
                         }
                     }
@@ -6821,8 +8317,10 @@ mod tests {
                     } else {
                         0.565
                     };
-                    assert!((attachment.y - station).abs() < 1e-6,
-                        "{name}: attachment departed from its supported layer station: {attachment:?}");
+                    assert!(
+                        (attachment.y - station).abs() < 1e-6,
+                        "{name}: attachment departed from its supported layer station: {attachment:?}"
+                    );
                     let final_attachment =
                         cloak.points[index(0, column)] + Vec3::new(0.0, 0.53, -0.15);
                     assert!(
@@ -6830,8 +8328,10 @@ mod tests {
                         "{name}: neck attachment must retain its body-fitted opening"
                     );
                     let collar_limit = 0.565 + 2.0 * (LAYER_GAP + THICKNESS + ROOF_SLOPE_SLACK);
-                    assert!(final_attachment.y <= collar_limit + 1e-6,
-                        "{name}: final collar exceeds two exact layer clearances: {final_attachment:?}, limit={collar_limit}");
+                    assert!(
+                        final_attachment.y <= collar_limit + 1e-6,
+                        "{name}: final collar exceeds two exact layer clearances: {final_attachment:?}, limit={collar_limit}"
+                    );
                 }
                 assert!(
                     cloak
@@ -6862,8 +8362,14 @@ mod tests {
                                 + face[1] * weights[1]
                                 + face[2] * weights[2])
                                 / weights.into_iter().sum::<f32>();
-                            assert!(scene.body.distance(p) > 0.001 && rendered_clearance(cloak.arm_surface.as_ref().unwrap(), p * anatomy::HIP_SCALE) > 0.001,
-                                "{name}: descending turnover penetrates actual body/arm support at {p:?}");
+                            assert!(
+                                scene.body.distance(p) > 0.001
+                                    && rendered_clearance(
+                                        cloak.arm_surface.as_ref().unwrap(),
+                                        p * anatomy::HIP_SCALE
+                                    ) > 0.001,
+                                "{name}: descending turnover penetrates actual body/arm support at {p:?}"
+                            );
                         }
                     }
                 }
@@ -6894,14 +8400,20 @@ mod tests {
                 for row in 0..=YOKE_ROWS {
                     for column in 0..=COLUMNS {
                         let at = cloak.points[index(row, column)] + offset;
-                        assert!(at.with_y(0.0).length()<=radial_limit,
-                        "{name}: yoke row overexpanded beyond actual cap: row={row} column={column} point={at:?} reference={:?} cap_radius={cap_radius} limit={radial_limit}",cloak.contact_reference[index(row,column)]+offset);
+                        assert!(
+                            at.with_y(0.0).length() <= radial_limit,
+                            "{name}: yoke row overexpanded beyond actual cap: row={row} column={column} point={at:?} reference={:?} cap_radius={cap_radius} limit={radial_limit}",
+                            cloak.contact_reference[index(row, column)] + offset
+                        );
                     }
                 }
                 assert!(
                     peak_height <= top + 0.12,
                     "{name}: yoke exceeds two-layer allowance: inner={:?}, vertex={peak_index} row={} column={}, actual_height={peak_height}, support_top={top}, limit={}, authored_height={rest_height}, spawned_peak={spawned_peak}, point={peak:?}",
-                    cloak.inner_layer, peak_index / (COLUMNS + 1), peak_index % (COLUMNS + 1), top + 0.12
+                    cloak.inner_layer,
+                    peak_index / (COLUMNS + 1),
+                    peak_index % (COLUMNS + 1),
+                    top + 0.12
                 );
                 for column in [COLUMNS / 4, COLUMNS * 3 / 4] {
                     let neck = cloak.points[index(0, column)];
@@ -6924,13 +8436,19 @@ mod tests {
                     let radial_limit = cap_radius + 2.0 * (LAYER_GAP + THICKNESS) + THICKNESS;
                     for row in [ROOF_ROWS, YOKE_ROWS] {
                         let at = cloak.points[index(row, column)] + offset;
-                        assert!(at.with_y(0.0).length() <= radial_limit,
-                            "{name}: turnover overexpanded beyond actual cap: row={row}, point={at:?}, cap_radius={cap_radius}, limit={radial_limit}");
+                        assert!(
+                            at.with_y(0.0).length() <= radial_limit,
+                            "{name}: turnover overexpanded beyond actual cap: row={row}, point={at:?}, cap_radius={cap_radius}, limit={radial_limit}"
+                        );
                     }
-                    assert!(crest.y - shoulder.y > 0.025,
-                        "{name}: descending cap side lost its drop: crest={crest:?}, edge={shoulder:?}");
-                    assert!(neck.y - shoulder.y > 0.025,
-                        "{name}: neck-to-shoulder roof must descend, not form a table or raised rim: neck={neck:?}, shoulder={shoulder:?}, authored_shoulder={authored_shoulder:?}");
+                    assert!(
+                        crest.y - shoulder.y > 0.025,
+                        "{name}: descending cap side lost its drop: crest={crest:?}, edge={shoulder:?}"
+                    );
+                    assert!(
+                        neck.y - shoulder.y > 0.025,
+                        "{name}: neck-to-shoulder roof must descend, not form a table or raised rim: neck={neck:?}, shoulder={shoulder:?}, authored_shoulder={authored_shoulder:?}"
+                    );
                 }
             }
         }
@@ -7314,8 +8832,13 @@ mod tests {
                         let p =
                             (face[0] * weights[0] + face[1] * weights[1] + face[2] * weights[2])
                                 / 3.0;
-                        assert!(rendered_clearance(cloak.arm_surface.as_ref().unwrap(), p * anatomy::HIP_SCALE)>0.001,
-                            "actual strike cloth faces/lining must clear retained arms: {name}, {p:?}");
+                        assert!(
+                            rendered_clearance(
+                                cloak.arm_surface.as_ref().unwrap(),
+                                p * anatomy::HIP_SCALE
+                            ) > 0.001,
+                            "actual strike cloth faces/lining must clear retained arms: {name}, {p:?}"
+                        );
                     }
                 }
             }
@@ -7419,8 +8942,14 @@ mod tests {
                     &head_surface,
                 );
                 let actual = cloak.arm_surface.as_ref().unwrap();
-                assert!(actual.closed_faces.get_or_init(||closed_components(&actual.triangles)).iter().any(Option::is_some),
-                    "actual arm fixture must retain closed components for interior penetration checks");
+                assert!(
+                    actual
+                        .closed_faces
+                        .get_or_init(|| closed_components(&actual.triangles))
+                        .iter()
+                        .any(Option::is_some),
+                    "actual arm fixture must retain closed components for interior penetration checks"
+                );
                 let offset = Vec3::new(0.0, 0.53, -0.15);
                 for column in 0..=COLUMNS {
                     let neck = rotation * cloak.points[index(0, column)] + offset;
@@ -7444,7 +8973,10 @@ mod tests {
                         for row in YOKE_ROWS + 1..=ROWS {
                             for col in columns.clone() {
                                 let at = rotation * cloak.points[index(row, col)] + offset;
-                                assert!(at.z < 0.05, "lifted hand must emerge through the released front opening, not an enveloping pouch: {at:?}");
+                                assert!(
+                                    at.z < 0.05,
+                                    "lifted hand must emerge through the released front opening, not an enveloping pouch: {at:?}"
+                                );
                             }
                         }
                         released_witnesses += 1;
@@ -7473,10 +9005,15 @@ mod tests {
                                     p * anatomy::HIP_SCALE,
                                     true,
                                 );
-                                assert!((gap-exhaustive).abs()<1e-6,
-                                    "posed actual-mesh broadphase disagrees with exhaustive clearance at {p:?}");
+                                assert!(
+                                    (gap - exhaustive).abs() < 1e-6,
+                                    "posed actual-mesh broadphase disagrees with exhaustive clearance at {p:?}"
+                                );
                             }
-                            assert!(gap > 0.001, "posed cloth triangle penetrates actual arm profile: angle={angle}, p={p:?}, gap={gap}");
+                            assert!(
+                                gap > 0.001,
+                                "posed cloth triangle penetrates actual arm profile: angle={angle}, p={p:?}, gap={gap}"
+                            );
                             tested += 1;
                         }
                     }
@@ -7612,8 +9149,10 @@ mod tests {
                     let direction = (at - origin).normalize();
                     if let Some(hit) = support.outer_surface(origin, direction) {
                         contacts += 1;
-                        assert!(at.distance(origin) > hit.distance(origin)+0.001,
-                            "{name}: mantle triangle intersects cape at {at:?}, support {hit:?}, poses {cape:?}/{mantle:?}");
+                        assert!(
+                            at.distance(origin) > hit.distance(origin) + 0.001,
+                            "{name}: mantle triangle intersects cape at {at:?}, support {hit:?}, poses {cape:?}/{mantle:?}"
+                        );
                     }
                 }
                 assert!(contacts > 100, "shared-height mesh contact witness");
@@ -7790,7 +9329,10 @@ mod tests {
                         let at = (recipe.point(0, column) + Vec3::new(0.0, 0.53, -0.15))
                             / anatomy::HIP_SCALE;
                         let gap = support.distance(at);
-                        assert!((-0.005..0.03).contains(&gap), "{model:?} {woman} {build}: unsupported shoulder cloth at {at:?}, gap {gap}");
+                        assert!(
+                            (-0.005..0.03).contains(&gap),
+                            "{model:?} {woman} {build}: unsupported shoulder cloth at {at:?}, gap {gap}"
+                        );
                     }
                 }
             }
@@ -7905,11 +9447,13 @@ mod tests {
                             );
                         }
                         let bounds = world.get::<Aabb>(first.entity).unwrap();
-                        assert!(points.iter().all(|point| point.is_finite()
-                            && (bevy::math::Vec3A::from(*point) - bounds.center)
-                                .abs()
-                                .cmple(bounds.half_extents)
-                                .all()));
+                        assert!(points.iter().all(|point| {
+                            point.is_finite()
+                                && (bevy::math::Vec3A::from(*point) - bounds.center)
+                                    .abs()
+                                    .cmple(bounds.half_extents)
+                                    .all()
+                        }));
                         let Some(VertexAttributeValues::Float32x3(normals)) =
                             mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
                         else {

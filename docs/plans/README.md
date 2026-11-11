@@ -6,6 +6,7 @@ own implemented behavior. Preserve useful rationale and label future work explic
 
 | Document | Role / current reading rule |
 | --- | --- |
+| [Hosted CI reduction](hosted-ci-reduction.md) | Workflow audit, local ownership/admission/proof reuse/shared compilation and planned selection reductions |
 | [Shared requirements](requirements.md) | Unfinished reusable capabilities and their acceptance boundaries |
 | [Rogue adaptation](rogue.md) | Accepted adaptation decisions and remaining full-run/calibration work |
 | [Rogue tuning](rogue-tuning.md) | Proposed locked-reference calibration sequence; not final balance |

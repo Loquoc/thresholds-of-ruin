@@ -1779,24 +1779,31 @@ cargo build -p tor-server --example retention_bench --features retention-profile
 target/release/examples/retention_bench 10000 8
 ```
 
-The path-scoped [hosted diagnostic](../../.github/workflows/retention-diagnostic.yml)
-runs 24 independent normal-release processes (eight cases, three repeats) using
-[`retention_measure.py`](../../scripts/retention_measure.py). It builds and runs
+The local-only [`retention_measure.py`](../../scripts/retention_measure.py)
+runs 24 independent normal-release processes (eight cases, three repeats). Run it
+on the development host, replacing `OUTPUT_DIRECTORY` with an unused directory
+inside the ignored local workspace area:
+
+```sh
+python scripts/retention_measure.py --output OUTPUT_DIRECTORY
+```
+
+It builds and runs
 argument tests before sampling, records exact tested merge/head identity, source
 manifests, executable hash, toolchain, build configuration, machine/save-volume
 fingerprint, every log and exit receipt, and rejects incomplete results. Sampling
-starts after all builds finish, with no other workload in that job. Hosted CPU
-contention is still possible; results are head-only diagnostics, not a speedup
-or universal latency claim. The workflow uses read-only permissions and ordinary
-14-day CI artifacts, not release assets; permanent raw publication remains a
-separate decision. Full canonical CI qualification is still required.
+starts after all builds finish; do not overlap it with other builds or suites.
+Results are head-only diagnostics, not a speedup or universal latency claim.
+The driver, benchmark and validator remain available, but there is no hosted
+Actions entry point. Keep raw output local; permanent raw publication remains a
+separate authorized decision. Canonical correctness qualification is still required.
 
 Local preparation passed the feature-enabled release compilation preflight,
 formatting, architecture and documentation checks. Full test-owner builds and
 the smaller normal-release server library build were killed by the local host;
 a final server-only `codegen-units=256` attempt also failed. No local behavioral
-or memory/timing result is claimed from these builds. The hosted job uses normal
-release settings, not that failed local override.
+or memory/timing result is claimed from these builds. The local driver requires
+normal release settings, not that failed override.
 
 Keep each `retention-sample` JSON record, the source and executable hashes,
 exit receipt, toolchain and save-volume machine fingerprint. Repeat complete

@@ -26,7 +26,11 @@ class ToolingNoBuildTests(unittest.TestCase):
 
     def invoke(self, tool, arguments):
         extension = '.cmd' if os.name == 'nt' else ''
-        return subprocess.run([str(self.directory / 'bin' / (tool + extension)), *arguments],
+        # Start Python with this fixture's environment before invoking its shim.
+        # An enclosing tooling guard must not capture the nested fixture's calls.
+        code = 'import subprocess, sys; raise SystemExit(subprocess.run(sys.argv[1:]).returncode)'
+        return subprocess.run([sys.executable, '-c', code,
+                               str(self.directory / 'bin' / (tool + extension)), *arguments],
                               env=dict(os.environ, **self.env), capture_output=True, text=True, check=False)
 
     def test_real_version_shim_and_empty_application_directory(self):
@@ -90,12 +94,22 @@ class ToolingNoBuildTests(unittest.TestCase):
 
     def test_exact_metadata_is_offline_and_forwarded_once(self):
         args = ['metadata', '--format-version', '1', '--no-deps', '--locked']
-        with patch.object(guard.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run:
-            self.assertEqual(guard.dispatch(self.directory, 'cargo', args), 0)
-        self.assertEqual(run.call_args.args[0], [os.path.abspath(sys.executable), *args])
-        self.assertEqual(run.call_args.kwargs['env']['CARGO_NET_OFFLINE'], 'true')
-        self.assertEqual(run.call_count, 1)
-        self.assertEqual(guard.validate_audit(self.directory)['metadata_calls'], 1)
+        for intercepted in (False, True):
+            with self.subTest(intercepted=intercepted), patch.object(
+                    guard.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run, patch.object(
+                    guard.subprocess, '_ci_no_build_original_popen', create=True) as original:
+                original.return_value.__enter__.return_value.returncode = 0
+                if not intercepted:
+                    guard.subprocess._ci_no_build_original_popen = None
+                self.assertEqual(guard.dispatch(self.directory, 'cargo', args), 0)
+                forwarded, unused = (original, run) if intercepted else (run, original)
+                self.assertEqual(forwarded.call_args.args[0], [os.path.abspath(sys.executable), *args])
+                self.assertEqual(forwarded.call_args.kwargs['env']['CARGO_NET_OFFLINE'], 'true')
+                forwarded.assert_called_once()
+                unused.assert_not_called()
+                if intercepted:
+                    original.return_value.__enter__.return_value.communicate.assert_called_once_with()
+        self.assertEqual(guard.validate_audit(self.directory)['metadata_calls'], 2)
 
     def test_builds_and_extra_arguments_are_never_forwarded(self):
         forbidden = [('cargo', ['test']), ('cargo', ['check']), ('cargo', ['clippy']),
@@ -104,12 +118,16 @@ class ToolingNoBuildTests(unittest.TestCase):
                      ('rustc', ['a.rs']), ('rustc', ['--version', 'a.rs'])]
         for tool, args in forbidden:
             with self.subTest(tool=tool, args=args), patch.object(
-                    guard.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run:
+                    guard.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run, patch.object(
+                    guard.subprocess, '_ci_no_build_original_popen', create=True) as original:
                 self.assertEqual(guard.dispatch(self.directory, tool, args), 126)
                 run.assert_not_called()
+                original.assert_not_called()
 
     def test_failed_or_unfinished_metadata_does_not_qualify(self):
-        with patch.object(guard.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)):
+        with patch.object(guard.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1)), patch.object(
+                guard.subprocess, '_ci_no_build_original_popen', create=True) as original:
+            original.return_value.__enter__.return_value.returncode = 1
             guard.dispatch(self.directory, 'cargo', ['-V'])
         with self.assertRaisesRegex(ValueError, 'invocation failed'):
             guard.validate_audit(self.directory)

@@ -62,21 +62,20 @@ class RetentionMeasurement(unittest.TestCase):
             with self.assertRaises(ValueError):
                 measure.summarize(bad)
 
-    def test_workflow_is_read_only_path_scoped_and_retains_failures(self):
-        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/retention-diagnostic.yml').read_text()
-        self.assertIn('  pull_request:\n    paths:', workflow)
-        self.assertNotIn('pull_request_target', workflow)
-        self.assertNotIn('  push:', workflow)
-        self.assertNotIn('schedule:', workflow)
-        self.assertIn('contents: read', workflow)
-        self.assertNotIn(': write', workflow)
-        self.assertIn('persist-credentials: false', workflow)
-        self.assertIn('ref: ${{ github.sha }}', workflow)
-        self.assertIn('if: always()', workflow)
-        self.assertIn('retention-days: 14', workflow)
-        self.assertNotIn('continue-on-error', workflow)
-        self.assertIn('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', workflow)
-        self.assertIn('actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9', workflow)
+    def test_expensive_diagnostics_remain_local_only(self):
+        root = Path(__file__).resolve().parents[1]
+        workflows = root / '.github/workflows'
+        for workflow, driver in (
+            ('retention-diagnostic.yml', 'scripts/retention_measure.py'),
+            ('worn-equipment-review.yml', 'crates/client-3d/scripts/render_worn_equipment_review.py'),
+        ):
+            with self.subTest(workflow=workflow):
+                self.assertTrue((root / driver).is_file(), 'preserve the local diagnostic tool')
+                self.assertFalse((workflows / workflow).exists(), 'diagnostics must not have hosted entry points')
+                for hosted in sorted(workflows.glob('*')):
+                    if hosted.suffix in ('.yml', '.yaml'):
+                        self.assertNotIn(Path(driver).name, hosted.read_text(encoding='utf-8'),
+                                         f'{hosted.name} must not invoke the local-only driver')
 
 
 if __name__ == '__main__':

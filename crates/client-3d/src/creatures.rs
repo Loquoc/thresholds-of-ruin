@@ -1123,6 +1123,8 @@ pub struct Rig {
     segments: Vec<Entity>,
     /// Continuous caster garment with an owned mesh and shared material.
     robe: Option<robe::RobeRig>,
+    aprons: Vec<apron::Panel>,
+    apron_contacts: Vec<visual_contact::Part>,
     /// Instance-owned connected shoulder sheets; materials remain shared.
     cloaks: Vec<cloak::CloakRig>,
     /// Instance-owned loose hair fitted against the composed torso layers.
@@ -1178,7 +1180,8 @@ impl Rig {
         self.cloaks
             .iter()
             .map(cloak::CloakRig::contact_fallbacks)
-            .sum()
+            .sum::<u64>()
+            + self.aprons.iter().map(apron::Panel::rejected).sum::<u64>()
     }
 
     /// Capture-only workload metadata; main cape and mantle share the posed
@@ -1210,6 +1213,9 @@ impl Rig {
         if let Some(robe) = &mut self.robe {
             robe.map_entities(&entity);
             robe.map_mesh(&mut mesh);
+        }
+        for apron in &mut self.aprons {
+            apron.map_references(&entity, &mut mesh);
         }
         for cloak in &mut self.cloaks {
             cloak.map_references(&entity, &mut mesh);
@@ -1535,6 +1541,7 @@ impl Anim {
 
 mod anatomy;
 mod animation;
+mod apron;
 #[cfg(test)]
 mod art_contract_tests;
 mod cloak;
@@ -1686,3 +1693,6 @@ mod dressing_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod skirt_contact_tests;

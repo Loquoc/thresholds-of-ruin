@@ -60,6 +60,11 @@ rather than treating a historical plan as current behavior.
 - [Code-health register](development/code-health.md): evidence-led robustness, performance, maintainability and cleanup review
 - [Test effectiveness](development/test-effectiveness.md): evidenced defects, stale-test failures and bounded counting
 - [CI cost baseline](development/ci-cost-baseline.md): measured runner cost, elapsed time and comparison limits
+- [Exact-tree CI proof reuse](development/ci-proof-reuse.md): selected/native seals, fresh main integration and conservative fallback
+- [GitHub Actions usage review](development/ci-usage.md): workload, network and review boundaries
+- [Hosted 3D smoke check](development/3d-compilation.md): build, launch, and native input
+- [Reviewed CI test owners](development/ci-owner-review.md): assertion/resource mapping for the 53-class migration backlog and preserved escalation guards
+- [Hosted CI reduction proposal](plans/hosted-ci-reduction.md): migration workflow review, local-only diagnostics and staged push/merge cost reductions
 - [Service contract pilot](development/service-contracts.md): opt-in catalog host, assertion ownership and qualification experiment
 - [Performance](development/performance.md): targets, workloads, comparisons and evidence
 - [Server performance review](development/server-performance-review.md): active-AI findings,

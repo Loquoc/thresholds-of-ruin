@@ -1,0 +1,22 @@
+{
+  ".github/dependabot.yml": "59df329c3acea6df06153e5e49edb8e832ef400c74b8d85adb08558ba35f9659",
+  ".github/requirements-arena-search.txt": "16eb164536e0dbb28b9061430850cbee83ed2d53fd0b02bf3cd8c2fdc27bea15",
+  ".github/requirements-lint.txt": "33bec3d42b4ecc3765a4feee4df5d307789ef57186f4e722730d816fd88168e3",
+  ".github/workflows/ci.yml": "27a990b05db5e48faf176b75cbed304b05a43cbd7c267a095880347b0390436b",
+  ".github/workflows/dependency-advisories.yml": "47f522a7b3fd6d0c3693c0efe3db43048bd5fac201b3deb4cdaa35bcebdb5878",
+  "deny.toml": "2fcc290ef63779feb46411c89d38b26985775580e4457c7bf9a3727a92f14c86",
+  "scripts/ci_binary_artifact.py": "41b253f2ce89afa420512a4c6cc456b6a635f687760dee26aa95f5631a10def6",
+  "scripts/ci_build_key.py": "6bbd6f772cc42ee6ddd0127dffa2b4e843d91f26d360574ea2314e70851017c0",
+  "scripts/ci_consumer_dependencies.py": "2ee5230576e21deef4d4879380b21992d228459fea4a15f20d417ac31aab93ca",
+  "scripts/ci_contract_reuse.py": "5e1af4bc383422c7a354de32211282057f93b6391b5eea31665f94255c7524a3",
+  "scripts/ci_example_prerequisites.py": "e998e636d079f90c418a443300aecd1f8a51e32a948cf0bc1503dba3abba67e4",
+  "scripts/ci_postmerge.py": "834858faed9720191a6fca995ea1d18cfc7088cdf377223775aa9622b5fd856c",
+  "scripts/ci_python_shards.py": "e6dc055d797f9f4ee5bff7b2fd7f25cecc93bd5d82ce36ca7fab2641e0eaec48",
+  "scripts/ci_scope.py": "e183ebe49603b818077ca0c5b44cb85f11f48dc3001b3c4eac01c247218984bb",
+  "scripts/ci_selected.py": "3eb0d5565df55c6c40b0f12ad5b4914135b09f3845a82db3352853ab5558a542",
+  "scripts/ci_test_contracts.py": "21b67ab3c3e66795402c609b25aec23b409fb8b665755f72252ca9d4bf614429",
+  "scripts/ci_test_plan.py": "1d01d019c9b438b5e583da5f027b68940fd9feb4208793a75fbe773e815f9fbd",
+  "scripts/ci_usage_review.py": "2844832a48ddee0e84b940cd1ec44735713bb0708c1dc079f0a54e0508f4de04",
+  "scripts/test_runner.py": "114ef8b4da80b5297cae808119e6aebc2e129ad8169f9314b723061286526528",
+  "scripts/verify.py": "d19adaa2c7b20641ebf6b6baf8ac5cfa91f1e9ac458e4b1e7ea8ca09918c24cc"
+}

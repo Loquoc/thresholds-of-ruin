@@ -5,11 +5,13 @@ its canonical CI assurance gate passes. This page is the authoritative policy;
 [development practices](../../CONTRIBUTING.md) covers the rest of contribution.
 
 CI distinguishes **prose-only**, **selected-contract**, **exhaustive**, and
-**prior exact-tree full qualification plus fresh main integration** results.
+**prior exact-tree PR coverage plus fresh main integration** results.
 The [risk-based gate](#risk-based-ci-assurance) selects required owners from
 complete change evidence; uncertain scope or ownership escalates rather than
 silently dropping coverage. Exhaustive Windows/Linux debug/release verification
-remains available and required on its full cadence and explicit risk triggers.
+remains available and required for releases, explicit full runs and risk triggers.
+During migration, periodic exhaustive checks run locally or by explicit maintainer
+request. Dependency advisories can also be checked with an explicit scan.
 A selected result is not a full-matrix pass. The narrow
 [prose-only documentation path](#prose-only-documentation-changes) remains unchanged.
 
@@ -350,53 +352,18 @@ When you find or fix a bug:
 
 ## Independent 3D client
 
-`crates/client-3d` is an optional, independently maintained workspace with its
-own full verifier. Core gameplay, protocol or other-client changes do not by
-themselves trigger its full native/render matrix or require a simultaneous 3D
-update. The risk-based core plan does add a lightweight Linux consumer lane for
-affected shared protocol/client-common contracts: the actual 3D application must
-compile and its model tests must pass. Conservative full plans also run this
-compatibility lane. That check is not graphical or visual qualification. The
-maintenance boundary never waives contract coverage for changes to the 3D client
-itself.
+`crates/client-3d` is an independently maintained workspace. The core CI plan
+can select a Linux debug smoke check for client and shared compatibility changes.
+The check builds the 3D client and a local server, waits for a connected frame,
+and exercises native keyboard input. The full debug and release verifier runs
+locally for art, geometry, and gameplay correctness.
 
-That compile/model-only lane uses
-[`ci_consumer_dependencies.py`](../../scripts/ci_consumer_dependencies.py): only
-`pkg-config`, ALSA and udev development packages, with no recommended packages,
-the configured repository trust, bounded retries and unchanged two-/three-minute
-update/install limits. A bounded `pkg-config` probe must succeed before Cargo.
-This does not remove native/render dependencies from other lanes or turn a
-download/setup timeout into a pass. Hosted minimal-package build success and
-setup-cost improvement require actual measurements.
-
-When maintaining that client, run both profiles explicitly from the repository
-root:
-
-```sh
-python crates/client-3d/scripts/verify.py --profile debug
-python crates/client-3d/scripts/verify.py --profile release
-```
-
-The verifier owns one target directory and records source/toolchain fingerprints,
-commands and exit codes in its ignored local evidence directory, whose location
-it prints. It checks tooling, the authored
-showcase, formatting, lint, architecture, renderer/model contracts and actual
-native process acceptance using matching backend binaries. Source changes during
-a run invalidate its receipt. Its dedicated workflow runs Windows/Linux debug
-and release jobs for its own non-scenario subtree, its workflow, or a manual
-dispatch. Scenario-only refreshes use core scenario validation instead; mixed
-client edits still trigger the full client workflow. Core checks remain required
-when a change also touches core files.
-
-Native cases open the actual Bevy window, capture GPU frames and deliver OS input.
-They cover native movement, door toggling, fetching to a disclosed item cell,
-selected-target combat and its motion, neutral model fallback, inventory action
-durability, private-launch save/process ownership and surfaced connection/save
-failure. Shared appearance and corpse persistence also have backend process
-contracts. These tests use the
-same display requirements and failure reporting rules as other graphical clients.
-See the [3D guide](../../crates/client-3d/README.md) and
-[client boundary](../architecture/clients.md#independently-maintained-3d-prototype).
+Native developer tests exercise real Bevy windows, captured frames and OS input.
+They cover movement, door toggling, item fetching, combat, model fallback,
+inventory durability, save ownership and connection failures. See the
+[3D guide](../../crates/client-3d/README.md#independent-maintenance) for commands,
+[hosted smoke coverage](3d-compilation.md) for the CI boundary. The verifier
+prints the local receipt path with the tested configuration.
 
 ## Cross-platform requirements
 
@@ -406,8 +373,9 @@ See the [3D guide](../../crates/client-3d/README.md) and
   Both required platform aggregates validate the canonical selected/full plan
   before merge. Dependency advisories remain warning-only on PRs, so a newly
   published advisory does not block unrelated work; their main/full-cadence policy
-  remains strict. Fresh weekly scheduled exhaustive runs surface regressions, advisories
-  and toolchain changes without waiting for an affected PR.
+  remains strict. The separate advisory scan is available by manual dispatch.
+  Periodic local and explicitly requested hosted full checks retain the complete
+  test owners; see [periodic verification](#periodic-verification-during-migration).
 - **Graphical tests require a display.** Linux CI installs X11 libraries,
   Xvfb, xauth, and xdotool and runs the Python suites under
   `xvfb-run -a -s "-screen 0 1280x1024x24"`. Windows uses its native desktop.
@@ -423,6 +391,12 @@ See the [3D guide](../../crates/client-3d/README.md) and
   can't exercise it.
 
 ## Running the checks
+
+Visual equipment capture and the repeated retained-ownership measurement matrix
+are local-only tools. Their dedicated hosted workflows have been removed; this
+does not remove correctness tests or their existing contract owners. See the
+[hosted CI review and reduction proposal](../plans/hosted-ci-reduction.md) for
+the migration audit and proposed changes to automatic push/merge workload.
 
 **The tiers change when checks run, never the coverage obligations.** TDD,
 [contract ownership](#contract-ownership), feature acceptance and regression
@@ -448,6 +422,17 @@ tier can cover a lower tier without a duplicate run on unchanged inputs:
 
 ### Risk-based CI assurance
 
+Draft pull requests receive scope, documentation, lint and dependency feedback;
+core application lanes do not start. Both existing platform aggregates explicitly
+reject draft qualification before checkout. Marking ready for review triggers
+the normal plan, including any selected 3D smoke coverage. Conversion back to
+draft cancels the prior run.
+Main pushes, manual full runs and release qualification retain their coverage.
+
+Minor/patch Dependabot version updates are grouped per ecosystem; major and
+security updates remain independent. 3D smoke logs have a seven-day retention period. Application binaries and core proof receipt
+retention are unchanged.
+
 The objective is faster useful failure feedback and lower total execution cost,
 not fewer assertions or a target test count. The [measured baseline](ci-cost-baseline.md)
 separates compilation, setup, test work, elapsed time and runner-hours. It does not
@@ -464,8 +449,13 @@ waived, duplicated, stale or incomplete required result cannot become green.
 | --- | --- |
 | Prose-only | The unchanged complete-diff prose classifier plus documentation/tooling checks; no application qualification |
 | Selected-contract | Supported PR and main-push changes with complete Git scope and reviewed ownership; Linux/Windows tooling, plus explicit application/Rust lanes when required, real platform witnesses, release sentinel/affected owners, and any required downstream 3D compatibility |
-| Exhaustive | Full profile/partition matrix on both platforms for weekly scheduled, on-demand, release and required risk escalation; all existing full owners remain discoverable |
+| Exhaustive | Full profile/partition matrix on both platforms for on-demand hosted, release and required risk escalation; all existing full owners remain discoverable. Periodic local full runs qualify only their actual host |
 | Prior exact-tree full plus fresh main | Only an otherwise-full main push with independently validated full-PR evidence for the identical merged tree and parents; fresh tooling, dependency enforcement and Linux integration still run. This is not fresh exhaustive execution |
+| Prior exact-tree selected plus fresh main | An otherwise-selected main push with matching fresh selected PR contracts, lanes and test IDs for the identical tree/parents. Fresh tooling/dependencies and Linux integration still run; pure tooling integration has a no-build guard. This cannot qualify an exhaustive run |
+
+Core plans with 3D compatibility include the
+[Linux debug smoke check](3d-compilation.md). Its result is part of the
+corresponding core proof when required.
 
 Pure tooling changes use Linux and Windows tooling closure without compiling
 unrelated Rust applications. Windows no-build tooling uses digest-bound Python
@@ -519,19 +509,47 @@ test, benchmark and ordinary application recipes are not interchangeable. Bind
 source, toolchain/target/profile/features, build recipe and executable bytes before
 launch. Missing or mismatched inputs must not silently select an older executable.
 
+#### Periodic verification during migration
+
+The standalone advisory scan runs by manual dispatch through
+[`dependency-advisories.yml`](../../.github/workflows/dependency-advisories.yml).
+It runs one Ubuntu job with a ten-minute timeout and the same pinned cargo-deny
+action and root workspace advisory policy as core CI. A failure remains a failure;
+there is no PR-style warning-only override. It checks the root workspace dependency
+graph, not the independent 3D workspace. The scan builds no application, runs no
+test suite and produces no test qualification or post-merge seal. Its job summary
+states that boundary. Dependabot cadence and security-update handling are unchanged.
+
+Core CI has no automatic exhaustive schedule during migration. Keep periodic
+complete checks on the development machine with `python scripts/verify.py full`
+and record the actual platform, profiles, toolchain, failures and missing coverage.
+A local Windows result does not establish Linux qualification or the independent
+3D suite. Use core CI's `workflow_dispatch` for a deliberately requested hosted
+full matrix; published release events and risk/control changes also retain full
+qualification. None of the test owners, native witnesses or required PR/main
+aggregates are removed. Newly discovered full-suite failures feed back into
+ownership under [failure feedback](#failure-feedback-and-escalation).
+
+Actions remains disabled during local migration preparation. These workflow
+definitions do not authorize enabling it, uploading source or dispatching a run.
+No periodic local or hosted full run is implied merely by updating this policy.
+Reintroducing an automatic exhaustive cadence requires a separate budgeted decision.
+
 #### Exact-tree post-merge assurance
 
-[`ci_postmerge.py`](../../scripts/ci_postmerge.py) optimizes only an otherwise-full,
-ordinary merge push to `main`. Ordinary selected/prose main pushes, PRs, scheduled
-runs, manual full runs and release events keep their normal policy. The assurance
-label is `prior-exact-tree-full-plus-fresh-main`, never `exhaustive-matrix`.
+[`ci_postmerge.py`](../../scripts/ci_postmerge.py) retains its otherwise-full
+ordinary-main-merge optimization. The distinct selected/native contracts in
+[`ci_contract_reuse.py`](../../scripts/ci_contract_reuse.py) extend exact-tree reuse
+without promoting their evidence into a full seal. Prose main pushes, PRs, manual
+full runs and release events keep their normal policy. The full assurance label
+remains `prior-exact-tree-full-plus-fresh-main`, never `exhaustive-matrix`.
 
 A full PR can publish a qualification seal only after its required full groups
 and both aggregates pass. The resolver accepts only the merged PR's newest
 canonical successful run, completed before the merge and within 24 hours. It
 independently checks complete GitHub job/artifact metadata, the digest-bound seal,
 repository, exact tested and merged trees and parents, workflow bytes, policy and
-current discovered inventory. All nine actual Rust/Cargo role identities must
+current discovered inventory. All actual Rust/Cargo role identities must
 agree; scope resolves the current compiler, and fresh integration rechecks it.
 Missing, expired, ambiguous or mismatched evidence keeps the ordinary full plan;
 there is no search for an older green run or arbitrary user-supplied proof.
@@ -548,9 +566,17 @@ Once the post-merge plan is selected, a failed/missing smoke result blocks its
 gate; it is not silently turned into a pass or an older result.
 
 This trades a redundant identical-tree matrix for explicit prior coverage and
-fresh integration. It does not remove full tests or change release/weekly full
+fresh integration. It does not remove full tests or change release/full-run
 requirements. Hosted proof acceptance and runner-hour savings must be measured;
 local proof fixtures alone do not establish either.
+
+Selected proof additionally binds the independently recomputed lane/test union
+and actual per-lane compilers/configuration. Native proof requires all four clean
+PR roles, then a fresh real Linux native witness on main. The new proof kinds
+reject mixed attempts and install the sealed numeric compiler on main. Failure
+or absence retains their normal fresh plan; failure after admitting reuse blocks
+the required checks. [Proof reuse](ci-proof-reuse.md) records source/assertion
+ownership, command/log/result validation, fork/cancellation handling and limits.
 
 #### Explain a local selection
 
@@ -643,12 +669,12 @@ validation and runtime costs together before claiming an improvement.
 - A failed selected owner blocks its gate. Diagnose the earliest actual contract
   failure and keep the original result; do not normalize it away with deadlines,
   retries, stronger fixture actors, changed seeds or weakened assertions.
-- On a scheduled/full failure, identify the responsible contract and whether the
+- On a local or hosted full failure, identify the responsible contract and whether the
   earlier selected plan should have included it. Preserve the failing evidence,
   assign the correction, and do not rely on that affected fast-path mapping until
   the missing edge/regression is fixed or exhaustive coverage is required for it.
   This feedback is currently maintainer-enforced: the planner does not query prior
-  scheduled-full health or automatically suspend selected mode. Before merging affected
+  periodic-full health or automatically suspend selected mode. Before merging affected
   work, the maintainer must resolve the failure or require a fresh exhaustive run
   covering the affected ownership; a selected pass alone does not clear it. An
   infrastructure failure is not a behavioral pass or a reason to delete an owner.
@@ -697,7 +723,8 @@ both the whole branch from its merge base and the actual synthetic merge delta;
 push classification covers the complete before/after range. Renames are compared
 as deletion plus addition, so renaming code into Markdown cannot hide it. Empty,
 missing, shallow, malformed, oversized or ambiguous evidence selects full CI.
-Manual, release and weekly scheduled runs remain exhaustive.
+Manual core runs and release runs remain exhaustive. The separate manual advisory
+scan supplies no documentation or test qualification.
 
 The documentation/link suite and tooling lint still gate prose-only CI. Only a
 successful scope/documentation job may intentionally skip dependency and full
@@ -823,10 +850,20 @@ satisfy a required plan. `verify.py` does not run actionlint, Ruff or cargo-deny
 these retain their separate workflow ownership and advisory policy.
 
 The Python authoring tools call the authoritative Rust scenario compiler.
-The existing local quick/push/full debug plans build `tor-scenario` before
-compiler-dependent authoring tests. Selected CI gives those owners explicit
+Local quick/push/full debug plans build all ordinary workspace binaries before the tooling
+workers start: composed campaign/encounter owners also need `tor-arena`, the
+server and clients, not only `tor-scenario`. CI profile partitions retain their
+independent producers and exact-run artifact validation. Selected CI gives those owners explicit
 application requirements even when their classes derive from plain `TestCase`;
 class shape or a non-process filename does not prove a test needs no binaries.
+`CampaignProcess` and `EncounterProcess` are explicit application owners; their
+source fixture/controller classes remain pure. Unknown owners still require
+exhaustive coverage rather than an automatic registry refresh.
+The [53-class source/assertion review](ci-owner-review.md) adds 50 tooling owners
+and three inherited application owners without removing any test methods or
+fixed process/native/release witnesses. Whole-inventory regressions exercise
+ordinary selected scopes and preserve exhaustive escalation for unknown owners,
+ambiguous dependencies, deleted source and verification controls.
 Unrelated pure-tooling and prose-only gates need no compiler. The adapter never
 silently builds a binary or falls back to a Python resolver.
 
@@ -1422,7 +1459,7 @@ What full CI runs once, on Linux:
 | --- | --- |
 | Workflow lint | `actionlint` |
 | Python lint | `ruff check scripts` (bug-focused rules in [`ruff.toml`](../../ruff.toml)) |
-| Dependency advisories | `cargo deny check advisories` (advisory-only on PRs; fails on `main` and scheduled full runs) |
+| Dependency advisories | `cargo deny check advisories` for the root workspace (warning-only on PRs; fails on `main`, explicit full runs and the separate manual advisory scan) |
 | Dependency policy | `cargo deny check bans licenses sources` (policy in [`deny.toml`](../../deny.toml)) |
 
 If any check can't run locally, say so in the PR and explain why. CI is still

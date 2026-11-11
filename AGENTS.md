@@ -63,12 +63,13 @@ and never replaces, [development practices](CONTRIBUTING.md) and the
   `push`; explicitly choose the intended scope. Keep local feedback distinct from the
   [risk-based CI gate](docs/development/testing.md#risk-based-ci-assurance).
   CI reports **prose-only**, **selected-contract**, **exhaustive**, or the narrowly
-  qualified **prior-exact-tree-full plus fresh-main** assurance below.
+  qualified **prior exact-tree PR coverage plus fresh main integration** assurances below.
   Merge only after the canonical final-head plan and both required platform
   aggregates pass; unknown scope/ownership and verification/build control changes
-  require full PR coverage. Only an otherwise-full main push may use the
+  require full PR coverage. Only an ordinary main merge with validated matching PR coverage may use the
   [exact-tree post-merge proof](docs/development/testing.md#exact-tree-post-merge-assurance)
-  plus fresh integration; missing proof retains normal full execution. It is not
+  plus fresh integration; missing proof retains normal fresh execution. Full,
+  selected and independent native proofs retain their distinct coverage labels. It is not
   a fresh exhaustive run or authority for another retained qualification.
   Selected PR/main results never qualify a full run or
   satisfy a requirement for exhaustive release/scheduled verification. Preserve
@@ -114,6 +115,16 @@ and never replaces, [development practices](CONTRIBUTING.md) and the
   [performance harness](docs/development/performance.md#publishing-raw-measurements).
 
 ## Publishing
+
+Before editing, publishing, or dispatching GitHub Actions, follow the
+[hosted CI usage review](docs/development/ci-usage.md). Review the current GitHub
+terms and the workflow's actual commands, dependencies, outbound destinations,
+compute and artifacts. Keep hosted work tied to verification of this repository.
+Keep rendering studies, load tests, benchmark sweeps, and data generation local.
+Run `python scripts/ci_usage_review.py` before publication. A mismatch requires
+review and an updated written rationale before updating the recorded hashes.
+Treat a new trigger, network destination, runner type, or workload as a new
+review. Review the actual behavior even when the recorded hashes still match.
 
 Batch plan and documentation updates and publish at meaningful checkpoints or
 when the maintainer asks (see [publishing](CONTRIBUTING.md#publishing)). Get the

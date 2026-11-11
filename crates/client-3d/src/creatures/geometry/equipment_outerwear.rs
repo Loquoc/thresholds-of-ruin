@@ -516,6 +516,7 @@ pub(super) fn emit_lower(
     body: HumanoidBody,
     clearance: Vec2,
     support: &[Vec3],
+    torso_support: &crate::sdf::Sculpt,
 ) {
     let r = appearance.recipe();
     let (width, length, pocket) = match r.cut {
@@ -524,10 +525,14 @@ pub(super) fn emit_lower(
         _ => return,
     };
     let wraps = matches!(r.cut, OuterwearCut::Wraps { .. });
+    let torso_scale = storybook_part(Plan::Biped, J::Torso);
+    // Match the second emitted winding, not the pelvis clearance ellipse.
+    let mut root_support = torso_support.clone();
+    root_support.inflate(0.0145);
     // Preserve the authored hem and pocket proportions. Only the upper edge
     // extends to overlap the actual torso-bound waistband/bib; translating the
     // entire panel would shorten it and move its established floor clearance.
-    let top = if wraps { 0.045 } else { apron_panel_top(body) };
+    let top = apron_panel_top(body);
     let height = top - (0.045 - length);
     let centers: &[f32] = if wraps { &[-0.10, 0.075] } else { &[0.0] };
     // A conservative height neighborhood covers the retained mesh's row
@@ -548,7 +553,7 @@ pub(super) fn emit_lower(
         let point = |u: f32, t: f32| {
             let row = (t * 20.0).floor() as usize;
             let front = depths[row.min(20)].max(depths[(row + 1).min(20)]);
-            Vec3::new(
+            let mut at = Vec3::new(
                 center * body.build + u * width * 0.5 * (1.0 + 0.20 * t),
                 top - height * t
                     - if wraps {
@@ -557,7 +562,29 @@ pub(super) fn emit_lower(
                         0.0
                     },
                 front + 0.035 + 0.025 * t + (u * PI * 4.0).cos() * 0.009 * t,
-            )
+            );
+            if wraps {
+                let root_x = (center * body.build + u * width * 0.5) / torso_scale.x;
+                let root_y = 0.086 - 0.075 * root_x / (0.23 * body.build);
+                let root_height = body.torso.y + root_y * torso_scale.y;
+                at.y += (root_height - top) * (1.0 - t);
+                let blend = ((root_height - at.y - 0.012) / 0.070).clamp(0.0, 1.0);
+                if blend < 1.0 {
+                    if let Some(hit) = torso_surface_hit(
+                        &root_support,
+                        at.x / torso_scale.x,
+                        (at.y - body.torso.y) / torso_scale.y,
+                        true,
+                    ) {
+                        // First follow the real winding through its cloth
+                        // thickness, then ease out over the retained skirt.
+                        let sewn_z = hit.z * torso_scale.z + 0.001;
+                        let ease = blend * blend * (3.0 - 2.0 * blend);
+                        at.z = sewn_z + (at.z - sewn_z) * ease;
+                    }
+                }
+            }
+            at
         };
         for row in 0..20 {
             let t0 = row as f32 / 20.0;
@@ -601,6 +628,76 @@ pub(super) fn emit_lower(
 mod tests {
     use super::*;
     #[test]
+    fn mummy_tail_roots_contact_emitted_torso_wrappings() {
+        for (woman, layer_ease) in [(false, 0.0), (true, 0.0), (false, 0.04), (true, 0.04)] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Human,
+                    22,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let body = HumanoidBody::resolve(&look);
+                let mut support = torso_garment(body, TorsoMaterial::Cloth, false);
+                support.inflate(layer_ease);
+                let scale = storybook_part(Plan::Biped, J::Torso);
+                let belt = crate::creatures::robe::belt_on(body, BELT_CENTER_Y, &support);
+                let mut upper = Parts::default();
+                upper.set_transform(Affine3A::from_scale_rotation_translation(
+                    scale,
+                    Quat::IDENTITY,
+                    body.torso,
+                ));
+                emit_torso(
+                    &mut upper,
+                    OuterwearAppearance::MummyWrapping,
+                    body,
+                    &support,
+                );
+                // Compare both actual emitted surfaces in one hip frame.
+                upper.set_transform(Affine3A::IDENTITY);
+                let mut lower = Parts::default();
+                emit_lower(
+                    &mut lower,
+                    OuterwearAppearance::MummyWrapping,
+                    body,
+                    Vec2::new(belt.x * scale.x, belt.y * scale.z),
+                    &[],
+                    &support,
+                );
+                for center in [-0.10, 0.075] {
+                    let x = center * body.build;
+                    let mut upper_hits = 0;
+                    let mut contacts = 0;
+                    for row in 0..=100 {
+                        let y = body.torso.y + 0.025 + row as f32 * 0.001;
+                        let ray = Vec3::new(x, y, 0.0);
+                        if let Some(a) = upper.matte.outer_surface(ray, Vec3::Z) {
+                            upper_hits += 1;
+                            if let Some(b) = lower.matte.outer_surface(ray, Vec3::Z) {
+                                if (a.z - b.z).abs() <= 0.004 {
+                                    contacts += 1;
+                                }
+                            }
+                        }
+                    }
+                    assert!(upper_hits >= 5, "fixture must intersect actual torso bands");
+                    assert!(contacts >= 5,
+                        "tail root must overlap emitted torso bands in height AND depth: woman {woman}, build {build}, center {center}, layer ease {layer_ease}, contacts {contacts}");
+                }
+                let low = lower.matte.bounds().0;
+                assert!(
+                    (low.y - (0.045 - 0.39 - 0.025)).abs() < 0.0001,
+                    "attachment change preserves authored torn hem clearance"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn apron_panel_overlaps_actual_torso_waistband_on_body_and_robe_variants() {
         for woman in [false, true] {
             for build in 0..3 {
@@ -636,6 +733,7 @@ mod tests {
                         body,
                         clearance,
                         &retained,
+                        &support,
                     );
                     let (low, high) = lower.matte.bounds();
                     // Independent world-space witness of the actual band. The
@@ -738,7 +836,14 @@ mod tests {
             let body = wearer(woman);
             let clearance = Vec2::new(0.25, 0.30);
             let mut p = Parts::default();
-            emit_lower(&mut p, OuterwearAppearance::Apron, body, clearance, &[]);
+            emit_lower(
+                &mut p,
+                OuterwearAppearance::Apron,
+                body,
+                clearance,
+                &[],
+                &torso_garment(body, TorsoMaterial::Cloth, false),
+            );
             assert!(!p.matte.is_empty());
             let (lo, hi) = p.matte.bounds();
             assert!(lo.is_finite() && hi.is_finite());
@@ -751,6 +856,7 @@ mod tests {
                 body,
                 clearance,
                 &[],
+                &torso_garment(body, TorsoMaterial::Cloth, false),
             );
             assert!(
                 cape.matte.is_empty(),
@@ -806,7 +912,14 @@ mod tests {
                 })
                 .collect();
             let mut p = Parts::default();
-            emit_lower(&mut p, appearance, body, Vec2::new(0.25, 0.20), &support);
+            emit_lower(
+                &mut p,
+                appearance,
+                body,
+                Vec2::new(0.25, 0.20),
+                &support,
+                &torso_garment(body, TorsoMaterial::Cloth, false),
+            );
             let length = lower_length(appearance).unwrap();
             let x = if appearance == OuterwearAppearance::MummyWrapping {
                 -0.10 * body.build

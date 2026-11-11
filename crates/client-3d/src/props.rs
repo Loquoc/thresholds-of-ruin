@@ -2071,9 +2071,31 @@ impl Default for Builder {
 }
 
 impl Builder {
+    /// Retained triangles in this builder's current recipe frame. Consumers
+    /// can bound complete emitted surfaces rather than resampling a proxy.
+    pub(crate) fn surface_triangles(&self) -> impl Iterator<Item = [Vec3; 3]> + '_ {
+        let inverse = self.xf.inverse();
+        self.positions
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(move |tri| tri.map(|p| inverse.transform_point3(Vec3::from_array(p))))
+    }
+
     /// Farthest forward ray intersection with existing triangles, expressed in
     /// this builder's current recipe coordinates. Includes all surface layers.
     pub(crate) fn outer_surface(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        self.ray_surface(origin, direction, true)
+    }
+
+    /// First cavity wall from an interior ray, excluding farther decorative
+    /// brims, handles and the outer face of a lined shell.
+    #[cfg(test)]
+    pub(crate) fn inner_surface(&self, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+        self.ray_surface(origin, direction, false)
+    }
+
+    fn ray_surface(&self, origin: Vec3, direction: Vec3, outer: bool) -> Option<Vec3> {
         let start = self.xf.transform_point3(origin);
         let ray = self.xf.transform_vector3(direction);
         let mut farthest: Option<f32> = None;
@@ -2095,7 +2117,13 @@ impl Builder {
             }
             let distance = edge2.dot(q) / determinant;
             if distance >= 0.0 {
-                farthest = Some(farthest.map_or(distance, |old| old.max(distance)));
+                farthest = Some(farthest.map_or(distance, |old| {
+                    if outer {
+                        old.max(distance)
+                    } else {
+                        old.min(distance)
+                    }
+                }));
             }
         }
         farthest.map(|distance| origin + direction * distance)
@@ -2136,6 +2164,47 @@ impl Builder {
         self.normals.extend(other.normals);
         self.colors.extend(other.colors);
         self.shades.extend(other.shades);
+        self.smooth |= other.smooth;
+    }
+
+    /// Append recipe-local triangles through a smooth fitting map, preserving
+    /// authored smooth normals and this builder's enclosing attachment frame.
+    pub(crate) fn absorb_fitted(&mut self, other: Builder, fit: impl Fn(Vec3) -> Vec3) {
+        for (positions, (normals, (colors, shades))) in
+            other.positions.as_chunks::<3>().0.iter().zip(
+                other.normals.as_chunks::<3>().0.iter().zip(
+                    other
+                        .colors
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .zip(other.shades.as_chunks::<3>().0),
+                ),
+            )
+        {
+            let positions = positions.map(Vec3::from_array);
+            let normals = std::array::from_fn(|i| {
+                let at = positions[i];
+                let h = 0.0001;
+                let derivative = |axis| (fit(at + axis * h) - fit(at - axis * h)) / (2.0 * h);
+                let jacobian = Mat3::from_cols(
+                    derivative(Vec3::X),
+                    derivative(Vec3::Y),
+                    derivative(Vec3::Z),
+                );
+                (jacobian.inverse().transpose() * Vec3::from_array(normals[i])).normalize()
+            });
+            self.tri_smooth_shaded(
+                positions.map(&fit),
+                normals,
+                colors.map(|c| Vec3::new(c[0], c[1], c[2])),
+                *shades,
+            );
+            let end = self.colors.len();
+            for (i, color) in colors.iter().enumerate() {
+                self.colors[end - 3 + i][3] = color[3];
+            }
+        }
         self.smooth |= other.smooth;
     }
 
@@ -2504,6 +2573,29 @@ impl Builder {
         paint: &dyn Fn(Vec3, Vec3, f32) -> Vec3,
         across: Option<Vec3>,
     ) {
+        self.tube_ends(path, radii, sides, paint, across, true);
+    }
+
+    /// A hollow garment crown's mouth must not be capped through its wearer.
+    pub(crate) fn tube_open_start(
+        &mut self,
+        path: &[Vec3],
+        radii: &[Vec2],
+        sides: usize,
+        paint: &dyn Fn(Vec3, Vec3, f32) -> Vec3,
+    ) {
+        self.tube_ends(path, radii, sides, paint, None, false);
+    }
+
+    fn tube_ends(
+        &mut self,
+        path: &[Vec3],
+        radii: &[Vec2],
+        sides: usize,
+        paint: &dyn Fn(Vec3, Vec3, f32) -> Vec3,
+        across: Option<Vec3>,
+        close_start: bool,
+    ) {
         if path.len() < 2 {
             return;
         }
@@ -2571,7 +2663,7 @@ impl Builder {
         }
         // Close the ends.
         for (i, outward) in [(0, -tangent(0)), (n - 1, tangent(n - 1))] {
-            if sampled[i].radius.x <= 0.0 {
+            if sampled[i].radius.x <= 0.0 || (i == 0 && !close_start) {
                 continue;
             }
             let center = sampled[i].center;
@@ -2738,5 +2830,76 @@ mod scoped_opacity_tests {
         };
         assert_eq!(colors.iter().filter(|c| c[3] == 0.25).count(), 3);
         assert_eq!(colors.iter().filter(|c| c[3] == 1.0).count(), 6);
+    }
+}
+
+#[cfg(test)]
+mod fitted_builder_contract_tests {
+    use super::*;
+
+    #[test]
+    fn fitted_append_preserves_existing_geometry_alpha_shade_and_attachment_frame() {
+        let mut target = Builder::default();
+        target.tri([Vec3::ZERO, Vec3::X, Vec3::Y], Vec3::ONE);
+        let previous = target.positions.clone();
+        target.xf = Affine3A::from_rotation_translation(
+            Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            Vec3::new(3.0, 4.0, 5.0),
+        );
+        let mut source = Builder::default();
+        source.with_opacity(0.35, |b| {
+            b.tri_smooth_shaded(
+                [Vec3::ZERO, Vec3::X, Vec3::new(0.0, 1.0, 1.0)],
+                [Vec3::new(0.0, -1.0, 1.0).normalize(); 3],
+                [Vec3::ONE; 3],
+                [0.25, 0.5, 0.75],
+            );
+        });
+        target.absorb_fitted(source, |p| p * Vec3::new(2.0, 3.0, 4.0));
+        assert_eq!(&target.positions[..3], previous);
+        for (i, expected) in [
+            Vec3::new(3.0, 4.0, 5.0),
+            Vec3::new(3.0, 4.0, 3.0),
+            Vec3::new(7.0, 7.0, 5.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(Vec3::from_array(target.positions[i + 3]).distance(expected) < 0.0001);
+            assert!(
+                Vec3::from_array(target.normals[i + 3]).distance(Vec3::new(0.6, -0.8, 0.0))
+                    < 0.0005
+            );
+            assert!((target.colors[i + 3][3] - 0.35).abs() < 0.0001);
+        }
+        assert_eq!(&target.shades[3..], &[0.25, 0.5, 0.75]);
+    }
+
+    #[test]
+    fn open_start_tube_retains_walls_and_tip_without_a_disk_across_the_mouth() {
+        let mut tube = Builder::default();
+        tube.tube_open_start(
+            &[Vec3::ZERO, Vec3::Y],
+            &[Vec2::splat(0.2); 2],
+            16,
+            &|_, _, _| Vec3::ONE,
+        );
+        assert!(tube.inner_surface(Vec3::Y * -0.1, Vec3::Y).unwrap().y > 0.99);
+        assert!(tube.inner_surface(Vec3::Y * 0.5, Vec3::X).unwrap().x > 0.19);
+        let mut closed = Builder::default();
+        closed.tube(
+            &[Vec3::ZERO, Vec3::Y],
+            &[Vec2::splat(0.2); 2],
+            16,
+            &|_, _, _| Vec3::ONE,
+        );
+        assert!(
+            closed
+                .inner_surface(Vec3::Y * -0.1, Vec3::Y)
+                .unwrap()
+                .y
+                .abs()
+                < 0.0001
+        );
     }
 }

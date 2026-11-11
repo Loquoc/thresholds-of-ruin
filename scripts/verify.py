@@ -331,7 +331,7 @@ def ci_partition_steps(steps, profile, partition):
         # Each Python job starts independently of Rust tests. Build every app
         # and the scenario compiler explicitly; the unchanged process harness
         # also checks this build once, normally a no-op. Keep build-tools too
-        # so the complete profile's original command remains covered exactly.
+        # so the complete profile's original stage remains covered exactly.
         command = ["cargo", "build", "--workspace", "--bins", "--locked"]
         if profile == "release":
             command.append("--release")
@@ -396,7 +396,9 @@ def plan(tier, affected, process, xvfb=False, ci_profile=None, ci_partition=None
     if xvfb:
         unittest = ["xvfb-run", "-a", "-s", "-screen 0 1280x1024x24", *unittest]
     discover_all = [*unittest, *options, "discover", "-s", "scripts", "-p", "test_*.py", "-v"]
-    # The Python tool tests are cheap and every tier runs them; process tests are selected.
+    # Module-level tooling discovery also contains composed application owners.
+    # Declare their binary prerequisites before workers start; names alone do
+    # not distinguish pure tooling from actual-process acceptance.
     tool_modules = sorted(p.stem for p in SCRIPTS.glob("test_*.py") if not p.stem.endswith("process"))
     release = {"TOR_TEST_PROFILE": "release"}
     doc = {"RUSTDOCFLAGS": "-D warnings"}
@@ -405,7 +407,7 @@ def plan(tier, affected, process, xvfb=False, ci_profile=None, ci_partition=None
         target = ROOT / target
     compiler_environment = {"TOR_SCENARIO_COMPILER": str(target / "debug" /
                             ("tor-scenario.exe" if os.name == "nt" else "tor-scenario"))}
-    build_tools = ("build-tools", ["cargo", "build", "-p", "tor-server", "--bin", "tor-scenario", "--locked"], {})
+    build_tools = ("build-tools", ["cargo", "build", "--workspace", "--bins", "--locked"], {})
     selected = packages_args(affected)
     host_feature = (["--features", "tor-server/service-contract-host"]
                     if tier == "full" or "tor-server" in affected else [])

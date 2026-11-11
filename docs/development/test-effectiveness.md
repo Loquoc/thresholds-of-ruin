@@ -4460,3 +4460,732 @@ adaptive face checks do not reproduce that shared-neighbor forcing, illustrating
 why a locally valid axis triple is insufficient. A full-cap common-domain audit
 also remained unresolved and was not treated as geometric impossibility. These
 are diagnostic findings only; the same cope acceptance method still fails.
+
+The interrupted collar-only radial experiment was resumed locally on 8 November.
+Its exact preserved source passes the new shoulder-axis regression, but the
+`creatures::cloak::tests` owner has 67 passes and six failures. Three additional
+attachment/cache methods fail before reaching their prior checks; the original
+cope, tick-93 strike and neutral neck-opening witnesses remain unqualified.
+These are repeat executions of the unresolved geometry problem, not new released
+regressions. The original dirty source was preserved byte-for-byte.
+
+An independent current-query audit found a 45.678 mm admissible head-plane margin
+for cope face [6,7,55], exceeding the unchanged 32 mm requirement. Its tangential
+normal is outside the sampled meridional family; projecting the nearest-feature
+proposal into the shared movement cone gets past this face when the complete
+support domain is reprojected. That scoped experiment passed strict release
+Clippy and 82 cloak methods but failed six. The next head query at [26,75,74]
+has a verified 36.510 mm radial-axis witness, while no material-axis witness was
+verified. Optimizer misses remain unresolved, not impossibility proofs.
+
+A second bounded experiment changed only incident shoulder vertices after a
+collar failure and restarted every source/domain certificate from unchanged
+points. It recovered the three additional failures (85 passes, three failures),
+but cope face [5,54,53] then failed inner support after its radial switch. The
+captured tick-93 method still failed at row zero, column three, and the exact
+neutral neck-opening assertion also failed. Neither uniform material axes nor
+this greedy binary choice establishes a consistent shared-vertex fit.
+
+Fresh native neutral and tick-93 captures of the cone-projection experiment
+completed and were visually inspected. Both showed an unacceptable tall mantle
+fold around the head; numerical completion was not visual acceptance. Drape
+phase elapsed wall time was about 72.59 seconds across 93 steps, not a controlled
+performance comparison. Both unaccepted experiments and their evidence remain
+local; their runtime changes were removed while preserving the original dirty
+collar-only work. All clearance, collar, width and shape gates remain unchanged.
+No hosted checks or remote operations were performed in this continuation.
+
+A diagnostic-only full-grid pre-head capture removes the 98-vertex snapshot
+boundary: the joint-position investigation retains all 1029 reference and
+rest vertices, material profiles and same-build source triangles. It also
+preserves the neutral gate fixing final collar XZ to the body-fitted opening.
+An independent checker verified explicit triangle convex-combination witnesses
+covering the entire upward-only interval [0.597000003, 0.648999989] at collar
+vertex 26. Across 104 contiguous subintervals, all endpoint distances are at most
+31.631515 mm, strictly below the unchanged 32 mm clearance. Convexity supplies
+the bound between endpoints. Two intervals use inner cloth and 102 use head
+triangles. This rules out that fixed-opening upward-only corridor with these
+fixed source surfaces, not all test-admissible heights or all garment designs:
+the neutral test has no explicit final-Y lower bound. Jointly changing the
+already-solved main collar is a distinct possibility requiring actual body/armor
+support and both layers' shape constraints. No cape runtime heuristic was added.
+
+Fresh hiking-boot closeups exposed disconnected short X-shaped laces: each cord
+ended between eyelet rows instead of reaching the next row. The emitted-geometry
+regression `boot_cross_lacing_connects_consecutive_eyelet_rows` failed before the
+correction at its first hiking/build-0.75 witness, then passed for all four laced
+shaft styles and three builds. This is one construction defect and one failing
+method, not twelve independent defects. Crossings now join actual consecutive
+rows, with metal eyelets retained at both ends. All 13 footwear methods and
+strict release library/test Clippy passed. Fresh native hiking front/side/rear
+and combat, jungle and snow front closeups completed and were visually reviewed;
+the connected lacing is visibly improved. This does not establish overall boot
+art acceptance: the hiking toe bumper still appears detached in side views.
+
+The subsequent hiking bumper correction replaces its nominal floating ellipse
+with a compact path seated on the emitted upper surface. Its emitted-geometry
+regression first failed at a 27.341094 mm rubber-top offset above the upper
+(not a measurement of the entire air gap). Two intermediate endpoint-coverage
+failures led to retaining lateral overlap and beginning behind the toe station;
+these are iterations of one construction defect, not independent discoveries.
+The final regression checks side-edge continuity, compact nose projection,
+floor bounds and the existing cloth contact envelope across three builds, both
+before and after native mesh softening. All 14 footwear methods and strict
+release library/test Clippy passed. Six fresh native images were inspected:
+front, side, rear, walking, settled and a broad-build front. The bumper now reads
+as a compact seated toe trim rather than a floating hoop, while the connected
+lacing remains intact. All three capture manifests completed with zero cloth
+solver fallbacks. This is local Linux release validation, not full platform or
+overall equipment-art qualification.
+
+A separate counterfactual reconstructed the main inner sheet and reduced its
+45 mm collar arch to 25 mm, without changing production cape geometry. All 49
+collar vertices could individually clear the captured source surfaces, but the
+edge between vertices 25 and 26 failed: its midpoint is 31.757924 mm from a
+head-triangle witness, below the unchanged 32 mm reserve. An independent checker
+verified that explicit witness. The proposal was therefore rejected before
+integration. A valid joint representation must enforce incident edge/face
+clearance and actual body/armor support together; isolated vertex feasibility
+is not a successful attachment solve. Existing cape gates and dirty runtime
+work remain preserved, and cape acceptance is still unresolved.
+
+A subsequent shared-height check repaired that particular collar-edge witness
+without another amplitude change. All 48 collar edges have explicit separating
+planes against every captured source triangle, with conservative bounds of
+32.016254 mm to the counterfactual inner cloth and 32.012534 mm to the head.
+The narrow margin is diagnostic evidence, not production readiness or a solved
+first-band mesh. An independent rerun reproduced the collar certificate.
+A test-only native body-field audit rebuilt both sides of the main shoulder
+mesh at the same fixture: 32,256 barycentric samples gave minimum field values
+of 0.023703892 before and 0.020056251 after the 20 mm arch reduction, with zero
+pointwise body-refit displacement. These positive samples neither certify
+continuous face clearance nor replace native arm, shape and pose validation.
+The new pre-head export exactly matched the earlier captured reference.
+Strict release library/test Clippy passed; the exact posed-cope test retained
+its existing spawn failure at row 0, column 6. No new runtime cape deformation
+was introduced and full incident-face feasibility remains unqualified.
+
+The bounded first-band extension identified a genuine downstream boundary
+conflict rather than proving global infeasibility. With the exported pre-head
+row two frozen, vertex 139 is only 8.345829 mm from an explicit convex point on
+counterfactual inner triangle 160; twelve row-two vertex/source pairs violate
+the unchanged 32 mm requirement. A shared-XYZ shoulder intersection could clear
+its selected collision planes, but its first point folded inward of the collar
+(radius 116.04 mm versus approximately 117.2 mm). It was rejected as a usable
+shape. Neither result was integrated or rendered as a successful cape fix.
+The next coupled patch must include downstream incident rows and preserve
+non-folding shape, not merely solve a collar polyline or isolated contact planes.
+
+A downstream counterfactual audit found source proximity continuing through the
+hem, but identified row three as a clear boundary polyline: its 48 complete
+edges have minimum distances of 32.742126 mm to inner cloth, 67.434251 mm to arms
+and 83.545042 mm to the head. A single bounded upper-patch proposal included
+294 shared XYZ variables and all 288 triangles in bands zero through two.
+Its selected separating-plane and 40 mm coordinate trust-region model produced
+no feasible candidate. This is not a proof of geometric impossibility. No cape
+runtime geometry changed; incident faces and the downstream drape still need
+separate coordinated qualification.
+
+Fresh fedora and skull-cap closeups exposed an end-cap notch at the front of
+closed trim rings. The new emitted-geometry regression failed on the actual
+cap-center vertex before correction. Periodic ellipse frames now share exact
+seam positions and normals without internal cap disks. The regression covers
+all five rim dimensions and passes; its inspection count was corrected to
+account for mesh vertex deduplication, without changing the surface tolerance.
+This is one shared construction defect, not five independent discoveries.
+Strict release library/test Clippy passed. The headwear owner run has 21 passes
+and one failure: `red_feather_vanes_bend_at_different_stations_and_sweep_outward`
+reports a shoulder 3.80005 mm below its path where the unchanged gate allows
+2 mm. The four standalone plume construction functions are byte-identical to
+the pre-rim source; no broad headwear pass is claimed and that failure remains
+open. Twelve fresh native front/side renders across six headwear styles were
+reviewed, with full-size fedora and skull-cap front comparisons confirming the
+visible seam is gone. No general art, cape, Windows or hosted qualification is
+implied by this local trim correction.
+
+The remaining plume shoulder failure was traced to the red feather frame:
+its backward sweep reversed the center-ridge direction, producing a trough.
+The old ridge assertion repeated that same generator cross-product and therefore
+endorsed the wrong side. Replacing it with an independent head-local upward
+rise at the known red/cream shoulder fixtures kept the 2 mm requirement and
+failed before the correction (red rise -2.728224 mm). The existing emitted
+shoulder witness also retained its original failure and unchanged tolerance.
+Reversing only the red frame corrects the ridge direction; cream geometry,
+path shapes, widths, crown clearance and other acceptance gates are unchanged.
+All 22 headwear methods and strict release library/test Clippy now pass. The
+two failing methods identify one ridge-orientation defect, not two independent
+bugs. The closed-ring regression and actual-face/crown witnesses remain green.
+
+Exact rational certificates subsequently isolated eleven source-only four-plane
+conflicts in the saved cape upper-patch model, before any shape constraints or
+coordinate bounds are involved. At vertex 74, the recorded head/inner planes
+sum with positive weights to an approximately 3.987857 mm contradiction.
+The independent checker reproduced the certificates. This rejects those plane
+choices, not physical cloth feasibility; weaker winding gates or a larger
+trust box cannot remove those particular cores. Ten other local conflicts
+depend on diagnostic upper-Y bounds and remain distinguished from native
+collar constraints. No cape runtime candidate was integrated.
+
+Three pre-correction native plume views and five final views (front, side,
+rear, walking and settled) were inspected at full size. The final red shoulders
+show the raised ridge profile without new visible crown penetration; the
+cream collar and helmet attachment remain intact. The plume still has an
+angular, thin-vane appearance in close side views, so this closes the specific
+orientation failure rather than claiming overall plume art acceptance. Both
+final capture manifests completed with zero cloth solver fallbacks. Source
+hashes matched the tested inputs after build and capture.
+
+The plume side-view follow-up adds a controlled symmetric roll to the outer
+red vanes, smoothly returning to zero at their roots and tips. Existing paths,
+widths, cream geometry and acceptance tolerances are unchanged. A straight
+backward-vane fixture first failed actual side-ray hits 8 mm above/below its
+centerline, demonstrating the prior edge-on construction. The correction passes
+that check and all 23 headwear methods, including existing ridge, crown and
+silhouette witnesses; strict release library/test Clippy also passes. Five
+fresh full-size native views were reviewed. The red side profile now exposes
+recognizable vane surfaces rather than predominantly thin lines, while frontal
+mass, swept tips and helmet attachment remain intact. This visual refinement
+is retained; full platform or overall equipment-art acceptance is not claimed.
+
+A bounded cape follow-up jointly selected positions and normals for the exact
+vertex-74 conflict core. Its four core face/source margins pass 32.000100 mm
+with positive local shape and radial order, but an exhaustive 19-face neighbor
+audit rejects integration on 15 explicit face/source pairs. A head witness is
+31.452906 mm; unchanged boundary vertex 76 has 27.695444 mm inner clearance.
+An independent checker reproduced the core and rejection witnesses. This is
+progress beyond incompatible fixed planes, not a qualified garment solution:
+all incident sources and a larger or independently qualified boundary must be
+included. No production cape changes or remote operations were made.
+
+One bounded source-activation expansion included nine shared vertices and the
+19 original/new collision planes. It did not satisfy the active constraints;
+a complete 31-face audit found 22 explicit failures, independently reproduced.
+The next unqualified lateral boundary vertex has 27.708077 mm inner clearance,
+and a near-collar face retains a 31.460962 mm head witness. Local shape/radial
+checks passing do not qualify this candidate. No runtime integration occurred.
+Repeating small neighborhood expansions without a qualified boundary and
+complete source-activation strategy is not a supported fix path.
+A separate unchanged-source shirt audit passed all 14 shirt methods and reviewed
+12 native front/side/rear views across both styles and male/female wearers. No
+new obvious shirt defect was identified in those cases; no shirt edit was made.
+
+Fencing hand piping now follows the emitted open/closed palm surface instead
+of three nominal X offsets. Its first-red emitted-geometry check found an outer
+trim hit 4.242772 mm beyond the glove surface at build 0.83 (not a measurement
+of the entire air gap). Short fitted segments retain the authored decoration
+path while keeping its raised surface within the specified thin trim envelope.
+All nine glove methods pass, including both hands, two scales, open/closed
+palms and native smoothing; strict release library/test Clippy passes. Two
+full-size before/after hand closeups plus four final wider/motion views were
+reviewed. The visual tightening is subtle and retains the glove/cuff silhouette;
+no broader art or platform acceptance is claimed. An initial camera setup
+framed the legs instead of the hands and was corrected before visual review.
+
+The next cape boundary strategy uses full-width upper/downstream blocks rather
+than further lateral patch expansion. An independent checker verifies unique
+ownership of all 1,920 middle-sheet faces (288 upper, 1,632 downstream), sharing
+49 row-three vertices and 48 oppositely oriented edges. A conservative 0.5 mm
+per-vertex movement region retains at least 32.242126 mm inner clearance for
+that boundary polyline against the static captured sources. This is not an
+adjacent-face, body-membership or lining certificate. Boundary normals depend
+on both row two and row four, so final normals/lining must be rebuilt once from
+one canonical mesh after an atomic combined acceptance. The next native probe
+requires a real pinned-row interface that reports required boundary travel;
+array slicing, zeroed axes or clamping away that travel is not qualification.
+No cape production code or gates changed in this checkpoint.
+
+The riding-glove follow-up found the same nominal-offset defect independently:
+its new emitted-surface regression first failed with a 5.461898 mm outer stitch
+relief at build 0.83. Both dorsal paths now follow the actual palm with short
+segments; reinforcement and cuff recipes are unchanged. All ten glove methods
+pass, including open/closed hands, both sides, two builds and smoothing. Strict
+release library/test Clippy passes. This is a separate appearance witness of
+the surface-fitting issue, not a broader glove or platform qualification.
+
+A test-only native cape probe now owns downstream bands three through nineteen
+and rejects any positive pinned-row travel before committing coordinates. Three
+synthetic contract methods pass: full owned-face traversal, transactional pin
+rejection, and allowed descendant travel without boundary drift. The first
+positive-travel fixture placed its obstacle too near the boundary; the solver
+correctly rejected 8.816228 mm of requested pinned travel. Moving that synthetic
+obstacle farther downstream corrected the fixture, without weakening any gate.
+All 49 real row-three points are unambiguously outside the head/arm components.
+However, the first owned face requests 33.171605 mm of fixed-vertex travel from
+the baseline inner support, or 7.272271 mm with the lowered-main counterfactual.
+Both attempts stop after one of 1,632 faces, preserving the candidate exactly.
+The baseline regenerated source matches the retained source exactly. These are
+native movement/certificate conflicts, not a full-face clearance result or a
+proof that alternative joint geometry is impossible. Production cape behavior
+and its existing unresolved failure remain unchanged.
+Riding-glove native review covered both full-size hand closeups before/after
+and walking/settled views after the change. The stitching follows the palm more
+closely, a subtle local improvement; the existing cuff and wider outfit remain
+unchanged. All captures completed with zero solver fallbacks. This does not
+qualify the unrelated base-outfit shoulder/cape geometry visible in those views.
+
+The old-glove repair decoration had a further nominal-offset seating defect.
+An independent bare-palm versus decorated-palm ray test first found 11.487203 mm
+outer stitch relief at build 0.83. The repair seam and all six stitches now fit
+the original palm before any trim is emitted, avoiding self-fitting at crossings.
+The regression checks each stitch center and both endpoints over open/closed
+hands, both sides, two builds and smoothing. All eleven glove methods and strict
+release library/test Clippy pass. This preserves the authored repair path,
+thread widths and the existing cuff, grip and hand geometry.
+
+A bounded cape alternative-normal experiment holds frontier vertices 147/148
+fixed and moves descendant 196 about 3.27 mm in XYZ. Its first triangle has at
+least 32.000100 mm Euclidean distance from every retained source triangle, with
+positive local orientation and station ordering. The incident patch is still
+rejected: adjacent faces remain below 32 mm. A fixed descendant, vertex 245,
+has a verified 22.070409 mm inner-distance witness, so changing 196 alone cannot
+qualify that downstream face. This separates the native scalar-plane request
+from an unavoidable boundary displacement claim. It does not replace native
+inner-domain/membership semantics or provide complete shape/render acceptance.
+No cape production edits or further incremental expansion were made.
+Old-glove before/after closeups and final walking/settled native views were
+reviewed at full size. Repair details sit closer to the palm while retaining
+the repaired-leather appearance; cuff and wider-outfit silhouettes are unchanged.
+Captures completed with zero solver fallbacks. No overall outfit or cape visual
+acceptance is implied by this localized refinement.
+
+Closed glove cuff rims and straps used open tubes with coincident end caps.
+The first-red mesh inspection found a cap-center vertex directly on the trim
+centerline at (0.045, 0.12, 0). A dedicated periodic cuff-ring mesh now shares
+its first/last frame exactly and emits only the tube wall. Open hand stitching,
+framed buckles, cuff wall/support fit and authored widths are unchanged. The
+new regression inspects complete emitted rings, including a rippled old-glove
+lip and the wider strap, and verifies outward noncollapsed face winding.
+All twelve glove methods and strict release library/test Clippy pass. An initial
+new-test Clippy failure for constant chunks_exact was corrected with as_chunks;
+it was a test-code lint failure, not a geometry failure or waived check.
+
+The next cape audit examines all 833 downstream reference vertices and 1,632
+owned faces against the exact retained native lowered-main, arm and head meshes.
+It records 730 individually violating vertices and 11,052 explicit convex
+face/source witnesses across 1,462 faces. Two disjoint failing faces avoid those
+730 vertices, establishing a 732-vertex minimum for covering these saved movement
+obligations. This is not a minimum for complete garment feasibility or a finding
+about a successfully fitted runtime cape. Every face in bands five through
+nineteen fails in this reference, including the hem; freezing a lower boundary
+is unsupported. Full-width shared-coordinate ownership and conservative swept
+source domains are required before further joint solving. Independent witness
+and topology/count checks pass; no nonlinear solve, runtime edit or relaxed
+native clearance/domain/shape acceptance occurred in this audit.
+Final native cuff review covered four full-size right-hand closeups and six
+secondary left-hand/motion views, with before/after comparison of the visible
+riding/fencing joins. The small join notch is removed and all four cuff styles
+retain their shape and decoration. Captures completed with zero solver fallbacks;
+this is localized trim validation, not acceptance of the wider base outfit.
+
+Riding-boot topline and ankle trim had the same coincident open-tube cap issue:
+the first-red emitted-mesh check found a centerline cap vertex at (0, 0.28, 0.065).
+These loops now use the periodic closed-ring primitive extracted unchanged from
+the validated glove cuff implementation. Both fitted and authored riding lips
+use it; the open rear seam and boot/support geometry are unchanged. All fifteen
+footwear methods, twelve glove methods and strict release library/test Clippy
+pass after the shared-helper extraction and boot change.
+
+Full-width cape solver readiness has an additional representation prerequisite.
+Native inner support is not a finite 32 mm proximity query: hanging bands use
+radially unbounded angular/height prisms with complete clipped-polygon support.
+The bounded reconstruction retained 39,858 polygons, including 17,133 face/polygon
+pairs beyond the Euclidean proximity AABBs across 1,215 faces. Five explicit
+excluded-but-inside-prism witnesses independently verify this distinction;
+native float32/domain parity of that reconstruction is not established. A free
+XYZ solver needs a native-equivalent swept-domain/plane-admissibility contract
+and physical/shape oracle before its candidates can qualify. No optimizer was
+run with these obligations missing, and no runtime gate was changed. This is a
+representation prerequisite, not a proof of geometric infeasibility.
+Five final riding-boot views (front, side, rear, walking and settled) were
+reviewed at full size, with a front before/after comparison. The trim join is
+subtly cleaner; shaft/calf silhouette and planted foot shape are unchanged.
+Both freshly rendered fencing-glove closeups are byte-identical to the prior
+accepted cuff images after the shared-helper extraction. Captures completed
+with zero solver fallbacks. These checks do not qualify unrelated garment art.
+
+A read-only native visual pass covered walking shoes, hard shoes, jackboots,
+mud boots and buckled boots in front/side/rear views. Fifteen captures completed
+with zero solver fallbacks; five views were inspected full-size and the full
+set in a contact sheet. No additional definite fit defect was established, so
+these recipes were preserved. The prior exact-source fifteen footwear methods
+remain the focused test evidence; no new Rust build or broad acceptance pass
+was implied by this audit.
+
+A separate support-only cape prototype exercises eight synthetic contract groups:
+expanded angular/height regions, radially unbounded inner support, clipped edge
+intersection extrema, union with original source domains, original-axis rejection,
+hemisphere rejection, arm/head swept reserve, and receipt-only noncommit behavior.
+The prototype passes independently rerun checks and cannot return accepted
+geometry without the missing native physical/shape oracle. It does not establish
+native float32 parity, a full-width solve, pose validation or rendered acceptance.
+
+A combined-equipment motion audit covers 28 native views across small female
+and broad male fixtures: walk, stop, strike, change boots/gloves, reverse and
+settle. Manifest checks verify equipment/strike state, 308 finite positive
+joint transforms, zero solver fallbacks and exact pose identity between cameras
+at the same tick. All views were inspected in contact sheets, with strike/change
+views also full-size. No new equipment-specific animation defect was established;
+this is sampled state/pose evidence, not continuous smoothness/collision proof
+or acceptance of existing base-outfit/cape artifacts. The first broad-body scene
+used unsupported build 4 and was correctly rejected before rendering; correcting
+the fixture to supported build 2 produced the reviewed captures.
+
+The cape support-domain prototype now has a cfg(test)-only native per-face
+oracle. It retains baseline/new domain unions, radially unbounded hanging inner
+support and authoritative full clipped-polygon projection, rejecting malformed
+regions, moved pins and inadmissible normals. Three new oracle tests, three
+pinned-boundary tests and three existing projection/domain-growth/membership
+methods pass, along with strict release Clippy. One real frontier face was
+read-only audited with two pinned vertices and a five-millimetre descendant box.
+Its chosen axis-derived normal has negative support slack (about -50.599 mm for
+the lowered-main source), not a clearance measurement or minimum over normals.
+No candidate, full grid or physical/shape/membership acceptance is implied.
+The original posed-cope failure remains. Incidental rustfmt-only changes to
+attachment.rs were inspected and retained; no assertion threshold changed.
+
+A closer riding-boot rear view exposed the vertical seam extending above the
+intentionally dipped lip trim. A material-isolated emitted-mesh regression first
+failed with seam top -0.0732425 versus lip center -0.083799995 in the small male
+fixture. The seam now terminates at the dipped lip center instead of near the
+higher shaft edge. The regression checks its endpoint and continuous relief
+between stations below the lip across both sexes, small/broad builds and bare/
+trousered supports. All sixteen footwear methods and strict release Clippy pass;
+shaft/body support, trim radius and existing contact envelopes are unchanged.
+
+The native test-only cape oracle now has complete downstream batch accounting:
+all 1,632 faces and 833 free vertices, immutable revision/source association,
+pinned/unowned rejection and explicit unsupported statuses. Four batch tests,
+three per-face oracle tests and three pinned tests pass. The real unchanged
+baseline reports 24 chosen-normal support passes, 1,608 failures and no unsupported
+faces, with exact source/reference identity. This is complete support accounting,
+not a solved mesh, optimized normal search or physical/shape/volume acceptance.
+The final rear closeup confirms the protruding seam stem is gone. Five secondary
+front/side/rear/walking/settled views retain the boot shape and planted contact;
+all captures completed with zero solver fallbacks. This was a local seam endpoint
+correction, not a change to calf fitting or animation.
+
+A native side-view audit found wrapping tails detached from the torso: their
+root used a hip-local height and retained skirt depth instead of the emitted
+upper winding. One new emitted-surface regression failed at zero contacts; a
+height-only candidate failed the same method again (one production root cause,
+one distinct method, two failed executions). The correction fits tail roots to
+the same retained torso support as the upper wraps, then eases to skirt
+clearance while preserving the hem. The regression requires at least five
+sampled one-millimetre stations within four-millimetre cloth thickness for both
+tails across six body variants, with ordinary and inflated retained layers. All
+ten outerwear methods, two outerwear recipe methods, fourteen shirt methods and
+strict release Clippy pass. Native neutral/walking/strike views of male and
+feminine fixtures confirm visible attachment; hanging shape styling is not an
+overall art acceptance. Non-robe apron knee penetration remains separately open.
+An initial root-workspace Cargo invocation failed offline package resolution
+before compilation; the separate client-3d manifest invocation succeeded. That
+setup failure is not behavioral regression evidence.
+
+
+## Headgear cavity and rear attachment correction, 8 November 2026
+
+The user's native-render review found that equipment crowns were too wide and
+perched above the forehead. The authored catalog reserved scalp-hair space while
+that hair was suppressed. A deliberate brow-seating first-red found no leather
+crown at the actual brow height. Nearest cavity-wall rays, rather than farthest
+outer-surface hits on brims and handles, then exposed solid tube caps and brim
+geometry crossing the wearer. The correction uses open crown mouths and annular
+brims, keeps a separate low-fedora roof allowance, and preserves ear space in
+lower guards instead of applying one uniform shrink.
+
+The new fit tests compare emitted human/centaur skin across both sexes and three
+builds, preserve the visor's actual eye window, bound brow/guard gaps, and probe
+roof clearance separately. Initial crystal fixtures incorrectly expected its
+short temple tabs to extend to the jaw; this was a fixture error, not a missing
+full-face guard. A conical seam witness also needed correction for the actual
+ten-sided crown. These failures are not extra production-defect counts.
+
+Independent review identified a tilted cone mouth above a horizontal brim;
+a horizontal first segment and a ray beyond the lower band's reach cover that
+join. Native side/rear review then rejected the translated flat nape panel's
+projecting corners. A separate first-red found no rear-band intersection across
+part of the crown's top arc. The curved replacement shares the crown and cheek
+edge rows, rather than concealing the gap through enlargement. Existing periodic
+rim and authored plume/crest regressions remain in place; helper tests check
+normal/attachment transforms, alpha/shade retention and open versus closed tubes.
+
+This is a bounded fit correction, not a completed anatomy-driven helmet family
+or whole-catalog art acceptance. The user explicitly judged the first skull-cap
+comparison an improvement but not perfect. Two additional mantle-head tests
+fail in the legacy cloak path with infeasible bounded collar attachment. Their
+fixtures select no headgear and cape source was unchanged, but no exact-before
+comparison qualifies them as proven pre-existing failures. They remain unresolved;
+no full local or hosted verification pass is claimed.
+
+### Retained equipment hair, 8 November 2026
+
+The headgear seating checkpoint exposed a separate hair-identity defect: the
+Equipment branch replaced every covered feminine hairstyle with a braid rooted
+at the older winged helmet's crown. The exact thin feminine seed-77 crested scene
+selected hair 4 (bob), yet displayed a braid through the fitted rear band. A
+first-red regression measured the erroneous hair reaching y=.247 above the
+rear band's lower boundary y=.175.
+
+The equipment-only retained-hair recipe now selects the wearer's actual style,
+leaving covered scalp clumps hidden. Rear roots use the face's sculpted surface
+and the helmet's shared rear-opening geometry; bun, plait, ponytail, loose locks
+and bob retain separate silhouettes. The normal plait's anatomical length is
+preserved rather than preserving the erroneous replacement braid's endpoint.
+Legacy winged-helmet recipes and the newly fitted helmet dimensions are unchanged.
+
+Independent tests compare near/far intersection intervals of emitted hair and
+armor, not just exterior distance, with positive style silhouettes and a real
+head-recipe witness. The original bob regression therefore cannot pass simply
+by deleting all hair. Native front/side/rear evidence, exact hashes and local
+check outcomes are recorded in the local retained-hair receipt. Art acceptance
+remains open; these selected checks do not qualify the unrelated apron or legacy
+cloak failures, a full platform matrix or hosted CI.
+
+Native Centaur views exposed a production-wiring blind spot in the initial
+Human/Centaur helper tests: the quadruped rider emitted a second fixed braid
+instead of calling the new retained-hair helper. This was the same root/identity
+bug through another caller, not a separate geometry defect. A first-red test
+using `spawn_one(Centaur)` and the actual head-joint mesh failed on hair 2 (bun)
+acquiring a long tail. Both production callers now use the same helper. A thin
+scalp-following prefix sits inside the rear cavity, joining the visible style
+to the rear opening without an artificial bare-scalp strip. Clearance tests
+check actual near/far mesh intervals, allowing that safe interior prefix rather
+than requiring every hair vertex to sit below the rear band.
+
+
+### Native apron posed-knee contact (2026-11-08)
+
+The emitted native apron regression reproduces the actual 50 Hz review pose at
+ticks 20 and 53, including preview body adjustment, yaw and captured leg matrices.
+Before production contact, actual rendered thigh/shin triangles penetrated the
+apron back face by 139.4 mm and 87.5 mm. Earlier random-yaw fixture failures were
+setup failures, not this behavioral first red. The independent oracle samples
+rendered face interiors; the solver uses clipped triangle overlap maxima.
+
+Four apron tests cover exact posed clearance, face-interior obstacles, paired
+front/back thickness and duplicate corners, fixed local X/Y and waistband pins,
+explicit pin/shape rejection, private meshes and wearer isolation, changed drape
+frames, immutable baseline restoration, and actual rotated robe/apron pairs on a
+robe cache hit with support removed. Canonical pairing uses rest topology, not
+round-tripped pose coordinates. A synthetic isolation obstacle initially exceeded
+the existing shape limit; its fixture was corrected without weakening that gate.
+The loading transfer witness includes the new apron mesh/entity references.
+
+Strict release Clippy and 51 selected apron, outerwear, equipment-layer, robe,
+loading and animation tests passed. Native before/after captures cover neutral,
+walking and strike front/side/rear for male and feminine aprons, robe/apron, and
+mummy controls: 36 after frames, complete manifests, zero contact fallbacks.
+The repaired walking/strike knees remain behind the apron in inspected views.
+All nine robe/apron and nine mummy control PNGs are byte-identical, as are all
+six native apron neutral views. Source/binary hashes, logs, images and exact
+exits are retained in the local apron-knee receipt. This is projected directional
+clearance, not arbitrary Euclidean separation or qualification of unsampled
+extreme poses, platform matrices, performance or hosted CI.
+
+### Native boot calf containment (2026-11-08)
+
+Native Human tall feminine boots exposed the trouser calf through their shafts
+in neutral, walking and strike views. The emitted-material regression failed on
+27.93 mm of mesh-local penetration across six Human sex/build fixtures, while
+explicitly retaining both the actual cloth and leather meshes. Foot/sole code
+was not changed. The native shaft previously skipped the resolved-calf fitting
+used by equipped footwear.
+
+An initial directional ray-fit candidate passed the ordinary emitted regression
+but was not accepted: an adversarial support triangle strictly between fitter
+rows and rays failed its clearance assertion. The final fitter clips complete
+emitted support triangles into height/angular cells and uses conservative radial
+maxima for all four cell corners. A separate edge/triangle crossing oracle and
+interior samples cover the adversarial face. The allowance is radial in authored
+coordinates, not a general Euclidean cloth-clearance claim. Opposite sectors
+retain the authored silhouette rather than expanding the whole circular boot.
+
+Cuffs, straps and buckles follow the fitted profile. Every emitted trim triangle
+must lie wholly inside one convex robe core capsule, not merely have separate
+vertices in different bounds. The actual calf/leather regression asserts matching
+mesh-child frames. Existing bare-leg shaft acceptance now checks continuous
+leather over height instead of requiring a single tall triangle, preserving the
+shaft-versus-separated-straps distinction under changed tessellation. Fringed
+boot recipes remain on their unchanged path and are outside this repair.
+
+Strict release Clippy and 109 selected boot, wardrobe, equipped-footwear, layer,
+robe, apron and support tests passed. Native neutral/walk/strike front/side/rear
+captures cover small/medium feminine and small masculine bodies plus an equipped
+riding-boot control: 36 complete frames, zero contact fallbacks, with all nine
+equipped-control PNGs byte-identical. Inspected feminine side views show continuous
+leather over the previously exposed calf. Exact source/binary hashes and native
+evidence are retained in the local native-boot fix receipt. This selected checkpoint
+does not qualify unsampled recipes, a full platform matrix, performance or hosted
+CI. Preflight failures from helper placement and a test-only accessor were fixed
+before linking; they were not counted as behavioral first-red evidence.
+
+
+### Barbarian fur-topped boot fit (2026-11-08)
+
+Recipe inspection found boot-top fringe only in the Barbarian study wardrobe,
+not in a default native model outfit. Masculine trouser calves visibly protruded
+below the fur cuff. An actual emitted matte-versus-satin regression, restricted
+to the lower shaft below the fur, failed by 5.80 mm in mesh-local coordinates.
+The existing conservative shaft fit now covers this fur-topped recipe as well.
+
+Fur roots raycast actual emitted leather triangles at their own height, rather
+than using a top-ring radius or a circular contact envelope. The original lock
+lengths, widths, stagger and directions remain intact; the default elliptical
+callback preserves shoulder fur. A separate emitted undercoat boundary allows
+nearest-wall checks on continuous underfur without confusing sparse lock tips
+with cuff coverage. Tests check 192 off-grid undercoat angles, all 256 actual
+lock roots, and each complete fur triangle inside one convex robe contact
+capsule, across six Human sex/build fixtures. Undercoat attachment is a sampled
+proximity bound, not a continuous proof of every decorative contact.
+
+Strict release Clippy and 117 selected boot, fur, wardrobe, equipped-footwear,
+layer, support, robe and apron tests passed. Native front/side/rear captures of
+neutral, walking and strike cover Barbarian Human feminine/masculine builds 0
+and 2, plus plain and equipped-boot controls: 54 complete frames, zero contact
+fallbacks. All 18 control PNGs are byte-identical. Inspected views show continuous
+leather below the fur with its authored style and foot/heel silhouette retained.
+Exact source/binary hashes, first-red logs, manifests and images are retained in
+the local fringed-boot receipt. Other body recipes, future fringe kinds, full
+platform suites, performance and hosted CI are not qualified by this checkpoint.
+
+## CI composed-owner and prerequisite correction, 10 November 2026
+
+Migration validation exposed two related harness/planning gaps: the canonical
+inventory treated the real campaign and encounter study classes as pure tooling,
+and local debug plans declared only the scenario compiler before those owners.
+The cold checkpoint errored in six methods because the arena binary and pinned
+search environment were unavailable; these were setup errors, not gameplay
+assertion failures. Repeated executions and thief subcases are not extra roots.
+
+Both composed classes now have explicit application ownership; their source
+fixture/controller classes remain pure. Local debug prerequisites build all
+ordinary binaries before tooling workers, preventing ordering-dependent bootstrap
+and an implicit worker build. New metadata, bounded selection and real CLI-plan
+first-red regressions reproduce the intended behavior; existing campaign and
+arena acceptance methods exercise real applications. New readiness admission
+tests run the actual guard in child Python processes, reject drafts/invalid
+readiness and preserve non-PR qualification. No assertions or no-build guards
+were weakened.
+
+The recipe change also exposed one stale expectation in
+`test_verify.Tiers.test_real_cli_debug_plan_builds_rule_compiler_before_python`:
+the actual full-debug CLI correctly declared the expanded application build,
+but the test still expected the old single-binary command. This is one stale-test
+root, one distinct method and one observed failed execution in this repair
+window; the correction retains the ordering witness and expects the new recipe.
+Intentional first-red work and new test-helper setup mistakes are separate.
+Unrelated unreviewed owner classes remain a conservative exhaustive fallback;
+the local focused checks do not establish hosted qualification or cost savings.
+
+The broader checkpoint also caught one stale persistence-driver root in
+`test_checkpoint_process.CheckpointProcesses.test_full_limit_many_actor_play_crosses_retention_window_and_restarts`.
+After the many-actor run, an explicit save correctly returned `SaveBehind` while
+queued, but the test asserted immediate success. The repair uses the existing
+durable `flush_save()` barrier at periodic/final saves; it still rejects real
+storage failures and retains checkpoint retention bounds, 27 actors, history and
+exact disclosed-state restart assertions. This is one distinct failing method
+and one observed failed execution before repair, not a gameplay/save-format
+defect or an authorized waiver. The failed broad run remains failed evidence.
+
+## CI owner backlog review, 10 November 2026
+
+The [source/assertion review](ci-owner-review.md) covers all 53 remaining classes:
+50 tooling owners and three inherited real-application owners. The independent
+catalog records every direct witness method; registrations preserve complete
+current-class selection, native/application boundaries and all assertions. The
+198 reviewed tooling methods passed with empty application discovery and the
+existing compiler guard; the seven application methods passed with real
+compiler/server/client processes. Whole-inventory regressions and actual Python
+planner processes exercise supported tooling scopes, retained application/native
+and release witnesses, and exhaustive fallback for unknown or unsafe inputs.
+Two literal equipment/model report validator routes also have explicit dependency
+edges. Intentional first-red ownership/edge regressions are not product defects.
+
+The broader guarded tooling probe exposed two test-harness roots in
+`test_ci_no_build.ToolingNoBuildTests`: direct nested shim calls reached the outer
+guard instead of the fixture guard, and dispatch mocks covered only the
+non-intercepted forwarding branch. Five distinct methods failed in one probe
+(four failures and one error); repeated assertions are not extra roots. The
+repair starts shim invocations in a child with the fixture environment and tests
+both forwarding branches, offline arguments, exact forwarding counts and denied
+commands. Normal and nested real-process self-tests pass. The production guard
+is unchanged, and the failed probe remains failed evidence. The initial local
+probe driver's Windows command-length error occurred before tests; using the
+runner's existing file input repairs that local driver, not production code.
+
+This removes the global unreviewed-class fallback for the current inventory;
+unresolved dependency references and verification controls still require full
+coverage. It does not narrow qualification for this import, establish hosted
+savings or qualify the preserved unpublished 3D changes. Actions remains disabled.
+
+## Exact-tree selected/native proof extension, 10 November 2026
+
+The new [proof contracts](ci-proof-reuse.md) preserve fresh PR coverage, typed
+full/selected/native authority, independent lane/result accounting and ordinary
+fresh fallback. New tests mutate merge/run/artifact identity, attempt cohorts,
+compiler/configuration, native command/source/result records and integration-job
+status. Actual subprocess transport, CLI fallback/rejection, workflow authority
+guards and a real guarded selected tooling worker cover their process boundaries.
+These fixtures are not native rendering or hosted qualification evidence.
+
+First-red worker tests caught one integration race in the implementation window:
+fresh selected execution queried retained-proof availability again at dispatch
+and completion. Two distinct methods each failed once at that intended boundary;
+fresh workers now rederive only normal Git selection, while scope alone admits
+reuse. An explicit native cancellation/authority guard also has a failing-first
+process witness. This feature work is not a shipped gameplay-defect count.
+
+One existing full-role oracle needed the new skipped selected-seal job (one
+distinct failing method, one execution). A native-seal fixture initially omitted
+its PR number (one distinct method/error and one execution); its positive fixture
+was repaired without changing production validation. Whole-inventory selection
+correctly failed closed until the new source/fixture/metadata-only test owner was
+reviewed and registered; no unknown-owner guard was waived. No native acceptance
+test, outcome assertion or application requirement was removed. Earlier failed
+logs remain failed evidence; local green fixtures do not qualify the preserved
+unpublished 3D changes or a fresh cross-platform/release matrix.
+
+Final review added a failing-first condition regression for a related resource
+boundary: always-running required checks must explicitly cancel their expensive
+steps. That one method failed once before the fix. Native build/test/cache steps
+now require `!cancelled()` and a final cancellation guard prevents a green check;
+the guard does not keep superseded native work running. This is implementation
+review evidence, not an additional gameplay defect or a native-test waiver.
+
+## Shared native compilation owner, 10 November 2026
+
+[Shared compilation](3d-compilation.md) retains exact compatibility commands,
+native assertions and separate feature/profile artifacts while moving automatic
+native jobs into the core DAG. Tests independently cover same-run context and
+recipe/log binding, failure stops, unchanged selected-receipt transport, native
+aggregate admission and current-compiler compatibility. Benign actual child
+processes exercise successful/failed command execution and the actual core gate.
+
+Integration validation caught two workflow-oracle adjustments: the compatibility
+compiler can now come from its validated native producer, and relocated native
+caches retain their stricter main-only policy. Two distinct methods failed in one
+checkpoint; repeated cache subcases are not extra roots. These are policy/fixture
+integration adjustments, not gameplay defects. The native budget test also needed
+its renamed scope output (one distinct failing method and one execution).
+
+A failing-first regression exposed an inherited status-condition defect:
+`!cancelled()` suppresses the default success condition, so costly native steps
+could continue after earlier readiness/setup/test failures. They now explicitly
+require `success()` as well. One regression method failed once before repair;
+no test assertion or native outcome was waived. New admission and compiler
+regressions retain known core-only scope on discovery failure and reject sharing
+an incompatible compiler. These deliberate first-red cases do not inflate shipped
+defect counts.
+
+Automatic review rejected pattern-based removal of a leftover workflow-test block.
+The safe repair retained every original path-negation/mixed-change assertion as a reference test and linked
+default cases to the new admission predicate. No removal was executed. Local
+fixture/process results do not qualify the preserved unpublished 3D source or
+claim a fresh four-role native matrix or measured hosted savings.
+
+The first broad quick checkpoint caught one additional stale dependency-list
+oracle in `test_verify.CiWorkflowContract`. It failed directly and blocked two
+shell-selection/diagnostic methods that call it (three failing methods, one
+shared assertion root). The exact expected list now also requires `native_verify`;
+every existing dependency, shell assertion and failure-outcome case remains.
+That checkpoint stopped before process tests and remains failed evidence.

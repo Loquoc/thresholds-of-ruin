@@ -905,6 +905,27 @@ impl Kit<'_, '_, '_> {
                     self.study_hand_contacts,
                 ));
         }
+        if !self.rig.aprons.is_empty() {
+            let path = match j {
+                J::LegL | J::LegR => Some(vec![j]),
+                J::ShinL => Some(vec![J::LegL, j]),
+                J::ShinR => Some(vec![J::LegR, j]),
+                J::FootL => Some(vec![J::LegL, J::ShinL, j]),
+                J::FootR => Some(vec![J::LegR, J::ShinR, j]),
+                _ => None,
+            };
+            if let Some(path) = path {
+                self.rig
+                    .apron_contacts
+                    .push(super::visual_contact::Part::from_model(
+                        path,
+                        &model,
+                        self.meshes,
+                        proportion,
+                        true,
+                    ));
+            }
+        }
         if j == J::Head && self.study_head_contacts {
             self.rig
                 .cloth_head_contacts
@@ -1062,6 +1083,8 @@ pub fn spawn(
             style: look.style,
             scale: look.scale,
             robe: None,
+            aprons: Vec::new(),
+            apron_contacts: Vec::new(),
             cloaks: Vec::new(),
             hair: None,
             visual_contacts: Vec::new(),

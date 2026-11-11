@@ -6,6 +6,19 @@ work from implemented design records. “Implemented” does not mean balanced,
 fully optimized or qualified for every workload. Follow the
 [testing policy](development/testing.md).
 
+Hosted Actions remain disabled during account migration. The local CI candidate
+now declares composed application-test ownership and prerequisites, admits
+expensive PR work only after readiness, groups minor/patch dependency updates,
+and bounds native-client log retention. Advisory checks run with core CI or by
+manual dispatch. The [usage review](development/ci-usage.md) covers hosted workloads.
+Exhaustive hosted qualification remains explicit, release-driven or required by
+change risk. See the
+[CI reduction review](plans/hosted-ci-reduction.md) for implemented controls,
+the completed 53-class ownership review, locally implemented selected proof
+reuse and the Linux debug 3D smoke check. Domain-specific selection remains
+future work. No hosted
+qualification or measured hosted saving is claimed.
+
 **Current formats:** protocol **69**, save format **68**, scenario format **37**,
 ruleset **`interactions-v58`**, scenario validator **`tor-scenario-50`**.
 Unsupported identities are rejected rather than migrated. Rules-identity

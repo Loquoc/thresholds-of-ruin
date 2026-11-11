@@ -17,7 +17,7 @@ import ci_scope
 import parallel_tests
 
 ROOT = Path(__file__).resolve().parent.parent
-POLICY_VERSION = 3
+POLICY_VERSION = 5
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TEST_ID = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){2,}\Z")
 CONTROL_PREFIXES = (".github/", ".cargo/", "scripts/ci_", "scripts/test_ci_",
@@ -150,7 +150,6 @@ def make_plan(event_name, source_sha, tree, paths, inventory, selection):
                   "test_ids": [] if part == "rust" else selected[("windows" if os_name == "windows-latest" else "linux") + "_" + profile]}
                  for name, os_name, profile, part in LANES]
         if not apps:
-            require(not selection["consumer_3d"], "consumer requires real builds")
             lanes = [{"id": prefix + "-tooling", "os": os_name, "profile": "debug", "partition": "tooling",
                       "test_ids": selected[prefix + "_debug"]} for prefix, os_name in (("linux", "ubuntu-latest"), ("windows", "windows-latest"))]
         elif not rust:
@@ -190,16 +189,16 @@ def normal_plan(*, root=ROOT, event_name=None, event=None, source_sha=None):
             result["inventory_sha256"] = digest({"ids": inventory, "metadata": metadata})
         return result
     except (OSError, ValueError, TypeError, KeyError, ImportError, subprocess.SubprocessError):
-        return full_plan(source_sha, tree, ["scope, discovery or ownership evidence unavailable"])
+        result = full_plan(source_sha, tree, ["scope, discovery or ownership evidence unavailable"])
+        return result
 
 
 def current_plan(*, root=ROOT, event_name=None, event=None, source_sha=None):
     name = event_name or os.environ.get('GITHUB_EVENT_NAME', 'local')
     normal = normal_plan(root=root, event_name=name, event=event, source_sha=source_sha)
-    # Preserve ordinary selected/prose behavior. Only otherwise-full main
-    # pushes may use an exact-tree prior-full qualification; all other events
-    # and any unavailable authority retain their normal assurance requirement.
-    if name != 'push' or normal['mode'] != 'full':
+    # Retained full and retained selected coverage are distinct authorities.
+    # Neither may promote selected results into exhaustive qualification.
+    if name != 'push' or normal['mode'] not in ('full', 'selected'):
         return normal
     try:
         if event is None:
@@ -208,6 +207,9 @@ def current_plan(*, root=ROOT, event_name=None, event=None, source_sha=None):
             event = json.loads(raw)
         if ci_scope.classify(root, name, event, normal['source_sha'])['docs_only']:
             return normal
+        if normal['mode'] == 'selected':
+            import ci_contract_reuse
+            return ci_contract_reuse.resolve(normal, event, root)
         import ci_postmerge
         return ci_postmerge.resolve(normal, event, root)
     except (OSError, ValueError, TypeError, KeyError, ImportError, subprocess.SubprocessError):

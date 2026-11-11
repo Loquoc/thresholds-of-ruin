@@ -389,8 +389,10 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
             completed = self.act(player, {"type": "wait"})
             self.assertIsNone(completed["error"])
             if (index + 1) % 32 == 0:
-                self.assertIsNone(self.request(player, {"type": "save"})["error"])
-        self.assertIsNone(self.request(player, {"type": "save"})["error"])
+                # A queued SaveBehind reply is not durable completion. Use the
+                # ordinary explicit-save barrier before reading a checkpoint.
+                self.flush_save()
+        self.flush_save()
         checkpoint = self.read_checkpoint()
         self.assertGreaterEqual(len(checkpoint["boundaries"]), 128)
         self.assertLessEqual(len(checkpoint["boundaries"]), 256)

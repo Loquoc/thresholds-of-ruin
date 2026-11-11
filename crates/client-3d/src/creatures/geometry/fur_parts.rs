@@ -171,11 +171,29 @@ impl Coat {
 }
 
 pub(super) fn rim(p: &mut Parts, fringe: Fringe, center: Vec3, radii: Vec2, scale: f32) {
+    rim_profile(p, fringe, center, radii, scale, &|y, angle, padding| {
+        Vec3::new(
+            angle.sin() * (radii.x + padding),
+            y,
+            angle.cos() * (radii.y + padding),
+        )
+    });
+}
+
+/// Authored elliptical rims and fitted boot rims share the same fur recipe.
+pub(super) fn rim_profile(
+    p: &mut Parts,
+    fringe: Fringe,
+    center: Vec3,
+    radii: Vec2,
+    scale: f32,
+    profile: &dyn Fn(f32, f32, f32) -> Vec3,
+) -> usize {
     // Dense underfur hides the roots without filling a cuff's opening.
     let path: Vec<_> = (0..=48)
         .map(|i| {
             let a = i as f32 * TAU / 48.0;
-            center + Vec3::new(a.sin() * radii.x, -0.012 * scale, a.cos() * radii.y)
+            center + profile(-0.012 * scale, a, 0.0)
         })
         .collect();
     tube(
@@ -184,6 +202,7 @@ pub(super) fn rim(p: &mut Parts, fringe: Fringe, center: Vec3, radii: Vec2, scal
         &vec![(0.008 * scale, 0.012 * scale); path.len()],
         fringe.color * 0.9,
     );
+    let undercoat_end = p.matte.surface_triangles().count();
     for row in 0..4 {
         for k in 0..64 {
             let sample = row * 64 + k;
@@ -192,10 +211,10 @@ pub(super) fn rim(p: &mut Parts, fringe: Fringe, center: Vec3, radii: Vec2, scal
             let out = Vec3::new(angle.sin(), 0.0, angle.cos());
             let tangent = Vec3::new(out.z, 0.0, -out.x);
             let root = center
-                + Vec3::new(
-                    out.x * (radii.x + 0.006 * scale),
+                + profile(
                     -(row as f32 * 0.018 + noise * 0.009) * scale,
-                    out.z * (radii.y + 0.006 * scale),
+                    angle,
+                    0.006 * scale,
                 );
             let length = fringe.length * scale * (0.34 + noise * 0.48);
             let width = radii.min_element() * (0.048 + noise * 0.024);
@@ -211,6 +230,7 @@ pub(super) fn rim(p: &mut Parts, fringe: Fringe, center: Vec3, radii: Vec2, scal
             );
         }
     }
+    undercoat_end
 }
 
 pub(super) fn cap(p: &mut Parts, fringe: Fringe, center: Vec3, radii: Vec2, scale: f32) {

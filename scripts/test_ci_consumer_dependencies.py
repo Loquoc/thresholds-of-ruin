@@ -1,4 +1,4 @@
-"""The compile/model consumer needs native headers, not a graphical test desktop."""
+"""The smoke consumer needs native headers and a virtual display."""
 import contextlib
 import importlib
 import io
@@ -19,19 +19,20 @@ def consumer_job():
 
 
 class ConsumerDependencies(unittest.TestCase):
-    def test_consumer_keeps_actual_compile_and_model_contracts(self):
+    def test_consumer_runs_the_shared_smoke_recipe_in_both_modes(self):
         job = consumer_job()
-        self.assertIn('cargo check --manifest-path crates/client-3d/Cargo.toml --bin tor-client-3d --locked', job)
-        self.assertIn('cargo test --manifest-path crates/client-3d/Cargo.toml -p tor-client-3d-model --locked', job)
+        self.assertIn('python scripts/ci_selected.py smoke-3d --output', job)
         self.assertIn('python scripts/ci_selected.py run --lane linux-3d-consumer', job)
 
-    def test_workflow_calls_consumer_setup_before_either_cargo_lane(self):
+    def test_workflow_calls_build_and_display_setup_before_either_smoke_mode(self):
         job = consumer_job()
-        command = 'run: python scripts/ci_consumer_dependencies.py'
+        command = 'python scripts/ci_consumer_dependencies.py'
         self.assertIn(command, job)
         self.assertLess(job.index(command), job.index('Execute fresh selected contract assurance'))
-        self.assertLess(job.index(command), job.index('Execute fresh exhaustive consumer compatibility'))
-        self.assertNotIn('apt-get', job)
+        self.assertLess(job.index(command), job.index('Build and smoke test the 3D client'))
+        display = job.index('install -y xvfb xauth xdotool')
+        self.assertLess(job.index(command), display)
+        self.assertLess(display, job.index('Execute fresh selected contract assurance'))
         # Other native owners still need their real graphical prerequisites.
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertIn('install -y libx11-dev libxcursor-dev libxrandr-dev xvfb xauth xdotool', workflow)

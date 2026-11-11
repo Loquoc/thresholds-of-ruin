@@ -9,6 +9,10 @@ Before making changes, read the [architecture](docs/architecture/overview.md), t
 
 ## Testing
 
+Review workflow and runner changes against the
+[hosted CI usage policy](docs/development/ci-usage.md). Run
+`python scripts/ci_usage_review.py` before publishing a change to CI.
+
 Cover every changed behavior contract in the same change, following
 [contract ownership](docs/development/testing.md#contract-ownership). Preserve
 feature acceptance and unique boundary witnesses; existing coverage needs an
@@ -33,15 +37,16 @@ qualification; the canonical
 [risk-based CI plan](docs/development/testing.md#risk-based-ci-assurance) chooses
 prose-only, selected-contract, or exhaustive coverage. Both required platform
 aggregates must pass for the exact final head. Selected results deliberately
-leave unrelated exhaustive coverage to weekly scheduled/on-demand/release verification;
+leave unrelated exhaustive coverage to periodic local, on-demand hosted and release verification;
 they must not be described as a full Windows/Linux debug/release pass. Unknown
 scope or ownership and verification/build-control changes require full PR coverage.
-Only an otherwise-full main push can use
-[prior exact-tree full qualification plus fresh main integration](docs/development/testing.md#exact-tree-post-merge-assurance).
-Ordinary selected/prose main runs are unchanged; missing proof retains full
-execution. This distinct assurance must not be reported as freshly rerunning the
+Only an ordinary main merge with independently validated matching PR coverage can use
+[prior exact-tree qualification plus fresh main integration](docs/development/testing.md#exact-tree-post-merge-assurance).
+Full, selected and independent native proof retain distinct labels; selected or
+native evidence cannot become a full seal. Prose main runs remain unchanged;
+missing proof retains normal fresh execution. Retained assurance must not be reported as freshly rerunning the
 full matrix, or used to qualify another retained result.
-A scheduled-full failure is actionable evidence to fix and feed back into ownership,
+A full-verification failure is actionable evidence to fix and feed back into ownership,
 not permission to ignore the failing test or keep relying on a missed fast path.
 
 A full run covers narrower local checks only for unchanged inputs, toolchain and

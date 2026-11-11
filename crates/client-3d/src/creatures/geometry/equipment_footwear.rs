@@ -342,13 +342,17 @@ pub(super) fn emit_fitted_shaft(
             Vec3::new(a.sin() * radius(t, a), top, a.cos() * radius(t, a))
         })
         .collect();
-    tube(&mut p.satin, &lip, &vec![(0.004, 0.004); lip.len()], trim);
-    let seam: Vec<_> = (2..47)
-        .map(|row| {
-            let t = row as f32 / 48.0;
-            Vec3::new(0.0, y(t), -radius(t, PI))
-        })
+    riding_ring(&mut p.satin, &lip, 0.004, trim);
+    // End inside the dipped rear lip, rather than extending the seam toward
+    // the higher, undipped shaft edge and leaving a visible protruding stem.
+    let seam_end = shape.top - 0.025;
+    let mut seam: Vec<_> = (2..47)
+        .map(|row| row as f32 / 48.0)
+        .filter(|&t| y(t) < seam_end)
+        .map(|t| Vec3::new(0.0, y(t), -radius(t, PI)))
         .collect();
+    let end_t = (seam_end - shape.bottom) / (shape.top - shape.bottom);
+    seam.push(Vec3::new(0.0, seam_end, -radius(end_t, PI)));
     tube(
         &mut p.satin,
         &seam,
@@ -362,12 +366,11 @@ pub(super) fn emit_fitted_shaft(
             Vec3::new(angle.sin() * r, y(0.13), angle.cos() * r)
         })
         .collect();
-    tube(
-        &mut p.satin,
-        &ankle,
-        &vec![(0.004, 0.004); ankle.len()],
-        color * 0.6,
-    );
+    riding_ring(&mut p.satin, &ankle, 0.004, color * 0.6);
+}
+
+fn riding_ring(builder: &mut Builder, path: &[Vec3], width: f32, color: Vec3) {
+    closed_ring(builder, path, width, color);
 }
 
 fn cord(builder: &mut Builder, a: Vec3, b: Vec3, radius: f32, color: Vec3) {
@@ -673,24 +676,45 @@ pub(super) fn emit_foot(
         }
     }
     if appearance == HikingBoots {
-        // Protective rubber toe bumper follows the rounded toe.
-        let s = sections[4];
-        let path: Vec<_> = (0..=12)
-            .map(|i| {
-                let a = i as f32 * PI / 12.0;
-                Vec3::new(a.cos() * s.width, -0.045, (0.12 + a.sin() * 0.073) * b)
-            })
-            .collect();
-        tube(
-            &mut p.matte,
-            &path,
-            &vec![(0.008, 0.012); path.len()],
-            color * 0.36,
-        );
+        hiking_bumper(p, last, color);
     }
     if appearance == SnowBoots {
         snow_vamp(p, last, trim);
     }
+}
+
+fn hiking_bumper(p: &mut Parts, last: BootLast, color: Vec3) {
+    let mut upper = Parts::default();
+    boot_parts::emit(&mut upper, last, color);
+    let sections = last.sections();
+    // Begin behind the toe-box station so the tapered end caps overlap the
+    // side edge instead of cutting diagonally across its first section.
+    let center = Vec3::new(
+        0.0,
+        sections[4].top + 0.010,
+        (sections[3].z + sections[4].z) * 0.5,
+    );
+    // Seat the protective rand in the actual lofted upper. A nominal ellipse
+    // hovered over the narrow toe sides and looked like a detached horseshoe.
+    let path: Vec<_> = (0..=24)
+        .map(|i| {
+            let angle = i as f32 * PI / 24.0;
+            upper
+                .satin
+                .outer_surface(center, Vec3::new(angle.cos(), 0.0, angle.sin()))
+                .expect("hiking rand rays start inside the fitted toe")
+        })
+        .collect();
+    let radii: Vec<_> = (0..path.len())
+        .map(|i| {
+            let end = i.min(path.len() - 1 - i) as f32;
+            let taper = 0.5 + 0.5 * (end / 2.0).min(1.0);
+            // Taper height at the ends without withdrawing the lateral
+            // overlap that seats the rand on the actual upper side edge.
+            (0.006 * last.build, 0.006 * taper)
+        })
+        .collect();
+    tube(&mut p.matte, &path, &radii, color * 0.36);
 }
 
 /// Complete shaft in the established lower-leg frame, with outward-facing
@@ -774,15 +798,20 @@ pub(super) fn emit_shaft(
                     color * 0.75
                 },
             );
+            // Each crossing joins two real, consecutive eyelet rows. The
+            // former short X marks ended in the facing between eyelets.
             for k in 0..count {
-                let t = 0.10 + k as f32 / (count as f32) * 0.82;
-                let next = t + 0.065;
+                let t = 0.10 + k as f32 / (count - 1) as f32 * 0.82;
                 for sign in [-1.0, 1.0] {
                     let a = Vec3::new(sign * radius(t) * 0.40, y(t), radius(t) + 0.009);
-                    let b = Vec3::new(-sign * radius(next) * 0.40, y(next), radius(next) + 0.009);
-                    cord(&mut p.satin, a, b, 0.0025 * build, trim);
                     p.metal
                         .torus(a, Vec3::Z, 0.004 * build, 0.0015 * build, 8, 3, trim * 0.7);
+                    if k + 1 < count {
+                        let next = 0.10 + (k + 1) as f32 / (count - 1) as f32 * 0.82;
+                        let b =
+                            Vec3::new(-sign * radius(next) * 0.40, y(next), radius(next) + 0.009);
+                        cord(&mut p.satin, a, b, 0.0025 * build, trim);
+                    }
                 }
             }
             band(
@@ -854,7 +883,7 @@ pub(super) fn emit_shaft(
                     )
                 })
                 .collect();
-            tube(&mut p.satin, &path, &vec![(0.004, 0.004); path.len()], trim);
+            riding_ring(&mut p.satin, &path, 0.004, trim);
             cord(
                 &mut p.satin,
                 Vec3::new(0.0, y(0.05), -radius(0.05)),
@@ -870,6 +899,143 @@ pub(super) fn emit_shaft(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn riding_rear_seam_is_continuous_above_the_emitted_shaft() {
+        for woman in [false, true] {
+            for build in [0, 2] {
+                let body = HumanoidBody::resolve(&Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                ));
+                for trousered in [false, true] {
+                    let shape = fit_shin(
+                        FootwearAppearance::RidingBoots,
+                        BootShape::fitted(body.build, -0.24),
+                        body.shin,
+                        trousered,
+                        body.build,
+                    );
+                    let mut parts = Parts::default();
+                    emit_fitted_shaft(
+                        &mut parts,
+                        FootwearAppearance::RidingBoots,
+                        shape,
+                        body.build,
+                        1.0,
+                        Vec3::splat(0.2),
+                        Vec3::ZERO,
+                        body.shin,
+                        trousered,
+                    );
+                    let mut meshes = Assets::<Mesh>::default();
+                    let mut materials = Assets::<StandardMaterial>::default();
+                    let model = parts.finish(
+                        &mut meshes,
+                        &crate::props::PropMaterials::new(&mut materials),
+                    );
+                    let mut wall = Builder::default();
+                    let mut thread = Builder::default();
+                    let wall_color = Color::srgb(0.2, 0.2, 0.2).to_linear().red;
+                    let seam_color = Color::srgb(0.24, 0.24, 0.24).to_linear().red;
+                    for (handle, _) in &model.0 {
+                        let mesh = meshes.get(handle).unwrap();
+                        let bevy::render::mesh::VertexAttributeValues::Float32x3(vertices) =
+                            mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+                        else {
+                            panic!("shaft positions")
+                        };
+                        let bevy::render::mesh::VertexAttributeValues::Float32x4(colors) =
+                            mesh.attribute(Mesh::ATTRIBUTE_COLOR).unwrap()
+                        else {
+                            panic!("shaft colors")
+                        };
+                        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                        for face in indices.as_chunks::<3>().0 {
+                            let tri = face.map(|i| Vec3::from_array(vertices[i]));
+                            if face
+                                .iter()
+                                .all(|&i| (colors[i][0] - wall_color).abs() < 1e-6)
+                            {
+                                wall.tri(tri, Vec3::ONE);
+                            }
+                            if face
+                                .iter()
+                                .all(|&i| (colors[i][0] - seam_color).abs() < 1e-6)
+                            {
+                                thread.tri(tri, Vec3::ONE);
+                            }
+                        }
+                    }
+                    assert!(
+                        !wall.is_empty() && !thread.is_empty(),
+                        "independent material-isolated meshes"
+                    );
+                    let lip_y = shape.top - 0.025;
+                    assert!(thread.bounds().1.y <= lip_y + 0.004,
+                        "rear seam must end beneath the dipped lip trim, not protrude above it: woman={woman} build={build} trousers={trousered} seam_top={} lip={lip_y}",thread.bounds().1.y);
+                    for row in 2..46 {
+                        let t = (row as f32 + 0.5) / 48.0;
+                        let y = shape.bottom + (shape.top - shape.bottom) * t;
+                        if y >= lip_y - 0.006 {
+                            continue;
+                        }
+                        let origin = Vec3::Y * y;
+                        let shaft = wall.outer_surface(origin, Vec3::NEG_Z).expect("shaft wall");
+                        let seam = thread
+                            .outer_surface(origin, Vec3::NEG_Z)
+                            .expect("continuous rear seam between stations");
+                        let relief = (seam - shaft).dot(Vec3::NEG_Z);
+                        assert!(relief>0.0004 && relief<0.005,"rear seam must sit proud of actual shaft: woman={woman} build={build} trousers={trousered} row={row} relief={relief}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn riding_trim_has_no_coincident_end_caps() {
+        for dip in [0.0, 0.025] {
+            let path: Vec<_> = (0..=24)
+                .map(|i| {
+                    let a = i as f32 * TAU / 24.0;
+                    Vec3::new(0.065 * a.sin(), 0.28 - dip * a.cos().abs(), 0.065 * a.cos())
+                })
+                .collect();
+            let mut parts = Parts::default();
+            riding_ring(&mut parts.satin, &path, 0.004, Vec3::ONE);
+            let mut meshes = Assets::<Mesh>::default();
+            let mut materials = Assets::<StandardMaterial>::default();
+            let model = parts.finish(
+                &mut meshes,
+                &crate::props::PropMaterials::new(&mut materials),
+            );
+            let mut count = 0;
+            for (handle, _) in &model.0 {
+                let mesh = meshes.get(handle).unwrap();
+                let bevy::render::mesh::VertexAttributeValues::Float32x3(vertices) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+                else {
+                    panic!("riding trim positions")
+                };
+                for vertex in vertices {
+                    let v = Vec3::from_array(*vertex);
+                    let distance = path
+                        .iter()
+                        .map(|p| v.distance(*p))
+                        .fold(f32::INFINITY, f32::min);
+                    assert!((distance-0.004).abs()<0.00001,"riding ring must only contain wall, not cap centers: {v:?}, distance={distance}");
+                    count += 1;
+                }
+            }
+            assert!(count >= 240);
+        }
+    }
 
     #[test]
     fn walking_shoe_has_exposed_lacing_tongue_and_quarter_panels_over_its_last() {
@@ -947,11 +1113,7 @@ mod tests {
 
     #[test]
     fn snow_cuff_vertices_fit_both_robe_contact_envelopes() {
-        let body = HumanoidBody::resolve(&Look::with_choice(
-            CreatureModel::Human,
-            7,
-            None,
-        ));
+        let body = HumanoidBody::resolve(&Look::with_choice(CreatureModel::Human, 7, None));
         for build in [0.75, 1.0, 1.4] {
             for (fitted_index, shape) in [
                 fit_shape(
@@ -1227,6 +1389,132 @@ mod tests {
                 signatures.insert(signature),
                 "duplicate silhouette: {appearance:?}"
             );
+        }
+    }
+
+    #[test]
+    fn hiking_bumper_is_seated_on_the_actual_upper_instead_of_a_floating_hoop() {
+        for build in [0.75, 1.0, 1.4] {
+            for soft in [false, true] {
+                let last = BootLast {
+                    build,
+                    heeled: false,
+                };
+                let mut base = Parts::default();
+                boot_parts::emit(&mut base, last, Vec3::ONE);
+                let mut bumper = Parts::default();
+                if soft {
+                    bumper.soften();
+                }
+                hiking_bumper(&mut bumper, last, Vec3::ONE);
+                // Probe real outer-upper side edges, including the intermediate
+                // loft. A nominal ellipse can be well outside this tapered last.
+                let sections = last.sections();
+                for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                    let width = sections[4].width * (1.0 - t) + sections[5].width * t;
+                    let z = sections[4].z * (1.0 - t) + sections[5].z * t;
+                    for side in [-1.0, 1.0] {
+                        let origin = Vec3::new(side * width * 0.94, -0.09, z);
+                        let upper = base.satin.outer_surface(origin, Vec3::Y).unwrap();
+                        let rubber = bumper
+                        .matte
+                        .outer_surface(origin, Vec3::Y)
+                        .unwrap_or_else(|| panic!("continuous rubber covers actual toe-side edge: build={build}, t={t}, side={side}"));
+                        assert!(
+                            rubber.y > upper.y + 0.001,
+                            "rubber remains visibly substantial"
+                        );
+                        assert!(rubber.y - upper.y <= 0.012,
+                        "toe bumper must sit on the upper, not hover above it: build={build}, t={t}, gap={}", rubber.y - upper.y);
+                    }
+                }
+                let origin = Vec3::new(0.0, -0.055, 0.12 * build);
+                let upper = base.satin.outer_surface(origin, Vec3::Z).unwrap();
+                let rubber = bumper.matte.outer_surface(origin, Vec3::Z).unwrap();
+                assert!(rubber.z > upper.z + 0.001 * build);
+                assert!(rubber.z < upper.z + 0.010 * build, "compact fitted nose");
+                assert!(bumper.matte.bounds().0.y > BootLast::FLOOR);
+                let mut meshes = Assets::<Mesh>::default();
+                let mut materials = Assets::<StandardMaterial>::default();
+                let model = bumper.finish(
+                    &mut meshes,
+                    &crate::props::PropMaterials::new(&mut materials),
+                );
+                let contacts = last.contacts();
+                let mut checked = 0;
+                for (handle, _) in &model.0 {
+                    let mesh = meshes.get(handle).unwrap();
+                    let bevy::render::mesh::VertexAttributeValues::Float32x3(vertices) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap()
+                    else {
+                        panic!("bumper positions")
+                    };
+                    for vertex in vertices {
+                        let p = Vec3::from_array(*vertex);
+                        assert!(
+                            contacts
+                                .iter()
+                                .any(
+                                    |(center, radius)| ((p - *center) / *radius).length_squared()
+                                        <= 1.0
+                                ),
+                            "bumper stays inside the existing cloth contact envelope"
+                        );
+                        checked += 1;
+                    }
+                }
+                assert!(checked > 100, "check actual uploaded bumper geometry");
+            }
+        }
+    }
+
+    #[test]
+    fn boot_cross_lacing_connects_consecutive_eyelet_rows() {
+        for (appearance, rows) in [
+            (FootwearAppearance::HikingBoots, 5),
+            (FootwearAppearance::SnowBoots, 6),
+            (FootwearAppearance::CombatBoots, 8),
+            (FootwearAppearance::JungleBoots, 8),
+        ] {
+            for build in [0.75, 1.0, 1.4] {
+                let shape = fit_shape(appearance, BootShape::fitted(build, -0.24), build);
+                let mut parts = Parts::default();
+                emit_shaft(
+                    &mut parts,
+                    appearance,
+                    shape,
+                    build,
+                    1.0,
+                    Vec3::ONE,
+                    Vec3::ONE,
+                );
+                let y = |t: f32| shape.bottom + t * (shape.top - shape.bottom);
+                let radius =
+                    |t: f32| shape.radius_bottom + t * (shape.radius_top - shape.radius_bottom);
+                for row in 0..rows - 1 {
+                    let t = 0.10 + (row as f32 + 0.5) * 0.82 / (rows - 1) as f32;
+                    let crossing = parts
+                        .satin
+                        .outer_surface(Vec3::new(0.0, y(t), 0.0), Vec3::Z)
+                        .unwrap();
+                    assert!(crossing.z > radius(t) + 0.006,
+                        "{appearance:?}, build {build}, row {row}: lacing must cross between adjacent eyelet rows, not form detached short X marks");
+                }
+                for row in 0..rows {
+                    let t = 0.10 + row as f32 * 0.82 / (rows - 1) as f32;
+                    for side in [-1.0, 1.0] {
+                        let rim_x = side * (radius(t) * 0.40 + 0.004 * build);
+                        let rim = parts
+                            .metal
+                            .outer_surface(Vec3::new(rim_x, y(t), 0.0), Vec3::Z)
+                            .expect("every lacing row has two actual metal eyelet rims");
+                        assert!(
+                            rim.z > radius(t) + 0.009,
+                            "eyelet rim remains above the lacing plane"
+                        );
+                    }
+                }
+            }
         }
     }
 

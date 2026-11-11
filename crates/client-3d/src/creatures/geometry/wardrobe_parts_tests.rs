@@ -179,8 +179,8 @@ fn styled_sleeves_say_which_arms_they_leave_bare() {
 
 #[test]
 fn boots_pulled_on_over_bare_legs_keep_their_shafts() {
-    // The tallest satin face in the shin: a boot's shaft spans its whole
-    // height; straps and cuffs are only a few centimetres tall.
+    // Continuous leather across height, independent of tessellation. A shaft
+    // covers every intermediate section; separated straps do not.
     let shaft = |wardrobe: Wardrobe| {
         let look = Look::with_choice(
             CreatureModel::Human,
@@ -199,7 +199,7 @@ fn boots_pulled_on_over_bare_legs_keep_their_shafts() {
         let (world, rig, library, meshes) = crate::creatures::rogue_tests::spawn_one(&look);
         let satin = library.materials.satin();
         let shin = rig.joint(J::ShinL).unwrap();
-        let mut tallest = 0.0f32;
+        let mut surface = Builder::default();
         for child in world
             .get::<Children>(shin)
             .into_iter()
@@ -220,13 +220,25 @@ fn boots_pulled_on_over_bare_legs_keep_their_shafts() {
                 continue;
             }
             let indices: Vec<usize> = mesh.indices().map_or(Vec::new(), |i| i.iter().collect());
-            for tri in indices.chunks(3) {
-                let ys = tri.iter().map(|&i| ps[i][1]);
-                let (low, high) = ys.fold((f32::MAX, f32::MIN), |(l, h), y| (l.min(y), h.max(y)));
-                tallest = tallest.max(high - low);
+            for tri in indices.as_chunks::<3>().0 {
+                surface.tri_out(tri.map(|i| Vec3::from_array(ps[i])), Vec3::ZERO, Vec3::ONE);
             }
         }
-        tallest
+        let mut run = 0.0f32;
+        let mut longest = 0.0f32;
+        for row in 0..210 {
+            let origin = Vec3::Y * (-0.419 + row as f32 * 0.002);
+            if [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z]
+                .iter()
+                .all(|ray| surface.outer_surface(origin, *ray).is_some())
+            {
+                run += 0.002;
+                longest = longest.max(run);
+            } else {
+                run = 0.0;
+            }
+        }
+        longest
     };
     for wardrobe in [Wardrobe::Queen, Wardrobe::Pirate] {
         assert!(

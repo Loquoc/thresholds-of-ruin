@@ -113,8 +113,10 @@ fn assert_clear_faces(points: &[Vec3], sources: &[[Vec3; 3]]) {
                         .sum::<Vec3>();
                     for &source in sources {
                         let clearance = distance(point, source);
-                        assert!(clearance >= LAYER_GAP+THICKNESS-2e-5,
-                            "row {row} column {column} face {face:?} has {clearance} clearance at {point:?}");
+                        assert!(
+                            clearance >= LAYER_GAP + THICKNESS - 2e-5,
+                            "row {row} column {column} face {face:?} has {clearance} clearance at {point:?}"
+                        );
                     }
                     samples += 1;
                 }

@@ -2233,6 +2233,21 @@ class Native3DProcesses(ProcessTestCase):
             if window.child.poll() is None:
                 native("Escape", False)
 
+    def test_ci_loads_and_accepts_native_input(self):
+        server = self.server(scenario=ROOT / 'scenarios/two-room')
+        # This fixture is disposable. Stop it before the harness's save cleanup,
+        # which would require a third executable for persistence verification.
+        self.addCleanup(server.stop, save=False)
+        window = self.launch_connected('ci-smoke-captures')
+        self.captured(window, lambda frame: frame['has_control'] and frame['foot_cell'])
+        native = self.native_keys(window)
+        try:
+            native('a', True)
+            self.captured(window, lambda frame: 'KeyA' in frame['keys'])
+        finally:
+            native('a', False)
+        self.escape_window(window, native)
+
     def test_native_movement_doors_and_fetch_preserve_disclosed_cells(self):
         package = self.directory / "native-traversal"
         shutil.copytree(ROOT / "scenarios/two-room", package)

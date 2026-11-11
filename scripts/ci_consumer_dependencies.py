@@ -1,8 +1,7 @@
-"""Bounded Ubuntu prerequisites for 3D cargo-check/model tests, not GUI tests.
+"""Bounded Ubuntu build prerequisites for the independent 3D client.
 
 The locked ALSA and udev sys crates require pkg-config development libraries.
-X11/EGL/Vulkan are dynamically loaded by the client, which this lane does not
-launch. Ordinary native graphical lanes retain their separate prerequisites.
+The smoke job installs its display and renderer separately.
 """
 import shlex
 import subprocess

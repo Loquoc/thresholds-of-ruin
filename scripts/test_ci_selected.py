@@ -159,14 +159,16 @@ class SelectedTests(unittest.TestCase):
         self.assertEqual(commands["python-selected"][1]["TOR_TEST_PROFILE"], "release")
         self.assertIn("--from-file", commands["python-selected"][0])
 
-    def test_3d_consumer_checks_actual_binary_and_model_not_native_rendering(self):
+    def test_3d_consumer_builds_actual_binary_and_runs_one_native_smoke(self):
         lane = {"id": "linux-3d-consumer", "profile": "debug", "partition": "consumer", "test_ids": []}
         steps = selected.steps_for(lane, Path("/logs"), 2)
-        self.assertEqual([name for name, _, _ in steps], ["consumer-check", "consumer-model"])
+        self.assertEqual([name for name, _, _ in steps], ["consumer-server", "consumer-client", "consumer-smoke"])
         self.assertIn("--bin", steps[0][1])
-        self.assertIn("tor-client-3d", steps[0][1])
-        self.assertIn("tor-client-3d-model", steps[1][1])
-        self.assertFalse(any("process" in str(command) for _, command, _ in steps))
+        self.assertIn("tor-server", steps[0][1])
+        self.assertIn("tor-client-3d", steps[1][1])
+        self.assertEqual(steps[2][1][-1], selected.SMOKE_ID)
+        self.assertEqual(steps[2][2]["TOR_TEST_PROFILE"], "debug")
+        self.assertFalse(any("test" in command[:2] for _, command, _ in steps))
 
     def test_aggregate_requires_exact_fresh_source_policy_plan_and_lane_union(self):
         plan = {"mode": "selected", "policy_version": planner.POLICY_VERSION, "source_sha": "a" * 40,
@@ -174,7 +176,8 @@ class SelectedTests(unittest.TestCase):
         receipt = {"policy_version": planner.POLICY_VERSION, "assurance": "selected-pr-contracts", "lane": "linux-3d-consumer",
                    "source_sha": plan["source_sha"], "source_tree": plan["source_tree"], "plan_sha256": planner.digest(plan),
                    "passed": True, "evidence_origin": "fresh", "run_id": os.environ.get("GITHUB_RUN_ID", ""),
-                   "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""), "test_ids": [], "steps": [{"step": name, "code": 0} for name in ("consumer-check", "consumer-model")]}
+                   "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""), "test_ids": [],
+                   "steps": [{"step": name, "code": 0} for name in ("consumer-server", "consumer-client", "consumer-smoke")]}
         selected.validate_receipts(plan, [receipt])
         for key, value in (("source_sha", "c" * 40), ("policy_version", 1), ("passed", False),
                            ("evidence_origin", "reused"), ("test_ids", ["extra"]), ("plan_sha256", "wrong")):

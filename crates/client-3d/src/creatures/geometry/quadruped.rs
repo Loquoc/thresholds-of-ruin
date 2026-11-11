@@ -297,9 +297,7 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             human_face(p, &rider, true);
             if let Some(kind) = l.equipment.headwear() {
                 equipment_headwear::emit(p, kind);
-                if rider.v.woman {
-                    braid(p, headwear_parts::WINGED_HELM_HAIR_ROOT, hair_color(&rider));
-                }
+                equipment_hair(p, &rider, kind);
             } else {
                 hair(p, &rider, true);
             }
