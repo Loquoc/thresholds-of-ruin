@@ -19,6 +19,11 @@ value = { id = "rogue.spear", name = "Spear", category = "equipment" }
 
 [[overrides]]
 op = "add"
+path = ["expertises", "rogue.dart"]
+value = { id = "rogue.dart", name = "Dart", category = "equipment" }
+
+[[overrides]]
+op = "add"
 path = ["ability_tags", "ranged"]
 value = { id = "ranged", name = "Ranged attack" }
 
@@ -27,7 +32,7 @@ value = { id = "ranged", name = "Ranged attack" }
 [[overrides]]
 op = "set"
 path = ["growth", "threat", "overrides"]
-value = [{ source = { kind = "expertise", id = "rogue.knife" }, points = 10 }, { source = { kind = "expertise", id = "rogue.shortbow" }, points = 10 }, { source = { kind = "expertise", id = "rogue.spear" }, points = 10 }]
+value = [{ source = { kind = "expertise", id = "rogue.knife" }, points = 10 }, { source = { kind = "expertise", id = "rogue.shortbow" }, points = 10 }, { source = { kind = "expertise", id = "rogue.spear" }, points = 10 }, { source = { kind = "expertise", id = "rogue.dart" }, points = 10 }]
 
 # These ordinary abilities capture selected-item timing and exact projectile
 # delivery. No added base resource or supply cost; shared secondary-weapon Focus

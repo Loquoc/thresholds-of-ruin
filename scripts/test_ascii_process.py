@@ -19,6 +19,27 @@ from scalar_wire import u64
 class AsciiProcesses(ProcessTestCase):
     graphical = True
 
+    def test_ready_reporting_emits_one_connected_native_presentation(self):
+        self.game.stop()
+        self.game = self.server()
+        for role, token, args in [
+            ("player", TOKEN, []),
+            ("spectator", SPECTATOR_TOKEN, ["--observe"]),
+        ]:
+            with self.subTest(role=role):
+                window = self.launch("tor-client-ascii", [
+                    "--connect", self.address, "--report-ready", *args,
+                ], token=token)
+                presented = self.frame(window, lambda event: event.get("type") == "presented_ready")
+                self.assertTrue(presented["connected"])
+                self.assertTrue(presented["window_open"])
+                self.assertEqual(presented["role"], role)
+                self.assertIs(presented["has_control"], role == "player")
+                self.assertGreater(presented["presented_unix_ns"], 0)
+                window.stop()
+                records = [json.loads(line) for line in window.stdout_path.read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(records, [presented])
+
     def test_stats_screen_presents_without_submitting_gameplay(self):
         client, initial = self.ascii()
         opened = self.key(client, "stats")

@@ -451,18 +451,32 @@ fn combat_event_with_names(
             outcome,
             strike,
         } => {
+            let incoming_basic_attack = ability.id == "basic_melee"
+                && *target == Some(observer)
+                && caster.is_some_and(|id| id != observer);
             let (subject, object) = (subject(*caster), object(*target));
-            let mut name = label(&ability.name, "ability");
-            if let Some(ordinal) = strike.filter(|ordinal| *ordinal > 0) {
-                name.push_str(&format!(" (strike {})", u32::from(ordinal) + 1));
+            let ordinal = strike
+                .filter(|ordinal| *ordinal > 0)
+                .map(|ordinal| format!(" (strike {})", u32::from(ordinal) + 1))
+                .unwrap_or_default();
+            if incoming_basic_attack {
+                let result = if *outcome == AbilityOutcome::Miss {
+                    ", but misses"
+                } else {
+                    ""
+                };
+                return format!("{subject} attacks {object}{ordinal}{result}.");
             }
+            let name = label(&ability.name, "ability");
             match outcome {
                 // This marker describes the primary, not every possible rider.
                 // Uniform neutral wording does not disclose hidden rider state.
                 AbilityOutcome::Applied | AbilityOutcome::Unaffected => {
-                    format!("{subject} used {name} on {object}.")
+                    format!("{subject} used {name}{ordinal} on {object}.")
                 }
-                AbilityOutcome::Miss => format!("{subject} used {name} on {object}, but missed."),
+                AbilityOutcome::Miss => {
+                    format!("{subject} used {name}{ordinal} on {object}, but missed.")
+                }
             }
         }
         CombatEventView::EscapeResolved { success, .. } => {
@@ -1977,10 +1991,14 @@ mod tests {
                 outcome: AbilityOutcome::Unaffected,
             };
             after.combat.as_mut().unwrap().events = vec![event.clone()];
-            let expected = format!(
-                "The sentinel used {} on you.",
-                crate::test_support::content(ability).name
-            );
+            let expected = if ability == "basic_melee" {
+                "The sentinel attacks you.".to_owned()
+            } else {
+                format!(
+                    "The sentinel used {} on you.",
+                    crate::test_support::content(ability).name
+                )
+            };
             assert_eq!(combat_event(&event, &before, &after), expected);
             let lines = observation_lines(&before, &after, None);
             assert!(lines

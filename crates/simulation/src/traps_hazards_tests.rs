@@ -666,6 +666,36 @@ fn bear_anchor_survives_hover_but_real_separation_frees_without_a_second_timer()
     assert!(game.actors[&actor].spatial_condition_anchors.0.is_empty());
 }
 #[test]
+fn admitted_movement_struggles_free_without_changing_position() {
+    let (mut game, actor) = fixture(vec![]);
+    place(
+        &mut game,
+        TrapKind::BearTrap {
+            condition: "fixture_bear".into(),
+            duration: 300,
+        },
+    );
+    game.teleport(actor, at(2)).unwrap();
+    for expected_tick in [100, 200, 300] {
+        game.admit_intention(
+            actor,
+            crate::Action::Move(Direction::West),
+            crate::IntentionOrigin::Human,
+        )
+        .unwrap();
+        let outcome = game.execute_next_intention().unwrap().outcome.unwrap();
+        assert_eq!(outcome.kind, crate::OutcomeKind::Waited);
+        assert_eq!(game.actors[&actor].location, at(2));
+        assert_eq!(game.tick, expected_tick);
+    }
+    let outcome = game
+        .act(actor, crate::Action::Move(Direction::West))
+        .unwrap();
+    assert!(matches!(outcome.kind, crate::OutcomeKind::Moved { .. }));
+    assert_eq!(game.actors[&actor].location, at(1));
+}
+
+#[test]
 fn bear_expiry_cleans_only_its_anchor_at_exact_active_tick() {
     let (mut game, actor) = fixture(vec![]);
     place(

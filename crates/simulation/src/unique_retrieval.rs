@@ -486,9 +486,9 @@ impl Game {
         if !self.is_terminal_exit(actor, at, direction) {
             return Err(GameError::Blocked);
         }
-        let item = state.item.ok_or(GameError::ItemUnavailable)?;
+        let item = state.item.ok_or(GameError::ExitItemRequired)?;
         if self.retrieval_item_source(item, &state.policy)? != crate::ItemLocation::Carried(actor) {
-            return Err(GameError::ItemUnavailable);
+            return Err(GameError::ExitItemRequired);
         }
         Ok(item)
     }

@@ -238,6 +238,23 @@ fn command_editor_is_free_modal_cancellable_and_reopens_cleanly() {
 }
 
 #[test]
+fn command_tab_completes_a_name_without_dispatching_it() {
+    let mut app = app(snapshot());
+    key(&mut app, Key::Commands);
+    text(&mut app, "sear");
+    assert_eq!(key(&mut app, Key::Tab), Effect::None);
+    assert_eq!(app.command_line.as_deref(), Some("search"));
+    assert_eq!(action(key(&mut app, Key::Enter)), expected_search());
+    app.ready();
+
+    key(&mut app, Key::Commands);
+    text(&mut app, "re");
+    assert_eq!(key(&mut app, Key::Tab), Effect::None);
+    assert_eq!(app.command_line.as_deref(), Some("re"));
+    assert!(app.status.contains("matches"));
+}
+
+#[test]
 fn spectator_can_open_commands_but_paid_dispatch_stays_read_only() {
     let mut app = app(snapshot());
     app.role = AccessRole::Spectator;

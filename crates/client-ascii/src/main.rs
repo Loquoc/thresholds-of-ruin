@@ -77,6 +77,7 @@ fn native_key_with_modifiers(key: NativeKey, shift: bool, ctrl: bool) -> Option<
             | NativeKey::Tab
             | NativeKey::PageUp
             | NativeKey::PageDown
+            | NativeKey::F1
             | NativeKey::F2
             | NativeKey::F3
             | NativeKey::F4
@@ -116,36 +117,44 @@ fn native_input_key(
     native_key_with_modifiers(key, shift, ctrl)
 }
 
-fn is_letter(key: NativeKey) -> bool {
-    use NativeKey::*;
-    matches!(
-        key,
-        A | B
-            | C
-            | D
-            | E
-            | F
-            | G
-            | H
-            | I
-            | J
-            | K
-            | L
-            | M
-            | N
-            | O
-            | P
-            | Q
-            | R
-            | S
-            | T
-            | U
-            | V
-            | W
-            | X
-            | Y
-            | Z
-    )
+const LETTER_KEYS: [NativeKey; 26] = [
+    NativeKey::A,
+    NativeKey::B,
+    NativeKey::C,
+    NativeKey::D,
+    NativeKey::E,
+    NativeKey::F,
+    NativeKey::G,
+    NativeKey::H,
+    NativeKey::I,
+    NativeKey::J,
+    NativeKey::K,
+    NativeKey::L,
+    NativeKey::M,
+    NativeKey::N,
+    NativeKey::O,
+    NativeKey::P,
+    NativeKey::Q,
+    NativeKey::R,
+    NativeKey::S,
+    NativeKey::T,
+    NativeKey::U,
+    NativeKey::V,
+    NativeKey::W,
+    NativeKey::X,
+    NativeKey::Y,
+    NativeKey::Z,
+];
+
+/// Windows can deliver text one event pump before the corresponding key edge.
+fn deferred_menu_key(
+    typed: &str,
+    pressed: &[NativeKey],
+    is_down: impl FnOnce(NativeKey) -> bool,
+) -> Option<NativeKey> {
+    let letter = typed.bytes().find(u8::is_ascii_alphabetic)?;
+    let key = LETTER_KEYS[usize::from(letter.to_ascii_lowercase() - b'a')];
+    (!pressed.contains(&key) && is_down(key)).then_some(key)
 }
 
 /// Typed command characters arrive through TextInput. Their gameplay aliases
@@ -158,6 +167,7 @@ fn command_editor_key(key: NativeKey) -> bool {
             | NativeKey::Enter
             | NativeKey::Escape
             | NativeKey::Backspace
+            | NativeKey::Tab
     )
 }
 
@@ -203,6 +213,7 @@ fn native_key(key: NativeKey) -> Option<Key> {
         NativeKey::Escape => Key::Escape,
         NativeKey::Backspace => Key::Backspace,
         NativeKey::Tab => Key::Tab,
+        NativeKey::F1 => Key::Screenshot,
         NativeKey::F2 => Key::History,
         NativeKey::PageUp => Key::OlderHistory,
         NativeKey::PageDown => Key::RecentHistory,
@@ -224,6 +235,12 @@ fn main() {
     }
 }
 
+enum Reporting {
+    None,
+    Frames,
+    Ready,
+}
+
 fn run() -> Result<(), Error> {
     let mut address: SocketAddr = "127.0.0.1:4000".parse()?;
     let mut actor = ActorId(1);
@@ -232,6 +249,7 @@ fn run() -> Result<(), Error> {
     let mut pace_ms = tor_client_ascii::DEFAULT_PACE_MS;
     let mut automation = false;
     let mut report = false;
+    let mut report_ready = false;
     let mut capture = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -241,7 +259,7 @@ fn run() -> Result<(), Error> {
                 println!(
                     "Ctrl-X: personal creature stats (Up/Down scroll, PgUp/PgDn page, Esc closes)."
                 );
-                println!("tor-client-ascii [--connect 127.0.0.1:4000] [--actor 1] [--observe] [--pace 75]\nSet TOR_SERVER_TOKEN to the server token. A native graphical display is required.\nNetHack-style non-numpad keys are case-sensitive. # opens TOR's extended commands, including attack, charts, control/release, report, screenshot and journey pace.\nArrows/hjklyubn: move (Shift runs); g/G then direction: run with TOR stop rules; m then direction: move without bump attacking; </>: up/down; Space or .: wait; ,: pick up; d: drop; w/W/P: wield/wear/put on; T/R: take off/remove accessory; q: drink; e: eat; r: read; z: zap; a: apply portable light; s: search; t/f: throw/fire if granted.\ni: inventory; ; or /: look; ?: help; Ctrl-P: earlier messages; o/c then direction: open/close adjacent door; _: select travel destination (< > jump to stairs); left click: travel; F3: acquire control; #release: release control. F8/F9: resume/cancel queued work. Move after a completed strike to cancel the sequence and step; outstanding recovery is still owed.\nF7: wizard command editor (wizard accounts); F5/Ctrl-O: remembered places (Up/Down select, Enter rename); F4: note (Tab audience, Enter save, Esc cancel); F2: history (Up/Down scroll, PgUp older, PgDn live); F6/F12: read/zap; F10: advancement; F11: escape a hold.\n#slower/#faster: show journey steps more slowly/quickly (--pace <ms>, default 75); any key during a journey shows the rest at once. [/]: previous/next page only inside strike details.\nEsc: cancel or close, never quit. S: save and close through the normal flush-on-close path. Relaunch to reconnect after a disconnect.\nUnsupported NetHack commands (such as force-fight, weapon swap, two-weapon mode, autopickup and counts) are not implemented.\nProcess tests only: --automation reads JSON input events on stdin and reports presented frames.\n--report-frames reports frames while retaining native keyboard input.\n--capture <file.ppm> with either diagnostic option saves the last presented framebuffer.");
+                println!("tor-client-ascii [--connect 127.0.0.1:4000] [--actor 1] [--observe] [--pace 75]\nSet TOR_SERVER_TOKEN to the server token. A native graphical display is required.\nNetHack-style non-numpad keys are case-sensitive. # opens TOR's extended commands, including attack, charts, control/release, report, screenshot and journey pace.\nArrows/hjklyubn: move (Shift runs); g/G then direction: run with TOR stop rules; m then direction: move without bump attacking; </>: up/down; Space or .: wait; ,: pick up; d: drop; w/W/P: wield/wear/put on; T/R: take off/remove accessory; q: drink; e: eat; r: read; z: zap; a: apply portable light; s: search; t/f: throw/fire if granted.\ni: inventory; ; or /: look; ?: help; Ctrl-P: earlier messages; o/c then direction: open/close adjacent door; _: select travel destination (< > jump to stairs); left click: travel; F3: acquire control; #release: release control. F8/F9: resume/cancel queued work. Move after a completed strike to cancel the sequence and step; outstanding recovery is still owed.\nF1: save a screenshot of the current game screen; F7: wizard command editor (wizard accounts); F5/Ctrl-O: remembered places (Up/Down select, Enter rename); F4: note (Tab audience, Enter save, Esc cancel); F2: history (Up/Down scroll, PgUp older, PgDn live); F6/F12: read/zap; F10: advancement; F11: escape a hold.\n#slower/#faster: show journey steps more slowly/quickly (--pace <ms>, default 75); any key during a journey shows the rest at once. [/]: previous/next page only inside strike details.\nEsc: cancel or close, never quit. S: save and close through the normal flush-on-close path. Relaunch to reconnect after a disconnect.\nUnsupported NetHack commands (such as force-fight, weapon swap, two-weapon mode, autopickup and counts) are not implemented.\nProcess tests only: --automation reads JSON input events on stdin and reports presented frames.\n--report-frames reports frames while retaining native keyboard input.\n--report-ready reports only the first connected native presentation.\n--capture <file.ppm> with either diagnostic option saves the last presented framebuffer.");
                 return Ok(());
             }
             "--connect" => address = args.next().ok_or("Missing --connect address")?.parse()?,
@@ -261,6 +279,7 @@ fn run() -> Result<(), Error> {
                 report = true;
             }
             "--report-frames" => report = true,
+            "--report-ready" => report_ready = true,
             "--capture" => {
                 capture = Some(PathBuf::from(args.next().ok_or("Missing capture path")?))
             }
@@ -299,7 +318,14 @@ fn run() -> Result<(), Error> {
     let mut app = App::new();
     app.bump_attacks = bump_attacks;
     app.pace_ms = pace_ms;
-    let result = window_loop(&mut window, &network, &text, input, report, capture, app);
+    let reporting = if report {
+        Reporting::Frames
+    } else if report_ready {
+        Reporting::Ready
+    } else {
+        Reporting::None
+    };
+    let result = window_loop(&mut window, &network, &text, input, reporting, capture, app);
     network.shutdown()?;
     result
 }
@@ -324,7 +350,7 @@ fn window_loop(
     network: &Network,
     text: &Rc<RefCell<String>>,
     input: Option<mpsc::Receiver<Result<Input, String>>>,
-    report: bool,
+    mut reporting: Reporting,
     capture: Option<PathBuf>,
     mut app: App,
 ) -> Result<(), Error> {
@@ -333,9 +359,11 @@ fn window_loop(
     let mut redraw = false;
     let mut pending_input = None;
     let mut pending_native_input = None;
+    let report = matches!(reporting, Reporting::Frames);
     let mut native_reports = native_report::NativeReport::new(report && input.is_none());
     let mut failed = false;
     let mut mouse_down = false;
+    let mut pending_menu_key = None;
     let mut previous_report_ms = 0.;
     let mut previous_report_encode_ms = 0.;
     let mut previous_report_write_ms = 0.;
@@ -514,17 +542,28 @@ fn window_loop(
             // In a menu, letters choose items (sent as text above) rather
             // than acting as commands.
             let menu = !app.pickup.is_empty() || app.identification_choice().is_some();
+            let pressed = window.get_keys_pressed(KeyRepeat::No);
+            let previous_menu_key = pending_menu_key.take();
+            if menu {
+                pending_menu_key =
+                    deferred_menu_key(&typed, &pressed, |key| window.is_key_down(key));
+            }
             inputs.extend(
-                window
-                    .get_keys_pressed(KeyRepeat::No)
+                pressed
                     .into_iter()
-                    .filter(|key| !(menu && is_letter(*key)))
-                    .filter(|key| app.command_line.is_none() || command_editor_key(*key))
+                    .filter(|key| previous_menu_key != Some(*key))
+                    .filter(|key| !(menu && LETTER_KEYS.contains(key)))
+                    .filter(|key| {
+                        *key == NativeKey::F1
+                            || app.command_line.is_none()
+                            || command_editor_key(*key)
+                    })
                     .filter(|key| {
                         !app.advancement_open
                             || matches!(
                                 key,
-                                NativeKey::Up
+                                NativeKey::F1
+                                    | NativeKey::Up
                                     | NativeKey::Down
                                     | NativeKey::PageUp
                                     | NativeKey::PageDown
@@ -591,6 +630,9 @@ fn window_loop(
             dirty |= effect != Effect::None || app.running.is_none();
             effects.push(effect);
         }
+        let fire = app.continue_fire();
+        dirty |= fire != Effect::None;
+        effects.push(fire);
         let mut screenshot = false;
         for effect in effects {
             match effect {
@@ -655,6 +697,37 @@ fn window_loop(
             window.update();
         }
         let native_ms = native_started.elapsed().as_secs_f64() * 1000.;
+        if matches!(reporting, Reporting::Ready)
+            && dirty
+            && app.connected
+            && !app.busy
+            && window.is_open()
+        {
+            if let Some(state) = app
+                .state
+                .as_ref()
+                .filter(|state| state.observation_current())
+            {
+                let presented_unix_ns = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos();
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "type": "presented_ready",
+                        "frame": frame,
+                        "presented_unix_ns": presented_unix_ns,
+                        "window_open": true,
+                        "connected": true,
+                        "role": app.role,
+                        "has_control": state.has_control(),
+                    })
+                );
+                io::stdout().flush()?;
+                reporting = Reporting::None;
+            }
+        }
         // Freeze bytes and authority from the frame just presented, before any
         // further network observation can replace the displayed snapshot.
         if screenshot {
@@ -826,6 +899,7 @@ mod tests {
             NativeKey::Enter,
             NativeKey::Escape,
             NativeKey::Backspace,
+            NativeKey::Tab,
         ] {
             assert!(command_editor_key(native));
         }
@@ -844,6 +918,17 @@ mod tests {
         }
         assert_eq!(app.command_line.as_deref(), Some("k"));
         assert!(app.status.contains("ambiguous"));
+    }
+
+    #[test]
+    fn menu_text_claims_a_held_letter_whose_press_arrives_in_the_next_pump() {
+        assert_eq!(
+            deferred_menu_key("B", &[], |key| key == NativeKey::B),
+            Some(NativeKey::B)
+        );
+        assert_eq!(deferred_menu_key("b", &[NativeKey::B], |_| true), None);
+        assert_eq!(deferred_menu_key("b", &[], |_| false), None);
+        assert_eq!(deferred_menu_key("20", &[], |_| true), None);
     }
 
     #[test]
@@ -899,6 +984,7 @@ mod tests {
             (NativeKey::F9, Key::CancelIntention),
             (NativeKey::F10, Key::Advancement),
             (NativeKey::F11, Key::EscapeHold),
+            (NativeKey::F1, Key::Screenshot),
             (NativeKey::F12, Key::Zap),
             (NativeKey::Enter, Key::Enter),
             (NativeKey::Escape, Key::Escape),
@@ -915,7 +1001,7 @@ mod tests {
                 );
             }
         }
-        assert!(is_letter(NativeKey::J) && !is_letter(NativeKey::Enter));
+        assert!(LETTER_KEYS.contains(&NativeKey::J) && !LETTER_KEYS.contains(&NativeKey::Enter));
     }
 
     #[test]

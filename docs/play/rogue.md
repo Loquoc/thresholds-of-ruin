@@ -188,7 +188,8 @@ a save do not move it.
 Take it through the ordinary item command and return through the paired stairs.
 You may backtrack between dungeon floors without it. At depth 1, deliberately
 use **up** in text or **<** in ASCII at the surface exit while carrying the Amulet
-to escape. An attempt without it is refused without advancing time. Standing on
+to escape. An attempt without it costs no turn. The ASCII client tells you that
+you need the objective item to leave. Standing on
 the exit or being pushed or teleported there does not win. A successful escape
 ends the run immediately without advancing world time or giving dungeon actors
 another turn; internal stair travel still takes its ordinary time. Death and escape are

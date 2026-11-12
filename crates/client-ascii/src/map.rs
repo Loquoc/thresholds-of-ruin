@@ -189,13 +189,48 @@ pub fn item(palette: &Palette, item: &ItemView) -> AsciiAppearance {
 }
 
 fn item_appearance(palette: &Palette, class: ItemClass, asset: Option<&str>) -> AsciiAppearance {
-    presentation::resolve(palette, asset).map_or(
+    if class == ItemClass::Scroll {
+        return AsciiAppearance {
+            glyph: '?',
+            color: 0xffffff,
+        };
+    }
+    let mut look = presentation::resolve(palette, asset).map_or(
         AsciiAppearance {
             glyph: crate::item_glyph(class),
             color: ITEM,
         },
         |entry| entry.ascii,
-    )
+    );
+    if class == ItemClass::Potion {
+        if let Some(color) = asset
+            .filter(|asset| palette.holds(asset))
+            .and_then(potion_color)
+        {
+            look.color = color;
+        }
+    }
+    look
+}
+
+fn potion_color(asset: &str) -> Option<u32> {
+    Some(match asset.strip_prefix("item.potion.")? {
+        "amber" => 0xffbf3f,
+        "smoky" => 0xa6a3ae,
+        "violet" => 0xc791f4,
+        "azure" => 0x55adff,
+        "crimson" => 0xef5c68,
+        "silver" => 0xc4ccd8,
+        "pearl" => 0xffeddb,
+        "teal" => 0x51c9bb,
+        "ochre" => 0xc99752,
+        "indigo" => 0x9180ef,
+        "copper" => 0xd38a61,
+        "chartreuse" => 0xb6e858,
+        "saffron" => 0xf1c75b,
+        "cerulean" => 0x52b9de,
+        _ => return None,
+    })
 }
 
 /// Cosmetic art never changes the tile's mechanical kind or the item's class.

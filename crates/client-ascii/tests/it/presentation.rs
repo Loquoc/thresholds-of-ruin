@@ -2783,12 +2783,17 @@ fn screenshot_is_explicit_bounded_and_not_an_annotation_submission() {
     assert!(app.note.is_none());
     app.ready();
     app.input(Input::Key { key: Key::Note });
+    app.input(Input::Text {
+        text: "Unsubmitted note".into(),
+    });
     assert_eq!(
         app.input(Input::Key {
             key: Key::Screenshot
         }),
-        Effect::None
+        Effect::Screenshot
     );
+    assert_eq!(app.note.as_ref().unwrap().text, "Unsubmitted note");
+    app.ready();
     app.input(Input::Key { key: Key::Escape });
     app.disconnect("offline".into());
     assert_eq!(

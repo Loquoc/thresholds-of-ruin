@@ -181,6 +181,25 @@ pub(crate) fn trap_content_valid(content: &crate::creatures::Content, kind: &Tra
 }
 
 impl Game {
+    /// A movement attempt can spend an ordinary turn struggling against a live
+    /// spatial anchor. Linked holds have their own escape actions.
+    pub(crate) fn bear_trap_struggle(&self, id: ActorId) -> bool {
+        let Some(actor) = self.actors.get(&id) else {
+            return false;
+        };
+        let elapsed = self.actor_clock(id).saturating_sub(actor.active_since);
+        actor.holds.links().next().is_none()
+            && actor.combat.as_ref().is_some_and(|combat| {
+                let conditions = combat.creature().conditions();
+                actor.spatial_condition_anchors.0.iter().any(|anchor| {
+                    conditions.has_active(&anchor.condition)
+                        && conditions
+                            .remaining(&anchor.condition, id)
+                            .is_some_and(|remaining| remaining > elapsed)
+                })
+            })
+    }
+
     pub(crate) fn loaded_traps_valid(&self) -> bool {
         self.world.loaded_regions().all(|region| {
             self.world.traps_in_region(region).all(|(at, trap)| {
