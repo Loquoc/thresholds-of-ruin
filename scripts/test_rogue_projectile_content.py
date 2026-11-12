@@ -109,13 +109,14 @@ class RogueProjectileContent(unittest.TestCase):
             self.assertNotIn("cooldown", ability)
 
     def test_expertises_are_choices_with_explicit_combat_prices_and_no_automatic_grants(self):
-        for name in ("knife", "shortbow", "spear"):
+        for name in ("knife", "shortbow", "spear", "dart"):
             self.assertEqual(override("expertises", "rogue." + name), {
                 "id": "rogue." + name, "name": name.title(), "category": "equipment"})
         self.assertEqual(override("growth", "threat", "overrides"), [
             {"source": {"kind": "expertise", "id": "rogue.knife"}, "points": 10},
             {"source": {"kind": "expertise", "id": "rogue.shortbow"}, "points": 10},
-            {"source": {"kind": "expertise", "id": "rogue.spear"}, "points": 10}])
+            {"source": {"kind": "expertise", "id": "rogue.spear"}, "points": 10},
+            {"source": {"kind": "expertise", "id": "rogue.dart"}, "points": 10}])
         shared = tomllib.loads((ROOT / "crates/simulation/data/default-ruleset.toml").read_text())
         self.assertEqual(shared["growth"]["threat"]["expertise"], 0)
         pool = next(row for row in shared["point_pools"] if row["id"] == "advancement")
@@ -151,6 +152,8 @@ class RogueProjectileContent(unittest.TestCase):
         }
         for name, (primary, amount, count, sides) in expected.items():
             identity = "rogue." + name
+            dart = name == "dart"
+            basic_traits = [{"kind": "thrown", "range": {"short_feet": 15, "long_feet": 45}}] if dart else []
             with self.subTest(identity=identity):
                 self.assertTrue(identity in items, f"Missing standalone inventory weapon {identity}")
                 self.assertEqual(items[identity], {
@@ -162,9 +165,10 @@ class RogueProjectileContent(unittest.TestCase):
                         "skill": "light_weaponry", "bonus": 0, "wind_up": 60, "recovery": 40,
                         "damage": {"primary": primary, "components": [
                             {"category": "keen", "amount": amount}]}}, "weapon_profile": {
-                        "expertise": "rogue.knife", "base_traits": [], "expert_traits": {
+                        "expertise": "rogue.dart" if dart else "rogue.knife",
+                        "base_traits": basic_traits, "expert_traits": {
                             "add": [{"kind": "thrown", "range": {"short_feet": 20, "long_feet": 60}}],
-                            "remove": []}, "thrown_payload": {"recovery": "consumed_on_hit",
+                            "remove": ["thrown"] if dart else []}, "thrown_payload": {"recovery": "consumed_on_hit",
                             "damage": {"primary": {"category": "keen", "sides": sides}, "components": [
                                 {"category": "keen", "amount": {"type": "rolled", "count": count,
                                                                 "sides": sides, "bonus": 0}}]}}}}})

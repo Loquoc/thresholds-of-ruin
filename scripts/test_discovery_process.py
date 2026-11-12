@@ -5,7 +5,7 @@ import os
 import shutil
 import unittest
 
-from discovery_package import doors, generated_package, observation, package, traps
+from discovery_package import doors, fixture, generated_package, observation, package, traps, write_package
 from process_harness import (
     ProcessTestCase, ROOT, SPECTATOR_TOKEN, non_graphical, settle_rogue_action, underfoot,
 )
@@ -313,6 +313,43 @@ class DiscoveryProcesses(ProcessTestCase):
         self.assertIn("read-only", refused["status"])
         self.assertEqual(refused["state"], watched["state"])
         self.assertEqual(search_actions(refused), search_actions(watched))
+
+    def test_native_movement_struggles_free_of_a_bear_trap(self):
+        data = fixture()
+        data["regions"][0]["traps"] = [{
+            "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
+            "kind": {"kind": "bear_trap", "condition": "rogue.bear_trap", "duration": 300},
+        }]
+        self.server(scenario=write_package(self, data, "bear-trap"), seed=42)
+        window = self.launch("tor-client-ascii", ["--connect", self.address, "--report-frames"])
+        self.ascii_frame(window, lambda frame: frame.get("state") and frame["can_admit_intention"])
+        native = self.native_keys(window)
+
+        def step(name):
+            return self.native_press(window, native, name.title(), name,
+                                     wait_for_ready=True, wait_for_admission=True)
+
+        def underfoot(frame):
+            view = observation(frame)
+            return next(cell["key"] for cell in view["visible_cells"] if cell["position"] == view["position"])
+
+        def held(frame):
+            return any(row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
+                       for row in observation(frame)["combat"]["own_stats"]["conditions"])
+
+        trapped = step("right")
+        self.assertTrue(held(trapped))
+        current = trapped
+        for _ in range(5):
+            if not held(current):
+                break
+            after = step("left")
+            self.assertGreater(int(observation(after)["tick"]), int(observation(current)["tick"]))
+            self.assertEqual(underfoot(after), underfoot(trapped))
+            self.assertIn("struggle against the bear trap", after["messages"]["turn"])
+            current = after
+        self.assertFalse(held(current))
+        self.assertNotEqual(underfoot(step("left")), underfoot(trapped))
 
     def test_native_selected_look_examines_only_discovered_adjacent_trap(self):
         self.server(scenario=package(self), seed=42)

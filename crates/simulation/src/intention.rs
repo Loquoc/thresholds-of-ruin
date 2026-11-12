@@ -438,6 +438,9 @@ impl Game {
         let Action::Move(direction) = action else {
             return None;
         };
+        if self.bear_trap_struggle(actor) {
+            return None;
+        }
         let item = self.prepare_terminal_escape(actor, *direction).ok()?;
         Some(TerminalExitContext {
             at: self.actors.get(&actor)?.location,
@@ -452,10 +455,14 @@ impl Game {
         direction: tor_world::Direction,
     ) -> Option<MovementContext> {
         let state = self.actors.get(&actor)?;
-        let (to, next_orientation) = self.actor_translation(actor, direction).or_else(|| {
-            self.movement_guise_contacts(actor, direction)
-                .map(|(goal, _)| goal)
-        })?;
+        let (to, next_orientation) = if self.bear_trap_struggle(actor) {
+            (state.location, state.orientation)
+        } else {
+            self.actor_translation(actor, direction).or_else(|| {
+                self.movement_guise_contacts(actor, direction)
+                    .map(|(goal, _)| goal)
+            })?
+        };
         Some(MovementContext {
             from: state.location,
             orientation: state.orientation,

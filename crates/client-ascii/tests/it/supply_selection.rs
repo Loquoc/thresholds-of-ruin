@@ -815,6 +815,56 @@ fn projectile_launch_queries_exact_launcher_ammunition_then_direction_and_previe
     assert!(app.weapon_confirmation.is_none());
 }
 #[test]
+fn fire_uses_server_source_pages_and_falls_back_once() {
+    let mut app = projectile_app();
+    let mut snapshot = app.state.as_ref().unwrap().reset_snapshot().unwrap();
+    let stats = std::sync::Arc::make_mut(&mut snapshot.state)
+        .observation
+        .combat
+        .as_mut()
+        .unwrap()
+        .own_stats
+        .as_mut()
+        .unwrap();
+    let mut launch = stats.abilities[0].clone();
+    launch.id = "test.launch".into();
+    launch.name = "Launch".into();
+    let mut throw = launch.clone();
+    throw.id = "test.throw".into();
+    throw.name = "Throw".into();
+    stats.abilities = vec![launch, throw];
+    app.set_state(ClientState::from_snapshot(snapshot).unwrap());
+    app.ready();
+
+    let launch = projectile_query(app.input(Input::Key { key: Key::Fire }));
+    assert_eq!(launch.ability, "test.launch");
+    assert_eq!(app.continue_fire(), Effect::None);
+    projectile_reply(&mut app, launch.clone(), vec![], None, "empty launch");
+    let throw = projectile_query(app.continue_fire());
+    assert_eq!(throw.ability, "test.throw");
+    projectile_reply(&mut app, throw, vec![], None, "empty throw");
+    assert_eq!(app.continue_fire(), Effect::None);
+
+    assert_eq!(
+        projectile_query(app.input(Input::Key { key: Key::Tab })),
+        launch
+    );
+    projectile_reply(&mut app, launch, vec![], None, "manual launch");
+    assert_eq!(app.continue_fire(), Effect::None);
+    app.input(Input::Key { key: Key::Enter });
+    assert!(app.projectile_selection.is_none());
+}
+
+#[test]
+fn enter_dismisses_a_projectile_picker_with_no_choices_or_other_pages() {
+    let mut app = projectile_app();
+    let query = projectile_open(&mut app);
+    projectile_reply(&mut app, query, vec![], None, "empty");
+    assert_eq!(app.input(Input::Key { key: Key::Enter }), Effect::None);
+    assert!(app.projectile_selection.is_none());
+}
+
+#[test]
 fn projectile_empty_pages_are_navigable_and_cancelled_replies_never_reopen() {
     let mut app = projectile_app();
     let query = projectile_open(&mut app);

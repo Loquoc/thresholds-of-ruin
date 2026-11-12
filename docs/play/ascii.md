@@ -163,7 +163,7 @@ command. There is no numeric-keypad mode.
 | `.` or Space | Wait one action |
 | `s` | Use your disclosed Search ability on yourself. This is a paid action, unlike look; nothing is invented if Search is not granted |
 | `Z` | Choose a granted ability. Up/Down selects, Enter uses a self-only ability or opens its target/source picker, and Esc cancels; choosing is free |
-| `t` / `f` | Choose a source for the disclosed Throw / Launch ability, then direction and exact-action confirmation |
+| `t` / `f` | Throw a carried weapon or Fire using a launcher or hand throw. Choose a source, direction, and confirm. In Fire, Tab switches source types when both are available |
 | `,` | Pick up. A lone object is taken at once; otherwise choose by letter (digits first set a count) |
 | `d` | Drop: choose by inventory letter, digits first set a count |
 | `w` / `W` / `P` | Equip a weapon / armor / accessory; always asks, by inventory letter |
@@ -181,6 +181,7 @@ command. There is no numeric-keypad mode.
 | `#` | Extended commands: type a listed command and Enter; Esc cancels |
 | `?` | Help: commands and map symbols |
 | Ctrl-P | Message log: earlier turns, newest at the bottom; Up/Down, Page Up/Down scroll |
+| F1 | Save a screenshot of the current game screen |
 | F2 | Game history from the server, opening at the newest entries; Page Up for older pages |
 | F5 | Remembered places; Enter renames |
 | F4 | Write a note anchored to the state where composition began; Tab switches private / actor-visible |
@@ -192,6 +193,9 @@ command. There is no numeric-keypad mode.
 | Escape | Cancel a prefix or selection, or close what's open; never quit from the map |
 | `S` | Save pending accepted work and close the window through the normal shutdown path |
 
+When caught in a bear trap, a movement key spends a turn struggling in place.
+Keep trying until the trap releases, then move away.
+
 For an extended command, press `#`, type its name without the leading `#`, and
 press Enter. `#attack` retains the visible-target attack picker. `#charts` opens
 read-only detection charts. `#equip` and `#remove` retain the general equipment
@@ -202,8 +206,8 @@ start, default 75); `[` and `]` are reserved for pagination inside strike detail
 Other listed commands include abilities, search, throw, fire, stats, inventory,
 look, travel, places, note, report, screenshot, control, release, advancement, escape-hold, resume,
 cancel, help and save. These select the same existing actions and menus, with
-the same server authority checks. Opening or cancelling the command editor is
-free; confirming a paid command is not.
+the same server authority checks. Tab completes a unique command-name prefix.
+Enter confirms the command. Opening, completing or cancelling the editor costs no turn.
 
 Unsupported NetHack mechanics are not bound to unrelated actions: force-fighting
 an empty square, automatic pickup, weapon swapping, two-weapon toggling, kicking,
@@ -284,7 +288,8 @@ The heading reserves 18 bytes, leaving 4078 UTF-8 bytes for a nonblank body.
 Reports do not capture a screenshot; screenshot capture is a separate command.
 F4 and `#note` continue to save your text without adding a heading.
 
-Use `#screenshot` to capture the next presented game window as a PNG attachment
+Press F1 from any game screen, or use `#screenshot`, to capture the next
+presented game window as a PNG attachment
 in a private frontend note in game history. It captures only this application's
 1200 × 800 framebuffer, never the desktop or other windows, and anchors it to
 that exact displayed snapshot. Only one upload is admitted at a time. Spectators
@@ -427,6 +432,10 @@ snapshots; abandoned-branch drafts and selections clear. Public observations
 remain actor-specific even in a wizard game. Privileged F7 inspection reports are
 separate, clear on disconnect/reset, and never become ordinary map knowledge.
 
+The Rogue scenario uses the Rogue 5.4 glyphs E for emu, H for hobgoblin, O for
+orc, and R for rattlesnake. Potion colors follow their disclosed bottle
+appearances. Scrolls use a white `?`.
+
 ## Diagnostics and acceptance
 
 The native frontend uses minifb and bitmap glyphs. Windows and Linux/X11 are
@@ -436,8 +445,12 @@ for native desktop prerequisites and the maintained test commands.
 
 `--automation` reads JSON input events on stdin, such as
 `{"type":"key","key":"right"}`. It reports frames only after successful native
-presentation. `--report-frames` emits diagnostics with ordinary keyboard input;
-`--capture file.ppm` alongside either writes the last presented framebuffer.
+presentation. `--report-ready` emits one compact record after the connected
+window presents. The desktop launchers use this mode by default.
+Set `TOR_PLAYTEST_REPORT_FRAMES=1` before launching to collect full frames for
+diagnostics. Full reports serialize and write each changed frame, which can
+stall input on slow writes. `--capture file.ppm` alongside `--automation` or
+`--report-frames` writes the last presented framebuffer.
 Each capture is published by replacing the destination only after the complete
 PPM is written, so concurrent readers see one complete frame. On Windows, live
 readers must share delete access to permit replacement; the test harness's

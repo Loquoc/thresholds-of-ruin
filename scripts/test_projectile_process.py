@@ -333,6 +333,12 @@ class ProjectileProcesses(ProcessTestCase):
         native = self.native_keys(window)
         sources = press("f", "fire")
         self.assertIn("shortbow", "\n".join(sources["projectile_rows"]))
+        empty = press("Tab", "tab")
+        self.assertIn("> No choices on this page.", empty["projectile_rows"])
+        dismissed = press("Return", "enter")
+        self.assertIsNone(dismissed["projectile_selection"])
+        self.assertEqual(dismissed["state"], initial["state"])
+        press("f", "fire")
         start = len(self.replies)
         ammunition = press("Return", "enter")
         page = self.reply("projectile_choices", start)["page"]

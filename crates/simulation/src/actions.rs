@@ -558,6 +558,8 @@ impl Game {
         ) {
             self.require_owner_advancement()?;
         }
+        let struggling = matches!(action, Action::Move(_)) && self.bear_trap_struggle(id);
+        let action = if struggling { Action::Wait } else { action };
         if self.condition_blocks_action(id, &action) {
             return Err(GameError::ActorBusy);
         }
@@ -593,7 +595,7 @@ impl Game {
         let mut planned = None;
         let mut transfer = None;
         let mut touches = Vec::new();
-        let mut requested_destination = None;
+        let mut requested_destination = struggling.then_some((actor.location, actor.orientation));
         let (kind, duration) = match action.clone() {
             Action::ExamineTrap { trap } => {
                 let location = self

@@ -194,6 +194,8 @@ pub struct App {
     pub weapon_selection: Option<WeaponDraft>,
     pub weapon_confirmation: Option<tor_client_common::weapon_preview::WeaponPreview>,
     pub projectile_selection: Option<tor_client_common::projectiles::ProjectileMenu>,
+    fire_alternate: Option<String>,
+    fire_auto_switch: bool,
     /// The look cursor, while choosing a cell to describe.
     pub look_cursor: Option<Position>,
     pub inventory_open: bool,
@@ -280,6 +282,8 @@ impl App {
             weapon_selection: None,
             weapon_confirmation: None,
             projectile_selection: None,
+            fire_alternate: None,
+            fire_auto_switch: false,
             look_cursor: None,
             inventory_open: false,
             help_open: false,
@@ -390,6 +394,7 @@ impl App {
             .state
             .as_mut()
             .ok_or(tor_client_common::StreamError::InconsistentState)?;
+        let struggling = self.last_move && bear_trapped(&state.state().observation);
         let old = Some((state.branch().clone(), state.state().revision));
         state.apply(update)?;
         if control_changed {
@@ -427,6 +432,16 @@ impl App {
                     .any(|line| matches!(line.topic, tor_client_common::narration::Topic::Own(_)))
             {
                 self.messages.begin_turn();
+            }
+            if struggling
+                && lines.iter().any(|line| {
+                    matches!(
+                        line.topic,
+                        tor_client_common::narration::Topic::Own(tor_protocol::Event::Waited)
+                    )
+                })
+            {
+                self.messages.push("You struggle against the bear trap.");
             }
             self.messages.absorb_outcome_with_underfoot(
                 lines,
@@ -1967,6 +1982,23 @@ impl App {
     /// Reduce input through the active modal screen before ordinary map controls.
     /// Returns an effect for the shell; it neither sends nor executes a game action.
     pub fn input(&mut self, input: Input) -> Effect {
+        if matches!(
+            input,
+            Input::Key {
+                key: Key::Screenshot
+            }
+        ) {
+            if !self.connected || self.busy || self.state.is_none() {
+                return Effect::None;
+            }
+            if self.role == AccessRole::Spectator {
+                self.status = "Spectator access is read-only.".into();
+                return Effect::None;
+            }
+            self.busy = true;
+            self.running = None;
+            return Effect::Screenshot;
+        }
         if self.command_line.is_some() {
             return self.command_input(input);
         }
@@ -2847,12 +2879,13 @@ impl App {
                 self.command_line = Some(String::new());
                 self.command_selected = 0;
                 self.command_selected_explicit = false;
-                self.status = "Type a command or use Up/Down; Enter selects, Esc cancels.".into();
+                self.status =
+                    "Type or use Up/Down; Tab completes, Enter selects, Esc cancels.".into();
                 Effect::None
             }
             Key::Search => self.named_ability("search", AbilityTargetKind::SelfOnly),
             Key::Throw => self.named_ability("throw", AbilityTargetKind::DirectionalProjectile),
-            Key::Fire => self.named_ability("launch", AbilityTargetKind::DirectionalProjectile),
+            Key::Fire => self.fire(),
             Key::Apply => self.open_apply_picker(),
             Key::Wield | Key::Wear | Key::PutOn | Key::TakeOff | Key::RemoveAccessory => {
                 let operation = if matches!(key, Key::TakeOff | Key::RemoveAccessory) {
@@ -3163,14 +3196,6 @@ impl App {
                 }
                 Effect::None
             }
-            Key::Screenshot => {
-                if self.state.is_none() {
-                    return Effect::None;
-                }
-                self.busy = true;
-                self.running = None;
-                Effect::Screenshot
-            }
             Key::Note | Key::PlayTestReport => {
                 if let Some(state) = &self.state {
                     self.note = Some(NoteDraft {
@@ -3236,7 +3261,74 @@ impl App {
         self.command(command)
     }
 
+    fn fire(&mut self) -> Effect {
+        let Some(state) = &self.state else {
+            return Effect::None;
+        };
+        let observation = &state.state().observation;
+        let ability = |name| {
+            tor_client_common::abilities::match_command(observation, name)
+                .ok()
+                .flatten()
+                .filter(|(ability, rest)| {
+                    rest.is_empty()
+                        && ability.target_kind == AbilityTargetKind::DirectionalProjectile
+                })
+                .map(|(ability, _)| ability.clone())
+        };
+        let launch = ability("launch");
+        let throw = ability("throw");
+        match (launch, throw) {
+            (Some(launch), Some(throw)) => {
+                let effect = self.choose_ability(launch);
+                if effect != Effect::None {
+                    self.fire_alternate = Some(throw.id);
+                    self.fire_auto_switch = true;
+                }
+                effect
+            }
+            (Some(ability), None) | (None, Some(ability)) => self.choose_ability(ability),
+            (None, None) => self.named_ability("launch", AbilityTargetKind::DirectionalProjectile),
+        }
+    }
+
+    /// After the initial launcher reply, fall back to hand throws if there are no launchers.
+    pub fn continue_fire(&mut self) -> Effect {
+        use tor_client_common::projectiles::Step;
+        if self.busy || !self.fire_auto_switch {
+            return Effect::None;
+        }
+        self.fire_auto_switch = false;
+        if self.projectile_selection.as_ref().is_some_and(|menu| {
+            menu.step() == Step::Choices
+                && menu.choices().is_empty()
+                && !menu.has_previous()
+                && !menu.has_next()
+        }) {
+            return self.switch_fire_source();
+        }
+        Effect::None
+    }
+
+    fn switch_fire_source(&mut self) -> Effect {
+        let Some(alternate) = self.fire_alternate.take() else {
+            return Effect::None;
+        };
+        let current = self
+            .projectile_selection
+            .as_ref()
+            .and_then(|menu| menu.query())
+            .map(|query| query.ability.clone());
+        let effect = self.open_projectile_picker(&alternate);
+        if effect != Effect::None {
+            self.fire_alternate = current;
+        }
+        effect
+    }
+
     fn open_projectile_picker(&mut self, ability: &str) -> Effect {
+        self.fire_alternate = None;
+        self.fire_auto_switch = false;
         let Some(state) = &self.state else {
             return Effect::None;
         };
@@ -3275,7 +3367,12 @@ impl App {
             page,
         )?;
         self.selected = 0;
-        self.status = "Choose a source. Left/Right pages; Esc cancels.".into();
+        self.status = if menu.choices().is_empty() && !menu.has_previous() && !menu.has_next() {
+            "No eligible projectile choices. Enter or Esc closes."
+        } else {
+            "Choose a source. Left/Right pages; Esc cancels."
+        }
+        .into();
         Ok(())
     }
     pub fn projectile_rows(&self) -> Vec<String> {
@@ -3293,6 +3390,14 @@ impl App {
         }
         if menu.has_next() {
             rows.push("Right: more choices".into());
+        }
+        if self.fire_alternate.is_some()
+            && menu.step() == tor_client_common::projectiles::Step::Choices
+            && menu
+                .query()
+                .is_some_and(|query| matches!(query.phase, ProjectileChoicePhase::Sources {}))
+        {
+            rows.push("Tab: switch between launcher and hand throw".into());
         }
         rows
     }
@@ -3347,6 +3452,18 @@ impl App {
             }
             Key::Left => menu.previous(state).map(Some),
             Key::Right => menu.next(state).map(Some),
+            Key::Tab
+                if menu.query().is_some_and(|query| {
+                    matches!(query.phase, ProjectileChoicePhase::Sources {})
+                }) =>
+            {
+                return self.switch_fire_source();
+            }
+            Key::Enter if menu.choices().is_empty() && !menu.has_previous() && !menu.has_next() => {
+                self.projectile_selection = None;
+                self.status = "Never mind.".into();
+                return Effect::None;
+            }
             Key::Enter => menu.choose(state, self.selected),
             _ => return Effect::None,
         };
@@ -3455,8 +3572,12 @@ impl App {
             self.status = "This run has ended.".into();
             return Effect::None;
         }
+        let bear_trapped = bear_trapped(&state.state().observation);
         if let Action::Move { direction } = action {
-            if let Some(request) = state.cancel_intention_with_step_request(direction) {
+            if let Some(request) = (!bear_trapped)
+                .then(|| state.cancel_intention_with_step_request(direction))
+                .flatten()
+            {
                 self.messages.begin_turn();
                 self.running = None;
                 self.last_move = true;
@@ -3510,15 +3631,19 @@ impl App {
                         .find(|actor| actor.id != view.self_target && actor.position == at)
                 }
             });
-            if let Some(target) = target.filter(|actor| match self.bump_attacks {
-                BumpAttacks::Any => true,
-                BumpAttacks::Off => false,
-                BumpAttacks::Hostile => view.combat.as_ref().is_some_and(|c| {
-                    c.actors
-                        .iter()
-                        .any(|other| other.actor == actor.id && other.hostile)
-                }),
-            }) {
+            if let Some(target) =
+                target
+                    .filter(|_| !bear_trapped)
+                    .filter(|actor| match self.bump_attacks {
+                        BumpAttacks::Any => true,
+                        BumpAttacks::Off => false,
+                        BumpAttacks::Hostile => view.combat.as_ref().is_some_and(|c| {
+                            c.actors
+                                .iter()
+                                .any(|other| other.actor == actor.id && other.hostile)
+                        }),
+                    })
+            {
                 match tor_client_common::abilities::basic_action(view, target.id) {
                     Ok(attack) => action = attack,
                     Err(reason) => {
@@ -3591,7 +3716,7 @@ pub fn plain_error(code: ErrorCode, message: &str) -> String {
         (ErrorCode::InvalidAction, "Travel destination or known route is unavailable") => {
             "You don't know a way there.".into()
         }
-        (ErrorCode::ActorBusy, _) => "You're still on your way.".into(),
+        (ErrorCode::ActorBusy, _) => "You can't act yet.".into(),
         (ErrorCode::ControlTaken, _) => {
             "Another player has control; you can watch until they release it.".into()
         }
@@ -4147,6 +4272,7 @@ pub const HELP: &[&str] = &[
     "F2 F5   history / places       F4      state-anchored note",
     "F3      acquire control        #release releases control",
     "F6 F12  read / zap aliases     F7      wizard / creature list",
+    "F1      save a screenshot of the current game screen",
     "F8 F9   resume / cancel work   F10 F11 advancement / hold escape",
     "#slower/#faster journey pace   S       save and close",
     "Esc     cancel/close a screen; never quits from the map",
@@ -4155,6 +4281,19 @@ pub const HELP: &[&str] = &[
 ];
 
 /// Whether the run is over: won or lost with no further play.
+fn bear_trapped(observation: &Observation) -> bool {
+    observation
+        .combat
+        .as_ref()
+        .and_then(|combat| combat.own_stats.as_ref())
+        .is_some_and(|stats| {
+            stats.conditions.iter().any(|condition| {
+                condition.condition.id == "rogue.bear_trap"
+                    && condition.phase == ConditionPhase::Active
+            })
+        })
+}
+
 fn ended(state: &ClientState) -> bool {
     state
         .outcome_status()

@@ -824,10 +824,7 @@ fn messages_stay_until_the_next_command_and_then_move_to_the_log() {
     outcome(&mut app, 1, &struck, None);
     // Later updates with nothing to say don't clear what was said.
     update(&mut app, 2, |o| o.combat.as_mut().unwrap().events.clear());
-    assert_eq!(
-        app.messages.text(),
-        "The ruin scout used Basic Melee on you."
-    );
+    assert_eq!(app.messages.text(), "The ruin scout attacks you.");
     assert!(matches!(
         app.input(Input::Key { key: Key::Up }),
         Effect::Request(_)
@@ -835,7 +832,7 @@ fn messages_stay_until_the_next_command_and_then_move_to_the_log() {
     assert_eq!(app.messages.text(), "");
     assert_eq!(
         app.messages.log().collect::<Vec<_>>(),
-        ["The ruin scout used Basic Melee on you."]
+        ["The ruin scout attacks you."]
     );
     app.ready();
     assert_eq!(
@@ -1821,7 +1818,10 @@ fn unknown_missing_and_unforecast_assets_have_name_independent_safe_fallbacks() 
 fn unnamed_actor_look_uses_the_shared_english_indefinite_form() {
     for (asset, phrase) in [
         ("creature.equine.unicorn", "u - a unicorn"),
-        ("creature.bird.emu", "B - an emu"),
+        ("creature.bird.emu", "E - an emu"),
+        ("creature.goblin.hobgoblin", "H - a hobgoblin"),
+        ("creature.humanoid.orc", "O - an orc"),
+        ("creature.serpent.rattlesnake", "R - a rattlesnake"),
     ] {
         let mut snapshot = snapshot();
         let actor = &mut Arc::make_mut(&mut snapshot.state)
@@ -1842,6 +1842,43 @@ fn unnamed_actor_look_uses_the_shared_english_indefinite_form() {
             format!("{phrase} (hostile, wounded).")
         );
     }
+}
+
+#[test]
+fn potion_color_comes_from_disclosed_appearance_and_scrolls_are_white() {
+    let mut potion = snapshot().state.observation.inventory[0].clone();
+    potion.class = ItemClass::Potion;
+    potion.asset = Some("item.potion.amber".into());
+    let mut palette = tor_client_common::Palette::default();
+    palette.apply(&PaletteUpdate {
+        revision: 1,
+        body: PaletteBody::Full {
+            assets: ["item.potion.amber".into(), "item.potion.smoky".into()].into(),
+        },
+    });
+    let amber = map::item(&palette, &potion);
+    assert_eq!((amber.glyph, amber.color), ('!', 0xffbf3f));
+    assert_ne!(
+        map::item(&tor_client_common::Palette::default(), &potion).color,
+        amber.color
+    );
+
+    let remembered = map::object(
+        &palette,
+        &ObjectPresentation {
+            name: "smoky potion".into(),
+            asset: Some("item.potion.smoky".into()),
+            kind: ObjectPresentationKind::Item {
+                class: ItemClass::Potion,
+            },
+        },
+    );
+    assert_eq!((remembered.glyph, remembered.color), ('!', 0xa6a3ae));
+
+    potion.class = ItemClass::Scroll;
+    potion.asset = None;
+    let scroll = map::item(&palette, &potion);
+    assert_eq!((scroll.glyph, scroll.color), ('?', 0xffffff));
 }
 
 #[test]

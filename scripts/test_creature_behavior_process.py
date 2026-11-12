@@ -65,8 +65,10 @@ class CreatureBehaviorProcesses(ProcessTestCase):
         self.assertEqual(u64(observation(engaged)["combat"]["hp"]), initial_hp)
         # Text presents the same disclosed resolved contact without inventing
         # an injury or exposing the target's private engagement record.
-        contact = "The trainee used Attack on you."
-        self.assertIn(contact, text.until(lambda line: line == contact))
+        contact = text.until(lambda line: line in {
+            "The trainee used Attack on you.", "The trainee attacks you.",
+        })
+        self.assertEqual(contact.splitlines()[-1], "The trainee attacks you.")
         presented = text.command("look")
         self.assertIn(f"HP {initial_hp}/{u64(observation(calm)['combat']['max_hp'])}", presented)
         self.assertNotIn("memory_ticks", presented)

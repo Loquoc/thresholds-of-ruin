@@ -1348,15 +1348,15 @@ class ProcessTestCase(unittest.TestCase):
             user32 = ctypes.WinDLL("user32", use_last_error=True)
             user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
             def key(name, down):
-                vk = {"i": 0x49, "semicolon": 0xBA, "o": 0x4F, "c": 0x43, "Right": 0x27, "Up": 0x26, "Escape": 0x1B, "y": 0x59, "u": 0x55, "b": 0x42,
-                      "n": 0x4E, "F4": 0x73, "F6": 0x75, "F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B, "Shift_L": 0x10, "comma": 0xBC, "period": 0xBE, "g": 0x47,
+                vk = {"i": 0x49, "semicolon": 0xBA, "o": 0x4F, "c": 0x43, "Left": 0x25, "Right": 0x27, "Up": 0x26, "Escape": 0x1B, "y": 0x59, "u": 0x55, "b": 0x42,
+                      "n": 0x4E, "F1": 0x70, "F4": 0x73, "F6": 0x75, "F7": 0x76, "F8": 0x77, "F9": 0x78, "F10": 0x79, "F11": 0x7A, "F12": 0x7B, "Shift_L": 0x10, "comma": 0xBC, "period": 0xBE, "g": 0x47,
                       "w": 0x57, "t": 0x54, "q": 0x51, "e": 0x45, "z": 0x5A, "x": 0x58, "v": 0x56, "2": 0x32,
                       "Control_L": 0x11, "k": 0x4B, "r": 0x52, "s": 0x53, "a": 0x41, "f": 0x46, "3": 0x33, "Return": 0x0D, "Down": 0x28,
                       "PageUp": 0x21, "PageDown": 0x22, "Tab": 0x09, "space": 0x20,
                       "bracketleft": 0xDB, "bracketright": 0xDD}[name]
                 scan = user32.MapVirtualKeyW(vk, 0)
                 self.assertTrue(user32.PostMessageW(handle, 0x100 if down else 0x101, vk,
-                    1 | (scan << 16) | (0x01000000 if name in ("Up", "Down", "Right", "PageUp", "PageDown") else 0)
+                    1 | (scan << 16) | (0x01000000 if name in ("Up", "Down", "Left", "Right", "PageUp", "PageDown") else 0)
                     | (0 if down else 0xC0000000)))
             return key
         def key(name, down):

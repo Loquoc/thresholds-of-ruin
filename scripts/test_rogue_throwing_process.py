@@ -133,12 +133,12 @@ class RogueThrowingProcesses(ProcessTestCase):
         self.assertEqual(len(rows), 1, (kind, rows))
         return rows[0]
 
-    def learn(self, text):
+    def learn(self, text, expertise="knife"):
         self.assertIn("Starting skills", text.command("advancement"))
-        self.assertIn("Confirm", text.command("advancement purchase 2 advancement expertise rogue.knife"))
+        self.assertIn("Confirm", text.command(f"advancement purchase 2 advancement expertise rogue.{expertise}"))
         self.assertNotIn("Server error", text.command("advancement confirm"))
         learned = self.settle()
-        self.assertIn({"expertise": {"id": "rogue.knife", "name": "Knife"},
+        self.assertIn({"expertise": {"id": f"rogue.{expertise}", "name": expertise.title()},
                        "status": "active", "source_count": 1},
                       observation(learned)["combat"]["own_stats"]["expertises"])
         return learned
@@ -172,6 +172,18 @@ class RogueThrowingProcesses(ProcessTestCase):
                 row["phase"] == "paused" for row in frame["intentions"]))
         # Causal intention updates precede the demanded observation picture.
         return self.picture_after(self.probe, paused)
+
+    @non_graphical
+    def test_dart_expertise_improves_the_range_of_an_ordinary_dart_throw(self):
+        self.setup_encounter()
+        text = self.text()
+        self.learn(text, "dart")
+        self.choose(text, "dart", "east")
+        self.assertNotIn("Server error", text.command("yes"))
+        saved = checkpoint(self, self.probe)
+        plan = saved["actors"]["1"]["pending"]["plan"]
+        self.assertEqual(plan["range"], {"short_feet": 20, "long_feet": 60})
+        self.assertTrue(plan["source"]["allocation"]["target"]["expert"])
 
     @non_graphical
     def test_equipping_carried_dart_stack_splits_one_and_preserves_remainder_after_restart(self):
@@ -213,9 +225,14 @@ class RogueThrowingProcesses(ProcessTestCase):
         # intact so the throw reservation and restart exercise all three units.
         text = self.text()
         start = len(self.replies)
-        self.assertIn("No choices", text.command("throw"))
-        self.assertEqual(self.reply("projectile_choices", start)["page"]["choices"], [])
+        self.assertIn("dart", text.command("throw"))
+        choices = self.reply("projectile_choices", start)["page"]["choices"]
+        self.assertEqual([choice["source"]["item"] for choice in choices],
+                         [inventory(initial, "dart")["id"]])
         text.command("cancel")
+        self.choose(text, "dart", "east")
+        self.assertNotIn("Server error", text.command("no"))
+        self.assertDisclosedStateEqual(self.snapshot()["state"], initial["state"])
         learned = self.learn(text)
         self.choose(text, "dart", "east")
         self.assertNotIn("Server error", text.command("no"))
@@ -239,8 +256,13 @@ class RogueThrowingProcesses(ProcessTestCase):
         plan = pending["plan"]
         self.assertEqual(plan["kind"], "projectile")
         self.assertEqual(plan["source"]["kind"], "throw_carried")
+        self.assertEqual(plan["range"], {"short_feet": 15, "long_feet": 45})
         frozen = plan["source"]["allocation"]["target"]
-        self.assertTrue(frozen["expert"])
+        self.assertFalse(frozen["expert"], "Knife expertise does not apply to darts")
+        self.assertEqual(frozen["spec"]["expertise"], "rogue.dart")
+        self.assertEqual(frozen["spec"]["base_traits"], [
+            {"kind": "thrown", "range": {"short_feet": 15, "long_feet": 45}}
+        ])
         payload = frozen["spec"]["thrown_payload"]
         self.assertEqual(payload["recovery"], "consumed_on_hit")
         self.assertIsNone(frozen["spec"]["launcher"])
@@ -347,24 +369,25 @@ class RogueThrowingProcesses(ProcessTestCase):
 
     def test_native_carried_stack_picker_cancels_without_holding_and_confirms_one_unit(self):
         self.setup_encounter()
-        setup = self.text()
-        self.learn(setup)
-        setup.stop()
         window = self.launch("tor-client-ascii", ["--connect", self.address, "--report-frames"])
         initial = self.ascii_frame(window, lambda frame: frame["state"] is not None and not frame["busy"])
         self.assertTrue(initial["window_open"])
+        emus = [actor["position"] for actor in observation(initial)["visible_actors"]
+                if actor.get("asset") == "creature.bird.emu"]
+        glyphs = {tile["glyph"] for tile in initial["map_tiles"]
+                  if tile["position"] in emus and tile["kind"] == "creature"}
+        self.assertEqual(glyphs, {"E"})
         native = self.native_keys(window)
-        before = checkpoint(self, self.probe)
         dart = inventory(self.snapshot(), "dart")["id"]
 
         def press(name, key):
             return self.native_press(window, native, name, key)
 
-        def choose():
-            sources = press("t", "throw")
+        def choose(name, key):
+            sources = press(name, key)
             rows = sources["projectile_selection"]["page"]["choices"]
             self.assertTrue(any("dart" in row for row in sources["projectile_rows"]))
-            self.assertTrue(any("shuriken" in row for row in sources["projectile_rows"]))
+            self.assertFalse(any("shuriken" in row for row in sources["projectile_rows"]))
             index = next(index for index, row in enumerate(rows) if row["source"]["item"] == dart)
             self.assertEqual(rows[index], {"kind": "throw", "source": {
                 "kind": "carried", "item": dart, "socket": 10}})
@@ -375,11 +398,12 @@ class RogueThrowingProcesses(ProcessTestCase):
             self.assertEqual(preview["weapon_preview"]["preview"]["ability"], "rogue.throw")
             return preview
 
-        choose()
+        choose("t", "throw")
         cancelled = press("Escape", "escape")
         self.assertIsNone(cancelled["weapon_preview"])
-        self.assertEqual(checkpoint(self, self.probe), before)
-        choose()
+        self.assertDisclosedStateEqual(cancelled["state"], initial["state"])
+        self.assertEqual(inventory(self.snapshot(), "dart")["quantity"], "3")
+        choose("f", "fire")
         self.assertTrue(press("Return", "enter")["window_open"])
         self.await_throw_started("dart", 3)
         final = self.settle()

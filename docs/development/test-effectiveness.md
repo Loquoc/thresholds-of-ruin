@@ -33,6 +33,35 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## ASCII playtest follow-up, 11 November 2026
+
+The native Take Off regression reproduced a movement key escaping the menu
+after Windows delivered its text. The native bear-trap regression reproduced a
+movement attempt spending zero ticks while the trap condition stayed active.
+Both were reported from ordinary play and then reproduced through the actual
+server and ASCII client. These two defects had distinct causes and each
+regression passed after its fix.
+
+The first global screenshot implementation briefly bypassed the spectator
+guard. `presentation::spectator_can_browse_but_cannot_create_any_mutation_or_note_draft`
+caught that regression. Restoring the authority check made the test pass.
+
+During the surface-exit change,
+`unique_retrieval::tests::queued_terminal_exit_round_trips_and_rechecks_stale_endpoint_and_ownership`
+and
+`unique_retrieval::tests::cancelling_preparation_with_terminal_up_uses_the_same_atomic_ownership_check`
+still expected the generic item error. These two failed method executions
+shared one stale expectation. The revised assertions retain the original
+atomicity and ownership checks and verify the specific exit refusal.
+
+The broad quick checkpoint also caught two stale Python assertions. The
+Amulet recording test still expected only two work budgets. The Wraith
+recovery test still expected the expertise threat table before Dart was
+added. Each failed once and still checks the full table or budget list.
+The same checkpoint encountered missing local sampler dependencies and a
+missing debug arena executable. Those setup errors are separate from the
+assertion failures.
+
 ## Text rename confirmation race, 5 November 2026
 
 [Linux release process CI](https://github.com/KCall360/thresholds-of-ruin/actions/runs/42110629349/job/127537320869)
