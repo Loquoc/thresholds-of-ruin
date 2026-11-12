@@ -6,11 +6,12 @@ work from implemented design records. “Implemented” does not mean balanced,
 fully optimized or qualified for every workload. Follow the
 [testing policy](development/testing.md).
 
-Hosted Actions remain disabled during account migration. The local CI candidate
-now declares composed application-test ownership and prerequisites, admits
+Hosted Actions are enabled on the public repository. The CI plan declares
+composed application-test ownership and prerequisites, admits
 expensive PR work only after readiness, groups minor/patch dependency updates,
 and bounds native-client log retention. Advisory checks run with core CI or by
-manual dispatch. The [usage review](development/ci-usage.md) covers hosted workloads.
+manual dispatch. The first manual advisory scan passed. The
+[usage review](development/ci-usage.md) covers hosted workloads.
 Exhaustive hosted qualification remains explicit, release-driven or required by
 change risk. See the
 [CI reduction review](plans/hosted-ci-reduction.md) for implemented controls,
