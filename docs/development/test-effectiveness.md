@@ -33,6 +33,18 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Performance evidence URL normalization, 13 November 2026
+
+Review found that the performance ledger's project-prefix check accepted paths
+that normalize outside the project. The new
+`EntryFormat.test_raw_location_rejects_normalized_path_escape` reproduced this
+before the fix: one validation defect and one distinct failing method, with 90
+failing subcases rather than 90 defects. Validation now checks every percent-decoded
+path for dot segments, backslashes and control characters while preserving the
+explicit current/historical project allowlist. Safe encoded names and ordinary
+dotted filenames remain accepted. This is local tooling validation, not evidence
+that any recorded asset was fetched or that a published ledger entry was exploited.
+
 ## Model handoff documentation cleanup, 13 November 2026
 
 `test_local_markdown_links_resolve` caught one documentation defect when the
