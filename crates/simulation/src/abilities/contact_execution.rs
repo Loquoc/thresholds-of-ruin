@@ -15,6 +15,7 @@ impl Game {
         preparation: Option<&crate::combat::Preparation>,
         disclosure: crate::event_history::SourceAbilityDisclosure,
     ) -> Result<(), GameError> {
+        let effect_origin = self.capture_spatial_effect_origin(ray.actor)?;
         let invalid = || GameError::Rule(RuleError::InvalidPlan);
         let trace = self
             .trace_first_body(
@@ -25,6 +26,7 @@ impl Game {
                 MAX_CONTACT_STATES,
             )
             .map_err(|_| invalid())?;
+        self.publish_ray_effect(ray, trace.segments, disclosure, effect_origin)?;
         let target = match trace.end {
             ContactEnd::Body(target) => target,
             ContactEnd::NeedsRegions(_) => return Err(invalid()), // residency precedes payment

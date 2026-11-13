@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn response_decode_rejects_overdeep_ignored_fields() {
         let samples = crate::fixture::load(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v70.json"),
             crate::PROTOCOL_VERSION,
         )
         .expect("regenerate current wire samples");
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn typed_decoders_preserve_all_recorded_message_kinds() {
         let samples = crate::fixture::load(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v70.json"),
             crate::PROTOCOL_VERSION,
         )
         .expect("regenerate current wire samples");

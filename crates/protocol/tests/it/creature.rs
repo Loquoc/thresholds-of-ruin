@@ -352,19 +352,37 @@ fn phase5_ally_eligibility_is_explicit_and_cannot_disclose_factions() {
 fn personal_conditions_have_closed_bounded_shapes_without_private_provenance() {
     let mut value = serde_json::to_value(stats()).unwrap();
     let condition = serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},
-        "phase":"active","remaining_ticks":"200"});
+        "phase":"active","appearance":"status_indicator","cue":"status","remaining_ticks":"200"});
     value["conditions"] = serde_json::json!([condition.clone()]);
     let parsed: OwnStats =
         serde_json::from_value(value.clone()).expect("personal condition projection");
     assert_eq!(serde_json::to_value(parsed).unwrap(), value);
     for invalid in [
         serde_json::json!(["fixture_pause", "active", "200"]),
-        serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},"phase":"active","remaining_ticks":"200","source":7}),
-        serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},"phase":"active","remaining_ticks":"200","qualification":null}),
-        serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},"remaining_ticks":"200"}),
+        serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},"phase":"active","appearance":"status_indicator","cue":"status","remaining_ticks":"200","source":7}),
+        serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},"phase":"active","appearance":"status_indicator","cue":"status","remaining_ticks":"200","qualification":null}),
+        serde_json::json!({"condition":{"id":"fixture_pause","name":"Fixture Pause"},"appearance":"status_indicator","cue":"status","remaining_ticks":"200"}),
     ] {
         value["conditions"] = serde_json::json!([invalid]);
         assert!(serde_json::from_value::<OwnStats>(value.clone()).is_err());
+    }
+    for field in ["appearance", "cue"] {
+        let mut invalid = condition.clone();
+        invalid.as_object_mut().unwrap().remove(field);
+        value["conditions"] = serde_json::json!([invalid]);
+        assert!(
+            serde_json::from_value::<OwnStats>(value.clone()).is_err(),
+            "missing {field}"
+        );
+    }
+    for (field, wrong) in [("appearance", "halo"), ("cue", "fire")] {
+        let mut invalid = condition.clone();
+        invalid[field] = wrong.into();
+        value["conditions"] = serde_json::json!([invalid]);
+        assert!(
+            serde_json::from_value::<OwnStats>(value.clone()).is_err(),
+            "private status descriptor {field}"
+        );
     }
     value["conditions"] = serde_json::Value::Array(vec![condition; 129]);
     assert!(serde_json::from_value::<OwnStats>(value.clone()).is_err());
@@ -527,7 +545,7 @@ fn projectile_strike_summary_has_closed_delivery_without_fake_strike_rows() {
 #[test]
 fn persistent_personal_conditions_require_null_and_never_disclose_private_identity() {
     use serde_json::json;
-    let condition = json!({"condition":{"id":"fixture_haste","name":"Fixture Haste"},"phase":"active","remaining_ticks":null});
+    let condition = json!({"condition":{"id":"fixture_haste","name":"Fixture Haste"},"phase":"active","appearance":"status_indicator","cue":"status","remaining_ticks":null});
     let mut value = serde_json::to_value(stats()).unwrap();
     value["conditions"] = json!([condition.clone()]);
     let parsed: OwnStats = serde_json::from_value(value.clone()).unwrap();

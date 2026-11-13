@@ -3139,6 +3139,7 @@ mod tests {
             actor: o.actor,
             self_target: o.self_target,
             linked_holds: o.linked_holds.clone(),
+            public_effects: o.public_effects.clone(),
             tick: o.tick,
             position: o.position,
             cells: CellChanges {

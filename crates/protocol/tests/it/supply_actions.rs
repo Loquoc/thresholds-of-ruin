@@ -275,7 +275,7 @@ fn phase5_carried_selection_rejects_explicit_items_key() {
 
 fn recorded_care_request() -> serde_json::Value {
     let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v70.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");
@@ -321,7 +321,7 @@ fn phase5_codec_ability_action_rejects_outer_positional_tagged_alias() {
 
 fn recorded_ability_response(id: &str) -> (serde_json::Value, usize) {
     let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v70.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");

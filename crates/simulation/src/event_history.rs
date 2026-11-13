@@ -18,6 +18,7 @@ fn invalid() -> GameError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum EventKind {
+    Effect,
     Resolved,
     Escape,
     Respec,
@@ -30,6 +31,7 @@ enum EventKind {
 impl<'de> Deserialize<'de> for EventKind {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         match String::deserialize(deserializer)?.as_str() {
+            "effect" => Ok(Self::Effect),
             "resolved" => Ok(Self::Resolved),
             "escape" => Ok(Self::Escape),
             "respec" => Ok(Self::Respec),
@@ -42,6 +44,16 @@ impl<'de> Deserialize<'de> for EventKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EffectKey {
+    tick: u64,
+    timing: crate::combat::EffectTiming,
+    appearance: crate::combat::EffectAppearance,
+    delivery: crate::combat::EffectDelivery,
+    cue: crate::combat::EffectCue,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct EventKey {
@@ -50,6 +62,7 @@ struct EventKey {
     target: ActorId,
     participated: bool,
     source_disclosure: SourceAbilityDisclosure,
+    effect: Option<EffectKey>,
 }
 impl<'de> Deserialize<'de> for EventKey {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -61,6 +74,8 @@ impl<'de> Deserialize<'de> for EventKey {
             target: ActorId,
             participated: bool,
             source_disclosure: SourceAbilityDisclosure,
+            #[serde(deserialize_with = "crate::bounded::required_option")]
+            effect: Option<EffectKey>,
         }
         let f: Fields = crate::bounded::named_map(d)?;
         Ok(Self {
@@ -69,18 +84,26 @@ impl<'de> Deserialize<'de> for EventKey {
             target: f.target,
             participated: f.participated,
             source_disclosure: f.source_disclosure,
+            effect: f.effect,
         })
     }
 }
 impl EventKey {
     fn capture(event: &CombatEvent) -> Self {
         let source_disclosure = match event {
+            CombatEvent::Effect { effect } => effect.source_disclosure,
             CombatEvent::Resolved {
                 source_disclosure, ..
             } => *source_disclosure,
             _ => SourceAbilityDisclosure::Public,
         };
         let (kind, actor, target, participated) = match event {
+            CombatEvent::Effect { effect } => (
+                EventKind::Effect,
+                effect.actor,
+                effect.target.unwrap_or(effect.actor),
+                false,
+            ),
             CombatEvent::Resolved { outcome, .. } => (
                 EventKind::Resolved,
                 outcome.actor,
@@ -104,7 +127,267 @@ impl EventKey {
             target,
             participated,
             source_disclosure,
+            effect: match event {
+                CombatEvent::Effect { effect } => Some(EffectKey {
+                    tick: effect.tick,
+                    timing: effect.timing,
+                    appearance: effect.appearance,
+                    delivery: effect.delivery,
+                    cue: effect.cue,
+                }),
+                _ => None,
+            },
         }
+    }
+}
+
+/// Publication-time sight captured before any delivery can mutate the world.
+#[derive(Clone, Debug)]
+struct SpatialWitness {
+    source: Reference,
+    identified: std::collections::BTreeSet<ActorId>,
+    visible: std::collections::BTreeSet<tor_world::Location>,
+}
+
+/// Opaque pre-resolution snapshot. Never serialized or accepted from a client.
+#[derive(Clone, Debug)]
+pub(crate) struct SpatialEffectOrigin {
+    origin: EventOrigin,
+}
+
+pub(crate) const MAX_EFFECT_POINTS: usize = 65_537;
+
+fn valid_segments(segments: &[Vec<tor_world::Location>]) -> bool {
+    !segments.is_empty()
+        && segments.iter().all(|segment| !segment.is_empty())
+        && segments
+            .iter()
+            .try_fold(0usize, |n, segment| n.checked_add(segment.len()))
+            .is_some_and(|n| n <= MAX_EFFECT_POINTS)
+}
+
+pub(crate) fn read_effect_segments<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<Vec<tor_world::Location>>, D::Error> {
+    #[derive(Deserialize)]
+    struct NamedLocation(
+        #[serde(deserialize_with = "crate::bounded::location")] tor_world::Location,
+    );
+    struct Segments;
+    impl<'de> serde::de::Visitor<'de> for Segments {
+        type Value = Vec<Vec<tor_world::Location>>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("bounded nonempty effect segments")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut result = Vec::new();
+            let mut count = 0usize;
+            while let Some(segment) =
+                seq.next_element::<crate::bounded::Bounded<NamedLocation, MAX_EFFECT_POINTS>>()?
+            {
+                count += segment.0.len();
+                if segment.0.is_empty() || count > MAX_EFFECT_POINTS {
+                    return Err(serde::de::Error::custom("invalid effect geometry"));
+                }
+                result.push(segment.0.into_iter().map(|at| at.0).collect());
+            }
+            if result.is_empty() {
+                return Err(serde::de::Error::custom("empty effect geometry"));
+            }
+            Ok(result)
+        }
+    }
+    d.deserialize_seq(Segments)
+}
+
+fn read_optional_effect_segments<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Vec<Vec<tor_world::Location>>>, D::Error> {
+    #[derive(Deserialize)]
+    struct Segments(
+        #[serde(deserialize_with = "read_effect_segments")] Vec<Vec<tor_world::Location>>,
+    );
+    Ok(Option::<Segments>::deserialize(d)?.map(|s| s.0))
+}
+
+fn clip_segments(
+    segments: &[Vec<tor_world::Location>],
+    visible: impl Fn(&tor_world::Location) -> bool,
+) -> Vec<Vec<tor_world::Location>> {
+    let mut output = Vec::new();
+    for segment in segments {
+        let mut part = Vec::new();
+        for at in segment {
+            if visible(at) {
+                part.push(*at);
+            } else if !part.is_empty() {
+                output.push(std::mem::take(&mut part));
+            }
+        }
+        if !part.is_empty() {
+            output.push(part);
+        }
+    }
+    output
+}
+
+fn segments_are_subpaths(
+    segments: &[Vec<tor_world::Location>],
+    raw: &[Vec<tor_world::Location>],
+) -> bool {
+    // Monotonic substring matching preserves both encounter order and raw
+    // segment boundaries, in linear time even for long repeated bounce paths.
+    let (mut outer, mut inner) = (0usize, 0usize);
+    for wanted in segments {
+        if wanted.is_empty() {
+            return false;
+        }
+        let mut prefix = vec![0usize; wanted.len()];
+        for i in 1..wanted.len() {
+            let mut j = prefix[i - 1];
+            while j > 0 && wanted[i] != wanted[j] {
+                j = prefix[j - 1];
+            }
+            if wanted[i] == wanted[j] {
+                j += 1;
+            }
+            prefix[i] = j;
+        }
+        let mut matched = 0usize;
+        let mut found = false;
+        while outer < raw.len() {
+            if inner == raw[outer].len() {
+                outer += 1;
+                inner = 0;
+                matched = 0;
+                continue;
+            }
+            let at = raw[outer][inner];
+            inner += 1;
+            while matched > 0 && at != wanted[matched] {
+                matched = prefix[matched - 1];
+            }
+            if at == wanted[matched] {
+                matched += 1;
+            }
+            if matched == wanted.len() {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return false;
+        }
+    }
+    true
+}
+
+fn project_segments(
+    segments: &[Vec<tor_world::Location>],
+    cells: &BTreeMap<tor_world::Location, (tor_world::Position, u8)>,
+) -> Vec<Vec<tor_world::Position>> {
+    let mut output = Vec::new();
+    for segment in segments {
+        let mut part = Vec::new();
+        let mut previous: Option<(tor_world::Position, u8)> = None;
+        for at in segment {
+            let Some(&(position, rotation)) = cells.get(at) else {
+                if !part.is_empty() {
+                    output.push(std::mem::take(&mut part));
+                }
+                previous = None;
+                continue;
+            };
+            if previous.is_some_and(|(last, frame)| {
+                frame != rotation
+                    || i64::from(last.x).abs_diff(i64::from(position.x)) > 1
+                    || i64::from(last.y).abs_diff(i64::from(position.y)) > 1
+                    || i64::from(last.z).abs_diff(i64::from(position.z)) > 1
+            }) && !part.is_empty()
+            {
+                output.push(std::mem::take(&mut part));
+            }
+            part.push(position);
+            previous = Some((position, rotation));
+        }
+        if !part.is_empty() {
+            output.push(part);
+        }
+    }
+    output
+}
+
+impl Game {
+    /// Capture only active observers. Frozen actors do not gain senses or activate regions.
+    pub(crate) fn capture_spatial_effect_origin(
+        &self,
+        actor: ActorId,
+    ) -> Result<SpatialEffectOrigin, GameError> {
+        if !self.actors.contains_key(&actor) {
+            return Err(GameError::UnknownActor);
+        }
+        let mut witnesses = BTreeMap::new();
+        for (observer, state) in self.actors.iter() {
+            if !state.alive() || self.actor_frozen(*observer) {
+                continue;
+            }
+            let snapshot = self.scene_snapshot_shared(*observer)?;
+            let view = self.observe_actor_references_in_snapshot(*observer, &snapshot)?;
+            let source = if *observer == actor {
+                Some(ActorReferenceKind::Creature)
+            } else {
+                view.visible_actors
+                    .binary_search_by_key(&actor, |a| a.id)
+                    .ok()
+                    .and_then(|index| view.visible_actors[index].disclosure.reference())
+            };
+            let source = self.event_reference_in_scene(*observer, actor, source, |at| {
+                snapshot.projection_cells().contains(&at)
+            });
+            let visible = snapshot
+                .shared_cells()
+                .iter()
+                .filter(|cell| cell.physical)
+                .map(|cell| cell.location)
+                .collect();
+            let mut identified: std::collections::BTreeSet<_> = view
+                .visible_actors
+                .iter()
+                .filter(|a| a.disclosure.reference() == Some(ActorReferenceKind::Creature))
+                .map(|a| a.id)
+                .collect();
+            identified.insert(*observer);
+            witnesses.insert(
+                *observer,
+                SpatialWitness {
+                    source,
+                    identified,
+                    visible,
+                },
+            );
+        }
+        let mut origin = self.capture_event_origin(actor, actor);
+        origin.spatial = Some(std::sync::Arc::new(witnesses));
+        Ok(SpatialEffectOrigin { origin })
+    }
+
+    /// Attach the actual resolved path to immutable pre-resolution disclosure.
+    pub(crate) fn publish_spatial_effect(
+        &mut self,
+        effect: crate::combat::SpatialEffect,
+        origin: SpatialEffectOrigin,
+    ) -> Result<(), GameError> {
+        if effect.actor != origin.origin.actor
+            || effect.tick > self.tick
+            || !valid_segments(&effect.segments)
+            || self.content.rules.ability(&effect.ability).is_none()
+        {
+            return Err(invalid());
+        }
+        self.push_event(CombatEvent::Effect { effect }, Some(origin.origin))
     }
 }
 
@@ -170,8 +453,12 @@ pub(crate) struct EventOrigin {
     ability_disclosure: SourceAbilityDisclosure,
     witness: EventObservationWitness,
     frozen: [bool; 2],
+    spatial: Option<std::sync::Arc<BTreeMap<ActorId, SpatialWitness>>>,
 }
 impl EventOrigin {
+    pub(crate) fn ability_disclosure(&self) -> SourceAbilityDisclosure {
+        self.ability_disclosure
+    }
     pub(crate) fn with_ability_disclosure(mut self, ceiling: SourceAbilityDisclosure) -> Self {
         self.ability_disclosure = self.ability_disclosure.restricted_by(ceiling);
         self
@@ -230,6 +517,8 @@ struct EventReceipt {
     /// Frozen exact identity grant; None never acquires later knowledge.
     #[serde(deserialize_with = "crate::bounded::required_option")]
     disclosed_ability: Option<AbilityId>,
+    #[serde(deserialize_with = "read_optional_effect_segments")]
+    spatial: Option<Vec<Vec<tor_world::Location>>>,
 }
 
 impl<'de> Deserialize<'de> for EventReceipt {
@@ -247,6 +536,8 @@ impl<'de> Deserialize<'de> for EventReceipt {
             participant: bool,
             #[serde(deserialize_with = "crate::bounded::required_option")]
             disclosed_ability: Option<AbilityId>,
+            #[serde(deserialize_with = "read_optional_effect_segments")]
+            spatial: Option<Vec<Vec<tor_world::Location>>>,
         }
         let f: Fields = crate::bounded::named_map(d)?;
         Ok(Self {
@@ -256,8 +547,53 @@ impl<'de> Deserialize<'de> for EventReceipt {
             target: f.target,
             participant: f.participant,
             disclosed_ability: f.disclosed_ability,
+            spatial: f.spatial,
         })
     }
+}
+
+/// Build a candidate receipt without publishing it. Neutral geometry can still
+/// disclose an unseen source or restricted device's hidden contact endpoint.
+fn spatial_receipt(
+    index: usize,
+    event: &CombatEvent,
+    origin: Option<&EventOrigin>,
+    owner: ActorId,
+) -> Option<EventReceipt> {
+    let CombatEvent::Effect { effect } = event else {
+        return None;
+    };
+    let witness = origin?.spatial.as_ref()?.get(&owner)?;
+    if witness.source != Some(ActorReferenceKind::Creature)
+        || !effect.source_disclosure.permits(owner, effect.actor)
+        || (effect.delivery == crate::combat::EffectDelivery::Target
+            && effect
+                .target
+                .is_none_or(|target| !witness.identified.contains(&target)))
+    {
+        return None;
+    }
+    let spatial = clip_segments(&effect.segments, |at| witness.visible.contains(at));
+    if spatial.is_empty() {
+        return None;
+    }
+    let key = EventKey::capture(event);
+    Some(EventReceipt {
+        index,
+        key,
+        source: witness.source,
+        target: if key.target == effect.actor {
+            witness.source
+        } else {
+            witness
+                .identified
+                .contains(&key.target)
+                .then_some(ActorReferenceKind::Creature)
+        },
+        participant: owner == effect.actor,
+        disclosed_ability: permitted_ability(event, owner, witness.source).cloned(),
+        spatial: Some(spatial),
+    })
 }
 
 /// The raw event is the saved source ceiling; a receipt cannot enlarge it.
@@ -268,6 +604,12 @@ fn permitted_ability(
     source: Reference,
 ) -> Option<&AbilityId> {
     match event {
+        CombatEvent::Effect { effect }
+            if source == Some(ActorReferenceKind::Creature)
+                && effect.source_disclosure.permits(observer, effect.actor) =>
+        {
+            Some(&effect.ability)
+        }
         CombatEvent::Resolved {
             outcome,
             source_disclosure,
@@ -465,6 +807,7 @@ impl Game {
             ability_disclosure: SourceAbilityDisclosure::Public,
             witness: self.event_observation_witness(),
             frozen: [self.actor_frozen(actor), self.actor_frozen(target)],
+            spatial: None,
         }
     }
 
@@ -731,6 +1074,14 @@ impl Game {
                 .get(index)
                 .and_then(Option::as_ref)
                 .filter(|o| o.binds(key));
+            if key.kind == EventKind::Effect {
+                // Only the causal source receives an immediate participant receipt.
+                // Other witnesses acquire history through the normal commit proof.
+                if let Some(receipt) = spatial_receipt(index, event, origin, key.actor) {
+                    additions.entry(key.actor).or_default().push(receipt);
+                }
+                continue;
+            }
             let mut owners = vec![key.actor];
             if key.kind == EventKind::Resolved && key.participated && key.target != key.actor {
                 owners.push(key.target);
@@ -764,6 +1115,7 @@ impl Game {
                     target,
                     participant: owner == key.actor || (owner == key.target && key.participated),
                     disclosed_ability: permitted_ability(event, owner, source).cloned(),
+                    spatial: None,
                 });
             }
         }
@@ -837,7 +1189,10 @@ impl Game {
             {
                 crate::diagnostics::event_receipt_binding_inspections(1);
                 let key = EventKey::capture(event);
-                if !matches!(key.kind, EventKind::Resolved | EventKind::Died) {
+                if !matches!(
+                    key.kind,
+                    EventKind::Resolved | EventKind::Died | EventKind::Effect
+                ) {
                     continue;
                 }
                 let Some(origin) = self
@@ -849,6 +1204,20 @@ impl Game {
                 else {
                     continue;
                 };
+                if key.kind == EventKind::Effect {
+                    // Eligibility is frozen before resolution; publication still
+                    // requires this ordinary candidate's explicit proof commit.
+                    if origin.witness.generation == witness.generation {
+                        if let Some(receipt) = spatial_receipt(index, event, Some(origin), observer)
+                        {
+                            proof.entries.push(receipt);
+                            if proof.entries.len() > crate::limits::EVENT_RECEIPTS {
+                                return Err(invalid());
+                            }
+                        }
+                    }
+                    continue;
+                }
                 if origin.witness.actors != witness.actors
                     || origin.witness.world != witness.world
                     || origin.witness.generation != witness.generation
@@ -874,6 +1243,7 @@ impl Game {
                     participant: observer == key.actor
                         || (observer == key.target && key.participated),
                     disclosed_ability: permitted_ability(event, observer, source).cloned(),
+                    spatial: None,
                 });
                 if proof.entries.len() > crate::limits::EVENT_RECEIPTS {
                     return Err(invalid());
@@ -1111,6 +1481,41 @@ impl Game {
                     return None;
                 }
                 match event {
+                    CombatEvent::Effect { effect } => {
+                        let frozen = receipt.spatial.as_ref()?;
+                        let snapshot = self.scene_snapshot_shared(observer).ok()?;
+                        let mut cells = BTreeMap::new();
+                        for cell in snapshot.shared_cells().iter().filter(|cell| cell.physical) {
+                            cells
+                                .entry(cell.location)
+                                .or_insert((cell.offset, cell.rotation));
+                        }
+                        let segments = project_segments(frozen, &cells);
+                        if segments.is_empty() {
+                            return None;
+                        }
+                        let ability = receipt.disclosed_ability.as_ref().and_then(|id| {
+                            self.content
+                                .rules
+                                .ability(id)
+                                .map(|definition| (id.clone(), definition.name.clone()))
+                        });
+                        Some(DisclosedCombatEvent::Effect {
+                            caster: receipt.source.map(|_| effect.actor),
+                            caster_reference: receipt.source,
+                            cue: if ability.is_some() {
+                                effect.cue
+                            } else {
+                                crate::combat::EffectCue::Neutral
+                            },
+                            ability,
+                            tick: effect.tick,
+                            timing: effect.timing,
+                            appearance: effect.appearance,
+                            delivery: effect.delivery,
+                            segments,
+                        })
+                    }
                     CombatEvent::Resolved { outcome, .. }
                         if outcome.ability.is_none()
                             && outcome.actor == observer
@@ -1228,6 +1633,13 @@ impl Game {
         )) {
             return false;
         }
+        if self.event_log.iter().any(|event| matches!(event, CombatEvent::Effect { effect }
+            if effect.actor.0 == 0 || effect.actor.0 >= self.next_actor_id || effect.tick > self.tick
+            || effect.target.is_some_and(|target| target.0 == 0 || target.0 >= self.next_actor_id)
+            || (effect.delivery == crate::combat::EffectDelivery::Target && effect.target.is_none())
+            || self.content.rules.ability(&effect.ability).is_none() || !valid_segments(&effect.segments))) {
+            return false;
+        }
         let mut total = 0usize;
         for (owner, row) in self.event_receipts.observers.iter() {
             if owner.0 == 0
@@ -1264,6 +1676,18 @@ impl Game {
                 {
                     return false;
                 }
+                match (event, &receipt.spatial) {
+                    (CombatEvent::Effect { effect }, Some(segments))
+                        if receipt.source == Some(ActorReferenceKind::Creature)
+                            && effect.source_disclosure.permits(*owner, effect.actor)
+                            && (effect.delivery != crate::combat::EffectDelivery::Target
+                                || receipt.target == Some(ActorReferenceKind::Creature))
+                            && valid_segments(segments)
+                            && segments_are_subpaths(segments, &effect.segments) => {}
+                    (CombatEvent::Effect { .. }, _) => return false,
+                    (_, None) => {}
+                    (_, Some(_)) => return false,
+                }
                 if receipt.participant
                     != (*owner == key.actor || (*owner == key.target && key.participated))
                 {
@@ -1281,6 +1705,7 @@ impl Game {
                             receipt.source != Some(ActorReferenceKind::Creature)
                                 || receipt.target != Some(ActorReferenceKind::Creature)
                         }
+                        EventKind::Effect => receipt.spatial.as_ref().is_none_or(Vec::is_empty),
                         EventKind::Died => receipt.source.is_none(),
                         _ => true,
                     }

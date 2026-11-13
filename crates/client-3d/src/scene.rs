@@ -12,6 +12,77 @@ pub(super) struct SceneAssets<'w> {
     library: ResMut<'w, PropLibrary>,
 }
 
+pub(super) struct PublicEffectBody {
+    descriptor: tor_protocol::PublicEffectView,
+    offset: IVec3,
+    root: Entity,
+}
+
+/// Replace observed effects atomically. Missing means no longer disclosed, not
+/// necessarily ended in the world. A deadline is server time, never a wall timer.
+fn reconcile_public_effects(
+    commands: &mut Commands,
+    game: &mut Game,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    effects: &[tor_protocol::PublicEffectView],
+) {
+    let visible: HashSet<_> = effects
+        .iter()
+        .filter(|effect| effect.appearance != tor_protocol::EffectAppearance::StatusIndicator)
+        .map(|effect| effect.id.as_str())
+        .collect();
+    game.public_effects.retain(|id, body| {
+        if visible.contains(id.as_str()) {
+            true
+        } else {
+            commands.entity(body.root).try_despawn();
+            false
+        }
+    });
+    for effect in effects
+        .iter()
+        .filter(|effect| visible.contains(effect.id.as_str()))
+    {
+        if game
+            .public_effects
+            .get(&effect.id)
+            .is_some_and(|body| body.descriptor == *effect && body.offset == game.offset)
+        {
+            continue;
+        }
+        if let Some(old) = game.public_effects.remove(&effect.id) {
+            commands.entity(old.root).try_despawn();
+        }
+        let points: Vec<Vec<Vec3>> = effect
+            .segments
+            .iter()
+            .map(|segment| {
+                segment
+                    .iter()
+                    .map(|point| stand(ivec(*point) + game.offset) + Vec3::Y * 0.55)
+                    .collect()
+            })
+            .collect();
+        let root = creatures::public_effect(
+            commands,
+            library,
+            meshes,
+            effect.appearance,
+            effect.cue,
+            &points,
+        );
+        game.public_effects.insert(
+            effect.id.clone(),
+            PublicEffectBody {
+                descriptor: effect.clone(),
+                offset: game.offset,
+                root,
+            },
+        );
+    }
+}
+
 type TransientEffects = Or<(With<creatures::Bolt>, With<creatures::Fade>)>;
 
 pub(super) fn receive(
@@ -58,6 +129,9 @@ pub(super) fn receive(
                 game.status = text;
             }
             NetEvent::Fatal(text) => {
+                for (_, effect) in game.public_effects.drain() {
+                    commands.entity(effect.root).try_despawn();
+                }
                 game.status = text;
                 game.fatal = true;
             }
@@ -116,10 +190,21 @@ pub(super) fn receive(
                     &view,
                 );
                 let cells_ms = cells_started.map(|time| time.elapsed().as_secs_f64() * 1000.0);
+                reconcile_public_effects(
+                    &mut commands,
+                    &mut game,
+                    &mut library,
+                    &mut meshes,
+                    &view.public_effects,
+                );
                 let fresh = game.last_revision != Some(view.revision);
                 game.last_revision = Some(view.revision);
+                // Ordered spatial facts are injected once by net, not replayed from
+                // retained picture history. They can arrive without a new revision.
+                let offset = game.offset;
+                game.pending
+                    .extend(presentation_events(&view.events, offset));
                 if fresh {
-                    game.pending.extend(view.events.iter().cloned());
                     if let Some(before) = &game.view {
                         let harm = tor_client_3d_model::observed_harm(before, &view);
                         game.pending.extend(harm.into_iter().map(Happening::Hurt));
@@ -129,7 +214,7 @@ pub(super) fn receive(
                     .events
                     .iter()
                     .filter_map(|e| match e {
-                        Happening::Died(id) if fresh => Some(*id),
+                        Happening::Died(id) => Some(*id),
                         _ => None,
                     })
                     .collect();
@@ -215,6 +300,9 @@ fn align(commands: &mut Commands, game: &mut Game, view: &View) {
     game.hands.clear();
     game.held.clear();
     game.pending.clear();
+    for (_, effect) in game.public_effects.drain() {
+        commands.entity(effect.root).try_despawn();
+    }
     game.last_revision = None;
     game.snap_camera = true;
 }
@@ -685,6 +773,30 @@ fn build_actors(
     }
 }
 
+fn presentation_events(events: &[Happening], offset: IVec3) -> Vec<Happening> {
+    events
+        .iter()
+        .cloned()
+        .map(|event| place_effect(event, offset))
+        .collect()
+}
+
+/// Capture the presentation translation with the event, before a later observation
+/// moves its coordinate frame. Segment boundaries and event-time semantics stay intact.
+fn place_effect(mut event: Happening, offset: IVec3) -> Happening {
+    if let Happening::Effect { segments, .. } = &mut event {
+        for point in segments.iter_mut().flatten() {
+            let at = ivec(*point) + offset;
+            *point = Position {
+                x: at.x,
+                y: at.y,
+                z: at.z,
+            };
+        }
+    }
+    event
+}
+
 /// Act out what the server said happened: the caster's move, its effect, and
 /// the target's flinch or sidestep when the blow lands.
 pub(super) fn react(
@@ -695,6 +807,17 @@ pub(super) fn react(
     mut bodies: Query<(&ActorBody, &mut Anim)>,
 ) {
     let pending = std::mem::take(&mut game.pending);
+    let authoritative: HashSet<_> = pending
+        .iter()
+        .filter_map(|event| match event {
+            Happening::Effect {
+                caster,
+                ability: Some(ability),
+                ..
+            } => Some((*caster, ability.id.clone())),
+            _ => None,
+        })
+        .collect();
     let mut arrivals = HashMap::new();
     let find = |game: &Game, id: Option<ActorTarget>| {
         id.and_then(|id| {
@@ -706,6 +829,34 @@ pub(super) fn react(
     };
     for happening in pending {
         match happening {
+            Happening::Effect {
+                timing,
+                appearance,
+                delivery,
+                cue,
+                segments,
+                ..
+            } => {
+                let points: Vec<Vec<Vec3>> = segments
+                    .iter()
+                    .map(|segment| {
+                        segment
+                            .iter()
+                            .map(|point| stand(ivec(*point)) + Vec3::Y * 0.55)
+                            .collect()
+                    })
+                    .collect();
+                creatures::stage_authoritative(
+                    &mut commands,
+                    &mut library,
+                    &mut meshes,
+                    timing,
+                    appearance,
+                    delivery,
+                    cue,
+                    &points,
+                );
+            }
             Happening::Hurt(id) => {
                 if let Some(entity) = find(&game, Some(id)) {
                     if let Ok((_, mut anim)) = bodies.get_mut(entity) {
@@ -753,15 +904,22 @@ pub(super) fn react(
                         }
                     }
                 }
-                let reaction = creatures::stage(
-                    &mut commands,
-                    &mut library,
-                    &mut meshes,
-                    action,
-                    from,
-                    to,
-                    outcome == tor_protocol::AbilityOutcome::Applied,
-                );
+                let reaction =
+                    if matches!(action, Move::Breath(_)) || authoritative.contains(&(caster, id)) {
+                        // Authoritative geometry wins over canned endpoint-only visuals.
+                        // Breath never falls back, even when its path was not disclosed.
+                        None
+                    } else {
+                        creatures::stage(
+                            &mut commands,
+                            &mut library,
+                            &mut meshes,
+                            action,
+                            from,
+                            to,
+                            outcome == tor_protocol::AbilityOutcome::Applied,
+                        )
+                    };
                 if let (Some(delay), Some(target_entity)) =
                     (reaction, target_entity.filter(|_| !self_targeted))
                 {

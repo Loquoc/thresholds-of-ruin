@@ -243,6 +243,7 @@ fn room(ox: i32, oy: i32, revision: u64) -> StateView {
             self_target: ActorTarget::from_digest(synthetic_digest(1)),
             charts: Vec::new(),
             linked_holds: vec![],
+            public_effects: vec![],
             tick: revision,
             position: Position { x: 0, y: 0, z: 0 },
             visible_cells: cells,
@@ -2075,4 +2076,116 @@ fn delta_preserves_destination_snapshot_and_rejects_same_revision_wrong_base() {
     invalid.snapshot = SnapshotId(String::new());
     assert_eq!(invalid.validate(), Err(InvalidState::InvalidSnapshot));
     assert!(StateDelta::between(&base, &invalid).is_none());
+}
+
+fn sustained_fixture(tick: u64) -> StateView {
+    let mut state = room(5, 5, tick);
+    let point = state.observation.visible_cells[0].position;
+    state.observation.visible_cells[0].key = "a".repeat(40);
+    state.observation.public_effects = vec![PublicEffectView {
+        id: "b".repeat(40),
+        observed_since: tick,
+        expires_at: Some(tick + 100),
+        delivery: EffectDelivery::Area,
+        appearance: EffectAppearance::Cloud,
+        cue: EffectCue::Cold,
+        segments: vec![vec![point]],
+        anchors: vec![EffectAnchor {
+            key: "a".repeat(40),
+            position: point,
+        }],
+    }];
+    state
+}
+
+#[test]
+fn public_effect_snapshot_has_authoritative_observed_start_update_and_removal() {
+    let empty = room(5, 5, 19);
+    let observed = sustained_fixture(20);
+    observed.validate().unwrap();
+    round_trip(&empty, &observed);
+    // A reconnect can acquire an already-existing effect without inventing its
+    // hidden world creation time. The snapshot is sufficient without Start events.
+    let reconnect: StateView =
+        serde_json::from_value(serde_json::to_value(&observed).unwrap()).unwrap();
+    assert_eq!(reconnect, observed);
+    let mut updated = sustained_fixture(21);
+    updated.observation.public_effects[0].observed_since = 20;
+    updated.observation.public_effects[0].expires_at = None;
+    updated.observation.public_effects[0].cue = EffectCue::Poison;
+    updated.validate().unwrap();
+    round_trip(&observed, &updated);
+    let lost_sight = room(5, 5, 22);
+    lost_sight.validate().unwrap();
+    round_trip(&updated, &lost_sight);
+    assert!(lost_sight.observation.public_effects.is_empty());
+    // Reacquisition may assign a new observer-scoped identity. Omission did not
+    // assert that the world effect ended or that its identity remained visible.
+    let mut reacquired = sustained_fixture(23);
+    reacquired.observation.public_effects[0].id = "c".repeat(40);
+    reacquired.validate().unwrap();
+    round_trip(&lost_sight, &reacquired);
+}
+
+#[test]
+fn public_effect_snapshot_rejects_undisclosed_geometry_time_and_identity() {
+    let valid = sustained_fixture(20);
+    valid.validate().unwrap();
+    for mutation in 0..10 {
+        let mut bad = valid.clone();
+        let original = bad.observation.public_effects[0].clone();
+        let effect = &mut bad.observation.public_effects[0];
+        match mutation {
+            0 => effect.observed_since = 21,
+            1 => effect.expires_at = Some(20),
+            2 => effect.id.clear(),
+            3 => effect.anchors[0].key = "d".repeat(40),
+            4 => effect.segments[0].push(Position { x: 999, y: 0, z: 0 }),
+            5 => effect.appearance = EffectAppearance::StatusIndicator,
+            6 => effect.anchors.clear(),
+            7 => bad.observation.public_effects.push(original.clone()),
+            8 => bad.observation.public_effects = vec![original; MAX_PUBLIC_EFFECTS + 1],
+            9 => {
+                let mut second = original;
+                second.id = "a".repeat(40);
+                bad.observation.public_effects.push(second);
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            bad.validate(),
+            Err(InvalidState::InvalidPublicEffect),
+            "{mutation}"
+        );
+    }
+    let mut oversized = valid.clone();
+    let mut second = oversized.observation.public_effects[0].clone();
+    second.id = "c".repeat(40);
+    let point = second.segments[0][0];
+    oversized.observation.public_effects[0].segments = vec![vec![point; MAX_EFFECT_POINTS / 2 + 1]];
+    second.segments = vec![vec![point; MAX_EFFECT_POINTS / 2 + 1]];
+    oversized.observation.public_effects.push(second);
+    assert_eq!(
+        oversized.validate(),
+        Err(InvalidState::InvalidPublicEffect),
+        "aggregate geometry budget"
+    );
+    let value = serde_json::to_value(&valid).unwrap();
+    for field in ["observed_since", "expires_at", "id", "anchors", "segments"] {
+        let mut missing = value.clone();
+        missing["observation"]["public_effects"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(
+            serde_json::from_value::<StateView>(missing).is_err(),
+            "{field}"
+        );
+    }
+    let mut missing = value;
+    missing["observation"]
+        .as_object_mut()
+        .unwrap()
+        .remove("public_effects");
+    assert!(serde_json::from_value::<StateView>(missing).is_err());
 }

@@ -656,6 +656,7 @@ struct Game {
     corpses: HashMap<tor_protocol::ItemTarget, CachedCorpse>,
     /// Combat events waiting to be acted out, and the revision they came from.
     pending: Vec<Happening>,
+    public_effects: HashMap<String, scene::PublicEffectBody>,
     last_revision: Option<u64>,
     actors: HashMap<ActorTarget, Entity>,
     labels: HashSet<Entity>,

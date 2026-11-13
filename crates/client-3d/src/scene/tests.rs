@@ -1193,3 +1193,175 @@ fn identifying_or_recounting_a_ground_item_does_not_change_its_pose() {
         tor_client_3d_model::Focus::Item(target) if target == id)
     );
 }
+
+#[test]
+fn queued_effect_captures_its_view_translation_before_next_view_moves() {
+    use tor_protocol::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming};
+    let event = Happening::Effect {
+        caster: None,
+        ability: None,
+        tick: 3,
+        timing: EffectTiming::Instant,
+        appearance: EffectAppearance::Bolt,
+        delivery: EffectDelivery::Ray,
+        cue: EffectCue::Neutral,
+        segments: vec![
+            vec![Position { x: -1, y: 2, z: 3 }],
+            vec![Position { x: 5, y: 2, z: 3 }],
+        ],
+    };
+    let queued = place_effect(event, IVec3::new(10, 20, 30));
+    let Happening::Effect { segments, .. } = queued else {
+        panic!("effect")
+    };
+    assert_eq!(
+        segments,
+        vec![
+            vec![Position { x: 9, y: 22, z: 33 }],
+            vec![Position {
+                x: 15,
+                y: 22,
+                z: 33
+            }]
+        ]
+    );
+}
+
+#[test]
+fn ordered_spatial_outcomes_survive_unchanged_picture_revision_without_snapshot_replay() {
+    use tor_protocol::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming};
+    let effect = |tick| Happening::Effect {
+        caster: None,
+        ability: None,
+        tick,
+        timing: EffectTiming::Instant,
+        appearance: EffectAppearance::Bolt,
+        delivery: EffectDelivery::Ray,
+        cue: EffectCue::Neutral,
+        segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
+    };
+    let mut pending = presentation_events(&[effect(1)], IVec3::new(4, 0, 0));
+    pending.extend(presentation_events(&[effect(2)], IVec3::new(4, 0, 0)));
+    assert_eq!(
+        pending.len(),
+        2,
+        "each accepted Outcome contributes once without a new picture"
+    );
+    for (event, tick) in pending.iter().zip([1, 2]) {
+        assert!(
+            matches!(event, Happening::Effect { tick: actual, segments, .. }
+            if *actual == tick && segments[0][0] == Position { x: 6, y: 3, z: 0 })
+        );
+    }
+    // Native model excludes spatial history from all snapshot/ordinary pictures.
+    assert!(presentation_events(&[], IVec3::ZERO).is_empty());
+}
+
+#[derive(Resource, Default)]
+struct PublicEffectsFixture(Vec<tor_protocol::PublicEffectView>);
+
+#[test]
+fn public_effect_snapshot_reuses_updates_and_removes_roots_without_local_expiry() {
+    use tor_protocol::{
+        EffectAnchor, EffectAppearance, EffectCue, EffectDelivery, PublicEffectView,
+    };
+    let mut app = App::new();
+    let mut materials = Assets::<StandardMaterial>::default();
+    let library = PropLibrary::new(props::PropMaterials::new(&mut materials));
+    app.init_resource::<Game>()
+        .init_resource::<Assets<Mesh>>()
+        .insert_resource(materials)
+        .insert_resource(library)
+        .init_resource::<PublicEffectsFixture>()
+        .add_systems(
+            Update,
+            |mut commands: Commands,
+             mut game: ResMut<Game>,
+             mut library: ResMut<PropLibrary>,
+             mut meshes: ResMut<Assets<Mesh>>,
+             fixture: Res<PublicEffectsFixture>| {
+                reconcile_public_effects(
+                    &mut commands,
+                    &mut game,
+                    &mut library,
+                    &mut meshes,
+                    &fixture.0,
+                );
+            },
+        );
+    let at = Position { x: 1, y: 2, z: 0 };
+    let id = "b".repeat(40);
+    let effect = PublicEffectView {
+        id: id.clone(),
+        observed_since: 10,
+        expires_at: Some(20),
+        appearance: EffectAppearance::Cloud,
+        cue: EffectCue::Fire,
+        delivery: EffectDelivery::Area,
+        segments: vec![vec![at]],
+        anchors: vec![EffectAnchor {
+            key: "a".repeat(40),
+            position: at,
+        }],
+    };
+    app.world_mut().resource_mut::<PublicEffectsFixture>().0 = vec![effect.clone()];
+    app.update();
+    let first = app.world().resource::<Game>().public_effects[&id].root;
+    for _ in 0..3 {
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<Game>().public_effects[&id].root,
+        first
+    );
+    assert_eq!(
+        app.world_mut()
+            .query::<&creatures::Fade>()
+            .iter(app.world())
+            .count(),
+        0
+    );
+    assert_eq!(
+        app.world_mut()
+            .query::<&creatures::Bolt>()
+            .iter(app.world())
+            .count(),
+        0
+    );
+    // Server-authored state updates the same logical instance; no duplicate roots.
+    {
+        let mut fixture = app.world_mut().resource_mut::<PublicEffectsFixture>();
+        fixture.0[0].cue = EffectCue::Cold;
+        fixture.0[0].segments[0][0].x = 2;
+        fixture.0[0].anchors[0].position.x = 2;
+        fixture.0[0].expires_at = None;
+    }
+    app.update();
+    let second = app.world().resource::<Game>().public_effects[&id].root;
+    assert_ne!(first, second);
+    assert!(!app.world().entities().contains(first));
+    assert_eq!(app.world().resource::<Game>().public_effects.len(), 1);
+    app.world_mut()
+        .resource_mut::<PublicEffectsFixture>()
+        .0
+        .clear();
+    app.update();
+    assert!(app.world().resource::<Game>().public_effects.is_empty());
+    assert!(!app.world().entities().contains(second));
+    // A newly attached snapshot can show an existing effect without a Start event.
+    app.world_mut().resource_mut::<PublicEffectsFixture>().0 = vec![effect];
+    app.update();
+    assert_eq!(app.world().resource::<Game>().public_effects.len(), 1);
+    let reattached = app.world().resource::<Game>().public_effects[&id].root;
+    // Context replacement clears the previous observer's public-effect identities.
+    use bevy::ecs::system::RunSystemOnce;
+    app.world_mut()
+        .run_system_once(|mut commands: Commands, mut game: ResMut<Game>| {
+            let mut view = crate::test_support::view(1);
+            view.context.epoch = 99;
+            align(&mut commands, &mut game, &view);
+        })
+        .unwrap();
+    assert!(app.world().resource::<Game>().public_effects.is_empty());
+    assert!(!app.world().entities().contains(reattached));
+}

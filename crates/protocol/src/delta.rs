@@ -58,6 +58,10 @@ pub struct StateDelta {
     pub self_target: ActorTarget,
     #[serde(deserialize_with = "crate::wire::read_linked_holds")]
     pub linked_holds: Vec<LinkedHold>,
+    #[serde(
+        deserialize_with = "crate::bounded::bounded::<_, PublicEffectView, MAX_PUBLIC_EFFECTS>"
+    )]
+    pub public_effects: Vec<PublicEffectView>,
     #[serde(with = "crate::integers::unsigned")]
     pub tick: u64,
     pub position: Position,
@@ -252,6 +256,7 @@ impl StateDelta {
             )?,
             ready: observation.ready,
             linked_holds: observation.linked_holds.clone(),
+            public_effects: observation.public_effects.clone(),
             charts: observation.charts.clone(),
         })
     }
@@ -339,6 +344,7 @@ impl StateDelta {
                 )?,
                 ready: self.ready,
                 linked_holds: self.linked_holds,
+                public_effects: self.public_effects,
                 charts: self.charts,
             },
         })

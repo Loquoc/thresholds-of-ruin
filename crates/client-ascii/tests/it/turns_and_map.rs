@@ -31,7 +31,7 @@ fn snapshot() -> Snapshot {
     serde_json::from_value(serde_json::json!({
         "readiness":{"revision":"0","admission":true,"resume":[],"cancel":[]},"context":{"stream":"fixture-attachment","epoch":"0"},"actor":"1","branch":"turns","cursor":{"sequence":"0","tick":"100"},"has_control":true,"intentions":[],
         "history":{"entries":[],"older_before":null},
-        "state":{"snapshot":"fixture-snapshot","wizard_game":false,"revision":"5","observation":{"charts":[],"linked_holds":[],
+        "state":{"snapshot":"fixture-snapshot","wizard_game":false,"revision":"5","observation":{"charts":[],"linked_holds":[],"public_effects":[],
             "actor":"1","self_target":super::actor_target(1),"tick":"100","position":{"x":0,"y":0,"z":0},
             "places":[],"visible_cells":cells,
             "ground_items":[{"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"weapon","appearance":"sword","identified":true,"identity":"item.weapon.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(7),"name":"sword"},"position":{"x":-1,"y":0,"z":0}}],
@@ -1977,4 +1977,298 @@ fn cosmetic_look_picker_and_take_use_display_name_but_original_opaque_item() {
         Some(Request::Command { command: Command::Act { action: Action::Take { item, .. }, .. }, .. })
         if item == super::item_target(7))
     );
+}
+
+fn visual_event(delivery: EffectDelivery, segments: Vec<Vec<Position>>) -> CombatEventView {
+    let points: std::collections::BTreeSet<_> = segments.iter().flatten().copied().collect();
+    CombatEventView::Effect {
+        caster: None,
+        ability: None,
+        tick: 100,
+        timing: EffectTiming::Instant,
+        appearance: if delivery == EffectDelivery::Projectile {
+            EffectAppearance::Missile
+        } else {
+            EffectAppearance::Bolt
+        },
+        cue: EffectCue::Neutral,
+        delivery,
+        anchors: points
+            .into_iter()
+            .map(|p| EffectAnchor {
+                key: format!("{}:{}:{}", p.x, p.y, p.z),
+                position: p,
+            })
+            .collect(),
+        segments,
+    }
+}
+fn path(xs: &[i32]) -> Vec<Position> {
+    xs.iter().map(|&x| Position { x, y: 0, z: 0 }).collect()
+}
+
+#[test]
+fn ascii_zap_trail_and_missile_advance_without_changing_the_map() {
+    use std::time::Duration;
+    let mut a = app();
+    let original = a.state.as_ref().unwrap().state().clone();
+    let mut canvas = render::Canvas::default();
+    canvas.draw(&a);
+    let baseline = canvas.pixels.clone();
+    a.effect_animations.push(&visual_event(
+        EffectDelivery::Ray,
+        vec![path(&[-2, -1, 0, 1])],
+    ));
+    let o = &a.state.as_ref().unwrap().state().observation;
+    assert_eq!(a.effect_animations.glyphs(o).len(), 1);
+    assert!(a.effect_animations.advance(Duration::from_millis(60)));
+    assert_eq!(
+        a.effect_animations
+            .glyphs(o)
+            .iter()
+            .map(|g| g.glyph)
+            .collect::<Vec<_>>(),
+        vec!['-', '-']
+    );
+    canvas.draw(&a);
+    assert!(canvas.pixels != baseline, "zap must be painted on map");
+    a.effect_animations.advance(Duration::from_secs(3));
+    canvas.draw(&a);
+    assert!(
+        canvas.pixels == baseline,
+        "complete redraw restores underlying map"
+    );
+    assert_eq!(*a.state.as_ref().unwrap().state(), original);
+    a.effect_animations.push(&visual_event(
+        EffectDelivery::Projectile,
+        vec![path(&[-2, -1, 0])],
+    ));
+    a.effect_animations.advance(Duration::from_millis(60));
+    let g = a.effect_animations.glyphs(&original.observation);
+    assert_eq!(g.len(), 1);
+    assert_eq!(g[0].position, path(&[-1])[0]);
+    assert_eq!(g[0].glyph, '*');
+}
+
+#[test]
+fn ascii_effects_preserve_bounces_break_gaps_and_follow_only_visible_anchor_keys() {
+    use std::time::Duration;
+    let mut fx = tor_client_ascii::effects::EffectAnimations::default();
+    let mut o = view();
+    fx.push(&visual_event(
+        EffectDelivery::Ray,
+        vec![path(&[-2, -1, -2]), path(&[2, 3])],
+    ));
+    fx.advance(Duration::from_millis(120));
+    assert_eq!(
+        fx.glyphs(&o)
+            .iter()
+            .map(|g| g.position.x)
+            .collect::<Vec<_>>(),
+        vec![-2, -1, -2]
+    );
+    fx.advance(Duration::from_millis(60));
+    assert_eq!(
+        fx.glyphs(&o)
+            .iter()
+            .map(|g| g.position.x)
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
+    // Observer's frame changed: use cell keys, not historical coordinates.
+    for cell in &mut o.visible_cells {
+        cell.position.x += 10;
+    }
+    assert_eq!(fx.glyphs(&o)[0].position.x, 12);
+    o.visible_cells.retain(|cell| cell.key != "2:0:0");
+    assert!(
+        fx.glyphs(&o).is_empty(),
+        "never paint remembered or newly hidden cells"
+    );
+    fx.clear();
+    assert!(fx.glyphs(&view()).is_empty());
+}
+
+#[test]
+fn ascii_effect_clock_is_frame_rate_independent_and_bounded() {
+    use std::time::Duration;
+    let e = visual_event(EffectDelivery::Ray, vec![path(&[-2, -1, 0, 1, 2])]);
+    let mut a = tor_client_ascii::effects::EffectAnimations::default();
+    let mut b = tor_client_ascii::effects::EffectAnimations::default();
+    a.push(&e);
+    b.push(&e);
+    for _ in 0..12 {
+        a.advance(Duration::from_millis(10));
+    }
+    b.advance(Duration::from_millis(120));
+    assert_eq!(a.glyphs(&view()), b.glyphs(&view()));
+    for _ in 0..1000 {
+        a.push(&e);
+    }
+    assert!(a.glyphs(&view()).len() <= 64 * 5);
+    a.advance(Duration::from_secs(3));
+    assert!(a.glyphs(&view()).is_empty());
+    assert!(!a.advance(Duration::from_millis(1)));
+}
+
+#[test]
+fn ascii_directional_zap_glyphs_and_snapshot_reset() {
+    let mut a = app();
+    for (end, glyph) in [
+        (Position { x: 0, y: 1, z: 0 }, '|'),
+        (Position { x: 1, y: 1, z: 0 }, '\\'),
+        (Position { x: 1, y: -1, z: 0 }, '/'),
+    ] {
+        a.effect_animations.clear();
+        a.effect_animations.push(&visual_event(
+            EffectDelivery::Ray,
+            vec![vec![Position { x: 0, y: 0, z: 0 }, end]],
+        ));
+        assert_eq!(a.effect_animations.glyphs(&view())[0].glyph, glyph);
+    }
+    let mut reset = snapshot();
+    reset.context.epoch = 1;
+    a.replace_snapshot(reset).unwrap();
+    assert!(a.effect_animations.glyphs(&view()).is_empty());
+}
+
+#[test]
+fn ascii_animation_consumes_ordered_outcome_once_not_retained_picture_and_keeps_input_live() {
+    let mut a = app();
+    let mut after = view();
+    after.combat.as_mut().unwrap().events = vec![visual_event(
+        EffectDelivery::Projectile,
+        vec![path(&[-2, -1, 0])],
+    )];
+    // Real effect anchors use opaque 40-hex keys, unlike this older map fixture.
+    let mut initial = snapshot();
+    for (i, c) in Arc::make_mut(&mut initial.state)
+        .observation
+        .visible_cells
+        .iter_mut()
+        .enumerate()
+    {
+        c.key = format!("{i:040x}");
+    }
+    let visible = initial.state.observation.clone();
+    if let CombatEventView::Effect { anchors, .. } = &mut after.combat.as_mut().unwrap().events[0] {
+        for anchor in anchors {
+            anchor.key = visible
+                .visible_cells
+                .iter()
+                .find(|c| c.position == anchor.position)
+                .unwrap()
+                .key
+                .clone();
+        }
+    }
+    a.set_state(ClientState::from_snapshot(initial).unwrap());
+    outcome(&mut a, 1, &after, None);
+    assert_eq!(
+        a.effect_animations.glyphs(&visible).len(),
+        1,
+        "outcome without new picture must animate"
+    );
+    a.effect_animations
+        .advance(std::time::Duration::from_secs(3));
+    update(&mut a, 2, |o| {
+        o.combat.as_mut().unwrap().events = after.combat.as_ref().unwrap().events.clone()
+    });
+    assert!(
+        a.effect_animations.glyphs(&view()).is_empty(),
+        "picture must not replay effects"
+    );
+    a.effect_animations
+        .push(&visual_event(EffectDelivery::Ray, vec![path(&[-2, -1, 0])]));
+    a.input(Input::Key {
+        key: Key::Inventory,
+    });
+    assert!(a.inventory_open, "cosmetic playback must not block input");
+}
+
+#[test]
+fn ascii_animation_long_paths_expire_and_areas_are_not_fake_projectiles() {
+    use std::time::Duration;
+    let mut a = tor_client_ascii::effects::EffectAnimations::default();
+    a.push(&visual_event(
+        EffectDelivery::Ray,
+        vec![vec![path(&[0])[0]; MAX_EFFECT_POINTS]],
+    ));
+    assert!(!a.glyphs(&view()).is_empty());
+    a.advance(Duration::from_millis(1800));
+    assert!(a.glyphs(&view()).is_empty());
+    a.push(&visual_event(EffectDelivery::Area, vec![path(&[-1, 0, 1])]));
+    assert!(a.glyphs(&view()).is_empty());
+}
+
+#[test]
+fn ascii_effects_reject_ambiguous_portal_anchors_and_use_current_frame_direction() {
+    let mut a = tor_client_ascii::effects::EffectAnimations::default();
+    a.push(&visual_event(EffectDelivery::Ray, vec![path(&[-2, -1])]));
+    let mut o = view();
+    let mut duplicate = o
+        .visible_cells
+        .iter()
+        .find(|c| c.key == "-2:0:0")
+        .unwrap()
+        .clone();
+    duplicate.position = Position { x: 8, y: 8, z: 0 };
+    o.visible_cells.push(duplicate);
+    assert!(
+        a.glyphs(&o).is_empty(),
+        "an ambiguous physical key must not select an arbitrary portal image"
+    );
+    o.visible_cells.reverse();
+    assert!(
+        a.glyphs(&o).is_empty(),
+        "ambiguity handling must be order independent"
+    );
+    o = view();
+    for c in &mut o.visible_cells {
+        let p = c.position;
+        c.position = Position {
+            x: -p.y,
+            y: p.x,
+            z: p.z,
+        };
+    }
+    assert_eq!(
+        a.glyphs(&o)[0].glyph,
+        '|',
+        "glyph direction follows the observer's current frame"
+    );
+    o.visible_cells.retain(|c| c.key != "-1:0:0");
+    assert_eq!(
+        a.glyphs(&o)[0].glyph,
+        '*',
+        "missing neighbor must not imply direction"
+    );
+    o = view();
+    o.visible_cells
+        .iter_mut()
+        .find(|c| c.key == "-1:0:0")
+        .unwrap()
+        .position
+        .x = 9;
+    assert_eq!(
+        a.glyphs(&o)[0].glyph,
+        '*',
+        "disconnected current images must not imply a continuous ray"
+    );
+}
+
+#[test]
+fn ascii_effects_ambiguous_neighbor_uses_generic_glyph() {
+    let mut a = tor_client_ascii::effects::EffectAnimations::default();
+    a.push(&visual_event(EffectDelivery::Ray, vec![path(&[-2, -1])]));
+    let mut o = view();
+    let mut duplicate = o
+        .visible_cells
+        .iter()
+        .find(|c| c.key == "-1:0:0")
+        .unwrap()
+        .clone();
+    duplicate.position = Position { x: 8, y: 8, z: 0 };
+    o.visible_cells.push(duplicate);
+    assert_eq!(a.glyphs(&o)[0].glyph, '*');
 }

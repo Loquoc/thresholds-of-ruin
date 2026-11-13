@@ -371,9 +371,11 @@ fn window_loop(
     while window.is_open() {
         let turn = Instant::now();
         let turn_interval_ms = turn.duration_since(last_turn).as_secs_f64() * 1000.;
+        let animation_elapsed = turn.duration_since(last_turn);
         last_turn = turn;
         let mut network_events = 0;
         let mut dirty = frame == 0 || std::mem::take(&mut redraw);
+        dirty |= app.effect_animations.advance(animation_elapsed);
         // Bound each presentation turn so a continuous producer cannot starve input.
         for _ in 0..16 {
             if turn.elapsed() >= std::time::Duration::from_millis(4) {

@@ -20,7 +20,7 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **69**, save format **68**, scenario format **37**,
+**Current formats:** protocol **70**, save format **69**, scenario format **37**,
 ruleset **`interactions-v58`**, scenario validator **`tor-scenario-50`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
@@ -42,6 +42,7 @@ grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 | Clients | Text parsing/clarification, graphical ASCII with NetHack-shaped controls, headless JSON-lines automation, private save-owned image/text captures, an ASCII screenshot key available in menus, playtest report notes, spectators and explicit control transfer | [Clients](architecture/clients.md), [Text](play/text.md), [ASCII](play/ascii.md), [headless](reference/headless.md) |
 | Simulation | One mutation owner, admitted intentions, deterministic scheduling, private candidates, paid immutable plans, pause/resume/cancel and partial-sequence debt | [Cycle](architecture/simulation-cycle.md), [actions](architecture/simulation.md) |
 | Combat | Shared 3d6/edge, source/modifier folds, ordered primary/rider effects, finite supplies/resources, cooldowns, protection, death and causal fall credit | [Combat](reference/combat.md), [creature rules](reference/creature-rules.md) |
+| Effect presentation | Authoritative ray/projectile paths and target-local events, instantaneous timing and semantic appearance, frozen observer permissions, keyed ordered-outcome rendering, and private actor-active status snapshots; public sustained-area lifecycle remains future work | [Protocol](reference/protocol.md) |
 | Advancement | Ordinary purchases/respec, fixed choices, expertise and retained Intellect learning, earned XP, body/personal ownership, drain/restoration | [Progression](reference/progression.md), [player controls](play/advancement.md) |
 | World | Region-local 3D geometry, 24 portal rotations, finite volumes, multi-cell bodies, gravity, cardinal/diagonal movement, doors and paired stairs | [Geometry](architecture/geometry.md), [movement](reference/movement.md) |
 | Perception and AI | Illuminated eye-based sight, awareness/contact, checked private discovery/guise recognition, remembered navigation and bounded knowledge-limited tactics | [Perception](architecture/perception.md), [AI](reference/ai.md) |

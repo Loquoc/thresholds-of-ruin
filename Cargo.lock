@@ -970,9 +970,11 @@ dependencies = [
 name = "tor-client-headless"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
  "tor-client-common",
  "tor-protocol",
 ]

@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":69,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":70,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -1450,6 +1450,90 @@ body, including repeated portal views, has `ActorView.id` equal to
 `observation.self_target`. `observation.actor` is the separate authorized
 attachment identity and must not be used for that comparison.
 
+Resolved spatial deliveries also emit machine-readable `effect` events. Each
+contains nullable `caster` and `ability`, the resolution `tick`, explicit
+`timing: "instant"`, an `appearance` form (`bolt`, `missile`, `flash`, `halo`,
+`cloud`, or private HUD `status_indicator`), a delivery class
+(`ray`, `projectile`, `target`, or `area`), a coarse cue (`neutral`, `physical`,
+`fire`, `cold`, `lightning`, `poison`, `healing`, or `status`), and ordered
+`segments` of observer-relative cell positions. Required `anchors` pair disclosed
+point positions with the same opaque, observer-scoped cell keys used in pictures.
+Ordered outcome messages can arrive without a new picture: clients align each
+point using its matching retained-picture key, omit unknown or ambiguous points,
+and split at missing or inconsistent edges. They must not blindly apply an old
+picture's frame to new event offsets. Anchors never disclose extra cells or world
+identifiers. Segments are separate: clients
+must never connect them across hidden cells, rotated joins or other discontinuities.
+They are authoritative traversed or target-local geometry, not predicted paths or
+proof of damage. The accompanying ordinary `ability` event owns the result.
+
+Text and ASCII describe disclosed motion or presentation rather than enumerate
+cells. An exact return within one visible strip can be described as doubling
+back; a gap between strips is never treated as observed movement. Geometry alone
+does not establish a wall collision, victim, hit or damage. Separately disclosed
+ability outcomes retain their own narration: nearby events without a correlation
+identity must not be guessed to belong to the same attack.
+
+The simulation freezes visible cells and source-reference authority before
+resolution changes sight, placement or life. It then clips the actual delivery
+path to that frozen permission. For the current picture, only those permitted
+cells still represented in the current ordinary scene are remapped into its
+observer frame. Historical offscreen fragments can therefore be omitted; later
+sight never expands an old effect. Spatial events are suppressed entirely when
+the source creature was not disclosed before resolution, since even a neutral
+path could locate an unseen caster. Target-local events additionally require the
+target creature to have been disclosed then. Restricted source policies suppress
+spatial geometry when the observer lacks the event-time source license: even a
+neutral endpoint could reveal hidden interception. Other observers receive effects
+only after the normal observation commit proof is recorded; frozen permissions
+alone never publish history. No raw world location, undisclosed damage amount,
+private item identity or hidden route is sent.
+
+Appearance describes semantic presentation separately from the delivery footprint
+and elemental cue. It does not grant visibility to a hidden source or condition.
+
+These events describe resolved one-shot deliveries, not a scheduled visual
+launch/impact timeline. Clients choose their own colors, particles, durations and
+prose without inventing gameplay geometry. The shape enum reserves `area` for
+explicit authoritative footprints; it does not invent a cone or persistent cloud
+for existing Rogue rays. Live sustained-area producers and observer-safe event-frame
+history outside the current scene remain future work.
+
+### Observed sustained-effect lifecycle
+
+Required `observation.public_effects` is a bounded complete snapshot (at most
+128 entries and 65,537 total points), not a list of event patches. Each
+`PublicEffectView` carries an opaque observer-stream-scoped `id`, `observed_since`,
+required nullable `expires_at`, and the same delivery, appearance, cue, segmented
+geometry and keyed anchors used by transient effects. Every point must be anchored
+to a currently disclosed cell. IDs must be distinct; producers emit ID-sorted
+entries. Private HUD `status_indicator` is not a public effect appearance.
+
+A new ID begins observed presentation; a retained ID replaces its description;
+an absent ID removes presentation. Removal means **no longer observed**, not proof
+that the world effect ended. A reconnect snapshot is sufficient without replaying
+Start events. Reset discards old IDs, and reacquisition may use a new ID.
+`observed_since` is the first *observed* world tick, never a hidden creation time.
+`expires_at`, if disclosed, is an absolute authoritative **world-tick** deadline,
+not wall-clock seconds or actor-active condition time; it must be later than the
+snapshot tick. Null means no deadline is disclosed, not infinite world duration.
+Clients replace this state and must not invent expiry from animation elapsed time.
+
+The current gameplay producer emits an empty public-effect snapshot: no lingering
+cloud, cone or damage-zone mechanic is implied. Synthetic full/delta/client tests
+exercise start, update, loss of disclosure and reacquisition through this contract.
+A future mechanic must provide authorized footprints, observer-scoped identity,
+first-observed timing and explicitly disclosable deadlines; this contract creates
+no new world registry and grants no additional visibility.
+
+`crates/client-headless/tests/it/effects.rs` exercises this contract over a real
+WebSocket connection to the actual headless executable. Its controlled producer
+supplies explicit burst and cone footprints and a persistent cloud snapshot;
+it tests replacement, loss of visibility, reacquisition, reconnect, world-time
+deadlines, invalid-observation repair, and transient area outcomes. These are
+synthetic producer-to-client tests, not proof of Rogue area mechanics or of the
+simulation's disclosure generation. Rogue still emits no public sustained areas.
+
 Combat observations don't carry enemy numerical attributes, AI memory,
 internal coordinates, or RNG state. Non-combat diagnostic fixtures
 omit the optional combat view.
@@ -1643,8 +1727,8 @@ apply meals themselves.
 ### Personal condition disclosure
 
 Personal `own_stats` requires `conditions`, an array bounded to 128 records, each
-with named `condition` (`id`, `name`), `phase` (`active` or `protection`) and required
-nullable `remaining_ticks`: a decimal string from 1–1000000 for finite time, or
+with named `condition` (`id`, `name`), `phase` (`active` or `protection`),
+`appearance: "status_indicator"`, a coarse `cue`, and required nullable `remaining_ticks`: a decimal string from 1–1000000 for finite time, or
 JSON null for an active until-removed condition. Missing fields, finite zero,
 string `"null"` and null protection durations reject. Source actors, opponent qualifications,
 reservation owners, stacking internals and private preparation operands are absent.
@@ -1654,7 +1738,13 @@ a token cannot change this projection. Foreign sightings never gain this field. 
 without settling time or sampling RNG. Text and ASCII use the same active/protection
 labels and render a null duration as “until removed”; protection does not mean
 the actor is still frozen or fainted. Clients do not invent deadlines or count
-down persistent conditions.
+down persistent conditions. Remaining durations are actor-active ticks, not wall
+seconds or an absolute world-tick deadline. This complete authoritative snapshot
+replaces the previous one: changed entries update presentation and absent entries
+remove it, including after reconnect or disclosure loss. The descriptor authorizes
+only an observer-owned status indicator, not a world-visible halo on another actor.
+It is the existing personal condition lifecycle, not a new generalized persistent
+area or public-effect lifecycle.
 
 These lifetime shapes and the expanded timing/effect contracts require the
 coordinated current identities in [status](../status.md). Canonical saved condition
