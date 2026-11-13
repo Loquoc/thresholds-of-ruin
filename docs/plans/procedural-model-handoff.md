@@ -62,147 +62,69 @@ case, not exhaustive fitting or server-side disclosure correctness.
 
 ## Latest handoff state
 
-This branch is a work-in-progress handoff snapshot published at the maintainer's
-explicit request without completing a new pre-push gate. That gate was started
-and then stopped at the maintainer's direction after formatting passed. The
-verified checkpoints below remain scoped evidence, not a claim that this branch
-is merge-ready. Continue from the work queue and preserve the outstanding
-platform/profile and publishing requirements before any merge.
+### Recovery and rebase, 13 November 2026
 
-The branch was later rebased without conflicts onto main at `511ea466`
-(#191). The rebased tree equals a merge of the two. The checkpoints
-below were recorded on the earlier base (#171); their source fingerprints describe
-that base, not the rebased commits.
+The recovered modularization source is rebased locally onto
+`Loquoc/thresholds-of-ruin` main at `97f72c6d`. The pre-rebase source snapshot is
+preserved separately. Remote gameplay, CI and documentation changes remain on
+the new base. Conflict resolution retains the recovered model implementations;
+two automatically duplicated older riding-boot tests were removed only after
+checking that their current versions retain the same assertions.
 
-The branch was rebased again onto main at `feae51f2` (#195), which had
-already taken its own protocol bump for hallucinated presentations. Conflicts
-were resolved as follows:
+This is **local recovery and integration evidence**, not publication, hosted CI
+or merge qualification. On the rebased source, formatting, strict all-target 3D
+Clippy, architecture checks and 20 documentation tests pass. Eight focused runtime
+methods cover the two riding-boot regressions, bare feet, low shoes, armored
+low-shoe composition, sandal support and two conservative band-window boundaries.
+No full suite or fresh native-render suite was run for the rebase itself. Earlier
+render evidence applies only to unchanged source and its recorded fixture scope.
+The retained bare-foot correction remains a candidate until its separate affected
+contract and visual review is recorded; passing the rebase checks alone does not
+close that review.
 
-- **Worn equipment:** the worn list now bumps the protocol past main's.
-- **Hallucination:** a hallucinated figure carries no worn list, so its true
-  gear cannot betray it.
-- **Palette discovery:** a ground item with a presentation contributes only
-  that presentation's asset, never its true corpse body asset.
+### Current implementation map
 
-The local evidence listed below was recorded before this second rebase.
+Use the component sections in the [art continuation guide](3d-art-continuation.md#current-modularization-map)
+as the current entry point, rather than replaying the dated work log:
 
-The worn-equipment slice and Rogue armour recipes followed on that
-base. Local evidence for those commits:
+- Shared anatomical torso/ear/crown/limb frames place components; actual emitted
+  garment and armor support surfaces determine fit and clearance.
+- Straps, band-mounted hardware, wrapping, forearm shells, cuffs, pouch strips
+  and hanging panels have reusable construction consumers. This does not mean
+  every outfit or accessory has migrated.
+- Coverage resolves bounded whole-detail choices before construction where its
+  contract permits it. It is not a general region/layer solver or continuous
+  cloth collision system.
+- Hair retains component-owned attachment and contact constraints. Stable
+  relaxation pre-sweeps stop when no point changes; coarse covered topknots use
+  bounded refinement. These are distinct changes, not a universal hair solution.
+- Shoe/boot composition, support-fitted sandal bands and conservative per-height
+  query windows have focused local evidence. Bare-foot qualification is separate.
 
-- **3D release suite:** 395 renderer-library, 2 model-library and 31 model
-  integration tests pass, with one ignored subprocess fixture. Focused armour
-  tests passed again after the shoulder-cap and tasset change.
-- **`quick` tier (Windows):** formatting, Clippy, architecture, build tools, the
-  isolated simulation check and the debug Rust suite pass.
-- **Arena-search sampling:** two tests failed only because the shared pinned
-  Python environment had numpy 2.5.3 against the branch's 2.5.4 pin. With the
-  maintainer's approval, the environment was updated from the hash-pinned
-  requirements, and all 7 sampling tests now pass.
-- **Debug process tests:** five performance tests and one earned-route test
-  first hit the run's 600-second build and wall-clock limits. One performance
-  test also exposed a missing `subprocess` import, which is now fixed. All 18
-  performance tests and the earned-route test pass when rerun individually with
-  prebuilt examples.
-- **Native mouse test:** the standing local mouse-click test is waived, not
-  passed.
-- **Hair timing diagnostic:** a single workload-4 `model_bench` run after the
-  query reuse, on the same machine, gave the following, with 90 frames per case.
-  Earlier figures are from [exact fixed points](#exact-control-solver-fixed-points).
+Preserve native style, body-specific dimensions and sex-specific landmarks while
+sharing the attachment contract. Do not replace these bounded helpers with a new
+anatomy taxonomy or solver without a concrete consumer and evidence of benefit.
 
-  | Case | Full update p50/p95/max | Earlier |
-  | --- | --- | --- |
-  | Human | 9.69/10.91/11.90 ms | 9.623/9.701/10.458 ms |
-  | Nymph | 39.98/46.11/47.61 ms | 43.526/58.041/58.275 ms |
-  | Nymph control fitting | 11.93/19.25/20.07 ms | 15.142/25.194/25.416 ms |
-  | Nymph face/edge constraints | 26.67/27.98/28.33 ms | — |
+### Performance and publication boundaries
 
-  Face constraints now dominate. This is not a controlled base/head
-  comparison, and the long-hair case still misses the 20 ms budget.
-- **Not run:** a controlled `perf_compare` measurement of the hair query
-  changes, the 3D client's own `verify.py`, push and full gates, and both-platform
-  CI. The query reductions are proven only by exact query-count tests.
+Timing tables in this guide and the continuation notes are **exploratory local
+diagnostics**, not accepted headline measurements. Local acceptance of a visual
+fix does not accept its timing as a performance result. The per-height band-window
+sample and hair relaxation timings suggest useful directions, but do not establish
+current FPS, cross-machine comparisons or a general speedup.
 
-The 3D gameplay-parity commits that followed use the maintainer's expedited
-policy: focused checks locally, with exhaustive qualification left to the
-required CI on both platforms. The push tier was skipped at the maintainer's
-direction. Local evidence on the final source:
+Accepted headlines must follow the [performance policy](../development/performance.md),
+use the supported comparison workflow and be added with `scripts/perf_ledger.py add`
+with source/workload identity, machine fingerprint and verified raw-data reference.
+Do not fabricate missing metadata or upload raw measurements without the required
+maintainer approval. No new accepted headline is added by this recovery checkpoint.
+The ledger tool still validates raw URLs against the old repository owner; adapting
+that ownership policy needs a separately reviewed tooling change before recording
+new-owner release artifacts, not a prose workaround.
 
-- **3D model crate:** all library and integration tests pass, including the
-  new resume/cancel and note request tests.
-- **3D renderer library (debug):** 413 tests pass, with one ignored subprocess
-  fixture. The debug run exposed a `debug_assert` in the baldric's waist turn,
-  where a ray grazing the flank exhausted one bounded surface march. The turn
-  now keeps marching from where that march stopped; converged points are
-  unchanged.
-- **Shared and ASCII clients:** `tor-client-common` and `tor-client-ascii`
-  library tests pass after history wording moved into `client-common`.
-- **Clippy:** clean with `-D warnings` on all targets of both 3D packages,
-  `tor-client-common` and `tor-client-ascii`.
-- **Native 3D processes (release client, Windows):** the new places, notes,
-  history and charts test, and the advancement and read/identify/zap tests,
-  pass against a real server.
-- **Not run locally:** the 3D release library suite, the 3D `verify.py`, the
-  quick, push and full tiers, and Linux. CI covers them before merge.
-
-The first CI runs of the independent 3D workflow failed on both platforms:
-
-- **Process-step cap:** the step stopped at its 1200-second cap after 4 or 5 of
-  the 37 process tests. It now runs through the shared test runner, so a
-  timeout keeps each test's outcome and traceback. The cap is now 3000 seconds.
-- **Model generation is slow without a GPU:** GitHub's runners have no GPU, and
-  there lineups and outfit studies ran 10 to 17 times slower than locally. For
-  example, a readback lineup took 18 s locally and timed out after 180 s on CI.
-  By the maintainer's decision, CI no longer gates on model generation. The 19
-  model process tests and the model benchmark are skipped on CI unless
-  `TOR_3D_MODEL_TESTS=1` is set; they still run locally.
-- **Linux key auto-repeat:** the keyboard tests held each key until a captured
-  frame showed its effect, and X auto-repeated it. Linux CI typed "ledger" as
-  runs of each letter. A shared helper now releases the key once the client
-  reports it pressed, and auto-repeat is off on the test display.
-- **Leotard test outfit:** tests and fixtures that used the sylvan duelist only
-  as a stand-in now dress figures in the leotard. Tests about the duelist keep
-  it. The 7 affected Rust tests and 4 affected process tests pass locally.
-
-Main then took baleful polymorph (#198) as its own protocol bump. Merging it
-required a separate wire revision for the worn list: main's recorded wire sample
-stays as it is, and this branch records a new one for the worn list. An actor's view keeps main's
-current body asset, so a polymorphed creature shows its active form. Polymorph
-unequips gear its new form cannot wear and keeps it carried, so the worn list,
-built from equipped items, follows the form without extra rules.
-
-
-The consolidated Windows release contract check passes 387 renderer-library
-checks, one model-library check and 31 model integration checks, plus tooling,
-showcase-source validation, formatting, all-target lint and architecture checks.
-The one ignored entry is `launch::tests::malformed_ready_fixture`, invoked as a
-child by `malformed_startup_reaps_its_owned_server`, which passed. The source
-fingerprint matched before and after the run. The later wearer-pigment migration has separate focused evidence below; it does
-not automatically inherit this complete Rust-suite result.
-
-Native evidence remains the recent affected fixtures: equipment replacement with
-Warrior/Mage/Wraith, and the 12-family women lineup covering the moved garment
-details. These are combined with the earlier selected-process checkpoint for
-unchanged paths, not represented as a new all-process or full-platform gate.
-Debug-profile qualification, final Windows/Linux CI and publishing gates remain
-outstanding. The maintainer's exact three mouse-test waivers remain local.
-
-The latest measured demanding Nymph composition is 43.526/58.041/58.275 ms
-p50/p95/max per CPU update, with 90 frames in the diagnostic. It still misses a
-20 ms update budget. See [exact fixed points](#exact-control-solver-fixed-points)
-for the measured source state and limits; older timing tables below are historical
-snapshots, not controlled before/after results or current FPS measurements.
-
-For an immediate visual review, use the existing
-[scripted model review instructions](../../crates/client-3d/review-scripts/README.md),
-including `showcase-loop.ps1` for one-window live playback and `--scene-script`
-for deterministic captures. Do not use capture timing to judge live smoothness.
-
-Common exposed-skin pigments now retain wearer references as described below.
-Audit the remaining native boot/anatomy pigments and validated recipe admission
-before public native-recipe transfer. Then complete the shared fitting/attachment interface and
-item capability/coverage rules. Server-driven appearance still requires the four
-explicit decisions in the appearance proposal; no generic wearable payload or
-all-client implementation is claimed by this checkpoint.
+Use the current [testing policy](../development/testing.md) for publication gates.
+Historical Windows counts, protocol bumps, workflow limits and waivers below are
+records of older checkpoints, not present-head passes or standing exceptions.
 
 ## Next developer's work queue
 
@@ -216,7 +138,7 @@ the ignored evidence directory, not in portable repository documentation.
 | --- | --- | --- |
 | Garment ownership | Audit remaining native/style-dependent details before exposing arbitrary native recipes as interchangeable outfits. Continuous robe/waist/cuff ownership is now recipe-driven; qualify additional bodies and independent subpiece coverage before generalizing it. | Preserve native versus explicit recipe witnesses, cross-body fitting, equip/remove restoration and moving-legs captures; add fixed conflict cases rather than a broad Cartesian expansion |
 | Recipe identity | Resolve the [wearer-owned pigment boundary](#wearer-owned-pigment-migration) before general native transfer. Preserve the renderer-boundary recipe key and introduce a validated recipe-assignment API before allowing arbitrary native-recipe transfer through scripts or gameplay. Define canonical semantic identity if replacing the current local debug-formatted keys. | Keep the shared-library distinct-recipe, head/hair reuse, repeat-selection and native-restoration witness; extend it for new dependency boundaries rather than relying on fresh-library fitting tests |
-| Shared fitting | Extract a fitting description from the existing bust, torso, hip and attachment consumers. Use semantic landmarks for placement and actual supporting surfaces for clearance; neither replaces the other. | Existing asymmetric bust/hip and waist-frame witnesses remain valid; an actual garment and an equipped item consume the same description |
+| Shared fitting | Extend the existing shared torso, crown, limb, strap and band consumers to remaining accessories only where a concrete fit requires it. Use semantic landmarks for placement and actual support surfaces for clearance; do not introduce a second competing abstraction. | Preserve asymmetric body and garment witnesses, native/copy behavior, restoration and cached construction; qualify each newly migrated consumer |
 | Hair motion and cost | Prioritize the measured long-hair case. Separate support-query/constraint cost from mesh writes and normals before choosing a representation change; qualify temporal continuity as well as endpoint clearance. | Retain scalp pins, strain and full-mesh contact; add a focused moving-obstacle/history witness, then a controlled same-workload release comparison |
 | Generic visible items | Define required body capabilities and coverage per item family using the proposal's capability matrix. Do not generalize the current four preview slots into a universal anatomy model. | Explicit unsupported-combination errors plus fixed cases for repeated limbs, layered garments and multi-part equipment; correct removal/restoration |
 | Server and all clients | Obtain the compatibility/content decisions described in the appearance proposal, then implement one observer-filtered projection and shared interpretation across text, ASCII, 3D and headless clients. | Hidden-state indistinguishability, atomic full/delta equivalence, self/corpse carriers, reload/redisclosure, bounded malformed inputs and actual-process checks for each client |
@@ -1555,3 +1477,151 @@ larger candidate maximum outliers. Mesh payload/entity/frame counts match.
 No FPS or universal speedup is claimed; even the candidate p95 exceeds a 20 ms
 CPU-update budget in this workload. Do not compare these timings directly with
 older runs on different toolchains or environments.
+
+## Historical handoff and qualification records
+
+The following records are preserved for provenance only. They predate the current
+recovery/rebase above; words such as “latest” and “final” refer to their own
+checkpoint, not the present source. Use current policy for waivers and gates.
+
+The older branch was a work-in-progress handoff snapshot published at the maintainer's
+explicit request without completing a new pre-push gate. That gate was started
+and then stopped at the maintainer's direction after formatting passed. The
+verified checkpoints below remain scoped evidence, not a claim that this branch
+is merge-ready. Continue from the work queue and preserve the outstanding
+platform/profile and publishing requirements before any merge.
+
+The branch was later rebased without conflicts onto main at `511ea466`
+(#191). The rebased tree equals a merge of the two. The checkpoints
+below were recorded on the earlier base (#171); their source fingerprints describe
+that base, not the rebased commits.
+
+The branch was rebased again onto main at `feae51f2` (#195), which had
+already taken its own protocol bump for hallucinated presentations. Conflicts
+were resolved as follows:
+
+- **Worn equipment:** the worn list now bumps the protocol past main's.
+- **Hallucination:** a hallucinated figure carries no worn list, so its true
+  gear cannot betray it.
+- **Palette discovery:** a ground item with a presentation contributes only
+  that presentation's asset, never its true corpse body asset.
+
+The local evidence listed below was recorded before this second rebase.
+
+The worn-equipment slice and Rogue armour recipes followed on that
+base. Local evidence for those commits:
+
+- **3D release suite:** 395 renderer-library, 2 model-library and 31 model
+  integration tests pass, with one ignored subprocess fixture. Focused armour
+  tests passed again after the shoulder-cap and tasset change.
+- **`quick` tier (Windows):** formatting, Clippy, architecture, build tools, the
+  isolated simulation check and the debug Rust suite pass.
+- **Arena-search sampling:** two tests failed only because the shared pinned
+  Python environment had numpy 2.5.3 against the branch's 2.5.4 pin. With the
+  maintainer's approval, the environment was updated from the hash-pinned
+  requirements, and all 7 sampling tests now pass.
+- **Debug process tests:** five performance tests and one earned-route test
+  first hit the run's 600-second build and wall-clock limits. One performance
+  test also exposed a missing `subprocess` import, which is now fixed. All 18
+  performance tests and the earned-route test pass when rerun individually with
+  prebuilt examples.
+- **Native mouse test:** the standing local mouse-click test is waived, not
+  passed.
+- **Hair timing diagnostic:** a single workload-4 `model_bench` run after the
+  query reuse, on the same machine, gave the following, with 90 frames per case.
+  Earlier figures are from [exact fixed points](#exact-control-solver-fixed-points).
+
+  | Case | Full update p50/p95/max | Earlier |
+  | --- | --- | --- |
+  | Human | 9.69/10.91/11.90 ms | 9.623/9.701/10.458 ms |
+  | Nymph | 39.98/46.11/47.61 ms | 43.526/58.041/58.275 ms |
+  | Nymph control fitting | 11.93/19.25/20.07 ms | 15.142/25.194/25.416 ms |
+  | Nymph face/edge constraints | 26.67/27.98/28.33 ms | — |
+
+  Face constraints now dominate. This is not a controlled base/head
+  comparison, and the long-hair case still misses the 20 ms budget.
+- **Not run:** a controlled `perf_compare` measurement of the hair query
+  changes, the 3D client's own `verify.py`, push and full gates, and both-platform
+  CI. The query reductions are proven only by exact query-count tests.
+
+The 3D gameplay-parity commits that followed use the maintainer's expedited
+policy: focused checks locally, with exhaustive qualification left to the
+required CI on both platforms. The push tier was skipped at the maintainer's
+direction. Local evidence on the final source:
+
+- **3D model crate:** all library and integration tests pass, including the
+  new resume/cancel and note request tests.
+- **3D renderer library (debug):** 413 tests pass, with one ignored subprocess
+  fixture. The debug run exposed a `debug_assert` in the baldric's waist turn,
+  where a ray grazing the flank exhausted one bounded surface march. The turn
+  now keeps marching from where that march stopped; converged points are
+  unchanged.
+- **Shared and ASCII clients:** `tor-client-common` and `tor-client-ascii`
+  library tests pass after history wording moved into `client-common`.
+- **Clippy:** clean with `-D warnings` on all targets of both 3D packages,
+  `tor-client-common` and `tor-client-ascii`.
+- **Native 3D processes (release client, Windows):** the new places, notes,
+  history and charts test, and the advancement and read/identify/zap tests,
+  pass against a real server.
+- **Not run locally:** the 3D release library suite, the 3D `verify.py`, the
+  quick, push and full tiers, and Linux. CI covers them before merge.
+
+The first CI runs of the independent 3D workflow failed on both platforms:
+
+- **Process-step cap:** the step stopped at its 1200-second cap after 4 or 5 of
+  the 37 process tests. It now runs through the shared test runner, so a
+  timeout keeps each test's outcome and traceback. The cap is now 3000 seconds.
+- **Model generation is slow without a GPU:** GitHub's runners have no GPU, and
+  there lineups and outfit studies ran 10 to 17 times slower than locally. For
+  example, a readback lineup took 18 s locally and timed out after 180 s on CI.
+  By the maintainer's decision, CI no longer gates on model generation. The 19
+  model process tests and the model benchmark are skipped on CI unless
+  `TOR_3D_MODEL_TESTS=1` is set; they still run locally.
+- **Linux key auto-repeat:** the keyboard tests held each key until a captured
+  frame showed its effect, and X auto-repeated it. Linux CI typed "ledger" as
+  runs of each letter. A shared helper now releases the key once the client
+  reports it pressed, and auto-repeat is off on the test display.
+- **Leotard test outfit:** tests and fixtures that used the sylvan duelist only
+  as a stand-in now dress figures in the leotard. Tests about the duelist keep
+  it. The 7 affected Rust tests and 4 affected process tests pass locally.
+
+Main then took baleful polymorph (#198) as its own protocol bump. Merging it
+required a separate wire revision for the worn list: main's recorded wire sample
+stays as it is, and this branch records a new one for the worn list. An actor's view keeps main's
+current body asset, so a polymorphed creature shows its active form. Polymorph
+unequips gear its new form cannot wear and keeps it carried, so the worn list,
+built from equipped items, follows the form without extra rules.
+
+
+The consolidated Windows release contract check passes 387 renderer-library
+checks, one model-library check and 31 model integration checks, plus tooling,
+showcase-source validation, formatting, all-target lint and architecture checks.
+The one ignored entry is `launch::tests::malformed_ready_fixture`, invoked as a
+child by `malformed_startup_reaps_its_owned_server`, which passed. The source
+fingerprint matched before and after the run. The later wearer-pigment migration has separate focused evidence below; it does
+not automatically inherit this complete Rust-suite result.
+
+Native evidence remains the recent affected fixtures: equipment replacement with
+Warrior/Mage/Wraith, and the 12-family women lineup covering the moved garment
+details. These are combined with the earlier selected-process checkpoint for
+unchanged paths, not represented as a new all-process or full-platform gate.
+Debug-profile qualification, final Windows/Linux CI and publishing gates remain
+outstanding. The maintainer's exact three mouse-test waivers remain local.
+
+The latest measured demanding Nymph composition is 43.526/58.041/58.275 ms
+p50/p95/max per CPU update, with 90 frames in the diagnostic. It still misses a
+20 ms update budget. See [exact fixed points](#exact-control-solver-fixed-points)
+for the measured source state and limits; older timing tables below are historical
+snapshots, not controlled before/after results or current FPS measurements.
+
+For an immediate visual review, use the existing
+[scripted model review instructions](../../crates/client-3d/review-scripts/README.md),
+including `showcase-loop.ps1` for one-window live playback and `--scene-script`
+for deterministic captures. Do not use capture timing to judge live smoothness.
+
+Common exposed-skin pigments now retain wearer references as described below.
+Audit the remaining native boot/anatomy pigments and validated recipe admission
+before public native-recipe transfer. Then complete the shared fitting/attachment interface and
+item capability/coverage rules. Server-driven appearance still requires the four
+explicit decisions in the appearance proposal; no generic wearable payload or
+all-client implementation is claimed by this checkpoint.

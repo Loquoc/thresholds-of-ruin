@@ -6,6 +6,44 @@ visual principles; the [3D client guide](../../crates/client-3d/README.md) owns
 launch and diagnostic commands. This remains an independently verified frontend
 prototype, not a completed art pipeline or a new gameplay milestone.
 
+## Current modularization map
+
+The [handoff state](procedural-model-handoff.md#latest-handoff-state) owns recovery,
+rebase and current verification limits. This page keeps the design rationale and
+bounded evidence for individual components. Its dated checkpoints describe their
+own source state, not a sequence of tasks that must be rerun or current-head CI.
+The October sharing checkpoint and early “work in progress” sections below are
+historical; later component records may supersede their implementation details.
+
+| Reusable boundary | Current consumers and evidence | Remaining limit |
+| --- | --- | --- |
+| Body and placement profiles | Shared torso core/landmarks, ear anchors, anatomical crown, forearm and waist frames | Body-specific dimensions and authored style remain; not a universal body-region solver |
+| Fitted attachments | Shared strap result, rounded bands, necklaces, belt hardware and pouch attachment strips | New consumers still need support, coverage and equip/remove witnesses |
+| Garment construction | Recipe-owned openings/details, native torso foundation, fitted forearm shells/cuffs and hanging panels | Bounded support fitting is not continuous moving-cloth collision |
+| Layer composition | Conservative whole-detail armor coverage and explicit support selection before construction | Visibility and fit are separate; unknown combinations cannot silently inherit a proven fixture |
+| Hair/headwear | Crown/opening fitting, exposed-hair composition, component contact and no-change relaxation stopping | Hair styling, moving contact and demanding long-hair cost remain open |
+| Feet and low shoes | Shoe/boot ownership, actual calf/armor support for sandals, per-height band query windows | Bare-foot candidate qualification is separate; no arbitrary wardrobe or continuous-contact guarantee |
+
+Continue by migrating remaining pieces onto these existing boundaries, preserving
+native appearance and distinct male/female fit where needed. Add an abstraction
+only when real consumers need it. Visual quality is the acceptance criterion;
+byte-identical renders are neither required nor a substitute for review.
+
+### Reading the evidence
+
+Local tests, sampled native views and construction diagnostics establish different
+things. A render does not prove every supported combination or continuous motion;
+a focused test does not establish a full suite or hosted CI pass. Failed/rejected
+trials remain recorded so they are not repeated as proposed solutions. Historical
+notes that say “accepted locally” refer to the bounded implementation/visual
+review, not an accepted performance headline or merge approval.
+
+All timing samples below remain exploratory diagnostics. They are not new entries
+in `perf/ledger.jsonl`, and no new accepted headline is claimed. Promote a result
+only through the repository's comparison and ledger workflow with matching source,
+workload and machine identities and an authorized raw-data reference; see the
+[handoff performance boundary](procedural-model-handoff.md#performance-and-publication-boundaries).
+
 ## Intended outcome
 
 New creature recipes should compose body plans, correlated dimensions, materials,
@@ -29,6 +67,8 @@ must continue to render only appearance and equipment disclosed by the server.
 ## What is implemented
 
 ### Sharing checkpoint — 2026-10-21
+
+Historical record; use the current modularization map above for present status.
 
 The `feat/rogue-creature-models` branch collects the current full-cast refinement
 for review. Shared body dimensions, garment-owned cuts and ornaments, constructed
@@ -3470,7 +3510,7 @@ checkpoint acceptance record.
 
 In three alternating isolated measured pairs after warmup, cold two-shin medians
 fall from 47.259 to 34.500 ms (ranges 46.638–50.130 and 34.303–36.650 ms), about
-27 percent in this fixture. Mesh resolution and triangle cost are unchanged.
+27 percent in this exploratory fixture, not an accepted headline measurement. Mesh resolution and triangle cost are unchanged.
 This reduces but does not erase the extra cost of correct band fitting; no FPS
 or general whole-model speedup is claimed. Earlier qualified compact fitting and
 unqualified optimization WIP checkpoints remain preserved. No hosted CI claim.

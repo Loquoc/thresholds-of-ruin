@@ -33,6 +33,16 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Model handoff documentation cleanup, 13 November 2026
+
+`test_local_markdown_links_resolve` caught one documentation defect when the
+cleanup renamed a historical checkpoint heading still linked by the creature
+plan. Retaining the stable anchor and labeling the section historical fixed the
+link. This is one root cause, one distinct failing method and one failed method
+execution, not a stale test or production-model defect. Initial Ruff/actionlint
+commands were unavailable on PATH; those setup failures are separate from this
+assertion result.
+
 ## ASCII playtest follow-up, 11 November 2026
 
 The native Take Off regression reproduced a movement key escaping the menu
