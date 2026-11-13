@@ -5,7 +5,7 @@ use tor_test_support::performance::{Step, Trace, TraceAction};
 fn view() -> StateView {
     let value: StateView = serde_json::from_value(serde_json::json!({
         "wizard_game":false,"snapshot":"trace-fixture","revision":"4","observation":{
-            "charts":[],"linked_holds":[],"actor":"1","self_target":tor_protocol::ActorTarget::from_digest([1;32]),
+            "charts":[],"public_effects":[],"linked_holds":[],"actor":"1","self_target":tor_protocol::ActorTarget::from_digest([1;32]),
             "tick":"5","position":{"x":0,"y":0,"z":0},"places":[],
             "visible_cells":[
                 {"key":"origin","position":{"x":0,"y":0,"z":0},"wall":false,"object_presentation":null,"trap":null,"stairs_up":false,"stairs_down":false,"lit":true,"place_hint":false},
@@ -23,6 +23,7 @@ fn view() -> StateView {
 fn shared_trace_fixture_has_required_current_presentation_and_chart_fields() {
     let valid = view();
     assert!(valid.observation.charts.is_empty());
+    assert!(valid.observation.public_effects.is_empty());
     assert!(valid
         .observation
         .visible_cells
@@ -42,6 +43,12 @@ fn shared_trace_fixture_has_required_current_presentation_and_chart_fields() {
         .unwrap()
         .remove("charts");
     assert!(serde_json::from_value::<StateView>(missing_charts).is_err());
+    let mut missing_effects = encoded.clone();
+    missing_effects["observation"]
+        .as_object_mut()
+        .unwrap()
+        .remove("public_effects");
+    assert!(serde_json::from_value::<StateView>(missing_effects).is_err());
     for index in 0..valid.observation.visible_cells.len() {
         let mut missing_presentation = encoded.clone();
         missing_presentation["observation"]["visible_cells"][index]

@@ -259,3 +259,13 @@ relaxing the gate. The regression
 rejects the original incomplete receipt, accepts the repaired one, and rejects
 reuse for a different requested binary. This is one infrastructure root cause,
 not an accessory or rendering defect.
+
+### Shared performance fixture schema coverage
+
+The effects observation update missed the shared test-support performance JSON
+fixture. Twelve integration methods failed during decoding because the required
+`public_effects` snapshot was absent, before their trace-oracle assertions ran.
+This was one stale-fixture root cause, not twelve gameplay failures. The fixture
+now supplies an explicit empty snapshot; its schema witness verifies round-trip
+validity and rejects omission of the field. Production decoding remains strict
+and all existing expected-panic oracle checks retain their intended assertions.
