@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import ci_selected
 import process_harness
 import verify
 
@@ -46,6 +47,26 @@ class ReceiptCompleteness(unittest.TestCase):
         self.assertEqual(result['stages'][0]['record']['sha256'], hashlib.sha256(self.path.read_bytes()).hexdigest())
         self.assertNotIn('sample.Case.test_a', json.dumps(result))
         self.assertNotIn('adopt', json.dumps(result))
+
+    def test_native_consumer_receipt_binds_the_selected_client_binary(self):
+        name, command, overrides = ci_selected.consumer_steps()[-1]
+        self.steps = [(name, command, overrides)]
+        self.path = self.logs / f'{name}-tests.jsonl'
+        environment = verify.ci_observation.build_test_environment(
+            verify.verification_environment(1, {key: value for key, value in overrides.items()
+                                                 if not key.startswith('_')}), [])
+        environment['scope'] = 'verifier_stage'
+        self.results[0].update(step=name, command=command, cwd=overrides['_cwd'], environment=environment)
+        self.rows[0]['test_ids'] = [ci_selected.SMOKE_ID]
+        self.rows[1]['test_id'] = ci_selected.SMOKE_ID
+        result = self.report()
+        self.assertTrue(result['complete'], result)
+        recorded = environment['variables']['TOR_3D_TEST_BINARY']
+        self.assertEqual(recorded, {'status': 'present', 'sha256': hashlib.sha256(
+            overrides['TOR_3D_TEST_BINARY'].encode()).hexdigest()})
+        # A different requested binary cannot reuse the successful receipt.
+        self.steps = [(name, command, {**overrides, 'TOR_3D_TEST_BINARY': 'another-client'})]
+        self.assertFalse(self.report()['complete'])
 
     def test_successful_process_build_observation_preserves_selection_and_outcomes(self):
         # Exact producer shape from successful PR134 Linux debug Python JSONL.

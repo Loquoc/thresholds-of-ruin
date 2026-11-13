@@ -6717,3 +6717,16 @@ fix, not a new general collision solver or a change to hairstyle fitting.
   including support/rejection contracts; strict Clippy, formatting and native
   build pass. Native bridal ornament view remains visually unchanged. No mesh
   recipe, clearance, solver constraints or hosted CI gate is changed.
+
+## Native consumer evidence, 2026-11-13
+
+- **Harness/infrastructure:** PR #6 run `43494135505` built the server and 3D
+  client and passed native smoke, but rejected its receipt because the explicit
+  `TOR_3D_TEST_BINARY` input was absent from the observed environment inventory.
+  The repair records that input rather than relaxing receipt validation.
+- `test_ci_receipts.ReceiptCompleteness.test_native_consumer_receipt_binds_the_selected_client_binary`
+  reproduces the incomplete receipt before the fix, accepts it afterward, and
+  rejects reuse with a different requested client binary. One root cause; not
+  evidence of an accessory or rendering regression. The 73 focused receipt,
+  observation, selected-lane and native-smoke tooling tests pass locally;
+  hosted qualification of the final head remains separate.
