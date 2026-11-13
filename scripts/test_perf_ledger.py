@@ -20,7 +20,7 @@ ENTRY = {
     "workload": {"name": "performance", "version": 1}, "case": "r8-a1-h100-memory",
     "metric": "authoritative_total", "machine": MACHINE, "build": {"profile": "release"},
     "n": 10, "p50_ms": 1.0, "p95_ms": 2.0, "max_ms": 3.0, "counts": {"history_end": 110},
-    "raw": {"url": "https://github.com/KCall360/thresholds-of-ruin/releases/download/perf-x/raw.tar.gz",
+    "raw": {"url": "https://github.com/Loquoc/thresholds-of-ruin/releases/download/perf-x/raw.tar.gz",
             "sha256": "b" * 64},
 }
 
@@ -81,6 +81,34 @@ class EntryFormat(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertTrue(ledger.validate_entry(dict(ENTRY, raw={"url": url, "sha256": "c" * 64})))
         self.assertTrue(ledger.validate_entry(dict(ENTRY, raw={"url": tagged, "sha256": "C" * 64})))
+
+    def test_raw_location_accepts_current_and_historical_project_owners(self):
+        for owner in ("Loquoc", "KCall360"):
+            for path in ("releases/download/perf-x/raw.tar.gz",
+                         "blob/docs-history-2026-09/docs/x.jsonl.gz",
+                         "raw/docs-history-2026-09/docs/x.jsonl.gz"):
+                url = f"https://github.com/{owner}/thresholds-of-ruin/{path}"
+                with self.subTest(url=url):
+                    self.assertEqual([], ledger.validate_entry(dict(ENTRY, raw={
+                        "url": url, "sha256": "c" * 64})))
+
+    def test_raw_location_rejects_unrelated_or_spoofed_destinations(self):
+        base = "https://github.com/Loquoc/thresholds-of-ruin/"
+        asset = "releases/download/perf-x/raw.tar.gz"
+        rejected = (
+            base.replace("Loquoc", "SomeoneElse") + asset,
+            base.replace("thresholds-of-ruin/", "thresholds-of-ruin-other/") + asset,
+            base.replace("github.com", "github.com.example.com") + asset,
+            base.replace("github.com/", "github.com@example.com/") + asset,
+            base.replace("https:", "http:") + asset,
+            base + "tree/main", base + asset + "?download=1",
+            base + asset + "#fragment", base + asset + "\n",
+            base.replace("Loquoc", "KCall360") + asset + "\n",
+        )
+        for url in rejected:
+            with self.subTest(url=url):
+                self.assertTrue(ledger.validate_entry(dict(ENTRY, raw={
+                    "url": url, "sha256": "c" * 64})))
 
     def test_machine_fingerprint_must_match(self):
         machine = copy.deepcopy(MACHINE)

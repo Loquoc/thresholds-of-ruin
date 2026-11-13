@@ -28,8 +28,16 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "perf" / "ledger.jsonl"
 SCHEMA = 1
-REPOSITORY_URL = "https://github.com/KCall360/thresholds-of-ruin/"
-RAW_URL = re.compile(re.escape(REPOSITORY_URL) + r"(releases/download|blob|raw)/[^\s?#]+$")
+# Explicit project identities only: preserve historical ledger evidence while
+# accepting new artifacts under the current owner. Never infer trust from remotes.
+REPOSITORY_URLS = (
+    "https://github.com/Loquoc/thresholds-of-ruin/",
+    "https://github.com/KCall360/thresholds-of-ruin/",
+)
+RAW_URL = re.compile(
+    r"(?:" + "|".join(re.escape(url) for url in REPOSITORY_URLS)
+    + r")(?:releases/download|blob|raw)/[^\s?#]+"
+)
 STORAGE_TYPES = {"HDD", "SSD", "NVMe", "RAM", "network", "unknown"}
 BUILD_PROFILES = {"release", "debug"}
 ENTRY_KEYS = {"schema", "date", "commit", "dirty", "workload", "case", "metric", "machine",
@@ -253,7 +261,7 @@ def validate_entry(entry):
     if not (isinstance(raw, dict) and set(raw) == {"url", "sha256"}):
         problems.append("raw must be {url, sha256}")
     else:
-        if not (isinstance(raw["url"], str) and RAW_URL.match(raw["url"])):
+        if not (isinstance(raw["url"], str) and RAW_URL.fullmatch(raw["url"])):
             problems.append("raw.url must be a release asset or tagged file in the project repository")
         if not (isinstance(raw["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", raw["sha256"])):
             problems.append("raw.sha256 must be 64 lowercase hex characters")

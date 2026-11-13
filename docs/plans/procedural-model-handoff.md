@@ -119,9 +119,10 @@ use the supported comparison workflow and be added with `scripts/perf_ledger.py 
 with source/workload identity, machine fingerprint and verified raw-data reference.
 Do not fabricate missing metadata or upload raw measurements without the required
 maintainer approval. No new accepted headline is added by this recovery checkpoint.
-The ledger tool still validates raw URLs against the old repository owner; adapting
-that ownership policy needs a separately reviewed tooling change before recording
-new-owner release artifacts, not a prose workaround.
+The ledger accepts raw-data URLs only under the current `Loquoc` project or its
+historical `KCall360` identity, preserving old evidence without accepting arbitrary
+repositories. URL validation does not establish that an asset exists or authorize
+its upload.
 
 Use the current [testing policy](../development/testing.md) for publication gates.
 Historical Windows counts, protocol bumps, workflow limits and waivers below are
