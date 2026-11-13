@@ -200,19 +200,21 @@ impl Default for BrowAttachmentProfile {
 }
 
 impl BrowAttachmentProfile {
-    fn point(self, support: &Parts, angle: f32) -> Vec3 {
+    fn support(self, p: &Parts, height_variation: f32) -> Builder {
+        // All fitting rays are horizontal. Retain every triangle which can
+        // cross the recipe's complete query-height range, including its leaves.
+        let reach = self.front_drop.abs() + height_variation.abs();
+        radial_parts::band_support_window(&[&p.matte], self.center.y - reach, self.center.y + reach)
+    }
+
+    fn point(self, support: &Builder, angle: f32) -> Vec3 {
         let out = Vec3::new(angle.sin(), 0.0, angle.cos());
         let origin = self.center - Vec3::Y * (self.front_drop * angle.cos());
         support
-            .matte
             .outer_surface(origin, out)
             .unwrap_or(origin + out * self.fallback_radius)
             + out * self.clearance
     }
-}
-
-fn brow_point(p: &Parts, angle: f32) -> Vec3 {
-    BrowAttachmentProfile::default().point(p, angle)
 }
 
 /// Leafy crown uses the same support-fitting frame as bands and wreaths.
@@ -222,13 +224,14 @@ pub(super) fn leaf_crown(p: &mut Parts, color: Vec3) {
         front_drop: 0.0,
         ..BrowAttachmentProfile::default()
     };
+    let support = profile.support(p, 0.012);
     // Freeze all roots first: leaf geometry must never become its own support.
     let roots: Vec<_> = (0..14)
         .map(|k| {
             let a = k as f32 / 14.0 * TAU;
             let mut at = profile;
             at.center.y += 0.012 * (a * 3.0).sin();
-            at.point(p, a)
+            at.point(&support, a)
         })
         .collect();
     for (k, root) in roots.into_iter().enumerate() {
@@ -241,22 +244,31 @@ pub(super) fn leaf_crown(p: &mut Parts, color: Vec3) {
 }
 
 fn brow_path(p: &Parts) -> Vec<Vec3> {
+    let profile = BrowAttachmentProfile::default();
+    let support = profile.support(p, 0.0);
+    sample_brow(profile, &support)
+}
+
+fn sample_brow(profile: BrowAttachmentProfile, support: &Builder) -> Vec<Vec3> {
     (0..=64)
-        .map(|i| brow_point(p, i as f32 * TAU / 64.0))
+        .map(|i| profile.point(support, i as f32 * TAU / 64.0))
         .collect()
 }
 
 /// A wreath following the wearer's hair, with leaves above the brows.
 pub(super) fn wreath(p: &mut Parts, color: Vec3) {
-    let path = brow_path(p);
+    let profile = BrowAttachmentProfile::default();
+    let support = profile.support(p, 0.0);
+    let path = sample_brow(profile, &support);
     for k in -6i32..=6 {
         if k == 0 {
             continue;
         }
         let a = k as f32 * 0.24;
-        let root = brow_point(p, a);
-        let back =
-            (brow_point(p, a + 0.02) - brow_point(p, a - 0.02)).normalize_or(Vec3::X) * a.signum();
+        let root = profile.point(&support, a);
+        let back = (profile.point(&support, a + 0.02) - profile.point(&support, a - 0.02))
+            .normalize_or(Vec3::X)
+            * a.signum();
         let dir = (back + Vec3::Y * 0.45 + Vec3::new(a.sin(), 0.0, a.cos()) * 0.15).normalize();
         ornament_parts::leaf(&mut p.metal, root, dir, 0.05, 0.015, color);
     }
@@ -440,22 +452,94 @@ pub(super) fn crown(p: &mut Parts, metal: Vec3, gem: Vec3) {
         ];
         tube(&mut p.metal, &points, &[(0.003, 0.003); 5], metal);
         p.metal.blob(peak, Vec3::splat(0.005), 1, 0.0, metal);
-        let jewel = path[index + 4] + Vec3::Y * 0.035;
-        p.metal
-            .blob(jewel, Vec3::new(0.012, 0.021, 0.009), 1, 0.0, metal);
-        p.satin.blob(
-            jewel + Vec3::new(jewel.x, 0.0, jewel.z).normalize_or(Vec3::Z) * 0.005,
-            Vec3::new(0.008, 0.015, 0.008),
-            1,
-            0.0,
-            gem,
-        );
+        let station = index + 4;
+        let tangent = (path[station + 1] - path[station - 1])
+            .with_y(0.0)
+            .normalize();
+        crown_setting(p, path[station], tangent.cross(Vec3::Y), metal, gem);
     }
+}
+
+/// One band-mounted crown setting. Every station uses this same small recipe;
+/// the support path owns its position and the recipe owns its style dimensions.
+fn crown_setting(p: &mut Parts, mount: Vec3, outward: Vec3, metal: Vec3, gem: Vec3) {
+    let jewel = mount + Vec3::Y * 0.035;
+    // The setting and its connector share the fitted band station. Run the
+    // stem into both solids rather than leaving a tangent-only join.
+    tube(&mut p.metal, &[mount, jewel], &[(0.0025, 0.0025); 2], metal);
+    radial_parts::mounted_oval(
+        &mut p.metal,
+        jewel,
+        outward,
+        Vec3::new(0.012, 0.021, 0.009),
+        metal,
+    );
+    radial_parts::mounted_oval(
+        &mut p.satin,
+        jewel + outward * 0.005,
+        outward,
+        Vec3::new(0.008, 0.015, 0.008),
+        gem,
+    );
 }
 
 #[cfg(test)]
 mod brow_attachment_tests {
     use super::*;
+
+    #[test]
+    fn crown_gems_offset_along_the_fitted_band_normal() {
+        let mut p = Parts::default();
+        p.matte.blob(
+            Vec3::new(0.0, 0.22, -0.012),
+            Vec3::new(0.15, 0.16, 0.08),
+            3,
+            0.0,
+            Vec3::ONE,
+        );
+        let path = brow_path(&p);
+        crown(&mut p, Vec3::ONE, Vec3::X);
+        let faces: Vec<_> = p.satin.surface_triangles().collect();
+        assert_eq!(faces.len() % 8, 0);
+        for (k, gem) in faces.chunks(faces.len() / 8).enumerate() {
+            let i = k * 8 + 4;
+            let tangent = (path[i + 1] - path[i - 1]).with_y(0.0).normalize();
+            let outward = tangent.cross(Vec3::Y);
+            let center = gem.iter().flatten().copied().sum::<Vec3>() / (gem.len() * 3) as f32;
+            let expected = path[i] + Vec3::Y * 0.035 + outward * 0.005;
+            assert!(
+                center.distance(expected) < 0.0001,
+                "station {k}: {center:?} != {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn crown_settings_have_metal_support_from_the_fitted_band() {
+        for radius in [0.08, 0.11, 0.15] {
+            let mut p = Parts::default();
+            p.matte.blob(
+                Vec3::new(0.0, 0.22, -0.012),
+                Vec3::new(radius, 0.16, radius * 0.8),
+                3,
+                0.0,
+                Vec3::ONE,
+            );
+            let path = brow_path(&p);
+            crown(&mut p, Vec3::ONE, Vec3::X);
+            // The authored setting starts 14 mm above its band station.
+            // Probe that gap, not the gem or hair, for a real metal mount.
+            for k in 0..8 {
+                let base = path[k * 8 + 4];
+                let outward = Vec3::new(base.x, 0.0, base.z + 0.012).normalize();
+                for rise in [0.006, 0.009, 0.012] {
+                    let expected = base + Vec3::Y * rise;
+                    let hit = p.metal.outer_surface(expected - outward * 0.02, outward);
+                    assert!(hit.is_some_and(|at| at.distance(expected) < 0.004), "crown setting {k} needs a metal connection at rise {rise}, radius {radius}: {hit:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn circlet_is_a_periodic_band_without_front_cap_fans() {
@@ -498,7 +582,7 @@ mod brow_attachment_tests {
                 };
                 for k in 0..16 {
                     let angle = k as f32 * TAU / 16.0;
-                    let point = profile.point(&support, angle);
+                    let point = profile.point(&support.matte, angle);
                     let distance = point.distance(center);
                     assert!(
                         (distance - (radius / angle.sin().abs().max(angle.cos().abs()) + 0.006))
@@ -509,8 +593,8 @@ mod brow_attachment_tests {
                 }
                 assert!(
                     profile
-                        .point(&support, 0.0)
-                        .distance(profile.point(&support, TAU))
+                        .point(&support.matte, 0.0)
+                        .distance(profile.point(&support.matte, TAU))
                         < 1e-6
                 );
             }
@@ -518,6 +602,64 @@ mod brow_attachment_tests {
         let empty = Parts::default();
         let profile = BrowAttachmentProfile::default();
         let origin = profile.center - Vec3::Y * profile.front_drop;
-        assert!((profile.point(&empty, 0.0).distance(origin) - 0.106).abs() < 1e-6);
+        assert!((profile.point(&empty.matte, 0.0).distance(origin) - 0.106).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod brow_window_tests {
+    use super::*;
+    #[test]
+    fn brow_window_preserves_actual_head_hits_and_excludes_unreachable_faces() {
+        for woman in [false, true] {
+            for hair_style in [0, 2] {
+                let look = Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant {
+                        woman,
+                        hair: hair_style,
+                        ..default()
+                    }),
+                );
+                let mut parts = Parts::default();
+                human_face(&mut parts, &look, true);
+                if shows_hair(&look) {
+                    hair(&mut parts, &look, true);
+                }
+                let full_count = parts.matte.surface_triangles().count();
+                for (profile, variation) in [
+                    (BrowAttachmentProfile::default(), 0.0),
+                    (
+                        BrowAttachmentProfile {
+                            center: Vec3::new(0.0, 0.27, -0.02),
+                            front_drop: 0.0,
+                            ..default()
+                        },
+                        0.012,
+                    ),
+                ] {
+                    let support = profile.support(&parts, variation);
+                    for k in 0..128 {
+                        let a = k as f32 * TAU / 128.0;
+                        for offset in [-variation, 0.0, variation] {
+                            let mut at = profile;
+                            at.center.y += offset;
+                            assert_eq!(
+                                at.point(&support, a),
+                                at.point(&parts.matte, a),
+                                "filtered hits must match actual full hair/face support"
+                            );
+                        }
+                    }
+                    let filtered_count = support.surface_triangles().count();
+                    println!("brow support woman={woman} hair={hair_style} variation={variation}: {filtered_count}/{full_count} triangles");
+                    assert!(
+                        filtered_count * 2 < full_count,
+                        "brow rays must not scan unreachable head triangles"
+                    );
+                }
+            }
+        }
     }
 }

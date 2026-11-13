@@ -252,15 +252,32 @@ pub(super) fn waist(p: &mut Parts, waist: Waist, body: HumanoidBody, support: &c
                     0.015,
                 );
                 let size = if k == 0 { 1.0 } else { 0.65 };
-                p.metal
-                    .blob(at, Vec3::new(0.018, 0.028, 0.008) * size, 1, 0.0, metal);
-                p.satin.blob(
-                    at + Vec3::Z * 0.007,
-                    Vec3::new(0.012, 0.020, 0.007) * size,
-                    1,
-                    0.0,
-                    gem,
-                );
+                let outward = Vec3::new(a.sin(), 0.0, a.cos());
+                let normal = sculpt_surface_normal(support, at - body.torso, outward);
+                for (builder, offset, radii, color) in [
+                    (
+                        &mut p.metal,
+                        Vec3::ZERO,
+                        Vec3::new(0.018, 0.028, 0.008) * size,
+                        metal,
+                    ),
+                    (
+                        &mut p.satin,
+                        Vec3::Z * 0.007,
+                        Vec3::new(0.012, 0.020, 0.007) * size,
+                        gem,
+                    ),
+                ] {
+                    // Both layers use the same fitted mount, preserving their
+                    // authored inset and silhouette around the curved waist.
+                    radial_parts::mounted_oval(
+                        builder,
+                        at + normal * offset.z,
+                        normal,
+                        radii,
+                        color,
+                    );
+                }
             }
         }
         Waist::Sash(color) => {
@@ -1416,3 +1433,64 @@ mod garter_tests;
 #[cfg(test)]
 #[path = "waist_bow_tests.rs"]
 mod waist_bow_tests;
+
+#[cfg(test)]
+mod waist_jewel_tests {
+    use super::*;
+
+    #[test]
+    fn waist_gems_face_their_own_support_not_global_forward() {
+        for woman in [false, true] {
+            let body = HumanoidBody::resolve(&Look::with_choice(
+                CreatureModel::Human,
+                7,
+                Some(Variant { woman, ..default() }),
+            ));
+            let support = torso_shape(body, None, false);
+            let mut parts = Parts::default();
+            waist(
+                &mut parts,
+                Waist::Jeweled {
+                    metal: Vec3::ONE,
+                    gem: Vec3::X,
+                },
+                body,
+                &support,
+            );
+            let triangles: Vec<_> = parts.satin.surface_triangles().collect();
+            assert_eq!(triangles.len() % 5, 0);
+            let per_gem = triangles.len() / 5;
+            for (index, gem) in triangles.chunks(per_gem).enumerate() {
+                let angle = (index as i32 - 2) as f32 * 0.42;
+                let at = waist_parts::point(
+                    body,
+                    &support,
+                    0.125 - 0.075 * angle.cos().max(0.0).powi(4),
+                    angle,
+                    0.015,
+                );
+                let local = at - body.torso;
+                let d = |v| support.distance(local + v) - support.distance(local - v);
+                let normal = Vec3::new(
+                    d(Vec3::X * 0.0001),
+                    d(Vec3::Y * 0.0001),
+                    d(Vec3::Z * 0.0001),
+                )
+                .normalize();
+                let center = gem.iter().flatten().copied().sum::<Vec3>() / (gem.len() * 3) as f32;
+                let size = if index == 2 { 1.0 } else { 0.65 };
+                for vertex in gem.iter().flatten() {
+                    assert!(
+                        (*vertex - center).dot(normal).abs() <= 0.007 * size + 0.0001,
+                        "gem depth must follow its mount normal"
+                    );
+                }
+                assert!(
+                    (center - at - normal * 0.007).length() < 0.0001,
+                    "woman={woman} gem={index}: offset {:?}, normal {normal:?}",
+                    center - at
+                );
+            }
+        }
+    }
+}

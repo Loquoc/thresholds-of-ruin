@@ -1717,3 +1717,23 @@ for actual support fitting, not per-frame work or a performance improvement.
 Whole-model timing was noisy. This is exploratory cost accounting, not an
 accepted release headline, canonical perf-comparison result or performance-ledger
 claim. Final-head CI and the broader recovered-source checks remain separate.
+
+## Follow-on: crown jewel mounts (2026-11-13)
+
+Native RoyalPrincess close-ups exposed floating gem settings inside the crown
+arches. All eight now use one small crown-setting recipe: the shared fitted brow
+path supplies the band station, and the recipe supplies the connector and jewel
+offsets. A thin 2.5 mm-radius metal stem runs from that station into the setting.
+Existing arches, jewel positions, gem shapes and colors are unchanged. No body-
+specific coordinates, broad new abstraction or hair collision rules were added.
+
+The first-red emitted-metal test found the unsupported gap at 6 mm above a band
+station. The correction covers all eight stations on three brow sizes, with
+separate retained shared-brow translation/scale and periodic-band tests.
+
+Local qualification: three focused brow methods, strict library/test Clippy,
+formatting, native renderer build and 20 documentation checks pass. Four paired
+native views (slim/heavy female Human, front/three-quarter) show delicate stems
+closing the visible gaps while retaining the crown silhouette. Some crown arches
+and stems are still occluded by hair; this change does not claim to fix that
+separate composition issue. No full-suite, current-head CI or performance claim.
