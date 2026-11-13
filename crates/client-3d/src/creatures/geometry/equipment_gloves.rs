@@ -107,22 +107,31 @@ pub(in crate::creatures) fn emit_hand(
             }
         }
         GloveAppearance::Padded => {
-            // Raised quilt cells and separate knuckle pads, not a mitten shell.
+            // Resolve each palm cell against the bare hand before adding pads,
+            // so neighbouring decorations cannot become each other's support.
+            let mut pads = Vec::with_capacity(9);
             for row in 0..3 {
                 for col in 0..3 {
-                    p.matte.blob(
-                        point(
-                            0.029,
-                            0.022 - row as f32 * 0.022,
-                            (col as f32 - 1.0) * 0.023,
-                        ),
+                    pads.push((
+                        point(0.0, 0.022 - row as f32 * 0.022, (col as f32 - 1.0) * 0.023),
                         Vec3::new(0.009, 0.012, 0.012) * build,
-                        1,
-                        0.0,
                         color * (0.94 + row as f32 * 0.04),
-                    );
+                    ));
                 }
             }
+            let direction = Vec3::X * side;
+            for (center, radii, _) in &mut pads {
+                *center = p
+                    .matte
+                    .outer_surface(*center - direction * (0.15 * build), direction)
+                    .unwrap_or_else(|| panic!("padding lacks support at {center:?}, open={open} side={side} build={build}"))
+                    - direction * (radii.x * 0.65);
+            }
+            for (center, radii, color) in pads {
+                p.matte.blob(center, radii, 1, 0.0, color);
+            }
+            // Knuckle pads retain their authored recipe. They straddle a
+            // different support boundary and cannot reuse a palm-only fit.
             for finger in 0..4 {
                 p.matte.blob(
                     point(0.013, -0.038, (1.5 - finger as f32) * 0.019),
@@ -201,17 +210,70 @@ fn cuff_profile(appearance: GloveAppearance) -> [(f32, f32); 3] {
     }
 }
 
+/// A support-relative opening transition. The anchor and everything below it
+/// retain authored dimensions; only the open lip approaches the underlying layer.
+#[derive(Clone, Copy)]
+struct LayeredOpening {
+    anchor: f32,
+    lip: f32,
+    ease: f32,
+}
+
+impl LayeredOpening {
+    fn radius(self, authored: f32, support: Option<f32>, height: f32) -> f32 {
+        let Some(support) = support else {
+            return authored;
+        };
+        let t = ((height - self.anchor) / (self.lip - self.anchor)).clamp(0.0, 1.0);
+        let blend = t * t * (3.0 - 2.0 * t);
+        (authored + (support + self.ease - authored) * blend).max(support)
+    }
+}
+
+fn opening_policy(appearance: GloveAppearance, build: f32) -> LayeredOpening {
+    let profile = cuff_profile(appearance);
+    LayeredOpening {
+        anchor: profile[1].0,
+        lip: profile[2].0,
+        ease: match appearance {
+            GloveAppearance::Old => 0.001,
+            GloveAppearance::Padded => 0.003,
+            GloveAppearance::Riding => 0.0,
+            GloveAppearance::Fencing => 0.0035,
+        } * build,
+    }
+}
+
 /// Emit in the lower-arm frame, with `wrist` at the hand socket. The open cuff
 /// extends toward +Y (elbow). Separate attachment avoids the hand's 1.22 grip
 /// scale enlarging a cuff or moving its forearm fit. Radial build and axial arm
 /// length are independent; both adult body sizes share the same recipe. Call
-/// last in the lower-arm attachment so fitting sees all underlying clothing.
+/// after the selected support layers in the lower-arm attachment. The resolved
+/// plan may place an outer cloth bell later, without making it glove support.
 pub(in crate::creatures) fn emit_cuff(
     p: &mut Parts,
     appearance: GloveAppearance,
     wrist: Vec3,
     build: f32,
     length: f32,
+) {
+    emit_cuff_with_opening(
+        p,
+        appearance,
+        wrist,
+        build,
+        length,
+        Some(opening_policy(appearance, build)),
+    );
+}
+
+fn emit_cuff_with_opening(
+    p: &mut Parts,
+    appearance: GloveAppearance,
+    wrist: Vec3,
+    build: f32,
+    length: f32,
+    opening: Option<LayeredOpening>,
 ) {
     let authored = cuff_profile(appearance);
     // Fit against the actual emitted forearm and every clothing material before
@@ -225,7 +287,7 @@ pub(in crate::creatures) fn emit_cuff(
             (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
         })
         .collect();
-    let fitted: Vec<Vec<f32>> = profile
+    let fitted: Vec<Vec<Option<f32>>> = profile
         .iter()
         .map(|&(y, _)| {
             (0..=96)
@@ -233,11 +295,12 @@ pub(in crate::creatures) fn emit_cuff(
                     let a = col as f32 * TAU / 96.0;
                     let direction = Vec3::new(a.cos(), 0.0, a.sin());
                     let origin = wrist + Vec3::Y * (y * length);
-                    [&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost]
-                        .into_iter()
-                        .filter_map(|builder| builder.outer_surface(origin, direction))
-                        .map(|hit| (hit - origin).dot(direction) + 0.007 * build)
-                        .fold(0.0f32, f32::max)
+                    radial_parts::outermost_layer_radius(
+                        &[&p.matte, &p.metal, &p.satin, &p.sheer, &p.ghost],
+                        origin,
+                        direction,
+                    )
+                    .map(|radius| radius + 0.007 * build)
                 })
                 .collect()
         })
@@ -255,12 +318,17 @@ pub(in crate::creatures) fn emit_cuff(
         // Adjacent axial stations bound a bulging sleeve between cuff rings;
         // the polygon inradius must also clear the supporting round surface.
         let support = (row.saturating_sub(1)..=(row + 1).min(8))
-            .map(|r| fitted[r][index].max(fitted[r][index + 1]))
-            .fold(0.0f32, f32::max);
+            .flat_map(|r| [fitted[r][index], fitted[r][index + 1]])
+            .flatten()
+            .reduce(f32::max);
         // Only actual sleeve clearance propagates between stations. Spreading
         // the authored flare as well makes the narrow wrist into a bowl.
-        let r = support.max(radius * build) / (PI / 24.0).cos()
-            - if inner { 0.003 * build } else { 0.0 };
+        let authored_radius = radius * build;
+        let fitted_radius = opening.map_or_else(
+            || support.unwrap_or(0.0).max(authored_radius),
+            |policy| policy.radius(authored_radius, support, y),
+        );
+        let r = fitted_radius / (PI / 24.0).cos() - if inner { 0.003 * build } else { 0.0 };
         wrist + Vec3::new(angle.cos() * r, (y + wear) * length, angle.sin() * r)
     };
     let color = appearance.color();
@@ -443,6 +511,153 @@ mod tests {
         }
         for name in ["gloves", "gauntlets-of-power", "Old Gloves", ""] {
             assert_eq!(GloveAppearance::parse(name), None);
+        }
+    }
+
+    #[test]
+    fn padded_palm_cells_overlap_support_and_preserve_knuckle_details() {
+        for smooth in [false, true] {
+            for (open, clawed) in [(false, false), (true, false), (true, true)] {
+                for side in [-1.0, 1.0] {
+                    for build in [0.7, 1.0, 1.4] {
+                        let at = Vec3::new(0.013, -0.021, 0.017);
+                        let mut bare = Parts::default();
+                        let mut dressed = Parts::default();
+                        let mut probe = Parts::default();
+                        if smooth {
+                            bare.soften();
+                            dressed.soften();
+                            probe.soften();
+                        }
+                        if open {
+                            open_hand(&mut bare, at, side, build, Vec3::ONE, clawed);
+                        } else {
+                            fist(&mut bare, at, side, build, Vec3::ONE);
+                        }
+                        let prefix = bare.matte.surface_triangles().count();
+                        emit_hand(
+                            &mut dressed,
+                            GloveAppearance::Padded,
+                            at,
+                            side,
+                            build,
+                            open,
+                            clawed,
+                        );
+                        probe.matte.blob(Vec3::ZERO, Vec3::ONE, 1, 0.0, Vec3::ONE);
+                        let count = probe.matte.surface_triangles().count();
+                        let triangles: Vec<_> =
+                            dressed.matte.surface_triangles().skip(prefix).collect();
+                        assert_eq!(
+                            triangles.len(),
+                            13 * count,
+                            "all thirteen authored pads retained"
+                        );
+                        let mut knuckles = Parts::default();
+                        if smooth {
+                            knuckles.soften();
+                        }
+                        for finger in 0..4 {
+                            knuckles.matte.blob(
+                                at + Vec3::new(side * 0.013, -0.038, (1.5 - finger as f32) * 0.019)
+                                    * build,
+                                Vec3::new(0.013, 0.014, 0.010) * build,
+                                1,
+                                0.0,
+                                GloveAppearance::Padded.color() * 0.84,
+                            );
+                        }
+                        dressed
+                            .matte
+                            .assert_same_recipe_after(prefix + 9 * count, &knuckles.matte);
+                        for (index, chunk) in triangles.chunks_exact(count).take(9).enumerate() {
+                            let mut pad = Parts::default();
+                            for triangle in chunk {
+                                pad.matte.tri(*triangle, Vec3::ONE);
+                            }
+                            let (lo, hi) = pad.matte.bounds();
+                            let center = (lo + hi) * 0.5;
+                            let radii = (hi - lo) * 0.5;
+                            let dir = Vec3::X * side;
+                            for (y, z) in
+                                [(0.0, 0.0), (-0.4, 0.0), (0.4, 0.0), (0.0, -0.4), (0.0, 0.4)]
+                            {
+                                let origin =
+                                    Vec3::new(at.x, center.y + radii.y * y, center.z + radii.z * z)
+                                        - dir * (0.15 * build);
+                                let support = bare
+                                    .matte
+                                    .outer_surface(origin, dir)
+                                    .expect("sampled pad footprint has hand support");
+                                let inner =
+                                    pad.matte.inner_surface(origin, dir).expect("pad underside");
+                                let overlap = (support - inner).dot(dir) / build;
+                                assert!(overlap > 0.0005,
+                                    "pad {index} open {open} claw {clawed} smooth {smooth} side {side} build {build} footprint ({y},{z}) overlap {overlap}");
+                                if y == 0.0 && z == 0.0 {
+                                    let outer = pad.matte.outer_surface(origin, dir).unwrap();
+                                    let relief = (outer - support).dot(dir) / build;
+                                    assert!(
+                                        relief > 0.001 && relief < 0.006,
+                                        "seated pad crown remains visible rather than buried"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn padded_hand_cells_have_surface_relative_relief() {
+        for smooth in [false, true] {
+            for open in [false, true] {
+                for side in [-1.0, 1.0] {
+                    for build in [0.7, 1.0, 1.4] {
+                        let at = Vec3::new(0.013, -0.021, 0.017);
+                        let mut bare = Parts::default();
+                        let mut dressed = Parts::default();
+                        if smooth {
+                            bare.soften();
+                            dressed.soften();
+                        }
+                        if open {
+                            open_hand(&mut bare, at, side, build, Vec3::ONE, false);
+                        } else {
+                            fist(&mut bare, at, side, build, Vec3::ONE);
+                        }
+                        emit_hand(
+                            &mut dressed,
+                            GloveAppearance::Padded,
+                            at,
+                            side,
+                            build,
+                            open,
+                            false,
+                        );
+                        for row in 0..3 {
+                            for col in 0..3 {
+                                let origin = at
+                                    + Vec3::new(
+                                        0.0,
+                                        0.022 - row as f32 * 0.022,
+                                        (col as f32 - 1.0) * 0.023,
+                                    ) * build;
+                                let dir = Vec3::X * side;
+                                let support =
+                                    bare.matte.outer_surface(origin, dir).expect("hand support");
+                                let crown =
+                                    dressed.matte.outer_surface(origin, dir).expect("pad crown");
+                                let relief = (crown - support).dot(dir) / build;
+                                assert!(relief > 0.001 && relief < 0.006,
+                                    "padded cell relief {relief}, open {open}, row {row}, col {col}, smooth {smooth}");
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -662,6 +877,74 @@ mod tests {
     }
 
     #[test]
+    fn layered_cuff_preserves_wrist_and_unsupported_shape_without_more_triangles() {
+        for appearance in GloveAppearance::ALL {
+            for (build, length) in [(0.83, 0.94), (1.08, 1.03)] {
+                for supported in [false, true] {
+                    let fixture = || {
+                        let mut p = Parts::default();
+                        if supported {
+                            p.satin.prism(
+                                Vec3::ZERO,
+                                Vec3::Y * (0.15 * length),
+                                0.03 * build,
+                                0.045 * build,
+                                24,
+                                Vec3::ONE,
+                                0.0,
+                            );
+                        }
+                        p
+                    };
+                    let mut legacy = fixture();
+                    let mut candidate = fixture();
+                    emit_cuff_with_opening(
+                        &mut legacy,
+                        appearance,
+                        Vec3::ZERO,
+                        build,
+                        length,
+                        None,
+                    );
+                    emit_cuff(&mut candidate, appearance, Vec3::ZERO, build, length);
+                    let old: Vec<_> = legacy.matte.surface_triangles().collect();
+                    let new: Vec<_> = candidate.matte.surface_triangles().collect();
+                    assert_eq!(old.len(), new.len(), "same cuff mesh budget");
+                    assert_eq!(
+                        &old[..384],
+                        &new[..384],
+                        "wrist half remains authored and fitted identically"
+                    );
+                    if !supported {
+                        assert_eq!(old, new, "no support retains full authored shape");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn layered_opening_is_continuous_and_preserves_style_allowance() {
+        let policy = LayeredOpening {
+            anchor: 0.035,
+            lip: 0.12,
+            ease: 0.002,
+        };
+        assert_eq!(policy.radius(0.05, None, 0.12), 0.05);
+        assert_eq!(policy.radius(0.05, Some(0.04), 0.02), 0.05);
+        assert!((policy.radius(0.05, Some(0.04), 0.12) - 0.042).abs() < 1e-6);
+        assert!((policy.radius(0.05, Some(0.04), 0.035001) - 0.05).abs() < 1e-6);
+        for build in [0.83, 1.08] {
+            let ride = opening_policy(GloveAppearance::Riding, build);
+            let fence = opening_policy(GloveAppearance::Fencing, build);
+            assert!(
+                fence.radius(0.072 * build, Some(0.045 * build), fence.lip)
+                    > ride.radius(0.063 * build, Some(0.045 * build), ride.lip) + 0.003 * build
+            );
+        }
+    }
+
+    #[test]
     fn cuff_is_open_and_fits_independent_radial_and_axial_scales() {
         for appearance in GloveAppearance::ALL {
             for (build, length) in [(0.83, 0.94), (1.08, 1.03)] {
@@ -809,7 +1092,17 @@ mod tests {
             false,
             false,
         );
-        assert!(padded.matte.bounds().1.x > riding.matte.bounds().1.x + 0.003);
+        // Padding differs at its supported cell crowns, not by floating far
+        // enough beyond the whole hand's bounding box to inflate its width.
+        for (y, z) in [(0.0, 0.0), (0.022, -0.023), (0.022, 0.023)] {
+            let origin = Vec3::new(-0.15, y, z);
+            let cell = padded.matte.outer_surface(origin, Vec3::X).unwrap();
+            let leather = riding.matte.outer_surface(origin, Vec3::X).unwrap();
+            assert!(
+                cell.x > leather.x + 0.002,
+                "padded cells remain visibly raised geometry"
+            );
+        }
         let mut fencing = Parts::default();
         let mut old = Parts::default();
         emit_cuff(&mut fencing, GloveAppearance::Fencing, Vec3::ZERO, 1.0, 1.0);

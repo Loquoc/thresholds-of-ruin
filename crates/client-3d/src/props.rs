@@ -2071,6 +2071,40 @@ impl Default for Builder {
 }
 
 impl Builder {
+    /// Exact construction witness for behavior-preserving recipe migrations.
+    #[cfg(test)]
+    pub(crate) fn assert_same_recipe(&self, other: &Self) {
+        self.assert_same_recipe_after(0, other);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_same_recipe_after(&self, prefix_triangles: usize, other: &Self) {
+        let skip = 3 * prefix_triangles;
+        assert_eq!(self.positions[skip..], other.positions, "positions");
+        assert_eq!(self.normals[skip..], other.normals, "normals");
+        assert_eq!(self.colors[skip..], other.colors, "colors");
+        assert_eq!(self.shades[skip..], other.shades, "shading");
+        self.assert_same_recipe_settings(other);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_preserves_recipe_prefix(&self, prefix: &Self) {
+        let end = prefix.positions.len();
+        assert_eq!(self.positions[..end], prefix.positions, "prefix positions");
+        assert_eq!(self.normals[..end], prefix.normals, "prefix normals");
+        assert_eq!(self.colors[..end], prefix.colors, "prefix colors");
+        assert_eq!(self.shades[..end], prefix.shades, "prefix shading");
+        self.assert_same_recipe_settings(prefix);
+    }
+
+    #[cfg(test)]
+    fn assert_same_recipe_settings(&self, other: &Self) {
+        assert_eq!(self.xf, other.xf, "recipe frame");
+        assert_eq!(self.res, other.res, "blob resolution");
+        assert_eq!(self.sides_mul, other.sides_mul, "radial resolution");
+        assert_eq!(self.smooth, other.smooth, "smooth normals");
+    }
+
     /// Retained triangles in this builder's current recipe frame. Consumers
     /// can bound complete emitted surfaces rather than resampling a proxy.
     pub(crate) fn surface_triangles(&self) -> impl Iterator<Item = [Vec3; 3]> + '_ {
@@ -2158,6 +2192,18 @@ impl Builder {
         }
     }
 
+    /// Isolate a new attachment surface without changing the current recipe's
+    /// frame, detail or shading settings. Its triangles can be absorbed intact.
+    pub(crate) fn empty_like(&self) -> Self {
+        Self {
+            xf: self.xf,
+            res: self.res,
+            sides_mul: self.sides_mul,
+            smooth: self.smooth,
+            ..Self::default()
+        }
+    }
+
     /// Take over another builder's finished triangles.
     pub(crate) fn absorb(&mut self, other: Builder) {
         self.positions.extend(other.positions);
@@ -2165,6 +2211,78 @@ impl Builder {
         self.colors.extend(other.colors);
         self.shades.extend(other.shades);
         self.smooth |= other.smooth;
+    }
+
+    /// Refine selected coarse triangles before a nonlinear fit, preserving
+    /// their source surface and interpolating all vertex attributes. Short
+    /// shared edges stay intact; a fixed depth cap bounds malformed inputs.
+    /// Callers must select both sides of edges in the nonlinear region:
+    /// this is local refinement, not a general watertight remesher.
+    pub(crate) fn refine_for_fit(
+        self,
+        max_edge: f32,
+        selected: impl Fn([Vec3; 3]) -> bool,
+    ) -> Self {
+        assert!(max_edge.is_finite() && max_edge > 0.0);
+        #[derive(Clone, Copy)]
+        struct Vertex {
+            at: Vec3,
+            normal: Vec3,
+            color: Vec4,
+            shade: f32,
+        }
+        let mut result = Self {
+            xf: self.xf,
+            res: self.res,
+            sides_mul: self.sides_mul,
+            smooth: self.smooth,
+            ..Self::default()
+        };
+        for offset in (0..self.positions.len()).step_by(3) {
+            let source = std::array::from_fn(|i| Vertex {
+                at: Vec3::from_array(self.positions[offset + i]),
+                normal: Vec3::from_array(self.normals[offset + i]),
+                color: Vec4::from_array(self.colors[offset + i]),
+                shade: self.shades[offset + i],
+            });
+            let mut pending = vec![(source, 0u8)];
+            while let Some((tri, depth)) = pending.pop() {
+                let edges = [(0, 1, 2), (1, 2, 0), (2, 0, 1)];
+                let &(a, b, c) = edges
+                    .iter()
+                    .max_by(|(a, b, _), (c, d, _)| {
+                        tri[*a]
+                            .at
+                            .distance_squared(tri[*b].at)
+                            .total_cmp(&tri[*c].at.distance_squared(tri[*d].at))
+                    })
+                    .unwrap();
+                if depth < 12
+                    && selected(tri.map(|v| v.at))
+                    && tri[a].at.distance_squared(tri[b].at) > max_edge * max_edge
+                {
+                    let middle = Vertex {
+                        at: tri[a].at.lerp(tri[b].at, 0.5),
+                        normal: tri[a]
+                            .normal
+                            .lerp(tri[b].normal, 0.5)
+                            .normalize_or(tri[a].normal),
+                        color: tri[a].color.lerp(tri[b].color, 0.5),
+                        shade: (tri[a].shade + tri[b].shade) * 0.5,
+                    };
+                    pending.push(([middle, tri[b], tri[c]], depth + 1));
+                    pending.push(([tri[a], middle, tri[c]], depth + 1));
+                } else {
+                    for v in tri {
+                        result.positions.push(v.at.to_array());
+                        result.normals.push(v.normal.to_array());
+                        result.colors.push(v.color.to_array());
+                        result.shades.push(v.shade);
+                    }
+                }
+            }
+        }
+        result
     }
 
     /// Append recipe-local triangles through a smooth fitting map, preserving
@@ -2838,6 +2956,51 @@ mod fitted_builder_contract_tests {
     use super::*;
 
     #[test]
+    fn fit_refinement_preserves_source_surface_and_vertex_attributes() {
+        let mut source = Builder::default();
+        source.with_opacity(0.35, |b| {
+            b.tri_smooth_shaded(
+                [Vec3::ZERO, Vec3::X, Vec3::Y],
+                [Vec3::Z; 3],
+                [Vec3::X, Vec3::Y, Vec3::Z],
+                [0.2, 0.4, 0.6],
+            )
+        });
+        let refined = source.refine_for_fit(0.25, |_| true);
+        assert!(refined.positions.len() > 3 && refined.positions.len() < 500);
+        let mut area = 0.0;
+        for tri in refined.positions.as_chunks::<3>().0 {
+            let [a, b, c] = [tri[0], tri[1], tri[2]].map(Vec3::from_array);
+            for edge in [(a, b), (b, c), (c, a)] {
+                assert!(edge.0.distance(edge.1) <= 0.250001);
+            }
+            area += (b - a).cross(c - a).length() * 0.5;
+        }
+        assert!((area - 0.5).abs() < 1e-6);
+        for i in 0..refined.positions.len() {
+            let at = Vec3::from_array(refined.positions[i]);
+            let color = Vec4::from_array(refined.colors[i]);
+            assert!(at.z.abs() < 1e-7 && at.x >= 0.0 && at.y >= 0.0 && at.x + at.y <= 1.000001);
+            assert!(
+                color
+                    .truncate()
+                    .distance(Vec3::new(1.0 - at.x - at.y, at.x, at.y))
+                    < 1e-6
+            );
+            assert!((color.w - 0.35).abs() < 1e-7);
+            assert!((refined.shades[i] - (0.2 + 0.2 * at.x + 0.4 * at.y)).abs() < 1e-6);
+            assert!(Vec3::from_array(refined.normals[i]).distance(Vec3::Z) < 1e-6);
+        }
+        let mut unselected = Builder::default();
+        unselected.tri([Vec3::ZERO, Vec3::X, Vec3::Y], Vec3::ONE);
+        let expected = unselected.positions.clone();
+        assert_eq!(
+            unselected.refine_for_fit(0.01, |_| false).positions,
+            expected
+        );
+    }
+
+    #[test]
     fn fitted_append_preserves_existing_geometry_alpha_shade_and_attachment_frame() {
         let mut target = Builder::default();
         target.tri([Vec3::ZERO, Vec3::X, Vec3::Y], Vec3::ONE);
@@ -2901,5 +3064,57 @@ mod fitted_builder_contract_tests {
                 .abs()
                 < 0.0001
         );
+    }
+}
+
+#[cfg(test)]
+mod isolated_builder_tests {
+    use super::*;
+
+    #[test]
+    fn isolated_builder_preserves_recipe_settings_and_absorbs_exact_attributes() {
+        for smooth in [false, true] {
+            let make = || {
+                let mut b = Builder {
+                    xf: Affine3A::from_scale_rotation_translation(
+                        Vec3::new(1.2, 0.8, 1.1),
+                        Quat::from_rotation_y(0.4),
+                        Vec3::new(0.2, 0.1, -0.3),
+                    ),
+                    res: (7, 12),
+                    sides_mul: 3,
+                    smooth,
+                    ..default()
+                };
+                b.tri([Vec3::ZERO, Vec3::X, Vec3::Y], Vec3::ONE);
+                b
+            };
+            let emit = |b: &mut Builder| {
+                b.with_opacity(0.4, |b| {
+                    b.tri_smooth_shaded(
+                        [Vec3::X, Vec3::Y, Vec3::Z],
+                        [Vec3::Z; 3],
+                        [Vec3::X, Vec3::Y, Vec3::Z],
+                        [0.3, 0.6, 0.9],
+                    );
+                    b.blob(Vec3::Y * 0.2, Vec3::splat(0.04), 4, 0.0, Vec3::ONE);
+                    b.tube(
+                        &[Vec3::ZERO, Vec3::Y * 0.2],
+                        &[Vec2::splat(0.01); 2],
+                        8,
+                        &|_, _, _| Vec3::ONE,
+                    );
+                });
+            };
+            let mut expected = make();
+            emit(&mut expected);
+            let mut actual = make();
+            let mut isolated = actual.empty_like();
+            assert!(isolated.is_empty());
+            isolated.assert_same_recipe_settings(&actual);
+            emit(&mut isolated);
+            actual.absorb(isolated);
+            actual.assert_same_recipe(&expected);
+        }
     }
 }

@@ -33,12 +33,7 @@ pub(super) fn fist(p: &mut Parts, at: Vec3, side: f32, b: f32, color: Vec3) {
         let r = (0.0115 - k as f32 * 0.0008) * b;
         tube(
             &mut p.matte,
-            &[
-                knuckle,
-                knuckle + Vec3::new(inward * 0.018, -0.022, 0.0) * b,
-                knuckle + Vec3::new(inward * 0.036, -0.012, 0.0) * b,
-                knuckle + Vec3::new(inward * 0.036, 0.008, 0.0) * b,
-            ],
+            &fist_finger_path(knuckle, at, inward, b),
             &[(r, r), (r, r), (r * 0.95, r * 0.95), (r * 0.8, r * 0.8)],
             color * (0.97 - k as f32 * 0.01),
         );
@@ -69,7 +64,7 @@ pub(super) fn open_hand(p: &mut Parts, at: Vec3, side: f32, build: f32, color: V
     for finger in 0..4 {
         let spread = (1.5 - finger as f32) * 0.021;
         let short = [0.012, 0.0, 0.006, 0.023][finger];
-        let root = at + Vec3::new(side * 0.003, -0.034, spread) * build;
+        let root = at + open_finger_root(side, spread) * build;
         let radius = (0.011 - finger as f32 * 0.00065) * build;
         tube(
             &mut p.matte,
@@ -92,7 +87,7 @@ pub(super) fn open_hand(p: &mut Parts, at: Vec3, side: f32, build: f32, color: V
             color,
         );
     }
-    tube(
+    rounded_digit(
         &mut p.matte,
         &[
             at + Vec3::new(inward * 0.014, 0.0, 0.029) * build,
@@ -106,6 +101,24 @@ pub(super) fn open_hand(p: &mut Parts, at: Vec3, side: f32, build: f32, color: V
         ],
         color,
     );
+}
+
+/// Round the exposed thumb tip, retaining its authored terminal pole.
+/// Finger recipes and shared tube defaults remain untouched; clenched grips
+/// deliberately keep their existing recipe. The final span bounds the rounding
+/// depth so a short hooked claw does not acquire a bulbous extra segment.
+fn rounded_digit(b: &mut Builder, path: &[Vec3], radii: &[(f32, f32)], color: Vec3) {
+    let last = path.len() - 1;
+    let tip = path[last];
+    let span = tip - path[last - 1];
+    let axis = span.normalize();
+    let radius = radii[last];
+    let depth = radius.0.max(radius.1).min(span.length() * 0.45);
+    let mut rounded_path = path[..last].to_vec();
+    let mut rounded_radii = radii[..last].to_vec();
+    rounded_path.extend([tip - axis * depth, tip - axis * depth * 0.293, tip]);
+    rounded_radii.extend([radius, (radius.0 * 0.707, radius.1 * 0.707), (0.0, 0.0)]);
+    tube(b, &rounded_path, &rounded_radii, color);
 }
 
 /// Tufts of hair or fur: `count` tapered strands rising from around a
@@ -285,6 +298,316 @@ pub(super) fn annular_brim(
                 },
                 color,
             );
+        }
+    }
+}
+
+fn fist_finger_path(knuckle: Vec3, at: Vec3, inward: f32, build: f32) -> [Vec3; 4] {
+    [
+        fist_finger_root(knuckle, at, build),
+        knuckle + Vec3::new(inward * 0.018, -0.022, 0.0) * build,
+        knuckle + Vec3::new(inward * 0.036, -0.012, 0.0) * build,
+        knuckle + Vec3::new(inward * 0.036, 0.008, 0.0) * build,
+    ]
+}
+
+fn fist_finger_root(knuckle: Vec3, at: Vec3, build: f32) -> Vec3 {
+    at + seated_finger_root(knuckle - at, 0.014 * build, 0.5)
+}
+
+/// Seat only the proximal cap in the narrowing palm. Distal controls belong
+/// to the pose recipe, so a shared fit adjustment never relocates a grip.
+fn seated_finger_root(authored: Vec3, lift: f32, spread: f32) -> Vec3 {
+    Vec3::new(authored.x, authored.y + lift, authored.z * spread)
+}
+
+fn open_finger_root(side: f32, spread: f32) -> Vec3 {
+    // Begin inside the palm rather than on its narrowing lower edge. Only
+    // the proximal root moves: the separated fingers keep their authored
+    // knuckles, lengths and relaxed/clawed tips, and held-prop grips are separate.
+    seated_finger_root(Vec3::new(side * 0.003, -0.034, spread), 0.012, 0.7)
+}
+
+#[cfg(test)]
+mod hand_root_tests {
+    use super::*;
+
+    #[test]
+    fn rounded_digit_keeps_terminal_extent_and_valid_triangles() {
+        for smooth in [false, true] {
+            for build in [0.7, 1.0, 1.4] {
+                for axis in [Vec3::X, Vec3::NEG_Y, Vec3::new(1.0, -2.0, 3.0).normalize()] {
+                    let tip = axis * 0.04 * build;
+                    let radius = 0.008 * build;
+                    let mut part = Parts::default();
+                    part.matte.smooth = smooth;
+                    rounded_digit(
+                        &mut part.matte,
+                        &[Vec3::ZERO, tip],
+                        &[(radius, radius), (radius, radius)],
+                        Vec3::ONE,
+                    );
+                    let triangles: Vec<_> = part.matte.surface_triangles().collect();
+                    assert!(!triangles.is_empty());
+                    let mut pole_found = false;
+                    let mut rounded_ring_found = false;
+                    for triangle in triangles {
+                        assert!(
+                            (triangle[1] - triangle[0])
+                                .cross(triangle[2] - triangle[0])
+                                .length()
+                                > 1e-10
+                        );
+                        for point in triangle {
+                            assert!(point.is_finite());
+                            let along = (point - tip).dot(axis);
+                            assert!(along <= 1e-6, "rounding must not lengthen the digit");
+                            pole_found |= point.distance(tip) < 1e-6;
+                            let radial = (point - axis * point.dot(axis)).length();
+                            rounded_ring_found |= along < -radius * 0.1
+                                && along > -radius * 0.5
+                                && radial > radius * 0.5
+                                && radial < radius * 0.9;
+                        }
+                    }
+                    assert!(pole_found && rounded_ring_found);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn thumb_rounding_stays_bounded_on_bent_paths() {
+        for smooth in [false, true] {
+            for side in [-1.0, 1.0] {
+                for build in [0.7, 1.0, 1.4] {
+                    let path = [
+                        Vec3::new(-side * 0.014, 0.0, 0.029) * build,
+                        Vec3::new(-side * 0.027, -0.015, 0.057) * build,
+                        Vec3::new(-side * 0.029, -0.042, 0.069) * build,
+                    ];
+                    let tip = path[2];
+                    let axis = (tip - path[1]).normalize();
+                    let mut digit = Parts::default();
+                    digit.matte.smooth = smooth;
+                    rounded_digit(
+                        &mut digit.matte,
+                        &path,
+                        &[
+                            (0.014 * build, 0.014 * build),
+                            (0.012 * build, 0.012 * build),
+                            (0.008 * build, 0.008 * build),
+                        ],
+                        Vec3::ONE,
+                    );
+                    for triangle in digit.matte.surface_triangles() {
+                        assert!(
+                            (triangle[1] - triangle[0])
+                                .cross(triangle[2] - triangle[0])
+                                .length()
+                                > 1e-10
+                        );
+                        for point in triangle {
+                            assert!(point.is_finite());
+                            assert!(
+                                (point - tip).dot(axis) <= 1e-6,
+                                "thumb exceeds authored terminal plane"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn open_thumb_tip_is_rounded_without_extending_authored_length() {
+        for smooth in [false, true] {
+            for side in [-1.0, 1.0] {
+                for build in [0.7, 1.0, 1.4] {
+                    let tip = Vec3::new(-side * 0.029, -0.042, 0.069) * build;
+                    let previous = Vec3::new(-side * 0.027, -0.015, 0.057) * build;
+                    let axis = (tip - previous).normalize();
+                    let mut hand = Parts::default();
+                    hand.matte.smooth = smooth;
+                    open_hand(&mut hand, Vec3::ZERO, side, build, Vec3::ONE, false);
+                    let planar = hand
+                        .matte
+                        .surface_triangles()
+                        .filter(|triangle| {
+                            triangle.iter().any(|point| point.distance(tip) < 1e-6)
+                                && triangle
+                                    .iter()
+                                    .all(|point| (*point - tip).dot(axis).abs() < 1e-6)
+                                && (triangle[1] - triangle[0])
+                                    .cross(triangle[2] - triangle[0])
+                                    .length()
+                                    > 1e-8
+                        })
+                        .count();
+                    assert_eq!(planar, 0, "thumb tip must not end in a flat cut disk");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fist_finger_caps_are_embedded_without_moving_the_grip() {
+        for smooth in [false, true] {
+            for side in [-1.0, 1.0] {
+                for build in [0.7, 1.0, 1.4] {
+                    let at = Vec3::new(0.1, 0.2, -0.1);
+                    let mut palm = Parts::default();
+                    palm.matte.smooth = smooth;
+                    palm.matte
+                        .blob(at, Vec3::new(0.03, 0.05, 0.044) * build, 2, 0.0, Vec3::ONE);
+                    let prefix = palm.matte.surface_triangles().count();
+                    let mut hand = Parts::default();
+                    hand.matte.smooth = smooth;
+                    fist(&mut hand, at, side, build, Vec3::ONE);
+                    assert_eq!(
+                        hand.matte
+                            .surface_triangles()
+                            .take(prefix)
+                            .collect::<Vec<_>>(),
+                        palm.matte.surface_triangles().collect::<Vec<_>>(),
+                        "palm geometry remains unchanged"
+                    );
+                    for finger in 0..4 {
+                        let knuckle = at
+                            + Vec3::new(
+                                side * 0.004,
+                                -0.036 * build,
+                                (1.5 - finger as f32) * 0.019 * build,
+                            );
+                        let path = fist_finger_path(knuckle, at, -side, build);
+                        for (actual, expected) in path[1..].iter().zip([
+                            Vec3::new(-side * 0.018, -0.022, 0.0),
+                            Vec3::new(-side * 0.036, -0.012, 0.0),
+                            Vec3::new(-side * 0.036, 0.008, 0.0),
+                        ]) {
+                            assert!(
+                                actual.distance(knuckle + expected * build) < 1e-6,
+                                "all authored curled grip controls stay fixed"
+                            );
+                        }
+                        let root = path[0];
+                        let caps: Vec<_> = hand
+                            .matte
+                            .surface_triangles()
+                            .skip(prefix)
+                            .filter(|triangle| {
+                                triangle.iter().any(|point| point.distance(root) < 1e-6)
+                            })
+                            .flatten()
+                            .collect();
+                        assert!(caps.len() >= 30);
+                        for point in caps {
+                            let ray = point - at;
+                            let surface = palm
+                                .matte
+                                .outer_surface(at, ray.normalize())
+                                .expect("palm surface");
+                            assert!(point.distance(at) < surface.distance(at) - 0.0005 * build,
+                                "fist finger {finger} smooth {smooth} build {build}: root cap protrudes {} mm",
+                                (point.distance(at)-surface.distance(at))*1000.0);
+                        }
+                        let tip = knuckle + Vec3::new(-side * 0.036, 0.008, 0.0) * build;
+                        assert!(
+                            hand.matte
+                                .surface_triangles()
+                                .flatten()
+                                .any(|point| point.distance(tip) < 1e-6),
+                            "curled grip endpoint must not move"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn open_hand_preserves_authored_fingertips_and_uniform_scaling() {
+        for side in [-1.0, 1.0] {
+            for claw in [false, true] {
+                let mut unit = Parts::default();
+                open_hand(&mut unit, Vec3::ZERO, side, 1.0, Vec3::ONE, claw);
+                let expected: Vec<_> = unit.matte.surface_triangles().flatten().collect();
+                for build in [0.7, 1.0, 1.4] {
+                    let at = Vec3::new(0.1, 0.2, -0.1);
+                    let mut hand = Parts::default();
+                    open_hand(&mut hand, at, side, build, Vec3::ONE, claw);
+                    let points: Vec<_> = hand.matte.surface_triangles().flatten().collect();
+                    assert_eq!(points.len(), expected.len());
+                    for (actual, unit) in points.iter().zip(&expected) {
+                        assert!((*actual - (at + *unit * build)).length() < 1e-6);
+                    }
+                    for (finger, short) in [0.012, 0.0, 0.006, 0.023].into_iter().enumerate() {
+                        let tip = at
+                            + Vec3::new(
+                                -side * if claw { 0.035 } else { 0.018 },
+                                -0.112 + short + if claw { 0.012 } else { 0.0 },
+                                (1.5 - finger as f32) * 0.021 * 1.4,
+                            ) * build;
+                        assert!(
+                            points.iter().any(|point| point.distance(tip) < 1e-6),
+                            "authored fingertip cap center is unchanged"
+                        );
+                    }
+                    let thumb_tip = at + Vec3::new(-side * 0.029, -0.042, 0.069) * build;
+                    assert!(points.iter().any(|point| point.distance(thumb_tip) < 1e-6));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn open_finger_caps_are_embedded_in_the_emitted_palm() {
+        for smooth in [false, true] {
+            for side in [-1.0, 1.0] {
+                for build in [0.7, 1.0, 1.4] {
+                    for claw in [false, true] {
+                        let at = Vec3::new(0.1, 0.2, -0.1);
+                        let mut palm = Parts::default();
+                        palm.matte.smooth = smooth;
+                        palm.matte.blob(
+                            at,
+                            Vec3::new(0.027, 0.045, 0.044) * build,
+                            2,
+                            0.0,
+                            Vec3::ONE,
+                        );
+                        let prefix = palm.matte.surface_triangles().count();
+                        let mut hand = Parts::default();
+                        hand.matte.smooth = smooth;
+                        open_hand(&mut hand, at, side, build, Vec3::ONE, claw);
+                        for finger in 0..4 {
+                            let root =
+                                at + open_finger_root(side, (1.5 - finger as f32) * 0.021) * build;
+                            let caps: Vec<_> = hand
+                                .matte
+                                .surface_triangles()
+                                .skip(prefix)
+                                .filter(|triangle| {
+                                    triangle.iter().any(|point| point.distance(root) < 1e-6)
+                                })
+                                .flatten()
+                                .collect();
+                            assert!(caps.len() >= 30, "find actual capped finger root");
+                            for point in caps {
+                                let ray = point - at;
+                                let surface = palm
+                                    .matte
+                                    .outer_surface(at, ray.normalize())
+                                    .expect("palm surface");
+                                assert!(point.distance(at) < surface.distance(at) - 0.0005 * build,
+                                    "finger {finger}, smooth {smooth}, side {side}, build {build}: root cap protrudes by {} mm",
+                                    (point.distance(at)-surface.distance(at))*1000.0);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

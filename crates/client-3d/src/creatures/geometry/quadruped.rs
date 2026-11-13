@@ -1,5 +1,147 @@
 use super::*;
 
+/// The actual rider support, shared by sculpt emission and fitted attachments.
+fn centaur_torso_support(l: &Look) -> crate::sdf::Sculpt {
+    let core = super::anatomy::TorsoCoreProfile::centaur(l);
+    let bust = super::anatomy::centaur_bust(l);
+    // Sculpted, as the people's torsos are: the waist rising out
+    // of the withers into ribs, chest and rounded shoulders.
+    use crate::sdf::{Sculpt, Shape::*};
+    let mut body = Sculpt::default();
+    body.add(
+        // The lower human root sits inside the withers instead
+        // of hanging out over the horse's breast below the belt.
+        Ellipsoid(Vec3::new(0.0, -0.1, -0.055), Vec3::new(0.15, 0.15, 0.12)),
+        0.0,
+    )
+    .add(Ellipsoid(core.waist.0, core.waist.1), 0.06)
+    .add(Ellipsoid(core.chest.ribs.0, core.chest.ribs.1), 0.06)
+    .add(Ellipsoid(core.chest.upper.0, core.chest.upper.1), 0.14)
+    .add(
+        Capsule(
+            Vec3::new(0.0, 0.5, -0.005),
+            Vec3::new(0.0, 0.6, -0.005),
+            0.065,
+            0.055,
+        ),
+        0.04,
+    );
+    // Deltoids belong to the animated arms; the rib/clavicle
+    // support stays on the torso without retaining lateral caps.
+    if let Some(bust) = bust {
+        bust_supports(&mut body, &bust, 0.0);
+    } else {
+        // The male rider has the same broad continuous chest
+        // plane as the bipeds, with no paired forward cups.
+        body.add(
+            Ellipsoid(Vec3::new(0.0, 0.38, 0.015), Vec3::new(0.185, 0.1, 0.1)),
+            0.04,
+        )
+        .add(
+            Ellipsoid(Vec3::new(0.0, 0.17, 0.075), Vec3::new(0.07, 0.09, 0.04)),
+            0.04,
+        );
+    }
+    body
+}
+
+/// One authored boundary owns both the painted wrap and its sewn edges.
+/// Fit is independent of this rider-specific sweetheart style.
+#[derive(Clone, Copy)]
+struct CentaurChestWrap {
+    low: f32,
+    high: f32,
+    dip: f32,
+    apex_x: f32,
+}
+
+impl CentaurChestWrap {
+    fn new(bust: Bust) -> Self {
+        let apex = bust.apex(1.0);
+        Self {
+            low: bust.fold - 0.05,
+            high: apex.y + bust.radii.y * 0.62,
+            dip: apex.y - 0.005,
+            apex_x: apex.x,
+        }
+    }
+
+    fn edges(self, x: f32) -> (f32, f32) {
+        let t = (x.abs() / self.apex_x).min(1.6);
+        let high = if t < 1.0 {
+            self.dip + (self.high - self.dip) * (1.0 - (1.0 - t).powi(2))
+        } else {
+            self.high - (t - 1.0) * 0.06
+        };
+        (self.low, high)
+    }
+
+    fn covers(self, at: Vec3) -> bool {
+        let (low, high) = self.edges(at.x);
+        at.y > low && at.y < if at.z > 0.0 { high } else { 0.41 }
+    }
+
+    fn trim(self, support: &crate::sdf::Sculpt, top: bool) -> FittedStrap {
+        BoundaryTrimProfile {
+            half_width: 0.012,
+            support_fraction: 0.94,
+            terminal_width_fraction: 0.2,
+            taper_start: 0.75,
+        }
+        .fit(
+            support,
+            &|x| {
+                let (low, high) = self.edges(x);
+                if top {
+                    high
+                } else {
+                    low
+                }
+            },
+            true,
+            // Reserve the ribbon's full thickness plus a small seam allowance.
+            0.011,
+        )
+    }
+
+    fn emit_trim(self, b: &mut Builder, support: &crate::sdf::Sculpt) {
+        for top in [true, false] {
+            self.trim(support, top).emit(b, LEATHER * 0.7, true);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "chest_wrap_tests.rs"]
+mod chest_wrap_tests;
+
+fn centaur_waist_belt(b: &mut Builder, support: &crate::sdf::Sculpt) {
+    radial_parts::RadialBandProfile {
+        heights: Vec2::new(0.015, 0.055),
+        support_to_output_y: 0.0,
+        tilt: 0.0,
+        clearance: 0.004,
+        thickness: 0.003,
+        rows: 4,
+        sides: 48,
+    }
+    .emit(b, support, LEATHER * 0.72);
+}
+
+fn centaur_forearm_band(b: &mut Builder, width: f32, muscle: f32) {
+    let support = forearm_form(width, 1.0, muscle);
+    radial_parts::RadialBandProfile {
+        heights: Vec2::new(-0.25, -0.13),
+        support_to_output_y: 0.0,
+        tilt: 0.0,
+        clearance: 0.003 * width,
+        thickness: 0.003 * width,
+        rows: 6,
+        sides: 24,
+    }
+    .emit(b, &support, LEATHER);
+}
+
 /// Blue-violet charcoal keeps a black coat readable under ordinary light.
 /// The dorsal planes carry a little more pigment value; this is not emission.
 pub(super) fn equine_hide(base: Vec3, style: Style, normal: Vec3) -> Vec3 {
@@ -128,27 +270,10 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
     if centaur {
         let torso = kit.joint(J::Torso, body, Vec3::new(0.0, 0.15, 0.42), "torso", |p| {
             // One torso rising out of the withers: waist, ribs, chest.
-            let fem = l.v.woman;
-            let w = if fem { 0.88 } else { 1.0 };
+            let core = super::anatomy::TorsoCoreProfile::centaur(&l);
             // Her chest is fitted to the rider's own rib cage, as a biped's is.
             let bust = super::anatomy::centaur_bust(&l);
-            // Her leather wrap: from under the chest to a sweetheart edge
-            // over the upper slope, dipping between the two sides.
-            let wrap = bust.map(|bust| {
-                let apex = bust.apex(1.0);
-                let low = bust.fold - 0.05;
-                let high = apex.y + bust.radii.y * 0.62;
-                let dip = apex.y - 0.005;
-                move |x: f32| {
-                    let t = (x.abs() / apex.x).min(1.6);
-                    let edge = if t < 1.0 {
-                        dip + (high - dip) * (1.0 - (1.0 - t).powi(2))
-                    } else {
-                        high - (t - 1.0) * 0.06
-                    };
-                    (low, edge)
-                }
-            });
+            let wrap = bust.map(CentaurChestWrap::new);
             if let Some(bust) = bust {
                 for side in [-1.0f32, 1.0] {
                     let (center, radii) = bust.mass(side, 0.0);
@@ -161,53 +286,7 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
                 }
             }
             let body_shape = {
-                // Sculpted, as the people's torsos are: the waist rising out
-                // of the withers into ribs, chest and rounded shoulders.
-                use crate::sdf::{Sculpt, Shape::*};
-                let mut body = Sculpt::default();
-                body.add(
-                    // The lower human root sits inside the withers instead
-                    // of hanging out over the horse's breast below the belt.
-                    Ellipsoid(Vec3::new(0.0, -0.1, -0.055), Vec3::new(0.15, 0.15, 0.12)),
-                    0.0,
-                )
-                .add(
-                    Ellipsoid(Vec3::new(0.0, 0.1, 0.0), Vec3::new(0.15 * w, 0.14, 0.12)),
-                    0.06,
-                )
-                .add(
-                    Ellipsoid(Vec3::new(0.0, 0.3, 0.005), Vec3::new(0.2 * w, 0.17, 0.13)),
-                    0.06,
-                )
-                .add(
-                    Ellipsoid(Vec3::new(0.0, 0.44, -0.01), Vec3::new(0.2 * w, 0.1, 0.11)),
-                    0.14,
-                )
-                .add(
-                    Capsule(
-                        Vec3::new(0.0, 0.5, -0.005),
-                        Vec3::new(0.0, 0.6, -0.005),
-                        0.065,
-                        0.055,
-                    ),
-                    0.04,
-                );
-                // Deltoids belong to the animated arms; the rib/clavicle
-                // support stays on the torso without retaining lateral caps.
-                if let Some(bust) = bust {
-                    bust_supports(&mut body, &bust, 0.0);
-                } else {
-                    // The male rider has the same broad continuous chest
-                    // plane as the bipeds, with no paired forward cups.
-                    body.add(
-                        Ellipsoid(Vec3::new(0.0, 0.38, 0.015), Vec3::new(0.185, 0.1, 0.1)),
-                        0.04,
-                    )
-                    .add(
-                        Ellipsoid(Vec3::new(0.0, 0.17, 0.075), Vec3::new(0.07, 0.09, 0.04)),
-                        0.04,
-                    );
-                }
+                let body = centaur_torso_support(&l);
                 body.mesh(
                     &mut p.matte,
                     Vec3::new(-0.34, -0.3, -0.22),
@@ -216,10 +295,7 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
                     &|at, _| {
                         // The wrapped leather follows the sculpted chest and
                         // waist, preserving the figure instead of a rigid tube.
-                        let wrapped = wrap.is_some_and(|edges| {
-                            let (low, high) = edges(at.x);
-                            at.y > low && at.y < if at.z > 0.0 { high } else { 0.41 }
-                        });
+                        let wrapped = wrap.is_some_and(|wrap| wrap.covers(at));
                         if at.y < 0.035 {
                             // The coat transition is concealed by the belt;
                             // any overlap below it belongs to the equine body.
@@ -233,54 +309,41 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
                 );
                 body
             };
-            if let Some(edges) = wrap {
-                // Its edges are turned and stitched, top and bottom.
-                for top in [true, false] {
-                    let at = |x: f32| {
-                        let (low, high) = edges(x);
-                        (Vec2::new(x, if top { high } else { low }), 0.012)
-                    };
-                    fitted_ribbon(
-                        &mut p.matte,
-                        &body_shape,
-                        &[-0.16, -0.12, -0.08, -0.04, 0.0, 0.04, 0.08, 0.12, 0.16].map(at),
-                        true,
-                        0.004,
-                        LEATHER * 0.7,
-                    );
-                }
+            if let Some(wrap) = wrap {
+                wrap.emit_trim(&mut p.matte, &body_shape);
             }
-            // A close-fitting diagonal baldric follows the chest and back;
-            // it never projects as a rectangular plank past the shoulders.
+            // Body-specific knots and clasp style, shared fitted attachment path.
+            let path = [
+                (core.waist_anchor(-0.7), 0.026),
+                (core.chest_anchor(-0.275) - Vec2::Y * 0.06, 0.026),
+                (core.chest_anchor(0.2) + Vec2::Y * 0.07, 0.026),
+                (
+                    Vec2::new(core.chest.upper.1.x * 0.75, core.shoulder.y),
+                    0.025,
+                ),
+            ];
             for front in [false, true] {
-                fitted_ribbon(
-                    &mut p.satin,
+                let strap = FittedStrap::fit(
                     &body_shape,
-                    &[
-                        (Vec2::new(-0.105, 0.1), 0.026),
-                        (Vec2::new(-0.055, 0.24), 0.026),
-                        (Vec2::new(0.04, 0.37), 0.026),
-                        (Vec2::new(0.15, 0.48), 0.025),
-                    ],
+                    &path,
                     front,
                     0.01,
-                    LEATHER * 0.72,
+                    StrapEdgePolicy::EndUnsupportedRows,
                 );
+                strap.emit(&mut p.satin, LEATHER * 0.72, true);
+                if front {
+                    if let Some(mount) = strap.at_height(path[2].0.y) {
+                        p.metal.blob(
+                            mount.position + mount.normal * 0.008,
+                            Vec3::splat(0.018),
+                            0,
+                            0.0,
+                            Vec3::new(0.74, 0.5, 0.26),
+                        );
+                    }
+                }
             }
-            let (buckle, normal) = torso_surface_frame(&body_shape, Vec2::new(0.04, 0.37), true);
-            p.metal.blob(
-                buckle + normal * 0.018,
-                Vec3::splat(0.018),
-                0,
-                0.0,
-                Vec3::new(0.74, 0.5, 0.26),
-            );
-            tube(
-                &mut p.satin,
-                &[Vec3::Y * 0.015, Vec3::Y * 0.035, Vec3::Y * 0.055],
-                &[(0.164, 0.15), (0.16, 0.146), (0.157, 0.143)],
-                LEATHER * 0.72,
-            );
+            centaur_waist_belt(&mut p.satin, &body_shape);
         });
         kit.joint(J::Head, torso, Vec3::Y * 0.6, "head", |p| {
             // The rider's face and hair are a person's; men wear full beards.
@@ -311,11 +374,10 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             (-1.0, J::ArmR, J::ForeR, J::HandR),
         ] {
             let tag = if side > 0.0 { "l" } else { "r" };
-            let reach = arms.reach;
             let upper = kit.joint(
                 arm,
                 torso,
-                Vec3::new(side * reach, 0.48, 0.0),
+                super::anatomy::TorsoCoreProfile::centaur(&l).shoulder_seat(side),
                 &format!("arm{tag}"),
                 |p| {
                     organic_upper_arm(
@@ -331,15 +393,7 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             );
             let lower = kit.joint(fore, upper, Vec3::Y * -0.3, &format!("fore{tag}"), |p| {
                 organic_forearm(&mut p.matte, arms.width, 1.0, arms.muscle, true, l.cloth);
-                p.satin.prism(
-                    Vec3::Y * -0.13,
-                    Vec3::Y * -0.25,
-                    0.058 * arms.width,
-                    0.052 * arms.width,
-                    10,
-                    LEATHER,
-                    0.0,
-                );
+                centaur_forearm_band(&mut p.satin, arms.width, arms.muscle);
                 if let Some(gloves) = l.equipment.hands {
                     equipment_gloves::emit_cuff(p, gloves, Vec3::Y * -0.3, arms.width, 1.0);
                     equipment_gloves::emit_hand(
@@ -785,5 +839,348 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
         kit.joint(hoof, lower, ankle_at, &format!("hoof{tag}"), |p| {
             equine_parts::hoof(&mut p.matte, DARK * 2.4);
         });
+    }
+}
+
+#[cfg(test)]
+mod waist_belt_tests {
+    use super::*;
+    #[test]
+    fn centaur_forearm_band_respects_small_detail_mesh_budget() {
+        let mut band = Builder::default();
+        centaur_forearm_band(&mut band, 1.0, 1.0);
+        let triangles = band.surface_triangles().count();
+        assert!(triangles <= 768, "small forearm band budget: {triangles}");
+    }
+
+    #[test]
+    fn centaur_forearm_band_has_clearance_caps_and_adapts_to_build() {
+        let mut widths = [[0.0f32; 3]; 2];
+        for (sex, woman) in [false, true].into_iter().enumerate() {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Centaur,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let arms = super::super::super::anatomy::RiderArms::resolve(&look);
+                let support = forearm_form(arms.width, 1.0, arms.muscle);
+                let mut band = Builder::default();
+                centaur_forearm_band(&mut band, arms.width, arms.muscle);
+                let mut edges = std::collections::BTreeMap::new();
+                let mut lo = f32::INFINITY;
+                let mut hi = f32::NEG_INFINITY;
+                for tri in band.surface_triangles() {
+                    for at in [
+                        tri[0],
+                        tri[1],
+                        tri[2],
+                        (tri[0] + tri[1]) * 0.5,
+                        (tri[1] + tri[2]) * 0.5,
+                        (tri[2] + tri[0]) * 0.5,
+                        (tri[0] + tri[1] + tri[2]) / 3.0,
+                    ] {
+                        let field = support.distance(at);
+                        assert!(
+                            field >= 0.0015 * arms.width && field <= 0.007 * arms.width,
+                            "forearm clearance {field} at {at:?}"
+                        );
+                        widths[sex][build as usize] = widths[sex][build as usize].max(at.x.abs());
+                        lo = lo.min(at.y);
+                        hi = hi.max(at.y);
+                    }
+                    for i in 0..3 {
+                        let mut edge = [
+                            tri[i].to_array().map(f32::to_bits),
+                            tri[(i + 1) % 3].to_array().map(f32::to_bits),
+                        ];
+                        edge.sort();
+                        *edges.entry(edge).or_insert(0usize) += 1;
+                    }
+                }
+                assert!((lo + 0.25).abs() < 1e-6 && (hi + 0.13).abs() < 1e-6);
+                assert!(
+                    edges.values().all(|n| *n == 2),
+                    "band seam and cap rings are closed"
+                );
+            }
+        }
+        for (male, female) in widths[0].iter().zip(&widths[1]) {
+            assert!(female < male, "preserve smaller female radial scale");
+        }
+        assert!(
+            widths[0][0] < widths[0][2] && widths[1][0] < widths[1][2],
+            "build affects actual fitted bands"
+        );
+    }
+
+    #[test]
+    fn centaur_glove_cuffs_continue_to_clear_fitted_forearm_bands() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Centaur,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let arms = super::super::super::anatomy::RiderArms::resolve(&look);
+                for gloves in equipment_gloves::GloveAppearance::ALL {
+                    let mut p = Parts::default();
+                    organic_forearm(&mut p.matte, arms.width, 1.0, arms.muscle, true, Vec3::ONE);
+                    centaur_forearm_band(&mut p.satin, arms.width, arms.muscle);
+                    let mut samples = Vec::new();
+                    for y in [-0.245, -0.225, -0.205] {
+                        for i in 0..24 {
+                            let a = (i as f32 + 0.37) * TAU / 24.0;
+                            let out = Vec3::new(a.sin(), 0.0, a.cos());
+                            let origin = Vec3::Y * y;
+                            let band = p.satin.outer_surface(origin, out).expect("band support");
+                            samples.push((origin, out, band));
+                        }
+                    }
+                    let before = p.matte.surface_triangles().count();
+                    equipment_gloves::emit_cuff(&mut p, gloves, Vec3::Y * -0.3, arms.width, 1.0);
+                    let mut cuff_only = Builder::default();
+                    for triangle in p.matte.surface_triangles().skip(before) {
+                        cuff_only.tri(triangle, Vec3::ONE);
+                    }
+                    let mut inner_min = f32::INFINITY;
+                    let mut inner_max = f32::NEG_INFINITY;
+                    for (origin, out, band) in samples {
+                        let cuff = cuff_only
+                            .inner_surface(origin, out)
+                            .expect("actual inner wall of overlapping glove cuff");
+                        inner_min = inner_min.min((cuff - band).dot(out));
+                        inner_max = inner_max.max((cuff - band).dot(out));
+                        assert!(
+                            (cuff - band).dot(out) > 0.001 * arms.width,
+                            "{gloves:?} woman={woman} build={build}: inner cuff wall must remain outside band"
+                        );
+                    }
+                    eprintln!("glove inner wall {gloves:?} woman={woman} build={build} gap_min={inner_min:.6} max={inner_max:.6}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn centaur_glove_cuff_lips_fit_without_excessive_layer_gap() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Centaur,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let arms = super::super::super::anatomy::RiderArms::resolve(&look);
+                for gloves in equipment_gloves::GloveAppearance::ALL {
+                    let mut p = Parts::default();
+                    organic_forearm(&mut p.matte, arms.width, 1.0, arms.muscle, true, Vec3::ONE);
+                    centaur_forearm_band(&mut p.satin, arms.width, arms.muscle);
+                    let mut samples = Vec::new();
+                    let lip = match gloves {
+                        equipment_gloves::GloveAppearance::Old => 0.105,
+                        equipment_gloves::GloveAppearance::Padded => 0.110,
+                        equipment_gloves::GloveAppearance::Riding => 0.120,
+                        equipment_gloves::GloveAppearance::Fencing => 0.140,
+                    };
+                    for y in [-0.3 + lip - 0.012, -0.3 + lip - 0.004] {
+                        for i in 0..24 {
+                            let a = (i as f32 + 0.37) * TAU / 24.0;
+                            let out = Vec3::new(a.sin(), 0.0, a.cos());
+                            let origin = Vec3::Y * y;
+                            let band = p.satin.outer_surface(origin, out).expect("band support");
+                            samples.push((origin, out, band));
+                        }
+                    }
+                    let before = p.matte.surface_triangles().count();
+                    equipment_gloves::emit_cuff(&mut p, gloves, Vec3::Y * -0.3, arms.width, 1.0);
+                    let mut cuff_only = Builder::default();
+                    for triangle in p.matte.surface_triangles().skip(before) {
+                        cuff_only.tri(triangle, Vec3::ONE);
+                    }
+                    let mut inner_min = f32::INFINITY;
+                    let mut inner_max = f32::NEG_INFINITY;
+                    for (origin, out, band) in samples {
+                        let cuff = cuff_only
+                            .inner_surface(origin, out)
+                            .expect("actual inner wall of overlapping glove cuff");
+                        inner_min = inner_min.min((cuff - band).dot(out));
+                        inner_max = inner_max.max((cuff - band).dot(out));
+                        assert!(
+                            (cuff - band).dot(out) > 0.001 * arms.width,
+                            "{gloves:?} woman={woman} build={build}: inner cuff wall must remain outside band"
+                        );
+                    }
+                    assert!(
+                        inner_max <= 0.012 * arms.width,
+                        "{gloves:?} woman={woman} build={build} excessive lip gap={inner_max}"
+                    );
+                    eprintln!("glove lip inner wall {gloves:?} woman={woman} build={build} gap_min={inner_min:.6} max={inner_max:.6}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn centaur_forearm_band_follows_emitted_skin_without_large_gaps() {
+        let mut worst = f32::NEG_INFINITY;
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Centaur,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let arms = super::super::super::anatomy::RiderArms::resolve(&look);
+                let mut skin = Builder::default();
+                organic_forearm(&mut skin, arms.width, 1.0, arms.muscle, true, Vec3::ONE);
+                let mut band = Builder::default();
+                centaur_forearm_band(&mut band, arms.width, arms.muscle);
+                assert!(!skin.is_empty() && !band.is_empty());
+                let mut minimum = f32::INFINITY;
+                let mut maximum = f32::NEG_INFINITY;
+                for y in [-0.24, -0.22, -0.20, -0.18, -0.16, -0.14] {
+                    for i in 0..48 {
+                        let a = (i as f32 + 0.37) * TAU / 48.0;
+                        let out = Vec3::new(a.sin(), 0.0, a.cos());
+                        let origin = Vec3::Y * y;
+                        let bare = skin
+                            .outer_surface(origin, out)
+                            .expect("actual forearm skin");
+                        let worn = band
+                            .outer_surface(origin, out)
+                            .expect("actual band circumference");
+                        let gap = (worn - bare).dot(out);
+                        minimum = minimum.min(gap);
+                        maximum = maximum.max(gap);
+                    }
+                }
+                eprintln!("forearm band woman={woman} build={build} width={} muscle={} gap_min={minimum:.6} max={maximum:.6}",arms.width,arms.muscle);
+                worst = worst.max(maximum);
+            }
+        }
+        assert!(
+            worst <= 0.010,
+            "forearm band must stay within10mm of actual emitted skin: {worst}"
+        );
+    }
+
+    #[test]
+    fn centaur_belt_mesh_clearance_and_authored_height_follow_actual_anatomy() {
+        let mut width = [0.0f32; 2];
+        for (sex, woman) in [false, true].into_iter().enumerate() {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Centaur,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let support = centaur_torso_support(&look);
+                let mut belt = Builder::default();
+                centaur_waist_belt(&mut belt, &support);
+                let mut low = f32::INFINITY;
+                let mut high = f32::NEG_INFINITY;
+                for tri in belt.surface_triangles() {
+                    for at in [
+                        tri[0],
+                        tri[1],
+                        tri[2],
+                        (tri[0] + tri[1]) * 0.5,
+                        (tri[1] + tri[2]) * 0.5,
+                        (tri[2] + tri[0]) * 0.5,
+                        (tri[0] + tri[1] + tri[2]) / 3.0,
+                    ] {
+                        let clearance = support.distance(at);
+                        assert!(
+                            (0.002..=0.0085).contains(&clearance),
+                            "woman={woman} build={build} clearance={clearance} at={at:?}"
+                        );
+                        low = low.min(at.y);
+                        high = high.max(at.y);
+                        width[sex] = width[sex].max(at.x.abs());
+                    }
+                }
+                assert!((low - 0.015).abs() < 1e-6 && (high - 0.055).abs() < 1e-6);
+            }
+        }
+        assert!(
+            width[1] < width[0] - 0.003,
+            "female support's narrower waist must remain distinct"
+        );
+    }
+
+    #[test]
+    fn centaur_waist_belt_stays_close_to_actual_support() {
+        let mut worst = f32::NEG_INFINITY;
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Centaur,
+                    17,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let support = centaur_torso_support(&look);
+                let mut belt = Builder::default();
+                centaur_waist_belt(&mut belt, &support);
+                assert!(!belt.is_empty(), "positive emitted belt fixture");
+                let mut maximum = f32::NEG_INFINITY;
+                let mut minimum = f32::INFINITY;
+                for y in [0.02, 0.035, 0.05] {
+                    for i in 0..48 {
+                        let angle = (i as f32 + 0.37) * TAU / 48.0;
+                        let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+                        let center = Vec3::Y * y;
+                        assert!(support.distance(center) < 0.0);
+                        let (mut lo, mut hi) = (0.0, 0.4);
+                        assert!(support.distance(center + out * hi) > 0.0);
+                        for _ in 0..30 {
+                            let mid = (lo + hi) * 0.5;
+                            if support.distance(center + out * mid) > 0.0 {
+                                hi = mid;
+                            } else {
+                                lo = mid;
+                            }
+                        }
+                        let at = belt
+                            .outer_surface(center, out)
+                            .expect("closed belt circumference");
+                        let gap = at.dot(out) - (lo + hi) * 0.5;
+                        maximum = maximum.max(gap);
+                        minimum = minimum.min(gap);
+                    }
+                }
+                eprintln!("centaur belt woman={woman} build={build} radial_gap_min={minimum:.6} max={maximum:.6}");
+                worst = worst.max(maximum);
+            }
+        }
+        assert!(
+            worst <= 0.012,
+            "fitted belt must not float more than12mm from actual support: {worst}"
+        );
     }
 }

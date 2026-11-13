@@ -206,9 +206,20 @@ pub(super) fn gathers(
         let points: [Vec3; 5] = std::array::from_fn(|i| {
             let u = i as f32 / 2.0 - 1.0;
             let y = height * length + u * 0.005 * build * if row % 2 == 0 { 1.0 } else { -1.0 };
-            support.onto(Vec3::new(u * 0.028 * build, y, 0.2 * build), Vec3::NEG_Z)
-                - Vec3::Z * 0.003 * build
+            let mut surface =
+                support.onto(Vec3::new(u * 0.028 * build, y, 0.2 * build), Vec3::NEG_Z);
+            // The general attachment tolerance is large beside a shallow fold.
+            // Refine on the same ray so its seating error does not become relief.
+            for _ in 0..16 {
+                let distance = support.distance(surface);
+                if distance.abs() < 0.00001 * build {
+                    break;
+                }
+                surface -= Vec3::Z * distance.clamp(-0.002 * build, 0.002 * build);
+            }
+            surface - Vec3::Z * 0.005 * build
         });
+        let mut fold = crate::sdf::Sculpt::default();
         for i in 0..4 {
             let radius = |k: usize| {
                 if k == 0 || k == 4 {
@@ -217,11 +228,118 @@ pub(super) fn gathers(
                     0.007 * build
                 }
             };
-            form.add(
+            // A tiny join rounds the path's internal seams without accumulating
+            // the sleeve blend at every shared endpoint (which makes beads).
+            fold.add(
                 Capsule(points[i], points[i + 1], radius(i), radius(i + 1)),
-                0.003 * build,
+                0.0005 * build,
             );
         }
+        form.union(fold, 0.012 * build);
     }
     form
+}
+
+#[cfg(test)]
+mod gather_tests {
+    use super::*;
+    use crate::sdf::{Sculpt, Shape};
+
+    // Independent ray intersection, rather than the seating helper under test.
+    fn front_surface(form: &Sculpt, x: f32, y: f32, build: f32) -> f32 {
+        let (mut lo, mut hi) = (-0.02 * build, 0.1 * build);
+        assert!(form.distance(Vec3::new(x, y, lo)) < 0.0);
+        assert!(form.distance(Vec3::new(x, y, hi)) > 0.0);
+        for _ in 0..24 {
+            let z = (lo + hi) * 0.5;
+            if form.distance(Vec3::new(x, y, z)) > 0.0 {
+                hi = z;
+            } else {
+                lo = z;
+            }
+        }
+        (lo + hi) * 0.5
+    }
+
+    #[test]
+    fn compression_fold_crest_has_relief_without_segment_join_beads() {
+        for build in [0.65, 1.0, 1.4] {
+            let mut support = Sculpt::default();
+            support.add(Shape::Beyond(Vec3::NEG_Z, 0.0), 0.0);
+            let folded = gathers(support, build, 1.0, &[-0.025]);
+            // The broad center should read as one ridge, not pearls at the
+            // capsule joins. 4 mm relief leaves a small smoothing allowance.
+            for sample in -14..=14 {
+                let x = sample as f32 * 0.001 * build;
+                let y = -0.025 + x * (0.005 / 0.028);
+                let relief = front_surface(&folded, x, y, build) / build;
+                assert!(
+                    (0.0035..=0.0044).contains(&relief),
+                    "build={build} x={x}: crest relief {relief}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compression_folds_keep_curved_support_and_outer_elbow() {
+        for build in [0.65, 1.0, 1.4] {
+            for length in [0.8, 1.2] {
+                let mut support = Sculpt::default();
+                support.add(
+                    Shape::Capsule(
+                        Vec3::new(0.0, -0.3 * length, 0.0),
+                        Vec3::new(0.0, 0.05 * length, 0.0),
+                        0.045 * build,
+                        0.045 * build,
+                    ),
+                    0.0,
+                );
+                let folded = gathers(support.clone(), build, length, &[-0.025, -0.075]);
+                for height in [-0.025, -0.075] {
+                    let y = height * length;
+                    let relief = front_surface(&folded, 0.0, y, build) / build - 0.045;
+                    assert!((0.0035..=0.0044).contains(&relief), "relief={relief}");
+                    for offset in [-0.002, 0.0, 0.002] {
+                        let outer = Vec3::new(0.0, y, (-0.045 + offset) * build);
+                        assert!(
+                            (folded.distance(outer) - support.distance(outer)).abs() < 1e-6,
+                            "outer elbow changed: build={build}, length={length}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compression_fold_has_a_broad_flank_without_a_wide_pad() {
+        for build in [0.65, 1.0, 1.4] {
+            let mut support = Sculpt::default();
+            support.add(Shape::Beyond(Vec3::NEG_Z, 0.0), 0.0);
+            let folded = gathers(support, build, 1.0, &[-0.025]);
+            // Between internal joins, measure the transverse cloth profile.
+            // A 4 mm crest needs a broad flank, not a cord-like narrow ridge:
+            // retain half its height at 7 mm either side, but no raised pad
+            // 25 mm away. These dimensions scale with the wearer's build.
+            let x = 0.007 * build;
+            let y = -0.025 + x * (0.005 / 0.028);
+            let crest = front_surface(&folded, x, y, build);
+            assert!((0.0035..=0.0044).contains(&(crest / build)));
+            for side in [-1.0, 1.0] {
+                let flank = front_surface(&folded, x, y + side * 0.007 * build, build);
+                assert!(
+                    flank >= crest * 0.5,
+                    "build={build} side={side}: 7 mm flank={} mm, crest={} mm",
+                    flank / build * 1000.0,
+                    crest / build * 1000.0,
+                );
+                let distant = front_surface(&folded, x, y + side * 0.025 * build, build);
+                assert!(
+                    distant.abs() <= 0.00001 * build,
+                    "build={build} side={side}: fold extends into distant cloth"
+                );
+            }
+        }
+    }
 }

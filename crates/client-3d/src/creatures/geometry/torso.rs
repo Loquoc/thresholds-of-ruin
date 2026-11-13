@@ -26,6 +26,97 @@ pub(in crate::creatures) fn neck_profile(build: f32, slim: f32) -> [(Vec3, Vec2)
     ]
 }
 
+/// Keep the buried neck root inside the actual torso, despite the head and
+/// torso having different presentation scales. Only the lowest ring changes;
+/// the exposed neck and its attachment sections retain their authored shape.
+pub(in crate::creatures) fn supported_neck_profile(body: HumanoidBody) -> [(Vec3, Vec2); 4] {
+    let mut profile = neck_profile(body.build, neck_slim(body.woman));
+    let head_scale = storybook_part(Plan::Biped, J::Head);
+    let torso_scale = storybook_part(Plan::Biped, J::Torso);
+    let support = torso_shape(body, None, false);
+    let (center, radii) = profile[0];
+    let origin = (center * head_scale + body.head) / torso_scale;
+    // The buried overlap accommodates the native head turn: its lower front
+    // advances about 6 mm in the ordinary neutral pose. Leave another 2 mm
+    // for the independently sampled torso surface, without changing the
+    // exposed neck or making any pose-time adjustment.
+    const ROOT_OVERLAP: f32 = 0.008;
+    let mut fit = 1.0_f32;
+    let mut needs_overlap = false;
+    for sample in 0..32 {
+        let angle = sample as f32 * TAU / 32.0;
+        let radial =
+            Vec3::new(angle.sin() * radii.x, 0.0, angle.cos() * radii.y) * head_scale / torso_scale;
+        needs_overlap |= support.distance(origin + radial) > -ROOT_OVERLAP;
+        let outward = radial.normalize();
+        if let Some(hit) = surface_ray_hit(&support, origin, outward, -ROOT_OVERLAP, 0.25) {
+            fit = fit.min(((hit - origin).dot(outward) / radial.length()).clamp(0.0, 1.0));
+        }
+    }
+    if needs_overlap {
+        profile[0].1 *= fit;
+    }
+    profile
+}
+
+/// Anatomy-owned local-Y sections for small neck attachments. The same stations
+/// build the visible neck; ornaments retain ellipse shape and center drift.
+pub(super) struct NeckAttachment {
+    stations: [(Vec3, Vec2); 4],
+}
+
+impl NeckAttachment {
+    pub fn new(build: f32, slim: f32) -> Self {
+        Self {
+            stations: neck_profile(build, slim),
+        }
+    }
+
+    /// Seat an ornament below the upper neck station, away from the shoulder
+    /// root shared by torso and head. The full band stays on the exposed neck.
+    pub fn band_seat(&self, half_height: f32) -> f32 {
+        self.stations[2].0.y - half_height
+    }
+
+    pub fn section(&self, height: f32) -> (Vec3, Vec2) {
+        let pair = self
+            .stations
+            .windows(2)
+            .find(|pair| height <= pair[1].0.y)
+            .unwrap_or(&self.stations[2..]);
+        let t = ((height - pair[0].0.y) / (pair[1].0.y - pair[0].0.y)).clamp(0.0, 1.0);
+        (pair[0].0.lerp(pair[1].0, t), pair[0].1.lerp(pair[1].1, t))
+    }
+
+    /// The visible neck is the union of its profile and the adjoining head sculpt.
+    /// Small bodies must not ignore the face's independently authored neck root.
+    pub fn supported_surface(
+        &self,
+        height: f32,
+        angle: f32,
+        offset: f32,
+        support: Option<&crate::sdf::Sculpt>,
+    ) -> Vec3 {
+        let profile = self.surface(height, angle, offset);
+        let (origin, _) = self.section(height);
+        let outward = (profile - origin).normalize();
+        if let Some(hit) = support
+            .and_then(|form| super::fitting::surface_ray_hit(form, origin, outward, offset, 0.25))
+        {
+            if (hit - origin).dot(outward) > (profile - origin).dot(outward) {
+                return hit;
+            }
+        }
+        profile
+    }
+
+    pub fn surface(&self, height: f32, angle: f32, offset: f32) -> Vec3 {
+        let (center, radii) = self.section(height);
+        let outward = Vec3::new(angle.sin() / radii.x, 0.0, angle.cos() / radii.y).normalize();
+        center + Vec3::new(angle.sin() * radii.x, 0.0, angle.cos() * radii.y) + outward * offset
+    }
+}
+
 /// How slender a neck is: hers finer than his, though never a stalk under
 /// the storybook head.
 pub(in crate::creatures) fn neck_slim(woman: bool) -> f32 {
@@ -37,12 +128,19 @@ pub(in crate::creatures) fn neck_slim(woman: bool) -> f32 {
 }
 
 pub(super) fn biped_neck(b: &mut Builder, build: f32, slim: f32, color: Vec3) {
+    emit_neck_profile(b, neck_profile(build, slim), color);
+}
+
+pub(super) fn biped_neck_on_body(b: &mut Builder, body: HumanoidBody, color: Vec3) {
+    emit_neck_profile(b, supported_neck_profile(body), color);
+}
+
+fn emit_neck_profile(b: &mut Builder, profile: [(Vec3, Vec2); 4], color: Vec3) {
     // Straight profiles need no spline subdivision. Finish still smooths
     // the resulting mesh normally; restoring this flag leaves later forms
     // unchanged and keeps these small transition pieces inexpensive.
     let smooth = b.smooth;
     b.smooth = false;
-    let profile = neck_profile(build, slim);
     tube(
         b,
         &profile.map(|(at, _)| at),
@@ -152,10 +250,8 @@ pub(super) fn biped_cuff(
             Vec2::new(0.043, 0.038),
         ]
     };
-    let path = heights.map(|height| Vec3::Y * -height * length);
-    // Follow proximal forearm fullness, then return to the authored wrist and
-    // hem. Both recipes keep their final two stations and flare unchanged.
-    // Bracers and cuffs are worn over the eased sleeve beneath them.
+    // Bell sleeves retain proximal fullness and their authored distal flare.
+    // Rigid cuffs below instead follow the actual eased forearm support.
     let radii: [Vec2; 5] = std::array::from_fn(|i| {
         let influence = 1.0 - ease((heights[i] - 0.145) / (0.25 - 0.145));
         radii[i] * build * (1.0 + (muscle - 1.0) * influence) + Vec2::splat(SLEEVE_EASE * build)
@@ -165,16 +261,26 @@ pub(super) fn biped_cuff(
         sleeve_parts::bell(b, &profile, build, length, color, trim);
         return;
     }
-    let smooth = b.smooth;
-    b.smooth = false;
-    b.tube(&path, &radii, 12, &|_, _at, along| {
-        if along > 0.94 {
-            trim
-        } else {
-            color
-        }
-    });
-    b.smooth = smooth;
+    let support = forearm_sleeve_form(build, length, muscle);
+    let profile = radial_parts::LimbShellProfile {
+        heights: Vec2::new(-heights[0] * length, -heights[4] * length),
+        clearance: 0.002 * build,
+        thickness: 0.003 * build,
+        rows: 8,
+        sides: 16,
+    };
+    if let Some(shell) = profile.resolve(
+        &|height, angle| {
+            let origin = Vec3::Y * height;
+            let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+            fitting::surface_ray_hit(&support, origin, out, 0.0, 0.3).map(|p| (p - origin).dot(out))
+        },
+        color,
+        trim,
+        true,
+    ) {
+        b.absorb_fitted(shell, |at| at);
+    }
 }
 
 /// A broad forged crown over a thinner sliding lame. Ring profiles give the
@@ -410,7 +516,10 @@ pub(super) fn outfit_shell(
     shell
         .carve(Beyond(Vec3::Y, top), 0.01)
         .carve(Beyond(-Vec3::Y, 0.0), 0.0);
-    if sleeveless {
+    // A low vest ends before the armhole begins. Its full-height side clip
+    // would cut into the fitted rib/bust envelope rather than expose an arm.
+    // Higher shells retain their existing shoulder opening.
+    if sleeveless && top > ARMPIT {
         for side in [-1.0f32, 1.0] {
             shell.carve(Beyond(Vec3::X * side, 0.185 * sh), 0.008);
         }
@@ -642,7 +751,8 @@ pub(in crate::creatures) fn torso_shape(
 ) -> crate::sdf::Sculpt {
     use crate::sdf::{Sculpt, Shape::*};
     let b = fit.build;
-    let (sh, w) = (fit.shoulders * b, fit.waist * b);
+    let sh = fit.shoulders * b;
+    let core = super::super::anatomy::TorsoCoreProfile::biped(fit);
     let fem = fit.woman;
     // Structured fronts span the valley between the chest's fullness: by a
     // share of its depth and an allowance past the material's own growth.
@@ -659,39 +769,27 @@ pub(in crate::creatures) fn torso_shape(
         g
     };
     let mut body = Sculpt::default();
-    body.add(
-        Ellipsoid(
-            Vec3::new(0.0, 0.075, -0.004),
-            Vec3::new(0.15 * w, 0.115, 0.108 * b) + g,
-        ),
-        0.0,
-    )
-    .add(
-        Ellipsoid(
-            Vec3::new(0.0, 0.29, -0.014),
-            Vec3::new(0.183 * sh.max(w), 0.175, 0.119 * b) + rib_g,
-        ),
-        0.055,
-    )
-    .add(
-        Ellipsoid(
-            Vec3::new(0.0, 0.385, -0.047 * b),
-            Vec3::new(0.18 * sh, 0.125, 0.09 * b) + rib_g,
-        ),
-        0.045,
-    )
-    .add(
-        // The neck's root stays just inside the neck itself, as slender as
-        // it is, so the neck rises out of the shoulders' slope: never out of
-        // a wider stub whose flat top would show as a ledge round it.
-        Capsule(
-            Vec3::new(0.0, 0.505, -0.008),
-            Vec3::new(0.0, super::anatomy::NECK_SEAT, -0.008),
-            0.059 * b * neck_slim(fem) - 0.002 + grow,
-            0.05 * b * neck_slim(fem) - 0.004 + grow,
-        ),
-        0.035,
-    );
+    body.add(Ellipsoid(core.waist.0, core.waist.1 + g), 0.0)
+        .add(
+            Ellipsoid(core.chest.ribs.0, core.chest.ribs.1 + rib_g),
+            0.055,
+        )
+        .add(
+            Ellipsoid(core.chest.upper.0, core.chest.upper.1 + rib_g),
+            0.045,
+        )
+        .add(
+            // The neck's root stays just inside the neck itself, as slender as
+            // it is, so the neck rises out of the shoulders' slope: never out of
+            // a wider stub whose flat top would show as a ledge round it.
+            Capsule(
+                Vec3::new(0.0, 0.505, -0.008),
+                Vec3::new(0.0, super::anatomy::NECK_SEAT, -0.008),
+                0.059 * b * neck_slim(fem) - 0.002 + grow,
+                0.05 * b * neck_slim(fem) - 0.004 + grow,
+            ),
+            0.035,
+        );
     for side in [-1.0f32, 1.0] {
         // The clavicle slopes into the arm's moving deltoid instead
         // of leaving a separate spherical cap on the torso.

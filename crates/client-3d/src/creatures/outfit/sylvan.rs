@@ -30,7 +30,7 @@ pub(super) fn duelist(wearer: &Look) -> Outfit {
         }),
         legs: Legs::Trousers(dark),
         feet: Feet::Boots(Boots {
-            color: dark,
+            color: Pigment::Fixed(dark),
             tall: true,
             heel: true,
             buckles: true,
@@ -38,7 +38,10 @@ pub(super) fn duelist(wearer: &Look) -> Outfit {
         }),
         belt: true,
         trimmings: Trimmings {
-            earrings: Some((gold, gold)),
+            earrings: Some(Earrings::GemDrops {
+                metal: gold,
+                gem: gold,
+            }),
             neck: Some(Neck::Pendant {
                 metal: gold,
                 gem: gold,

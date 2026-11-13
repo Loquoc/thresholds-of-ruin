@@ -809,6 +809,20 @@ not build a second table of approximate coordinates. These are the present owner
 | [Visual contact](../../crates/client-3d/src/creatures/visual_contact.rs) | Composed mesh profiles transformed along a joint path | Contact queries use the resolved exterior, including worn layers |
 | [Hair contact](../../crates/client-3d/src/creatures/hair_contact.rs) | Explicit mesh/head-or-drape/torso/support transforms and authored pin weights | Preserve ownership and reset per-instance history when presentation changes |
 
+One bounded reuse is already implemented: native fitted boot bands and baldrics
+both use `fitting::buckle_frame` for open hardware. The native shaft's
+`buckled_band` assembly queries its own emitted leather before attaching the
+frame; it retains the two authored side-facing stations, brass color and band
+geometry. The baldric still owns its torso fitting and occlusion decisions.
+This shares a hardware recipe, not a new attachment registry or general solver.
+Equipped buckled boots retain their separate wire-frame style and three stations.
+
+Circlet, wreath and crown brow bands reuse the periodic `closed_ring` component
+used by footwear and glove trim. They retain their fitted brow paths, authored
+widths and separate decorations. The seam uses one shared ring frame, without
+coincident end caps from treating a closed band as an open tube. Open crown spikes
+remain open-path tubes; this does not replace arbitrary tube shapes.
+
 For an initial renderer-local attachment contract, return a frame identity, local
 position/orientation, and a capability result. Missing capabilities should remain
 explicit; do not invent a fallback origin or silently attach to the nearest joint.
@@ -997,10 +1011,13 @@ the fix, as do the nine equipment-composition tests. Release all-target Clippy
 passes after correcting a misplaced existing enum-size annotation.
 
 This is one ownership correction, not complete native-outfit portability.
-The caller still chooses `trim_neck` from native/style state. Native caster
-robe/waist ownership, cuffs and chest ornaments were subsequently migrated as
-described below.
-Those need separate behavior witnesses before being moved into recipes. The
+The native/style distinction in the caller's `trim_neck` policy was later
+removed: `Figure` now consistently trims garment neck extensions. The excluded
+native shells and armor already end below that trim, while bare anatomy and
+shirt support ignore it. This removes context dependence without adding another
+outfit parameter; the low-level geometry parameter remains available. Native
+caster robe/waist ownership, cuffs and chest ornaments were subsequently
+migrated as described below. The
 shell witness isolates the opening with a fixed neck-trim policy and must not
 be cited as proof that an entire transferred model is identical. No protocol,
 save format or public appearance schema changed.
@@ -1325,8 +1342,14 @@ moved generators without a Cartesian composition matrix.
 
 These pieces are still renderer-local authored groups, not a universal equipment
 slot system. Shoulder discs and sleeve tatters retain existing coverage behavior;
-future arm armor needs an explicit coverage decision. Zombie hip rags and the
-native neck-trimming decision remain in the main biped generator. Arbitrary
+future arm armor needs an explicit coverage decision. Zombie hip rags now use `HipDecoration::TunicTatters { shade }`. Their static
+emitter retains the original hip mesh, presentation frame and batching rather
+than adding an attachment or drape. It uses the resolved tunic pigment, so an
+equipped shirt retains the previous recoloring behavior. Explicit outfit copy,
+ordinary Human/Orc transfer and independent removal no longer depend on Zombie
+style. Blocky/furry anatomy still retains its existing early-return behavior;
+this does not admit arbitrary Guardian/Yeti clothing transfer. The biped generator uses one uniform garment-neck trim policy rather than
+a native-versus-explicit outfit decision. Arbitrary
 recipe admission, all-body clearance and visible-equipment disclosure remain
 separate unfinished boundaries. The later [pigment migration](#wearer-owned-pigment-migration) fixes the common
 bare-hand/leg/foot roles. Remaining native boot/anatomy pigment choices still need
@@ -1370,10 +1393,14 @@ whose pigment deliberately equals the donor's skin, and boot equip/remove
 restoration. A recipe-level witness covers original-wearer equivalence, shaded
 feet and explicitly fixed pigments in each migrated slot.
 
-This does not finish arbitrary native transfer. Native boot representations for
-Zombie, Guardian and Yeti still carry resolved pigments; the latter two are not
-ordinary dressable bodies. Audit those representations and intrinsic anatomy
-before broadening admission. Arbitrary user-supplied pigment values also require
+This does not finish arbitrary native transfer. Boot recipes now also retain
+`Pigment`: Zombie, Guardian and Yeti footwear use skin shades 0.8, 0.85 and 1.0
+respectively, while every authored leather, metal and wardrobe boot stays fixed.
+The existing `Outfit::boot(skin)` boundary resolves the recipient pigment for
+geometry, including derived cuff and strap shades. A fixed boot pigment equal
+to donor skin remains fixed; boot equip/remove restores the original binding.
+Guardian and Yeti are still not ordinary dressable bodies. Their intrinsic
+anatomy and other native pigment choices need auditing before broader admission. Arbitrary user-supplied pigment values also require
 validation before a public recipe API. This is renderer-local material meaning,
 not an approved content/wire representation; server appearance must still use
 observer-filtered semantic catalog data.
@@ -1384,3 +1411,147 @@ direct children and missed the nested hand meshes; that was corrected, its
 nonempty sample asserted, and the old fixed-donor-color behavior rerun to establish
 the intended failure before restoring skin bindings. These focused results do
 not replace the earlier full Rust-suite checkpoint or final platform/profile CI.
+
+## Exposed toe anatomy follows footwear coverage
+
+Toe claws are emitted by the foot branch that exposes them, not by checking only
+whether appearance-style equipment is present. Closed native boots, wardrobe
+boots, closed shoes and both equipment boot paths suppress Troll claws. Bare
+Troll and furry Yeti feet retain their original anatomical recipe. Sandals retain
+Troll claws, but their roots are fitted to the emitted upper in its actual ankle
+frame. The same small claw emitter consumes those roots; no new coverage solver
+or equipment format is introduced. Appearance footwear stays closed, and the
+specialized Yeti branch retains its previous clothing-admission limits.
+
+The regression found a claw tip at local y=-0.46 beneath a basic equipped boot
+whose sole belongs near y=-0.077. Recipe-aware emission removes that detached
+geometry. Further checks cover both sexes and extreme builds, closed shoes,
+flat/heeled sandals and equip/remove restoration. This is not a redesign of the
+native bare foot or an all-pose contact guarantee.
+
+Visual review rejected the first sandal ray height because it hit the sloped vamp and made uneven dorsal spikes. The revised sample intersects the toe-front thickness, with modest forward projection and reduced radius for the shoe last. Native bare claw dimensions remain unchanged. This is a local exposed-anatomy recipe, not a general region solver.
+
+## Custom belt hardware shares the band's frame
+
+The Leprechaun's bundled buckle and pouch previously attached independently to
+the hips while its ordinary belt and another solid buckle followed the torso.
+A first-red actual-mesh witness found 24 unwanted ordinary-buckle vertices,
+with an ordinary-hardware positive control; native renders showed the overlap.
+
+Custom bundled hardware now emits in the band's existing output frame: torso
+for ordinary fitted waists, hips for continuous fitted robes. Its presence
+replaces ordinary buckle hardware without removing the leather band. The shared
+open-frame buckle and fitted pouch builders consume the resolved waist support.
+The authored gilt color remains; the old diamond/box assembly becomes a single
+rectangular gilt frame and leather bag, subject to native visual review.
+A custom detail remains visible when the belt flag is false. An explicit
+independent pouch suppresses the bundled bag, keeping its existing rendering
+and attachment behavior; this does not migrate every pouch's animation frame.
+No new solver, wire format or body-region taxonomy is introduced.
+
+## Species topknots use the shared crown envelope
+
+Orc and Troll topknots previously bypassed the fitted-hair path used by ordinary
+hairstyles. Pirate tricorns, Witch hats and Juliet veiled caps leave species hair
+visible, so the raw crest, knot and tail could cross the crown. An actual lining
+witness failed on an Orc Pirate; native Juliet images also showed hair emerging
+through the cap.
+
+Only the authored topknot assembly now passes through the existing hair envelope.
+Its matte hair and leather tie share that map; ears, tusks, nose and other head
+details do not. No new hat solver or visibility category is introduced. Geometry
+below the existing transition stays authored, retaining the exposed lower tail.
+Bare and uncovered headwear retain the original recipe and topology. Full
+headwear occlusion continues to use the existing visibility gate.
+
+The first direct integration left a coarse tail triangle bridging the narrow
+rim transition. Only the disconnected tail-lock component opts into bounded
+source-edge refinement before fitting; scalp, crest, knot and tie use the
+ordinary adapter. Refinement interpolates vertex attributes on the original
+surface. There is no upper selection cutoff: covered shared edges use the
+same length bound, while unselected edges remain in the identity region.
+A paired-edge witness guards the fitted seam, and the original bare path
+bypasses refinement entirely. This adds geometry for covered sparse tails;
+it is not a speedup, and ordinary hair consumers are unchanged.
+
+## Hanging apron panels reuse the actual-garment fold
+
+The Troll's leather apron now passes its own outline, thickness, origin and
+inclination into the existing hanging-panel fold calculation. The native
+loincloth keeps its original adapter and recipe. The apron queries the emitted
+lower skirt/peplum support and its own same-drape tatters; it no longer uses an
+unfitted fixed plane that crosses the lower cloth. No new solver, attachment
+entity or outfit field is introduced. The kilt tatters, materials and root frame
+remain authored.
+
+Actual-mesh neutral clearance checks cover native Trolls and their copied
+outfit on Human and Orc bodies, both sexes and all three builds. The existing
+loincloth clearance, shape, ring mounting, no-support and warm-cache witnesses
+remain controls. The geometric fit is not a continuous-animation guarantee:
+apron and supporting skirt still retain their existing independent drape motion.
+Sampled walking/turning review is required, and full dynamic layer contact remains
+separate work. Folding adds a small amount of panel topology; no speedup is claimed.
+
+## Exposed hand claws reuse the anatomical claw emitter
+
+The Yeti's three pale hand claws previously floated below its fingers. Their
+roots now query the emitted bare hand in its actual local frame, before any
+claw geometry is added. The existing foot-claw emitter is renamed and reused;
+root positions, tip offset and radius remain parameters owned by the extremity.
+No new solver, body-region taxonomy or per-frame work is introduced. This adds
+three bounded surface queries per newly constructed hand; cached meshes reuse
+the result, and claw topology is unchanged. It is not a speedup claim.
+
+An independent actual-triangle witness requires exactly three claw components
+and contact between each component and the emitted hand, across both requested
+sexes/all builds/both hands. Native Yeti anatomy currently uses closed hands for
+both sexes. Nine matched native views cover rest and sampled walking plus an
+unchanged Human control; this does not qualify unsupported Yeti glove outfits
+or open-hand claws. Existing foot-coverage/restoration tests remain controls.
+The apron also has a sampled actual-triangle motion audit across straight walk,
+turn and settle; it passed without changing the independent drape behavior.
+
+## Low shoes retain their own footwear boundary
+
+Low shoes and sandals no longer acquire a fallback boot shaft when the leg
+recipe is fitted, trousered or plated. The fallback now explicitly excludes
+Shoes; actual boots and the legacy bare-foot anatomy path keep their existing
+ownership. An equipped boot still replaces the shoe and restores it on removal.
+This removes redundant shaft primitives rather than adding a fitting pass,
+attachment type or solver. No runtime speedup is claimed.
+
+The new actual-mesh regression first failed on 33 shoe-colored shaft vertices
+above the ankle. Fixed native/copy fixtures retain calf pigment, low ankle straps,
+sole and sandal skin, with native/equipped boot and removal controls. A separate
+public armored-wardrobe test covers Witch/Princess with plate mail. Fifteen
+matched native views cover armored Goddess/Princess/Witch, ordinary native boots
+and unarmored Witch at rest and one walking sample. Existing loose Goddess
+strap fit is separate; removing the erroneous shaft exposes its lower turns.
+This does not qualify arbitrary recipe admission or continuous limb contact.
+
+## Stop unchanged hair mesh relaxation pre-sweeps
+
+The face/edge constraint stage now stops its initial eight-pass relaxation loop
+when the existing `limit_stretch` result says no vertex moved, just as its trailing
+loop already does. Stable contact field, unchanged points, influence and edges
+make further identical passes redundant. The first full pass still runs and face
+contact still follows it; there is no tolerance, cache, new solver or changed
+iteration ceiling for active corrections.
+
+A blocked-edge witness first measured 126 field queries while neither endpoint
+could move; it now requires 28, covering one pre-pass and one post-pass. All 25
+release hair/contact tests pass, including emitted-mesh jump, pinned attachment,
+strain, swept motion and background/inline equivalence. Nine matched native
+rest/jump/later-jump pairs retain visual quality. The later capture is not a
+settling guarantee, and existing Nymph strand styling remains separate.
+
+Three alternating paired release processes of unchanged version-4 model_bench
+produce 270 frames per case per side. Nymph constraint-stage p50/p95/max were
+10.892/16.968/44.612 ms before and 10.279/14.067/18.812 ms after; full CPU update
+was 17.739/27.762/77.378 ms and 16.769/22.626/36.585 ms. Each candidate process
+had a lower Nymph constraint median, but these are correlated-frame diagnostics,
+not a statistical guarantee. Human/Mage non-hair controls also varied, including
+larger candidate maximum outliers. Mesh payload/entity/frame counts match.
+No FPS or universal speedup is claimed; even the candidate p95 exceeds a 20 ms
+CPU-update budget in this workload. Do not compare these timings directly with
+older runs on different toolchains or environments.

@@ -180,34 +180,54 @@ pub(super) fn hair_sheen(at: Vec3, normal: Vec3, seed: u64) -> f32 {
     0.94 * streak * sheen * under
 }
 
-/// A plait hanging from `top`, ending in a little tuft.
-pub(super) fn braid(p: &mut Parts, top: Vec3, color: Vec3) {
-    for k in 0..8 {
-        let t = k as f32 / 7.0;
-        let at = top
-            + Vec3::new(
-                if k % 2 == 0 { 0.008 } else { -0.008 },
-                -t * 0.26,
-                -t * 0.03,
+/// Radius of the first plait lobe, shared with an opening's attachment rule.
+pub(super) const BRAID_ROOT_RADIUS: f32 = 0.032;
+
+/// A plait with separately owned upper attachment and lower hairstyle endpoint.
+/// Fitting a cap may change the insertion without pushing the tuft into a cloak.
+#[derive(Clone, Copy)]
+pub(super) struct BraidProfile {
+    pub root: Vec3,
+    pub end: Vec3,
+}
+
+impl BraidProfile {
+    pub fn hanging(root: Vec3) -> Self {
+        Self {
+            root,
+            end: root + Vec3::new(0.0, -0.26, -0.03),
+        }
+    }
+
+    pub fn emit(self, p: &mut Parts, color: Vec3) {
+        for k in 0..8 {
+            let t = k as f32 / 7.0;
+            let at =
+                self.root.lerp(self.end, t) + Vec3::X * if k % 2 == 0 { 0.008 } else { -0.008 };
+            p.matte.blob(
+                at,
+                Vec3::splat(BRAID_ROOT_RADIUS - 0.012 * t),
+                1,
+                0.0,
+                color * (if k % 2 == 0 { 1.0 } else { 0.92 }),
             );
-        p.matte.blob(
-            at,
-            Vec3::splat(0.032 - 0.012 * t),
-            1,
-            0.0,
-            color * (if k % 2 == 0 { 1.0 } else { 0.92 }),
+        }
+        lock(
+            &mut p.matte,
+            &[
+                self.end + Vec3::new(0.0, -0.01, 0.0),
+                self.end + Vec3::new(0.0, -0.06, -0.005),
+            ],
+            0.02,
+            0.014,
+            color,
         );
     }
-    lock(
-        &mut p.matte,
-        &[
-            top + Vec3::new(0.0, -0.27, -0.03),
-            top + Vec3::new(0.0, -0.32, -0.035),
-        ],
-        0.02,
-        0.014,
-        color,
-    );
+}
+
+/// A plait hanging from `top`, ending in a little tuft.
+pub(super) fn braid(p: &mut Parts, top: Vec3, color: Vec3) {
+    BraidProfile::hanging(top).emit(p, color);
 }
 
 /// A short beard along the jaw to the chin, and a moustache.
@@ -357,6 +377,7 @@ pub(in crate::creatures) fn long_hair_form_for(p: &mut Parts, l: &Look) {
 }
 
 /// Each lock has its own topology; the head's fitted cap covers their roots.
+#[cfg(test)]
 pub(super) fn long_fall(p: &mut Parts, l: &Look) {
     for strand in long_hair_strands(hair_seed(l, 0)) {
         hanging_lock(p, l, &strand);
@@ -364,6 +385,10 @@ pub(super) fn long_fall(p: &mut Parts, l: &Look) {
 }
 
 pub(super) fn hanging_lock(p: &mut Parts, l: &Look, strand: &Strand) {
+    hair_envelope::emit(p, l, |p| authored_hanging_lock(p, l, strand));
+}
+
+fn authored_hanging_lock(p: &mut Parts, l: &Look, strand: &Strand) {
     let color = hair_color(l);
     let seed = hair_seed(l, 0);
     // Linear subdivision stays inside the authored control envelope. Spline
@@ -391,11 +416,97 @@ pub(super) fn hanging_lock(p: &mut Parts, l: &Look, strand: &Strand) {
         &path,
         &radii,
         20,
-        &|at, normal, _| color * hair_sheen(at, normal, seed),
+        &|normal, at, _| color * hair_sheen(at, normal, seed),
         None,
     );
     p.matte.smooth = smooth;
     p.matte.sides_mul = sides_mul;
+}
+
+/// Rest controls own a conservative volume as well as a centerline. Nonlinear
+/// cap compression can shear a ring beyond its old scalar radius. Measure only
+/// the affected pinned prefix, preserving every free-control radius and point.
+pub(super) fn hanging_controls(l: &Look, strand: &Strand) -> Vec<(Vec3, f32)> {
+    let last = strand.path.len() - 1;
+    let mut controls: Vec<_> = strand
+        .path
+        .iter()
+        .enumerate()
+        .map(|(i, &at)| {
+            let t = i as f32 / last as f32;
+            (
+                hair_envelope::fit_point(l, at),
+                strand.root + (strand.tip - strand.root) * t * t,
+            )
+        })
+        .collect();
+    let Some(profile) = hair_envelope::HairEnvelope::for_look(l) else {
+        return controls;
+    };
+    let mut source = Parts::default();
+    source.soften();
+    hanging_lock(&mut source, l, strand);
+    let mut expansion = vec![0.0f32; controls.len()];
+    for triangle in source.matte.surface_triangles() {
+        let centroid = (triangle[0] + triangle[1] + triangle[2]) / 3.0;
+        let project = |point: Vec3, a: Vec3, b: Vec3| {
+            ((point - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0)
+        };
+        // One segment owns the complete triangle. Its tapered capsule is
+        // convex, so vertex containment also bounds the triangle interior.
+        let segment = controls
+            .windows(2)
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let distance = |pair: &[(Vec3, f32)]| {
+                    centroid.distance_squared(
+                        pair[0]
+                            .0
+                            .lerp(pair[1].0, project(centroid, pair[0].0, pair[1].0)),
+                    )
+                };
+                distance(a).total_cmp(&distance(b))
+            })
+            .unwrap()
+            .0;
+        let (a, ra) = controls[segment];
+        let (b, rb) = controls[segment + 1];
+        // A moved endpoint changes the whole segment, including unchanged
+        // surface below the envelope transition. Bound that entire ownership.
+        if a == strand.path[segment]
+            && b == strand.path[segment + 1]
+            && triangle.iter().all(|p| p.y <= profile.transition())
+        {
+            continue;
+        }
+        for point in triangle {
+            let t = project(point, a, b);
+            let excess = (point.distance(a.lerp(b, t)) - (ra + (rb - ra) * t)).max(0.0);
+            let attached_weight = if strand.attached[segment] {
+                1.0 - t
+            } else {
+                0.0
+            } + if strand.attached[segment + 1] { t } else { 0.0 };
+            // Canonical hair places the entire cap transition on attached
+            // controls. Never enlarge a free socket to conceal a mismatch.
+            assert!(
+                attached_weight > 0.0 || excess < 1e-6,
+                "cap surface escaped its pinned control prefix"
+            );
+            if excess > 0.0 && attached_weight > 0.0 {
+                let needed = excess / attached_weight;
+                for endpoint in [segment, segment + 1] {
+                    if strand.attached[endpoint] {
+                        expansion[endpoint] = expansion[endpoint].max(needed);
+                    }
+                }
+            }
+        }
+    }
+    for ((_, radius), extra) in controls.iter_mut().zip(expansion) {
+        *radius += extra;
+    }
+    controls
 }
 
 pub(super) fn hair_seed(l: &Look, style: u8) -> u64 {
@@ -404,6 +515,87 @@ pub(super) fn hair_seed(l: &Look, style: u8) -> u64 {
 
 /// A person's hair, without the long fall when that hangs on its own.
 pub(super) fn hair(p: &mut Parts, l: &Look, with_fall: bool) {
+    covered_hair(p, l, with_fall);
+    if let Some(bun) = fitted_bun(l) {
+        emit_bun(p, l, bun);
+    }
+}
+
+/// The scalp component is distinct from an exposed rear bun. The latter has
+/// its own attachment and must not be squeezed into the covered crown volume.
+pub(super) fn covered_hair(p: &mut Parts, l: &Look, with_fall: bool) {
+    hair_envelope::emit(p, l, |p| authored_covered_hair(p, l, with_fall));
+}
+
+pub(super) fn authored_covered_hair(p: &mut Parts, l: &Look, with_fall: bool) {
+    authored_hair_parts(p, l, with_fall, fitted_bun(l).is_none());
+}
+
+#[cfg(test)]
+pub(super) fn authored_hair(p: &mut Parts, l: &Look, with_fall: bool) {
+    authored_hair_parts(p, l, with_fall, true);
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct BunProfile {
+    pub center: Vec3,
+    pub radii: Vec3,
+}
+
+impl BunProfile {
+    pub const AUTHORED: Self = Self {
+        center: Vec3::new(0.0, 0.25, -0.115),
+        radii: Vec3::new(0.062, 0.056, 0.056),
+    };
+}
+
+pub(super) fn fitted_bun(l: &Look) -> Option<BunProfile> {
+    if !(l.v.woman && hair_style(l) == 2 && hair_envelope::HairEnvelope::for_look(l).is_some()) {
+        return None;
+    }
+    let mut bun = BunProfile::AUTHORED;
+    match Outfit::worn(l).head {
+        Headwear::Veiled { .. } => {
+            let cap = crown_parts::CrownProfile::veiled();
+            // Retain height and dimensions; the front clears the cap's rear.
+            let rear = cap
+                .outer_point(PI, 0.0)
+                .z
+                .min(cap.rim_point(PI).z - crown_parts::VEILED_RIM_RADIUS);
+            bun.center.z = rear - bun.radii.z - 0.001;
+        }
+        Headwear::Tricorn { .. } | Headwear::WitchHat { .. } => {
+            // A broad brim owns the vertical clearance. Seat this rigid bun
+            // below it, at the authored nape station, rather than crushing it
+            // into the crown or pushing it beyond the brim's outer edge.
+            let cap = match Outfit::worn(l).head {
+                Headwear::WitchHat { .. } => crown_parts::CrownProfile::witch_hat(),
+                _ => crown_parts::CrownProfile::tricorn(),
+            };
+            let tie_extent = 0.055 + 0.008;
+            bun.center.y = cap.opening - 0.006 - bun.radii.y.max(tie_extent) - 0.002;
+        }
+        _ => unreachable!("only fitted headwear separates the exposed bun"),
+    }
+    Some(bun)
+}
+
+pub(super) fn emit_bun(p: &mut Parts, l: &Look, bun: BunProfile) {
+    let c = hair_color(l);
+    let color = c * (0.9 + 0.18 * rand(hair_seed(l, hair_style(l)), 6));
+    p.matte.blob(bun.center, bun.radii, 2, 0.0, color);
+    p.matte.torus(
+        bun.center,
+        Vec3::new(0.0, 0.3, -1.0).normalize(),
+        0.055,
+        0.008,
+        12,
+        4,
+        c * 0.75,
+    );
+}
+
+fn authored_hair_parts(p: &mut Parts, l: &Look, with_fall: bool, with_bun: bool) {
     let c = hair_color(l);
     let v = l.v;
     let style = hair_style(l);
@@ -500,7 +692,9 @@ pub(super) fn hair(p: &mut Parts, l: &Look, with_fall: bool) {
         // at the scalp and part into separate locks towards their tips.
         0 => {
             if with_fall {
-                long_fall(p, l);
+                for strand in long_hair_strands(hair_seed(l, 0)) {
+                    authored_hanging_lock(p, l, &strand);
+                }
             }
         }
         // A high ponytail.
@@ -527,23 +721,12 @@ pub(super) fn hair(p: &mut Parts, l: &Look, with_fall: bool) {
                 c,
             );
         }
-        // A neat bun.
+        // A neat bun, kept as an independent exposed hair component when a
+        // cap covers the scalp; ordinary hairstyles use the original profile.
         2 => {
-            mass(
-                p,
-                Vec3::new(0.0, 0.25, -0.115),
-                Vec3::new(0.062, 0.056, 0.056),
-                tone(6),
-            );
-            p.matte.torus(
-                Vec3::new(0.0, 0.25, -0.115),
-                Vec3::new(0.0, 0.3, -1.0).normalize(),
-                0.055,
-                0.008,
-                12,
-                4,
-                c * 0.75,
-            );
+            if with_bun {
+                emit_bun(p, l, BunProfile::AUTHORED);
+            }
         }
         // A single long braid.
         3 => braid(p, Vec3::new(0.0, 0.13, -0.13), c),
@@ -882,5 +1065,53 @@ mod equipment_hair_tests {
             equipment_hair(&mut bald, &look, equipment_headwear::HeadwearKind::Visored);
             assert!(!bald.matte.bounds().0.is_finite());
         }
+    }
+}
+
+#[cfg(test)]
+mod hanging_pigment_tests {
+    use super::*;
+
+    #[test]
+    fn hanging_hair_pigment_uses_surface_position_then_outward_normal() {
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        );
+        // Straight, constant-radius witness isolates pigment from path fitting.
+        let start = Vec3::new(0.12, 0.08, 0.09);
+        let end = Vec3::new(0.12, -0.2, 0.09);
+        let strand = Strand {
+            attached: vec![false; 2],
+            support_side: None,
+            path: vec![start, end],
+            root: 0.03,
+            tip: 0.03,
+        };
+        let mut actual = Parts::default();
+        authored_hanging_lock(&mut actual, &look, &strand);
+        let path: Vec<_> = (0..=4).map(|i| start.lerp(end, i as f32 / 4.0)).collect();
+        let radii = vec![Vec2::splat(0.03); 5];
+        let mut expected = Parts::default();
+        let smooth = expected.matte.smooth;
+        let sides = expected.matte.sides_mul;
+        expected.matte.smooth = false;
+        expected.matte.sides_mul = 1;
+        expected.matte.tube_framed(
+            &path,
+            &radii,
+            20,
+            &|outward, position, _| {
+                hair_color(&look) * hair_sheen(position, outward, hair_seed(&look, 0))
+            },
+            None,
+        );
+        expected.matte.smooth = smooth;
+        expected.matte.sides_mul = sides;
+        actual.matte.assert_same_recipe(&expected.matte);
     }
 }

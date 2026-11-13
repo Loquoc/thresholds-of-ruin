@@ -15,12 +15,12 @@ pub(super) struct Figure {
     pub(super) outfit: Outfit,
     pub(super) heraldry: Heraldry,
     /// Dressed in its kind's own outfit.
-    pub(super) native: bool,
     pub(super) fitted_robe: bool,
     pub(super) boots: Option<super::outfit::Boots>,
     pub(super) shoes: Option<Shoes>,
     pub(super) boot_shape: BootShape,
     native_shaft: Option<boot_parts::NativeShaft>,
+    fitted_shin: Option<equipment_footwear::FittedShin>,
     pub(super) blocky: bool,
     pub(super) furry: bool,
     pub(super) cuirass: bool,
@@ -32,7 +32,7 @@ pub(super) struct Figure {
     pub(super) trousered: bool,
     pub(super) boot: Vec3,
     pub(super) sleeve: Vec3,
-    pub(super) fore_color: Vec3,
+    forearm: forearm_plan::Plan,
     pub(super) styled: Option<super::outfit::Sleeve>,
     pub(super) hand_color: Vec3,
     pub(super) trim_neck: bool,
@@ -43,24 +43,38 @@ pub(super) struct Figure {
     pub(super) equipped_plate: Option<crate::sdf::Sculpt>,
     pub(super) shirt_shape: Option<crate::sdf::Sculpt>,
     pub(super) shirt_support: Option<crate::sdf::Sculpt>,
+    /// One resolved native strap is shared by rendering and later layers.
+    baldric: std::cell::OnceCell<super::fitting::FittedBaldric>,
     /// What a belt or waistband clears.
     pub(super) waist_support: crate::sdf::Sculpt,
 }
 
 impl Figure {
+    /// Native body foundation, including the bodice's chest support when no
+    /// equipment shirt replaces it. This is not always bare anatomy.
+    fn body_support(&self) -> crate::sdf::Sculpt {
+        let mut skin = torso_shape(self.body, None, self.trim_neck);
+        if let (None, Some(bust), Some(share)) = (
+            self.look.equipment.shirt,
+            self.body.bust,
+            self.outfit.bodice.support.share(),
+        ) {
+            bust_underbridge(&mut skin, &bust, share, 0.0, 0.0);
+        }
+        skin
+    }
+
+    /// Fitted outer pieces start at the equipment shirt when present. The
+    /// body's own emitted surface must still use `body_support` separately.
+    fn inner_torso_support(&self) -> crate::sdf::Sculpt {
+        self.shirt_shape
+            .clone()
+            .unwrap_or_else(|| self.body_support())
+    }
+
     /// Identical retained support for torso wraps and their sewn tail roots.
     fn outerwear_support(&self) -> crate::sdf::Sculpt {
-        let mut support = self.shirt_shape.clone().unwrap_or_else(|| {
-            let mut skin = torso_shape(self.body, None, self.trim_neck);
-            if let (None, Some(bust), Some(share)) = (
-                self.look.equipment.shirt,
-                self.body.bust,
-                self.outfit.bodice.support.share(),
-            ) {
-                bust_underbridge(&mut skin, &bust, share, 0.0, 0.0);
-            }
-            skin
-        });
+        let mut support = self.inner_torso_support();
         for layer in [
             self.shell_shape.as_ref(),
             self.native_plate.as_ref(),
@@ -72,6 +86,35 @@ impl Figure {
             support.union(layer.clone(), 0.0);
         }
         support
+    }
+
+    /// Lazily retain the fitted layer. Cached bare-outerwear actors do not
+    /// refit a baldric whose mesh is already cached. Future layers can share it.
+    fn baldric(&self) -> Option<&super::fitting::FittedBaldric> {
+        let recipe = self.outfit.baldric?;
+        Some(self.baldric.get_or_init(|| {
+            let body = self.body;
+            let skin = self.inner_torso_support();
+            let garment = self
+                .native_plate
+                .as_ref()
+                .or(self.shell_shape.as_ref())
+                .unwrap_or(&skin);
+            let mut support = torso_layer_support(&skin, garment);
+            if let Some(armor) = &self.equipped_plate {
+                support.union(armor.clone(), 0.0);
+            }
+            super::fitting::FittedBaldric::resolve(
+                &support,
+                body,
+                recipe,
+                if self.native_plate.is_some() {
+                    EMBLEM_FIELD_OFFSET
+                } else {
+                    0.0
+                },
+            )
+        }))
     }
 
     pub(super) fn bare_shoulders(&self) -> bool {
@@ -90,13 +133,13 @@ impl Figure {
         // charms) come only with its own outfit; another outfit brings its own.
         let composition = Composition::resolve(&l);
         let outfit = composition.outfit;
+        let forearm = forearm_plan::Plan::resolve(&l, &outfit);
         let heraldry = outfit.trimmings.heraldry.unwrap_or(Heraldry {
             field: l.cloth,
             edge: GILT,
             emblem: CREAM,
             mark: l.v.pattern,
         });
-        let native = l.outfit.is_none();
         let fitted_robe = outfit.robe.is_some();
         let boots = match outfit.feet {
             Feet::Boots(boots) => Some(boots),
@@ -115,7 +158,7 @@ impl Figure {
                 -0.24
             },
         );
-        let boot_shape = l.equipment.footwear().map_or(boot_shape, |kind| {
+        let fitted_shin = l.equipment.footwear().map(|kind| {
             equipment_footwear::fit_shin(
                 kind,
                 boot_shape,
@@ -124,6 +167,9 @@ impl Figure {
                 b,
             )
         });
+        let boot_shape = fitted_shin
+            .as_ref()
+            .map_or(boot_shape, |fit| fit.envelope());
         let blocky = style == Style::Guardian;
         let furry = style == Style::Yeti;
         let cuirass = outfit.outer == Some(Outer::Cuirass);
@@ -161,17 +207,15 @@ impl Figure {
             _ => boot_shape,
         };
         let sleeve = outfit.sleeve(l.skin);
-        let fore_color = outfit.forearm(l.skin);
         let styled = match outfit.arms {
             Arms::Styled(sleeve) => Some(sleeve),
             _ => None,
         };
         let hand_color = outfit.hands.resolve(l.skin);
-        let trim_neck = !native
-            || !matches!(
-                style,
-                Style::Sentinel | Style::Hobgoblin | Style::Zombie | Style::Orc | Style::Troll
-            );
+        // Garment neck extensions use one policy regardless of whether a
+        // recipe was native or copied. Bare anatomy is never trimmed, and
+        // lower authored openings still determine the visible garment edge.
+        let trim_neck = true;
         let shell_shape = outfit_shell(body, &outfit, trim_neck);
         let native_plate = cuirass.then(|| {
             let mut plate = torso_garment(body, TorsoMaterial::Plate, trim_neck);
@@ -226,6 +270,7 @@ impl Figure {
             waist_support.union(plate.clone(), 0.0);
         }
         Self {
+            baldric: std::cell::OnceCell::new(),
             look: l,
             style,
             body,
@@ -236,12 +281,12 @@ impl Figure {
             arm_len,
             outfit,
             heraldry,
-            native,
             fitted_robe,
             boots,
             shoes,
             boot_shape,
             native_shaft,
+            fitted_shin,
             blocky,
             furry,
             cuirass,
@@ -252,7 +297,7 @@ impl Figure {
             trousered,
             boot,
             sleeve,
-            fore_color,
+            forearm,
             styled,
             hand_color,
             trim_neck,
@@ -281,7 +326,7 @@ pub(super) fn biped(kit: &mut Kit, lift: Entity, look: &Look) {
     let figure = Figure::resolve(body, look);
     let &Figure { body, outfit, .. } = &figure;
     let hips = kit.joint(J::Hips, lift, body.hips, "hips", |p| hip_parts(p, &figure));
-    skirts(kit, &figure, hips);
+    let detail_support = skirts(kit, &figure, hips);
     let torso = kit.joint(J::Torso, hips, body.torso, "torso", |p| {
         torso_parts(p, &figure)
     });
@@ -292,7 +337,14 @@ pub(super) fn biped(kit: &mut Kit, lift: Entity, look: &Look) {
     arms(kit, &figure, torso);
     legs(kit, &figure, hips);
     loose_hair(kit, &figure, head);
-    garment_details::spawn(kit, outfit.details, body, hips);
+    garment_details::spawn(
+        kit,
+        outfit.details,
+        body,
+        hips,
+        &figure.waist_support,
+        detail_support,
+    );
     cloak(kit, &figure, torso);
 }
 
@@ -304,7 +356,6 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
         body,
         outfit,
         heraldry,
-        native,
         fitted_robe,
         blocky,
         furry,
@@ -388,21 +439,7 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
         return;
     }
     // The tunic's own skirt is a separate drape (see below).
-    if native && style == Style::Zombie {
-        for k in 0..5 {
-            let a = k as f32 * 1.3;
-            let at = Vec3::new(a.cos() * 0.2 * body.profile.hips, -0.2, a.sin() * 0.2);
-            p.matte.prism(
-                at,
-                at + Vec3::new(a.cos() * 0.03 * body.profile.hips, -0.1, a.sin() * 0.03),
-                0.04,
-                0.0,
-                3,
-                tunic * 0.7,
-                0.0,
-            );
-        }
-    }
+    garment_details::emit_hip_static(p, outfit.details, body, tunic);
     if cuirass {
         // Long tabard panels front and back, gilt-edged, falling past the belt.
         for (z, lean) in [(0.19f32, -0.07f32), (-0.19, 0.07)] {
@@ -439,7 +476,21 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
     let belt = super::robe::belt_on(body, BELT_CENTER_Y, waist_support);
     // Caster cloth and its band already share a dedicated hip-frame rig.
     if outfit.belt && fitted_robe {
-        waist_parts::belt(p, body, waist_support);
+        waist_parts::belt(
+            p,
+            body,
+            waist_support,
+            !matches!(
+                outfit.details.hip,
+                Some(
+                    crate::creatures::outfit::HipDecoration::Loincloth { .. }
+                        | crate::creatures::outfit::HipDecoration::BucklePouch { .. }
+                )
+            ),
+        );
+    }
+    if fitted_robe {
+        garment_details::emit_belt_static(p, outfit, body, waist_support);
     }
     if let Some(worn) = outfit
         .trimmings
@@ -480,7 +531,6 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         fitted_robe,
         cuirass,
         tunic,
-        trim_neck,
         ref shell_shape,
         ref native_plate,
         armor_item,
@@ -550,14 +600,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
     use crate::sdf::Sculpt;
     let (sh, w) = (shoulders * b, waist * b);
     let neckline = NecklineCut::resolve(outfit.bodice.cut, body);
-    let mut body_shape = torso_shape(body, None, trim_neck);
-    // The tunic painted on the body carries her chest as it is made to.
-    if let (None, Some(bust), Some(share)) =
-        (l.equipment.shirt, body.bust, outfit.bodice.support.share())
-    {
-        bust_underbridge(&mut body_shape, &bust, share, 0.0, 0.0);
-    }
-    let body_shape = body_shape;
+    let body_shape = figure.body_support();
     let bare_shoulders = figure.bare_shoulders();
     let skin_patch = |at: Vec3, normal: Vec3| {
         if style == Style::Zombie && normal.z > 0.35 {
@@ -970,11 +1013,6 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         attachment_support.union(armor.clone(), 0.0);
     }
     let garment = &attachment_support;
-    let accessory_overlay = if plate.is_some() {
-        EMBLEM_FIELD_OFFSET
-    } else {
-        0.0
-    };
     if cuirass {
         // The separate gorget belongs to the articulated plate armour.
         p.matte.torus(
@@ -1045,20 +1083,24 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         );
         fitted_band(&mut p.metal, cuirass, 0.018, 0.034, 0.004, GILT);
         if let Some(cut) = neckline {
-            // A gilt rolled edge finishes the lowered V.
-            for side in [-1.0f32, 1.0] {
-                let at = |t: f32| {
-                    let y = cut.bottom + (0.515 - cut.bottom) * t;
-                    (Vec2::new(side * (cut.edge(y) + 0.007), y), 0.019)
-                };
-                fitted_ribbon(
-                    &mut p.metal,
-                    cuirass,
-                    &[0.02, 0.2, 0.4, 0.6, 0.8, 1.0].map(at),
-                    true,
-                    0.003,
-                    GILT,
-                );
+            // Bind the actual opening, not the idealized flat V. Retain the
+            // uncut support only for this edge so a ribbon cannot jump through
+            // the opening to the rear of the armor.
+            let mut support = torso_garment(body, TorsoMaterial::Plate, figure.trim_neck);
+            support
+                .carve(crate::sdf::Shape::Beyond(Vec3::Y, 0.525), 0.004)
+                .carve(crate::sdf::Shape::Beyond(Vec3::NEG_Y, -0.012), 0.0);
+            let [left, right] = cut.surface_rim(body, &support, 0.525, 0.008);
+            // One continuous strip closes the bottom join; two separately
+            // capped arms leave a slit where their tangent directions differ.
+            let path: Vec<_> = left
+                .into_iter()
+                .rev()
+                .map(|at| (at - Vec2::X * 0.006, 0.019))
+                .chain(right.into_iter().map(|at| (at + Vec2::X * 0.006, 0.019)))
+                .collect();
+            if path.len() >= 2 {
+                fitted_ribbon(&mut p.metal, &support, &path, true, 0.003, GILT);
             }
         }
         for front in [true, false] {
@@ -1107,31 +1149,40 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         }
     }
     if let Some(worn) = outfit.trimmings.neck {
-        accessory_parts::neck_collar(
-            p,
-            worn,
-            b,
-            if equipped_plate.is_some() {
-                garment
-            } else {
-                &body_shape
-            },
-        );
+        accessory_parts::neck_collar(p, worn, body, garment, l);
     }
-    if let Some(baldric) = outfit.baldric {
-        fitted_baldric(p, garment, body, baldric, accessory_overlay);
+    if let Some(baldric) = figure.baldric() {
+        baldric.emit_covered(p, equipped_plate.as_ref());
     }
     if let (Some(item), Some(armor)) = (armor_item, &equipped_plate) {
         armor_parts::emit(p, armor, body, item);
     }
     if let Some(ornament) = outfit.torso_ornament {
-        ornament_parts::emit(p, ornament, body, garment, &body_shape, neckline);
+        if let TorsoOrnament::RivetedVest { strap, rivets } = ornament {
+            let mut shoulders = plate.as_ref().or(shell).map_or_else(
+                || body_shape.clone(),
+                |layer| torso_layer_transition_support(&body_shape, layer),
+            );
+            if let Some(armor) = &equipped_plate {
+                shoulders.union(armor.clone(), 0.0);
+            }
+            ornament_parts::emit_riveted_vest(p, body, garment, &shoulders, strap, rivets);
+        } else {
+            ornament_parts::emit(p, ornament, body, garment, &body_shape, neckline);
+        }
     }
     let fitted_waist = outfit
         .trimmings
         .waist
         .filter(|w| w.attachment() == J::Torso);
-    if !fitted_robe && (outfit.belt || fitted_waist.is_some()) {
+    if !fitted_robe
+        && (outfit.belt
+            || fitted_waist.is_some()
+            || matches!(
+                outfit.details.hip,
+                Some(crate::creatures::outfit::HipDecoration::BucklePouch { .. })
+            ))
+    {
         // Every fitted waist piece follows the torso surface it encloses.
         // Continuous robe bands retain their dedicated hip/robe frame.
         p.set_transform(reparent_mesh_transform(
@@ -1141,8 +1192,20 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
             body.torso,
         ));
         if outfit.belt {
-            waist_parts::belt(p, body, waist_support);
+            waist_parts::belt(
+                p,
+                body,
+                waist_support,
+                !matches!(
+                    outfit.details.hip,
+                    Some(
+                        crate::creatures::outfit::HipDecoration::Loincloth { .. }
+                            | crate::creatures::outfit::HipDecoration::BucklePouch { .. }
+                    )
+                ),
+            );
         }
+        garment_details::emit_belt_static(p, outfit, body, waist_support);
         if let Some(worn) = fitted_waist {
             accessory_parts::waist(p, worn, body, waist_support);
         }
@@ -1156,7 +1219,15 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
 
 /// The head, face, hair and headwear.
 /// Skirts, a jerkin's peplum and a fitted robe, layered over the hips.
-fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
+fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::PanelSupport> {
+    let mut detail_support = Vec::new();
+    let fit_details = matches!(
+        figure.outfit.details.hip,
+        Some(
+            crate::creatures::outfit::HipDecoration::Loincloth { .. }
+                | crate::creatures::outfit::HipDecoration::RaggedApron { .. }
+        )
+    );
     let &Figure {
         look: ref l,
         body,
@@ -1356,6 +1427,13 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 }
             }
         }
+        if fit_details {
+            detail_support.push(garment_details::PanelSupport::Skirt {
+                surface: surface.clone(),
+                skirt: Box::new(skirt),
+                scale: skirt_scale,
+            });
+        }
         let entity = kit.drape_scaled(
             hips,
             Transform::IDENTITY,
@@ -1416,6 +1494,14 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 outfit.skirt.is_some_and(|skirt| skirt.trim.is_some()),
             );
         }
+        if fit_details {
+            detail_support.push(garment_details::PanelSupport::Peplum {
+                surface: surface.clone(),
+                color: peplum.color,
+                trim: peplum.trim,
+                offset,
+            });
+        }
         kit.drape(
             hips,
             Transform::from_translation(offset),
@@ -1475,6 +1561,7 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) {
             rig.refresh_layers(kit.meshes);
         }
     }
+    detail_support
 }
 
 /// Both arms, from the shoulder to the hand, with their sleeves and armour.
@@ -1490,7 +1577,7 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
         furry,
         bare_arms,
         sleeve,
-        fore_color,
+        forearm,
         styled,
         hand_color,
         armor_item,
@@ -1562,140 +1649,7 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
             }
         });
         let lower = kit.joint(fore, upper, body.elbow(), &format!("fore{tag}"), |p| {
-            if blocky {
-                stone(
-                    &mut p.matte,
-                    Vec3::Y * -0.15,
-                    Vec3::new(0.075, 0.15, 0.075),
-                    l.skin * 0.9,
-                    9,
-                );
-                stone(
-                    &mut p.matte,
-                    Vec3::Y * -0.34,
-                    Vec3::new(0.105, 0.085, 0.105),
-                    l.skin,
-                    10,
-                );
-                return;
-            }
-            if metal {
-                // An elbow cop with a fan.
-                p.metal.blob(
-                    Vec3::new(0.0, 0.0, -0.01),
-                    Vec3::new(0.07, 0.065, 0.07),
-                    2,
-                    0.0,
-                    STEEL * 1.05,
-                );
-                p.metal.blob(
-                    Vec3::new(side * 0.055, 0.0, -0.01),
-                    Vec3::new(0.012, 0.05, 0.045),
-                    2,
-                    0.0,
-                    STEEL,
-                );
-            }
-            let m = if metal { &mut p.metal } else { &mut p.matte };
-            if metal {
-                m.blob(Vec3::ZERO, Vec3::splat(0.058 * b), 2, 0.0, sleeve);
-                tube(
-                    m,
-                    &[
-                        Vec3::ZERO,
-                        Vec3::new(0.0, -0.07 * arm_len, 0.004),
-                        Vec3::Y * -0.17 * arm_len,
-                        Vec3::Y * -0.26 * arm_len,
-                    ],
-                    &[
-                        (0.05 * b, 0.05 * b),
-                        (
-                            0.06 * b * body.profile.muscle,
-                            0.056 * b * body.profile.muscle,
-                        ),
-                        (
-                            0.05 * b * (0.5 + 0.5 * body.profile.muscle),
-                            0.046 * b * (0.5 + 0.5 * body.profile.muscle),
-                        ),
-                        (0.04 * b, 0.036 * b),
-                    ],
-                    sleeve,
-                );
-            } else if !furry {
-                let fore_bare = bare_arms
-                    && !styled.is_some_and(|styled| {
-                        matches!(styled.cut, SleeveCut::Gauntlet | SleeveCut::Draped)
-                    });
-                organic_forearm(m, b, arm_len, body.profile.muscle, fore_bare, fore_color);
-            }
-            let cuff = outfit.cuffs;
-            if let Some(styled) = styled.filter(|styled| {
-                matches!(
-                    styled.cut,
-                    SleeveCut::Bell | SleeveCut::Gauntlet | SleeveCut::Draped
-                )
-            }) {
-                // A bell flares from the elbow; a gauntlet's drape is sheer.
-                let flare = styled.flare.unwrap_or(styled.color);
-                let builder = if styled.cut == SleeveCut::Gauntlet {
-                    &mut p.sheer
-                } else {
-                    &mut p.matte
-                };
-                biped_cuff(
-                    builder,
-                    b * 1.15,
-                    arm_len,
-                    body.profile.muscle,
-                    true,
-                    flare,
-                    flare * 0.8,
-                );
-            } else if let Some(robe) = outfit.robe {
-                biped_cuff(m, b, arm_len, body.profile.muscle, true, sleeve, robe.trim);
-            } else if let Some(cuff) = cuff {
-                if metal {
-                    // Keep the vambrace separate from its elbow cop.
-                    m.prism(
-                        Vec3::Y * -0.13 * arm_len,
-                        Vec3::Y * -0.25 * arm_len,
-                        0.056 * b,
-                        0.05 * b,
-                        8,
-                        cuff,
-                        0.0,
-                    );
-                } else {
-                    biped_cuff(m, b, arm_len, body.profile.muscle, false, cuff, cuff * 0.86);
-                }
-            }
-            if let Some(metal) = outfit.trimmings.bracelets {
-                p.metal.torus(
-                    Vec3::Y * (-0.255 * arm_len),
-                    Vec3::Y,
-                    0.041 * b,
-                    0.004 * b,
-                    24,
-                    5,
-                    metal,
-                );
-            }
-            if furry {
-                fur_parts::Coat::hanging_limb(
-                    body.hand.length(),
-                    Vec2::splat(0.085 * b),
-                    0.095 * arm_len,
-                    l.cloth,
-                    43 + side as u64,
-                )
-                .emit(p);
-            }
-            if let Some(outerwear) = l.equipment.outerwear() {
-                equipment_outerwear::emit_robe_sleeve(p, outerwear, 0.26 * arm_len, b, false);
-            }
-            if let Some(gloves) = l.equipment.hands {
-                equipment_gloves::emit_cuff(p, gloves, body.hand, b, arm_len);
-            }
+            forearm.emit(p, body, side);
         });
         let grip = kit
             .commands
@@ -1739,19 +1693,21 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
                 } else {
                     fist(p, Vec3::Y * (0.01 * arm_len), side, b, hand_color);
                 }
-                if furry {
-                    for k in 0..3 {
-                        let x = (k as f32 - 1.0) * 0.03;
-                        p.matte.prism(
-                            Vec3::new(x, -0.09 * arm_len, 0.04),
-                            Vec3::new(x, -0.14 * arm_len, 0.09),
-                            0.012,
-                            0.0,
-                            4,
-                            BONE,
-                            0.0,
-                        );
-                    }
+                if furry && l.equipment.hands.is_none() {
+                    // Resolve all roots against the finished bare hand before adding
+                    // any claws, so one claw cannot become another's support.
+                    let relaxed = side > 0.0 && open;
+                    let roots: Vec<_> = (0..3)
+                        .filter_map(|k| {
+                            let spread = if relaxed { 0.021 * 1.4 } else { 0.019 };
+                            let x = -side * if relaxed { 0.018 } else { 0.012 } * b;
+                            let z = (1.5 - k as f32) * spread * b;
+                            p.matte
+                                .outer_surface(Vec3::new(x, 0.01 * arm_len, z), Vec3::NEG_Y)
+                        })
+                        .map(|at| at + Vec3::Y * (0.004 * b))
+                        .collect();
+                    exposed_claws(p, roots, Vec3::new(0.0, -0.035, 0.012) * b, 0.008 * b);
                 }
             });
         }
@@ -1783,9 +1739,6 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
     ] {
         let tag = if side > 0.0 { "l" } else { "r" };
         let thigh = kit.joint(leg, hips, body.leg_root(side), &format!("leg{tag}"), |p| {
-            if let Some(color) = outfit.trimmings.garter.filter(|_| side > 0.0 && !blocky) {
-                accessory_parts::garter(p, color, b);
-            }
             if blocky {
                 stone(
                     &mut p.matte,
@@ -1815,6 +1768,9 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
             } else {
                 // Hip to knee: the thigh is fullest above the middle.
                 sculpted_limb(&mut p.matte, body.thigh, pants);
+            }
+            if let Some(color) = outfit.trimmings.garter.filter(|_| side > 0.0 && !blocky) {
+                accessory_parts::garter(p, color, b);
             }
         });
         let lower_leg = kit.joint(shin, thigh, body.knee(), &format!("shin{tag}"), |p| {
@@ -1863,17 +1819,11 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 sculpted_limb(&mut p.matte, body.shin, pants);
             }
             if let Some(kind) = l.equipment.footwear() {
-                equipment_footwear::emit_fitted_shaft(
-                    p,
-                    kind,
-                    boot_shape,
-                    b,
-                    side,
-                    boot,
-                    kind.trim(),
-                    body.shin,
-                    trousered,
-                );
+                let fit = figure
+                    .fitted_shin
+                    .as_ref()
+                    .expect("equipped footwear has one resolved fit");
+                equipment_footwear::emit_fitted_shaft(p, fit, side, boot, kind.trim());
                 return;
             }
             let boot_top = boot_shape.top;
@@ -1897,7 +1847,9 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
             let bare_leg = matches!(outfit.legs, Legs::Bare(_)) && boots.is_none();
             if let Some(shaft) = &figure.native_shaft {
                 shaft.emit(&mut p.satin, boot);
-            } else if !bare_leg && !furry {
+            } else if boots.is_some() && !furry {
+                // Only boots own shafts. Bare feet and low shoes never acquire
+                // one merely because fitted skin, trousers or armor cover a calf.
                 p.satin.prism(
                     Vec3::Y * boot_top,
                     Vec3::Y * boot_shape.bottom,
@@ -1909,29 +1861,59 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 );
             }
             if let Some(shoes) = shoes {
-                // An ankle strap, and for gladiator sandals straps laced
-                // up the shin, each round its own girth.
-                let low = boot_shape.bottom + 0.012;
+                // Resolve every band against the actual calf/retained leg armor
+                // before emission, so bands cannot support themselves. The lowest
+                // station clears the shoe upper in its ankle frame. Keep the count,
+                // top extent and material, adapting spacing to the available calf.
                 let bands = 1 + (shoes.straps * 6.0).round() as usize;
-                for k in 0..bands {
-                    let y = low + 0.05 * k as f32;
-                    let girth = 0.045 + 0.022 * ((y - low) / 0.27).clamp(0.0, 1.0);
-                    p.satin.torus(
-                        Vec3::Y * y,
-                        Vec3::Y,
-                        girth * b + 0.004,
-                        0.006,
-                        12,
-                        3,
-                        shoes.color,
-                    );
+                let low = body.ankle().y
+                    + boot_parts::shoe_upper_top(BootLast {
+                        build: b,
+                        heeled: shoes.heel,
+                    })
+                    + 0.014;
+                let top = (boot_shape.bottom + 0.012 + 0.05 * (bands - 1) as f32).max(low);
+                let fitted: Vec<_> = (0..bands)
+                    .filter_map(|k| {
+                        radial_parts::RoundedBandProfile {
+                            height: low + (top - low) * k as f32 / (bands - 1).max(1) as f32,
+                            half_height: 0.006,
+                            clearance: 0.002,
+                            radial_half: 0.006,
+                            sides: 16,
+                            sections: 4,
+                        }
+                        .resolve_layers(p, shoes.color, None)
+                    })
+                    .collect();
+                for band in fitted {
+                    for triangle in band.surface_triangles() {
+                        p.satin.tri(triangle, shoes.color);
+                    }
                 }
             }
             if barefoot && !bare_leg && !furry {
-                // Wrappings bind the ankle and calf of a bare leg.
-                for y in [-0.3f32, -0.36] {
-                    p.satin
-                        .torus(Vec3::Y * y, Vec3::Y, 0.062 * b, 0.01, 12, 3, LEATHER * 0.8);
+                // Native leather bindings follow the actual calf, not an
+                // implicit skin-colored boot. Resolve both before emission.
+                let color = LEATHER * 0.8;
+                let bindings: Vec<_> = [-0.3f32, -0.36]
+                    .into_iter()
+                    .filter_map(|height| {
+                        radial_parts::RoundedBandProfile {
+                            height,
+                            half_height: 0.01,
+                            clearance: 0.002,
+                            radial_half: 0.01,
+                            sides: 16,
+                            sections: 4,
+                        }
+                        .resolve_layers(p, color, None)
+                    })
+                    .collect();
+                for binding in bindings {
+                    for triangle in binding.surface_triangles() {
+                        p.satin.tri(triangle, color);
+                    }
                 }
             } else if boots.is_some_and(|boots| boots.cuffed) {
                 let (radius, thickness) = (boot_shape.cuff_radius, boot_shape.cuff_thickness);
@@ -1952,22 +1934,17 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
             if boots.is_some_and(|boots| boots.buckles) {
                 for y in [-0.3f32, -0.37] {
                     if let Some(shaft) = &figure.native_shaft {
-                        shaft.band(&mut p.satin, y, 0.009, boot * 0.6);
+                        shaft.buckled_band(p, y, side, boot * 0.6);
                     } else {
                         p.satin
                             .torus(Vec3::Y * y, Vec3::Y, 0.068 * b, 0.009, 12, 3, boot * 0.6);
+                        p.metal.cuboid(
+                            Vec3::new(side * 0.06 * b, y, 0.02),
+                            Vec3::new(0.008, 0.014, 0.014),
+                            Quat::IDENTITY,
+                            Vec3::new(0.74, 0.5, 0.26),
+                        );
                     }
-                    p.metal.cuboid(
-                        figure
-                            .native_shaft
-                            .as_ref()
-                            .map_or(Vec3::new(side * 0.06 * b, y, 0.02), |shaft| {
-                                shaft.buckle(side, y)
-                            }),
-                        Vec3::new(0.008, 0.014, 0.014),
-                        Quat::IDENTITY,
-                        Vec3::new(0.74, 0.5, 0.26),
-                    );
                 }
             }
         });
@@ -2009,6 +1986,19 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                     upper,
                     shoes.color,
                 );
+                if shoes.sandal && style == Style::Troll {
+                    // Sandals expose toes. Mount their claws on the emitted
+                    // upper, in its actual ankle frame, not the bare-foot frame.
+                    let roots: Vec<_> = [-1.0, 0.0, 1.0]
+                        .into_iter()
+                        .filter_map(|side| {
+                            p.satin
+                                .outer_surface(Vec3::new(side * 0.035 * b, -0.057, 0.0), Vec3::Z)
+                        })
+                        .map(|at| at - Vec3::Z * 0.004)
+                        .collect();
+                    exposed_claws(p, roots, Vec3::new(0.0, -0.004, 0.025), 0.008);
+                }
             } else if let Some(boots) = boots.filter(|_| !furry) {
                 p.set_transform(Affine3A::IDENTITY);
                 boot_parts::emit(
@@ -2030,24 +2020,26 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                         if i == 2 { boot * 0.55 } else { boot },
                     );
                 }
-            }
-            if (furry || style == Style::Troll) && l.equipment.footwear().is_none() {
-                for k in 0..3 {
-                    let x = (k as f32 - 1.0) * 0.035;
-                    p.matte.prism(
-                        Vec3::new(x, -0.44, 0.17),
-                        Vec3::new(x, -0.46, 0.22),
+                if furry || style == Style::Troll {
+                    exposed_claws(
+                        p,
+                        [-1.0, 0.0, 1.0].map(|side| Vec3::new(side * 0.035, -0.44, 0.17)),
+                        Vec3::new(0.0, -0.02, 0.05),
                         0.012,
-                        0.0,
-                        4,
-                        BONE,
-                        0.0,
                     );
                 }
             }
         });
     }
     rogue::biped_features(kit, l);
+}
+
+/// One anatomical claw recipe follows the exposed hand or foot owning its roots.
+/// Covered extremities do not call this; each owner supplies its actual local frame.
+fn exposed_claws(p: &mut Parts, roots: impl IntoIterator<Item = Vec3>, tip: Vec3, radius: f32) {
+    for at in roots {
+        p.matte.prism(at, at + tip, radius, 0.0, 4, BONE, 0.0);
+    }
 }
 
 /// Long loose hair hung from the crown so it can swing on its own.
@@ -2098,18 +2090,9 @@ fn loose_hair(kit: &mut Kit, figure: &Figure, head: Entity) {
         let curves: Vec<super::deformation::ControlCurve> = strands
             .into_iter()
             .map(|strand| {
-                let last = strand.path.len() - 1;
-                let points = strand
-                    .path
+                let points = hanging_controls(l, &strand)
                     .into_iter()
-                    .enumerate()
-                    .map(|(i, at)| {
-                        let t = i as f32 / last as f32;
-                        (
-                            hair_frame.transform_point3(at),
-                            (strand.root + (strand.tip - strand.root) * t * t) * size,
-                        )
-                    })
+                    .map(|(at, radius)| (hair_frame.transform_point3(at), radius * size))
                     .collect();
                 super::deformation::ControlCurve {
                     points,
@@ -2254,3 +2237,205 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
         }
     }
 }
+
+#[cfg(test)]
+mod retained_layer_tests {
+    use super::*;
+
+    #[test]
+    fn native_commoner_wrap_support_preserves_both_tail_panels() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                for plate in [false, true] {
+                    let mut look = Look::with_choice(
+                        CreatureModel::Human,
+                        22,
+                        Some(Variant {
+                            woman,
+                            build,
+                            hair: 0,
+                            bust_lean: 1,
+                            ..default()
+                        }),
+                    )
+                    .dressed(crate::creatures::Wardrobe::Commoner);
+                    if plate {
+                        look.equipment.select("plate-mail").unwrap();
+                    }
+                    look.equipment.select("mummy-wrapping").unwrap();
+                    let body = HumanoidBody::resolve(&look);
+                    let figure = Figure::resolve(body, &look);
+                    let support = figure.outerwear_support();
+                    let scale = storybook_part(Plan::Biped, J::Torso);
+                    let mut upper = Parts::default();
+                    upper.set_transform(Affine3A::from_scale_rotation_translation(
+                        scale,
+                        Quat::IDENTITY,
+                        body.torso,
+                    ));
+                    equipment_outerwear::emit_torso(
+                        &mut upper,
+                        crate::creatures::outfit::outerwear::OuterwearAppearance::MummyWrapping,
+                        body,
+                        &support,
+                    );
+                    upper.set_transform(Affine3A::IDENTITY);
+                    let mut lower = Parts::default();
+                    equipment_outerwear::emit_lower(
+                        &mut lower,
+                        crate::creatures::outfit::outerwear::OuterwearAppearance::MummyWrapping,
+                        body,
+                        Vec2::splat(0.2),
+                        &[],
+                        &support,
+                    );
+                    assert_eq!(
+                        lower.matte.surface_triangles().count(),
+                        2 * 29 * 20 * 4,
+                        "native default tail lost: woman={woman} build={build} plate={plate}"
+                    );
+                    for tri in lower.matte.surface_triangles() {
+                        assert!((tri[1]-tri[0]).cross(tri[2]-tri[0]).length() > 1e-10,
+                            "root fitting must not collapse adjacent columns: woman={woman} build={build} plate={plate}");
+                    }
+                    for center in [-0.10, 0.075] {
+                        let x = center * body.build;
+                        let root_y = body.torso.y
+                            + (0.086 - 0.075 * (x / scale.x) / (0.23 * body.build)) * scale.y;
+                        let contacts = (0..=15)
+                            .filter(|row| {
+                                let ray = Vec3::new(x, root_y - *row as f32 * 0.001, 0.0);
+                                match (
+                                    upper.matte.outer_surface(ray, Vec3::Z),
+                                    lower.matte.outer_surface(ray, Vec3::Z),
+                                ) {
+                                    (Some(a), Some(b)) => (a.z - b.z).abs() <= 0.004,
+                                    _ => false,
+                                }
+                            })
+                            .count();
+                        assert!(contacts >= 5,
+                            "native tail must contact actual emitted wraps: woman={woman} build={build} plate={plate} center={center} contacts={contacts}");
+                    }
+                    assert!(
+                        (lower.matte.bounds().0.y - (0.045 - 0.39 - 0.025)).abs() < 0.0001,
+                        "native fitted root must retain the authored hem"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn production_apron_support_excludes_experimental_layers() {
+        for woman in [false, true] {
+            let mut look = Look::with_choice(
+                CreatureModel::Human,
+                17,
+                Some(Variant { woman, ..default() }),
+            );
+            let body = HumanoidBody::resolve(&look);
+            let bare = Figure::resolve(body, &look).outerwear_support();
+            look.equipment.select("apron").unwrap();
+            let figure = Figure::resolve(body, &look);
+            assert!(figure.baldric.get().is_none());
+            let torso = figure.outerwear_support();
+            let lower = figure.outerwear_support();
+            assert!(
+                figure.baldric.get().is_none(),
+                "unchanged apron support must not force native refitting"
+            );
+            for y in [0.1, 0.26, 0.4, 0.5] {
+                for x in [-0.2, -0.1, 0.0, 0.1, 0.2] {
+                    for z in [-0.2, 0.0, 0.2] {
+                        let p = Vec3::new(x, y, z);
+                        assert_eq!(bare.distance(p), torso.distance(p));
+                        assert_eq!(bare.distance(p), lower.distance(p));
+                    }
+                }
+            }
+            let retained = figure.baldric().unwrap() as *const _;
+            assert_eq!(retained, figure.baldric().unwrap() as *const _);
+        }
+    }
+
+    #[test]
+    fn equipped_shirt_remains_under_retained_baldric() {
+        for woman in [false, true] {
+            for shirt in outfit::shirts::ShirtAppearance::ALL {
+                let mut look = Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant { woman, ..default() }),
+                );
+                // Isolate a supported composition with no armor hiding the shirt.
+                let mut outfit = Outfit::base(&look);
+                outfit.baldric = Outfit::native(&look).baldric;
+                look.outfit = Some(outfit);
+                look.equipment.shirt = Some(shirt);
+                let body = HumanoidBody::resolve(&look);
+                let figure = Figure::resolve(body, &look);
+                let cloth = figure.shirt_shape.as_ref().expect("equipped shirt fixture");
+                let native = figure
+                    .native_plate
+                    .as_ref()
+                    .or(figure.shell_shape.as_ref())
+                    .unwrap_or(cloth);
+                let mut expected_support = torso_layer_support(cloth, native);
+                if let Some(armor) = &figure.equipped_plate {
+                    expected_support.union(armor.clone(), 0.0);
+                }
+                let expected = super::super::fitting::FittedBaldric::resolve(
+                    &expected_support,
+                    body,
+                    figure.outfit.baldric.expect("native human baldric"),
+                    if figure.native_plate.is_some() {
+                        EMBLEM_FIELD_OFFSET
+                    } else {
+                        0.0
+                    },
+                );
+                let actual = figure.baldric().expect("resolved native baldric");
+                let mut bare_look = look.clone();
+                bare_look.equipment.shirt = None;
+                let bare = Figure::resolve(body, &bare_look);
+                let origin = Vec3::new(0.0, 0.26, 0.0);
+                let covered = super::super::fitting::surface_ray_hit(
+                    &actual.support,
+                    origin,
+                    Vec3::Z,
+                    0.0,
+                    0.5,
+                )
+                .unwrap();
+                let uncovered = super::super::fitting::surface_ray_hit(
+                    &bare.baldric().unwrap().support,
+                    origin,
+                    Vec3::Z,
+                    0.0,
+                    0.5,
+                )
+                .unwrap();
+                assert!(
+                    covered.z > uncovered.z + 0.001,
+                    "fixture must expose missing shirt support"
+                );
+                for x in [-0.02, 0.0, 0.02] {
+                    let p = Vec3::new(x, 0.26, 0.17);
+                    assert!(
+                        (actual.support.distance(p) - expected.support.distance(p)).abs() < 1e-6,
+                        "resolved attachment must preserve equipped shirt support"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "necklace_layers_tests.rs"]
+mod necklace_layers_tests;
+
+#[cfg(test)]
+#[path = "torso_foundation_tests.rs"]
+mod torso_foundation_tests;
