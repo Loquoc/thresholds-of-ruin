@@ -6598,3 +6598,25 @@ bindings clear the actual emitted calf. These fixtures are one defect, not eight
 bugs. Existing shoe/equipment/restoration controls pass on the rebased source;
 native visual comparisons expose the previously buried bindings and confirm the
 restored ankle taper for sampled poses. No universal motion claim is made.
+
+### Recovered-source debug suite and exact-main cloth comparison
+
+The complete debug 3D library run on unchanged `33ee2cff` Rust/Cargo inputs
+reported 1,138 passed, nine failed and two ignored (exit 101, 241.4 seconds).
+The [handoff failure inventory](../plans/procedural-model-handoff.md#known-failures-and-verification-scope-13-november-2026)
+names all nine methods. Eight cloak/mantle methods hit bounded-collar fit
+infeasibility; one skirt method detects actual thigh-face crossings. Each was
+rerun on pristine main `97f72c6d`; failure messages/numeric deficits and skirt
+crossing counts match. Classification: existing production cloth defects,
+not recovered-source regressions. The evidence supports two failure families
+across nine distinct methods, not nine independent root causes or a new count
+for each repetition. No test was weakened, skipped or marked passing.
+
+The local native verifier could not run because `AF_UNIX` socket creation
+returned `EPERM` and Xvfb could not establish a display. Record this separately
+as infrastructure failure, not a graphical waiver. The existing successful main
+CI/3D smoke does not exercise this geometry suite and is not evidence that the
+nine methods pass. Full release and hosted final-head results remain pending at
+this documentation checkpoint. Raw logs, input hashes, exit receipts and the
+exact-main comparison are preserved in the recovery evidence bundle, not linked
+as inaccessible machine-local files.

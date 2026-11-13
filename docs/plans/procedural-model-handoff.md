@@ -76,12 +76,58 @@ or merge qualification. On the rebased source, formatting, strict all-target 3D
 Clippy, architecture checks and 20 documentation tests pass. Eight focused runtime
 methods cover the two riding-boot regressions, bare feet, low shoes, armored
 low-shoe composition, sandal support and two conservative band-window boundaries.
-No full suite or fresh native-render suite was run for the rebase itself. Earlier
-render evidence applies only to unchanged source and its recorded fixture scope.
+The subsequent complete debug 3D library run failed: **1,138 passed, nine failed
+and two were ignored**. Its Rust/Cargo inputs were unchanged from `33ee2cff`;
+these documentation and ledger-tool changes do not alter that tested source.
+This is not a green full-suite result. Earlier render evidence applies only to
+unchanged source and its recorded fixture scope.
 The bare-foot correction now has a separate local qualification record below:
 its actual-mesh regression and shoe/equipment controls pass on the rebased source,
 and the unchanged production recipe retains its reviewed native comparisons.
 This does not replace the final-head verification and publication gates.
+
+### Known failures and verification scope, 13 November 2026
+
+The nine failures were rerun individually on pristine remote main `97f72c6d`.
+All nine reproduce there. The eight cloak/mantle methods fail with the same
+bounded-collar infeasibility diagnostics and numerical deficits; the skirt method
+has matching actual-triangle crossing counts. This comparison establishes that
+these failures predate the recovered changes. It does **not** fix, waive, ignore
+or qualify them, and it does not make the recovered branch merge-ready.
+
+The failed methods are:
+
+- `creatures::cloak::tests::captured_tick_93_backward_strike_releases_hand_without_losing_back_cloth`
+- `creatures::cloak::tests::main_and_mantle_share_real_geometry_and_unchanged_pose_cache`
+- `creatures::cloak::tests::mantle_clears_main_cloak_at_shared_heights_in_neutral_walk_and_turn`
+- `creatures::cloak::tests::neutral_layered_yokes_have_bounded_height_and_shoulder_slope`
+- `creatures::cloak::tests::posed_cope_triangles_clear_plate_arms_and_scaled_hands`
+- `creatures::cloak::tests::posed_head_snapshots_invalidate_only_dependent_mantles`
+- `creatures::geometry::mantle_head_contact_tests::mantle_head_contacts_match_rendered_geometry_after_pose_and_entity_remap`
+- `creatures::geometry::mantle_head_contact_tests::only_dependent_study_mantles_retain_head_geometry`
+- `creatures::skirt_contact_tests::native_short_skirt_and_tassets_do_not_cross_actual_thigh_faces`
+
+The complete debug run exited 101 after 241.4 seconds. Its receipt retains the
+full log, exact inputs and protected binary hash; the separate pristine-main
+comparison retains per-method nonzero exit codes and matching diagnostics.
+These are two recurring cloth failure families across nine methods, not nine
+new recovered-source regressions or additional defects for each rerun. No
+production fix or assertion weakening is included in this classification.
+
+The verification-tooling suite (35 methods) and scenario checks (three methods)
+passed. Full release-library verification has not yet completed at this
+checkpoint. Fresh native verification is blocked by local `AF_UNIX` socket
+creation returning `EPERM`: Xvfb cannot create its display sockets, including
+on the approved attempt. This is an infrastructure failure, not a native-test
+pass or an inferred graphical waiver. Historical sampled renders remain their
+own bounded evidence, not a replacement for the blocked native verifier.
+
+The current hosted 3D compatibility smoke does not execute this geometry suite.
+The previously successful main run therefore cannot clear these failures or
+qualify the recovered source. Hosted final-head CI remains pending and must be
+reported with its actual scope. Keep the local debug failure, pristine-main
+comparison, release result and native-display blocker distinct from hosted
+checks; no aggregate green or merge qualification is claimed here.
 
 ### Current implementation map
 
