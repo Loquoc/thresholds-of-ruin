@@ -1227,3 +1227,622 @@ fn every_rogue_body_armour_builds_its_own_torso_on_both_sexes() {
         }
     }
 }
+
+// Independent regression: compare actual emitted tabard triangle interiors
+// with actual emitted metal, not the SDF used to project the panel.
+#[test]
+fn fitted_panel_knight_flanks_clear_the_emitted_cuirass() {
+    let mut look = Look::with_choice(
+        CreatureModel::Human,
+        7,
+        Some(Variant {
+            woman: true,
+            build: 1,
+            hair: 0,
+            bust_lean: 1,
+            ..default()
+        }),
+    )
+    .dressed(super::super::outfit::Wardrobe::Knight);
+    let field = Vec3::new(0.11, 0.71, 0.23);
+    look.outfit.as_mut().unwrap().trimmings.heraldry = Some(Heraldry {
+        field,
+        edge: MARKER,
+        emblem: Vec3::new(0.21, 0.17, 0.89),
+        mark: 0,
+    });
+    let emitted = torso(&look);
+    // Raised baldric hardware is supposed to occlude the tabard. Remove the
+    // baldric only for support collection, then prove the actual plate and
+    // panel geometry did not change. No failing coordinates are excluded.
+    let mut clean_look = look.clone();
+    assert!(clean_look.outfit.as_ref().unwrap().baldric.is_some());
+    clean_look.outfit.as_mut().unwrap().baldric = None;
+    let clean = torso(&clean_look);
+    let key = |tri: Triangle| {
+        let mut colors = tri
+            .colors
+            .map(|c| c.to_array().map(|v| (v * 1e6).round() as i32));
+        colors.sort();
+        (tri.signature(), colors)
+    };
+    let counted = |tris: Vec<Triangle>| {
+        let mut counts = BTreeMap::new();
+        for tri in tris {
+            *counts.entry(key(tri)).or_insert(0usize) += 1;
+        }
+        counts
+    };
+    let is_panel = |tri: &Triangle| tri.painted(linear(MARKER)) || tri.painted(linear(field));
+    assert_eq!(
+        counted(emitted.iter().copied().filter(is_panel).collect()),
+        counted(clean.iter().copied().filter(is_panel).collect()),
+        "removing baldric changed the emitted panel triangles"
+    );
+    let original_metal = counted(emitted.iter().copied().filter(|t| t.metal).collect());
+    let clean_metal = counted(clean.iter().copied().filter(|t| t.metal).collect());
+    assert!(!clean_metal.is_empty(), "missing clean cuirass support");
+    for (triangle, count) in &clean_metal {
+        assert!(
+            original_metal.get(triangle).is_some_and(|n| n >= count),
+            "removing baldric changed underlying metal geometry or pigment"
+        );
+    }
+    // Record the exact earlier occluder, independently of whether the corrected
+    // test passes. A removed witness proves hardware, not a hidden plate skip.
+    let probe = Vec2::new(0.05186941, 0.26169956);
+    let witness = emitted
+        .iter()
+        .filter(|t| t.metal)
+        .filter_map(|t| t.depth(probe).map(|z| (t, z)))
+        .max_by(|a, b| a.1.total_cmp(&b.1));
+    if let Some((tri, depth)) = witness {
+        eprintln!("original occluder at {probe:?}: depth={depth}, vertices={:?}, pigment={:?}, absent_without_baldric={}",
+            tri.p, tri.colors, !clean_metal.contains_key(&key(*tri)));
+    }
+    let plate = Support::new(clean.iter().copied().filter(|tri| tri.metal).collect());
+    let mut checked = [0usize; 2];
+    let mut failures = Vec::new();
+    for tri in emitted
+        .iter()
+        .copied()
+        .filter(|tri| tri.painted(linear(MARKER)) || tri.painted(linear(field)))
+    {
+        for weights in [
+            [1.0 / 3.0; 3],
+            [0.6, 0.2, 0.2],
+            [0.2, 0.6, 0.2],
+            [0.2, 0.2, 0.6],
+        ] {
+            let at = tri.p[0] * weights[0] + tri.p[1] * weights[1] + tri.p[2] * weights[2];
+            // Bilateral front flanks beneath the bust, matching the native
+            // diagnostic image. Exclude back and separate low belt hardware.
+            if at.z <= 0.0 || at.x.abs() < 0.05 || !(0.08..0.40).contains(&at.y) {
+                continue;
+            }
+            let Some(depth) = plate.depth(at, true) else {
+                continue;
+            };
+            checked[usize::from(at.x > 0.0)] += 1;
+            if at.z - depth < 0.0005 {
+                failures.push(format!(
+                    "at={at:?} panel_z={} plate_z={depth} gap={}",
+                    at.z,
+                    at.z - depth
+                ));
+            }
+        }
+    }
+    assert!(
+        checked.iter().all(|&n| n > 100),
+        "bilateral panel witnesses missing: {checked:?}"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} emitted panel samples penetrate/meet plate; first: {}",
+        failures.len(),
+        failures.first().map_or("none", String::as_str)
+    );
+}
+
+// Frozen pre-change projection, solely a footprint/topology control.
+fn panel_legacy_projection(
+    b: &mut Builder,
+    form: &crate::sdf::Sculpt,
+    profile: &[(f32, f32)],
+    front: bool,
+    offset: f32,
+    color: Vec3,
+) {
+    let outward = if front { Vec3::Z } else { Vec3::NEG_Z };
+    let at = |y: f32, x: f32| torso_surface(form, x, y, front) + outward * offset;
+    let columns = (profile
+        .iter()
+        .map(|(_, width)| *width)
+        .fold(0.0f32, f32::max)
+        * 2.0
+        / 0.012)
+        .ceil()
+        .max(4.0) as usize;
+    for pair in profile.windows(2) {
+        // Long chords cut through a curved bust even when their endpoints
+        // touch the surface. Keep both directions close to the torso mesh's
+        // resolution, including the narrow vertical trim on fitted robes.
+        let rows = ((pair[1].0 - pair[0].0).abs() / 0.012).ceil().max(1.0) as usize;
+        let points: Vec<Vec<Vec3>> = (0..=rows)
+            .map(|row| {
+                let t = row as f32 / rows as f32;
+                let (height, width) = if row == rows {
+                    pair[1]
+                } else {
+                    (
+                        pair[0].0 + (pair[1].0 - pair[0].0) * t,
+                        pair[0].1 + (pair[1].1 - pair[0].1) * t,
+                    )
+                };
+                (0..=columns)
+                    .map(|column| at(height, (column as f32 / columns as f32 * 2.0 - 1.0) * width))
+                    .collect()
+            })
+            .collect();
+        for row in 0..rows {
+            for column in 0..columns {
+                b.quad_out(
+                    [
+                        points[row][column],
+                        points[row][column + 1],
+                        points[row + 1][column + 1],
+                        points[row + 1][column],
+                    ],
+                    Vec3::Y * (points[row][column].y + points[row + 1][column].y) * 0.5,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+fn panel_contract_triangles(
+    form: &crate::sdf::Sculpt,
+    profile: &[(f32, f32)],
+    front: bool,
+    offset: f32,
+    legacy: bool,
+) -> Vec<Triangle> {
+    let mut parts = Parts::default();
+    if legacy {
+        panel_legacy_projection(&mut parts.matte, form, profile, front, offset, MARKER);
+    } else {
+        fitted_panel(&mut parts.matte, form, profile, front, offset, MARKER);
+    }
+    let mut materials = Assets::<StandardMaterial>::default();
+    let materials = crate::props::PropMaterials::new(&mut materials);
+    let mut meshes = Assets::<Mesh>::default();
+    let model = parts.finish(&mut meshes, &materials);
+    let mut triangles = Vec::new();
+    for (handle, _) in model.0 {
+        let mesh = meshes.get(&handle).unwrap();
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("panel positions")
+        };
+        let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("panel colors")
+        };
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        for ix in indices.as_chunks::<3>().0 {
+            triangles.push(Triangle {
+                p: ix.map(|i| Vec3::from_array(points[i])),
+                colors: ix.map(|i| Vec3::new(colors[i][0], colors[i][1], colors[i][2])),
+                metal: false,
+            });
+        }
+    }
+    triangles
+}
+
+#[test]
+fn fitted_panel_keeps_clipped_footprint_topology_palette_and_true_misses() {
+    use crate::sdf::{Sculpt, Shape};
+    let mut form = Sculpt::default();
+    form.add(
+        Shape::Ellipsoid(Vec3::new(0.0, 0.25, 0.0), Vec3::splat(0.12)),
+        0.0,
+    );
+    let witness = [
+        Vec3::ZERO,
+        Vec3::new(0.11, 0.25, 0.04),
+        Vec3::new(0.0, 0.6, 0.0),
+    ];
+    let distances = witness.map(|p| form.distance(p));
+    for front in [false, true] {
+        // First profile deliberately exceeds the old lateral silhouette;
+        // second is wholly unsupported, not permission to bridge an opening.
+        for (profile, miss) in [
+            ([(0.20, 0.20), (0.30, 0.20)], false),
+            ([(0.60, 0.08), (0.65, 0.08)], true),
+        ] {
+            for offset in [0.009, 0.014, 0.010] {
+                let old = panel_contract_triangles(&form, &profile, front, offset, true);
+                let now = panel_contract_triangles(&form, &profile, front, offset, false);
+                assert!(!old.is_empty());
+                assert_eq!(old.len(), now.len(), "panel topology count changed");
+                let footprint = |tri: Triangle| {
+                    let mut xy = tri
+                        .p
+                        .map(|p| [(p.x * 1e6).round() as i32, (p.y * 1e6).round() as i32]);
+                    xy.sort();
+                    xy
+                };
+                let mut before: Vec<_> = old.iter().copied().map(footprint).collect();
+                before.sort();
+                let mut after: Vec<_> = now.iter().copied().map(footprint).collect();
+                after.sort();
+                assert_eq!(before, after, "clipped x/y footprint changed");
+                assert!(
+                    now.iter().all(|t| t.painted(linear(MARKER))),
+                    "palette changed"
+                );
+                if miss {
+                    let mut before: Vec<_> = old.iter().copied().map(Triangle::signature).collect();
+                    before.sort();
+                    let mut after: Vec<_> = now.iter().copied().map(Triangle::signature).collect();
+                    after.sort();
+                    assert_eq!(before, after, "true miss gained artificial support");
+                }
+            }
+        }
+    }
+    assert_eq!(
+        distances,
+        witness.map(|p| form.distance(p)),
+        "input support mutated"
+    );
+}
+
+#[test]
+fn fitted_panel_preserves_emblem_and_baldric_layer_order() {
+    for model in [CreatureModel::Human, CreatureModel::Sentinel] {
+        for woman in [false, true] {
+            let mut look = Look::with_choice(
+                model,
+                7,
+                Some(Variant {
+                    woman,
+                    build: 1,
+                    ..default()
+                }),
+            );
+            if model == CreatureModel::Human {
+                look = look.dressed(super::super::outfit::Wardrobe::Knight);
+            }
+            let mut outfit = Outfit::worn(&look);
+            let field = Vec3::new(0.11, 0.71, 0.23);
+            let emblem = Vec3::new(0.21, 0.17, 0.89);
+            let strap = Vec3::new(0.83, 0.36, 0.12);
+            outfit.trimmings.heraldry = Some(Heraldry {
+                field,
+                edge: MARKER,
+                emblem,
+                mark: 0,
+            });
+            if let Some(baldric) = &mut outfit.baldric {
+                baldric.color = strap;
+            }
+            let has_strap = outfit.baldric.is_some();
+            look.outfit = Some(outfit);
+            let tris = torso(&look);
+            let cloth = Support::new(
+                tris.iter()
+                    .copied()
+                    .filter(|t| t.painted(linear(field)))
+                    .collect(),
+            );
+            for (name, pigment, needed) in [("emblem", emblem, true), ("baldric", strap, has_strap)]
+            {
+                if !needed {
+                    continue;
+                }
+                let mut checked = 0;
+                for tri in tris.iter().copied().filter(|t| t.painted(linear(pigment))) {
+                    let at = tri.center();
+                    let front = at.z > 0.0;
+                    if let Some(z) = cloth.depth(at, front) {
+                        checked += 1;
+                        let gap = (at.z - z) * if front { 1.0 } else { -1.0 };
+                        assert!(
+                            gap >= 0.0005,
+                            "{model:?} woman={woman} {name} buried by panel at{at:?}, gap{gap}"
+                        );
+                    }
+                }
+                assert!(
+                    checked > 10,
+                    "{model:?} {name}: missing overlap witnesses{checked}"
+                );
+            }
+        }
+    }
+}
+
+fn panel_preoptimization_surface(form: &crate::sdf::Sculpt, x: f32, y: f32, front: bool) -> Vec3 {
+    let hit = |lateral| torso_surface_hit(form, lateral, y, front);
+    if let Some(surface) = hit(x) {
+        return surface;
+    }
+    // All fitted profiles stay within the garment's vertical extent. Near
+    // an armhole or waist edge, preserve height and find the last supported x.
+    let Some(mut surface) = hit(0.0) else {
+        return Vec3::new(x, y, 0.0);
+    };
+    let (mut inside, mut outside) = (0.0, x);
+    for _ in 0..10 {
+        let middle = (inside + outside) * 0.5;
+        if let Some(at) = hit(middle) {
+            inside = middle;
+            surface = at;
+        } else {
+            outside = middle;
+        }
+    }
+    surface
+}
+
+fn panel_preoptimization_projection(
+    b: &mut Builder,
+    form: &crate::sdf::Sculpt,
+    profile: &[(f32, f32)],
+    front: bool,
+    offset: f32,
+    color: Vec3,
+) {
+    let outward = if front { Vec3::Z } else { Vec3::NEG_Z };
+    let at = |y: f32, x: f32| {
+        // Keep the original profile's clipped lateral footprint. Expanding
+        // before clipping would grow panels around unsupported silhouettes.
+        let base = panel_preoptimization_surface(form, x, y, front);
+        // Only reserve clearance where the original projection found support.
+        // Preserve legacy misses rather than bridge an opening by inflation.
+        if torso_surface_hit(form, base.x, base.y, front).is_none() {
+            return base + outward * offset;
+        }
+        torso_surface_hit_offset(form, base.x, base.y, front, offset)
+            .unwrap_or(base + outward * offset)
+    };
+    let columns = (profile
+        .iter()
+        .map(|(_, width)| *width)
+        .fold(0.0f32, f32::max)
+        * 2.0
+        / 0.012)
+        .ceil()
+        .max(4.0) as usize;
+    for pair in profile.windows(2) {
+        // Long chords cut through a curved bust even when their endpoints
+        // touch the surface. Keep both directions close to the torso mesh's
+        // resolution, including the narrow vertical trim on fitted robes.
+        let rows = ((pair[1].0 - pair[0].0).abs() / 0.012).ceil().max(1.0) as usize;
+        let points: Vec<Vec<Vec3>> = (0..=rows)
+            .map(|row| {
+                let t = row as f32 / rows as f32;
+                let (height, width) = if row == rows {
+                    pair[1]
+                } else {
+                    (
+                        pair[0].0 + (pair[1].0 - pair[0].0) * t,
+                        pair[0].1 + (pair[1].1 - pair[0].1) * t,
+                    )
+                };
+                (0..=columns)
+                    .map(|column| at(height, (column as f32 / columns as f32 * 2.0 - 1.0) * width))
+                    .collect()
+            })
+            .collect();
+        for row in 0..rows {
+            for column in 0..columns {
+                b.quad_out(
+                    [
+                        points[row][column],
+                        points[row][column + 1],
+                        points[row + 1][column + 1],
+                        points[row + 1][column],
+                    ],
+                    Vec3::Y * (points[row][column].y + points[row + 1][column].y) * 0.5,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+fn panel_optimization_triangles(
+    form: &crate::sdf::Sculpt,
+    profile: &[(f32, f32)],
+    front: bool,
+    offset: f32,
+    legacy: bool,
+) -> Vec<Triangle> {
+    let mut parts = Parts::default();
+    if legacy {
+        panel_preoptimization_projection(&mut parts.matte, form, profile, front, offset, MARKER);
+    } else {
+        fitted_panel(&mut parts.matte, form, profile, front, offset, MARKER);
+    }
+    let mut materials = Assets::<StandardMaterial>::default();
+    let materials = crate::props::PropMaterials::new(&mut materials);
+    let mut meshes = Assets::<Mesh>::default();
+    let model = parts.finish(&mut meshes, &materials);
+    let mut triangles = Vec::new();
+    for (handle, _) in model.0 {
+        let mesh = meshes.get(&handle).unwrap();
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("panel positions")
+        };
+        let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("panel colors")
+        };
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        for ix in indices.as_chunks::<3>().0 {
+            triangles.push(Triangle {
+                p: ix.map(|i| Vec3::from_array(points[i])),
+                colors: ix.map(|i| Vec3::new(colors[i][0], colors[i][1], colors[i][2])),
+                metal: false,
+            });
+        }
+    }
+    triangles
+}
+
+#[test]
+fn fitted_panel_optimization_preserves_exact_emitted_geometry() {
+    use crate::sdf::{Sculpt, Shape};
+    let mut form = Sculpt::default();
+    form.add(
+        Shape::Ellipsoid(Vec3::new(0.0, 0.25, 0.0), Vec3::splat(0.12)),
+        0.0,
+    );
+    for front in [false, true] {
+        for offset in [0.009, 0.014, 0.010] {
+            // Multi-window fixtures exercise reused endpoints, including
+            // changes of direction, width and support status.
+            let profiles: &[&[(f32, f32)]] = &[
+                &[(0.20, 0.08), (0.30, 0.08)],
+                &[(0.20, 0.20), (0.30, 0.20)],
+                &[(0.60, 0.08), (0.65, 0.08)],
+                &[(0.16, 0.04), (0.22, 0.09), (0.30, 0.07), (0.34, 0.02)],
+                &[(0.34, 0.02), (0.30, 0.07), (0.22, 0.09), (0.16, 0.04)],
+                &[(0.20, 0.04), (0.20, 0.08), (0.20, 0.08), (0.30, 0.04)],
+                &[(0.25, 0.04), (0.30, 0.20), (0.60, 0.08), (0.25, 0.04)],
+                &[(-0.1, 0.04), (-0.0, 0.08), (0.0, 0.08), (0.20, 0.04)],
+            ];
+            for &profile in profiles {
+                let before = panel_optimization_triangles(&form, profile, front, offset, true);
+                let after = panel_optimization_triangles(&form, profile, front, offset, false);
+                assert!(!before.is_empty());
+                assert_eq!(before.len(), after.len());
+                for (a, b) in before.iter().zip(&after) {
+                    assert_eq!(a.p, b.p, "optimization changed exact triangle positions");
+                    assert_eq!(a.colors, b.colors, "optimization changed palette");
+                }
+            }
+        }
+    }
+}
+#[test]
+fn native_knight_neckline_binding_stays_on_front_support() {
+    for model in [CreatureModel::Human, CreatureModel::Sentinel] {
+        for build in 0..3 {
+            let look = female(model, build).dressed(super::super::outfit::Wardrobe::Knight);
+            let body = HumanoidBody::resolve(&look);
+            let mut support = torso_garment(body, TorsoMaterial::Plate, true);
+            support
+                .carve(crate::sdf::Shape::Beyond(Vec3::Y, 0.525), 0.004)
+                .carve(crate::sdf::Shape::Beyond(Vec3::NEG_Y, -0.012), 0.0);
+            let mut tested = 0;
+            for tri in torso(&look) {
+                let gold = [linear(GILT), linear(GILT * 0.8)]
+                    .iter()
+                    .any(|color| tri.colors.iter().all(|c| c.distance(*color) < 1e-5));
+                if !tri.metal || !gold {
+                    continue;
+                }
+                for p in tri.p {
+                    if !(0.38..0.51).contains(&p.y) {
+                        continue;
+                    }
+                    if let Some(front) = torso_surface_hit(&support, p.x, p.y, true) {
+                        tested += 1;
+                        assert!(p.z >= front.z - 0.03,
+                            "{model:?} build {build}: neckline binding fell behind front support: {p:?} vs {front:?}");
+                    }
+                }
+            }
+            assert!(
+                tested > 100,
+                "{model:?} build {build}: missing neckline binding"
+            );
+        }
+    }
+}
+
+#[test]
+fn neckline_contour_tracks_its_parametric_cut_across_body_profiles() {
+    for build in 0..3 {
+        for bust_lean in 0..3 {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                7,
+                Some(Variant {
+                    woman: true,
+                    build,
+                    bust_lean,
+                    ..default()
+                }),
+            )
+            .dressed(super::super::outfit::Wardrobe::Knight);
+            let body = HumanoidBody::resolve(&look);
+            let cut = NecklineCut::resolve(Outfit::worn(&look).bodice.cut, body).unwrap();
+            let mut support = torso_garment(body, TorsoMaterial::Plate, true);
+            support
+                .carve(crate::sdf::Shape::Beyond(Vec3::Y, 0.525), 0.004)
+                .carve(crate::sdf::Shape::Beyond(Vec3::NEG_Y, -0.012), 0.0);
+            let opening = cut.opening(body, 0.525, 0.008);
+            let rims = cut.surface_rim(body, &support, 0.525, 0.008);
+            for (side, rim) in [-1.0, 1.0].into_iter().zip(rims) {
+                assert_eq!(
+                    rim.len(),
+                    21,
+                    "missing profile rows build={build} bust={bust_lean}"
+                );
+                assert!(rim.windows(2).all(|p| p[1].y > p[0].y));
+                assert!(rim.iter().all(|p| p.is_finite() && p.x * side >= 0.0));
+                let mut on_cutter = 0;
+                for p in rim {
+                    // Independent retained reference: the previously accepted
+                    // full-width refinement, before bracket reuse.
+                    let field = |x| {
+                        torso_surface_hit(&support, side * x, p.y, true)
+                            .map(|hit| opening.distance(hit))
+                    };
+                    let mut lo = 0.0;
+                    let mut hi = (1..=64)
+                        .map(|k| body.shoulders * body.build * k as f32 / 64.0)
+                        .find(|&x| field(x).is_some_and(|d| d >= 0.0))
+                        .unwrap();
+                    for _ in 0..16 {
+                        let x = (lo + hi) * 0.5;
+                        if field(x).is_none_or(|d| d < 0.0) {
+                            lo = x;
+                        } else {
+                            hi = x;
+                        }
+                    }
+                    let reference = side * (lo + hi) * 0.5;
+                    assert!(
+                        (p.x - reference).abs() <= 0.000_005,
+                        "contour changed: build={build} bust={bust_lean} y={} {} vs {reference}",
+                        p.y,
+                        p.x
+                    );
+                    if let Some(hit) = torso_surface_hit(&support, p.x, p.y, true) {
+                        // Above the original neck aperture the support boundary
+                        // itself, rather than this cutter, owns the final rim.
+                        let d = opening.distance(hit).abs();
+                        if d < 0.0001 {
+                            on_cutter += 1;
+                        }
+                    }
+                }
+                assert!(
+                    on_cutter >= 10,
+                    "profile missed cutter: build={build} bust={bust_lean}, samples={on_cutter}"
+                );
+            }
+        }
+    }
+}

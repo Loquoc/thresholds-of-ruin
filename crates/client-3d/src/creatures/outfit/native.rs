@@ -68,15 +68,17 @@ pub(super) fn compose(l: &Look) -> Outfit {
         Style::Nymph => Feet::Bare(Pigment::Skin(1.0)),
         _ => Feet::Boots(Boots {
             color: match style {
-                Style::Guardian => l.skin * 0.85,
-                Style::Yeti => l.skin,
-                Style::Sentinel => STEEL,
-                Style::Zombie => l.skin * 0.8,
-                Style::Vampire => DARK,
-                Style::Leprechaun => LEATHER * 0.9,
-                Style::Medusa => Vec3::new(0.4, 0.24, 0.14),
-                Style::Wraith => Vec3::new(0.2, 0.16, 0.14),
-                _ => LEATHER * 0.75,
+                Style::Guardian => Pigment::Skin(0.85),
+                Style::Yeti => Pigment::Skin(1.0),
+                Style::Zombie => Pigment::Skin(0.8),
+                _ => Pigment::Fixed(match style {
+                    Style::Sentinel => STEEL,
+                    Style::Vampire => DARK,
+                    Style::Leprechaun => LEATHER * 0.9,
+                    Style::Medusa => Vec3::new(0.4, 0.24, 0.14),
+                    Style::Wraith => Vec3::new(0.2, 0.16, 0.14),
+                    _ => LEATHER * 0.75,
+                }),
             },
             tall: fem && matches!(style, Style::Hero | Style::Scout),
             heel: geometry::heeled_boots(style, fem),
@@ -197,6 +199,7 @@ pub(super) fn compose(l: &Look) -> Outfit {
     };
     let head = match style {
         Style::Sentinel => Headwear::Helm,
+        Style::Nymph => Headwear::LeafCrown(l.cloth),
         Style::Caster | Style::Scout if hood_down => Headwear::HoodDown(hood),
         Style::Caster | Style::Scout | Style::Wraith => Headwear::Hood {
             color: hood,
@@ -302,6 +305,7 @@ pub(super) fn compose(l: &Look) -> Outfit {
         collar_edge: l.trim,
         details: GarmentDetails {
             hip: match style {
+                Style::Zombie => Some(HipDecoration::TunicTatters { shade: 0.7 }),
                 Style::Orc => Some(HipDecoration::Loincloth {
                     cloth: l.trim,
                     edge: GILT * 0.8,
@@ -346,8 +350,16 @@ pub(super) fn compose(l: &Look) -> Outfit {
             .then_some(neckline_edge),
         torso_ornament,
         pouch: matches!(style, Style::Hero | Style::Scout).then_some(Pouch { color: LEATHER }),
-        belt: true,
-        trimmings: Trimmings::NONE,
+        // The caster sash is the waistband, not a second layer over leather.
+        belt: style != Style::Caster,
+        trimmings: Trimmings {
+            earrings: match (style, fem) {
+                (Style::Nymph, true) => Some(Earrings::Drops { metal: l.trim }),
+                (Style::Medusa, true) => Some(Earrings::Hoops { metal: l.trim }),
+                _ => None,
+            },
+            ..Trimmings::NONE
+        },
         baldric: match style {
             Style::Hero => Some(Baldric {
                 color: LEATHER * 0.7,
@@ -369,5 +381,47 @@ pub(super) fn compose(l: &Look) -> Outfit {
         outer,
         skirt,
         cloak,
+    }
+}
+
+#[cfg(test)]
+mod waist_ownership_tests {
+    use super::*;
+
+    #[test]
+    fn native_caster_sash_replaces_generic_leather_belt() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Mage,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let outfit = compose(&look);
+                assert!(outfit.robe.is_some());
+                assert!(matches!(
+                    outfit.torso_ornament,
+                    Some(TorsoOrnament::Placket { .. })
+                ));
+                assert!(!outfit.belt, "the caster sash owns the waistband; no second leather belt woman={woman} build={build}");
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_native_belts_remain_with_their_pouches() {
+        for model in [CreatureModel::Human, CreatureModel::Scout] {
+            for woman in [false, true] {
+                let look = Look::with_choice(model, 7, Some(Variant { woman, ..default() }));
+                let outfit = compose(&look);
+                assert!(outfit.robe.is_none());
+                assert!(outfit.pouch.is_some());
+                assert!(outfit.belt);
+            }
+        }
     }
 }

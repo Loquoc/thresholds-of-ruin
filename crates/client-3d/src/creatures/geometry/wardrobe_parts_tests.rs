@@ -2063,3 +2063,97 @@ fn raised_neckline_binding_straddles_the_visible_cut() {
         }
     }
 }
+
+#[test]
+fn winged_helm_roof_seats_near_actual_uncovered_cranium() {
+    let (mut minimum, mut maximum) = (f32::INFINITY, f32::NEG_INFINITY);
+    for woman in [false, true] {
+        for build in 0..3 {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                22,
+                Some(Variant {
+                    woman,
+                    build,
+                    ..default()
+                }),
+            );
+            let mut skin = Parts::default();
+            human_face(&mut skin, &look, true);
+            let mut helm = Parts::default();
+            headwear_parts::winged_helm(&mut helm, STEEL, Vec3::Z);
+            for x in [-0.04, 0.0, 0.04] {
+                for z in [-0.05, -0.012, 0.025] {
+                    let origin = Vec3::new(x, 0.235, z);
+                    let scalp = skin.matte.outer_surface(origin, Vec3::Y).unwrap();
+                    let roof = helm.metal.outer_surface(origin, Vec3::Y).unwrap();
+                    let gap = roof.y - scalp.y;
+                    minimum = minimum.min(gap);
+                    maximum = maximum.max(gap);
+                    assert!((0.006..=0.030).contains(&gap),
+                        "native winged roof gap {gap:.6}, woman={woman}, build={build}, x={x}, z={z}");
+                }
+            }
+        }
+    }
+    eprintln!("Native winged roof actual mesh gap: min {minimum:.6}, max {maximum:.6}");
+}
+
+#[test]
+fn goddess_skirt_layers_emit_a_supported_overlap_at_the_bodice_waist() {
+    use bevy::render::mesh::VertexAttributeValues;
+    for model in [
+        CreatureModel::Human,
+        CreatureModel::Orc,
+        CreatureModel::Nymph,
+    ] {
+        for build in 0..3 {
+            let look = Look::with_choice(
+                model,
+                17,
+                Some(Variant {
+                    woman: true,
+                    build,
+                    ..default()
+                }),
+            )
+            .dressed(Wardrobe::Goddess);
+            let (world, rig, _, meshes) = super::super::rogue_tests::spawn_one(&look);
+            assert_eq!(
+                rig.skirt_layers.len(),
+                2,
+                "outer skirt and sheer underlayer"
+            );
+            for &entity in &rig.skirt_layers {
+                let mut top = f32::NEG_INFINITY;
+                let mut points = Vec::new();
+                for child in world.get::<Children>(entity).unwrap().iter() {
+                    let Some(handle) = world.get::<Mesh3d>(child) else {
+                        continue;
+                    };
+                    let mesh = meshes.get(&handle.0).unwrap();
+                    let Some(VertexAttributeValues::Float32x3(vertices)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("actual skirt vertices");
+                    };
+                    for &vertex in vertices {
+                        let at = Vec3::from_array(vertex);
+                        top = top.max(at.y);
+                        points.push(at);
+                    }
+                }
+                assert!((top - 0.07).abs() < 1e-5,
+                    "{model:?} build={build}: actual skirt rim must overlap bodice at 7 cm, got {top}");
+                assert!(
+                    points
+                        .iter()
+                        .filter(|point| (point.y - top).abs() < 1e-5)
+                        .count()
+                        >= 64,
+                    "complete emitted waist rim, not one raised vertex"
+                );
+            }
+        }
+    }
+}

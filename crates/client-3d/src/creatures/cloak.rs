@@ -8275,6 +8275,9 @@ mod tests {
             ("leather-cloak", "hawaiian-shirt"),
             ("ornamental-cope", "plate-mail"),
         ] {
+            let _context = AuditContextGuard::enter(
+                serde_json::json!({"fixture":"neutral_layered_yokes","outerwear":name,"armor":armor}),
+            );
             let look = Look::with_choice(CreatureModel::Human, 18, Some(Variant::default()));
             let mut equipment = Equipment::default();
             equipment.select(armor).unwrap();

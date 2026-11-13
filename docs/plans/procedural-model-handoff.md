@@ -62,147 +62,129 @@ case, not exhaustive fitting or server-side disclosure correctness.
 
 ## Latest handoff state
 
-This branch is a work-in-progress handoff snapshot published at the maintainer's
-explicit request without completing a new pre-push gate. That gate was started
-and then stopped at the maintainer's direction after formatting passed. The
-verified checkpoints below remain scoped evidence, not a claim that this branch
-is merge-ready. Continue from the work queue and preserve the outstanding
-platform/profile and publishing requirements before any merge.
+### Recovery and rebase, 13 November 2026
 
-The branch was later rebased without conflicts onto main at `511ea466`
-(#191). The rebased tree equals a merge of the two. The checkpoints
-below were recorded on the earlier base (#171); their source fingerprints describe
-that base, not the rebased commits.
+The recovered modularization source is rebased locally onto
+`Loquoc/thresholds-of-ruin` main at `97f72c6d`. The pre-rebase source snapshot is
+preserved separately. Remote gameplay, CI and documentation changes remain on
+the new base. Conflict resolution retains the recovered model implementations;
+two automatically duplicated older riding-boot tests were removed only after
+checking that their current versions retain the same assertions.
 
-The branch was rebased again onto main at `feae51f2` (#195), which had
-already taken its own protocol bump for hallucinated presentations. Conflicts
-were resolved as follows:
+This is **local recovery and integration evidence**, not publication, hosted CI
+or merge qualification. On the rebased source, formatting, strict all-target 3D
+Clippy, architecture checks and 20 documentation tests pass. Eight focused runtime
+methods cover the two riding-boot regressions, bare feet, low shoes, armored
+low-shoe composition, sandal support and two conservative band-window boundaries.
+The subsequent complete debug 3D library run failed: **1,138 passed, nine failed
+and two were ignored**. Its Rust/Cargo inputs were unchanged from `33ee2cff`;
+these documentation and ledger-tool changes do not alter that tested source.
+This is not a green full-suite result. Earlier render evidence applies only to
+unchanged source and its recorded fixture scope.
+The bare-foot correction now has a separate local qualification record below:
+its actual-mesh regression and shoe/equipment controls pass on the rebased source,
+and the unchanged production recipe retains its reviewed native comparisons.
+This does not replace the final-head verification and publication gates.
 
-- **Worn equipment:** the worn list now bumps the protocol past main's.
-- **Hallucination:** a hallucinated figure carries no worn list, so its true
-  gear cannot betray it.
-- **Palette discovery:** a ground item with a presentation contributes only
-  that presentation's asset, never its true corpse body asset.
+### Known failures and verification scope, 13 November 2026
 
-The local evidence listed below was recorded before this second rebase.
+The nine failures were rerun individually on pristine remote main `97f72c6d`.
+All nine reproduce there. The eight cloak/mantle methods fail with the same
+bounded-collar infeasibility diagnostics and numerical deficits; the skirt method
+has matching actual-triangle crossing counts. This comparison establishes that
+these failures predate the recovered changes. It does **not** fix, waive, ignore
+or qualify them, and it does not make the recovered branch merge-ready.
 
-The worn-equipment slice and Rogue armour recipes followed on that
-base. Local evidence for those commits:
+The failed methods are:
 
-- **3D release suite:** 395 renderer-library, 2 model-library and 31 model
-  integration tests pass, with one ignored subprocess fixture. Focused armour
-  tests passed again after the shoulder-cap and tasset change.
-- **`quick` tier (Windows):** formatting, Clippy, architecture, build tools, the
-  isolated simulation check and the debug Rust suite pass.
-- **Arena-search sampling:** two tests failed only because the shared pinned
-  Python environment had numpy 2.5.3 against the branch's 2.5.4 pin. With the
-  maintainer's approval, the environment was updated from the hash-pinned
-  requirements, and all 7 sampling tests now pass.
-- **Debug process tests:** five performance tests and one earned-route test
-  first hit the run's 600-second build and wall-clock limits. One performance
-  test also exposed a missing `subprocess` import, which is now fixed. All 18
-  performance tests and the earned-route test pass when rerun individually with
-  prebuilt examples.
-- **Native mouse test:** the standing local mouse-click test is waived, not
-  passed.
-- **Hair timing diagnostic:** a single workload-4 `model_bench` run after the
-  query reuse, on the same machine, gave the following, with 90 frames per case.
-  Earlier figures are from [exact fixed points](#exact-control-solver-fixed-points).
+- `creatures::cloak::tests::captured_tick_93_backward_strike_releases_hand_without_losing_back_cloth`
+- `creatures::cloak::tests::main_and_mantle_share_real_geometry_and_unchanged_pose_cache`
+- `creatures::cloak::tests::mantle_clears_main_cloak_at_shared_heights_in_neutral_walk_and_turn`
+- `creatures::cloak::tests::neutral_layered_yokes_have_bounded_height_and_shoulder_slope`
+- `creatures::cloak::tests::posed_cope_triangles_clear_plate_arms_and_scaled_hands`
+- `creatures::cloak::tests::posed_head_snapshots_invalidate_only_dependent_mantles`
+- `creatures::geometry::mantle_head_contact_tests::mantle_head_contacts_match_rendered_geometry_after_pose_and_entity_remap`
+- `creatures::geometry::mantle_head_contact_tests::only_dependent_study_mantles_retain_head_geometry`
+- `creatures::skirt_contact_tests::native_short_skirt_and_tassets_do_not_cross_actual_thigh_faces`
 
-  | Case | Full update p50/p95/max | Earlier |
-  | --- | --- | --- |
-  | Human | 9.69/10.91/11.90 ms | 9.623/9.701/10.458 ms |
-  | Nymph | 39.98/46.11/47.61 ms | 43.526/58.041/58.275 ms |
-  | Nymph control fitting | 11.93/19.25/20.07 ms | 15.142/25.194/25.416 ms |
-  | Nymph face/edge constraints | 26.67/27.98/28.33 ms | — |
+The complete debug run exited 101 after 241.4 seconds. Its receipt retains the
+full log, exact inputs and protected binary hash; the separate pristine-main
+comparison retains per-method nonzero exit codes and matching diagnostics.
+These are two recurring cloth failure families across nine methods, not nine
+new recovered-source regressions or additional defects for each rerun. No
+production fix or assertion weakening is included in this classification.
 
-  Face constraints now dominate. This is not a controlled base/head
-  comparison, and the long-hair case still misses the 20 ms budget.
-- **Not run:** a controlled `perf_compare` measurement of the hair query
-  changes, the 3D client's own `verify.py`, push and full gates, and both-platform
-  CI. The query reductions are proven only by exact query-count tests.
+The complete release 3D library run also failed: **1,138 passed, nine failed
+and two were ignored** (exit 101, 203.75 seconds), with the same nine failed
+method names as debug. Exact-main reproduction was performed in debug only;
+there is no pristine-main release comparison. These are repeated executions of
+the same failing methods, not nine additional defects.
 
-The 3D gameplay-parity commits that followed use the maintainer's expedited
-policy: focused checks locally, with exhaustive qualification left to the
-required CI on both platforms. The push tier was skipped at the maintainer's
-direction. Local evidence on the final source:
+Both profiles passed the remaining model targets: six unit tests, 73 integration
+tests and three doctests per profile. The client binary and client doctest targets
+completed successfully but contained zero tests; they provide no additional
+behavior coverage. The verification-tooling suite (35 methods) and scenario
+checks (three methods) also passed. Input guards found no changes across the
+1,051 Rust/Cargo inputs used for this verification. Neither profile is an
+all-green 3D suite, and these checks are not a full workspace qualification.
 
-- **3D model crate:** all library and integration tests pass, including the
-  new resume/cancel and note request tests.
-- **3D renderer library (debug):** 413 tests pass, with one ignored subprocess
-  fixture. The debug run exposed a `debug_assert` in the baldric's waist turn,
-  where a ray grazing the flank exhausted one bounded surface march. The turn
-  now keeps marching from where that march stopped; converged points are
-  unchanged.
-- **Shared and ASCII clients:** `tor-client-common` and `tor-client-ascii`
-  library tests pass after history wording moved into `client-common`.
-- **Clippy:** clean with `-D warnings` on all targets of both 3D packages,
-  `tor-client-common` and `tor-client-ascii`.
-- **Native 3D processes (release client, Windows):** the new places, notes,
-  history and charts test, and the advancement and read/identify/zap tests,
-  pass against a real server.
-- **Not run locally:** the 3D release library suite, the 3D `verify.py`, the
-  quick, push and full tiers, and Linux. CI covers them before merge.
+Fresh native verification is blocked by local `AF_UNIX` socket
+creation returning `EPERM`: Xvfb cannot create its display sockets, including
+on the approved attempt. This is an infrastructure failure, not a native-test
+pass or an inferred graphical waiver. Historical sampled renders remain their
+own bounded evidence, not a replacement for the blocked native verifier.
 
-The first CI runs of the independent 3D workflow failed on both platforms:
+The current hosted 3D compatibility smoke does not execute this geometry suite.
+The previously successful main run therefore cannot clear these failures or
+qualify the recovered source. Hosted final-head CI remains pending and must be
+reported with its actual scope. Keep the local debug failure, pristine-main
+comparison, release result and native-display blocker distinct from hosted
+checks; no aggregate green or merge qualification is claimed here.
 
-- **Process-step cap:** the step stopped at its 1200-second cap after 4 or 5 of
-  the 37 process tests. It now runs through the shared test runner, so a
-  timeout keeps each test's outcome and traceback. The cap is now 3000 seconds.
-- **Model generation is slow without a GPU:** GitHub's runners have no GPU, and
-  there lineups and outfit studies ran 10 to 17 times slower than locally. For
-  example, a readback lineup took 18 s locally and timed out after 180 s on CI.
-  By the maintainer's decision, CI no longer gates on model generation. The 19
-  model process tests and the model benchmark are skipped on CI unless
-  `TOR_3D_MODEL_TESTS=1` is set; they still run locally.
-- **Linux key auto-repeat:** the keyboard tests held each key until a captured
-  frame showed its effect, and X auto-repeated it. Linux CI typed "ledger" as
-  runs of each letter. A shared helper now releases the key once the client
-  reports it pressed, and auto-repeat is off on the test display.
-- **Leotard test outfit:** tests and fixtures that used the sylvan duelist only
-  as a stand-in now dress figures in the leotard. Tests about the duelist keep
-  it. The 7 affected Rust tests and 4 affected process tests pass locally.
+### Current implementation map
 
-Main then took baleful polymorph (#198) as its own protocol bump. Merging it
-required a separate wire revision for the worn list: main's recorded wire sample
-stays as it is, and this branch records a new one for the worn list. An actor's view keeps main's
-current body asset, so a polymorphed creature shows its active form. Polymorph
-unequips gear its new form cannot wear and keeps it carried, so the worn list,
-built from equipped items, follows the form without extra rules.
+Use the component sections in the [art continuation guide](3d-art-continuation.md#current-modularization-map)
+as the current entry point, rather than replaying the dated work log:
 
+- Shared anatomical torso/ear/crown/limb frames place components; actual emitted
+  garment and armor support surfaces determine fit and clearance.
+- Straps, band-mounted hardware, wrapping, forearm shells, cuffs, pouch strips
+  and hanging panels have reusable construction consumers. This does not mean
+  every outfit or accessory has migrated.
+- Coverage resolves bounded whole-detail choices before construction where its
+  contract permits it. It is not a general region/layer solver or continuous
+  cloth collision system.
+- Hair retains component-owned attachment and contact constraints. Stable
+  relaxation pre-sweeps stop when no point changes; coarse covered topknots use
+  bounded refinement. These are distinct changes, not a universal hair solution.
+- Shoe/boot composition, support-fitted sandal bands and conservative per-height
+  query windows and bare-foot shaft ownership have focused local evidence.
 
-The consolidated Windows release contract check passes 387 renderer-library
-checks, one model-library check and 31 model integration checks, plus tooling,
-showcase-source validation, formatting, all-target lint and architecture checks.
-The one ignored entry is `launch::tests::malformed_ready_fixture`, invoked as a
-child by `malformed_startup_reaps_its_owned_server`, which passed. The source
-fingerprint matched before and after the run. The later wearer-pigment migration has separate focused evidence below; it does
-not automatically inherit this complete Rust-suite result.
+Preserve native style, body-specific dimensions and sex-specific landmarks while
+sharing the attachment contract. Do not replace these bounded helpers with a new
+anatomy taxonomy or solver without a concrete consumer and evidence of benefit.
 
-Native evidence remains the recent affected fixtures: equipment replacement with
-Warrior/Mage/Wraith, and the 12-family women lineup covering the moved garment
-details. These are combined with the earlier selected-process checkpoint for
-unchanged paths, not represented as a new all-process or full-platform gate.
-Debug-profile qualification, final Windows/Linux CI and publishing gates remain
-outstanding. The maintainer's exact three mouse-test waivers remain local.
+### Performance and publication boundaries
 
-The latest measured demanding Nymph composition is 43.526/58.041/58.275 ms
-p50/p95/max per CPU update, with 90 frames in the diagnostic. It still misses a
-20 ms update budget. See [exact fixed points](#exact-control-solver-fixed-points)
-for the measured source state and limits; older timing tables below are historical
-snapshots, not controlled before/after results or current FPS measurements.
+Timing tables in this guide and the continuation notes are **exploratory local
+diagnostics**, not accepted headline measurements. Local acceptance of a visual
+fix does not accept its timing as a performance result. The per-height band-window
+sample and hair relaxation timings suggest useful directions, but do not establish
+current FPS, cross-machine comparisons or a general speedup.
 
-For an immediate visual review, use the existing
-[scripted model review instructions](../../crates/client-3d/review-scripts/README.md),
-including `showcase-loop.ps1` for one-window live playback and `--scene-script`
-for deterministic captures. Do not use capture timing to judge live smoothness.
+Accepted headlines must follow the [performance policy](../development/performance.md),
+use the supported comparison workflow and be added with `scripts/perf_ledger.py add`
+with source/workload identity, machine fingerprint and verified raw-data reference.
+Do not fabricate missing metadata or upload raw measurements without the required
+maintainer approval. No new accepted headline is added by this recovery checkpoint.
+The ledger accepts raw-data URLs only under the current `Loquoc` project or its
+historical `KCall360` identity, preserving old evidence without accepting arbitrary
+repositories. URL validation does not establish that an asset exists or authorize
+its upload.
 
-Common exposed-skin pigments now retain wearer references as described below.
-Audit the remaining native boot/anatomy pigments and validated recipe admission
-before public native-recipe transfer. Then complete the shared fitting/attachment interface and
-item capability/coverage rules. Server-driven appearance still requires the four
-explicit decisions in the appearance proposal; no generic wearable payload or
-all-client implementation is claimed by this checkpoint.
+Use the current [testing policy](../development/testing.md) for publication gates.
+Historical Windows counts, protocol bumps, workflow limits and waivers below are
+records of older checkpoints, not present-head passes or standing exceptions.
 
 ## Next developer's work queue
 
@@ -216,7 +198,7 @@ the ignored evidence directory, not in portable repository documentation.
 | --- | --- | --- |
 | Garment ownership | Audit remaining native/style-dependent details before exposing arbitrary native recipes as interchangeable outfits. Continuous robe/waist/cuff ownership is now recipe-driven; qualify additional bodies and independent subpiece coverage before generalizing it. | Preserve native versus explicit recipe witnesses, cross-body fitting, equip/remove restoration and moving-legs captures; add fixed conflict cases rather than a broad Cartesian expansion |
 | Recipe identity | Resolve the [wearer-owned pigment boundary](#wearer-owned-pigment-migration) before general native transfer. Preserve the renderer-boundary recipe key and introduce a validated recipe-assignment API before allowing arbitrary native-recipe transfer through scripts or gameplay. Define canonical semantic identity if replacing the current local debug-formatted keys. | Keep the shared-library distinct-recipe, head/hair reuse, repeat-selection and native-restoration witness; extend it for new dependency boundaries rather than relying on fresh-library fitting tests |
-| Shared fitting | Extract a fitting description from the existing bust, torso, hip and attachment consumers. Use semantic landmarks for placement and actual supporting surfaces for clearance; neither replaces the other. | Existing asymmetric bust/hip and waist-frame witnesses remain valid; an actual garment and an equipped item consume the same description |
+| Shared fitting | Extend the existing shared torso, crown, limb, strap and band consumers to remaining accessories only where a concrete fit requires it. Use semantic landmarks for placement and actual support surfaces for clearance; do not introduce a second competing abstraction. | Preserve asymmetric body and garment witnesses, native/copy behavior, restoration and cached construction; qualify each newly migrated consumer |
 | Hair motion and cost | Prioritize the measured long-hair case. Separate support-query/constraint cost from mesh writes and normals before choosing a representation change; qualify temporal continuity as well as endpoint clearance. | Retain scalp pins, strain and full-mesh contact; add a focused moving-obstacle/history witness, then a controlled same-workload release comparison |
 | Generic visible items | Define required body capabilities and coverage per item family using the proposal's capability matrix. Do not generalize the current four preview slots into a universal anatomy model. | Explicit unsupported-combination errors plus fixed cases for repeated limbs, layered garments and multi-part equipment; correct removal/restoration |
 | Server and all clients | Obtain the compatibility/content decisions described in the appearance proposal, then implement one observer-filtered projection and shared interpretation across text, ASCII, 3D and headless clients. | Hidden-state indistinguishability, atomic full/delta equivalence, self/corpse carriers, reload/redisclosure, bounded malformed inputs and actual-process checks for each client |
@@ -809,6 +791,20 @@ not build a second table of approximate coordinates. These are the present owner
 | [Visual contact](../../crates/client-3d/src/creatures/visual_contact.rs) | Composed mesh profiles transformed along a joint path | Contact queries use the resolved exterior, including worn layers |
 | [Hair contact](../../crates/client-3d/src/creatures/hair_contact.rs) | Explicit mesh/head-or-drape/torso/support transforms and authored pin weights | Preserve ownership and reset per-instance history when presentation changes |
 
+One bounded reuse is already implemented: native fitted boot bands and baldrics
+both use `fitting::buckle_frame` for open hardware. The native shaft's
+`buckled_band` assembly queries its own emitted leather before attaching the
+frame; it retains the two authored side-facing stations, brass color and band
+geometry. The baldric still owns its torso fitting and occlusion decisions.
+This shares a hardware recipe, not a new attachment registry or general solver.
+Equipped buckled boots retain their separate wire-frame style and three stations.
+
+Circlet, wreath and crown brow bands reuse the periodic `closed_ring` component
+used by footwear and glove trim. They retain their fitted brow paths, authored
+widths and separate decorations. The seam uses one shared ring frame, without
+coincident end caps from treating a closed band as an open tube. Open crown spikes
+remain open-path tubes; this does not replace arbitrary tube shapes.
+
 For an initial renderer-local attachment contract, return a frame identity, local
 position/orientation, and a capability result. Missing capabilities should remain
 explicit; do not invent a fallback origin or silently attach to the nearest joint.
@@ -997,10 +993,13 @@ the fix, as do the nine equipment-composition tests. Release all-target Clippy
 passes after correcting a misplaced existing enum-size annotation.
 
 This is one ownership correction, not complete native-outfit portability.
-The caller still chooses `trim_neck` from native/style state. Native caster
-robe/waist ownership, cuffs and chest ornaments were subsequently migrated as
-described below.
-Those need separate behavior witnesses before being moved into recipes. The
+The native/style distinction in the caller's `trim_neck` policy was later
+removed: `Figure` now consistently trims garment neck extensions. The excluded
+native shells and armor already end below that trim, while bare anatomy and
+shirt support ignore it. This removes context dependence without adding another
+outfit parameter; the low-level geometry parameter remains available. Native
+caster robe/waist ownership, cuffs and chest ornaments were subsequently
+migrated as described below. The
 shell witness isolates the opening with a fixed neck-trim policy and must not
 be cited as proof that an entire transferred model is identical. No protocol,
 save format or public appearance schema changed.
@@ -1325,8 +1324,14 @@ moved generators without a Cartesian composition matrix.
 
 These pieces are still renderer-local authored groups, not a universal equipment
 slot system. Shoulder discs and sleeve tatters retain existing coverage behavior;
-future arm armor needs an explicit coverage decision. Zombie hip rags and the
-native neck-trimming decision remain in the main biped generator. Arbitrary
+future arm armor needs an explicit coverage decision. Zombie hip rags now use `HipDecoration::TunicTatters { shade }`. Their static
+emitter retains the original hip mesh, presentation frame and batching rather
+than adding an attachment or drape. It uses the resolved tunic pigment, so an
+equipped shirt retains the previous recoloring behavior. Explicit outfit copy,
+ordinary Human/Orc transfer and independent removal no longer depend on Zombie
+style. Blocky/furry anatomy still retains its existing early-return behavior;
+this does not admit arbitrary Guardian/Yeti clothing transfer. The biped generator uses one uniform garment-neck trim policy rather than
+a native-versus-explicit outfit decision. Arbitrary
 recipe admission, all-body clearance and visible-equipment disclosure remain
 separate unfinished boundaries. The later [pigment migration](#wearer-owned-pigment-migration) fixes the common
 bare-hand/leg/foot roles. Remaining native boot/anatomy pigment choices still need
@@ -1370,10 +1375,14 @@ whose pigment deliberately equals the donor's skin, and boot equip/remove
 restoration. A recipe-level witness covers original-wearer equivalence, shaded
 feet and explicitly fixed pigments in each migrated slot.
 
-This does not finish arbitrary native transfer. Native boot representations for
-Zombie, Guardian and Yeti still carry resolved pigments; the latter two are not
-ordinary dressable bodies. Audit those representations and intrinsic anatomy
-before broadening admission. Arbitrary user-supplied pigment values also require
+This does not finish arbitrary native transfer. Boot recipes now also retain
+`Pigment`: Zombie, Guardian and Yeti footwear use skin shades 0.8, 0.85 and 1.0
+respectively, while every authored leather, metal and wardrobe boot stays fixed.
+The existing `Outfit::boot(skin)` boundary resolves the recipient pigment for
+geometry, including derived cuff and strap shades. A fixed boot pigment equal
+to donor skin remains fixed; boot equip/remove restores the original binding.
+Guardian and Yeti are still not ordinary dressable bodies. Their intrinsic
+anatomy and other native pigment choices need auditing before broader admission. Arbitrary user-supplied pigment values also require
 validation before a public recipe API. This is renderer-local material meaning,
 not an approved content/wire representation; server appearance must still use
 observer-filtered semantic catalog data.
@@ -1384,3 +1393,327 @@ direct children and missed the nested hand meshes; that was corrected, its
 nonempty sample asserted, and the old fixed-donor-color behavior rerun to establish
 the intended failure before restoring skin bindings. These focused results do
 not replace the earlier full Rust-suite checkpoint or final platform/profile CI.
+
+## Exposed toe anatomy follows footwear coverage
+
+Toe claws are emitted by the foot branch that exposes them, not by checking only
+whether appearance-style equipment is present. Closed native boots, wardrobe
+boots, closed shoes and both equipment boot paths suppress Troll claws. Bare
+Troll and furry Yeti feet retain their original anatomical recipe. Sandals retain
+Troll claws, but their roots are fitted to the emitted upper in its actual ankle
+frame. The same small claw emitter consumes those roots; no new coverage solver
+or equipment format is introduced. Appearance footwear stays closed, and the
+specialized Yeti branch retains its previous clothing-admission limits.
+
+The regression found a claw tip at local y=-0.46 beneath a basic equipped boot
+whose sole belongs near y=-0.077. Recipe-aware emission removes that detached
+geometry. Further checks cover both sexes and extreme builds, closed shoes,
+flat/heeled sandals and equip/remove restoration. This is not a redesign of the
+native bare foot or an all-pose contact guarantee.
+
+Visual review rejected the first sandal ray height because it hit the sloped vamp and made uneven dorsal spikes. The revised sample intersects the toe-front thickness, with modest forward projection and reduced radius for the shoe last. Native bare claw dimensions remain unchanged. This is a local exposed-anatomy recipe, not a general region solver.
+
+## Custom belt hardware shares the band's frame
+
+The Leprechaun's bundled buckle and pouch previously attached independently to
+the hips while its ordinary belt and another solid buckle followed the torso.
+A first-red actual-mesh witness found 24 unwanted ordinary-buckle vertices,
+with an ordinary-hardware positive control; native renders showed the overlap.
+
+Custom bundled hardware now emits in the band's existing output frame: torso
+for ordinary fitted waists, hips for continuous fitted robes. Its presence
+replaces ordinary buckle hardware without removing the leather band. The shared
+open-frame buckle and fitted pouch builders consume the resolved waist support.
+The authored gilt color remains; the old diamond/box assembly becomes a single
+rectangular gilt frame and leather bag, subject to native visual review.
+A custom detail remains visible when the belt flag is false. An explicit
+independent pouch suppresses the bundled bag, keeping its existing rendering
+and attachment behavior; this does not migrate every pouch's animation frame.
+No new solver, wire format or body-region taxonomy is introduced.
+
+## Species topknots use the shared crown envelope
+
+Orc and Troll topknots previously bypassed the fitted-hair path used by ordinary
+hairstyles. Pirate tricorns, Witch hats and Juliet veiled caps leave species hair
+visible, so the raw crest, knot and tail could cross the crown. An actual lining
+witness failed on an Orc Pirate; native Juliet images also showed hair emerging
+through the cap.
+
+Only the authored topknot assembly now passes through the existing hair envelope.
+Its matte hair and leather tie share that map; ears, tusks, nose and other head
+details do not. No new hat solver or visibility category is introduced. Geometry
+below the existing transition stays authored, retaining the exposed lower tail.
+Bare and uncovered headwear retain the original recipe and topology. Full
+headwear occlusion continues to use the existing visibility gate.
+
+The first direct integration left a coarse tail triangle bridging the narrow
+rim transition. Only the disconnected tail-lock component opts into bounded
+source-edge refinement before fitting; scalp, crest, knot and tie use the
+ordinary adapter. Refinement interpolates vertex attributes on the original
+surface. There is no upper selection cutoff: covered shared edges use the
+same length bound, while unselected edges remain in the identity region.
+A paired-edge witness guards the fitted seam, and the original bare path
+bypasses refinement entirely. This adds geometry for covered sparse tails;
+it is not a speedup, and ordinary hair consumers are unchanged.
+
+## Hanging apron panels reuse the actual-garment fold
+
+The Troll's leather apron now passes its own outline, thickness, origin and
+inclination into the existing hanging-panel fold calculation. The native
+loincloth keeps its original adapter and recipe. The apron queries the emitted
+lower skirt/peplum support and its own same-drape tatters; it no longer uses an
+unfitted fixed plane that crosses the lower cloth. No new solver, attachment
+entity or outfit field is introduced. The kilt tatters, materials and root frame
+remain authored.
+
+Actual-mesh neutral clearance checks cover native Trolls and their copied
+outfit on Human and Orc bodies, both sexes and all three builds. The existing
+loincloth clearance, shape, ring mounting, no-support and warm-cache witnesses
+remain controls. The geometric fit is not a continuous-animation guarantee:
+apron and supporting skirt still retain their existing independent drape motion.
+Sampled walking/turning review is required, and full dynamic layer contact remains
+separate work. Folding adds a small amount of panel topology; no speedup is claimed.
+
+## Exposed hand claws reuse the anatomical claw emitter
+
+The Yeti's three pale hand claws previously floated below its fingers. Their
+roots now query the emitted bare hand in its actual local frame, before any
+claw geometry is added. The existing foot-claw emitter is renamed and reused;
+root positions, tip offset and radius remain parameters owned by the extremity.
+No new solver, body-region taxonomy or per-frame work is introduced. This adds
+three bounded surface queries per newly constructed hand; cached meshes reuse
+the result, and claw topology is unchanged. It is not a speedup claim.
+
+An independent actual-triangle witness requires exactly three claw components
+and contact between each component and the emitted hand, across both requested
+sexes/all builds/both hands. Native Yeti anatomy currently uses closed hands for
+both sexes. Nine matched native views cover rest and sampled walking plus an
+unchanged Human control; this does not qualify unsupported Yeti glove outfits
+or open-hand claws. Existing foot-coverage/restoration tests remain controls.
+The apron also has a sampled actual-triangle motion audit across straight walk,
+turn and settle; it passed without changing the independent drape behavior.
+
+## Low shoes retain their own footwear boundary
+
+Low shoes and sandals no longer acquire a fallback boot shaft when the leg
+recipe is fitted, trousered or plated. The fallback shaft requires actual Boots;
+neither Shoes nor Bare feet acquire one from the leg recipe. The anatomical
+bare-foot geometry itself remains unchanged. An equipped boot still replaces the shoe and restores it on removal.
+This removes redundant shaft primitives rather than adding a fitting pass,
+attachment type or solver. No runtime speedup is claimed.
+
+The new actual-mesh regression first failed on 33 shoe-colored shaft vertices
+above the ankle. Fixed native/copy fixtures retain calf pigment, low ankle straps,
+sole and sandal skin, with native/equipped boot and removal controls. A separate
+public armored-wardrobe test covers Witch/Princess with plate mail. Fifteen
+matched native views cover armored Goddess/Princess/Witch, ordinary native boots
+and unarmored Witch at rest and one walking sample. Existing loose Goddess
+strap fit is separate; removing the erroneous shaft exposes its lower turns.
+This does not qualify arbitrary recipe admission or continuous limb contact.
+
+## Stop unchanged hair mesh relaxation pre-sweeps
+
+The face/edge constraint stage now stops its initial eight-pass relaxation loop
+when the existing `limit_stretch` result says no vertex moved, just as its trailing
+loop already does. Stable contact field, unchanged points, influence and edges
+make further identical passes redundant. The first full pass still runs and face
+contact still follows it; there is no tolerance, cache, new solver or changed
+iteration ceiling for active corrections.
+
+A blocked-edge witness first measured 126 field queries while neither endpoint
+could move; it now requires 28, covering one pre-pass and one post-pass. All 25
+release hair/contact tests pass, including emitted-mesh jump, pinned attachment,
+strain, swept motion and background/inline equivalence. Nine matched native
+rest/jump/later-jump pairs retain visual quality. The later capture is not a
+settling guarantee, and existing Nymph strand styling remains separate.
+
+Three alternating paired release processes of unchanged version-4 model_bench
+produce 270 frames per case per side. Nymph constraint-stage p50/p95/max were
+10.892/16.968/44.612 ms before and 10.279/14.067/18.812 ms after; full CPU update
+was 17.739/27.762/77.378 ms and 16.769/22.626/36.585 ms. Each candidate process
+had a lower Nymph constraint median, but these are correlated-frame diagnostics,
+not a statistical guarantee. Human/Mage non-hair controls also varied, including
+larger candidate maximum outliers. Mesh payload/entity/frame counts match.
+No FPS or universal speedup is claimed; even the candidate p95 exceeds a 20 ms
+CPU-update budget in this workload. Do not compare these timings directly with
+older runs on different toolchains or environments.
+
+## Historical handoff and qualification records
+
+The following records are preserved for provenance only. They predate the current
+recovery/rebase above; words such as “latest” and “final” refer to their own
+checkpoint, not the present source. Use current policy for waivers and gates.
+
+The older branch was a work-in-progress handoff snapshot published at the maintainer's
+explicit request without completing a new pre-push gate. That gate was started
+and then stopped at the maintainer's direction after formatting passed. The
+verified checkpoints below remain scoped evidence, not a claim that this branch
+is merge-ready. Continue from the work queue and preserve the outstanding
+platform/profile and publishing requirements before any merge.
+
+The branch was later rebased without conflicts onto main at `511ea466`
+(#191). The rebased tree equals a merge of the two. The checkpoints
+below were recorded on the earlier base (#171); their source fingerprints describe
+that base, not the rebased commits.
+
+The branch was rebased again onto main at `feae51f2` (#195), which had
+already taken its own protocol bump for hallucinated presentations. Conflicts
+were resolved as follows:
+
+- **Worn equipment:** the worn list now bumps the protocol past main's.
+- **Hallucination:** a hallucinated figure carries no worn list, so its true
+  gear cannot betray it.
+- **Palette discovery:** a ground item with a presentation contributes only
+  that presentation's asset, never its true corpse body asset.
+
+The local evidence listed below was recorded before this second rebase.
+
+The worn-equipment slice and Rogue armour recipes followed on that
+base. Local evidence for those commits:
+
+- **3D release suite:** 395 renderer-library, 2 model-library and 31 model
+  integration tests pass, with one ignored subprocess fixture. Focused armour
+  tests passed again after the shoulder-cap and tasset change.
+- **`quick` tier (Windows):** formatting, Clippy, architecture, build tools, the
+  isolated simulation check and the debug Rust suite pass.
+- **Arena-search sampling:** two tests failed only because the shared pinned
+  Python environment had numpy 2.5.3 against the branch's 2.5.4 pin. With the
+  maintainer's approval, the environment was updated from the hash-pinned
+  requirements, and all 7 sampling tests now pass.
+- **Debug process tests:** five performance tests and one earned-route test
+  first hit the run's 600-second build and wall-clock limits. One performance
+  test also exposed a missing `subprocess` import, which is now fixed. All 18
+  performance tests and the earned-route test pass when rerun individually with
+  prebuilt examples.
+- **Native mouse test:** the standing local mouse-click test is waived, not
+  passed.
+- **Hair timing diagnostic:** a single workload-4 `model_bench` run after the
+  query reuse, on the same machine, gave the following, with 90 frames per case.
+  Earlier figures are from [exact fixed points](#exact-control-solver-fixed-points).
+
+  | Case | Full update p50/p95/max | Earlier |
+  | --- | --- | --- |
+  | Human | 9.69/10.91/11.90 ms | 9.623/9.701/10.458 ms |
+  | Nymph | 39.98/46.11/47.61 ms | 43.526/58.041/58.275 ms |
+  | Nymph control fitting | 11.93/19.25/20.07 ms | 15.142/25.194/25.416 ms |
+  | Nymph face/edge constraints | 26.67/27.98/28.33 ms | — |
+
+  Face constraints now dominate. This is not a controlled base/head
+  comparison, and the long-hair case still misses the 20 ms budget.
+- **Not run:** a controlled `perf_compare` measurement of the hair query
+  changes, the 3D client's own `verify.py`, push and full gates, and both-platform
+  CI. The query reductions are proven only by exact query-count tests.
+
+The 3D gameplay-parity commits that followed use the maintainer's expedited
+policy: focused checks locally, with exhaustive qualification left to the
+required CI on both platforms. The push tier was skipped at the maintainer's
+direction. Local evidence on the final source:
+
+- **3D model crate:** all library and integration tests pass, including the
+  new resume/cancel and note request tests.
+- **3D renderer library (debug):** 413 tests pass, with one ignored subprocess
+  fixture. The debug run exposed a `debug_assert` in the baldric's waist turn,
+  where a ray grazing the flank exhausted one bounded surface march. The turn
+  now keeps marching from where that march stopped; converged points are
+  unchanged.
+- **Shared and ASCII clients:** `tor-client-common` and `tor-client-ascii`
+  library tests pass after history wording moved into `client-common`.
+- **Clippy:** clean with `-D warnings` on all targets of both 3D packages,
+  `tor-client-common` and `tor-client-ascii`.
+- **Native 3D processes (release client, Windows):** the new places, notes,
+  history and charts test, and the advancement and read/identify/zap tests,
+  pass against a real server.
+- **Not run locally:** the 3D release library suite, the 3D `verify.py`, the
+  quick, push and full tiers, and Linux. CI covers them before merge.
+
+The first CI runs of the independent 3D workflow failed on both platforms:
+
+- **Process-step cap:** the step stopped at its 1200-second cap after 4 or 5 of
+  the 37 process tests. It now runs through the shared test runner, so a
+  timeout keeps each test's outcome and traceback. The cap is now 3000 seconds.
+- **Model generation is slow without a GPU:** GitHub's runners have no GPU, and
+  there lineups and outfit studies ran 10 to 17 times slower than locally. For
+  example, a readback lineup took 18 s locally and timed out after 180 s on CI.
+  By the maintainer's decision, CI no longer gates on model generation. The 19
+  model process tests and the model benchmark are skipped on CI unless
+  `TOR_3D_MODEL_TESTS=1` is set; they still run locally.
+- **Linux key auto-repeat:** the keyboard tests held each key until a captured
+  frame showed its effect, and X auto-repeated it. Linux CI typed "ledger" as
+  runs of each letter. A shared helper now releases the key once the client
+  reports it pressed, and auto-repeat is off on the test display.
+- **Leotard test outfit:** tests and fixtures that used the sylvan duelist only
+  as a stand-in now dress figures in the leotard. Tests about the duelist keep
+  it. The 7 affected Rust tests and 4 affected process tests pass locally.
+
+Main then took baleful polymorph (#198) as its own protocol bump. Merging it
+required a separate wire revision for the worn list: main's recorded wire sample
+stays as it is, and this branch records a new one for the worn list. An actor's view keeps main's
+current body asset, so a polymorphed creature shows its active form. Polymorph
+unequips gear its new form cannot wear and keeps it carried, so the worn list,
+built from equipped items, follows the form without extra rules.
+
+
+The consolidated Windows release contract check passes 387 renderer-library
+checks, one model-library check and 31 model integration checks, plus tooling,
+showcase-source validation, formatting, all-target lint and architecture checks.
+The one ignored entry is `launch::tests::malformed_ready_fixture`, invoked as a
+child by `malformed_startup_reaps_its_owned_server`, which passed. The source
+fingerprint matched before and after the run. The later wearer-pigment migration has separate focused evidence below; it does
+not automatically inherit this complete Rust-suite result.
+
+Native evidence remains the recent affected fixtures: equipment replacement with
+Warrior/Mage/Wraith, and the 12-family women lineup covering the moved garment
+details. These are combined with the earlier selected-process checkpoint for
+unchanged paths, not represented as a new all-process or full-platform gate.
+Debug-profile qualification, final Windows/Linux CI and publishing gates remain
+outstanding. The maintainer's exact three mouse-test waivers remain local.
+
+The latest measured demanding Nymph composition is 43.526/58.041/58.275 ms
+p50/p95/max per CPU update, with 90 frames in the diagnostic. It still misses a
+20 ms update budget. See [exact fixed points](#exact-control-solver-fixed-points)
+for the measured source state and limits; older timing tables below are historical
+snapshots, not controlled before/after results or current FPS measurements.
+
+For an immediate visual review, use the existing
+[scripted model review instructions](../../crates/client-3d/review-scripts/README.md),
+including `showcase-loop.ps1` for one-window live playback and `--scene-script`
+for deterministic captures. Do not use capture timing to judge live smoothness.
+
+Common exposed-skin pigments now retain wearer references as described below.
+Audit the remaining native boot/anatomy pigments and validated recipe admission
+before public native-recipe transfer. Then complete the shared fitting/attachment interface and
+item capability/coverage rules. Server-driven appearance still requires the four
+explicit decisions in the appearance proposal; no generic wearable payload or
+all-client implementation is claimed by this checkpoint.
+
+## Bare feet own anatomy, not boot shafts
+
+Native Troll and Nymph use fitted skin-colored legs and bare feet. The old
+fallback emitted a cylindrical skin-colored boot shaft for that combination,
+burying most of their two leather bindings. A pigment-isolation regression first
+failed on a slim male Nymph: changing only the bare-foot pigment changed shin
+geometry. The fallback now requires actual Boots. The two retained leather
+bindings use the existing rounded-band support fitter against the actual calf,
+resolving both before either is emitted. Their stations, thickness and pigment
+remain authored; no new anatomy abstraction or solver is introduced. Foot shapes
+and their sole-like undersides are unchanged by this slice.
+
+The expanded geometry method covers Troll/Nymph, both requested sexes, slim and
+heavy builds and both legs. It checks foot pigment retention, absence of the
+false shaft, both binding stations, complete geometry and clearance against the
+emitted calf. It passes on the rebased source, along with low-shoe, native/equipped
+boot and removal controls, armored shoe composition and sandal support. Strict
+Clippy and a native build pass. Sixteen reviewed baseline/candidate views cover
+three rest angles and one walking pose per native fixture; they show restored
+ankle taper and attached bindings without new gaps. That production recipe is
+unchanged after rebase. These samples do not establish full-cycle contact or all
+wardrobe combinations.
+
+An isolated debug-profile construction diagnostic on the rebased code compared
+only this production change: three alternating measured pairs after a warmup
+pair give two-shin medians of 27.058 ms before and 30.461 ms after (ranges
+26.856–27.323 and 30.446–30.645 ms). This is about 3.4 ms extra cold construction
+for actual support fitting, not per-frame work or a performance improvement.
+Whole-model timing was noisy. This is exploratory cost accounting, not an
+accepted release headline, canonical perf-comparison result or performance-ledger
+claim. Final-head CI and the broader recovered-source checks remain separate.

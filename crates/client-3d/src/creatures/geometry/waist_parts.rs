@@ -8,23 +8,7 @@ pub(super) fn point(
     angle: f32,
     gap: f32,
 ) -> Vec3 {
-    let out = Vec3::new(angle.sin(), 0.0, angle.cos());
-    let y = height - body.torso.y;
-    let surface = pelvis_surface(support, y, out);
-    let mut near = surface.dot(out);
-    let mut far = near + 0.04;
-    // Keep the authored height while offsetting by real surface clearance.
-    // A radial offset alone gets thinner on a steeply flaring hip.
-    for _ in 0..14 {
-        let radius = (near + far) * 0.5;
-        let sample = out * radius + Vec3::Y * y;
-        if support.distance(sample) < gap {
-            near = radius;
-        } else {
-            far = radius;
-        }
-    }
-    out * ((near + far) * 0.5) + Vec3::Y * height
+    radial_parts::support_point(support, body.torso.y, height, angle, gap)
 }
 
 pub(super) fn band(
@@ -47,55 +31,16 @@ pub(super) fn slanted_band(
     tilt_clearance: Vec2,
     color: Vec3,
 ) {
-    const SIDES: usize = 48;
-    const ROWS: usize = 4;
-    let rings: Vec<_> = (0..=ROWS)
-        .map(|row| {
-            let height = heights.x + (heights.y - heights.x) * row as f32 / ROWS as f32;
-            std::array::from_fn::<_, SIDES, _>(|k| {
-                let angle = k as f32 * TAU / SIDES as f32;
-                let height = height + tilt_clearance.x * angle.sin();
-                [
-                    point(body, support, height, angle, tilt_clearance.y),
-                    point(body, support, height, angle, tilt_clearance.y + 0.003),
-                ]
-            })
-        })
-        .collect();
-    let mut quad = |points: [Vec3; 4], facing: Vec3| {
-        let inside = points.iter().copied().sum::<Vec3>() * 0.25 - facing * 0.01;
-        b.tri_out([points[0], points[1], points[2]], inside, color);
-        b.tri_out([points[0], points[2], points[3]], inside, color);
-    };
-    for k in 0..SIDES {
-        let next = (k + 1) % SIDES;
-        let angle = (k as f32 + 0.5) * TAU / SIDES as f32;
-        let out = Vec3::new(angle.sin(), 0.0, angle.cos());
-        for row in 0..ROWS {
-            for (side, facing) in [(0, -1.0), (1, 1.0)] {
-                quad(
-                    [
-                        rings[row][k][side],
-                        rings[row][next][side],
-                        rings[row + 1][next][side],
-                        rings[row + 1][k][side],
-                    ],
-                    out * facing,
-                );
-            }
-        }
-        for (row, facing) in [(0, Vec3::NEG_Y), (ROWS, Vec3::Y)] {
-            quad(
-                [
-                    rings[row][k][0],
-                    rings[row][next][0],
-                    rings[row][next][1],
-                    rings[row][k][1],
-                ],
-                facing,
-            );
-        }
+    radial_parts::RadialBandProfile {
+        heights,
+        support_to_output_y: body.torso.y,
+        tilt: tilt_clearance.x,
+        clearance: tilt_clearance.y,
+        thickness: 0.003,
+        rows: 4,
+        sides: 48,
     }
+    .emit(b, support, color);
 }
 
 /// A soft bag fitted over the union of the clothed waist and pelvic support.
@@ -196,27 +141,44 @@ pub(super) fn pouch(
         })
         .collect();
     tube(b, &flap, &vec![(0.0018, 0.0018); flap.len()], color * 0.68);
+    let support_radius = |height, angle: f32, clearance| {
+        let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+        surface_field_ray_hit(
+            &|at| support.distance(at - body.torso).min(pelvis.distance(at)),
+            Vec3::Y * height,
+            out,
+            clearance,
+            0.7 * body.build,
+        )
+        .map(|point| point.with_y(0.0).dot(out))
+    };
     for side in [-1.0, 1.0] {
-        for row in 0..8 {
-            let y0 =
-                0.032 * body.build + (BELT_TOP_Y + 0.005 - 0.032 * body.build) * row as f32 / 8.0;
-            let y1 = 0.032 * body.build
-                + (BELT_TOP_Y + 0.005 - 0.032 * body.build) * (row + 1) as f32 / 8.0;
-            let a0 = 0.9 + (side * 0.019 - 0.004) * body.build / radius;
-            let a1 = 0.9 + (side * 0.019 + 0.004) * body.build / radius;
-            let q = [
-                fit(y0, a0, 0.014),
-                fit(y0, a1, 0.014),
-                fit(y1, a1, 0.014),
-                fit(y1, a0, 0.014),
-            ];
-            b.quad_out(q, Vec3::Y * ((y0 + y1) * 0.5), color * 0.8);
+        let profile = radial_parts::RadialAttachmentProfile {
+            heights: Vec2::new(0.032 * body.build, BELT_TOP_Y + 0.005),
+            angles: Vec2::new(
+                0.9 + (side * 0.019 - 0.004) * body.build / radius,
+                0.9 + (side * 0.019 + 0.004) * body.build / radius,
+            ),
+            clearance: 0.012,
+            thickness: 0.002,
+            rows: 8,
+            columns: 2,
+        };
+        if let Some(attachment) = profile.resolve(&support_radius, color * 0.8) {
+            for tri in attachment.surface_triangles() {
+                b.tri(tri, color * 0.8);
+            }
         }
     }
 }
 
-/// The fitted leather band and its buckle stay in one attachment frame.
-pub(super) fn belt(p: &mut Parts, body: HumanoidBody, support: &crate::sdf::Sculpt) {
+/// The fitted leather band stays present when a garment supplies its own buckle.
+pub(super) fn belt(
+    p: &mut Parts,
+    body: HumanoidBody,
+    support: &crate::sdf::Sculpt,
+    include_buckle: bool,
+) {
     band(
         &mut p.satin,
         body,
@@ -224,10 +186,60 @@ pub(super) fn belt(p: &mut Parts, body: HumanoidBody, support: &crate::sdf::Scul
         Vec2::new(BELT_BOTTOM_Y, BELT_TOP_Y),
         LEATHER * 0.8,
     );
-    p.metal.cuboid(
-        point(body, support, BELT_CENTER_Y, 0.0, 0.008),
-        Vec3::new(0.035, 0.03, 0.012),
-        Quat::IDENTITY,
-        Vec3::new(0.74, 0.5, 0.26),
-    );
+    if include_buckle {
+        p.metal.cuboid(
+            point(body, support, BELT_CENTER_Y, 0.0, 0.008),
+            Vec3::new(0.035, 0.03, 0.012),
+            Quat::IDENTITY,
+            Vec3::new(0.74, 0.5, 0.26),
+        );
+    }
+}
+
+#[cfg(test)]
+mod belt_hardware_tests {
+    use super::*;
+
+    #[test]
+    fn replacement_hardware_preserves_exact_belt_band() {
+        for model in [
+            CreatureModel::Orc,
+            CreatureModel::Troll,
+            CreatureModel::Human,
+        ] {
+            let body =
+                HumanoidBody::resolve(&Look::with_choice(model, 22, Some(Variant::default())));
+            let support = torso_shape(body, Some(TorsoMaterial::Leather), false);
+            let mut default = Parts::default();
+            let mut replacement = Parts::default();
+            belt(&mut default, body, &support, true);
+            belt(&mut replacement, body, &support, false);
+            assert!(!default.satin.is_empty());
+            default.satin.assert_same_recipe(&replacement.satin);
+            assert!(
+                replacement.metal.is_empty(),
+                "replacement garment owns the hardware"
+            );
+        }
+    }
+
+    #[test]
+    fn default_buckle_keeps_original_recipe() {
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Troll,
+            22,
+            Some(Variant::default()),
+        ));
+        let support = torso_shape(body, Some(TorsoMaterial::Leather), false);
+        let mut actual = Parts::default();
+        belt(&mut actual, body, &support, true);
+        let mut expected = Builder::default();
+        expected.cuboid(
+            point(body, &support, BELT_CENTER_Y, 0.0, 0.008),
+            Vec3::new(0.035, 0.03, 0.012),
+            Quat::IDENTITY,
+            Vec3::new(0.74, 0.5, 0.26),
+        );
+        actual.metal.assert_same_recipe(&expected);
+    }
 }

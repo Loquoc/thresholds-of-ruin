@@ -24,12 +24,21 @@ import platform
 import re
 import subprocess
 import sys
+from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "perf" / "ledger.jsonl"
 SCHEMA = 1
-REPOSITORY_URL = "https://github.com/KCall360/thresholds-of-ruin/"
-RAW_URL = re.compile(re.escape(REPOSITORY_URL) + r"(releases/download|blob|raw)/[^\s?#]+$")
+# Explicit project identities only: preserve historical ledger evidence while
+# accepting new artifacts under the current owner. Never infer trust from remotes.
+REPOSITORY_URLS = (
+    "https://github.com/Loquoc/thresholds-of-ruin/",
+    "https://github.com/KCall360/thresholds-of-ruin/",
+)
+RAW_URL = re.compile(
+    r"(?:" + "|".join(re.escape(url) for url in REPOSITORY_URLS)
+    + r")(?:releases/download|blob|raw)/[^\s?#]+"
+)
 STORAGE_TYPES = {"HDD", "SSD", "NVMe", "RAM", "network", "unknown"}
 BUILD_PROFILES = {"release", "debug"}
 ENTRY_KEYS = {"schema", "date", "commit", "dirty", "workload", "case", "metric", "machine",
@@ -37,6 +46,27 @@ ENTRY_KEYS = {"schema", "date", "commit", "dirty", "workload", "case", "metric",
 OPTIONAL_KEYS = {"command", "note"}
 MACHINE_KEYS = {"fingerprint", "cpu", "logical_cpus", "ram_gib", "os", "os_build", "storage"}
 STORAGE_KEYS = {"type", "filesystem", "model", "bus"}
+
+
+def valid_raw_url(url):
+    """Accept project URLs only when decoding cannot reveal path traversal."""
+    if not isinstance(url, str) or not RAW_URL.fullmatch(url):
+        return False
+    path = urlsplit(url).path
+    # Check every decoding layer: consumers may decode escaped separators or
+    # percent signs before normalizing paths. Each changed layer is shorter,
+    # so this terminates without a permissive depth-limit fallback.
+    while True:
+        if ("\\" in path or any(part in {".", ".."} for part in path.split("/"))
+                or any(ord(char) < 32 or ord(char) == 127 for char in path)):
+            return False
+        try:
+            decoded = unquote(path, errors="strict")
+        except UnicodeDecodeError:
+            return False
+        if decoded == path:
+            return True
+        path = decoded
 
 
 def nearest_rank(ordered, percent):
@@ -253,7 +283,7 @@ def validate_entry(entry):
     if not (isinstance(raw, dict) and set(raw) == {"url", "sha256"}):
         problems.append("raw must be {url, sha256}")
     else:
-        if not (isinstance(raw["url"], str) and RAW_URL.match(raw["url"])):
+        if not valid_raw_url(raw["url"]):
             problems.append("raw.url must be a release asset or tagged file in the project repository")
         if not (isinstance(raw["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", raw["sha256"])):
             problems.append("raw.sha256 must be 64 lowercase hex characters")

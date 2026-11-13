@@ -8,17 +8,13 @@ const BRIM: f32 = 0.255;
 /// A three-cornered hat: a rounded crown, a brim turned up on three sides
 /// into walls dipping between their corners, and a gilt edge along them.
 pub(super) fn tricorn(p: &mut Parts, color: Vec3, trim: Vec3) {
-    p.matte.blob(
-        Vec3::new(0.0, BRIM + 0.04, -0.012),
-        Vec3::new(0.14, 0.075, 0.148),
-        3,
-        0.0,
-        color,
-    );
-    p.matte.blob(
-        Vec3::new(0.0, BRIM, -0.012),
-        Vec3::new(0.24, 0.016, 0.24),
-        4,
+    let crown = crown_parts::CrownProfile::tricorn();
+    crown.emit(&mut p.matte, color);
+    annular_brim(
+        &mut p.matte,
+        crown.opening,
+        crown.opening_radii(),
+        Vec2::splat(0.24),
         0.0,
         color,
     );
@@ -60,32 +56,24 @@ pub(super) fn tricorn(p: &mut Parts, color: Vec3, trim: Vec3) {
 /// A witch's hat: a wide brim, a tall cone bending back to its point, a
 /// band round its foot and a bow with sheer tails falling behind.
 pub(super) fn witch_hat(p: &mut Parts, color: Vec3, band: Vec3) {
-    witch_hat_parts(p, color, band, false);
+    witch_hat_parts(p, color, band, Some(crown_parts::CrownProfile::witch_hat()));
 }
 
 pub(super) fn open_witch_hat(p: &mut Parts, color: Vec3, band: Vec3) {
-    witch_hat_parts(p, color, band, true);
+    witch_hat_parts(p, color, band, None);
 }
 
-fn witch_hat_parts(p: &mut Parts, color: Vec3, band: Vec3, hollow: bool) {
-    if hollow {
-        annular_brim(
-            &mut p.matte,
-            BRIM,
-            Vec2::new(0.128, 0.133),
-            Vec2::splat(0.3),
-            0.0,
-            color,
-        );
-    } else {
-        p.matte.blob(
-            Vec3::new(0.0, BRIM, -0.012),
-            Vec3::new(0.3, 0.014, 0.3),
-            5,
-            0.03,
-            color,
-        );
-    }
+fn witch_hat_parts(
+    p: &mut Parts,
+    color: Vec3,
+    band: Vec3,
+    attachment: Option<crown_parts::CrownProfile>,
+) {
+    // Equipment wizard hats keep their established dimensions. Native hats
+    // share their opening with the anatomical covered-hair profile instead.
+    let opening = attachment.map_or(BRIM, |profile| profile.opening);
+    let inner = attachment.map_or(Vec2::new(0.128, 0.133), |profile| profile.opening_radii());
+    annular_brim(&mut p.matte, opening, inner, Vec2::splat(0.3), 0.0, color);
     let path = [
         Vec3::new(0.0, BRIM, -0.012),
         Vec3::new(0.0, BRIM + 0.11, -0.025),
@@ -100,27 +88,48 @@ fn witch_hat_parts(p: &mut Parts, color: Vec3, band: Vec3, hollow: bool) {
         (0.03, 0.03),
         (0.004, 0.004),
     ];
-    if hollow {
-        // Match the horizontal annular brim at the mouth before the cone
-        // begins its backward sweep; a tilted first ring leaves daylight.
-        let mut open_path = path.to_vec();
-        open_path.insert(1, Vec3::new(0.0, BRIM + 0.025, -0.012));
-        let mut open_radii: Vec<_> = radii.iter().map(|&(x, z)| Vec2::new(x, z)).collect();
-        open_radii.insert(1, Vec2::new(0.130, 0.135));
+    // Match the horizontal annular brim at the mouth before the cone
+    // begins its backward sweep; a tilted first ring leaves daylight.
+    let mut open_path = path.to_vec();
+    open_path[0].y = opening;
+    open_path.insert(1, Vec3::new(0.0, opening + 0.025, -0.012));
+    let mut open_radii: Vec<_> = radii.iter().map(|&(x, z)| Vec2::new(x, z)).collect();
+    let mouth = attachment.map_or(open_radii[0], |profile| {
+        profile.opening_radii() + Vec2::splat(profile.wall)
+    });
+    open_radii[0] = mouth;
+    open_radii.insert(
+        1,
+        attachment.map_or(Vec2::new(0.130, 0.135), |_| mouth - Vec2::splat(0.005)),
+    );
+    if attachment.is_some() {
+        // Resolve against only this cone in recipe-local coordinates. Existing
+        // hair, the outer brim edge and the ornament cannot become support.
+        let mut cone = Builder::default();
+        cone.res = p.matte.res;
+        cone.sides_mul = p.matte.sides_mul;
+        cone.smooth = p.matte.smooth;
+        cone.tube_open_start(&open_path, &open_radii, 32, &|_, _, _| color);
+        let ring = witch_hat_band(&cone, opening, band);
+        for tri in cone.surface_triangles() {
+            p.matte.tri(tri, color);
+        }
+        for tri in ring.surface_triangles() {
+            p.matte.tri(tri, band);
+        }
+    } else {
         p.matte
             .tube_open_start(&open_path, &open_radii, 10, &|_, _, _| color);
-    } else {
-        tube(&mut p.matte, &path, &radii, color);
+        p.matte.torus(
+            Vec3::new(0.0, BRIM + 0.022, -0.015),
+            Vec3::Y,
+            0.128,
+            0.016,
+            16,
+            4,
+            band,
+        );
     }
-    p.matte.torus(
-        Vec3::new(0.0, BRIM + 0.022, -0.015),
-        Vec3::Y,
-        0.128,
-        0.016,
-        16,
-        4,
-        band,
-    );
     // The bow at her left, and its sheer tails falling down her back.
     for lobe in [-1.0f32, 1.0] {
         p.matte.blob(
@@ -146,14 +155,89 @@ fn witch_hat_parts(p: &mut Parts, color: Vec3, band: Vec3, hollow: bool) {
     );
 }
 
-/// Fit to the already generated face and hair, before adding ornament geometry.
+/// Native ribbon attachment, separate from equipment wizard styling.
+pub(super) fn witch_hat_band(cone: &Builder, opening: f32, color: Vec3) -> Builder {
+    radial_parts::RoundedBandProfile {
+        height: opening + 0.022,
+        half_height: 0.016,
+        clearance: 0.0015,
+        radial_half: 0.0025,
+        // Follow the curved mouth between the coarser cone meridians.
+        sides: 64,
+        // The curved mouth also needs intermediate vertical support samples.
+        sections: 16,
+    }
+    .resolve(
+        |height, angle, gap| {
+            let origin = Vec3::new(0.0, height, -0.012);
+            let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+            cone.outer_surface(origin, out).map(|hit| hit + out * gap)
+        },
+        color,
+    )
+    .expect("native witch cone supports its whole ribbon")
+}
+
+/// Common radial attachment frame, in the head's pre-presentation coordinates.
+/// Query immutable face/hair support before emitting any matte ornament.
+#[derive(Clone, Copy)]
+struct BrowAttachmentProfile {
+    center: Vec3,
+    front_drop: f32,
+    clearance: f32,
+    fallback_radius: f32,
+}
+
+impl Default for BrowAttachmentProfile {
+    fn default() -> Self {
+        Self {
+            center: Vec3::new(0.0, 0.241, -0.012),
+            front_drop: 0.006,
+            clearance: 0.006,
+            fallback_radius: 0.10,
+        }
+    }
+}
+
+impl BrowAttachmentProfile {
+    fn point(self, support: &Parts, angle: f32) -> Vec3 {
+        let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+        let origin = self.center - Vec3::Y * (self.front_drop * angle.cos());
+        support
+            .matte
+            .outer_surface(origin, out)
+            .unwrap_or(origin + out * self.fallback_radius)
+            + out * self.clearance
+    }
+}
+
 fn brow_point(p: &Parts, angle: f32) -> Vec3 {
-    let out = Vec3::new(angle.sin(), 0.0, angle.cos());
-    let origin = Vec3::new(0.0, 0.241 - 0.006 * angle.cos(), -0.012);
-    p.matte
-        .outer_surface(origin, out)
-        .unwrap_or(origin + out * 0.10)
-        + out * 0.006
+    BrowAttachmentProfile::default().point(p, angle)
+}
+
+/// Leafy crown uses the same support-fitting frame as bands and wreaths.
+pub(super) fn leaf_crown(p: &mut Parts, color: Vec3) {
+    let profile = BrowAttachmentProfile {
+        center: Vec3::new(0.0, 0.27, -0.02),
+        front_drop: 0.0,
+        ..BrowAttachmentProfile::default()
+    };
+    // Freeze all roots first: leaf geometry must never become its own support.
+    let roots: Vec<_> = (0..14)
+        .map(|k| {
+            let a = k as f32 / 14.0 * TAU;
+            let mut at = profile;
+            at.center.y += 0.012 * (a * 3.0).sin();
+            at.point(p, a)
+        })
+        .collect();
+    for (k, root) in roots.into_iter().enumerate() {
+        let a = k as f32 / 14.0 * TAU;
+        let out = Vec3::new(a.sin(), 0.0, a.cos());
+        let dir = (out + Vec3::Y * 0.7 + Vec3::new(a.cos(), 0.0, -a.sin()) * 0.4).normalize();
+        let shade = 0.85 + 0.3 * rand(97, k as u32);
+        ornament_parts::leaf(&mut p.matte, root, dir, 0.06, 0.022, color * shade);
+    }
 }
 
 fn brow_path(p: &Parts) -> Vec<Vec3> {
@@ -176,29 +260,17 @@ pub(super) fn wreath(p: &mut Parts, color: Vec3) {
         let dir = (back + Vec3::Y * 0.45 + Vec3::new(a.sin(), 0.0, a.cos()) * 0.15).normalize();
         ornament_parts::leaf(&mut p.metal, root, dir, 0.05, 0.015, color);
     }
-    tube(
-        &mut p.metal,
-        &path,
-        &vec![(0.003, 0.003); path.len()],
-        color * 0.8,
-    );
+    closed_ring(&mut p.metal, &path, 0.003, color * 0.8);
 }
 
 /// A close-fitting brow band with an optional forehead plaque and jewel.
 pub(super) fn circlet(p: &mut Parts, color: Vec3, gem: Option<Vec3>, broad: bool) {
     let path = brow_path(p);
     let front = path[0];
-    tube(
+    closed_ring(
         &mut p.metal,
         &path,
-        &vec![
-            if broad {
-                (0.009, 0.009)
-            } else {
-                (0.004, 0.004)
-            };
-            path.len()
-        ],
+        if broad { 0.009 } else { 0.004 },
         color,
     );
     if broad {
@@ -222,74 +294,122 @@ pub(super) fn circlet(p: &mut Parts, color: Vec3, gem: Option<Vec3>, broad: bool
 
 /// A small cap on the crown, rimmed, with a sheer veil hanging behind.
 pub(super) fn veiled(p: &mut Parts, cap: Vec3, veil: Vec3) {
-    p.matte.blob(
-        Vec3::new(0.0, 0.265, -0.035),
-        Vec3::new(0.115, 0.05, 0.11),
-        3,
-        0.0,
-        cap,
-    );
-    p.metal.torus(
-        Vec3::new(0.0, 0.245, -0.035),
-        Vec3::new(0.0, 1.0, 0.2).normalize(),
-        0.112,
-        0.006,
-        16,
-        3,
-        GILT,
-    );
-    p.sheer.extrude(
-        &[
-            Vec2::new(-0.08, 0.0),
-            Vec2::new(0.08, 0.0),
-            Vec2::new(0.15, 0.46),
-            Vec2::new(-0.15, 0.46),
-        ],
-        Vec3::new(0.0, 0.27, -0.13),
-        Vec3::X,
-        Vec3::new(0.0, -1.0, -0.12).normalize(),
-        0.004,
-        veil,
-    );
+    let profile = crown_parts::CrownProfile::veiled();
+    profile.emit(&mut p.matte, cap);
+    profile.emit_rim(&mut p.metal, crown_parts::VEILED_RIM_RADIUS, GILT);
+    // Bend only the top attachment strip onto the rear arc. The join row and
+    // lower trapezoid keep the original veil plane and lower endpoints.
+    const COLS: usize = 12;
+    let axis = Vec3::new(0.0, -1.0, -0.12).normalize();
+    let normal = Vec3::X.cross(axis);
+    let origin = Vec3::new(0.0, 0.27, -0.13);
+    let join = (0.20 - origin.y) / axis.y;
+    let rim_x = profile.rim_point(PI * 0.5).x;
+    let at = |row: usize, col: usize| {
+        let u = col as f32 / COLS as f32 * 2.0 - 1.0;
+        if row == 0 {
+            let angle = PI - (u * 0.08 / rim_x).asin();
+            profile.rim_point(angle) + Vec3::Y * 0.002
+        } else {
+            let distance = if row == 1 { join } else { 0.46 };
+            origin + axis * distance + Vec3::X * u * (0.08 + 0.07 * distance / 0.46)
+        }
+    };
+    for row in 0..2 {
+        for col in 0..COLS {
+            let base = [
+                at(row, col),
+                at(row, col + 1),
+                at(row + 1, col + 1),
+                at(row + 1, col),
+            ];
+            // The bent top quad is not planar. Each thickness face must be
+            // oriented from its own triangle center, not a shared quad center.
+            for indices in [[0, 1, 2], [0, 2, 3]] {
+                let triangle = indices.map(|i| base[i]);
+                let inside = (triangle[0] + triangle[1] + triangle[2]) / 3.0;
+                for sign in [-1.0, 1.0] {
+                    p.sheer
+                        .tri_out(triangle.map(|v| v + normal * (sign * 0.002)), inside, veil);
+                }
+            }
+        }
+    }
+    // Close the original four-millimetre sheet without interior seam faces.
+    for row in [0, 2] {
+        for col in 0..COLS {
+            let a = at(row, col);
+            let b = at(row, col + 1);
+            p.sheer.quad_out(
+                [
+                    a - normal * 0.002,
+                    b - normal * 0.002,
+                    b + normal * 0.002,
+                    a + normal * 0.002,
+                ],
+                (at(1, col) + at(1, col + 1)) * 0.5,
+                veil,
+            );
+        }
+    }
+    for col in [0, COLS] {
+        for row in 0..2 {
+            let a = at(row, col);
+            let b = at(row + 1, col);
+            p.sheer.quad_out(
+                [
+                    a - normal * 0.002,
+                    b - normal * 0.002,
+                    b + normal * 0.002,
+                    a + normal * 0.002,
+                ],
+                (at(row, COLS / 2) + at(row + 1, COLS / 2)) * 0.5,
+                veil,
+            );
+        }
+    }
 }
 
-/// The braid emerges from the lower rear of this cap, not from the neck.
-pub(super) const WINGED_HELM_HAIR_ROOT: Vec3 = Vec3::new(0.0, 0.215, -0.125);
+/// The braid begins at this cap's own rear opening, not a second nominal skull.
+pub(super) fn winged_helm_hair_root() -> Vec3 {
+    let profile = crown_parts::CrownProfile::winged();
+    // The visible top of the first lobe nests in the lower half of the 6 mm
+    // rim. Fit the lobe envelope, not just its center, below the shell opening.
+    profile.rim_point(PI) - Vec3::Y * (hair::BRAID_ROOT_RADIUS - 0.002)
+}
 
-/// An open cap keeps the face readable; fans use the same closed feathers as wings.
+/// The head recipe routes the complete hairstyle through this attachment.
+pub(super) fn winged_helm_braid(p: &mut Parts, color: Vec3) {
+    hair::BraidProfile {
+        root: winged_helm_hair_root(),
+        // The lower plait is an authored hairstyle landmark, independent of
+        // the cap opening. Retain it while fitting the upper insertion.
+        end: Vec3::new(0.0, -0.045, -0.155),
+    }
+    .emit(p, color);
+}
+
+/// An open, lined cap follows the uncovered cranium. Feather dimensions remain
+/// authored; only their attachment roots follow the cap they actually decorate.
 pub(super) fn winged_helm(p: &mut Parts, metal: Vec3, feathers: Vec3) {
+    let profile = crown_parts::CrownProfile::winged();
+    profile.emit(&mut p.metal, metal);
+    profile.emit_rim(&mut p.metal, 0.006, GILT);
+    let front = profile.rim_point(0.0);
     p.metal.blob(
-        Vec3::new(0.0, 0.28, -0.025),
-        Vec3::new(0.13, 0.10, 0.135),
-        3,
-        0.0,
-        metal,
-    );
-    // A close forehead band follows the cap rather than the hair-sized
-    // circlet. Its lower edge stays above the eyes on every scaled head.
-    p.metal.torus(
-        Vec3::new(0.0, 0.245, -0.025),
-        Vec3::Y,
-        0.132,
-        0.008,
-        32,
-        6,
-        GILT,
-    );
-    p.metal.blob(
-        Vec3::new(0.0, 0.25, 0.112),
+        front + Vec3::new(0.0, 0.013, 0.003),
         Vec3::new(0.018, 0.022, 0.008),
         1,
         0.0,
         GILT,
     );
     for side in [-1.0f32, 1.0] {
-        let root = Vec3::new(side * 0.115, 0.25, -0.015);
+        let root = profile.outer_point(side * PI * 0.5, 0.20);
         for k in 0..6 {
             let t = k as f32 / 5.0;
             feather_parts::vane(
                 &mut p.matte,
-                root + Vec3::Z * (t * 0.045),
+                profile.outer_point(side * (PI * 0.5 - t * 0.42), 0.20),
                 Vec3::new(side * (0.30 + t * 0.5), 1.0 - t * 0.35, -0.25),
                 0.22 - t * 0.07,
                 0.022,
@@ -305,12 +425,7 @@ pub(super) fn winged_helm(p: &mut Parts, metal: Vec3, feathers: Vec3) {
 /// Open arches with gem-set points; the supporting band follows actual hair.
 pub(super) fn crown(p: &mut Parts, metal: Vec3, gem: Vec3) {
     let path = brow_path(p);
-    tube(
-        &mut p.metal,
-        &path,
-        &vec![(0.004, 0.004); path.len()],
-        metal,
-    );
+    closed_ring(&mut p.metal, &path, 0.004, metal);
     for k in 0..8 {
         let index = k * 8;
         let a = path[index];
@@ -335,5 +450,74 @@ pub(super) fn crown(p: &mut Parts, metal: Vec3, gem: Vec3) {
             0.0,
             gem,
         );
+    }
+}
+
+#[cfg(test)]
+mod brow_attachment_tests {
+    use super::*;
+
+    #[test]
+    fn circlet_is_a_periodic_band_without_front_cap_fans() {
+        for radius in [0.08, 0.11, 0.15] {
+            let mut p = Parts::default();
+            p.matte.blob(
+                Vec3::new(0.0, 0.22, -0.012),
+                Vec3::new(radius, 0.16, radius * 0.8),
+                3,
+                0.0,
+                Vec3::ONE,
+            );
+            let path = brow_path(&p);
+            circlet(&mut p, Vec3::ONE, None, false);
+            let faces = p.metal.surface_triangles().collect::<Vec<_>>();
+            assert!(
+                !faces
+                    .iter()
+                    .flatten()
+                    .any(|point| point.distance(path[0]) < 1e-6),
+                "a closed band has no cap fan at its seam"
+            );
+            super::super::bracelet_tests::closed_ring(&faces);
+        }
+    }
+
+    #[test]
+    fn shared_brow_frame_tracks_translated_scaled_support_and_closes_seam() {
+        for center in [Vec3::ZERO, Vec3::new(0.12, 0.08, -0.06)] {
+            for radius in [0.08, 0.16] {
+                let mut support = Parts::default();
+                support
+                    .matte
+                    .cuboid(center, Vec3::splat(radius), Quat::IDENTITY, Vec3::ONE);
+                let profile = BrowAttachmentProfile {
+                    center,
+                    front_drop: 0.0,
+                    clearance: 0.006,
+                    fallback_radius: 0.1,
+                };
+                for k in 0..16 {
+                    let angle = k as f32 * TAU / 16.0;
+                    let point = profile.point(&support, angle);
+                    let distance = point.distance(center);
+                    assert!(
+                        (distance - (radius / angle.sin().abs().max(angle.cos().abs()) + 0.006))
+                            .abs()
+                            < 1e-5,
+                        "attachment must track support, without clipping or floating: {distance}"
+                    );
+                }
+                assert!(
+                    profile
+                        .point(&support, 0.0)
+                        .distance(profile.point(&support, TAU))
+                        < 1e-6
+                );
+            }
+        }
+        let empty = Parts::default();
+        let profile = BrowAttachmentProfile::default();
+        let origin = profile.center - Vec3::Y * profile.front_drop;
+        assert!((profile.point(&empty, 0.0).distance(origin) - 0.106).abs() < 1e-6);
     }
 }

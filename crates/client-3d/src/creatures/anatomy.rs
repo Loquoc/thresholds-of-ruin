@@ -3,6 +3,25 @@
 //! mesh scales enlarge masses separately from the body's joint landmarks.
 use super::{Look, Plan, Style, Vec2, Vec3, J};
 
+/// Canonical uncovered humanoid cranium, before the shared head presentation frame.
+/// Sex and build currently vary the face below it, not this skull ellipsoid.
+#[derive(Clone, Copy)]
+pub(super) struct HumanoidCranium {
+    pub center: Vec3,
+    pub radii: Vec3,
+}
+
+impl HumanoidCranium {
+    pub const STANDARD: Self = Self {
+        center: Vec3::new(0.0, 0.182, -0.012),
+        radii: Vec3::new(0.096, 0.102, 0.102),
+    };
+
+    pub fn brow_height(self) -> f32 {
+        self.center.y + self.radii.y / 3.0
+    }
+}
+
 /// The horned reptile recipes share rendered skull and articulated jaw dimensions.
 /// Child pivots do not inherit the Storybook scale applied to a parent's mesh.
 pub(super) struct ReptileHead {
@@ -589,6 +608,68 @@ impl ChestWall {
     }
 }
 
+/// Bare torso primitives and attachment landmarks, before presentation scaling.
+/// Clothing chooses its own paths and coverage; the anatomy owns their dimensions.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct TorsoCoreProfile {
+    pub waist: (Vec3, Vec3),
+    pub chest: ChestWall,
+    /// Arm seat, not the lateral edge of a garment or the moving deltoid.
+    pub shoulder: Vec3,
+}
+
+impl TorsoCoreProfile {
+    pub fn biped(body: HumanoidBody) -> Self {
+        let b = body.build;
+        let sh = body.shoulders * b;
+        let w = body.waist * b;
+        let mut chest = ChestWall::biped(b, sh);
+        // The torso's rib envelope can follow a wider waist. The Bust keeps
+        // its original ChestWall based on shoulders alone; do not broaden it.
+        chest.ribs.1.x = 0.183 * sh.max(w);
+        Self {
+            waist: (
+                Vec3::new(0.0, 0.075, -0.004),
+                Vec3::new(0.15 * w, 0.115, 0.108 * b),
+            ),
+            chest,
+            shoulder: Vec3::new(0.25 * sh, 0.5, 0.0),
+        }
+    }
+
+    pub fn centaur(look: &Look) -> Self {
+        let w = if look.v.woman { 0.88 } else { 1.0 };
+        Self {
+            waist: (Vec3::new(0.0, 0.1, 0.0), Vec3::new(0.15 * w, 0.14, 0.12)),
+            chest: ChestWall {
+                ribs: (Vec3::new(0.0, 0.3, 0.005), Vec3::new(0.2 * w, 0.17, 0.13)),
+                upper: (Vec3::new(0.0, 0.44, -0.01), Vec3::new(0.2 * w, 0.1, 0.11)),
+            },
+            shoulder: Vec3::new(RiderArms::resolve(look).reach, 0.48, 0.0),
+        }
+    }
+
+    /// Upper chest station, shared with the actual torso support primitive.
+    /// Necklace recipes own the drop from this collarbone-height landmark.
+    pub fn upper_chest_anchor(self) -> Vec3 {
+        self.chest.upper.0 + Vec3::Y * self.chest.upper.1.y
+    }
+
+    pub fn shoulder_seat(self, side: f32) -> Vec3 {
+        Vec3::new(side * self.shoulder.x, self.shoulder.y, self.shoulder.z)
+    }
+
+    /// Pattern-plane anchors. Depth is fitted to the actual clothing support,
+    /// including asymmetric bust contours, rather than a generic chest plane.
+    pub fn chest_anchor(self, lateral: f32) -> Vec2 {
+        self.chest.ribs.0.truncate() + Vec2::X * (lateral * self.chest.ribs.1.x)
+    }
+
+    pub fn waist_anchor(self, lateral: f32) -> Vec2 {
+        self.waist.0.truncate() + Vec2::X * (lateral * self.waist.1.x)
+    }
+}
+
 /// The front of a biped's bare chest at a point across it.
 pub(crate) fn chest_wall(build: f32, sh: f32, x: f32, y: f32) -> f32 {
     ChestWall::biped(build, sh).front(x, y)
@@ -674,12 +755,8 @@ impl Bust {
 /// A centaur woman's chest, fitted to the rider's own rib cage.
 pub(super) fn centaur_bust(look: &Look) -> Option<Bust> {
     look.v.woman.then(|| {
-        let w = 0.88;
-        let wall = ChestWall {
-            ribs: (Vec3::new(0.0, 0.3, 0.005), Vec3::new(0.2 * w, 0.17, 0.13)),
-            upper: (Vec3::new(0.0, 0.44, -0.01), Vec3::new(0.2 * w, 0.1, 0.11)),
-        };
-        Bust::resolve(Style::Centaur, look.v, 1.0, 0.2 * w / 0.183, wall)
+        let wall = TorsoCoreProfile::centaur(look).chest;
+        Bust::resolve(Style::Centaur, look.v, 1.0, wall.ribs.1.x / 0.183, wall)
     })
 }
 
@@ -817,7 +894,7 @@ impl HumanoidBody {
     }
 
     pub fn shoulder(self, side: f32) -> Vec3 {
-        Vec3::new(side * 0.25 * self.build * self.shoulders, 0.5, 0.0)
+        TorsoCoreProfile::biped(self).shoulder_seat(side)
     }
 
     pub fn elbow(self) -> Vec3 {
@@ -830,5 +907,131 @@ impl HumanoidBody {
 
     pub fn ankle(self) -> Vec3 {
         Vec3::Y * -self.shin.length
+    }
+}
+
+#[cfg(test)]
+mod torso_core_tests {
+    use super::super::{CreatureModel, Variant};
+    use super::*;
+    use bevy::prelude::default;
+
+    #[test]
+    fn torso_core_landmarks_track_real_body_dimensions_and_keep_dimorphism() {
+        for model in [
+            CreatureModel::Human,
+            CreatureModel::Nymph,
+            CreatureModel::Centaur,
+        ] {
+            for woman in [false, true] {
+                for build in 0..=2 {
+                    let look = Look::with_choice(
+                        model,
+                        17,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let body = HumanoidBody::resolve(&look);
+                    let core = if model == CreatureModel::Centaur {
+                        TorsoCoreProfile::centaur(&look)
+                    } else {
+                        TorsoCoreProfile::biped(body)
+                    };
+                    assert!(core.shoulder.x > core.waist.1.x);
+                    assert!(core.shoulder.y > core.chest.ribs.0.y);
+                    assert!(core.chest.ribs.0.y > core.waist.0.y);
+                    assert_eq!(core.shoulder_seat(-1.0).x, -core.shoulder_seat(1.0).x);
+                    assert_eq!(core.waist_anchor(0.0), core.waist.0.truncate());
+                    assert_eq!(core.chest_anchor(1.0).x, core.chest.ribs.1.x);
+                    if model == CreatureModel::Centaur {
+                        assert_eq!(core.shoulder.x, RiderArms::resolve(&look).reach);
+                        assert!((core.waist.1.x - if woman { 0.132 } else { 0.15 }).abs() < 1e-6);
+                        if let Some(bust) = centaur_bust(&look) {
+                            assert_eq!(bust.wall.ribs, core.chest.ribs);
+                            assert_eq!(bust.wall.upper, core.chest.upper);
+                        }
+                    } else {
+                        assert_eq!(core.shoulder_seat(1.0), body.shoulder(1.0));
+                        assert!((core.waist.1.x - 0.15 * body.waist * body.build).abs() < 1e-6);
+                        let sculpt = super::super::geometry::torso_shape(body, None, true);
+                        // The actual emitted support contains the waist and rib
+                        // centers supplied by this profile, in the same frame.
+                        assert!(sculpt.distance(core.waist.0) < -0.05);
+                        assert!(sculpt.distance(core.chest.ribs.0) < -0.05);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn torso_core_wide_waist_does_not_redefine_the_bust_wall() {
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            17,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        );
+        let mut body = HumanoidBody::resolve(&look);
+        let original_bust = body.bust.unwrap();
+        body.waist = body.shoulders * 1.4;
+        let core = TorsoCoreProfile::biped(body);
+        assert!(core.chest.ribs.1.x > original_bust.wall.ribs.1.x);
+        assert_eq!(body.bust.unwrap().wall.ribs, original_bust.wall.ribs);
+        assert_eq!(body.bust.unwrap().apex(1.0), original_bust.apex(1.0));
+        assert_eq!(body.bust.unwrap().apex(-1.0), original_bust.apex(-1.0));
+    }
+
+    #[test]
+    fn torso_core_dimension_changes_move_actual_outer_surfaces_and_anchors() {
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            17,
+            Some(Variant {
+                woman: false,
+                ..default()
+            }),
+        );
+        let base = HumanoidBody::resolve(&look);
+        let sample = |body: HumanoidBody, y: f32| {
+            let shape = super::super::geometry::torso_shape(body, None, true);
+            super::super::geometry::surface_ray_hit(&shape, Vec3::Y * y, Vec3::X, 0.0, 0.45)
+                .expect("actual torso has lateral support")
+                .x
+        };
+        let original = TorsoCoreProfile::biped(base);
+        let mut wider_waist = base;
+        wider_waist.waist *= 1.4;
+        let waist = TorsoCoreProfile::biped(wider_waist);
+        assert!(waist.waist_anchor(1.0).x > original.waist_anchor(1.0).x + 0.04);
+        assert!(sample(wider_waist, waist.waist.0.y) > sample(base, waist.waist.0.y) + 0.03);
+        let mut wider_chest = base;
+        wider_chest.shoulders *= 1.4;
+        let chest = TorsoCoreProfile::biped(wider_chest);
+        assert!(chest.shoulder_seat(1.0).x > original.shoulder_seat(1.0).x + 0.08);
+        assert!(
+            sample(wider_chest, chest.chest.ribs.0.y) > sample(base, chest.chest.ribs.0.y) + 0.04
+        );
+    }
+
+    #[test]
+    fn torso_core_pattern_landmarks_move_with_the_owned_primitives() {
+        let look = Look::with_choice(CreatureModel::Human, 17, None);
+        let mut core = TorsoCoreProfile::biped(HumanoidBody::resolve(&look));
+        let waist = core.waist_anchor(-0.7);
+        let chest = core.chest_anchor(0.2);
+        core.waist.0 += Vec3::new(0.01, 0.03, 0.0);
+        core.waist.1.x *= 2.0;
+        core.chest.ribs.0.y += 0.04;
+        core.chest.ribs.1.x *= 1.5;
+        assert!((core.waist_anchor(-0.7).x - (waist.x * 2.0 + 0.01)).abs() < 1e-6);
+        assert!((core.waist_anchor(-0.7).y - waist.y - 0.03).abs() < 1e-6);
+        assert!((core.chest_anchor(0.2).x - chest.x * 1.5).abs() < 1e-6);
+        assert!((core.chest_anchor(0.2).y - chest.y - 0.04).abs() < 1e-6);
     }
 }

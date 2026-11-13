@@ -217,7 +217,7 @@ pub(in crate::creatures) const EAR_UNDER_COVER: f32 = 0.112;
 
 /// A pointed ear from the side of the head, flat and swept back.
 fn pointed_ear(p: &mut Parts, side: f32, tip: Vec3, width: f32, color: Vec3) {
-    let root = Vec3::new(side * 0.093, 0.15, -0.005);
+    let root = EarAnatomy::default().pointed_root(side);
     let tip = Vec3::new(side * tip.x, tip.y, tip.z);
     let mid = root.lerp(tip, 0.45) + Vec3::Y * 0.01;
     let across = (tip - root).cross(Vec3::Z).normalize_or(Vec3::Y);
@@ -261,6 +261,19 @@ fn tusk(p: &mut Parts, side: f32, height: f32, radius: f32) {
 
 /// A shaved scalp with a tied topknot and tail, as the orcs and trolls wear.
 fn topknot(p: &mut Parts, l: &Look, wild: bool) {
+    // Species hair uses the same resolved crown fit as ordinary hairstyles.
+    // Only hair is mapped; ears, tusks and the face keep their own geometry.
+    hair_envelope::emit(p, l, |p| authored_topknot_crown(p, l));
+    hair_envelope::emit_refined(p, l, |p| authored_topknot_tail(p, l, wild));
+}
+
+#[cfg(test)]
+fn authored_topknot(p: &mut Parts, l: &Look, wild: bool) {
+    authored_topknot_crown(p, l);
+    authored_topknot_tail(p, l, wild);
+}
+
+fn authored_topknot_crown(p: &mut Parts, l: &Look) {
     let c = hair_color(l);
     // Close-cropped stubble over the crown and sides.
     p.matte.blob(
@@ -292,6 +305,11 @@ fn topknot(p: &mut Parts, l: &Look, wild: bool) {
         4,
         LEATHER * 0.7,
     );
+}
+
+fn authored_topknot_tail(p: &mut Parts, l: &Look, wild: bool) {
+    let c = hair_color(l);
+    let knot = Vec3::new(0.0, 0.31, -0.08);
     let strands = if wild { 4 } else { 1 };
     for k in 0..strands {
         let spread = (k as f32 - (strands - 1) as f32 * 0.5) * 0.035;
@@ -310,26 +328,10 @@ fn topknot(p: &mut Parts, l: &Look, wild: bool) {
     }
 }
 
-/// Whether hair, and what is worn in it (a nymph's wreath, a topknot),
-/// shows: a hood or helm covers them all.
+/// Whether species hair details (such as a topknot) show under the outfit.
+/// Removable ornaments belong to the resolved headwear recipe, not anatomy.
 pub(in crate::creatures) fn hair_shows(l: &Look) -> bool {
     !super::hooded(l)
-}
-
-/// A wreath of leaves around the crown of the head.
-fn leaf_crown(p: &mut Parts, color: Vec3, radius: f32, y: f32) {
-    for k in 0..14 {
-        let a = k as f32 / 14.0 * TAU;
-        let out = Vec3::new(a.sin(), 0.0, a.cos());
-        let root = Vec3::new(
-            a.sin() * radius,
-            y + 0.012 * (a * 3.0).sin(),
-            a.cos() * radius - 0.02,
-        );
-        let dir = (out + Vec3::Y * 0.7 + Vec3::new(a.cos(), 0.0, -a.sin()) * 0.4).normalize();
-        let shade = 0.85 + 0.3 * rand(97, k);
-        leaf(&mut p.matte, root, dir, 0.06, 0.022, color * shade);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,20 +408,6 @@ pub(super) fn head_details(p: &mut Parts, l: &Look) {
                     l.skin,
                 );
             }
-            if hair_shows(l) {
-                leaf_crown(p, l.cloth, 0.1, 0.27);
-            }
-            if fem {
-                for side in [-1.0f32, 1.0] {
-                    p.metal.blob(
-                        Vec3::new(side * 0.1, 0.11, 0.0),
-                        Vec3::new(0.006, 0.014, 0.004),
-                        0,
-                        0.0,
-                        l.trim,
-                    );
-                }
-            }
         }
         Style::Medusa => {
             for side in [-1.0f32, 1.0] {
@@ -441,17 +429,6 @@ pub(super) fn head_details(p: &mut Parts, l: &Look) {
                         0,
                         0.0,
                         l.skin * 0.82,
-                    );
-                }
-                if fem {
-                    p.metal.torus(
-                        Vec3::new(side * 0.102, 0.11, 0.0),
-                        Vec3::X,
-                        0.012,
-                        0.003,
-                        10,
-                        3,
-                        l.trim,
                     );
                 }
             }
@@ -2963,5 +2940,180 @@ mod limb_parts_tests {
             "hanging curled fingers: {large_low:?}..{large_high:?}"
         );
         assert!((large_low.x + mirror_high.x).abs() < 0.005 && (large_high.x + mirror_low.x).abs() < 0.005, "opposed thumbs mirror across the palm: left={large_low:?}..{large_high:?}, right={mirror_low:?}..{mirror_high:?}");
+    }
+}
+
+#[cfg(test)]
+mod topknot_fit_tests {
+    use super::*;
+
+    #[test]
+    fn topknot_refinement_matches_shared_transition_edges() {
+        let look = Look::with_choice(CreatureModel::Orc, 42, None).dressed(Wardrobe::Juliet);
+        let fit = hair_envelope::HairEnvelope::for_look(&look).unwrap();
+        let a = Vec3::new(-0.03, 0.16, -0.20);
+        let b = Vec3::new(0.03, 0.28, -0.08);
+        let edge = b - a;
+        let samples = |third: Vec3, reverse| {
+            let mut source = Builder::default();
+            source.tri(
+                if reverse {
+                    [b, a, third]
+                } else {
+                    [a, b, third]
+                },
+                Vec3::ONE,
+            );
+            let source =
+                source.refine_for_fit(0.01, |tri| tri.iter().any(|p| p.y > fit.transition()));
+            let mut shared = std::collections::BTreeSet::new();
+            for tri in source.surface_triangles() {
+                if tri.iter().any(|p| p.y > fit.transition()) {
+                    assert!(
+                        (tri[0] - tri[1])
+                            .length()
+                            .max((tri[1] - tri[2]).length())
+                            .max((tri[2] - tri[0]).length())
+                            <= 0.010001,
+                        "depth cap must not stop ordinary refinement early"
+                    );
+                }
+                for p in tri {
+                    let t = (p - a).dot(edge) / edge.length_squared();
+                    if (0.0..=1.000001).contains(&t) && (a + edge * t).distance(p) < 1e-6 {
+                        let p = fit.fit(p);
+                        shared.insert((
+                            (p.x * 1e6).round() as i32,
+                            (p.y * 1e6).round() as i32,
+                            (p.z * 1e6).round() as i32,
+                        ));
+                    }
+                }
+            }
+            shared
+        };
+        let first = samples(Vec3::new(-0.10, 0.30, -0.01), false);
+        let second = samples(Vec3::new(0.20, 0.10, -0.05), true);
+        assert!(first.len() > 8);
+        assert_eq!(
+            first, second,
+            "adjacent covered triangles must share fitted edge samples"
+        );
+    }
+
+    #[test]
+    fn topknot_fitting_preserves_exposed_tail_and_bare_recipe() {
+        for model in [CreatureModel::Orc, CreatureModel::Troll] {
+            for woman in [false, true] {
+                let native = Look::with_choice(model, 42, Some(Variant { woman, ..default() }));
+                let wild = woman || model == CreatureModel::Troll;
+                let mut original = Parts::default();
+                authored_topknot(&mut original, &native, wild);
+                let mut bare = Parts::default();
+                topknot(&mut bare, &native, wild);
+                original.matte.assert_same_recipe(&bare.matte);
+                for wardrobe in [Wardrobe::Pirate, Wardrobe::Witch, Wardrobe::Juliet] {
+                    let dressed = native.clone().dressed(wardrobe);
+                    let envelope = hair_envelope::HairEnvelope::for_look(&dressed).unwrap();
+                    let mut fitted = Parts::default();
+                    topknot(&mut fitted, &dressed, wild);
+                    let raw: Vec<_> = original.matte.surface_triangles().collect();
+                    let actual: Vec<_> = fitted.matte.surface_triangles().collect();
+                    eprintln!(
+                        "{model:?}/{woman}/{wardrobe:?}: raw={} fitted={}",
+                        raw.len(),
+                        actual.len()
+                    );
+                    assert!(actual.len() >= raw.len());
+                    assert!(actual.len() < raw.len() * 20, "bounded local refinement");
+                    let key = |p: &Vec3| {
+                        (
+                            (p.x * 1e7).round() as i32,
+                            (p.y * 1e7).round() as i32,
+                            (p.z * 1e7).round() as i32,
+                        )
+                    };
+                    let points: std::collections::BTreeSet<_> =
+                        actual.iter().flatten().map(key).collect();
+                    assert!(actual.iter().flatten().all(|p| p.is_finite()));
+                    let mut retained = 0;
+                    for a in raw.iter().flatten() {
+                        if a.y <= envelope.transition() {
+                            assert!(points.contains(&key(a)), "exposed tail must stay authored");
+                            retained += 1;
+                        }
+                    }
+                    assert!(retained > 30);
+                    let mut restored = Parts::default();
+                    topknot(&mut restored, &dressed.dressed(Wardrobe::Native), wild);
+                    original.matte.assert_same_recipe(&restored.matte);
+                    let mut meshes = Assets::<Mesh>::default();
+                    let mut materials = Assets::<StandardMaterial>::default();
+                    let model = fitted.finish(
+                        &mut meshes,
+                        &crate::props::PropMaterials::new(&mut materials),
+                    );
+                    assert!(!model.0.is_empty());
+                    for (handle, _) in model.0 {
+                        let mesh = meshes.get(&handle).unwrap();
+                        let Some(bevy::render::mesh::VertexAttributeValues::Float32x3(normals)) =
+                            mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+                        else {
+                            panic!("hair normals");
+                        };
+                        assert!(normals.iter().all(|n| {
+                            let n = Vec3::from_array(*n);
+                            n.is_finite() && (n.length() - 1.0).abs() < 0.001
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn species_topknots_clear_resolved_hat_lining() {
+        for model in [CreatureModel::Orc, CreatureModel::Troll] {
+            for woman in [false, true] {
+                for (wardrobe, profile) in [
+                    (Wardrobe::Pirate, crown_parts::CrownProfile::tricorn()),
+                    (Wardrobe::Witch, crown_parts::CrownProfile::witch_hat()),
+                    (Wardrobe::Juliet, crown_parts::CrownProfile::veiled()),
+                ] {
+                    let look = Look::with_choice(model, 42, Some(Variant { woman, ..default() }))
+                        .dressed(wardrobe);
+                    assert!(hair_shows(&look));
+                    let mut shell = Builder::default();
+                    profile.emit(&mut shell, Vec3::ONE);
+                    for smooth in [false, true] {
+                        let mut p = Parts::default();
+                        if smooth {
+                            p.soften();
+                        }
+                        topknot(&mut p, &look, woman || model == CreatureModel::Troll);
+                        let center = profile.cranium.center;
+                        let mut witnesses = 0;
+                        for tri in p.matte.surface_triangles() {
+                            for at in [
+                                tri[0],
+                                (tri[0] + tri[1]) * 0.5,
+                                (tri[0] + tri[1] + tri[2]) / 3.0,
+                            ] {
+                                if at.y < profile.opening + 0.002 {
+                                    continue;
+                                }
+                                let wall = shell
+                                    .inner_surface(center, (at - center).normalize())
+                                    .expect("actual hat lining");
+                                assert!(at.distance(center)+0.001 < wall.distance(center),
+                                    "{model:?}/{woman}/{wardrobe:?}/{smooth}: topknot crosses crown at {at:?}; fitted triangle={tri:?}");
+                                witnesses += 1;
+                            }
+                        }
+                        assert!(witnesses > 30, "nonempty covered topknot witnesses");
+                    }
+                }
+            }
+        }
     }
 }

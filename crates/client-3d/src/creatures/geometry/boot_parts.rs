@@ -78,6 +78,16 @@ fn components(last: BootLast) -> [Vec<[Vec3; 3]>; 3] {
     [loft(&upper), loft(&sole), heel]
 }
 
+/// Highest actual shoe-upper point in the ankle frame. Adjacent calf bands
+/// use this attachment limit rather than guessing clearance from ankle alone.
+pub(super) fn shoe_upper_top(last: BootLast) -> f32 {
+    components(last)[0]
+        .iter()
+        .flatten()
+        .map(|p| p.y)
+        .fold(f32::NEG_INFINITY, f32::max)
+}
+
 /// A shoe on the same last: the upper closed in its colour, or for a sandal
 /// the bare foot, on a sole and heel of the shoe's.
 pub(super) fn emit_shoe(p: &mut Parts, last: BootLast, upper: Vec3, sole: Vec3) {
@@ -369,9 +379,24 @@ impl NativeShaft {
         shape
     }
 
-    pub(super) fn buckle(&self, side: f32, y: f32) -> Vec3 {
-        let theta = if side > 0.0 { 0.0 } else { PI };
-        Vec3::new(side * (self.radius(y, theta) + 0.008), y, 0.02)
+    /// The band's emitted surface supplies the hardware seat. Reuse the
+    /// same open frame as torso straps; native boots keep their brass color,
+    /// two stations and side-facing rectangular silhouette.
+    pub(super) fn buckled_band(&self, p: &mut Parts, y: f32, side: f32, color: Vec3) {
+        let mut leather = p.satin.empty_like();
+        self.band(&mut leather, y, 0.009, color);
+        let normal = Vec3::X * side;
+        let mount = leather.outer_surface(Vec3::new(0.0, y, 0.02), normal);
+        p.satin.absorb(leather);
+        if let Some(at) = mount {
+            fitting::buckle_frame(
+                &mut p.metal,
+                at,
+                Quat::from_rotation_y(side * PI * 0.5),
+                Vec2::splat(0.014),
+                Vec3::new(0.74, 0.5, 0.26),
+            );
+        }
     }
 }
 
@@ -379,6 +404,56 @@ impl NativeShaft {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn native_buckle_has_open_windows_on_its_own_band() {
+        for model in [CreatureModel::Human, CreatureModel::Orc] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    let look = Look::preview_adjusted(model, 22, |v| {
+                        *v = Variant {
+                            woman,
+                            build,
+                            bust: 2,
+                            figure: 2,
+                            ..default()
+                        };
+                    });
+                    let body = HumanoidBody::resolve(&look);
+                    let mut support = Builder::default();
+                    trouser_leg(&mut support, body.shin, body.build, true, Vec3::ONE);
+                    let shape = BootShape::fitted(body.build, if woman { -0.075 } else { -0.24 });
+                    let shaft = NativeShaft::fitted(shape, &support, body.build);
+                    for y in [-0.3, -0.37] {
+                        for side in [-1.0, 1.0] {
+                            let mut p = Parts::default();
+                            shaft.buckled_band(&mut p, y, side, Vec3::ONE);
+                            let mut band = Builder::default();
+                            shaft.band(&mut band, y, 0.009, Vec3::ONE);
+                            assert_eq!(
+                                p.satin.surface_triangles().collect::<Vec<_>>(),
+                                band.surface_triangles().collect::<Vec<_>>(),
+                                "leather recipe retained"
+                            );
+                            let normal = Vec3::X * side;
+                            let at = band.outer_surface(Vec3::new(0.0, y, 0.02), normal).unwrap();
+                            for z in [-0.007, 0.007] {
+                                let origin = at + normal * 0.1 + Vec3::new(0.0, -0.004, z);
+                                assert!(
+                                p.metal.outer_surface(origin, -normal).is_none(),
+                                "buckle window must reveal leather: woman={woman} build={build}"
+                            );
+                                assert!(
+                                    p.satin.outer_surface(origin, -normal).is_some(),
+                                    "window shows band"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn constructed_boot_components_are_closed_outward_volumes() {
@@ -550,14 +625,11 @@ mod tests {
                 shaft.emit(&mut render, Vec3::ONE);
                 shaft.band(&mut render, shape.top, shape.cuff_thickness, Vec3::ONE);
                 for y in [-0.3, -0.37] {
-                    shaft.band(&mut render, y, 0.009, Vec3::ONE);
                     for side in [-1.0, 1.0] {
-                        render.cuboid(
-                            shaft.buckle(side, y),
-                            Vec3::new(0.008, 0.014, 0.014),
-                            Quat::IDENTITY,
-                            Vec3::ONE,
-                        );
+                        let mut parts = Parts::default();
+                        shaft.buckled_band(&mut parts, y, side, Vec3::ONE);
+                        render.absorb(parts.satin);
+                        render.absorb(parts.metal);
                     }
                 }
                 // Match robe's three convex shaft capsules. Requiring all three

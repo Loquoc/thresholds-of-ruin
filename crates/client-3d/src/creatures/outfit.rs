@@ -135,7 +135,8 @@ pub(crate) struct Shoes {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Boots {
-    pub color: Vec3,
+    /// Authored leather/metal or a wearer-owned anatomy pigment.
+    pub color: Pigment,
     /// Knee-high rather than mid-calf.
     pub tall: bool,
     pub heel: bool,
@@ -181,6 +182,8 @@ pub(crate) enum Headwear {
     },
     /// A wreath of leaves round the head.
     Wreath(Vec3),
+    /// Native leafy crown, replaceable independently of species anatomy.
+    LeafCrown(Vec3),
     /// A band round the brow, narrow or broad, perhaps with a jewel.
     Circlet {
         color: Vec3,
@@ -698,6 +701,14 @@ pub(crate) struct Heraldry {
     pub mark: u8,
 }
 
+/// Outfit-owned ear jewellery. Geometry kind and materials are explicit cache inputs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Earrings {
+    GemDrops { metal: Vec3, gem: Vec3 },
+    Drops { metal: Vec3 },
+    Hoops { metal: Vec3 },
+}
+
 /// The small things an outfit adds, each fitted to any wearer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Trimmings {
@@ -708,7 +719,7 @@ pub(crate) struct Trimmings {
     /// Bands round the upper arms.
     pub armlets: Option<Vec3>,
     pub bracelets: Option<Vec3>,
-    pub earrings: Option<(Vec3, Vec3)>,
+    pub earrings: Option<Earrings>,
     pub waist: Option<Waist>,
     /// Stiff pointed shoulders standing up over the arms.
     pub peaks: Option<Vec3>,
@@ -844,11 +855,31 @@ pub(crate) struct GarmentDetails {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum HipDecoration {
-    Loincloth { cloth: Vec3, edge: Vec3, ring: Vec3 },
-    RaggedApron { cloth: Vec3, apron: Vec3 },
-    BucklePouch { metal: Vec3, pouch: Vec3 },
-    Leaves { cloth: Vec3, trim: Vec3 },
-    TornHem { length: f32, cloth: Vec3 },
+    /// Rigid scraps of the resolved tunic, including an equipped shirt color.
+    TunicTatters {
+        shade: f32,
+    },
+    Loincloth {
+        cloth: Vec3,
+        edge: Vec3,
+        ring: Vec3,
+    },
+    RaggedApron {
+        cloth: Vec3,
+        apron: Vec3,
+    },
+    BucklePouch {
+        metal: Vec3,
+        pouch: Vec3,
+    },
+    Leaves {
+        cloth: Vec3,
+        trim: Vec3,
+    },
+    TornHem {
+        length: f32,
+        cloth: Vec3,
+    },
 }
 
 /// One humanoid's clothes and armour.
@@ -1136,7 +1167,7 @@ impl Outfit {
     pub fn boot(&self, skin: Vec3) -> Vec3 {
         match self.feet {
             Feet::Bare(color) => color.resolve(skin),
-            Feet::Boots(boots) => boots.color,
+            Feet::Boots(boots) => boots.color.resolve(skin),
             Feet::Shoes(shoes) => shoes.color,
         }
     }

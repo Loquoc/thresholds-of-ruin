@@ -74,7 +74,7 @@ pub(super) fn compose(wardrobe: Wardrobe, wearer: &Look) -> Outfit {
         cuffs: Some(LEATHER * 0.7),
         legs: Legs::Trousers(INK * 1.8),
         feet: Feet::Boots(Boots {
-            color: LEATHER * 0.65,
+            color: Pigment::Fixed(LEATHER * 0.65),
             tall: true,
             heel: woman,
             buckles: true,

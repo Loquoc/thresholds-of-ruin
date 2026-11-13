@@ -33,6 +33,28 @@ failure. Record errors, cancellations, waivers and not-run checks separately.
 Define the evidence window and deduplicate before adding totals; never extrapolate
 a repository-lifetime count from a partial set of logs.
 
+## Performance evidence URL normalization, 13 November 2026
+
+Review found that the performance ledger's project-prefix check accepted paths
+that normalize outside the project. The new
+`EntryFormat.test_raw_location_rejects_normalized_path_escape` reproduced this
+before the fix: one validation defect and one distinct failing method, with 90
+failing subcases rather than 90 defects. Validation now checks every percent-decoded
+path for dot segments, backslashes and control characters while preserving the
+explicit current/historical project allowlist. Safe encoded names and ordinary
+dotted filenames remain accepted. This is local tooling validation, not evidence
+that any recorded asset was fetched or that a published ledger entry was exploited.
+
+## Model handoff documentation cleanup, 13 November 2026
+
+`test_local_markdown_links_resolve` caught one documentation defect when the
+cleanup renamed a historical checkpoint heading still linked by the creature
+plan. Retaining the stable anchor and labeling the section historical fixed the
+link. This is one root cause, one distinct failing method and one failed method
+execution, not a stale test or production-model defect. Initial Ruff/actionlint
+commands were unavailable on PATH; those setup failures are separate from this
+assertion result.
+
 ## ASCII playtest follow-up, 11 November 2026
 
 The native Take Off regression reproduced a movement key escaping the menu
@@ -5218,3 +5240,1389 @@ shell-selection/diagnostic methods that call it (three failing methods, one
 shared assertion root). The exact expected list now also requires `native_verify`;
 every existing dependency, shell assertion and failure-outcome case remains.
 That checkpoint stopped before process tests and remains failed evidence.
+
+## Leaf-crown reconstruction fixture corrections, 10 November 2026
+
+Two new fixture errors were corrected during local reconstruction: the male
+Royal Princess catalog selection resolves a body-specific outfit, not the female
+crown; and a triangulated low-resolution blob is not an analytic sphere. The
+single-owner test now applies the explicit royal-crown expectation to the female
+recipe while retaining both-sex native ownership checks. The shared-frame test
+uses an exact box and an independently calculated ray/box radius plus clearance,
+not a loosened sphere tolerance. This bounded window contains two fixture root
+causes, two failing methods and four failed executions. The separate intentional
+anatomy first-red witness (2,520 versus 504 emitted indices) is not added to those
+counts. These are local tests, not hosted CI evidence.
+
+## Apron shoulder bridge end caps, 10 November 2026
+
+Read-only review of the unpublished shoulder-bridge candidate found that
+suppressing both end caps on every fitted strip would expose lower ends and
+separate sections, not just the upper seam being joined. The focused
+`fitted_strap_joined_terminal_preserves_all_other_exposed_caps` witness confirmed
+24 emitted triangles instead of the independent expected 30 across two strips.
+This is one candidate implementation root cause and one failing method execution,
+identified by review and then reproduced, not a released-game or hosted-CI defect.
+The correction permits separate start/end cap selection and omits only the final
+joined cap. The intentional earlier shoulder-gap first-red is separate.
+
+## Retained strap-layer reconstruction, 10 November 2026
+
+The intentional first-red analytic-layer witness failed because the missing
+retained envelope could not carry the resolved cloth's outer surface. This is
+new-contract first-red evidence, not a released-game or hosted-CI failure.
+Read-only review also caught an unpublished method-extraction error and missing
+equipped-shirt support before qualification. A subsequent preflight found an
+incorrect enum module path; that compile failure is not behavioral evidence.
+
+The final local witnesses compare actual emitted front/back and shoulder cloth
+with retained support across both sexes, three builds and both strap directions;
+check bounded locality, explicit projection frames and rejected degenerate
+frames; isolate a shirt-plus-baldric composition so missing shirt support cannot
+be hidden by armor; and verify lazy shared support for apron consumers. These
+are sampled geometry and composition witnesses, not continuous collision proofs
+or a substitute for native visual review. The envelope excludes cowl geometry
+and protruding hardware, and no performance or hosted-CI result is implied.
+
+Native review rejected the first hard-envelope candidate despite 28 passing
+selected tests: diagonal ridges and jagged lips appeared on both apron bodies.
+A new emitted-support sampling regression reproduced the missed contract with
+maximum neighboring depth slope 17.7658 against a 1.0 bound and minimum front
+normal component 0.6602 against 0.70. This is one unpublished candidate defect,
+identified by visual review and then reproduced in one failing test execution.
+A separate consumer transition is being checked for obstacle containment,
+bounded influence and smooth sampled apron fitting; do not count the initial
+hard-envelope candidate as visually qualified.
+
+The later relative-surface witness confirmed that blending alone still added
+excess slope 1.2038 at x=-0.119 (underlying maximum 0.5145), with normal alignment
+0.5816. A local ramp candidate also failed continuity (added slope 2.4102 at
+x=-0.072) and the expanded shoulder-only off-strap locality witness. These were
+not accepted by increasing tolerances. Production integration was removed;
+failed experimental source/tests and evidence remain separately preserved.
+
+The retained modular core instead has a production-equivalence witness: apron
+support is unchanged at torso/lower consumer points, and asking for apron
+support does not force a cached native strap to refit. The raw envelope and
+shared resolved recipe remain, while unfinished drape acceptance is recorded in
+the art continuation plan rather than left as ignored tests. Local test counts
+for the core do not qualify the rejected experiments or solve the shoulder notch.
+
+
+## Whole-detail armor coverage reconstruction
+
+This mask requires a containing solid that represents actual rendered armor, not anatomy or generic fitting support. It conservatively certifies the complete resolved detail bounding volume inside that solid, then certifies a margin-expanded projected rectangle ahead of the outermost detail depth. Interval upper bounds across cells, not point samples, are authoritative. Holes, partial coverage, detached slabs, invalid frames and exhausted budgets retain the complete detail. It is not a thin-cloth occlusion mask.
+
+The female Hawaiian tie previously lost individual quads under partial armor. The intended first-red emitted 636 vertices versus the uncovered complete 1416. The consumer now resolves the whole knot and both tails without armor clipping before making one conservative all-or-nothing decision. Other shirt prints/collar clipping are unchanged.
+
+The baldric's framed buckle bounds include rim and tongue relief; only equipped armor is considered. Synthetic enclosing-armor tests establish the consumer behavior. Ordinary armor often leaves the buckle outside because the strap was fitted to it; no frequency-of-removal claim is intended.
+
+Apron bib integration is deferred. No notch, drape or existing apron hardware overlap is claimed fixed. Queries run during construction, not animation frames; no performance improvement is measured or claimed.
+
+A broader collar regression exposed a conservative false negative from bounding
+all curved tie pieces together: every actual vertex was at least 21.3 mm inside
+armor, and all 472 triangle bounds individually certified. The whole-detail query
+now accepts actual emitted component bounds sharing one global budget, still
+requiring every component to certify before removing any part. This avoids empty
+space in a curved detail's global box without reducing margins or weakening
+containment. The existing enclosing-armor acceptance remains unchanged. These
+bounded construction-time certificates are not runtime triangle collision or a
+measured performance improvement.
+
+
+## Centaur waist belt first-red and shared profile
+
+Current baseline measured from the emitted fixed-radius tube, using 144 independent radial mesh rays per sex/build against bisection roots of the actual torso sculpt. Maximum radial gaps: male49.729mm, female51.945mm. All three build variants share the existing waist dimensions; this work does not invent new build dimorphism. First-red accepted maximum12mm and failed as intended.
+
+The body-support helper extraction preserves original lower root, waist/chest/neck blends and male versus bust branches. Production torso emission and waist band now share that actual support. Existing biped capped-band geometry is exposed through WaistBandProfile: authored heights, tilt, clearance, thickness and explicit support-to-emission Y translation. Centaur uses identity frame, original15..55mm height and leather material. No proxy tube radii or fake HumanoidBody.
+
+Scope: this is a shared vertical-axis waist-band profile, not arbitrary rotated attachment frames or general cloth collision. Existing radial projection and40mm clearance bracket assumptions remain for supported torso/hip consumers. No runtime performance claim. Native waist/horse junction, seams and actual support clearance still require qualification.
+
+Selected local tests passed: 22 distinct witnesses, including existing biped
+belt/pouch and Centaur contracts. The candidate outer-belt radial gap measures
+6.985–9.357 mm across these sexes/builds, versus baseline maxima49.729–51.945 mm.
+Full emitted triangle vertices, edge midpoints and centroids meet the2–8.5 mm
+field-clearance bound; authored height, closed seam, end-cap winding, thickness
+and support/emission translation controls pass. Native visual review is recorded
+separately; these measurements are not a universal cloth-fit or speed claim.
+
+## Centaur forearm radial support reconstruction
+
+Fresh first-red measured emitted skin and band meshes, not proxy radii: baseline outer-wall radial gaps reached22.038 mm, exceeding the10 mm bound. Six sex/build controls sampled six heights and48 off-vertex rays each. Candidate outer-wall gaps are5.010–7.447 mm. Separate vertices, edge midpoints and triangle-centroid witnesses check actual support field clearance, capped closed seams, authored span and dimorphism. These are different measurements, not an inner-wall clearance claim derived from the outer radius.
+
+The shared RadialBandProfile retains actual support, explicit Y translation, authored height/tilt/clearance/thickness and axial rows. Biped and Centaur waist consumers preserve prior parameters; native biped controls remain stable. This is not an arbitrary rotated frame or general disconnected-support solver.
+
+Twenty-eight distinct local focused tests passed. The cuff witness was strengthened after review to isolate emitted cuff triangles and ray-query the actual inner wall, instead of measuring its outer wall. Across four glove types and six sex/build combinations the inner gap is3.691–20.215 mm: nonpenetration passes, but this deliberately does not certify a snug cuff. All40 native paired views were independently reviewed; bare bands improve, riding-glove flared lips remain visibly loose. Production binary predates only this final test-only strengthening, not a geometry change.
+
+Cost is explicit: softened production old prism80 triangles/band (160/Centaur); current48-sided12-row inner/outer capped band2,496/band (4,992/Centaur), +4,832. The nonsoft test prism was40/band. No speed improvement is claimed. Next work should expose an appropriate tessellation budget and measure fit/visual tradeoffs rather than keeping this dense default for small details.
+
+## Radial-band mesh-budget qualification
+
+The preceding forearm correctness prototype had2,496 triangles per band. A new small-detail budget regression failed at2,496 against a768-triangle ceiling before implementation. RadialBandProfile now accepts angular sides as well as axial rows. Forearms use24×6 (672 triangles per band,1,344 per Centaur),73.1% fewer than the qualified48×12 prototype. Waist consumers retain48×4. A frozen prior waist-emitter traversal matches current emitted triangle positions/order for straight and tilted bands. This geometric preservation check is not a pixel-equality quality requirement.
+
+All previous actual forearm clearance, closure, authored-span, dimorphism and inner-cuff witnesses remain unchanged. New candidate emitted skin-to-band outer gaps are4.831–7.519 mm; actual cuff-inner gaps3.906–20.491 mm still show that glove flare is not snug. Thirty-one distinct local selected tests pass. Degenerate row/side counts clamp to a closed1×3 topological minimum; that minimum does not promise fitted clearance. No benchmark or frame-time improvement is inferred from triangle reduction.
+
+## Shared layered glove opening
+
+An actual emitted-cuff inner-wall regression initially failed at18.962 mm for Old gloves, male Centaur build0, against12 mm times resolved arm width. It is strengthened to two upper stations, lip minus12 mm and4 mm, with24 off-vertex rays, all four glove styles and both sexes/all three builds. It also retains the greater-than1 mm scaled nonpenetration bound. Tests isolate cuff triangles rather than accidentally query underlying skin.
+
+LayeredOpening is a private reusable support-relative opening policy with explicit anchor, lip and ease. Only the upper half blends toward the preceding emitted skin/clothing support. The conservative neighbor-radius maximum and polygon inradius correction remain. Wrist rows0..4, row4 hardware, hand recipe and unsupported authored cuff shape are preserved. The policy uses unscaled authored heights consistently before axial length scaling and build-scaled ease. Supported ease is Old1 mm, Padded3 mm, Riding0, Fencing3.5 mm; the longer Fencing opening and decoration remain distinct. Earlier5 and4 mm Fencing candidates failed the unchanged gap bound and are retained as rejected evidence, not reported successful.
+
+Forty-two distinct scoped local tests passed, including actual lip gaps3.984–12.524 mm (maximum accepted by resolved build width), existing full-overlap clearance, exact lower-half and unsupported geometry preservation, unchanged matte triangle counts, hand/grip and decorative relief controls. This is not a promise that every upper cuff point has uniform clearance. Native bare-skin, sleeved and band-backed controls are a separate visual gate. No runtime performance claim.
+
+A broad accidental `layered_` filter also ran `neutral_layered_yokes_have_bounded_height_and_shoulder_slope` and observed an infeasible collar-plane failure in untouched cloak code. That failure is preserved in evidence and is not fixed or proven preexisting by this slice. The intended glove tests were rerun with an explicit equipment_gloves namespace. Scoped success is not a full-suite pass.
+
+Native fixture correction: Barbarian's upper arms are bare but its preset also adds leather forearm cuffs. Those32 paired views are retained as bracer-backed outfit controls, not pure-skin evidence. Eight Adventurer cases (short sleeves, cuffs=None) were then captured in both binaries for32 actual skin-supported paired views. The full matrix is140 pairs: initial76, Barbarian32, Adventurer32. This corrects fixture interpretation without changing production or weakening the fit tests.
+
+## Anatomy-owned neck bands and jewel mount
+
+First-red used actual emitted neck/band surfaces, not the nominal profile radius: the old Choker/Jewel torus penetrated by5.177 mm on the first small/slim fixture. Its maximum ellipse radius plus4 mm center offset could not clear a9/10 mm round cross-section. The shared NeckAttachment now interpolates the same anatomical stations used by the visible neck, retaining both ellipse radii and center drift. Every band vertex resolves its own height, including the station transition. A thin radial section3.5 mm and preserved vertical half-height9/10 mm avoid pushing a bulky round torus outward. Band cross-section, clearance and jewel dimensions scale with build; neck-station positions remain owned by the existing anatomical profile.
+
+Twelve scoped tests pass: expanded actual inner-wall rays over five band heights, full emitted triangle vertices/edge midpoints/centroids against the neck, closed edge incidence, exact vertical extents and384-triangle budget, profile stations, actual jewel back overlap, unrelated-satin invariance, unchanged Stand geometry, neck-body contract and head-cache swaps. Inner-wall sampled gaps are2.150–7.395 mm; acceptance remains1–10 mm times build. Full-triangle radial clearance remains1–13 mm times build. A first candidate exceeded the full-triangle upper bound and is retained as rejected evidence; the bound was not relaxed.
+
+The jewel mount comes from an isolated emitted ring, then the ring is appended through the destination frame. Querying the entire satin builder was rejected because another accessory could move the mount. Gem back contact is verified on actual mesh surfaces with shallow overlap. Stand collars and torso necklaces are untouched. The ring has384 triangles rather than the old128; this is an explicit bounded quality cost, not a speed improvement. Eight cross-sections retain full authored vertical height; the earlier six-section prototype did not.
+
+The isolated-neck candidate was rejected in native review because its legacy low seat remained buried in the torso. A composed-body first-red measured28.319 mm penetration. The corrected seat uses the upper exposed neck station: the ring top ends at that landmark, with the center derived from its half-height. Across Human/Nymph/Medusa, both sexes and three builds, actual head/torso presentation frames give a minimum7.965 mm torso clearance. This is a separate composition witness, not proof against every head pose. Rejected low-seat renders are preserved.
+
+The upper-seat candidate also failed visual review on small male builds: the separate face sculpt contributes its own neck root, beyond the build-scaled neck profile. A new actual-face clearance assertion first failed at0.361 mm against the unchanged1 mm minimum. The next WIP support resolver considers the anatomical face clearance isosurface on the same authored radial ray as the profile, retaining the farther boundary. Hair, jewelry and other accessories never enter that support. Upper-seat rejected captures remain evidence; the corrected support passed the12 scoped tests and independent48-pair native visual gate. Small male rings now remain continuous, gems seated, and Commoner controls stable. Final head-style flag consistency is rerun through the same scoped tests. No universal motion or whole-suite clearance is inferred.
+
+## Wrapping layout and native tail survival
+
+The reconstructed winding layout owns first height, spacing, slope, span and support clearance for both emitted torso wraps and selected hanging-tail attachment. The feature first-red moved the selected winding and showed the old independent tail anchor had no contacts. Six independent parameter mutations, both sexes and all three builds retain contact witnesses on the actual emitted winding. Default torso-band geometry is preserved.
+
+Native review then found a real candidate regression: the small female Commoner lost one hanging panel. The new native support witness failed at 2,320 triangles versus the required 4,640; the isolated torso fixture had passed and did not cover this layered composition. This is one candidate defect, not multiple defects for repeated runs. A resumed incremental link also failed with undefined hidden symbols, which is separate build infrastructure evidence. Rebuilding without incremental reuse produced the intended behavioral first-red.
+
+The correction fits the root endpoints into the selected winding footprint and remaps the complete root width uniformly. It eases back to authored width by the first original downstream row, while absent roots remain absent. The native witness covers Commoner cloth and plate support, both sexes and all three builds, full tail count, nondegenerate triangles, actual emitted-wrap contact at both panel centers and the authored hem. The endpoint search is bounded to a connected local winding footprint; no general disconnected-support or continuous collision certificate is claimed.
+
+Thirty-eight distinct selected tests and strict Clippy pass. The native build and 48 paired views also passed independent qualitative review: 36 standard views plus 12 later-walk and strike views. This is sampled visual evidence, not continuous-motion clearance or user acceptance. Full suite, release-profile qualification, hosted CI, merges and performance measurements are not covered. The existing cloak-yoke failure and apron shoulder notch remain unresolved.
+
+
+## Rounded-band profile and upper-arm attachment
+
+Classification: one production defect in the recovered fixed-radius armlet,
+exposed by one new regression method. The intended first-red measured 24.910 mm
+penetration into the actual small male Human arm. Independent vertices, edge
+midpoints and triangle centroids now test both sides, sexes and three builds of
+Human, Orc and Nymph against their actual arm forms.
+
+A first support-envelope candidate passed layered contact, topology and neck
+preservation but exceeded the unchanged 18 mm relief bound by 0.538 mm on a broad
+Human. Its metal section was reduced rather than relaxing the bound. Final
+sampled field clearance is 3.412–17.032 mm. This development correction is not
+counted as another baseline root cause.
+
+The shared rounded-band emitter also serves existing neck bands. Controls cover
+preserved neck vertices/winding and own jewel mount, actual layered sleeve and
+pauldron-hem contact between vertices, closed directed edges, finite geometry,
+material independence, unchanged prior meshes, missing-support rejection and
+explicit dimensions/budgets. All 18 selected tests passed, with strict Clippy,
+the native build and independent review of 60 paired Human views. Native poses,
+cameras and clocks match between each pair. This does not qualify arbitrary
+fringe support, continuous collision, full-suite/release/hosted checks, or a
+performance gain. Armlet mesh cost is 384 triangles versus the old 112.
+
+## Torso necklace attachment and sternum seating
+
+Classification: one recovered production fitting defect, exposed by one new
+regression method. Baseline pendant triangles reached 5.634 mm inside the actual
+small male Human torso field. Native tooth roots were also detached from their
+fixed cord, qualitative evidence rather than a second counted first-red.
+
+Development gates rejected an omitted broad-body necklace, then an upright
+setting with 25.276 mm relief against the unchanged 25 mm limit. Bounded path
+refinement and a sternum-plane setting corrected those cases. Native review
+subsequently rejected the upper-chest-only loop: it spread over the shoulders
+and radial tooth fitting turned depth changes into sideways hooks over plate.
+The final layout uses separate actual neck and sternum anchors, composes the
+head-joint neck/face support with torso layers, and retains each tooth's small
+authored lateral splay while fitting depth. An emitted-tip test checks all seven
+teeth; its independent negative control confirms the rejected radial rule would
+violate the lateral contract on the same layered fixture.
+
+The 72-case final geometry matrix samples actual emitted vertices, edge
+midpoints and centroids in both smoothing modes, both sexes and all three builds
+of Human, Orc and Nymph. Field clearance is 1.870–18.858 mm within unchanged
+1–25 mm bounds. Additional tests cover exact closed directed-edge incidence,
+translated anatomy/support, retained mounts, unrelated-accessory independence,
+invalid/missing support and the actual torso caller's native plate/shell layers
+without equipped plate. The extracted ray callback retains the existing Sculpt
+query behavior; affected strap/layer fitting tests are included. Native review
+is a separate gate, and these samples are not continuous collision proof.
+All ordinary body fixtures use 768 triangles per chain; the bounded refinement
+ceiling is 3,072. No timing improvement is claimed.
+
+The final slice passed 32 distinct selected local tests, strict Clippy, the native
+build and 20 documentation checks. Independent review accepted 66 controlled
+Human before/after pairs across standing/walking front, side and rear views,
+including both sexes, three builds and plated controls. Female rear-neck hair
+occlusion limits those views; unobstructed male rear views provide stronger
+visible closure evidence. This is local sampled qualification, not user
+acceptance, full-suite/release-profile or hosted qualification.
+
+## Coupled Pharaoh collar reconstruction
+
+The recovered fixed-radius collar failed the actual-head 1 mm clearance minimum
+in one emitted-geometry regression. The original failure did not print its exact
+distance, so it does not establish a numerical penetration depth.
+
+Rejected reconstruction candidates supplied distinct boundary evidence:
+
+- An exact downward-drop bracket omitted valid cylindrical support through f32
+  rounding. The positive finite-capsule regression failed at a 0.3 m seat.
+- An outermost radial ray jumped across an actual Human neck/shoulder section.
+  Tier two exceeded its 24 mm spacing by 1.101 mm at 64, 128 and 256 stations.
+  More tessellation did not repair the support branch choice.
+- An outward-only collar could not begin on small inward tapers at the initial
+  Human/Nymph neck seat. Jointly lowering the complete profile within its bounded
+  12 mm anatomical window preserves all spacing and clearance limits.
+- A scaled-field cylinder exposed inconsistent convergence tolerances: the
+  existing ray helper permits a residual below 0.2 mm, while the new endpoint
+  initially accepted only 0.1 mm. Aligning that endpoint to the ray contract
+  does not change emitted-fit, route or spacing bounds.
+
+These are bounded root-cause reports, not extra defects for every repeated body,
+mesh resolution or execution. The rejected logs and source are preserved. A
+separate diagnostic-only Clippy failure was corrected and is not a geometry
+failure or a waived check.
+
+The retained tests cover real emitted raw/softened triangles over five body
+families, both sexes and three builds; exact closed ring edges; adjacent-tier
+spacing; actual fringe-ring overlap; translated fields; cylindrical support;
+a connected shoulder valley and detached-support rejection; bounded whole-seat
+movement and unchanged successful base seats; prior ornament independence; and
+the native plate/shell caller. Thirty-eight selected local tests and 20 docs
+checks pass with strict Clippy/native build and 66 independently accepted native
+pairs, limited to visible collar portions. This remains local sampled evidence, not whole-suite, optimized-profile,
+hosted, continuous-motion or user acceptance. The unrelated cloak-yoke/apron/
+skirt/hair issues remain open, and no runtime-performance claim is made.
+
+## Royal wrist-bracelet reconstruction
+
+The independent first-red sampled actual emitted triangle vertices, edge
+midpoints and centroids against retained forearm/cuff meshes. On the small female
+Human fixture the nominal bracelet's minimum radial gap was -2.416 mm over an
+eased sleeve, -10.938 mm over a normal cuff and -56.971 mm over a flared cuff.
+The bare-arm instance was already clear. This is one production root cause: the
+bracelet used a nominal radius rather than its selected support. The broader
+fixture matrix deliberately exposed it in one failing method; repetitions and
+fixture combinations do not count as separate defects.
+
+The shared retained-layer rule preserves wrist seat and fine dimensions. Tests
+cover actual support and emitted topology, material independence, inherited
+metal, exact thickness and atomic rejection of late support holes. An independent
+source review compared unchanged armlet/neck behavior with the qualified prior
+checkpoint.
+
+The first shared-envelope candidate passed ordinary support but failed two
+methods at bell/styled scalloped hems, where it produced roughly 63–69 mm relief.
+The complete output now passes a sampled penetration/relief check before any
+append. These crossed hems intentionally reject the complete bracelet. The
+positive 1–18 mm bounds remain unchanged on ordinary and metal support. Royal
+plus robe is an actual reachable combination with this limitation. A review
+correction changed its test from an eased forearm to the actual bare
+OffShoulder forearm and asserted that composition. This is a fixture correction,
+not a separate production defect.
+
+Final qualification: 51 distinct selected local tests, strict Clippy/native build,
+20 documentation checks and independent review of 60 native pairs passed. The
+108 ordinary raw/softened fixtures measure 1.795–16.083 mm radial gap within the
+unchanged 1–18 mm bounds; metal positives and explicit unsupported-hem refusals
+are separate witnesses. Hidden surfaces, continuous motion, full-suite,
+release-profile and hosted qualification are not implied.
+
+The initial male native control incorrectly requested a female-only wardrobe.
+Scene validation rejected it before rendering. The corrected explicit Courtier
+control is a fixture correction, not a production defect; no male Royal-princess
+render or implicit fallback is claimed. Existing cloak-yoke, apron notch, skirt
+and hair problems remain separate.
+
+## Native winged-helm reconstruction
+
+An independent ray test against actual emitted skin and metal first measured
+101.072 mm roof relief, exceeding the unchanged 6–30 mm bound. The shared skull
+center and radii were extracted unchanged from the face sculpt. A parameterized
+open-bottom lined crown now uses that anatomy, with explicit ease, wall,
+opening and tessellation. This changes construction rather than applying another
+whole-item offset; feather dimensions and character presentation remain separate.
+
+The first candidate passed 51 selected tests but was rejected in independent
+native review: its first braid lobe pierced the tighter rear shell and obscured
+the band. An emitted-braid regression then failed at 244 mm against the 216 mm
+opening. A radius-aware mount fixed that local defect, but the next candidate
+moved the complete plait downward. Wider native views exposed worsened inherited
+cloak overlap at its lower lobes/tuft despite 54 passing selected tests. A second
+emitted-hair regression measured 29.290 mm displacement of the retained lower
+tuft. Both candidates and their review sheets are preserved.
+
+The shared BraidProfile now separates the upper attachment from the authored
+lower endpoint. Eight same-sized lobes span between them; the lower lobe and
+complete tuft retain their prior coordinates. The native upper lobe nests inside
+the lower band by 2 mm, using its actual 32 mm radius. Ordinary hanging braids
+retain their original geometry within one micrometre. This is two candidate
+composition defects, not an extra count for each wearer, render or execution.
+The three deliberate first-red tests are not additional production defect counts.
+Inherited braid/cloak overlap remains outside this helmet reconstruction; the
+new route must not worsen it.
+
+Final tests cover actual face/mesh clearance, transformed anatomical profiles,
+closed oriented lining and band topology, an open forehead cavity, invalid
+profile rejection, emitted vane insertion contact and the emitted braid
+upper envelope, retained tuft and ordinary-braid equivalence. Existing fan/eye/hair/ear, head-cache, Centaur frame and all 28
+equipment-headwear controls remain included. Ordinary crown/rim triangle samples
+across 36 face variants measure 4.007–21.000 mm field clearance, within the
+unchanged 1–30 mm bounds. Actual Human skin-mesh roof rays measure
+20.943–21.943 mm relief. These are sampled local bounds, not continuous collision.
+
+Final qualification: 56 distinct selected local tests, strict Clippy/native build
+and 20 documentation checks passed. Independent review accepted 72 controlled
+native before/after pairs, including 24 wider female braid/shoulder views. The
+final two-anchor route corrects both rejected candidate regressions without
+visible additional lower-plait degradation against baseline. Inherited cloak
+occlusion remains, including hidden tuft sections in some neutral poses. This
+is sampled local qualification, not full-suite, release-profile, hosted,
+continuous collision or user acceptance. Existing cloak-yoke, apron notch, skirt
+and other hair issues remain separate.
+
+## Smooth cap / hair reconstruction
+
+The native veiled-cap regression first measured covered hair at 1.668 times the
+intended cavity envelope. Native baseline frames showed hair obscuring much of
+the cap. This deliberate first-red reconstruction check is not an additional
+production-defect tally. Shared anatomical crown construction and an isolated
+smooth hair envelope now own cap volume and covered-hair fitting together.
+
+Independent review and expanded geometry checks found three early candidate
+integration defects. Nonplanar upper
+veil quads oriented from a shared quad center left 12 incorrectly directed
+edges in an independent coordinate reproduction. Orienting each emitted
+triangle from its own unoffset centroid fixes the sheet, protected by a complete
+directed-edge closure test. A focused Rust test also rejected the first fitted
+loose-hair radius at 30.145 mm against its 30 mm nominal bound. The final adapter
+measures per-triangle tapered capsule bounds and expands attached radii only.
+A subsequent test rejected hair crossing the lower trim edge at y = 0.234873 m.
+The envelope now includes the shared trim radius and completes its blend at the
+trim lower edge, rather than the higher ideal opening. These are three candidate
+issues, not a count per vertex, wearer or execution.
+A preflight dead-code lint after splitting the static helper was a compilation
+issue, fixed by marking that now test-only helper accordingly.
+
+Coverage includes all five male/female styles, actual polygonal lining/trim,
+finite normals, smooth nonfolding map transitions, exact exposed landmarks,
+ordinary-headwear equivalence, veil seam/lower-corner retention, full shell
+closure, static versus animated rest composition, tapered control volume,
+unchanged free controls, and bare/capped cache swaps in both orders against
+fresh geometry. Existing winged-helm/equipment-headwear and hair-contact checks
+remain selected. The final source passes 95 distinct selected local tests, strict
+Clippy, a fresh native build and 20 documentation checks. Lower veil/hair
+intersections are not treated as solved.
+
+
+Independent review subsequently rejected the 93-test candidate after all 108
+native pairs: the female style-2 bun was flattened into a dark fleck. Its emitted
+landmark regression first found zero exposed vertices. The repaired composition
+separates the rigid bun from the covered scalp, retaining the original mass/torus
+shape and height while seating its rear station on the cap/trim bound. Tests
+compare every triangle to independent authored literals plus one translation,
+check actual shell/trim clearance and near-contact, and keep the covered crown
+inside the existing cavity tests. This is one additional candidate style defect,
+not 108 separate failures; native rejection overrules earlier green checks.
+
+Final independent native review accepted 108 controlled before/after pairs,
+including 30 wider female hair/veil views. All 18 final sheets were inspected,
+plus seven full-size frames. The 96 non-bun frames were re-rendered and
+byte-identical to the previously reviewed candidate. The round exposed landmark is restored,
+with no visible detached mount or new material veil degradation. This is
+sampled local qualification, not full-suite, release-profile, hosted, continuous
+collision or user acceptance.
+
+## Tricorn reconstruction
+
+Two deliberate first-red checks rejected the original construction: the solid
+brim closed the upward head-opening ray at y = 0.239 m, and covered hair reached
+1.2898011 times the intended cavity envelope. These are reconstruction regressions,
+not new production-defect totals.
+
+The first candidate passed eight of nine new feature methods. The remaining
+assertion incorrectly reused the shallow cap's requirement of at least eleven
+moved controls. Source inspection showed that the taller/wider tricorn retains
+all back/side control centers and moves only the three upper swept-fringe
+controls. The revised fixture asserts exactly three, preserving every per-control,
+free-fall, complete-mesh and control-volume assertion. This is one stale oracle,
+not a production geometry failure or permission to weaken the fit.
+
+Independent source review found a missing integration witness for exposed-bun
+ownership. A complete raw/softened style-2 test now requires covered hair followed
+by exactly one rigid original bun. Final qualification runs 106 distinct selected
+methods, strict Clippy, native build and 20 documentation checks; independent
+native review covers 78 controlled pairs. Inherited segmented folded corners,
+trim endpoints and the broad brim shelf remain explicit visual limitations.
+A mistakenly queried old pre-link binary returned zero tests; that run was
+explicitly discarded. The completed first-red binary registered and executed
+both intended tests before production edits.
+
+## Native witch-hat reconstruction
+
+Two deliberate first-red methods rejected the original native hat: the upward
+opening ray hit the solid brim at y = 0.241 m, and covered hair reached
+1.2686708 times the intended conservative cavity envelope. Native baseline
+review independently found the male quiff and short-hair lobes penetrating the
+cone/band and the female bun breaking through the rear band. These are targeted
+reconstruction witnesses, not additional production-defect totals.
+
+The shared opening drives the native annulus, cone mouth and hair envelope.
+The cone joins the brim horizontally with sufficient angular coverage for the
+ellipse, while bow/tail geometry and the equipment wizard recipe are
+retained. New tests exercise actual emitted cone and band surfaces, mouth
+continuity without ornaments masking it, intended open-cone topology, rigid
+bun/tie and complete style composition, attachment/control volume, exposed
+hair identity, and actual cache swaps among bare, veiled, tricorn and witch.
+The earlier ordinary-headwear equivalence test now uses Genie in place of the
+newly fitted Witch consumer; its unchanged-hair assertion is retained.
+
+The first test preflight rejected one private triangle-helper call and an
+ambiguous integer type in the topology oracle. Both were test compilation
+issues, corrected before executable qualification, not behavior failures. The
+finished-mesh test also needed the public Parts/Assets completion path rather
+than Builder's private finish method; this was a separate preflight test API
+error, not a rendering defect.
+
+Independent native review rejected the first 118-test candidate because the
+rounder cone hid most of the front and side pink ribbon. The unchanged-ornament
+equality test had passed but did not establish visible style. A new exposure
+regression first measured -12.184747 mm relief at the front lower band. The
+correction uses the existing rounded-band profile against isolated actual cone
+support at each height. It retains the authored vertical ribbon width and the
+original bow/tails, with tests for continuous exposure, closed topology, complete
+caller emission and the enclosing attachment frame. This is one candidate
+composition defect, not a defect count per angle, wearer or view.
+
+The additional finished-mesh witness caught 10.158443 mm ribbon relief at a
+midpoint between the 32 angular samples on the softened cone, exceeding the
+10 mm near-contact limit. An additional axial witness at y = 0.283 m then measured 10.05629 mm relief.
+The native ribbon uses 64 angular and 16 cross-section samples to follow both
+directions of localized curvature; its dimensions and the strict seating limit
+are unchanged.
+This is a candidate sampling issue exposed by the rendered-geometry contract,
+not a reason to weaken the bound or a new production defect tally.
+
+The next 133-method candidate passed sampled exposure but native rear views
+revealed sharp black slits and triangles. The finished softened-mesh regression
+then found 88 inconsistent directed edges. Two-sided support rays could not
+expose the reversed faces, and the earlier signed-edge test only exercised the
+unsoftened cone. The shared rounded-band helper now uses consistent angular and
+cross-section winding rather than orienting each face against a mid-height
+point that can lie outside a bent section. Support vertices, ribbon dimensions
+and missing-center rejection are unchanged. Both finished modes require
+oppositely shared edges and positive signed volume, and the shared bracelet
+consumers are included in qualification. This is one candidate winding defect,
+not 88 independent defects or one per render.
+
+Final local qualification passes 133 distinct selected tests, including
+prior cap/tricorn/winged/equipment/hair and shared band consumers, strict Clippy,
+a fresh native build and 20 documentation checks. Independent native review
+accepts 78 controlled before/after pairs across both Human sexes and all five
+hairstyles, slim/broad Human and Nymph long hair, with neutral/walking front, side
+and rear views. The quiff, short-hair lobe and rear bun breakthroughs are absent,
+and the pink ribbon is continuous with its bow still attached.
+This is sampled local qualification; lower tail/hair overlap remains open.
+
+### Native shoulder-strap reconstruction
+
+A first-red actual-emission ray measured 33.014 mm of vertical space beneath the
+slim male Troll's shoulder strap. The inherited fixed tubes selected their own
+coordinates rather than sharing the torso's shoulder/chest landmarks. One shared
+finite-width fitted assembly now follows the torso core and actual recipe
+support, preserving vest/harness ownership and style widths.
+
+The first candidate passed 33 of 34 selected methods, including emitted complete
+surface clearance, closed consistent edge winding, exact seams, hardware/recipe
+transfer and the existing full-model add/remove boundary. Its only failure was a
+stale fixture: the all-body inherited literal-x probe missed a strap on a body
+whose anatomy-relative path moved laterally. The exact originally failing Troll
+ray remains a separate regression. The all-body witness now independently scans
+shoulder rays and requires present finite-width cloth plus bounded clearance.
+This is one stale oracle issue, not a production failure or a missing-strap fix.
+
+Final local qualification passes 35 distinct selected tests, strict Clippy,
+a fresh native build and 20 documentation checks. Independent native review
+accepts 72 controlled before/after pairs across native Hobgoblin and Troll,
+both sexes and three builds, in neutral/walking front, side and rear views.
+The raised arches and floating ends are replaced by close-fitting flat straps.
+Minor Hobgoblin endpoint highlight faceting remains a cosmetic caveat; inherited
+underlayer/body artifacts remain separate. This is sampled local qualification,
+not full-suite, release-profile, hosted or user acceptance.
+
+### Centaur chest-wrap boundary reconstruction (11 November 2026)
+
+The intended first-red reconstruction contract uses the actual trim emitter
+against independent narrow/broad ellipsoid support. Original lower trim stops
+at x=0.16 on the broad support whose analytic silhouette is x=0.26398653.
+The narrow positive witness passes first. This is deliberate reconstruction
+first-red evidence, not an additional native defect-count claim. The unchanged
+regression passes with the support-relative boundary profile.
+
+An initial launcher-bin run selected zero tests and was rejected as a setup
+error, not counted as qualification or regression evidence. The correct library
+target was then built, its exact registered owner was verified and its one
+intended assertion failed before implementing the fit. No assertions were
+removed or relaxed in response.
+
+The shared fitter uses independently resolved support spans and finite tapered
+ends, while one Centaur recipe supplies the unchanged paint and trim heights.
+Native variant regressions inspect retained tip widths and all emitted vertices,
+edge midpoints and triangle centroids. The result remains bounded sampled
+geometry evidence, with explicit 4 mm gap resolution and 448 mm lateral search;
+it does not prove arbitrary cut continuity or continuous collision clearance.
+
+Final local qualification passes 26 distinct selected Rust tests, strict Clippy,
+a fresh native build and 20 documentation checks. Independent native review
+accepts 100 matched before/after pairs: the original 60 front/side/rear views plus
+40 additional torso-centered left/right three-quarter pairs that correct the
+original side camera's partial chest cropping. All ten male control images are
+byte-identical. The shorter tapered terminations read as attached turned edges;
+stronger seam shadow and inherited jagged paint transitions remain visible.
+This is sampled local qualification, not full-suite, release-profile, hosted,
+continuous-motion or user acceptance.
+
+### Shared forearm metal/cuff reconstruction (11 November 2026)
+
+The actual baseline biped_cuff emitter failed its intended axial-bore regression:
+a ray through the center hit a cap crossing the wearer. This is deliberate
+reconstruction first-red evidence, not a new defect-count claim per wearer or
+triangle. The new shell retains complete inner/outer walls and annular ends.
+Independent review added positive full-count and radial-wall witnesses because
+an empty emitter could otherwise satisfy the negative bore/clearance checks.
+No accepted clearance bound was relaxed.
+
+New anatomical and actual retained-mesh oracles inspect emitted triangle vertices,
+edge midpoints and centroids across Human/Orc/Nymph sexes and builds. Separate
+witnesses cover closed opposite edge winding, nondegenerate surfaces, both span
+directions, intentional base closures, transformed recipe coordinates, missing
+late support, unchanged prior geometry and exact bell positions. The bracelet
+fixture now invokes the production metal emitters instead of duplicating the
+old tube/prism. These remain bounded sampled local geometry checks.
+
+Final local qualification passes 38 distinct selected Rust tests, strict Clippy,
+a fresh native build, formatting and 20 documentation checks. Independent native
+review accepts 236 controlled before/after pairs across 58 case sets, including
+Human/Orc Knight, Human/Nymph Ranger, mirrored wrist views and medium native
+Orc/Nymph/Hobgoblin/Troll bare arms. All 12 Pirate bell-control pairs are exactly
+pixel-identical. The closer wrist taper and smoother cuff/forearm joins preserve
+armor and leather styling. Some neutral female wrists and rear Ranger cuffs
+remain occluded, so hidden surfaces are not qualified by those views.
+
+This is reconstructed source with sampled local qualification, not recovery of
+historical work, a full-suite/release-profile/hosted pass, continuous-motion
+collision, universal bare/sleeved layer composition, performance or user
+acceptance. Existing skirt, cloak and torso/belt artifacts remain separate.
+
+### Thigh garter attachment reconstruction (11 November 2026)
+
+The intended first-red actual-emission witness measured -41.25075 mm minimum
+clearance between the prior complete tie and the wide female Human thigh field.
+The fixed nominal-radius ring and guessed tie coordinates did not fit that
+wearer. The unchanged regression passes after fitting to retained thigh layers
+and attaching knot and tail to the private resolved band. This is deliberate
+reconstruction first-red evidence, not a new defect count per wearer or triangle.
+
+Independent contact oracles query the actual emitted knot and band, recover the
+tail root and both thickness faces, and require the authored asymmetric tips.
+Displaced knots, translated tails and the original misaligned width axis are
+explicit counterexamples. A 108-case body/layer matrix samples vertices, edge
+midpoints and centroids against retained meshes. Exact Builder prefix assertions
+include geometry, normals, colors, shading and recipe settings; failure cases
+must leave every material unchanged. These remain sampled local guarantees.
+
+Setup/test-authoring failures were retained separately: unsupported Guardian and
+Yeti costume requests, an initially unsorted capture sequence, a strict-Clippy
+fixture initializer and an incorrect qualification-driver test count. None is
+behavioral regression evidence. Corrected qualification runs all 42 selected
+Rust tests successfully, including the six new garter owners. No accepted
+clearance or contact bound was weakened.
+
+Independent native review accepts all 104 paired captures, including 72
+whole-outfit views and 32 thigh close-ups. Every no-garter control is exactly
+preserved (18 pairs). The review records a minor new Rogue knot protrusion
+through the later skirt in a side close-up as a non-blocking bounded limitation,
+not as an unchanged baseline artifact or proof of layer compatibility. No
+significant whole-outfit regression is observed in these frames. Twenty
+documentation checks pass; full-suite, release, hosted and performance
+qualification are not claimed.
+
+The subsequent Rogue composition witness samples actual spawned mesh faces in
+the neutral pose and finds 94 garter/skirt-or-trim crossing pairs, including a
+ring face. This confirms the known composition defect more broadly than the
+visible knot patch. It is one root cause, not 94 defects. A front-knot candidate
+was rejected without production integration because it leaves the ring intact.
+The failing acceptance witness is preserved with the investigation evidence;
+production source was restored exactly to the qualified support-fit checkpoint.
+No skirt-clearance pass is claimed. The investigation's initial wrong-workspace
+Cargo invocation is recorded as setup failure, not behavioral evidence.
+
+### Recovered crossed-waist bow candidate, November 11
+
+Fresh VM compilation and execution reject the previously source-reviewed bow
+candidate. The central-root seating and deliberate-detachment oracle tests pass,
+but the wearer matrix fails its unchanged 1 mm sampled clearance requirement.
+The first encountered gap is positive (0.813 mm), not penetration. Completing
+all 108 cases instead of stopping at that first shortfall reveals a minimum
+of -12.993 mm on the heavy female Orc Cleric. The matrix now reports its worst
+case after completing all fixtures, rejects non-finite samples explicitly, and
+retains every existing geometry, shape, contact and clearance assertion.
+This is one unresolved bow/support fitting defect, not a defect per sample.
+
+Fresh native offscreen captures of that fixture complete all ten neutral/walking
+front, side, rear and waist views. Visual review shows the bow largely obscured
+by the belt/buckle and its tails disappearing into the waist layer. This is
+not a visual acceptance or a continuous-intersection proof. Walking also retains
+visible skirt/leg intersection outside this bow-only scope. The candidate is
+not qualified; source restoration and renderer availability are separate from
+fitting correctness. Initial missing ALSA discovery and an already-existing
+capture destination were setup failures, not additional geometry defects.
+
+The bounded continuation first fitted the lower-cord tie's depth over the waist.
+All 108 body-clearance cases passed, but native review rejected it because the
+tails now visibly poked through the separate buckle. Numerical body clearance
+was not treated as visual acceptance. The accepted local arrangement instead
+ties the unchanged upper cord and uses 6 cm ends that terminate above the buckle.
+A deliberate first-red test rejected the old lower seat by 57.588 mm before this
+placement change. The final tests retain actual emitted-cord contact, exact cord
+prefixes, lobe/tail joins, front-view pattern, sampled depth-thickness preservation,
+non-finite rejection, the 1 mm body-clearance bound and an explicit above-buckle
+cut. Detached roots/lobes and flattened thickness are independent counterexamples.
+The fitting uses the existing support query and fitted append, not a layer solver.
+
+All four bow tests, 30 selected existing attachment/Builder regressions and strict
+all-target Clippy pass. Native capture completes 22 scenes and 202 images. Visual
+review accepts neutral/walking front/side waist views across 18 crossed-cord
+configurations; representative whole-outfit views and three non-crossed controls
+show no obvious new regression. Not every image was individually inspected at
+full resolution. The 18 control images are not pixel-identical to their restored
+older-environment baselines, so exact native-image preservation is not claimed.
+The known skirt/leg intersections and Goddess waist gaps remain. No full-suite,
+release, hosted, arbitrary-animation or performance qualification is claimed.
+
+### Goddess supported waist overlap, November 12
+
+The Goddess preset used the generic pelvis ring at 4 cm rather than the existing
+composed-waist seam, leaving a broad exposed separation below the bodice. A test
+of actual spawned skirt vertices reproduced the old 4 cm rim. The first candidate
+used 9 cm and closed the broad gap, but native review found a bulky upper lip and
+occlusion of the lowest cord. Refining the same recipe field to 7 cm preserves the
+overlap while restoring cord visibility. Both skirt layers inherit the seam; no
+geometry or animation framework was added. The regression checks both emitted
+layer rims across Human, Orc and Nymph, three builds each. The original first-red
+measurement remains 4 cm; the later authored target changed from 9 to 7 cm.
+
+Final qualification passes all 58 wardrobe tests, all four bow tests (including
+the 108-case matrix), strict all-target Clippy, formatting, architecture and
+20 documentation checks. The initial wrong Bevy import was a test setup error,
+not another production defect. One waist-gap cause is recorded, not one per layer
+or wearer. All 13 scene sets complete, yielding 120 native images. Visual review
+accepts neutral/walking front/side close-ups and full front/side/rear views across
+all nine Goddess configurations, plus extra tie views. Twenty-five of 26 control
+images are pixel-identical; one differs at nine pixels without a perceptible
+outfit change. Existing walking thigh breakthrough persists. Small side pockets,
+a fine join line and a rounder upper-skirt transition remain polish limitations.
+This is a scoped waist-gap improvement, not an overall clipping, arbitrary-pose,
+full-suite, release, hosted-CI or performance claim.
+
+### Harness ring seating and skirt diagnosis, November 12
+
+The harness ring independently sampled the torso instead of retaining its
+ribbon's fitted support. New emitted-geometry regressions reproduced roughly
+5–10 mm female penetration, some male gaps above 3 mm, and a ring emitted without
+any supported ribbon. This is one attachment-source defect, with two failing
+methods, not a separate cause per wearer. The existing ribbon-preservation
+witness passed before the fix. A center-tangent candidate and a two-point chord
+candidate still penetrated; neither was accepted. The final local recipe uses
+the chord frame plus a depth-only clearance of its rigid emitted footprint.
+Four-subdivision fitting is checked against independent emitted-satin rays at
+eight subdivisions, not against the fitting API itself. All 18 fixtures pass;
+ring pairwise distances and original cloth data remain unchanged. Sampled
+underlying-garment signed distances were separately checked positive (minimum
+16.34 mm); that is not an exact native garment-triangle proof.
+
+The accepted scope has 88 passing focused tests: 11 shoulder/harness, 58 wardrobe,
+four bow (including the existing 108-case matrix), and 15 garment contracts.
+Strict all-target Clippy, format, architecture and 20 documentation tests pass.
+Native evidence comprises 48 before and 96 after frames. Visual review accepts
+all 12 Troll/Orc sex/build configurations at neutral tick 2 and walking tick 18,
+front/side join views and representative whole outfits. The strongest correction
+is the female Troll's formerly buried ring. No continuous-animation claim is made.
+Feedback-wrapper Git assumptions, an omitted local toolchain environment, a
+wrong manifest/filter and unsorted capture ticks were setup errors, corrected
+without treating zero-test or failed-driver runs as qualification.
+
+A separately rerun existing skirt diagnostic still fails with 167–434 actual
+crossing triangle pairs in six walking/strike layer cases, while neutral cases
+pass. The counts match the pre-harness run. This is an existing open dynamic-cloth
+defect, not a new harness regression or a passed full suite. The known garter/skirt
+work and other outfit polish remain open. No release, hosted CI or performance
+claim accompanies this scoped checkpoint.
+
+### Belt hardware composition witness (2026-11-12)
+
+A native loincloth ring initially passed attachment tests while native renders
+showed a buried upper arc. The cause was a second, rectangular belt buckle in
+the same slot. The accepted candidate removes only that redundant hardware,
+retains the exact satin band, and fits the original-size ring between cloth and
+waist contacts. The visibility oracle now counts every projected ring ray,
+including rays without contact, against actual waist, skirt, peplum and panel
+meshes. Both attachment regions require at least 90% visible front coverage as
+well as independent near-contact witnesses. The old overlap candidate could
+expose at most roughly 43% of upper-region rays and cannot pass this gate.
+
+The final six-body matrix measures 99.3–100% upper-ring visibility and preserves
+all original panel/stripe vertex attributes and indices exactly. Two belt
+hardware tests prove band identity and the original default-buckle recipe.
+The original ring failed actual belt attachment by about 16–22 mm. The earlier
+rigid-panel trial passed body clearance but failed mounting and native side
+review, so it was not promoted. Native image review and unchanged-outfit controls
+remain required in addition to these numerical gates.
+
+The strict standing loincloth/body/garment diagnostic remains failing on the
+unchanged panels. The existing walking skirt/tasset diagnostic also retains its
+167, 373, 227, 162, 144 and 434 crossing-pair failures. These are openly retained
+model defects, not successful whole-suite validation. The scoped positive gate
+contains 93 focused tests; full-suite, release, hosted CI and continuous gait
+qualification have not been claimed.
+
+Final independent native review accepts 72 Orc frames across six bodies and two
+pose instants. All 16 Troll control frames are pixel-identical. The readable
+closed-ring gate agrees with actual front and side appearance after removing
+the duplicate buckle, unlike the earlier contact-only acceptance attempt.
+
+### Static panel fold contract witnesses (2026-11-12)
+
+The retained standing loincloth diagnostic established the intended first-red
+failure on the qualified flat panels. The support-fit candidate then exposed two
+production issues: ignoring the tilted top cap left 16 rear peplum intersections
+on the broad male, and numerically equivalent root stations selected different
+fold depths on paired shell faces. The latter caused a 1.495 mm root thickness
+shortfall, interpolating to the observed 0.248 mm error at the sampled station.
+The independent oracle was correct; its tolerance was not changed.
+
+The fitter now includes every projected original shell triangle and conservatively
+coalesces sub-micron station groups. Five pure helper tests include the exact
+root-station failure and interior-constraint domination. The six-body native
+clearance test, separate ring-contact/visibility test and shape test pass without
+hiding one contract behind another's first assertion. Shape witnesses retain
+projected outline and hem, paired thickness, shared stripe displacement,
+outward-only correction, pigments and unchanged belt geometry. Exact original
+vertex topology was deliberately replaced only for fitted panels, whose intended
+subdivision makes it obsolete; zero/irrelevant-support fixtures still require
+exact original recipe equality. A warm-cache witness proves shared mesh identity
+and unchanged payloads. Together with existing focused regressions, 102 positive
+tests pass. Walking diagnostics and native visual acceptance remain independently
+reported; this is not whole-suite or complete-motion qualification.
+
+Independent native review accepts the final 72 Orc frames and confirms all 16
+Troll controls pixel-identical. The existing walking skirt/thigh test was rerun
+and retains its six original crossing counts; it is not counted among passes.
+No production animation inputs changed in this static panel checkpoint.
+
+### Posed neck-root visibility witness (2026-11-12)
+
+A new actual head-versus-torso depth witness initially used the torso parent's
+frame rather than the torso joint, producing zero hit rays. That fixture was
+corrected without changing bounds or thresholds. The corrected bind-pose test
+then passed, revealing that bind-pose coverage was insufficient to reproduce the
+native image defect. The final first-red uses the real review animation and
+softening schedule, with independent Head/Torso transform parity constants from
+all six retained native manifests. Idle is tick 2 at 50 Hz, not bind pose or
+tick 0. Its female build 1 and 2 failures match the visible skin islands: 42 and
+127 of 861 rays, at maximum depths 0.94 mm and 2.39 mm respectively.
+
+The accepted numerical candidate keeps the original strict depth threshold,
+ray-presence and closed-bib coverage gates. An additional tick-18 walking witness
+replays the script's velocity event and checks its own captured joint matrices.
+Independent controls preserve authored upper stations and emitted upper skin,
+attachment sections, triangle budget, circumferential neck continuity, positive
+root volume, inward-only fitting, deeply buried anatomy transfer, open-neck
+recipes and head/band cache identity. These tests expose an actual joint-boundary
+visibility defect; the two fixture investigations are not extra production bugs
+or successful regression qualification. Native visual acceptance remains separate.
+
+Independent native review accepts all 96 candidate frames at tick 2 and tick 18.
+The original skin islands are removed without new visible neck discontinuity;
+open-neck controls retain continuous anatomy. Forty-nine frames are exactly
+identical; slight neck shading and small shadow differences are disclosed in
+the remaining comparisons. The complete selected numerical set has 125 distinct
+passes. The original walking skirt/thigh diagnostic still fails unchanged.
+
+### Vest layer-transition and actual-torso witnesses (2026-11-12)
+
+The visible bib-edge ripple was reproduced by
+`creatures::geometry::shoulder_strap_tests::vest_support_has_no_normal_jump_where_the_bib_meets_the_underlayer`.
+On original hard support, male Hobgoblin build 0 at x=0.096444, y=0.444 retained a
+normal difference of 0.9224 over a 0.8 mm span and 1.0162 over 0.2 mm. The intended
+first-red assertion requires contraction rather than choosing a convenient
+curvature limit. The conservative smooth-support candidate passes it. This is
+one reproduced production cause and one failed regression-method execution,
+not a naturally discovered second defect or a count per sampled lane/body.
+
+The new actual-torso integration method
+`creatures::geometry::biped::torso_foundation_tests::native_vest_rounding_reaches_the_actual_torso_without_moving_rivets`
+had three unsuccessful development executions for two oracle/fixture causes.
+Two guessed upper rays missed the anatomy-anchored strap as its lateral position
+changed with height. The next exact-triangle expectation was also too strong:
+separate six-Figure diagnostics proved that the candidate faces occur in actual
+torso output, but changed ray-marching steps produce up to 0.458 mm vertex
+differences where the old/new support fields are identical. Those three failures
+are one failing method, not three production defects. The final independent
+oracle compares actual torso geometry to the original emitter, requires visible
+rounding at the bib crossing, preserves verified inactive-field faces within the
+existing 1 mm geometric allowance, and keeps rivet faces exact. The original
+strict failure and diagnostic evidence are retained; exact upper identity is
+not represented as a passed contract.
+
+Eighteen-body complete emitted-face checks retain 6.17–19.81 mm sampled field
+clearance, identical triangle counts and exact no-layer output. Actual bib
+vertex shifts reach 22.16 mm, so the 5.25 mm scalar-field expansion bound must not
+be reported as total geometry movement. Four new permanent methods and existing
+owners produce 14 shoulder and three foundation passes. Independent native
+review accepts all 96 paired views with no new visible crease or bulge; 47/48
+Troll controls are pixel-identical and the other has seven lower-garment pixels
+changed. This bounded evidence does not qualify complete motion or the unrelated
+open walking-skirt diagnostic. Initial unused-helper preflight and missing-Cargo
+PATH failures were corrected setup issues, not behavioral regression passes.
+
+
+### Sleeve-fold segment joins (2026-11-12)
+
+Two new methods under `creatures::geometry::sleeve_parts::gather_tests`
+reproduce one visible geometry cause: blending each overlapping capsule into
+the sleeve separately swells their shared endpoints into beads. The corrected
+first-red measures 4.75 mm relief per unit build on both planar and curved
+support, exceeding the unchanged 4.4 mm upper bound. Independent ray intersections
+also require at least 3.5 mm relief, so flattening the fold is not a passing fix.
+
+The first planar execution used the wrong solid half-space orientation and
+failed its ray-bracketing precondition. Reversing the plane normal corrected that
+fixture without changing thresholds; it is not production regression evidence.
+The curved witness failed at the intended relief assertion in both red runs.
+This evidence window contains two distinct behavioral failing methods and three
+behavioral failed-method executions, plus one fixture failure, not four defects.
+
+The reconstructed candidate blends each complete fold once into the sleeve,
+uses a tiny internal segment blend, and refines its seating on the support ray.
+Both regression methods pass across their scale/length fixtures, including the
+unchanged outer-elbow field. The existing
+`surface_tests::projected_arm_recipes_follow_their_shared_source_fields` and
+`surface_tests::resolved_mage_forearm_keeps_its_shape_without_excessive_triangles`
+also pass without weakening their geometric or triangle budgets. The complete
+focused surface group passes 11 tests; the two new gathers tests are additional.
+Review of 36 matched native views found no new sleeve integrity or silhouette
+regression, but sharp creases remain and the visual improvement is modest. These
+are local results, not CI or acceptance of all outfits or animation poses.
+
+### Shared sleeve fold flank (2026-11-12)
+
+`compression_fold_has_a_broad_flank_without_a_wide_pad` failed against the
+previous whole-fold recipe: the 7 mm transverse flank retained only 0.687 mm
+of a 4 mm crest. The independent planar ray test requires at least half-height
+there, preserves the 3.5–4.4 mm crest bound and requires zero relief within
+10 micrometres at 25 mm. The wider-blend/deeper-seated recipe passes without
+changing these thresholds. This window adds one distinct failing behavioral
+method and one failed execution, not another capsule-joint defect.
+
+All three gathers and eleven surface tests pass locally, with existing arm and
+Mage triangle budgets unchanged. Thirty-six native before/after comparisons
+accept the softer cloth flanks without puffy elbow silhouettes. The separate
+upper/forearm seam and unrelated garment intersections remain outside this fix.
+
+
+### Supported panel clearance trial (2026-11-12)
+
+The first panel fixture failed compilation because heraldry was assigned to the
+wrong field; that setup failure is not behavioral evidence. The initial metal
+comparison also counted intentional baldric buckle occlusion as failure (67
+samples). The corrected oracle removes the baldric only for support collection,
+proves the actual panel triangles unchanged and the remaining metal triangles
+present in the original emission, then checks the same coordinates without a
+spatial exclusion. Against qualified source it finds 10 real failing panel
+samples. The independent emitted-triangle test retains its 0.5 mm minimum
+front-flank clearance and substantial bilateral witnesses.
+
+The candidate uses the existing offset-surface ray only after the original
+support projection succeeds. Three focused tests pass: actual cuirass clearance;
+front/back clipped footprint, topology, palette, true-miss and input-support
+preservation; and emitted emblem/baldric ordering with a 0.5 mm minimum gap.
+All 18 garment tests pass locally. Strict Clippy, formatting, architecture and
+20 documentation checks also pass. Review of 64 matched native pairs across
+male/female Knight, Sentinel, Mage and Red Mage at seed 7/default build found
+the female Knight gold-edge hole closed at rest and walking samples, without
+new floating or shelf artifacts. Emblems, straps and rear panels were preserved;
+Mage/Red Mage plackets remained stable. This is bounded two-tick visual evidence,
+not continuous animation, all builds, or a waist fix. Performance and final
+qualification remain pending; no hosted-CI result is claimed.
+
+
+**Performance gate, not final acceptance:** The local cold-construction
+comparison recorded median model time 529.289 ms baseline versus 660.683 ms
+candidate (+24.8%); torso-parts time rose from 243.244 to 301.675 ms. Mesh,
+triangle and vertex counts were identical. These are measured construction
+costs, not per-frame timings. The visual improvement is retained as WIP only:
+optimization and fresh qualification are required before promotion.
+
+
+### Panel query reuse, qualification pending (2026-11-12)
+
+The follow-up retains whether the original clipped projection found support,
+instead of tracing that same support a second time merely to recover the answer.
+The public point-projection fallback and clipping policy are unchanged; the
+panel still uses the existing offset ray only on supported points. A frozen
+three-query reference verifies exact emitted triangle positions and colors for
+front/back supported, laterally clipped and fully unsupported fixtures at all
+three caller offsets. All 19 garment tests and strict Clippy pass locally.
+
+The earlier 64-pair visual review belongs to the pre-optimization candidate.
+Its reuse is supported by the exact-geometry regression; planned fresh
+representative renders are a separate check, not another fresh 64-pair review.
+The previously recorded +24.8% construction slowdown remains the latest
+performance evidence until the optimized measurement completes. This follow-up
+is still WIP, not performance-qualified or promoted.
+
+
+### Bounded panel fix accepted locally with construction overhead (2026-11-12)
+
+The optimized follow-up passes 19 garment tests, strict Clippy, formatting and
+architecture checks. Twenty-four fresh views cover female Knight, Sentinel and
+Mage at eight views each; the hole correction, layering and stand-off remain
+intact. The earlier 64-pair review is reused with the exact-geometry regression,
+not represented as 64 newly rendered comparisons.
+
+A fresh paired construction run measured total medians 510.359 ms baseline and
+560.423 ms optimized (+9.81%), with overlapping ranges 478.947–727.260 ms and
+517.160–688.940 ms. Torso-parts medians were 230.684 and 254.963 ms, a 24.279 ms
+increase (+10.52%). Counts remain 190578 generated triangles, 105520 vertices,
+28 meshes and 16 cache misses. This is a known construction-cost tradeoff, not
+performance neutrality; the earlier unoptimized +24.8% run remains historical
+evidence, not the latest measurement or a directly comparable speedup claim.
+
+The bounded visual fix is accepted locally with that disclosed overhead. There
+is no per-frame algorithm change and no FPS claim. Other builds, continuous
+motion and hosted CI remain unqualified; rejected waist work is not included.
+
+
+### Shared panel endpoint-row reuse (2026-11-12)
+
+Adjacent profile windows now reuse their common evaluated endpoint row. The
+local reuse preserves clipping, offset semantics, topology and emission order;
+there is no global cache. The frozen exact-output regression now covers eight
+profiles, both sides and three offsets, including descending and repeated
+heights, signed-zero endpoints and supported/clipped/missing transitions.
+All 19 garment tests, strict Clippy, formatting and architecture checks pass.
+Sixteen fresh paired views preserve panel trim and hardware; existing Mage
+waist gaps and Knight neckline issues remain outside this change.
+
+Deterministic fitted-point evaluations fall from 3554 to 3254 for female Knight
+(8.44% fewer) and 5224 to 4876 for male Knight (6.66% fewer). These are point
+evaluations, not SDF-query counts. The paired timing result is inconclusive:
+model medians 535.867 to 531.388 ms (-0.84%), torso-recipe medians 247.180 to
+251.344 ms (+1.68%), with large outliers. Counts remain 190578 generated
+triangles, 105520 unique vertices, 28 meshes and 16 cache misses.
+
+Accepted locally as a small deterministic removal of redundant work, not a
+measured speedup. This does not erase the earlier disclosed 9.81% construction
+overhead relative to the original panel recipe, and makes no FPS or hosted-CI
+claim. Earlier broad visual evidence remains reused, not newly rerendered.
+
+
+### Native helmet rim support trial (2026-11-12)
+
+The original native Helm rim regression found 1.6547 mm penetration into its
+actual shell. The candidate reuses the shared rounded-band profile against
+shell-only support, retaining the original shell, visor and plume rather than
+letting decorative pieces distort the fitted rim. Two intermediate candidates
+failed the unchanged 0.9 mm minimum relief at 0.614685 and 0.896712 mm; these
+are retained failures, not passing checkpoints. The final geometry produces
+1.096145–13.000017 mm sampled relief within the 0.9–13.1 mm bounds. Its 4480
+triangle samples include vertices, edge midpoints and centroids; closed-edge
+winding and finite geometry are checked. This is sampled clearance, not proof
+of continuous minimum distance.
+
+Eight head tests, strict Clippy and the native build pass locally. Review of
+36 matched views across six fixtures at rest and walking samples finds the
+gold/steel sawtooth crossing removed, without a floating gap or broad shelf.
+Visor, ridge, breath holes, braid, shell top and plume remain unchanged in the
+bounded review; the separate Knight breastplate neckline issue remains. Rim
+triangles rise from 144 to 640 (+496). Performance and final checkpoint
+qualification remain pending; no all-helm, continuous-motion or hosted-CI
+claim is made.
+
+
+**Local acceptance with disclosed cost:** All 12 benchmark jobs completed with
+verified provenance. Head-recipe medians rise from 44.543 to 51.704 ms
+(+7.161 ms, +16.08%); head-total medians from 64.101 to 72.146 ms, and head-finish
+medians from 19.596 to 20.073 ms. Overall construction medians were 548.676 and
+605.282 ms, a noisy aggregate not attributable solely to the rim. Generated
+triangles increase from 190578 to 191074 (+496) and unique vertices from 105520
+to 105768 (+248); 28 meshes and 16 cache misses remain unchanged.
+
+The bounded native Helm fix is accepted locally for its clear visual benefit
+with those construction and geometry costs disclosed. There is no per-frame
+algorithm change and no FPS claim. All-helm coverage, continuous motion and
+hosted CI remain unqualified.
+
+
+### Parametric native cuirass neckline binding (2026-11-12)
+
+The Knight binding now follows the actual intersection of the existing tapered
+opening and uncut torso support rather than its flat authored V. Both sides
+resolve against their own body profile, then share one continuous strip across
+the bottom. The existing fitted-ribbon emitter retains the front support for
+this narrow edge; it no longer projects through the opening toward the rear.
+The cuirass cut, body, helmet, palette and other attachments remain unchanged.
+This is a bounded parametric support operation, not triangle collision or a
+new general composition solver.
+
+The new emitted-mesh regression fails on the original small Human fixture:
+a binding vertex at z=0.005212 lies behind its front support at z=0.131850.
+The retained final-spawn diagnostic also measured a 6.450 mm exposed steel
+strip at y=0.410; its pre-spawn counterpart was 5.864 mm. These are witnesses,
+not a global minimum-clearance proof. The first contour candidate omitted the
+binding because the support already has a neck aperture and was rejected.
+The next candidate's separate arms left a visible bottom slit; the continuous
+strip removes it. A Centaur test fixture was corrected to Sentinel because
+Centaur uses a separate quadruped torso recipe; no Centaur fix is claimed.
+
+Twenty garment tests, strict Clippy, formatting, architecture and 20 documentation
+tests pass locally. The new regression covers female Human/Sentinel small,
+default and broad builds. Twelve matched baseline/candidate views (24 native
+PNGs) at rest and one walking sample show the scalloped exposed steel and bottom
+slit removed, while retaining the body/outfit distinctions. This is bounded
+visual acceptance, not all bodies, all outfits or continuous-motion coverage.
+
+Eight sequential construction-profile runs include one warmup pair and three
+measured pairs in alternating order on the same VM. Total-construction medians
+are 584.643 and 601.636 ms; torso-recipe medians are 278.645 and 272.866 ms,
+with ranges 265.644–281.149 and 271.699–297.264 ms. The noisy small sample does
+not establish a speedup. Generated triangles rise 191074 to 191750 (+676),
+unique vertices 105768 to 106044 (+276); 28 meshes and 16 cache misses remain.
+Accepted locally for the clear visual benefit with those costs disclosed.
+No per-frame algorithm changed; no FPS, hosted-CI, publication or merge claim.
+
+
+### Contour-query optimization rejected; parameter coverage retained (2026-11-12)
+
+A proposed work reduction reused the last sampled crossing interval and stopped
+its refinement at two micrometres. A new comparison against the retained
+full-width reference found a 0.754 mm contour displacement on broad build,
+bust profile 0 at y=0.456228. The support query can change branches near an
+aperture; the narrower interval was not equivalent to the existing refinement.
+The production change was rejected and the qualified fitter restored. This was
+not a demand for pixel identity: a small query optimization did not justify an
+unreviewed contour-branch change or extra solver complexity. No speedup is claimed.
+
+The added contract is retained across nine body profiles (three builds by three
+bust profiles), both sides and 21 contour rows per side. It verifies finite,
+ordered complete profiles, sampled cutter support and a five-micrometre bound
+against the previously accepted refinement. Native front-support and broader
+garment contracts remain unchanged. This expands parameter regression coverage;
+it is not new visual qualification for every bust profile.
+
+A separate read-only sleeve review inspected 18 fresh native views of male and
+female Commoner, Ranger and Mage at rest and one walking sample. The residual
+elbow line crosses independently rotated, nonuniformly scaled joint meshes.
+No new open hole was established. A size-only or normal-only patch would not
+establish continuous cloth fit, so no skinning rewrite, normal override or seam
+fix was introduced. Existing accepted folds and neckline geometry are retained.
+
+
+### Seated lower vest attachment tabs (2026-11-12)
+
+A native side-view review reproduced visible lower shoulder-tab stand-off.
+The first-red emitted-mesh witness measured 7.163 mm underside field clearance
+on the slim male Hobgoblin. Uniform 14 mm support inflation reserves the
+7 mm ribbon shell but also leaves its sewn ends about 7 mm off the garment.
+
+The bounded candidate keeps the existing upper shoulder fit and bridge. Only
+the lower chest-drop/3 band resolves a smooth blend toward 10 mm outer clearance
+on the actual garment, leaving approximately 3 mm underside allowance. Normals
+come from the same tapered field, including its slope. Whole rows are replaced
+transactionally; unsupported rows retain their prior fit. No new subdivision,
+dependency or per-frame solver is introduced, and harness recipes do not opt in.
+
+Sixteen shoulder tests pass, including lower attachment checks across 18 body
+fixtures, the unchanged complete-shell 2–25 mm clearance gate, exact unchanged
+upper rows and bridge, unchanged topology and empty-support handling. Twenty-one
+garment tests, strict Clippy, native build, formatting and architecture pass.
+The lower-end check is a sampled field-distance witness, not a universal physical
+gap or continuous-animation proof. Native review and construction timings are
+recorded separately before final acceptance.
+
+
+Independent native review accepts all 18 matched pairs (36 images), male/female
+Hobgoblins in three builds at rest-front, rest-side and one walking-side sample.
+The improvement is modest: tabs sit closer, not completely flush. No new crease,
+hole, pinch or upper-shoulder change is visible. The existing female underarm
+gray oval is unchanged and remains separate follow-up work.
+
+Eight alternating construction runs (one warmup pair, three measured pairs)
+give total medians 480.635 to 462.112 ms and torso-recipe medians 203.711 to
+193.181 ms. Ranges overlap: totals 472.971–561.751 versus 456.813–492.211 ms;
+torso recipes 199.923–283.876 versus 192.695–214.507 ms. This small noisy sample
+does not establish a speedup, but shows no material sampled regression.
+Both retain 178708 generated triangles, 99306 unique vertices and 25 meshes.
+There is no new per-frame operation or FPS claim. All checks are local, not CI.
+
+
+### Low-shell armhole ownership candidate (2026-11-12)
+
+Native female Hobgoblin side views exposed gray torso foundation through the
+leather vest. The side cut, not a separate accessory, removed the outer shell:
+analytic witnesses at y=0.362 protruded 15.02, 9.66 and 1.06 mm past its constant
+lateral plane in small/default/broad builds, while the same uncut leather
+enclosed them by 9.79, 8.88 and 8.05 mm. Both surfaces share the torso joint.
+The first-red lower-rib coverage regression also found insufficient clearance
+on a male fixture; this is not a female-only special case.
+
+The candidate applies sleeveless side clips only when resolved shell top is
+above the existing ARMPIT landmark. A low vest or underbust shell already ends
+below the armhole and needs no full-height shoulder cut. This removes two
+irrelevant operations rather than adding a new fitter, duplicate support mesh
+or collision solver. High shells retain their exact existing opening path.
+Hobgoblin/Orc and low Tavern/female Witch shells are affected; high Human/Scout
+controls and high male Witch must retain their prior geometry.
+
+Five foundation tests, 16 shoulder tests, 21 garment tests and strict Clippy pass.
+The new contracts cover lower native rib coverage and side-cut threshold/low-shell
+equivalence. Native control renders and construction measurements remain required
+before acceptance. No universal motion or inter-layer clearance claim is made.
+
+
+Independent full-resolution review accepts all 36 matched pairs (72 images):
+six Hobgoblin sex/build fixtures, two Orc fixtures, female Tavern/Witch and
+high Human/Scout controls, each at rest-front, rest-side and one walking-side
+sample. The female Hobgoblin oval and corresponding Orc side/rear interruptions
+are removed without a new sampled arm-contact artifact. Low corsets also regain
+a rounder lower-side/hem/belt silhouette; this is broader than armpit pixels but
+visually favorable. Tavern/Witch retain their underbust and sleeve boundaries.
+All six high-control images are unchanged. This does not qualify continuous gait
+or all joint collisions. Existing unrelated elbow, cuff and waist-strap issues
+remain separate.
+
+Eight alternating construction runs (one warmup pair, three measured pairs)
+give total medians 485.604 to 495.295 ms and torso-recipe medians 206.427 to
+218.282 ms. No speedup is claimed. The sample is noisy: total ranges are
+471.899–771.499 versus 485.830–637.352 ms, torso ranges 201.455–469.090 versus
+203.665–226.652 ms. The restored side surface increases generated triangles
+178708 to 180372 (+1664, about 0.93%) and unique vertices 99306 to 100122 (+816);
+25 meshes remain unchanged. Accepted for the visible coverage improvement with
+these costs disclosed. No per-frame solver was added; no FPS or hosted-CI claim.
+
+
+## 2026-11-12: supported padded-glove palm cells
+
+The nine dorsal palm cells previously used a fixed X offset; a focused first-red
+relief check measured 18.378 mm above the emitted hand on its first fixture.
+They now resolve support against the unadorned hand before any cells are added,
+then embed their original ellipsoids while preserving visible shallow crowns.
+The unchanged four knuckle pads cross a different support boundary. An all-pad
+trial failed isolated underside witnesses and was rejected, not hidden by
+weakening the contact assertion or introducing a larger fitting system.
+
+Two new regression methods cover bounded relief and isolated-cell underside
+contact at five footprint samples, across open, closed and clawed hands, both
+sides, three scales and faceted/smoothed geometry. The latter also checks exact
+preservation of all four original knuckle-pad recipes. Deliberate first-red
+and intermediate diagnostic failures are not release-defect counts.
+
+One existing style test, `equipment_gloves::tests::styles_change_geometry_not_only_pigment`,
+failed once because its whole-hand X-bound assertion depended on the old
+projecting padding. This is one stale expected-value root cause, one distinct
+method and one failed execution in this checkpoint's evidence window. The
+replacement compares actual padded versus riding-glove surfaces at three cell
+crowns, requiring at least 2 mm of distinct raised geometry; it does not replace
+a geometric style witness with a color-only assertion. The other cuff/style
+assertions are retained unchanged.
+
+All 16 glove, three hand-root and two Centaur-glove tests pass, along with
+strict Clippy, the native build, format and architecture checks. Independent
+native review accepts 33 matched pairs / 66 images: palm cells become shallow
+attached padding and stop protruding through the cuff lattice. The four
+knuckle pads and oversized cuff remain explicitly unresolved. Static selected
+poses are not exhaustive animation or collision proof. Geometry triangle and
+mesh counts are unchanged; construction timings are recorded in the qualified
+checkpoint, with no FPS or stable speedup claim.
+
+
+### 2026-11-12: shared selected-layer radius query
+
+Consolidating the glove cuff and rounded-band layer queries exposed one stale
+source-order witness in `bracelet_production_caller_retains_forearm_layer_boundary`.
+The earlier qualified cloth-bell change added a guarded early glove branch that
+excludes bracelets, while this test still searched for the first glove call.
+The forearm-plan source is byte-identical to the preceding qualified checkpoint;
+the shared-query extraction did not change its ordering. This is one stale
+oracle root cause, one distinct method, one failed execution in this window.
+The witness now locates the later glove branch for bracelet-bearing plans.
+Existing emitted-geometry clearance tests and explicit early-branch exclusions
+remain in place. The earlier focused forearm checks had not run this broader
+bracelet source-order test; include the complete bracelet filter for future
+forearm composition changes. Deliberate new-query first-red is not a release
+defect count.
+
+## Native boot pigment binding, 12 November 2026
+
+The earlier skin-pigment migration explicitly deferred native boot recipes.
+A deliberate first-red extension,
+`creatures::outfit::equipment::tests::native_boot_recipes_resolve_skin_for_the_wearer`,
+confirmed that the Zombie recipe retained donor skin instead of resolving the
+recipient shade. This is new boundary coverage of a documented unfinished
+migration, not an additional released-defect count. The fix reuses `Pigment`
+for boot colors; authored colors remain fixed. A separate emitted-foot witness
+covers copied recipes, fixed colors and footwear equip/remove restoration.
+The initial emitted-mesh fixture reused a bare-surface threshold of more than
+100 vertices with exactly matching pigment direction. Rounded boot shading
+produced 92 matching vertices despite a correct binding. The boot witness now
+compares the complete emitted foot mesh against an independently specified fixed
+recipient-color recipe, while retaining nonempty mesh checks and a deliberately
+wrong fixed-color negative control. This compares quantized position/color
+samples, not triangle topology or multiplicity. The existing
+bare-surface test and its threshold are unchanged. This is one fixture/oracle
+adaptation, not an extra production defect.
+
+## Static tunic-tatter recipe, 12 November 2026
+
+A deliberate first-red extension,
+`creatures::rogue_tests::zombie_hip_rags_survive_explicit_outfit_copy`,
+found the documented native-only hip scraps missing after explicit outfit copy.
+The recipe extraction moves that emission into the existing garment-detail
+component and retains its original hip batching. This is coverage of a deferred
+portability boundary, not an additional released-defect count. The transfer
+witness also checks independent removal, resolved shirt pigment, restoration
+and unchanged entity/drape counts.
+
+## Toe-claw footwear coverage, 12 November 2026
+
+Code inspection found anatomical claws emitted after closed footwear reset the
+builder's local transform. The first-red
+`creatures::rogue_tests::closed_troll_boots_have_no_detached_claws_below_the_sole`
+confirmed a claw tip at y=-0.46 under a Troll's basic equipped boot. This is one
+development-discovered coverage/frame defect and one initially failing method,
+not evidence of a current published regression. The correction follows the
+resolved emitting branch: closed footwear suppresses claws; exposed sandal toes
+use emitted-upper mounts; native bare/furry feet retain their existing frame.
+
+### Custom belt hardware ownership, local development
+The native Leprechaun emitted both default solid belt hardware and a separate
+custom buckle on different animated joints. One newly added actual-mesh method
+failed on the 24 default-buckle vertices after its positive control passed.
+This is a development-discovered ownership defect, not a claimed regression
+after a published change. Subsequent support/recipe/visual checks qualify the
+narrow correction, not all clothing-animation intersections.
+
+### Species topknot crown coverage, local development
+One new actual-crown lining test failed on Orc Pirate topknot geometry before
+the species recipe reused the existing hair envelope. The witness samples
+vertices, edge midpoints and triangle centroids and requires nonempty covered
+geometry. Tail/topology/native restoration checks complement native image review.
+This is a development-discovered missing integration, not a published-regression
+claim or certification of every hairstyle/headwear combination.
+
+### Ragged apron support, local development
+A native render showed lower skirt cloth passing through the Troll's leather
+apron. One new actual-mesh method failed before the fix, measuring up to roughly
+29 mm penetration. Its expanded matrix covers both sexes/all builds on native
+Trolls and copied Human/Orc outfits. This is one development-discovered support
+omission, not a published-regression claim or eighteen separate defects.
+Reusing the existing hanging-pattern fold clears the neutral overlap; posed
+visual checks remain distinct from the neutral geometric witness.
+
+### Native Yeti claw attachment, local development
+Native images showed three disconnected pale claws below each fist. An initial
+aggregate proximity check failed at roughly 24 mm. The final independent test
+recursively collects nested hand meshes, identifies three separate claw
+components and requires every component to intersect actual hand triangles.
+It fails on baseline claw zero and passes the candidate across both requested
+sexes/all builds/both hands. This is one discovered attachment defect, not a
+published-regression claim. Nine matched visual pairs complement the contact
+witness. Unsupported glove outfits and open-hand claws are not qualified.
+
+### Low-shoe shaft ownership, local development
+A new actual-mesh witness found 33 boot-shaft vertices using shoe pigment above
+the ankle in a low-shoe composition. The one-line ownership exclusion removes
+that unwanted shaft while preserving the foot/strap geometry and actual boots.
+Candidate qualification includes fixed calf/foot pigment and removal controls,
+a supported armored-wardrobe witness and fifteen matched native image pairs.
+One positive test oracle initially compared the unshaded shoe tag to a sandal
+sole; it was corrected to the authored 0.6-shaded sole pigment without relaxing
+the high-shaft defect assertion. This is a development-discovered composition
+defect, not a published-regression claim or certification of all strap fitting.
+
+### Unchanged hair mesh pre-sweeps, local optimization
+The new blocked-edge query-count witness first failed at 126 queries rather than
+28 while both contact-constrained endpoints stayed exactly fixed. Early exit on
+the existing no-movement result removes redundant initial sweeps, preserving the
+first sweep and subsequent face correction. The full 25 release hair/contact
+methods and nine native visual pairs qualify this local optimization. Alternating
+release diagnostic runs show lower Nymph medians, but control-case timing noise,
+correlated frames and unchanged payload counts do not certify FPS or universal
+performance gains. This is an optimization witness, not a new rendering defect.
+
+### Low-shoe strap support, local development
+A new independent actual-mesh regression found roughly 22 mm of strap intrusion
+on a slim male Human calf. It intersects retained shin triangles rather than
+copying the fitting helper. The matrix covers Human/Orc, both sexes, slim/heavy,
+bare and plated legs, both shins, seven bands, facet samples and bounded relief.
+Existing zero-rise shoe/armor and equipment-boot removal controls remain separate.
+This is one development-discovered support defect, not sixteen separate bugs.
+
+The first visual candidate still intersected the separately articulated shoe at
+its lowest band, leaving isolated colored islands; that iteration was rejected.
+An ankle-only adjustment was also rejected because heeled uppers extend above
+the joint. The band stack now attaches above the actual shoe upper, checked
+independently against emitted foot vertices in the geometry matrix. The old shared-fitter query path was also too
+costly for repeated bands. A conservative axial triangle window is checked
+against full-mesh radii in transformed multi-layer fixtures before reuse.
+
+The subsequent per-height query-window optimization retains all angular/axial
+samples. The characterization compares transformed layered full/band/row hits;
+a boundary fixture preserves slice-crossing faces and missing hits, and a short
+support fixture still rejects an incomplete band. These are optimization
+safeguards, not new production defect discoveries. Actual calf, bracelet and
+forearm-metal consumer checks are rerun; unchanged shoe-stack controls reuse the
+preceding qualified checkpoint.
+
+### Bare-foot shaft ownership
+
+One development-discovered ownership defect made native Troll/Nymph bare feet
+emit a skin-colored boot shaft. The independent pigment-isolation method first
+failed on Nymph/false/slim/ShinL before the fix. The same method now covers both
+native models, both requested sexes, slim/heavy builds and both shins: foot
+pigment remains on the foot, the false shaft is absent, and two complete leather
+bindings clear the actual emitted calf. These fixtures are one defect, not eight
+bugs. Existing shoe/equipment/restoration controls pass on the rebased source;
+native visual comparisons expose the previously buried bindings and confirm the
+restored ankle taper for sampled poses. No universal motion claim is made.
+
+### Recovered-source debug suite and exact-main cloth comparison
+
+The complete debug 3D library run on unchanged `33ee2cff` Rust/Cargo inputs
+reported 1,138 passed, nine failed and two ignored (exit 101, 241.4 seconds).
+The [handoff failure inventory](../plans/procedural-model-handoff.md#known-failures-and-verification-scope-13-november-2026)
+names all nine methods. Eight cloak/mantle methods hit bounded-collar fit
+infeasibility; one skirt method detects actual thigh-face crossings. Each was
+rerun on pristine main `97f72c6d`; failure messages/numeric deficits and skirt
+crossing counts match. Classification: existing production cloth defects,
+not recovered-source regressions. The evidence supports two failure families
+across nine distinct methods, not nine independent root causes or a new count
+for each repetition. No test was weakened, skipped or marked passing.
+
+The local native verifier could not run because `AF_UNIX` socket creation
+returned `EPERM` and Xvfb could not establish a display. Record this separately
+as infrastructure failure, not a graphical waiver. The existing successful main
+CI/3D smoke does not exercise this geometry suite and is not evidence that the
+nine methods pass. The complete release library run also reports 1,138 passed,
+nine failed and two ignored (exit 101, 203.75 seconds); the failing names match
+debug. Exact-main comparison is debug-only, not release. Both profiles pass six
+model unit tests, 73 model integration tests and three model doctests each; the
+successful client binary/doctest targets contain zero tests. No additional root
+cause is counted for the release repetitions. Hosted final-head CI has not run.
+Raw debug/release logs, unchanged input hashes, exit receipts and the exact-main
+debug comparison are preserved in the recovery evidence bundle, not linked as
+inaccessible machine-local files. Native verification remains blocked; no green
+full-suite or full-workspace claim follows from the passing model targets.

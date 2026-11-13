@@ -10,10 +10,20 @@ use super::outfit::{Heraldry, Pattern};
 use super::*;
 
 #[cfg(test)]
+mod loincloth_tests;
+
+#[cfg(test)]
 mod equipment_layer_tests;
 
 mod accessory_parts;
+#[cfg(test)]
+mod bracelet_tests;
+mod ear_attachment;
+use ear_attachment::*;
 mod arm;
+#[cfg(test)]
+mod forearm_metal_tests;
+mod forearm_plan;
 pub(in crate::creatures) use arm::*;
 mod surface;
 use surface::closed_surface_step;
@@ -22,6 +32,9 @@ mod beast_parts;
 mod boot_parts;
 #[cfg(test)]
 mod boot_tests;
+#[cfg(test)]
+mod cap_hair_tests;
+mod crown_parts;
 #[cfg(test)]
 mod dragon_tests;
 mod embroidery_parts;
@@ -45,23 +58,37 @@ mod headwear_parts;
 mod membrane_parts;
 #[cfg(test)]
 mod membrane_tests;
+#[cfg(test)]
+mod neck_root_tests;
+mod necklace_parts;
 mod neckline_parts;
 mod ornament_parts;
 mod panel_parts;
+#[cfg(test)]
+mod pouch_loop_tests;
+mod radial_parts;
 mod raptor_parts;
 mod royal_parts;
+#[cfg(test)]
+mod shoulder_strap_tests;
 mod sleeve_parts;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod tricorn_tests;
 mod waist_parts;
+#[cfg(test)]
+mod witch_hat_tests;
 pub(in crate::creatures) use face::*;
 mod hair;
+mod hair_envelope;
 pub(in crate::creatures) use hair::*;
 mod cloth;
 pub(in crate::creatures) use cloth::*;
 mod simple_shapes;
 use simple_shapes::*;
 mod fitting;
+mod layer_coverage;
 pub(in crate::creatures) use fitting::*;
 mod torso;
 pub(in crate::creatures) use torso::*;
@@ -843,7 +870,8 @@ struct Kit<'a, 'w, 's> {
     key: String,
     /// The cache identity of parts that only some of the outfit shapes:
     /// the head (by its resolved adornments and neck coverage) and
-    /// hanging hair (by nothing worn at all). Redressing reuses them.
+    /// hanging hair (by its resolved cap envelope). Redressing reuses
+    /// them when those actual dependencies remain unchanged.
     head_key: String,
     head_recipe: head::Recipe,
     hair_key: String,
@@ -1106,7 +1134,7 @@ pub fn spawn(
         },
         head_key: head_recipe.key(look),
         head_recipe,
-        hair_key: look.body_key.clone().unwrap_or_else(|| look.key.clone()),
+        hair_key: hair_envelope::cache_key(look),
         ghost: look.style.ghostly(),
         study_hand_contacts: look.plan == Plan::Biped
             && look.equipment.outerwear().is_some_and(|kind| {
