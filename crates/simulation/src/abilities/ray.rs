@@ -852,6 +852,9 @@ impl Game {
         let RayTraversal::Bounded { clear_visits } = ray.traversal else {
             return Err(invalid());
         };
+        let effect_origin = self.capture_spatial_effect_origin(ray.actor)?;
+        let mut segments = vec![vec![ray.origin.location]];
+        let mut contact = None;
         let mut rng = self.rules_rng;
         // A launch has no actor recipient. Keep its optional receipt locally and
         // attach it only to diagnostics for real, live encounters.
@@ -873,7 +876,7 @@ impl Game {
         let mut first_actual_check = true;
         let mut budget = super::resolve::StrikeBudget::ray(ray);
         let mut activity = crate::lifecycle::DamageActivityGuard::default();
-        for _ in 0..MAX_RAY_PROBES {
+        'traversal: for _ in 0..MAX_RAY_PROBES {
             if visits == clear_visits
                 || reversals == MAX_RAY_REVERSALS
                 || self.region_frozen(at.region)
@@ -896,6 +899,7 @@ impl Game {
                     if self.region_frozen(to.region) {
                         break;
                     }
+                    super::spatial_delivery::push_step(&mut segments, at, to, direction, rotation);
                     at = to;
                     direction = direction.rotated(rotation);
                     visits += 1;
@@ -940,19 +944,22 @@ impl Game {
                         // Contact consumes this directional release even when
                         // the target dodges or its whole-payload immunity wins.
                         if ray.delivery == RayDelivery::FirstContact {
-                            return Ok(());
+                            contact = Some(target);
+                            break 'traversal;
                         }
                         if let Some(check) = check {
                             encounters.record(target)?;
                             first_actual_check = false;
                             if !check.success {
-                                return Ok(());
+                                contact = Some(target);
+                                break 'traversal;
                             }
                         }
                     }
                 }
             }
         }
+        self.publish_ray_effect(ray, segments, contact, disclosure, effect_origin)?;
         Ok(())
     }
 }

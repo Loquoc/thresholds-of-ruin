@@ -392,7 +392,8 @@ pub fn run_with(scenario: Scenario, options: RunOptions) -> Result<ArenaEvaluati
                 CombatEvent::Resolved { outcome, .. } => {
                     record_resolution(&mut participants, outcome)?;
                 }
-                CombatEvent::SequenceEnded { .. }
+                CombatEvent::Effect { .. }
+                | CombatEvent::SequenceEnded { .. }
                 | CombatEvent::EscapeResolved { .. }
                 | CombatEvent::RespecCompleted { .. }
                 | CombatEvent::ItemCurseBlocked { .. }

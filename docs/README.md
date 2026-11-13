@@ -149,3 +149,5 @@ into prose unless the example is tested and explains something additional.
 
 - [Item identity, appearance, and remembered facts](reference/item-knowledge.md)
 - [Rogue item model coverage](art/rogue-item-model-coverage.md)
+
+- [ASCII effect animation](development/ascii-effect-animation.md): transient ray and projectile glyphs.

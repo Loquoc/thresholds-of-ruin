@@ -419,6 +419,22 @@ fn combat_event_with_names(
         None => "something".into(),
     };
     match event {
+        CombatEventView::Effect {
+            caster,
+            appearance,
+            delivery,
+            cue,
+            segments,
+            ..
+        } => effect_description(
+            *caster,
+            observer,
+            actor_name,
+            *appearance,
+            *delivery,
+            *cue,
+            segments,
+        ),
         CombatEventView::UnseenAbility {
             target, outcome, ..
         } => {
@@ -1382,6 +1398,7 @@ mod tests {
 
     fn observation() -> Observation {
         Observation {
+            public_effects: vec![],
             self_appearance: None,
             interactions: None,
             combat: None,
@@ -2114,6 +2131,339 @@ mod tests {
                     line.topic == Topic::Combat(event.clone()) && line.text == expected
                 }));
             }
+        }
+    }
+}
+
+/// Describe only the visible presentation. A path is not proof of a hit,
+/// damage, a wall collision, or anything that happened between clipped strips.
+/// Ability/outcome lines retain those separately disclosed facts; without a
+/// correlation identity we must not merge nearby same-ability resolutions.
+fn effect_description(
+    caster: Option<ActorTarget>,
+    observer: ActorTarget,
+    actor_name: &impl Fn(ActorTarget) -> String,
+    appearance: EffectAppearance,
+    delivery: EffectDelivery,
+    cue: EffectCue,
+    segments: &[Vec<Position>],
+) -> String {
+    let material = if cue == EffectCue::Status {
+        // A semantic status cue does not tell us which condition changed.
+        ""
+    } else {
+        effect_cue_label(cue)
+    };
+    let kind = effect_appearance_label(appearance);
+    let path = matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile);
+    let subject = match caster.filter(|_| path) {
+        Some(id) if id == observer => format!("Your {material}{kind}"),
+        Some(id) => format!("The {}'s {material}{kind}", actor_name(id)),
+        None => format!(
+            "{} {material}{kind}",
+            if cue == EffectCue::Lightning {
+                "An"
+            } else {
+                "A"
+            }
+        ),
+    };
+    let moving = segments
+        .iter()
+        .any(|segment| segment.windows(2).any(|pair| pair[0] != pair[1]));
+    if path && moving {
+        // Exact A-B-A reversal is sufficient to describe a visible return.
+        // Never compare across strip boundaries: they may hide a turn or join.
+        let returns = segments.iter().any(|segment| {
+            segment
+                .windows(3)
+                .any(|points| points[0] == points[2] && points[0] != points[1])
+        });
+        let verb = match appearance {
+            EffectAppearance::Bolt => "streaks",
+            EffectAppearance::Missile => "flies",
+            _ => "passes",
+        };
+        let course = if segments.len() > 1 {
+            "through separate visible stretches"
+        } else {
+            "through view"
+        };
+        return format!(
+            "{subject} {verb} {course}{}.",
+            if returns {
+                ", doubling back along a visible stretch"
+            } else {
+                ""
+            }
+        );
+    }
+    let area = if delivery == EffectDelivery::Area
+        && segments
+            .iter()
+            .flatten()
+            .next()
+            .is_some_and(|first| segments.iter().flatten().any(|position| position != first))
+    {
+        " across an area"
+    } else {
+        ""
+    };
+    let verb = match appearance {
+        EffectAppearance::Flash => "flares briefly",
+        EffectAppearance::Halo => "shines briefly",
+        _ => "briefly appears",
+    };
+    format!("{subject} {verb}{area}.")
+}
+
+/// Client wording for a server-authored presentation form, independent of delivery.
+pub fn effect_appearance_label(appearance: EffectAppearance) -> &'static str {
+    match appearance {
+        EffectAppearance::Bolt => "bolt",
+        EffectAppearance::Missile => "missile",
+        EffectAppearance::Flash => "flash",
+        EffectAppearance::Halo => "halo",
+        EffectAppearance::Cloud => "cloud",
+        EffectAppearance::StatusIndicator => "status indicator",
+    }
+}
+
+pub fn effect_cue_label(cue: EffectCue) -> &'static str {
+    match cue {
+        EffectCue::Neutral | EffectCue::Physical => "",
+        EffectCue::Fire => "fiery ",
+        EffectCue::Cold => "frosty ",
+        EffectCue::Lightning => "electrical ",
+        EffectCue::Poison => "poisonous ",
+        EffectCue::Healing => "healing ",
+        EffectCue::Status => "status-changing ",
+    }
+}
+
+#[cfg(test)]
+mod authoritative_effect_tests {
+    use super::*;
+
+    #[test]
+    fn spatial_effect_narration_uses_only_disclosed_semantics() {
+        let observer = ActorTarget::from_digest([1; 32]);
+        let event = CombatEventView::Effect {
+            caster: None,
+            ability: None,
+            tick: 12,
+            anchors: vec![],
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Bolt,
+            delivery: EffectDelivery::Ray,
+            cue: EffectCue::Neutral,
+            segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
+        };
+        assert_eq!(
+            combat_event_with_names(&event, observer, &|_| panic!("no actor lookup")),
+            "A bolt briefly appears."
+        );
+        let fiery = CombatEventView::Effect {
+            caster: None,
+            ability: None,
+            tick: 12,
+            anchors: vec![],
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Cloud,
+            delivery: EffectDelivery::Area,
+            cue: EffectCue::Fire,
+            segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
+        };
+        assert_eq!(
+            combat_event_with_names(&fiery, observer, &|_| panic!("no actor lookup")),
+            "A fiery cloud briefly appears."
+        );
+    }
+
+    fn narrate(
+        appearance: EffectAppearance,
+        delivery: EffectDelivery,
+        cue: EffectCue,
+        caster: Option<ActorTarget>,
+        strips: &[&[i32]],
+    ) -> String {
+        let segments = strips
+            .iter()
+            .map(|strip| {
+                strip
+                    .iter()
+                    .map(|x| Position { x: *x, y: 0, z: 0 })
+                    .collect()
+            })
+            .collect::<Vec<_>>();
+        effect_description(
+            caster,
+            ActorTarget::from_digest([1; 32]),
+            &|_| "dragon".into(),
+            appearance,
+            delivery,
+            cue,
+            &segments,
+        )
+    }
+
+    #[test]
+    fn rays_describe_disclosed_return_without_inventing_collision_or_impact() {
+        assert_eq!(
+            narrate(
+                EffectAppearance::Bolt,
+                EffectDelivery::Ray,
+                EffectCue::Fire,
+                Some(ActorTarget::from_digest([1; 32])),
+                &[&[0, 1, 2, 1, 0]]
+            ),
+            "Your fiery bolt streaks through view, doubling back along a visible stretch."
+        );
+        assert_eq!(
+            narrate(
+                EffectAppearance::Bolt,
+                EffectDelivery::Ray,
+                EffectCue::Cold,
+                Some(ActorTarget::from_digest([2; 32])),
+                &[&[0, 1]]
+            ),
+            "The dragon's frosty bolt streaks through view."
+        );
+    }
+
+    #[test]
+    fn clipped_strips_never_supply_a_hidden_join_or_return() {
+        assert_eq!(
+            narrate(
+                EffectAppearance::Bolt,
+                EffectDelivery::Ray,
+                EffectCue::Lightning,
+                None,
+                &[&[0, 1], &[0, -1]]
+            ),
+            "An electrical bolt streaks through separate visible stretches."
+        );
+        // Isolated disclosed points are not evidence of a visible flight.
+        assert_eq!(
+            narrate(
+                EffectAppearance::Missile,
+                EffectDelivery::Projectile,
+                EffectCue::Physical,
+                None,
+                &[&[0], &[9]]
+            ),
+            "A missile briefly appears."
+        );
+    }
+
+    #[test]
+    fn missile_motion_does_not_guess_weapon_or_target() {
+        assert_eq!(
+            narrate(
+                EffectAppearance::Missile,
+                EffectDelivery::Projectile,
+                EffectCue::Physical,
+                None,
+                &[&[0, 1, 2]]
+            ),
+            "A missile flies through view."
+        );
+    }
+
+    #[test]
+    fn target_and_area_cues_do_not_guess_condition_recipient_or_full_shape() {
+        assert_eq!(
+            narrate(
+                EffectAppearance::Flash,
+                EffectDelivery::Target,
+                EffectCue::Status,
+                Some(ActorTarget::from_digest([1; 32])),
+                &[&[1]]
+            ),
+            "A flash flares briefly."
+        );
+        assert_eq!(
+            narrate(
+                EffectAppearance::Halo,
+                EffectDelivery::Target,
+                EffectCue::Healing,
+                None,
+                &[&[1]]
+            ),
+            "A healing halo shines briefly."
+        );
+        assert_eq!(
+            narrate(
+                EffectAppearance::Cloud,
+                EffectDelivery::Area,
+                EffectCue::Poison,
+                None,
+                &[&[1, 2], &[5]]
+            ),
+            "A poisonous cloud briefly appears across an area."
+        );
+        assert_eq!(
+            narrate(
+                EffectAppearance::Cloud,
+                EffectDelivery::Area,
+                EffectCue::Neutral,
+                None,
+                &[&[1], &[1]]
+            ),
+            "A cloud briefly appears."
+        );
+    }
+
+    #[test]
+    fn motion_complements_authoritative_outcome_without_claiming_a_hit() {
+        let before = crate::test_support::observation();
+        for (outcome, ending) in [
+            (AbilityOutcome::Applied, "something."),
+            (AbilityOutcome::Unaffected, "something."),
+            (AbilityOutcome::Miss, "something, but missed."),
+        ] {
+            let mut after = before.clone();
+            let effect = CombatEventView::Effect {
+                caster: Some(after.self_target),
+                ability: None,
+                tick: 12,
+                anchors: vec![],
+                timing: EffectTiming::Instant,
+                appearance: EffectAppearance::Bolt,
+                delivery: EffectDelivery::Ray,
+                cue: EffectCue::Fire,
+                segments: vec![vec![
+                    Position { x: 0, y: 0, z: 0 },
+                    Position { x: 1, y: 0, z: 0 },
+                ]],
+            };
+            let ability = CombatEventView::Ability {
+                strike: None,
+                caster: Some(after.self_target),
+                target: None,
+                ability: crate::test_support::content("magic_bolt"),
+                outcome,
+            };
+            after.combat.as_mut().unwrap().events = vec![effect.clone(), ability.clone()];
+            let lines = observation_lines(&before, &after, None);
+            let text = lines
+                .iter()
+                .filter(|line| matches!(line.topic, Topic::Combat(_)))
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                text,
+                vec![
+                    "Your fiery bolt streaks through view.",
+                    &format!("You used Magic Bolt on {ending}")
+                ]
+            );
+            assert!(lines
+                .iter()
+                .any(|line| line.topic == Topic::Combat(effect.clone())));
+            assert!(lines
+                .iter()
+                .any(|line| line.topic == Topic::Combat(ability.clone())));
         }
     }
 }

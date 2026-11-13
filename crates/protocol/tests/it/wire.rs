@@ -55,7 +55,7 @@ fn history_actions_preserve_the_tagged_wire_shape_and_validate_event_payload() {
 
 #[test]
 fn current_wire_protocol_revision_is_explicitly_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 69);
+    assert_eq!(PROTOCOL_VERSION, 70);
 }
 
 #[test]
@@ -528,7 +528,7 @@ fn immediate_completion_is_distinct_from_admitted_gameplay() {
 #[test]
 fn readiness_is_required_and_does_not_accept_extra_authority() {
     let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v69.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v70.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");

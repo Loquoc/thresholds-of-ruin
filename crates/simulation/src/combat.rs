@@ -274,9 +274,83 @@ impl SourceAbilityDisclosure {
     }
 }
 
+/// Gameplay delivery, independent of any client's particles or animation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectDelivery {
+    Ray,
+    Projectile,
+    Target,
+    Area,
+}
+
+/// A coarse disclosed material cue, never an item identity or damage amount.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectCue {
+    Neutral,
+    Physical,
+    Fire,
+    Cold,
+    Lightning,
+    Poison,
+    Healing,
+    Status,
+}
+
+/// Server timing semantics. Cosmetic display duration is client-selected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectTiming {
+    Instant,
+}
+
+/// Presentation form is independent of the authoritative delivery footprint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectAppearance {
+    Bolt,
+    Missile,
+    Flash,
+    Halo,
+    Cloud,
+    StatusIndicator,
+}
+
+/// Authoritative traversed geometry. Segments never bridge a topology discontinuity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpatialEffect {
+    pub actor: ActorId,
+    /// Resolved contact endpoint, if any. Its event-time identity gates path disclosure.
+    #[serde(deserialize_with = "crate::bounded::required_option")]
+    pub target: Option<ActorId>,
+    pub ability: crate::content_ids::AbilityId,
+    pub source_disclosure: SourceAbilityDisclosure,
+    pub tick: u64,
+    pub timing: EffectTiming,
+    pub appearance: EffectAppearance,
+    pub delivery: EffectDelivery,
+    pub cue: EffectCue,
+    #[serde(deserialize_with = "crate::event_history::read_effect_segments")]
+    pub segments: Vec<Vec<tor_world::Location>>,
+}
+
 /// One disclosed event for every data-defined ability, including the basic attack.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DisclosedCombatEvent {
+    /// Frozen event-time disclosure, remapped only through currently visible cells.
+    Effect {
+        caster: Option<ActorId>,
+        caster_reference: Option<crate::perception::ActorReferenceKind>,
+        ability: Option<(crate::content_ids::AbilityId, String)>,
+        tick: u64,
+        timing: EffectTiming,
+        appearance: EffectAppearance,
+        delivery: EffectDelivery,
+        cue: EffectCue,
+        segments: Vec<Vec<tor_world::Position>>,
+    },
     /// Observable activity with no license to name its source ability.
     AnonymousAbility {
         caster: Option<ActorId>,
@@ -335,6 +409,9 @@ pub enum SequenceEnd {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum CombatEvent {
+    Effect {
+        effect: SpatialEffect,
+    },
     #[serde(deserialize_with = "crate::escape::read_completion")]
     EscapeResolved {
         actor: ActorId,

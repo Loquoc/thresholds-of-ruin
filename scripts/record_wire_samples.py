@@ -811,7 +811,7 @@ class Recorder(ProcessTestCase):
         self.assertFalse(active["state"]["wizard_game"])
         self.assertEqual(combat(active)["own_stats"]["conditions"], [{
             "condition": {"id": "fixture_stupor", "name": "Fixture Faint"},
-            "phase": "active", "remaining_ticks": "1100"}])
+            "phase": "active", "appearance": "status_indicator", "cue": "status", "remaining_ticks": "1100"}])
         messages = [json.loads(line).get("message") for line in player.transcript if line.startswith("{")]
         server_samples["zz.condition_active"] = next(message for message in reversed(messages)
             if message and message["type"] == "snapshot")
@@ -824,7 +824,7 @@ class Recorder(ProcessTestCase):
         self.assertEqual(int(observation(protected)["tick"]) - int(observation(active)["tick"]), 1100)
         self.assertEqual(combat(protected)["own_stats"]["conditions"], [{
             "condition": {"id": "fixture_stupor", "name": "Fixture Faint"},
-            "phase": "protection", "remaining_ticks": "400"}])
+            "phase": "protection", "appearance": "status_indicator", "cue": "status", "remaining_ticks": "400"}])
         messages = [json.loads(line).get("message") for line in player.transcript if line.startswith("{")]
         server_samples["zz.condition_protection"] = next(message for message in reversed(messages)
             if message and message["type"] == "snapshot")

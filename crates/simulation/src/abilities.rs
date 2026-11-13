@@ -14,6 +14,7 @@ mod projectile_execution;
 mod projectile_flight;
 mod projectile_release;
 mod projectile_selection;
+mod spatial_delivery;
 pub use projectile::{ProjectilePlan, ProjectileSource};
 pub use projectile_selection::{
     EquippedProjectileWeapon, ProjectileDeliverySelection, ThrownSourceSelection,

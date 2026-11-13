@@ -435,7 +435,13 @@ fn same_generation_append_keeps_the_hidden_prefix_frozen() {
     assert_eq!(game.event_receipts.generation, generation);
     assert_eq!(after[0], first[0]);
     assert!(matches!(
-        after[1],
+        after
+            .iter()
+            .find(|event| matches!(event, DisclosedCombatEvent::Effect { .. })),
+        Some(DisclosedCombatEvent::Effect { .. })
+    ));
+    assert!(matches!(
+        after.last().unwrap(),
         DisclosedCombatEvent::Ability {
             target_reference: Some(ActorReferenceKind::Creature),
             ..
@@ -468,10 +474,11 @@ fn anonymous_lethal_hit_and_death_stay_anonymous_beside_visible_corpse() {
             ..
         }
     )));
-    assert!(view.ground_items.iter().any(|item| item
-        .corpse
-        .as_ref()
-        .is_some_and(|corpse| corpse.actor == ActorId(2))));
+    assert!(view.ground_items.iter().any(|item| {
+        item.corpse
+            .as_ref()
+            .is_some_and(|corpse| corpse.actor == ActorId(2))
+    }));
     assert_eq!(events(&restored(&game), ActorId(1)), *history);
 }
 
@@ -701,7 +708,14 @@ fn changed_visibility_omits_third_party_death_but_keeps_causal_participant() {
     host_damage(&mut game, 1_000_000);
     let witness = game.event_observation_witness();
     let third = capture(&mut game, ActorId(3), &witness);
-    assert!(third.combat.unwrap().events.is_empty());
+    let third_events = third.combat.unwrap().events;
+    assert!(
+        matches!(
+            third_events.as_slice(),
+            [DisclosedCombatEvent::Effect { .. }]
+        ),
+        "the pre-resolution visible flash may survive, but not the now-undisclosed death or result"
+    );
     assert!(events(&game, ActorId(1)).iter().any(|event| matches!(
         event,
         DisclosedCombatEvent::Died {
@@ -710,7 +724,7 @@ fn changed_visibility_omits_third_party_death_but_keeps_causal_participant() {
         }
     )));
     game.seal_event_observations().unwrap();
-    assert!(events(&restored(&game), ActorId(3)).is_empty());
+    assert_eq!(events(&restored(&game), ActorId(3)), third_events);
 }
 
 #[test]
@@ -922,9 +936,29 @@ fn same_batch_reused_strike_ordinal_provokes_only_its_own_reference_domain() {
         provoke_with_zero_damage_primary(&mut game);
         assert_eq!(game.event_receipts.generation, generation);
         assert_eq!(&game.event_log[..prefix.len()], prefix.as_slice());
-        assert_eq!(game.event_log.len(), prefix.len() + 1);
-        assert_eq!(game.actors[&ActorId(2)].behavior.engagement.map(|entry| entry.reference),
-            Some(second), "{first:?} -> {second:?} must use the current published event, not a matching earlier strike");
+        let suffix = &game.event_log[prefix.len()..];
+        assert_eq!(
+            suffix
+                .iter()
+                .filter(|event| matches!(event, CombatEvent::Resolved { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            suffix
+                .iter()
+                .filter(|event| matches!(event, CombatEvent::Effect { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            game.actors[&ActorId(2)]
+                .behavior
+                .engagement
+                .map(|entry| entry.reference),
+            Some(second),
+            "{first:?} -> {second:?} must use the current published event, not a matching earlier strike"
+        );
         assert_eq!(
             game.event_log
                 .iter()
@@ -1032,10 +1066,23 @@ fn source_disclosure_ceiling_names_only_licensed_historical_observers() {
         let mut game = fixture();
         host_source_activity(&mut game, ceiling);
         let witness = game.event_observation_witness();
+        capture(&mut game, ActorId(2), &witness);
         capture(&mut game, ActorId(3), &witness);
         game.seal_event_observations().unwrap();
         for observer in [ActorId(1), ActorId(2), ActorId(3)] {
-            let disclosed = events(&game, observer);
+            let all = events(&game, observer);
+            let spatial: Vec<_> = all
+                .iter()
+                .filter(|event| matches!(event, DisclosedCombatEvent::Effect { .. }))
+                .collect();
+            assert_eq!(
+                spatial.len(),
+                usize::from(ceiling.permits(observer, ActorId(1)))
+            );
+            let disclosed: Vec<_> = all
+                .iter()
+                .filter(|event| !matches!(event, DisclosedCombatEvent::Effect { .. }))
+                .collect();
             assert_eq!(disclosed.len(), 1);
             if ceiling.permits(observer, ActorId(1)) {
                 assert!(
@@ -1054,7 +1101,7 @@ fn source_disclosure_ceiling_names_only_licensed_historical_observers() {
                     }
                 ));
             }
-            assert_eq!(events(&restored(&game), observer), disclosed);
+            assert_eq!(events(&restored(&game), observer), all);
         }
     }
 }
@@ -1128,7 +1175,16 @@ fn later_identification_reads_restore_and_rollback_never_upgrade_source_history(
             origin,
         )?;
         candidate.seal_participant_events()?;
-        assert_eq!(events(candidate, ActorId(1)).len(), before[0].len() + 1);
+        let after = events(candidate, ActorId(1));
+        assert_eq!(after.len(), before[0].len() + 2);
+        assert!(matches!(
+            &after[before[0].len()],
+            DisclosedCombatEvent::Effect { .. }
+        ));
+        assert!(matches!(
+            after.last(),
+            Some(DisclosedCombatEvent::Ability { .. })
+        ));
         Err::<(), _>(GameError::IdentityExhausted)
     });
     assert_eq!(result, Err(GameError::IdentityExhausted));
@@ -1150,7 +1206,13 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
         game.seal_event_observations().unwrap();
         let good = serde_json::to_value(&game.event_receipts).unwrap();
         for owner in ["1", "2", "3"] {
-            let entry = &good["observers"][owner]["entries"][0];
+            let entry_index = good["observers"][owner]["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|entry| entry["key"]["kind"] == "resolved")
+                .unwrap();
+            let entry = &good["observers"][owner]["entries"][entry_index];
             assert!(entry.get("disclosed_ability").is_some());
             assert_eq!(
                 entry["key"]["source_disclosure"],
@@ -1163,6 +1225,7 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
                 "target",
                 "participant",
                 "disclosed_ability",
+                "spatial",
             ];
             let key_fields = [
                 "kind",
@@ -1170,12 +1233,13 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
                 "target",
                 "participated",
                 "source_disclosure",
+                "effect",
             ];
             assert_eq!(entry.as_object().unwrap().len(), receipt_fields.len());
             assert_eq!(entry["key"].as_object().unwrap().len(), key_fields.len());
             for field in receipt_fields {
                 let mut missing = good.clone();
-                missing["observers"][owner]["entries"][0]
+                missing["observers"][owner]["entries"][entry_index]
                     .as_object_mut()
                     .unwrap()
                     .remove(field);
@@ -1186,7 +1250,7 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
             }
             for field in key_fields {
                 let mut missing = good.clone();
-                missing["observers"][owner]["entries"][0]["key"]
+                missing["observers"][owner]["entries"][entry_index]["key"]
                     .as_object_mut()
                     .unwrap()
                     .remove(field);
@@ -1203,18 +1267,19 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
                 json!(7),
             ] {
                 let mut malformed = good.clone();
-                malformed["observers"][owner]["entries"][0]["key"]["source_disclosure"] = invalid;
+                malformed["observers"][owner]["entries"][entry_index]["key"]["source_disclosure"] =
+                    invalid;
                 assert!(serde_json::from_value::<EventReceipts>(malformed).is_err());
             }
             for path in ["", "/key"] {
                 let mut malformed = good.clone();
                 let fields = entry.pointer(path).unwrap().as_object().unwrap();
-                *malformed["observers"][owner]["entries"][0]
+                *malformed["observers"][owner]["entries"][entry_index]
                     .pointer_mut(path)
                     .unwrap() = json!(fields.values().collect::<Vec<_>>());
                 assert!(serde_json::from_value::<EventReceipts>(malformed).is_err());
                 let mut surplus = good.clone();
-                surplus["observers"][owner]["entries"][0]
+                surplus["observers"][owner]["entries"][entry_index]
                     .pointer_mut(path)
                     .unwrap()["extra"] = json!(true);
                 assert!(serde_json::from_value::<EventReceipts>(surplus).is_err());
@@ -1233,7 +1298,8 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
                 },
             ] {
                 let mut invalid = good.clone();
-                invalid["observers"][owner]["entries"][0]["disclosed_ability"] = replacement;
+                invalid["observers"][owner]["entries"][entry_index]["disclosed_ability"] =
+                    replacement;
                 let mut corrupt = game.clone();
                 corrupt.event_receipts = serde_json::from_value(invalid).unwrap();
                 assert!(!corrupt.event_receipts_valid());
@@ -1247,9 +1313,17 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
             }
         }
         if ceiling != SourceAbilityDisclosure::Public {
+            let entry_index = good["observers"]["2"]["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|entry| entry["key"]["kind"] == "resolved")
+                .unwrap();
             let mut forged = good;
-            forged["observers"]["2"]["entries"][0]["key"]["source_disclosure"] = json!("public");
-            forged["observers"]["2"]["entries"][0]["disclosed_ability"] = json!("basic_melee");
+            forged["observers"]["2"]["entries"][entry_index]["key"]["source_disclosure"] =
+                json!("public");
+            forged["observers"]["2"]["entries"][entry_index]["disclosed_ability"] =
+                json!("basic_melee");
             let mut corrupt = game.clone();
             corrupt.event_receipts = serde_json::from_value(forged).unwrap();
             assert!(
@@ -1293,10 +1367,11 @@ fn raw_source_ceiling_survives_originless_suffix_transfer_without_upgrade() {
             ..
         }
     ));
-    assert!(game.event_receipts.observers.values().all(|row| row
-        .entries
-        .iter()
-        .all(|entry| entry.disclosed_ability.is_none())));
+    assert!(game.event_receipts.observers.values().all(|row| {
+        row.entries
+            .iter()
+            .all(|entry| entry.disclosed_ability.is_none())
+    }));
     assert!(game.event_receipts_valid());
     assert_eq!(restored(&game), game);
 }
@@ -1308,7 +1383,21 @@ fn typed_checkpoint_rejects_source_grant_substitution_and_initiator_to_spectator
     let witness = game.event_observation_witness();
     capture(&mut game, ActorId(3), &witness);
     game.seal_event_observations().unwrap();
-    let grant = game.event_receipts.observers[&ActorId(1)].entries[0]
+    let raw_index = game
+        .event_log
+        .iter()
+        .position(|event| matches!(event, CombatEvent::Resolved { .. }))
+        .unwrap();
+    let receipt_index = |owner| {
+        game.event_receipts.observers[&owner]
+            .entries
+            .iter()
+            .position(|entry| entry.index == raw_index)
+            .unwrap()
+    };
+    let source_receipt = receipt_index(ActorId(1));
+    let spectator_receipt = receipt_index(ActorId(3));
+    let grant = game.event_receipts.observers[&ActorId(1)].entries[source_receipt]
         .disclosed_ability
         .clone();
     assert!(grant.is_some());
@@ -1326,11 +1415,12 @@ fn typed_checkpoint_rejects_source_grant_substitution_and_initiator_to_spectator
                     .observers
                     .get_mut(&ActorId(1))
                     .unwrap()
-                    .entries[0]
+                    .entries[source_receipt]
                     .disclosed_ability = Some(AbilityId::new("spark_lance_fire").unwrap());
             }
             "different_raw_ability" => {
-                let CombatEvent::Resolved { outcome, .. } = &mut corrupt.event_log[0] else {
+                let CombatEvent::Resolved { outcome, .. } = &mut corrupt.event_log[raw_index]
+                else {
                     unreachable!()
                 };
                 outcome.ability = Some(AbilityId::new("spark_lance_fire").unwrap());
@@ -1341,11 +1431,12 @@ fn typed_checkpoint_rejects_source_grant_substitution_and_initiator_to_spectator
                     .observers
                     .get_mut(&ActorId(3))
                     .unwrap()
-                    .entries[0]
+                    .entries[spectator_receipt]
                     .disclosed_ability = grant.clone();
             }
             _ => {
-                let CombatEvent::Resolved { outcome, .. } = &mut corrupt.event_log[0] else {
+                let CombatEvent::Resolved { outcome, .. } = &mut corrupt.event_log[raw_index]
+                else {
                     unreachable!()
                 };
                 outcome.ability = None;
@@ -2056,5 +2147,246 @@ fn sealed_observation_scene_preserves_geometry_without_actor_classification() {
     assert_eq!(
         game.capture_observation_scene_shared(observer).unwrap(),
         *game.capture_commit_event_facts(observer).unwrap().scene()
+    );
+}
+
+#[test]
+fn spatial_effects_freeze_identity_and_geometry_before_resolution() {
+    use crate::combat::{EffectCue, EffectDelivery, SpatialEffect};
+    let mut game = fixture();
+    template(&mut game, ActorId(1), Some("event_invisible"));
+    game.begin_event_batch().unwrap();
+    let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
+    assert_ne!(
+        origin.origin.spatial.as_ref().unwrap()[&ActorId(2)].source,
+        Some(ActorReferenceKind::Creature)
+    );
+    template(&mut game, ActorId(1), None);
+    game.publish_spatial_effect(
+        SpatialEffect {
+            actor: ActorId(1),
+            target: Some(ActorId(2)),
+            ability: AbilityId::new("basic_melee").unwrap(),
+            source_disclosure: SourceAbilityDisclosure::Public,
+            tick: game.tick,
+            timing: crate::combat::EffectTiming::Instant,
+            appearance: crate::combat::EffectAppearance::Flash,
+            delivery: EffectDelivery::Target,
+            cue: EffectCue::Fire,
+            segments: vec![vec![at(1, 1), at(2, 1)]],
+        },
+        origin,
+    )
+    .unwrap();
+    game.seal_participant_events().unwrap();
+    assert!(events(&game, ActorId(2)).is_empty());
+    let witness = game.event_observation_witness();
+    capture(&mut game, ActorId(2), &witness);
+    let visible = events(&game, ActorId(2));
+    assert!(
+        visible.is_empty(),
+        "later visibility must not reveal an old invisible source's path"
+    );
+    assert!(
+        !events(&game, ActorId(1)).is_empty(),
+        "source sees its own effect"
+    );
+    assert_eq!(events(&restored(&game), ActorId(2)), visible);
+}
+
+#[test]
+fn spatial_effect_segments_do_not_bridge_hidden_or_rotated_cells() {
+    let path = vec![vec![at(1, 1), at(2, 1), at(3, 1), at(4, 1)]];
+    let frozen = clip_segments(&path, |p| *p != at(2, 1));
+    assert_eq!(frozen, vec![vec![at(1, 1)], vec![at(3, 1), at(4, 1)]]);
+    let cells = BTreeMap::from([
+        (at(1, 1), (Position { x: 0, y: 0, z: 0 }, 0)),
+        (at(2, 1), (Position { x: 1, y: 0, z: 0 }, 0)),
+        (at(3, 1), (Position { x: 2, y: 0, z: 0 }, 0)),
+        (at(4, 1), (Position { x: 3, y: 0, z: 0 }, 1)),
+    ]);
+    let result = project_segments(&frozen, &cells);
+    assert_eq!(result.len(), 3);
+    assert!(result.iter().all(|s| s.len() == 1));
+    assert!(
+        result.iter().flatten().all(|p| p.x != 1),
+        "new current sight cannot restore hidden history"
+    );
+}
+
+#[test]
+fn spatial_effect_positions_follow_current_observer_frame_not_old_offsets() {
+    use crate::combat::{EffectCue, EffectDelivery, SpatialEffect};
+    let mut game = fixture();
+    game.host_region_continuation = true;
+    game.begin_event_batch().unwrap();
+    let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
+    game.publish_spatial_effect(
+        SpatialEffect {
+            actor: ActorId(1),
+            target: Some(ActorId(2)),
+            ability: AbilityId::new("basic_melee").unwrap(),
+            source_disclosure: SourceAbilityDisclosure::Public,
+            tick: game.tick,
+            timing: crate::combat::EffectTiming::Instant,
+            appearance: crate::combat::EffectAppearance::Flash,
+            delivery: EffectDelivery::Target,
+            cue: EffectCue::Physical,
+            segments: vec![vec![at(2, 1)]],
+        },
+        origin,
+    )
+    .unwrap();
+    game.seal_participant_events().unwrap();
+    game.host_region_continuation = false;
+    assert!(
+        events(&game, ActorId(3)).is_empty(),
+        "unpublished observer has no effect receipt"
+    );
+    let witness = game.event_observation_witness();
+    capture(&mut game, ActorId(3), &witness);
+    let before = events(&game, ActorId(3));
+    assert!(matches!(
+        before.first(),
+        Some(DisclosedCombatEvent::Effect { .. })
+    ));
+    game.teleport(ActorId(3), at(3, 2)).unwrap();
+    let expected = game
+        .scene_snapshot_shared(ActorId(3))
+        .unwrap()
+        .shared_cells()
+        .iter()
+        .find(|cell| cell.location == at(2, 1))
+        .unwrap()
+        .offset;
+    let after = events(&game, ActorId(3));
+    let DisclosedCombatEvent::Effect { segments, .. } = after.first().unwrap() else {
+        panic!("missing effect");
+    };
+    assert_eq!(segments, &vec![vec![expected]]);
+    assert_ne!(before, after);
+}
+
+#[test]
+fn spatial_target_effect_does_not_locate_an_invisible_target() {
+    use crate::combat::{EffectCue, EffectDelivery, SpatialEffect};
+    for delivery in [
+        EffectDelivery::Target,
+        EffectDelivery::Ray,
+        EffectDelivery::Projectile,
+    ] {
+        let mut game = fixture();
+        template(&mut game, ActorId(2), Some("event_invisible"));
+        game.host_region_continuation = true;
+        game.begin_event_batch().unwrap();
+        let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
+        template(&mut game, ActorId(2), None);
+        game.publish_spatial_effect(
+            SpatialEffect {
+                actor: ActorId(1),
+                target: Some(ActorId(2)),
+                ability: AbilityId::new("basic_melee").unwrap(),
+                source_disclosure: SourceAbilityDisclosure::Public,
+                tick: game.tick,
+                timing: crate::combat::EffectTiming::Instant,
+                appearance: crate::combat::EffectAppearance::Flash,
+                delivery,
+                cue: EffectCue::Physical,
+                segments: vec![vec![at(2, 1)]],
+            },
+            origin,
+        )
+        .unwrap();
+        game.seal_participant_events().unwrap();
+        game.host_region_continuation = false;
+        assert!(
+            events(&game, ActorId(2)).is_empty(),
+            "target does not auto-publish a spatial receipt"
+        );
+        let witness = game.event_observation_witness();
+        capture(&mut game, ActorId(2), &witness);
+        capture(&mut game, ActorId(3), &witness);
+        assert!(events(&game, ActorId(1)).is_empty());
+        assert!(events(&game, ActorId(3)).is_empty());
+        assert!(matches!(
+            events(&game, ActorId(2)).first(),
+            Some(DisclosedCombatEvent::Effect { .. })
+        ));
+        assert!(game.event_receipts_valid());
+        game.seal_event_observations().unwrap();
+        assert!(events(&restored(&game), ActorId(1)).is_empty());
+    }
+}
+
+#[test]
+fn spatial_saved_segments_reject_invented_points_edges_and_order() {
+    let raw = vec![vec![at(1, 1), at(2, 1), at(3, 1)], vec![at(4, 1)]];
+    assert!(segments_are_subpaths(
+        &[vec![at(1, 1)], vec![at(3, 1)]],
+        &raw
+    ));
+    assert!(!segments_are_subpaths(&[vec![at(1, 1), at(3, 1)]], &raw));
+    assert!(!segments_are_subpaths(&[vec![at(3, 1), at(4, 1)]], &raw));
+    assert!(!segments_are_subpaths(
+        &[vec![at(3, 1)], vec![at(1, 1)]],
+        &raw
+    ));
+    assert!(!segments_are_subpaths(&[vec![at(9, 9)]], &raw));
+}
+
+#[test]
+fn spatial_receipt_key_binds_timing_appearance_and_semantics() {
+    use crate::combat::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming, SpatialEffect};
+    let event = CombatEvent::Effect {
+        effect: SpatialEffect {
+            actor: ActorId(1),
+            target: None,
+            ability: AbilityId::new("basic_melee").unwrap(),
+            source_disclosure: SourceAbilityDisclosure::Public,
+            tick: 7,
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Bolt,
+            delivery: EffectDelivery::Ray,
+            cue: EffectCue::Fire,
+            segments: vec![vec![at(1, 1)]],
+        },
+    };
+    let key = EventKey::capture(&event);
+    for field in ["tick", "appearance", "delivery", "cue"] {
+        let mut changed = event.clone();
+        let CombatEvent::Effect { effect } = &mut changed else {
+            unreachable!()
+        };
+        match field {
+            "tick" => effect.tick += 1,
+            "appearance" => effect.appearance = EffectAppearance::Halo,
+            "delivery" => effect.delivery = EffectDelivery::Area,
+            "cue" => effect.cue = EffectCue::Cold,
+            _ => unreachable!(),
+        }
+        assert_ne!(EventKey::capture(&changed), key, "{field}");
+    }
+}
+
+#[test]
+fn spatial_capture_uses_reference_only_observations() {
+    let game = fixture();
+    let before = crate::diagnostics::work_counts();
+    let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
+    let after = crate::diagnostics::work_counts();
+    assert_eq!(
+        after.observations, before.observations,
+        "spatial capture must not materialize rich actor observations"
+    );
+    assert!(after.actor_reference_vectors > before.actor_reference_vectors);
+    assert!(origin
+        .origin
+        .spatial
+        .as_ref()
+        .unwrap()
+        .contains_key(&ActorId(3)));
+    assert_eq!(
+        origin.origin.spatial.as_ref().unwrap()[&ActorId(3)].source,
+        Some(ActorReferenceKind::Creature)
     );
 }

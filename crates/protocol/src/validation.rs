@@ -19,6 +19,7 @@ pub enum InvalidState {
     InvalidMotion,
     InvalidInteraction,
     InvalidLinkedHold,
+    InvalidPublicEffect,
 }
 
 // Canonically ordered collections need no allocation. Unordered full views
@@ -64,6 +65,33 @@ impl StateView {
             return Err(InvalidState::InvalidSnapshot);
         }
         let o = &self.observation;
+        let effect_cells: std::collections::BTreeSet<_> = if o.public_effects.is_empty() {
+            Default::default()
+        } else {
+            o.visible_cells
+                .iter()
+                .map(|cell| (cell.position, cell.key.as_str()))
+                .collect()
+        };
+        if o.public_effects.len() > crate::MAX_PUBLIC_EFFECTS
+            || !o
+                .public_effects
+                .windows(2)
+                .all(|pair| pair[0].id < pair[1].id)
+            || o.public_effects.iter().any(|effect| {
+                !effect.valid(o.tick)
+                    || effect.anchors.iter().any(|anchor| {
+                        !effect_cells.contains(&(anchor.position, anchor.key.as_str()))
+                    })
+            })
+            || o.public_effects
+                .iter()
+                .flat_map(|effect| &effect.segments)
+                .try_fold(0usize, |n, s| n.checked_add(s.len()))
+                .is_none_or(|n| n > crate::MAX_EFFECT_POINTS)
+        {
+            return Err(InvalidState::InvalidPublicEffect);
+        }
         if crate::chart_pages::validate_summaries(&o.charts).is_err() {
             return Err(InvalidState::InvalidChart);
         }
@@ -160,6 +188,7 @@ impl StateView {
                             && stats.health_recovery.elapsed_ticks != 0)
                 })
                 || combat.events.iter().any(|event| match event {
+                    crate::CombatEventView::Effect { .. } => !event.valid_effect(o.tick),
                     crate::CombatEventView::Ability {
                         ability, strike, ..
                     } => {

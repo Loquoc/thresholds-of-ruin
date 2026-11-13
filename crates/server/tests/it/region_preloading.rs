@@ -120,6 +120,22 @@ fn seen(engine: &Engine) -> tor_protocol::Observation {
         }
         for event in &mut combat.events {
             match event {
+                tor_protocol::CombatEventView::Effect {
+                    caster, anchors, ..
+                } => {
+                    *caster = caster.map(actor);
+                    for anchor in anchors {
+                        assert!(
+                            observation
+                                .visible_cells
+                                .iter()
+                                .any(|cell| cell.key == anchor.key
+                                    && cell.position == anchor.position),
+                            "effect anchor must identify its disclosed picture cell"
+                        );
+                        anchor.key.clear();
+                    }
+                }
                 tor_protocol::CombatEventView::Ability {
                     caster: attacker,
                     target,

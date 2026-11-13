@@ -24,9 +24,11 @@ pub fn lines(combat: Option<&CombatView>) -> Vec<String> {
     }
     for condition in &stats.conditions {
         rows.push(format!(
-            "{}: {}",
+            "{}: {} [{}{}]",
             crate::inspection::phase_label(&condition.condition.name, condition.phase),
-            crate::inspection::condition_lifetime(condition.remaining_ticks)
+            crate::inspection::condition_lifetime(condition.remaining_ticks),
+            crate::narration::effect_cue_label(condition.cue),
+            crate::narration::effect_appearance_label(condition.appearance)
         ));
     }
     rows.push(format!("Type: {}", stats.kind.name));
@@ -239,6 +241,36 @@ pub fn hunger_label(hunger: Hunger) -> &'static str {
 #[cfg(test)]
 mod personal_condition_tests {
     use super::*;
+    #[test]
+    fn condition_status_uses_snapshot_lifetime_and_clears_when_removed() {
+        let mut combat = crate::test_support::observation().combat.unwrap();
+        let condition = PersonalCondition {
+            condition: ContentRef {
+                id: "fixture-status".into(),
+                name: "Fixture status".into(),
+            },
+            phase: ConditionPhase::Active,
+            remaining_ticks: Some(17),
+            appearance: EffectAppearance::StatusIndicator,
+            cue: EffectCue::Status,
+        };
+        combat.own_stats.as_mut().unwrap().conditions = vec![condition.clone()];
+        let active = lines(Some(&combat)).join("\n");
+        assert!(active.contains("17 active ticks"), "{active}");
+        assert!(active.contains("[status-changing status indicator]"));
+        // Repeated rendering cannot consume actor-active time or invent an expiry.
+        assert_eq!(active, lines(Some(&combat)).join("\n"));
+        combat.own_stats.as_mut().unwrap().conditions[0].remaining_ticks = None;
+        assert!(lines(Some(&combat)).join("\n").contains("until removed"));
+        combat.own_stats.as_mut().unwrap().conditions.clear();
+        assert!(!lines(Some(&combat)).join("\n").contains("Fixture status"));
+        // Reconnect/replacement snapshots can restore an extant status directly.
+        combat.own_stats.as_mut().unwrap().conditions = vec![condition];
+        assert_eq!(active, lines(Some(&combat)).join("\n"));
+        combat.own_stats = None;
+        assert!(!lines(Some(&combat)).join("\n").contains("Fixture status"));
+    }
+
     #[test]
     fn active_and_protected_personal_conditions_share_the_inspection_labels() {
         assert_eq!(

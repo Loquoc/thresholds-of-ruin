@@ -171,6 +171,7 @@ pub struct WeaponDraft {
 /// Public fields support rendering and diagnostics; their values are not a second
 /// rules engine. Transport and native-window ownership remain outside this type.
 pub struct App {
+    pub effect_animations: crate::effects::EffectAnimations,
     pub charts_open: bool,
     pub charts: tor_client_common::charts::ChartPages,
     pub chart_selected: usize,
@@ -261,6 +262,7 @@ impl Default for App {
 impl App {
     pub fn new() -> Self {
         Self {
+            effect_animations: Default::default(),
             charts_open: false,
             charts: Default::default(),
             chart_selected: 0,
@@ -351,6 +353,7 @@ impl App {
     }
 
     pub fn set_state(&mut self, state: ClientState) {
+        self.effect_animations.clear();
         self.movement_prefix = self
             .movement_prefix
             .map(|_| controls::MovementPrefix::Cancelled);
@@ -369,6 +372,20 @@ impl App {
 
     /// Apply every disclosed boundary, even when several updates share a frame.
     pub fn update(&mut self, update: StreamUpdate) -> Result<(), tor_client_common::StreamError> {
+        let spatial = match &update.body {
+            UpdateBody::Outcome { facts, .. } => facts
+                .facts
+                .iter()
+                .filter_map(|fact| match fact {
+                    OutcomeFact::Combat {
+                        event: event @ CombatEventView::Effect { .. },
+                        ..
+                    } => Some(event.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
         let phase = match &update.body {
             UpdateBody::Intention { status } => Some(status.phase),
             _ => None,
@@ -397,6 +414,9 @@ impl App {
         let struggling = self.last_move && bear_trapped(&state.state().observation);
         let old = Some((state.branch().clone(), state.state().revision));
         state.apply(update)?;
+        for event in &spatial {
+            self.effect_animations.push(event);
+        }
         if control_changed {
             self.movement_prefix = self
                 .movement_prefix
@@ -482,6 +502,7 @@ impl App {
         self.movement_prefix = self
             .movement_prefix
             .map(|_| controls::MovementPrefix::Cancelled);
+        self.effect_animations.clear();
         // Recovery cancels the transport's chart request. Return to the catalog
         // only after validation succeeds rather than leaving a loading selection
         // that has no corresponding worker query.

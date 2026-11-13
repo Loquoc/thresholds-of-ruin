@@ -77,11 +77,25 @@ pub struct View {
     pub revision: u64,
     /// What the action this view follows did.
     pub events: Vec<Happening>,
+    /// Complete currently observed public effects. Absence is not proof of world expiry.
+    pub public_effects: Vec<PublicEffectView>,
 }
 
 /// Something seen to happen, from the combat events the server disclosed.
 #[derive(Clone, Debug)]
 pub enum Happening {
+    /// Observer-safe geometry resolved by the server, in the accompanying view's frame.
+    /// A segment boundary is a disclosure/topology boundary, never a drawable edge.
+    Effect {
+        caster: Option<ActorTarget>,
+        ability: Option<ContentRef>,
+        tick: u64,
+        timing: EffectTiming,
+        appearance: EffectAppearance,
+        delivery: EffectDelivery,
+        cue: EffectCue,
+        segments: Vec<Vec<Position>>,
+    },
     Ability {
         caster: Option<ActorTarget>,
         target: Option<ActorTarget>,
@@ -387,7 +401,19 @@ pub fn view(state: &ClientState, palette: &Palette) -> View {
         can_cancel: state.can_cancel_intention(),
         tick: o.tick,
         revision: state.state().revision,
-        events: happenings(o),
+        // Snapshot combat history is not a new occurrence. Native playback
+        // consumes accepted ordered Outcome facts instead of replaying this list.
+        events: vec![],
+        public_effects: o
+            .public_effects
+            .iter()
+            .filter_map(|effect| {
+                let mut effect = effect.clone();
+                effect.segments =
+                    align_effect_segments(&effect.segments, &effect.anchors, &o.visible_cells);
+                (!effect.segments.is_empty()).then_some(effect)
+            })
+            .collect(),
     }
 }
 
@@ -397,25 +423,137 @@ pub fn happenings(observation: &Observation) -> Vec<Happening> {
         .combat
         .iter()
         .flat_map(|c| &c.events)
-        .filter_map(|e| match e {
-            CombatEventView::Ability {
-                caster,
-                target,
-                ability,
-                outcome,
-                strike,
-            } => Some(Happening::Ability {
-                caster: *caster,
-                target: *target,
-                id: ability.id.clone(),
-                name: ability.name.clone(),
-                outcome: *outcome,
-                strike: *strike,
-            }),
-            CombatEventView::Died { actor, .. } => Some(Happening::Died(*actor)),
+        .filter_map(happening)
+        .collect()
+}
+
+/// New combat facts from one accepted ordered outcome, never from a reset picture.
+pub fn outcome_happenings(facts: &OutcomeFacts, cells: &[CellView]) -> Vec<Happening> {
+    facts
+        .facts
+        .iter()
+        .filter_map(|fact| match fact {
+            OutcomeFact::Combat {
+                event:
+                    event @ CombatEventView::Effect {
+                        anchors, segments, ..
+                    },
+                ..
+            } => {
+                let projected = align_effect_segments(segments, anchors, cells);
+                if projected.is_empty() {
+                    return None;
+                }
+                let mut result = happening(event)?;
+                if let Happening::Effect { segments, .. } = &mut result {
+                    *segments = projected;
+                }
+                Some(result)
+            }
+            OutcomeFact::Combat { event, .. } => happening(event),
             _ => None,
         })
         .collect()
+}
+
+/// Align only uniquely keyed cells already present in the retained picture.
+/// No stale observer origin, global world coordinates or inferred hidden cells.
+fn align_effect_segments(
+    segments: &[Vec<Position>],
+    anchors: &[EffectAnchor],
+    cells: &[CellView],
+) -> Vec<Vec<Position>> {
+    use std::collections::BTreeMap;
+    let mut keys = BTreeMap::<&str, Option<Position>>::new();
+    for cell in cells {
+        keys.entry(&cell.key)
+            .and_modify(|p| *p = None)
+            .or_insert(Some(cell.position));
+    }
+    let mut points = BTreeMap::<Position, Option<Position>>::new();
+    for anchor in anchors {
+        let mapped = keys.get(anchor.key.as_str()).copied().flatten();
+        points
+            .entry(anchor.position)
+            .and_modify(|p| *p = None)
+            .or_insert(mapped);
+    }
+    let mut result = Vec::new();
+    for segment in segments {
+        let mut part = Vec::new();
+        let mut previous = None;
+        for point in segment {
+            let Some(mapped) = points.get(point).copied().flatten() else {
+                if !part.is_empty() {
+                    result.push(std::mem::take(&mut part));
+                }
+                previous = None;
+                continue;
+            };
+            // A fold/rotation between these cells is not a straight interpolated edge.
+            let delta = |a: Position, b: Position| {
+                [
+                    i64::from(a.x) - i64::from(b.x),
+                    i64::from(a.y) - i64::from(b.y),
+                    i64::from(a.z) - i64::from(b.z),
+                ]
+            };
+            if previous.is_some_and(|(old, placed)| {
+                let step = delta(*point, old);
+                step != delta(mapped, placed) || step.iter().any(|axis| axis.abs() > 1)
+            }) && !part.is_empty()
+            {
+                result.push(std::mem::take(&mut part));
+            }
+            part.push(mapped);
+            previous = Some((*point, mapped));
+        }
+        if !part.is_empty() {
+            result.push(part);
+        }
+    }
+    result
+}
+
+fn happening(e: &CombatEventView) -> Option<Happening> {
+    match e {
+        CombatEventView::Effect {
+            caster,
+            ability,
+            tick,
+            timing,
+            appearance,
+            delivery,
+            cue,
+            segments,
+            ..
+        } => Some(Happening::Effect {
+            caster: *caster,
+            ability: ability.clone(),
+            tick: *tick,
+            timing: *timing,
+            appearance: *appearance,
+            delivery: *delivery,
+            cue: *cue,
+            segments: segments.clone(),
+        }),
+        CombatEventView::Ability {
+            caster,
+            target,
+            ability,
+            outcome,
+            strike,
+        } => Some(Happening::Ability {
+            caster: *caster,
+            target: *target,
+            id: ability.id.clone(),
+            name: ability.name.clone(),
+            outcome: *outcome,
+            strike: *strike,
+        }),
+        CombatEventView::Died { actor, .. } => Some(Happening::Died(*actor)),
+        _ => None,
+    }
 }
 
 impl Happening {

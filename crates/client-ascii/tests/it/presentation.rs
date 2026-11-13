@@ -1029,7 +1029,7 @@ fn state() -> ClientState {
     ClientState::from_snapshot(serde_json::from_value(serde_json::json!({
         "readiness":{"revision":"0","admission":true,"resume":[],"cancel":[]},"context":{"stream":"fixture-attachment","epoch":"0"},"actor":"1","branch":"test","cursor":{"sequence":"0","tick":"0"},"has_control":true, "intentions":[],
         "history":{"entries":[],"older_before":null},
-        "state":{"snapshot":"fixture-snapshot","wizard_game":false,"revision":"3","observation":{"charts":[],"linked_holds":[],
+        "state":{"snapshot":"fixture-snapshot","wizard_game":false,"revision":"3","observation":{"charts":[],"linked_holds":[],"public_effects":[],
             "actor":"1","self_target":super::actor_target(1),"tick":"0","position":{"x":1,"y":1,"z":0},
 
             "places":[],"visible_cells": (0..5).flat_map(|x| (0..3).map(move |y| serde_json::json!({"key":format!("{x}:{y}"),"trap":null,"object_presentation":null,"stairs_up":false,"stairs_down":false,"position":{"x":x,"y":y,"z":0},"wall":false,"lit":true,"place_hint":false}))).collect::<Vec<_>>(),
@@ -2335,6 +2335,8 @@ fn personal_condition_rows_are_visible_readonly_and_distinguish_protection() {
                 name: "Fixture Faint".into(),
             },
             phase: ConditionPhase::Active,
+            appearance: tor_protocol::EffectAppearance::StatusIndicator,
+            cue: tor_protocol::EffectCue::Status,
             remaining_ticks: Some(200),
         },
         PersonalCondition {
@@ -2343,6 +2345,8 @@ fn personal_condition_rows_are_visible_readonly_and_distinguish_protection() {
                 name: "Fixture Ice".into(),
             },
             phase: ConditionPhase::Protection,
+            appearance: tor_protocol::EffectAppearance::StatusIndicator,
+            cue: tor_protocol::EffectCue::Status,
             remaining_ticks: Some(400),
         },
         PersonalCondition {
@@ -2351,6 +2355,8 @@ fn personal_condition_rows_are_visible_readonly_and_distinguish_protection() {
                 name: "Fixture Haste".into(),
             },
             phase: ConditionPhase::Active,
+            appearance: tor_protocol::EffectAppearance::StatusIndicator,
+            cue: tor_protocol::EffectCue::Status,
             remaining_ticks: None,
         },
     ];
