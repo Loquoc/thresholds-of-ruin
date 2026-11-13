@@ -78,9 +78,10 @@ methods cover the two riding-boot regressions, bare feet, low shoes, armored
 low-shoe composition, sandal support and two conservative band-window boundaries.
 No full suite or fresh native-render suite was run for the rebase itself. Earlier
 render evidence applies only to unchanged source and its recorded fixture scope.
-The retained bare-foot correction remains a candidate until its separate affected
-contract and visual review is recorded; passing the rebase checks alone does not
-close that review.
+The bare-foot correction now has a separate local qualification record below:
+its actual-mesh regression and shoe/equipment controls pass on the rebased source,
+and the unchanged production recipe retains its reviewed native comparisons.
+This does not replace the final-head verification and publication gates.
 
 ### Current implementation map
 
@@ -99,7 +100,7 @@ as the current entry point, rather than replaying the dated work log:
   relaxation pre-sweeps stop when no point changes; coarse covered topknots use
   bounded refinement. These are distinct changes, not a universal hair solution.
 - Shoe/boot composition, support-fitted sandal bands and conservative per-height
-  query windows have focused local evidence. Bare-foot qualification is separate.
+  query windows and bare-foot shaft ownership have focused local evidence.
 
 Preserve native style, body-specific dimensions and sex-specific landmarks while
 sharing the attachment contract. Do not replace these bounded helpers with a new
@@ -1436,9 +1437,9 @@ turn and settle; it passed without changing the independent drape behavior.
 ## Low shoes retain their own footwear boundary
 
 Low shoes and sandals no longer acquire a fallback boot shaft when the leg
-recipe is fitted, trousered or plated. The fallback now explicitly excludes
-Shoes; actual boots and the legacy bare-foot anatomy path keep their existing
-ownership. An equipped boot still replaces the shoe and restores it on removal.
+recipe is fitted, trousered or plated. The fallback shaft requires actual Boots;
+neither Shoes nor Bare feet acquire one from the leg recipe. The anatomical
+bare-foot geometry itself remains unchanged. An equipped boot still replaces the shoe and restores it on removal.
 This removes redundant shaft primitives rather than adding a fitting pass,
 attachment type or solver. No runtime speedup is claimed.
 
@@ -1625,3 +1626,35 @@ before public native-recipe transfer. Then complete the shared fitting/attachmen
 item capability/coverage rules. Server-driven appearance still requires the four
 explicit decisions in the appearance proposal; no generic wearable payload or
 all-client implementation is claimed by this checkpoint.
+
+## Bare feet own anatomy, not boot shafts
+
+Native Troll and Nymph use fitted skin-colored legs and bare feet. The old
+fallback emitted a cylindrical skin-colored boot shaft for that combination,
+burying most of their two leather bindings. A pigment-isolation regression first
+failed on a slim male Nymph: changing only the bare-foot pigment changed shin
+geometry. The fallback now requires actual Boots. The two retained leather
+bindings use the existing rounded-band support fitter against the actual calf,
+resolving both before either is emitted. Their stations, thickness and pigment
+remain authored; no new anatomy abstraction or solver is introduced. Foot shapes
+and their sole-like undersides are unchanged by this slice.
+
+The expanded geometry method covers Troll/Nymph, both requested sexes, slim and
+heavy builds and both legs. It checks foot pigment retention, absence of the
+false shaft, both binding stations, complete geometry and clearance against the
+emitted calf. It passes on the rebased source, along with low-shoe, native/equipped
+boot and removal controls, armored shoe composition and sandal support. Strict
+Clippy and a native build pass. Sixteen reviewed baseline/candidate views cover
+three rest angles and one walking pose per native fixture; they show restored
+ankle taper and attached bindings without new gaps. That production recipe is
+unchanged after rebase. These samples do not establish full-cycle contact or all
+wardrobe combinations.
+
+An isolated debug-profile construction diagnostic on the rebased code compared
+only this production change: three alternating measured pairs after a warmup
+pair give two-shin medians of 27.058 ms before and 30.461 ms after (ranges
+26.856–27.323 and 30.446–30.645 ms). This is about 3.4 ms extra cold construction
+for actual support fitting, not per-frame work or a performance improvement.
+Whole-model timing was noisy. This is exploratory cost accounting, not an
+accepted release headline, canonical perf-comparison result or performance-ledger
+claim. Final-head CI and the broader recovered-source checks remain separate.

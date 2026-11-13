@@ -22,7 +22,7 @@ historical; later component records may supersede their implementation details.
 | Garment construction | Recipe-owned openings/details, native torso foundation, fitted forearm shells/cuffs and hanging panels | Bounded support fitting is not continuous moving-cloth collision |
 | Layer composition | Conservative whole-detail armor coverage and explicit support selection before construction | Visibility and fit are separate; unknown combinations cannot silently inherit a proven fixture |
 | Hair/headwear | Crown/opening fitting, exposed-hair composition, component contact and no-change relaxation stopping | Hair styling, moving contact and demanding long-hair cost remain open |
-| Feet and low shoes | Shoe/boot ownership, actual calf/armor support for sandals, per-height band query windows | Bare-foot candidate qualification is separate; no arbitrary wardrobe or continuous-contact guarantee |
+| Feet and low shoes | Shoe/boot ownership, actual calf/armor support for sandals, per-height band query windows | Bare-foot shaft ownership and two bindings locally qualified; no arbitrary wardrobe or continuous-contact guarantee |
 
 Continue by migrating remaining pieces onto these existing boundaries, preserving
 native appearance and distinct male/female fit where needed. Add an abstraction
@@ -3514,3 +3514,15 @@ fall from 47.259 to 34.500 ms (ranges 46.638–50.130 and 34.303–36.650 ms), a
 This reduces but does not erase the extra cost of correct band fitting; no FPS
 or general whole-model speedup is claimed. Earlier qualified compact fitting and
 unqualified optimization WIP checkpoints remain preserved. No hosted CI claim.
+
+### Bare-foot ownership qualification, 13 November 2026
+
+Native Troll/Nymph no longer receive a skin-colored fallback boot shaft merely
+because their skin recipe uses fitted legs. Only Boots own that shaft; the two
+native bindings fit the retained calf using the shared rounded-band component.
+Foot anatomy is unchanged. The rebased actual-mesh regression and low-shoe,
+equipment/removal and armor controls pass. Sixteen unchanged-recipe native
+comparisons are accepted for the sampled poses. See the
+[bare-foot qualification record](procedural-model-handoff.md#bare-feet-own-anatomy-not-boot-shafts)
+for coverage and the disclosed exploratory cold-construction cost. This is local
+qualification, not hosted CI or merge qualification.

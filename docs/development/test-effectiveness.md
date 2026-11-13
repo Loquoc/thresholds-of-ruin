@@ -6574,3 +6574,15 @@ support fixture still rejects an incomplete band. These are optimization
 safeguards, not new production defect discoveries. Actual calf, bracelet and
 forearm-metal consumer checks are rerun; unchanged shoe-stack controls reuse the
 preceding qualified checkpoint.
+
+### Bare-foot shaft ownership
+
+One development-discovered ownership defect made native Troll/Nymph bare feet
+emit a skin-colored boot shaft. The independent pigment-isolation method first
+failed on Nymph/false/slim/ShinL before the fix. The same method now covers both
+native models, both requested sexes, slim/heavy builds and both shins: foot
+pigment remains on the foot, the false shaft is absent, and two complete leather
+bindings clear the actual emitted calf. These fixtures are one defect, not eight
+bugs. Existing shoe/equipment/restoration controls pass on the rebased source;
+native visual comparisons expose the previously buried bindings and confirm the
+restored ankle taper for sampled poses. No universal motion claim is made.
