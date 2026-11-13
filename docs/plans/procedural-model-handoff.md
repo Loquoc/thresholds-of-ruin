@@ -114,9 +114,21 @@ These are two recurring cloth failure families across nine methods, not nine
 new recovered-source regressions or additional defects for each rerun. No
 production fix or assertion weakening is included in this classification.
 
-The verification-tooling suite (35 methods) and scenario checks (three methods)
-passed. Full release-library verification has not yet completed at this
-checkpoint. Fresh native verification is blocked by local `AF_UNIX` socket
+The complete release 3D library run also failed: **1,138 passed, nine failed
+and two were ignored** (exit 101, 203.75 seconds), with the same nine failed
+method names as debug. Exact-main reproduction was performed in debug only;
+there is no pristine-main release comparison. These are repeated executions of
+the same failing methods, not nine additional defects.
+
+Both profiles passed the remaining model targets: six unit tests, 73 integration
+tests and three doctests per profile. The client binary and client doctest targets
+completed successfully but contained zero tests; they provide no additional
+behavior coverage. The verification-tooling suite (35 methods) and scenario
+checks (three methods) also passed. Input guards found no changes across the
+1,051 Rust/Cargo inputs used for this verification. Neither profile is an
+all-green 3D suite, and these checks are not a full workspace qualification.
+
+Fresh native verification is blocked by local `AF_UNIX` socket
 creation returning `EPERM`: Xvfb cannot create its display sockets, including
 on the approved attempt. This is an infrastructure failure, not a native-test
 pass or an inferred graphical waiver. Historical sampled renders remain their

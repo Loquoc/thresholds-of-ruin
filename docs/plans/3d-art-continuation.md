@@ -31,13 +31,14 @@ byte-identical renders are neither required nor a substitute for review.
 
 ### Current verification limit
 
-The broader recovered-source debug library run is not green: 1,138 methods pass,
-nine cloth methods fail and two are ignored. All nine failures reproduce on
-pristine main `97f72c6d` with matching diagnostics. They remain unresolved, not
-waived; see the [exact failure list and scope](procedural-model-handoff.md#known-failures-and-verification-scope-13-november-2026).
-Fresh native verification is blocked by the local display/socket environment,
-release verification is not yet complete at this checkpoint, and hosted
-final-head CI remains pending. The hosted 3D smoke does not run the geometry
+The broader recovered-source debug and release library runs are not green:
+each reports 1,138 methods passing, nine cloth methods failing and two ignored.
+All nine failures reproduce on pristine main `97f72c6d` in debug with matching
+diagnostics; the exact-main release comparison has not been run. They remain
+unresolved, not waived; see the [exact failure list and scope](procedural-model-handoff.md#known-failures-and-verification-scope-13-november-2026).
+The remaining model targets pass in both profiles. Fresh native verification is
+blocked by the local display/socket environment, and hosted final-head CI remains
+pending. The hosted 3D smoke does not run the geometry
 suite, so a successful smoke cannot qualify these model contracts.
 
 ### Reading the evidence

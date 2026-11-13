@@ -6616,7 +6616,13 @@ The local native verifier could not run because `AF_UNIX` socket creation
 returned `EPERM` and Xvfb could not establish a display. Record this separately
 as infrastructure failure, not a graphical waiver. The existing successful main
 CI/3D smoke does not exercise this geometry suite and is not evidence that the
-nine methods pass. Full release and hosted final-head results remain pending at
-this documentation checkpoint. Raw logs, input hashes, exit receipts and the
-exact-main comparison are preserved in the recovery evidence bundle, not linked
-as inaccessible machine-local files.
+nine methods pass. The complete release library run also reports 1,138 passed,
+nine failed and two ignored (exit 101, 203.75 seconds); the failing names match
+debug. Exact-main comparison is debug-only, not release. Both profiles pass six
+model unit tests, 73 model integration tests and three model doctests each; the
+successful client binary/doctest targets contain zero tests. No additional root
+cause is counted for the release repetitions. Hosted final-head CI has not run.
+Raw debug/release logs, unchanged input hashes, exit receipts and the exact-main
+debug comparison are preserved in the recovery evidence bundle, not linked as
+inaccessible machine-local files. Native verification remains blocked; no green
+full-suite or full-workspace claim follows from the passing model targets.
