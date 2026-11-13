@@ -6626,3 +6626,94 @@ Raw debug/release logs, unchanged input hashes, exit receipts and the exact-main
 debug comparison are preserved in the recovery evidence bundle, not linked as
 inaccessible machine-local files. Native verification remains blocked; no green
 full-suite or full-workspace claim follows from the passing model targets.
+
+## Crown jewel band mounts (2026-11-13)
+
+Production defect: crown jewel settings were placed inside their arches without
+metal support to the band. Native front and three-quarter close-ups confirmed
+floating settings. The first-red emitted-metal witness found no surface 6 mm
+above the first band station. It samples the missing gap at 6/9/12 mm across all
+eight stations and three brow radii, rather than accepting hair as support.
+
+A shared crown-setting recipe now owns the fitted band mount, short connector
+and unchanged jewel placement. The connector ends inside both band and setting,
+not at a tangent. Three focused brow tests pass, including existing translated/
+scaled support and periodic-band seam coverage. This is an attachment-quality
+fix, not a new general collision solver or a change to hairstyle fitting.
+
+### Bounded support queries for brow ornaments (2026-11-13)
+
+- Reused the existing conservative radial height-window filter for circlets,
+  wreaths, crowns and leaf crowns. A recipe resolves one immutable support mesh
+  for its full query-height range; emitted ornaments cannot become support.
+- First-red: after migrating existing fixture calls to the explicit Builder
+  support API, full-head support preserved all sampled hits but failed the
+  unreachable-face budget (18,710/18,710 triangles in the first fixture).
+- Final witness compares filtered/full head hits exactly at 128 angles and the
+  recipe's central and extreme heights, on both sexes and two hairstyles.
+  Retained support is 5.1–10.8% of source triangles in these fixtures. The filter's
+  crossing-boundary and missing-support tests remain unchanged.
+- Qualification: 5 headwear, 9 radial fitting and 60 wardrobe tests; strict
+  Clippy, fmt and native build. Native Druid, Nymph and Royal Bride views check
+  appearance retention. This reduces construction-time query work; it makes no
+  measured frame-rate claim and changes no animation or fitted clearance.
+
+### Reused fitted pouch surface samples (2026-11-13)
+
+- Pouch shell construction samples its shared grid once rather than repeating
+  the same torso/pelvis support solve for every adjacent face. The flap, belt
+  attachments, cell-center winding witnesses, material colors and face order
+  retain their authored construction. The grid is local to one pouch build,
+  not a cross-body or persistent geometry cache.
+- First-red: the shell made 1,140 support samples. A 392-triangle closed shell
+  now uses 394, reducing these 18-step support solves by 65.4%. This is a
+  construction-work count, not a frame-rate or measured wall-clock speed claim.
+- Existing pouch closure, thickness, body/clothed support and local prefix
+  fingerprint witnesses check geometry preservation. Native male/female ranger
+  waist captures check appearance rather than relying on pixel identity.
+
+### Shared jeweled-waist mount orientation (2026-11-13)
+
+- Jeweled waist centers followed the wearer, but every metal setting and gem
+  retained global-forward axes. Side gems were offset forward rather than out
+  from their own mount. The shared recipe now derives one local support frame
+  for both layers, retaining authored size, color, spacing and gem inset.
+- First-red measures actual emitted gem centroids against an independently
+  differentiated support surface on male/female bodies; the old forward-only
+  offset fails. The regression also bounds emitted depth along the mount normal,
+  so merely moving centers without reorienting the gemstones does not qualify.
+- Reuses existing support normals, builder detail settings and mesh emission;
+  adds no fitting solver or outfit-specific special case. Royal bride/princess
+  both consume this jeweled waist recipe.
+- Local qualification: 31 waist-related checks, strict Clippy, formatting and
+  native build. Full and close native bridal before/after captures reviewed;
+  these are static appearance checks, not animation or hosted CI qualification.
+
+### Shared mounted-oval ornaments (2026-11-13)
+
+- Crown settings kept global axes even around the sides/back of the fitted brow.
+  Derive their outward direction from neighboring fitted band stations and share
+  a small mounted-oval emitter with the jeweled-waist recipe. Both metal and gem
+  use the same mount; caller-owned dimensions, colors and connector remain.
+- First-red measures actual crown gem centers against an independent local-band
+  derivative on an elliptical support. It rejects the previous origin-radial
+  offset. Retained band-connector coverage checks the mount remains joined.
+- Four brow tests and the emitted-waist centroid/depth regression pass, as do
+  strict Clippy, formatting and native build. Native crown before/after and
+  waist compatibility views are reviewed. No new solver, animation change,
+  performance claim, hosted CI qualification or publication is implied.
+
+### Reuse identical fitted-band validation samples (2026-11-13)
+
+- Rounded armlet/cuff validation previously queried each triangle's vertices,
+  edge midpoints and centroid independently. Adjacent triangles repeated the
+  same expensive support ray queries. Reuse exact floating-point sample keys
+  within one band validation, with no quantization or changed fit tolerance.
+- The first-red representative 16-by-8 band makes 1,792 support queries; the
+  candidate makes 768, a 57% reduction. This is a construction-time query count,
+  not a frame-rate or whole-build benchmark. Distinct witnesses remain checked;
+  missing support, excessive/negative relief and non-finite results still reject.
+- Local qualification: 10 radial-profile, 9 bracelet and 5 armlet tests pass,
+  including support/rejection contracts; strict Clippy, formatting and native
+  build pass. Native bridal ornament view remains visually unchanged. No mesh
+  recipe, clearance, solver constraints or hosted CI gate is changed.

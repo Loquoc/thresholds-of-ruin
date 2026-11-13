@@ -81,56 +81,7 @@ pub(super) fn pouch(
         };
         fit(height, angle, 0.012) + Vec3::new(angle.sin(), 0.0, angle.cos()) * thickness
     };
-    const ROWS: usize = 10;
-    const COLUMNS: usize = 8;
-    for row in 0..ROWS {
-        let v0 = row as f32 / ROWS as f32;
-        let v1 = (row + 1) as f32 / ROWS as f32;
-        for col in 0..COLUMNS {
-            let u0 = col as f32 / COLUMNS as f32;
-            let u1 = (col + 1) as f32 / COLUMNS as f32;
-            for front in [false, true] {
-                let q = [
-                    bag(u0, v0, front),
-                    bag(u1, v0, front),
-                    bag(u1, v1, front),
-                    bag(u0, v1, front),
-                ];
-                let inside = (bag((u0 + u1) * 0.5, (v0 + v1) * 0.5, false)
-                    + bag((u0 + u1) * 0.5, (v0 + v1) * 0.5, true))
-                    * 0.5;
-                b.quad_out(q, inside, color * if front { 1.0 } else { 0.85 });
-            }
-        }
-        for u in [0.0, 1.0] {
-            b.quad_out(
-                [
-                    bag(u, v0, false),
-                    bag(u, v0, true),
-                    bag(u, v1, true),
-                    bag(u, v1, false),
-                ],
-                bag(0.5, (v0 + v1) * 0.5, true),
-                color * 0.9,
-            );
-        }
-    }
-    for v in [0.0, 1.0] {
-        for col in 0..COLUMNS {
-            let u0 = col as f32 / COLUMNS as f32;
-            let u1 = (col + 1) as f32 / COLUMNS as f32;
-            b.quad_out(
-                [
-                    bag(u0, v, false),
-                    bag(u1, v, false),
-                    bag(u1, v, true),
-                    bag(u0, v, true),
-                ],
-                bag((u0 + u1) * 0.5, 0.5, true),
-                color * 0.9,
-            );
-        }
-    }
+    pouch_shell(b, bag, color);
     // A raised flap edge and two leather loops make the attachment readable.
     let flap: Vec<_> = (0..=16)
         .map(|i| {
@@ -241,5 +192,88 @@ mod belt_hardware_tests {
             Vec3::new(0.74, 0.5, 0.26),
         );
         actual.metal.assert_same_recipe(&expected);
+    }
+}
+
+// Resolve the shared pouch shell separately from its flap and belt mounts.
+fn pouch_shell(b: &mut Builder, mut bag: impl FnMut(f32, f32, bool) -> Vec3, color: Vec3) {
+    const ROWS: usize = 10;
+    const COLUMNS: usize = 8;
+    // Adjacent faces share these exact samples. Keep winding witnesses
+    // separate: they sample cell interiors, not averaged surface corners.
+    let grid: [[[Vec3; 2]; COLUMNS + 1]; ROWS + 1] = std::array::from_fn(|row| {
+        std::array::from_fn(|col| {
+            [false, true]
+                .map(|front| bag(col as f32 / COLUMNS as f32, row as f32 / ROWS as f32, front))
+        })
+    });
+    for row in 0..ROWS {
+        let v0 = row as f32 / ROWS as f32;
+        let v1 = (row + 1) as f32 / ROWS as f32;
+        for col in 0..COLUMNS {
+            let u0 = col as f32 / COLUMNS as f32;
+            let u1 = (col + 1) as f32 / COLUMNS as f32;
+            let inside = (bag((u0 + u1) * 0.5, (v0 + v1) * 0.5, false)
+                + bag((u0 + u1) * 0.5, (v0 + v1) * 0.5, true))
+                * 0.5;
+            for front in [false, true] {
+                let side = usize::from(front);
+                let q = [
+                    grid[row][col][side],
+                    grid[row][col + 1][side],
+                    grid[row + 1][col + 1][side],
+                    grid[row + 1][col][side],
+                ];
+                b.quad_out(q, inside, color * if front { 1.0 } else { 0.85 });
+            }
+        }
+        for col in [0, COLUMNS] {
+            b.quad_out(
+                [
+                    grid[row][col][0],
+                    grid[row][col][1],
+                    grid[row + 1][col][1],
+                    grid[row + 1][col][0],
+                ],
+                bag(0.5, (v0 + v1) * 0.5, true),
+                color * 0.9,
+            );
+        }
+    }
+    for row in [0, ROWS] {
+        for col in 0..COLUMNS {
+            let u0 = col as f32 / COLUMNS as f32;
+            let u1 = (col + 1) as f32 / COLUMNS as f32;
+            b.quad_out(
+                [
+                    grid[row][col][0],
+                    grid[row][col + 1][0],
+                    grid[row][col + 1][1],
+                    grid[row][col][1],
+                ],
+                bag((u0 + u1) * 0.5, 0.5, true),
+                color * 0.9,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::*;
+    #[test]
+    fn pouch_shell_reuses_shared_surface_samples() {
+        let mut calls = 0;
+        let mut mesh = Builder::default();
+        pouch_shell(
+            &mut mesh,
+            |u, v, front| {
+                calls += 1;
+                Vec3::new(u, v, if front { 0.1 } else { 0.0 })
+            },
+            Vec3::ONE,
+        );
+        assert_eq!(mesh.surface_triangles().count(), 392);
+        assert!(calls <= 400, "shared pouch shell samples repeated: {calls}");
     }
 }
