@@ -235,3 +235,27 @@ Preserve stable anchors or update all callers, and label historical contracts as
 historical. A test that correctly catches inaccurate prose is a documentation
 defect, not a stale test to disable. Current format identities belong in the
 [roadmap](../status.md), not duplicated throughout historical findings.
+
+### Fitted accessory mounts and sampling
+
+Crown settings lacked metal connections to their fitted bands, and crown/waist
+jewels used global axes instead of their local support frames. Emitted-metal gap
+probes and independent gem centroid/depth witnesses cover those defects across
+support sizes and both body variants. Shared mounted ornaments now follow their
+support; existing hair occlusion is not claimed fixed.
+
+Conservative brow height windows, shared pouch grid samples and exact fitted-band
+witness reuse reduce construction queries without changing support acceptance.
+Retain full-versus-filtered hit equality, mesh/closure checks, and missing,
+non-finite or excess-relief rejection. These are query-count reductions, not
+measured frame-rate improvements or animation qualification.
+
+### Native consumer receipt completeness
+
+PR #6's native smoke succeeded but its evidence receipt omitted the explicit
+`TOR_3D_TEST_BINARY` input. Recording that input repairs the harness without
+relaxing the gate. The regression
+`test_ci_receipts.ReceiptCompleteness.test_native_consumer_receipt_binds_the_selected_client_binary`
+rejects the original incomplete receipt, accepts the repaired one, and rejects
+reuse for a different requested binary. This is one infrastructure root cause,
+not an accessory or rendering defect.

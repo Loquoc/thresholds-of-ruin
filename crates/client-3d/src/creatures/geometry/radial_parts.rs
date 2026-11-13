@@ -1,6 +1,25 @@
 //! Shared support-fitted radial bands in translated local-Y frames.
 use super::*;
 
+/// A low-poly oval ornament seated in a surface frame. Share the mount between
+/// metal settings and colored insets; profile dimensions remain caller-owned.
+pub(super) fn mounted_oval(
+    builder: &mut Builder,
+    center: Vec3,
+    outward: Vec3,
+    radii: Vec3,
+    color: Vec3,
+) {
+    let outward = outward.normalize_or(Vec3::Z);
+    let right = Vec3::Y.cross(outward).normalize_or(Vec3::X);
+    let frame = Mat3::from_cols(right, outward.cross(right), outward);
+    let mut ornament = builder.empty_like();
+    ornament.blob(Vec3::ZERO, radii, 1, 0.0, color);
+    for triangle in ornament.surface_triangles() {
+        builder.tri(triangle.map(|point| center + frame * point), color);
+    }
+}
+
 /// Farthest selected mesh-layer hit in the caller's common recipe frame.
 /// Selected builders must share that frame. `outward` is a unit direction;
 /// origin, material selection and any allowance
@@ -132,7 +151,7 @@ impl RadialBandProfile {
 /// Retain only triangles that can intersect a horizontal query in this window.
 /// This is a conservative construction-time filter, not a fitted approximation.
 /// Builders already expose triangles in their common recipe coordinates.
-fn band_support_window(layers: &[&Builder], low: f32, high: f32) -> Builder {
+pub(super) fn band_support_window(layers: &[&Builder], low: f32, high: f32) -> Builder {
     let mut support = Builder::default();
     for layer in layers {
         for triangle in layer.surface_triangles() {
@@ -223,25 +242,9 @@ impl RoundedBandProfile {
             // Do not bridge that cliff into a floating ornament. Validate the
             // complete candidate, including connecting facet samples, against
             // the same retained layers before appending any new geometry.
-            for triangle in ring.surface_triangles() {
-                for at in [
-                    triangle[0],
-                    triangle[1],
-                    triangle[2],
-                    (triangle[0] + triangle[1]) * 0.5,
-                    (triangle[1] + triangle[2]) * 0.5,
-                    (triangle[2] + triangle[0]) * 0.5,
-                    (triangle[0] + triangle[1] + triangle[2]) / 3.0,
-                ] {
-                    let origin = Vec3::Y * at.y;
-                    let out = (at - origin).try_normalize()?;
-                    let support = outermost_layer_radius(&[&layers], origin, out)?;
-                    let relief = (at - origin).dot(out) - support;
-                    if !relief.is_finite() || !(0.0..=limit).contains(&relief) {
-                        return None;
-                    }
-                }
-            }
+            validate_band_relief(&ring, limit, |origin, out| {
+                outermost_layer_radius(&[&layers], origin, out)
+            })?;
         }
         Some(ring)
     }
@@ -293,6 +296,77 @@ impl RoundedBandProfile {
             }
         }
         Some(ring)
+    }
+}
+
+/// Keep the same facet coverage witnesses when checking a fitted band.
+fn validate_band_relief(
+    ring: &Builder,
+    limit: f32,
+    mut support: impl FnMut(Vec3, Vec3) -> Option<f32>,
+) -> Option<()> {
+    // Exact keys preserve every distinct witness; no spatial quantization or
+    // tolerance can turn a missed layer or excess relief into an accepted fit.
+    let mut checked = std::collections::HashSet::new();
+    for triangle in ring.surface_triangles() {
+        for at in [
+            triangle[0],
+            triangle[1],
+            triangle[2],
+            (triangle[0] + triangle[1]) * 0.5,
+            (triangle[1] + triangle[2]) * 0.5,
+            (triangle[2] + triangle[0]) * 0.5,
+            (triangle[0] + triangle[1] + triangle[2]) / 3.0,
+        ] {
+            if !checked.insert(at.to_array().map(f32::to_bits)) {
+                continue;
+            }
+            let origin = Vec3::Y * at.y;
+            let out = (at - origin).try_normalize()?;
+            let radius = support(origin, out)?;
+            let relief = (at - origin).dot(out) - radius;
+            if !relief.is_finite() || !(0.0..=limit).contains(&relief) {
+                return None;
+            }
+        }
+    }
+    Some(())
+}
+
+#[cfg(test)]
+mod relief_query_tests {
+    use super::*;
+    #[test]
+    fn band_relief_reuses_identical_shared_samples() {
+        let profile = RoundedBandProfile {
+            height: 0.2,
+            half_height: 0.015,
+            clearance: 0.004,
+            radial_half: 0.003,
+            sides: 16,
+            sections: 8,
+        };
+        let ring = profile
+            .resolve(
+                |y, a, gap| Some(Vec3::new(a.sin() * (0.1 + gap), y, a.cos() * (0.1 + gap))),
+                Vec3::ONE,
+            )
+            .unwrap();
+        let mut queries = 0;
+        assert!(validate_band_relief(&ring, 0.02, |_, _| {
+            queries += 1;
+            Some(0.1)
+        })
+        .is_some());
+        eprintln!("validated band with {queries} support queries");
+        assert!(
+            queries < 1000,
+            "shared vertex/edge samples should be reused, got {queries} queries"
+        );
+        for radius in [0.0, 0.2, f32::NAN] {
+            assert!(validate_band_relief(&ring, 0.02, |_, _| Some(radius)).is_none());
+        }
+        assert!(validate_band_relief(&ring, 0.02, |_, _| None).is_none());
     }
 }
 
