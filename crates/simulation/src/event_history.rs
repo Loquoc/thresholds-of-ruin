@@ -566,10 +566,10 @@ fn spatial_receipt(
     let witness = origin?.spatial.as_ref()?.get(&owner)?;
     if witness.source != Some(ActorReferenceKind::Creature)
         || !effect.source_disclosure.permits(owner, effect.actor)
-        || (effect.delivery == crate::combat::EffectDelivery::Target
-            && effect
-                .target
-                .is_none_or(|target| !witness.identified.contains(&target)))
+        || effect
+            .target
+            .is_some_and(|target| !witness.identified.contains(&target))
+        || (effect.delivery == crate::combat::EffectDelivery::Target && effect.target.is_none())
     {
         return None;
     }
@@ -1680,7 +1680,7 @@ impl Game {
                     (CombatEvent::Effect { effect }, Some(segments))
                         if receipt.source == Some(ActorReferenceKind::Creature)
                             && effect.source_disclosure.permits(*owner, effect.actor)
-                            && (effect.delivery != crate::combat::EffectDelivery::Target
+                            && (effect.target.is_none()
                                 || receipt.target == Some(ActorReferenceKind::Creature))
                             && valid_segments(segments)
                             && segments_are_subpaths(segments, &effect.segments) => {}

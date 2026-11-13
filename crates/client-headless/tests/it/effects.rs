@@ -111,6 +111,9 @@ impl Drop for Client {
 }
 impl Client {
     async fn start(initial: StateView) -> Self {
+        Self::start_with_deferred_map(initial, false).await
+    }
+    async fn start_with_deferred_map(initial: StateView, defer_map: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (send, mut incoming) = mpsc::unbounded_channel::<ServerMessage>();
@@ -140,6 +143,8 @@ impl Client {
             else {
                 panic!("expected attach")
             };
+            let initial_cursor = cursor(initial.revision);
+            let mut disclosed_cursor = initial_cursor;
             let snapshot = ServerMessage::Snapshot {
                 request_id,
                 snapshot: Box::new(Snapshot {
@@ -171,13 +176,28 @@ impl Client {
             loop {
                 tokio::select! {
                     message=incoming.recv()=>{let Some(message)=message else {break};
+                        // Reply context follows every disclosed update, including Outcomes
+                        // that leave the observation base unchanged.
+                        if let ServerMessage::Update { update } = &message {
+                            disclosed_cursor = update.cursor;
+                        }
                         ws.send(Message::Text(serde_json::to_string(&message).unwrap().into())).await.unwrap();},
                     request=ws.next()=>{let Some(Ok(Message::Text(text)))=request else {break};
                         let ClientMessage::Request{request_id,request}=serde_json::from_str(&text).unwrap() else {continue};
+                        // Force the transient-effect regression to exercise a map reply
+                        // after an Outcome but against the unchanged observation base.
+                        if defer_map && matches!(&*request, Request::Map { .. })
+                            && disclosed_cursor == initial_cursor {
+                            let message = incoming.recv().await.unwrap();
+                            if let ServerMessage::Update { update } = &message {
+                                disclosed_cursor = update.cursor;
+                            }
+                            ws.send(Message::Text(serde_json::to_string(&message).unwrap().into())).await.unwrap();
+                        }
                         let reply=match *request {
                             Request::Map{query}=>ServerMessage::MapPage { context:ReplyContext {
                                 snapshot:query.base.snapshot.clone(),input:InputContext{stream:query.context.clone(),readiness_revision:0},
-                                actor:ActorId(1),branch:query.branch.clone(),cursor:query.base.cursor,revision:query.base.revision},
+                                actor:ActorId(1),branch:query.branch.clone(),cursor:disclosed_cursor,revision:query.base.revision},
                                 request_id:request_id.clone(),page:Box::new(MapPage{transfer:request_id,actor:ActorId(1),branch:query.branch,
                                 base:query.base,window:query.window,start:0,page:0,total_cells:0,complete:true,ambiguous:false,
                                 limited:false,cells:vec![],next:None})},
@@ -403,7 +423,7 @@ async fn disclosed_deadline_is_world_time_and_removal_is_authoritative() {
 
 #[tokio::test]
 async fn transient_area_outcome_reaches_real_headless_once_without_sustained_state() {
-    let mut client = Client::start(state(0, vec![])).await;
+    let mut client = Client::start_with_deferred_map(state(0, vec![]), true).await;
     let geometry = effect(1, 1, None, &[(0, 0), (1, 0), (0, 1)]);
     let event = CombatEventView::Effect {
         caster: Some(ActorTarget::from_digest([1; 32])),
@@ -451,6 +471,11 @@ async fn transient_area_outcome_reaches_real_headless_once_without_sustained_sta
     );
     assert!(!frame["narration"].as_array().unwrap().is_empty());
     assert_eq!(observed(&frame), &json!([]));
+    // A map reply retains observation base 0 but must name stream cursor 1.
+    // Wait for its acceptance so an early process teardown cannot hide rejection.
+    let map = client.until(|v| v["message"]["type"] == "map_page").await;
+    assert_eq!(map["message"]["context"]["cursor"]["sequence"], "1");
+    assert_eq!(map["message"]["page"]["base"]["cursor"]["sequence"], "0");
     let inspected = client.inspect().await;
     assert_eq!(inspected["narration"], json!([]));
     assert_eq!(observed(&inspected), &json!([]));

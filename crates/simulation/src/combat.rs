@@ -322,6 +322,7 @@ pub enum EffectAppearance {
 #[serde(deny_unknown_fields)]
 pub struct SpatialEffect {
     pub actor: ActorId,
+    /// Resolved contact endpoint, if any. Its event-time identity gates path disclosure.
     #[serde(deserialize_with = "crate::bounded::required_option")]
     pub target: Option<ActorId>,
     pub ability: crate::content_ids::AbilityId,

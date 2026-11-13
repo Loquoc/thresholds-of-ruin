@@ -854,6 +854,7 @@ impl Game {
         };
         let effect_origin = self.capture_spatial_effect_origin(ray.actor)?;
         let mut segments = vec![vec![ray.origin.location]];
+        let mut contact = None;
         let mut rng = self.rules_rng;
         // A launch has no actor recipient. Keep its optional receipt locally and
         // attach it only to diagnostics for real, live encounters.
@@ -943,12 +944,14 @@ impl Game {
                         // Contact consumes this directional release even when
                         // the target dodges or its whole-payload immunity wins.
                         if ray.delivery == RayDelivery::FirstContact {
+                            contact = Some(target);
                             break 'traversal;
                         }
                         if let Some(check) = check {
                             encounters.record(target)?;
                             first_actual_check = false;
                             if !check.success {
+                                contact = Some(target);
                                 break 'traversal;
                             }
                         }
@@ -956,7 +959,7 @@ impl Game {
                 }
             }
         }
-        self.publish_ray_effect(ray, segments, disclosure, effect_origin)?;
+        self.publish_ray_effect(ray, segments, contact, disclosure, effect_origin)?;
         Ok(())
     }
 }

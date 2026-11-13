@@ -26,7 +26,11 @@ impl Game {
                 MAX_CONTACT_STATES,
             )
             .map_err(|_| invalid())?;
-        self.publish_ray_effect(ray, trace.segments, disclosure, effect_origin)?;
+        let contact = match trace.end {
+            ContactEnd::Body(target) => Some(target),
+            _ => None,
+        };
+        self.publish_ray_effect(ray, trace.segments, contact, disclosure, effect_origin)?;
         let target = match trace.end {
             ContactEnd::Body(target) => target,
             ContactEnd::NeedsRegions(_) => return Err(invalid()), // residency precedes payment

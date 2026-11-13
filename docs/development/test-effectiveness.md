@@ -269,3 +269,37 @@ This was one stale-fixture root cause, not twelve gameplay failures. The fixture
 now supplies an explicit empty snapshot; its schema witness verifies round-trip
 validity and rejects omission of the field. Production decoding remains strict
 and all existing expected-panic oracle checks retain their intended assertions.
+
+### Hidden-contact spatial disclosure
+
+The actual Service wand contract caught an invisible first contact being revealed
+by the new ray endpoint even though ordinary combat receipts correctly hid it.
+This is a production privacy defect, not a stale assertion. Ray and projectile
+receipts now retain their actual stopping actor and require event-time target
+identification before disclosing that path. The shared receipt regression covers
+target-local, ray and projectile deliveries, later visibility and restored state.
+The original Service assertion remains unchanged.
+
+### Headless effect fixture reply ordering
+
+Windows execution exposed the synthetic peer stamping a map reply with an old
+observation cursor after sending an Outcome that advanced the stream. The real
+client correctly rejected the mismatch. The peer now tracks the disclosed stream
+cursor separately from the map's observation base. The real-process regression
+forces this ordering and waits for accepted map output, rather than relying on
+thread timing or ending the process before a stale reply arrives.
+
+### Presentation-aware process fixtures
+
+The nutrition process fixture's exact condition expectation needed the newly
+required appearance/cue fields. A native ability-menu fixture also assumed the
+message pager was empty after every action; added effect narration exposed that
+assumption. It now acknowledges ordinary More pages and verifies each
+acknowledgement leaves disclosed game state unchanged before opening the menu.
+No gameplay assertion or pager behavior is weakened. The nutrition process check
+passes locally. Native behavior remains for hosted qualification because the local
+virtual display cannot open its socket; that setup failure is not a test pass.
+
+The new spatial-receipt restoration witness initially tried to checkpoint before
+sealing event observations. It now completes the normal observation transaction
+before restoring; its hidden-contact and restored-state assertions are unchanged.

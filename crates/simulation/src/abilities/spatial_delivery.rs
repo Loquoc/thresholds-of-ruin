@@ -72,13 +72,14 @@ impl Game {
         &mut self,
         ray: &RayPlan,
         segments: Vec<Vec<Location>>,
+        target: Option<crate::ActorId>,
         source_disclosure: SourceAbilityDisclosure,
         origin: crate::event_history::SpatialEffectOrigin,
     ) -> Result<(), GameError> {
         self.publish_spatial_effect(
             SpatialEffect {
                 actor: ray.actor,
-                target: None,
+                target,
                 ability: ray.ability.clone(),
                 source_disclosure,
                 tick: self.tick(),

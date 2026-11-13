@@ -2270,44 +2270,52 @@ fn spatial_effect_positions_follow_current_observer_frame_not_old_offsets() {
 #[test]
 fn spatial_target_effect_does_not_locate_an_invisible_target() {
     use crate::combat::{EffectCue, EffectDelivery, SpatialEffect};
-    let mut game = fixture();
-    template(&mut game, ActorId(2), Some("event_invisible"));
-    game.host_region_continuation = true;
-    game.begin_event_batch().unwrap();
-    let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
-    template(&mut game, ActorId(2), None);
-    game.publish_spatial_effect(
-        SpatialEffect {
-            actor: ActorId(1),
-            target: Some(ActorId(2)),
-            ability: AbilityId::new("basic_melee").unwrap(),
-            source_disclosure: SourceAbilityDisclosure::Public,
-            tick: game.tick,
-            timing: crate::combat::EffectTiming::Instant,
-            appearance: crate::combat::EffectAppearance::Flash,
-            delivery: EffectDelivery::Target,
-            cue: EffectCue::Physical,
-            segments: vec![vec![at(2, 1)]],
-        },
-        origin,
-    )
-    .unwrap();
-    game.seal_participant_events().unwrap();
-    game.host_region_continuation = false;
-    assert!(
-        events(&game, ActorId(2)).is_empty(),
-        "target does not auto-publish a spatial receipt"
-    );
-    let witness = game.event_observation_witness();
-    capture(&mut game, ActorId(2), &witness);
-    capture(&mut game, ActorId(3), &witness);
-    assert!(events(&game, ActorId(1)).is_empty());
-    assert!(events(&game, ActorId(3)).is_empty());
-    assert!(matches!(
-        events(&game, ActorId(2)).first(),
-        Some(DisclosedCombatEvent::Effect { .. })
-    ));
-    assert!(game.event_receipts_valid());
+    for delivery in [
+        EffectDelivery::Target,
+        EffectDelivery::Ray,
+        EffectDelivery::Projectile,
+    ] {
+        let mut game = fixture();
+        template(&mut game, ActorId(2), Some("event_invisible"));
+        game.host_region_continuation = true;
+        game.begin_event_batch().unwrap();
+        let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
+        template(&mut game, ActorId(2), None);
+        game.publish_spatial_effect(
+            SpatialEffect {
+                actor: ActorId(1),
+                target: Some(ActorId(2)),
+                ability: AbilityId::new("basic_melee").unwrap(),
+                source_disclosure: SourceAbilityDisclosure::Public,
+                tick: game.tick,
+                timing: crate::combat::EffectTiming::Instant,
+                appearance: crate::combat::EffectAppearance::Flash,
+                delivery,
+                cue: EffectCue::Physical,
+                segments: vec![vec![at(2, 1)]],
+            },
+            origin,
+        )
+        .unwrap();
+        game.seal_participant_events().unwrap();
+        game.host_region_continuation = false;
+        assert!(
+            events(&game, ActorId(2)).is_empty(),
+            "target does not auto-publish a spatial receipt"
+        );
+        let witness = game.event_observation_witness();
+        capture(&mut game, ActorId(2), &witness);
+        capture(&mut game, ActorId(3), &witness);
+        assert!(events(&game, ActorId(1)).is_empty());
+        assert!(events(&game, ActorId(3)).is_empty());
+        assert!(matches!(
+            events(&game, ActorId(2)).first(),
+            Some(DisclosedCombatEvent::Effect { .. })
+        ));
+        assert!(game.event_receipts_valid());
+        game.seal_event_observations().unwrap();
+        assert!(events(&restored(&game), ActorId(1)).is_empty());
+    }
 }
 
 #[test]

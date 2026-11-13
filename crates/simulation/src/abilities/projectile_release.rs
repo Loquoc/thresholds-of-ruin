@@ -75,7 +75,7 @@ impl Game {
         self.publish_spatial_effect(
             crate::combat::SpatialEffect {
                 actor,
-                target: None,
+                target: impact.target,
                 ability: plan.ability.clone(),
                 source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
                 tick: self.tick(),
