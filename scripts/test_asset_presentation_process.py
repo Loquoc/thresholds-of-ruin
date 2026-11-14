@@ -166,7 +166,7 @@ class AssetPresentationProcesses(ProcessTestCase):
     def assert_asset_map(self, frame):
         creature = next(tile for tile in frame["map_tiles"] if tile["kind"] == "creature")
         item = next(tile for tile in frame["map_tiles"] if tile["kind"] == "item")
-        self.assertEqual(creature["glyph"], "u")
+        self.assertEqual(creature["glyph"], "Q")
         self.assertEqual(item["glyph"], '"')
         self.assertTrue(any(actor.get("asset") == "creature.equine.quagga"
                             for actor in frame["state"]["observation"]["visible_actors"]))
@@ -188,7 +188,7 @@ class AssetPresentationProcesses(ProcessTestCase):
         self.native_press(window, native, "Right", "right")
         self.native_press(window, native, "Right", "right")
         looked = self.native_press(window, native, "semicolon", "look")
-        self.assertIn("u - a ruin scout", looked["messages"]["turn"])
+        self.assertIn("Q - a ruin scout", looked["messages"]["turn"])
         self.assertEqual(looked["state"], initial["state"])
         window.stop()
         # The harness requests and confirms an ordinary save before stopping

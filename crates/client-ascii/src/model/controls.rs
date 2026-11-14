@@ -40,6 +40,11 @@ commands![
     ),
     ("charts", "read-only detection charts", Charts),
     ("control", "request actor control (F3)", Control),
+    (
+        "discoveries",
+        "show identified item appearances",
+        Discoveries
+    ),
     ("drop", "drop carried items (d)", Drop),
     ("eat", "eat a carried item (e)", Eat),
     ("equip", "equip any compatible item, including tools", Equip),

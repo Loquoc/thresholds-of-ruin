@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":70,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":71,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -531,6 +531,11 @@ also has an opaque `SnapshotId` in `snapshot`. Neither is gameplay input authori
 
 ### Ordered outcomes and demand-driven pictures
 
+`{"type":"discoveries"}` returns a correlated `discoveries` reply with up to
+4,096 `{appearance, name}` rows for the attached actor. The host projects the
+actor's saved identity knowledge through the scenario's seeded appearance
+mapping. The request consumes no turn and is available to authorized spectators.
+
 `{"type":"observe"}` requests a fresh visual publication without resetting the
 attachment, control lease or input authority. Clients can coalesce redundant visual
 demand and pace animation independently of simulation. `snapshot` remains the
@@ -546,6 +551,13 @@ combat/terminal/preparation/recovery status, independent of whether a narration
 line was produced. Clients update this authority without reconstructing it from a
 possibly older picture. `visual_changed` requests a later picture; it does not
 carry hidden actor activity or replace ordered outcomes.
+
+An `own_work_changed` fact describes a player-owned action that paused,
+failed, was cancelled or was replaced. It carries the opaque admission identity,
+the disclosed kind and name of the work, and a replacement admission identity
+when a new action took its place. A client can combine that fact with the new
+action's start in the same update. Work names use the actor's disclosed
+inventory or their authored ability name.
 
 Every admitted outcome remains ordered even when pictures are coalesced. Repeated
 visual requests must not repeat narration. Internal event-batch identity separates

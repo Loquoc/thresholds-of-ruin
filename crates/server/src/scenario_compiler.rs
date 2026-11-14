@@ -559,6 +559,17 @@ impl PreparedDefinitions {
         Ok(())
     }
 
+    pub(super) fn concealed_item_names(
+        &self,
+    ) -> impl Iterator<Item = (&tor_simulation::ItemIdentity, &str)> {
+        self.archetypes.values().filter_map(|definition| {
+            if !definition.concealed {
+                return None;
+            }
+            Some((definition.identity.as_ref()?, definition.name.as_deref()?))
+        })
+    }
+
     /// Borrow only catalog labels; listing never copies or instantiates HD rows.
     pub fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.archetypes.iter().filter_map(|(id, definition)| {

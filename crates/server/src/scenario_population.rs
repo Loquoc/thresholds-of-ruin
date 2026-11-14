@@ -871,12 +871,14 @@ impl Package {
                                     self.author_archetype(archetype)?;
                                 }
                             }
-                            self.check_population_bands(bands, |choice| {
-                                (&choice.archetype, choice.weight)
-                            })?;
+                            self.check_population_bands(
+                                bands,
+                                runtime::MAX_ITEM_CHOICES,
+                                |choice| (&choice.archetype, choice.weight),
+                            )?;
                         }
                         PopulationStage::Actors { bands, ai, .. } => {
-                            self.check_population_bands(bands, |choice| {
+                            self.check_population_bands(bands, MAX_CHOICES, |choice| {
                                 (&choice.archetype, choice.weight)
                             })?;
                             if let Some(ai) = ai {
@@ -954,6 +956,7 @@ impl Package {
     fn check_population_bands<C>(
         &self,
         bands: &[PopulationBand<C>],
+        max_choices: usize,
         choice_fields: impl Fn(&C) -> (&str, u32),
     ) -> Result<(), Failure> {
         require(
@@ -981,7 +984,7 @@ impl Package {
             self.check_population_choices(
                 band.choices.iter().map(&choice_fields),
                 band.choices.len(),
-                MAX_CHOICES,
+                max_choices,
             )?;
         }
         Ok(())
@@ -2018,7 +2021,7 @@ mod tests {
             );
         }
         let package = changed(&fixture(), |value| {
-            let choices: Vec<_> = (0..65)
+            let choices: Vec<_> = (0..=runtime::MAX_ITEM_CHOICES)
                 .map(|n| {
                     let name = format!("marker{n}");
                     value["archetypes"][&name] =
@@ -2032,7 +2035,7 @@ mod tests {
         .unwrap();
         assert!(
             package.check().is_err(),
-            "ordinary bands remain limited to 64"
+            "ordinary item bands remain bounded"
         );
     }
 

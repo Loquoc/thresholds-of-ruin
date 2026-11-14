@@ -4954,6 +4954,27 @@ impl PackageIndex {
         Some((self.ceilings.0, self.ceilings.1.checked_add(kit as u64)?))
     }
 
+    pub(crate) fn item_discoveries(
+        &self,
+        game: &tor_simulation::Game,
+        actor: tor_simulation::ActorId,
+    ) -> Vec<(String, String)> {
+        let mut discoveries: Vec<_> = self
+            .definitions
+            .concealed_item_names()
+            .filter_map(|(identity, name)| {
+                if !game.knows_item_identity(actor, identity) {
+                    return None;
+                }
+                let appearance = &self.appearances.get(identity)?.name;
+                (appearance != name).then(|| (appearance.clone(), name.to_owned()))
+            })
+            .collect();
+        discoveries.sort();
+        discoveries.dedup();
+        discoveries
+    }
+
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.definitions.creature_archetypes()
     }

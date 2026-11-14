@@ -76,6 +76,7 @@ impl PendingRequest {
             | ServerMessage::ProjectileChoices { request_id, .. }
             | ServerMessage::MapPage { request_id, .. }
             | ServerMessage::ChartPage { request_id, .. }
+            | ServerMessage::Discoveries { request_id, .. }
             | ServerMessage::AttachmentUpload { request_id, .. }
             | ServerMessage::AttachmentData { request_id, .. }
             | ServerMessage::CombatDiagnostics { request_id, .. } => request_id == &self.id,

@@ -68,18 +68,29 @@ class RogueProfileContent(unittest.TestCase):
                       if row["path"] == ["constants", "default_abilities"]]
         self.assertNotIn("bind_wounds", defaults)
 
+    def test_ordinary_stock_uses_one_roll_per_rogue_attempt(self):
+        stages = self.manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"]
+        stock = [stage for stage in stages if stage["id"] in {"rogue.items", "rogue.items_other"}]
+        self.assertEqual(len(stock), 1, "Independent category rolls change the distribution")
+        stage, = stock
+        self.assertEqual((stage["kind"], stage["attempts"]), ("chance_items", 9))
+        chance = stage["chance"]
+        self.assertEqual(100 * chance["numerator"], 36 * chance["denominator"])
+        import rogue_item_table
+        expected = {archetype: weight for archetype, weight, _ in rogue_item_table.choices()}
+        actual = {row["archetype"]: row["weight"] for row in stage["bands"][0]["choices"]}
+        self.assertEqual(actual, expected)
+
     def test_item_stages_follow_rogue_generation(self):
         stages = {stage["id"]: stage for stage in
                   self.manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"]}
-        # Two independent groups keep each type's expected count equal to
-        # Rogue's nine 36% attempts with category x subtype weights.
-        expected = {}
-        for stage in (stages["rogue.items"], stages["rogue.items_other"]):
-            self.assertEqual((stage["kind"], stage["attempts"]), ("chance_items", 9))
-            chance = stage["chance"]["numerator"] / stage["chance"]["denominator"]
-            weights = {row["archetype"]: row["weight"] for row in stage["bands"][0]["choices"]}
-            for archetype, weight in weights.items():
-                expected[archetype] = 9 * chance * weight / sum(weights.values())
+        stage = stages["rogue.items"]
+        chance = stage["chance"]["numerator"] / stage["chance"]["denominator"]
+        weights = {row["archetype"]: row["weight"] for row in stage["bands"][0]["choices"]}
+        expected = {item: stage["attempts"] * chance * weight / sum(weights.values())
+                    for item, weight in weights.items()}
+        self.assertEqual(stages["rogue.treasure_room"]["item_bands"][0]["choices"],
+                         stage["bands"][0]["choices"])
         self.assertAlmostEqual(sum(expected.values()), 9 * 0.36)
         food = expected["rogue.ration"] + expected["rogue.fruit"]
         self.assertAlmostEqual(food, 9 * 0.36 * 0.16)

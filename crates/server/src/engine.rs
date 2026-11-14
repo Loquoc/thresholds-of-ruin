@@ -3030,6 +3030,16 @@ impl Engine {
             wizard_game: self.archive.wizard_game,
         }
     }
+    pub(crate) fn item_discoveries(&self, actor: ActorId) -> Vec<ItemDiscoveryView> {
+        self.regions.as_ref().map_or_else(Vec::new, |regions| {
+            regions
+                .item_discoveries(&self.game, SimActor(actor.0))
+                .into_iter()
+                .map(|(appearance, name)| ItemDiscoveryView { appearance, name })
+                .collect()
+        })
+    }
+
     pub(crate) fn presentation_game<'a>(
         &self,
         boundary: &'a PresentationBoundary,

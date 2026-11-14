@@ -189,7 +189,35 @@ impl ItemWorkKind {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OutcomeWork {
+    Attack,
+    Ability {
+        name: String,
+    },
+    Item {
+        work: ItemWorkKind,
+        name: Option<String>,
+    },
+    Action,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OutcomeWorkChange {
+    Paused,
+    Cancelled,
+    Failed,
+    Replaced { replacement: IntentionId },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OutcomeFact {
+    OwnWorkChanged {
+        intention: IntentionId,
+        work: OutcomeWork,
+        change: OutcomeWorkChange,
+    },
     OwnAction {
         event: Event,
         name: Option<OutcomeName>,
@@ -1023,6 +1051,19 @@ impl OutcomeFacts {
                     event: effect @ CombatEventView::Effect { .. },
                     ..
                 } if !effect.valid_effect(u64::MAX) => return Err(InvalidState::InvalidCombat),
+                OutcomeFact::OwnWorkChanged {
+                    intention,
+                    work,
+                    change,
+                } if intention.0.is_empty()
+                    || intention.0.len() > 64
+                    || matches!(change, OutcomeWorkChange::Replaced { replacement }
+                            if replacement == intention || replacement.0.is_empty() || replacement.0.len() > 64)
+                    || matches!(work, OutcomeWork::Ability { name } | OutcomeWork::Item { name: Some(name), .. }
+                            if !crate::creature::valid_label(name, 256)) =>
+                {
+                    return Err(InvalidState::InvalidCombat);
+                }
                 OutcomeFact::OwnAction {
                     event,
                     underfoot: Some(contents),

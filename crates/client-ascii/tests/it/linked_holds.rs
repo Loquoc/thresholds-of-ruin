@@ -116,7 +116,10 @@ fn sole_hold_escape_is_exact_and_spectators_can_only_read_the_hold_rows() {
     );
     assert_eq!(spectator.state.as_ref().unwrap().session().clone(), before);
     assert!(!spectator.busy);
-    assert!(tor_client_ascii::HELP.iter().any(|row| row.contains("F11")));
+    assert!(tor_client_ascii::HelpPage::CombatAndItems
+        .rows()
+        .iter()
+        .any(|row| row.contains("F11")));
 
     let mut free = app(0);
     assert_eq!(key(&mut free, Key::EscapeHold), Effect::None);

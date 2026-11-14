@@ -203,6 +203,7 @@ impl Chronicler {
         let mut ordered: Vec<_> = facts.facts.iter().collect();
         ordered.sort_by_key(|fact| match fact {
             OutcomeFact::OwnAction { .. } => 0,
+            OutcomeFact::OwnWorkChanged { .. } => 4,
             OutcomeFact::ItemCompleted { .. }
             | OutcomeFact::ItemRefused { .. }
             | OutcomeFact::CurseBlocked { .. } => 1,
@@ -334,6 +335,7 @@ impl Chronicler {
                     }
                     self.status = Some(status.clone());
                 }
+                OutcomeFact::OwnWorkChanged { .. } => beats.push(Beat::ItemBegan(line.text)),
                 OutcomeFact::ItemCompleted { .. } => beats.push(Beat::ItemFinished(line.text)),
                 OutcomeFact::PublicPlan { .. } => beats.push(Beat::PublicPlan(line.text)),
                 OutcomeFact::Displaced => beats.push(Beat::Displaced),
