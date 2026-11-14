@@ -862,6 +862,96 @@ impl Engine {
         }
     }
 
+    pub(crate) fn outcome_work_changes(
+        &self,
+        result: &CommandResult,
+        actor: ActorId,
+        before: &tor_protocol::OutcomeObservation,
+    ) -> Vec<tor_protocol::OutcomeFact> {
+        use tor_protocol::{ItemWorkKind, OutcomeFact, OutcomeWork, OutcomeWorkChange};
+
+        let entry = &result.entry;
+        let admission = |id| {
+            let root = &self.archive.records[self.history_index.intention_admission(id)?].entry;
+            match &root.content {
+                JournalContent::IntentionAdmitted { action, .. }
+                    if root.actor == actor && action.advancement_basis().is_none() =>
+                {
+                    Some((IntentionId(root.id.0.clone()), action))
+                }
+                _ => None,
+            }
+        };
+        let replacement = match &entry.content {
+            JournalContent::IntentionStarted { intention, .. } if entry.actor == actor => {
+                admission(*intention).map(|(id, _)| id)
+            }
+            _ => None,
+        };
+        let subject = |action: &Action| {
+            if let Some((work, item)) =
+                ItemWorkKind::from_action(&self.encode_action(actor, action))
+            {
+                let name = before
+                    .inventory
+                    .iter()
+                    .find(|row| row.id == item)
+                    .map(|row| row.name.clone())
+                    .filter(|name| {
+                        !name.trim().is_empty()
+                            && name.len() <= 256
+                            && !name.chars().any(char::is_control)
+                    });
+                return OutcomeWork::Item { work, name };
+            }
+            if let Action::UseAbility { id, .. } = action {
+                if let Some(owner) = self.game.creature(SimActor(actor.0)) {
+                    if let Some(definition) = owner.build().ruleset().ability(id) {
+                        return if definition.basic_attack {
+                            OutcomeWork::Attack
+                        } else {
+                            OutcomeWork::Ability {
+                                name: definition.name.clone(),
+                            }
+                        };
+                    }
+                }
+            }
+            OutcomeWork::Action
+        };
+        let changes = entry.intention_ends.iter().filter(|end| end.actor == actor).filter_map(|end| {
+            let (intention, action) = admission(end.intention)?;
+            let change = match end.kind {
+                IntentionEndKind::Resolved => return None,
+                IntentionEndKind::Failed => OutcomeWorkChange::Failed,
+                IntentionEndKind::Cancelled => match &replacement {
+                    Some(next) if next != &intention => {
+                        // Re-admitting identical paid work continues the same preparation.
+                        if matches!(&entry.content, JournalContent::IntentionStarted { action: next_action, .. } if next_action == action) {
+                            return None;
+                        }
+                        OutcomeWorkChange::Replaced { replacement: next.clone() }
+                    }
+                    _ => OutcomeWorkChange::Cancelled,
+                },
+            };
+            Some(OutcomeFact::OwnWorkChanged { intention, work: subject(action), change })
+        });
+        let pauses = entry
+            .intention_suspensions
+            .iter()
+            .filter(|pause| pause.actor == actor)
+            .filter_map(|pause| {
+                let (intention, action) = admission(pause.intention)?;
+                Some(OutcomeFact::OwnWorkChanged {
+                    intention,
+                    work: subject(action),
+                    change: OutcomeWorkChange::Paused,
+                })
+            });
+        changes.chain(pauses).collect()
+    }
+
     pub(crate) fn intention_updates(&self, result: &CommandResult) -> Vec<IntentionStatus> {
         let mut updates: Vec<_> = result
             .entry

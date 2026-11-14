@@ -240,6 +240,9 @@ class DiscoveryProcesses(ProcessTestCase):
             "weapon": {"kind": "default"}}, "supplies": {"kind": "carried"}}
         searched = press("s", "search", wait_for_ready=True, wait_for_admission=True)
         self.assertEqual(search_actions(searched), [expected])
+        turn = searched["messages"]["turn"]
+        self.assertNotIn("prepare to use Search", turn)
+        self.assertNotIn("used Search on", turn)
         self.assertEqual(observation(searched)["position"], observation(initial)["position"])
         # Search can be causal-only: its accepted outcome does not force the
         # native client's demanded picture to refresh. Read an explicit fresh
@@ -339,6 +342,8 @@ class DiscoveryProcesses(ProcessTestCase):
 
         trapped = step("right")
         self.assertTrue(held(trapped))
+        self.assertIn("A bear trap snaps shut on your leg.", trapped["messages"]["turn"])
+        self.assertNotIn("You recognize a bear trap.", trapped["messages"]["turn"])
         current = trapped
         for _ in range(5):
             if not held(current):
@@ -349,6 +354,7 @@ class DiscoveryProcesses(ProcessTestCase):
             self.assertIn("struggle against the bear trap", after["messages"]["turn"])
             current = after
         self.assertFalse(held(current))
+        self.assertIn("You get free of the bear trap.", current["messages"]["turn"])
         self.assertNotEqual(underfoot(step("left")), underfoot(trapped))
 
     def test_native_selected_look_examines_only_discovered_adjacent_trap(self):

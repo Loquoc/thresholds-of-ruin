@@ -29,6 +29,7 @@ pub const MAX_PROFILES: usize = 32;
 pub const MAX_STAGES: usize = 32;
 pub const MAX_DEPTH_BANDS: usize = 32;
 pub const MAX_CHOICES: usize = 64;
+pub const MAX_ITEM_CHOICES: usize = 128;
 pub const MAX_ATTEMPTS: u16 = 256;
 pub const MAX_SCOPE_MEMBERS: usize = 64;
 pub const MAX_SCOPE_CELLS: usize = 65_536;
@@ -713,7 +714,7 @@ fn read_stages<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<PopulationS
 fn read_choices<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<Vec<T>, D::Error> {
-    Ok(crate::bounded::Bounded::<T, MAX_CHOICES>::deserialize(d)?.0)
+    Ok(crate::bounded::Bounded::<T, MAX_ITEM_CHOICES>::deserialize(d)?.0)
 }
 fn read_bands<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
@@ -813,6 +814,7 @@ fn label(s: &str) -> bool {
 }
 fn valid_bands<T>(
     bands: &[DepthBand<T>],
+    max_choices: usize,
     header: fn(&T) -> (&str, u32),
     mut valid: impl FnMut(&T) -> bool,
 ) -> bool {
@@ -829,7 +831,7 @@ fn valid_bands<T>(
             let mut total = 0u32;
             band.depth.valid()
                 && !band.choices.is_empty()
-                && band.choices.len() <= MAX_CHOICES
+                && band.choices.len() <= max_choices
                 && band.choices.iter().all(|choice| {
                     let (content, weight) = header(choice);
                     label(content)
@@ -1032,11 +1034,13 @@ impl PopulationPlan {
                                         && stage.maximum_attempts() <= usize::from(MAX_ATTEMPTS)
                                         && valid_bands(
                                             item_bands,
+                                            MAX_ITEM_CHOICES,
                                             |c| (&c.content, c.weight),
                                             |c| c.valid(game),
                                         )
                                         && valid_bands(
                                             actor_bands,
+                                            MAX_CHOICES,
                                             |c| (&c.content, c.weight),
                                             |c| {
                                                 c.turn_ticks > 0
@@ -1051,6 +1055,7 @@ impl PopulationPlan {
                                 }
                                 PopulationContent::Items { bands } => valid_bands(
                                     bands,
+                                    MAX_ITEM_CHOICES,
                                     |c| (&c.content, c.weight),
                                     |c| c.valid(game),
                                 ),
@@ -1060,6 +1065,7 @@ impl PopulationPlan {
                                         && chance.valid()
                                         && valid_bands(
                                             bands,
+                                            MAX_ITEM_CHOICES,
                                             |c| (&c.content, c.weight),
                                             |c| c.valid(game),
                                         )
@@ -1072,6 +1078,7 @@ impl PopulationPlan {
                                         && food.windows(2).all(|pair| pair[0] < pair[1])
                                         && valid_bands(
                                             bands,
+                                            MAX_ITEM_CHOICES,
                                             |c| (&c.content, c.weight),
                                             |c| c.valid(game),
                                         )
@@ -1081,12 +1088,14 @@ impl PopulationPlan {
                                         && chance.valid()
                                         && valid_bands(
                                             bands,
+                                            MAX_ITEM_CHOICES,
                                             |c| (&c.content, c.weight),
                                             |c| c.valid(game),
                                         )
                                 }
                                 PopulationContent::Actors { bands, .. } => valid_bands(
                                     bands,
+                                    MAX_CHOICES,
                                     |c| (&c.content, c.weight),
                                     |c| {
                                         c.turn_ticks > 0

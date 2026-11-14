@@ -252,8 +252,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertNotIn('"type":"combat_diagnostics"', "".join(owner.transcript).replace(" ", ""))
         self.polymorph_diagnostic_sample = sample
 
-    @non_graphical
-    def test_text_cursed_armor_enchantment_and_source_free_reopen(self):
+    def armor_package(self):
         package = self.package()
         path = package / "scenario.toml"
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -282,6 +281,27 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                    capture_output=True, text=True, encoding="utf-8", timeout=30)
         self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+        return package
+
+    def test_native_inventory_explains_known_armor_protection(self):
+        self.server(scenario=self.armor_package())
+        text, _ = self.adventure()
+        self.send(text, "read indigo page")
+        text.until(lambda line: "choose an item to identify" in line.lower())
+        probe, initial = self.client(observe=True)
+        worn = next(row["item"] for row in interactions(initial)["inventory"] if row["equipped_slot"] == 1)
+        self.send(text, "identify #" + worn)
+        text.until(lambda line: "you identify the ring mail" in line.lower())
+        text.stop()
+        window, _ = self.window()
+        inventory = self.key(window, "inventory")
+        worn = next(row for row in inventory["inventory_rows"] if "(being worn)" in row)
+        self.assertIn("Impact damage -1, Keen damage -1", worn)
+        self.assertNotIn("Scope:", worn)
+
+    @non_graphical
+    def test_text_cursed_armor_enchantment_and_source_free_reopen(self):
+        package = self.armor_package()
         server = self.server("--checkpoint-interval", 1, scenario=package)
         probe, initial = self.client(observe=True)
         text, _ = self.adventure()
@@ -542,6 +562,64 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(charges(reopened, wand["id"]), 2)
         self.assertEqual(observation(reopened)["combat"]["own_stats"]["attributes"]["strength"], 3)
         self.assertEqual(checkpoint(self, probe), saved, "reopening the native UI cannot pay twice")
+
+    def test_native_discoveries_retains_consumed_scroll_appearance(self):
+        package = self.package()
+        server = self.server(scenario=package)
+        owner, initial = self.client()
+        scroll = next(row["item"] for row in observation(initial)["ground_items"]
+                      if row["item"]["class"] == "scroll")
+        self.assertIsNone(self.act(owner, {"type": "take", "item": scroll["id"], "quantity": None})["error"])
+        frame = self.advance(owner, ())
+        for _ in range(3):
+            carried, = items(frame, "scroll")
+            self.assertIsNone(self.act(owner, {"type": "read", "item": carried["id"]})["error"])
+            choice = interactions(self.advance(owner, ()))["identification"]
+            self.assertIsNone(self.act(owner, {"type": "identify", "choice": choice["choice"],
+                                               "item": None})["error"])
+            frame = self.advance(owner, ())
+        self.assertEqual(items(frame, "scroll"), [])
+        self.assertIsNone(self.request(owner, {"type": "save"})["error"])
+        owner.stop()
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.server(seed=None)
+        window, before = self.window()
+        self.key(window, "commands")
+        window.write(json.dumps({"type": "text", "text": "discoveries"}))
+        self.ascii_frame(window, lambda f: f.get("command_line") == "discoveries")
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        page = self.ascii_frame(window, lambda f: f.get("discovery_rows") is not None and not f["busy"])
+        self.assertIn(f'{scroll["name"]} -> scroll of identify wand', page.get("discovery_rows") or [])
+        self.assertEqual(page["state"], before["state"])
+        self.key(window, "escape")
+        self.key(window, "commands")
+        window.write(json.dumps({"type": "text", "text": "discoveries"}))
+        self.ascii_frame(window, lambda f: f.get("command_line") == "discoveries")
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        reopened = self.ascii_frame(window, lambda f: f.get("discovery_rows") is not None and not f["busy"])
+        self.assertEqual(reopened["discovery_rows"], page["discovery_rows"])
+        self.assertEqual(reopened["discovery_rows"], [f'{scroll["name"]} -> scroll of identify wand'])
+
+    def test_native_identify_scroll_explains_empty_choice(self):
+        self.server(scenario=self.package())
+        owner, initial = self.client()
+        scroll = next(row["item"] for row in observation(initial)["ground_items"]
+                      if row["item"]["class"] == "scroll")
+        self.assertIsNone(self.act(owner, {"type": "take", "item": scroll["id"], "quantity": None})["error"])
+        self.advance(owner, ())
+        self.assertIsNone(self.request(owner, {"type": "release_control"})["error"])
+        window = self.launch("tor-client-ascii", ["--connect", self.address, "--automation"])
+        self.ascii_frame(window, lambda frame: frame["has_control"] and not frame["busy"])
+        self.key(window, "read")
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        choice = self.ascii_frame(window, lambda frame: frame.get("identification") is not None)
+        self.assertEqual(choice["identification"]["classes"], ["wand"])
+        self.assertEqual(choice["identification_rows"], [])
+        self.assertEqual(choice.get("identification_empty_message"),
+                         "No wands in your pack can be identified.")
+        self.assertNotIn("It was an item.", choice["messages"]["turn"])
+        self.key(window, "escape")
 
     def test_native_paid_choice_reopens_and_direction_cancel_keeps_exact_charges(self):
         package = self.package()

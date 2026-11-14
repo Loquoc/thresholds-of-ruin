@@ -234,6 +234,7 @@ CLIENT = [
         {"type": "snapshot"},
         {"type": "observe"},
         {"type": "palette"},
+        {"type": "discoveries"},
         {"type": "map", "query": {
             "context": {"stream": "sample-attachment", "epoch": "1"},
             "branch": "branch-1", "base": {"snapshot": "sample-issued-snapshot", "cursor": {"sequence": "1", "tick": "1"}, "revision": "3"},
@@ -925,6 +926,8 @@ class Recorder(ProcessTestCase):
         self.frame(player, lambda f: f.get("travel") and f["travel"]["phase"] != "active")
         self.request(player, {"type": "release_control"})
         self.request(watcher, {"type": "snapshot"})
+        discoveries = self.request(watcher, {"type": "discoveries"})
+        self.assertIsNone(discoveries["error"])
         # The headless client consumes the welcome itself, so it's written here.
         server_samples = {"welcome": {"type": "welcome", "protocol": PROTOCOL, "user": "sample-user",
                                       "actors": ["1"], "role": "player", "capabilities": initial["capabilities"]}}
@@ -1130,6 +1133,11 @@ class Recorder(ProcessTestCase):
         self.record_scare_crumble(server_samples)
         self.record_noticed(server_samples)
         self.record_observer_door(server_samples)
+        from test_ascii_messages_process import AsciiMessageProcesses
+        server_samples["zz.work_replacement"] = run_recording_case(
+            AsciiMessageProcesses("test_drinking_replaces_a_suspended_attack_in_one_message"),
+            "work_replacement_sample",
+        )
         self.server_samples = server_samples
 
 

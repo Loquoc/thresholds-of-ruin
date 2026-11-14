@@ -1731,10 +1731,10 @@ fn map_look_and_inventory_share_assets_without_renaming_disclosed_things() {
         .iter()
         .find(|tile| tile.kind == map::Kind::Creature)
         .unwrap();
-    assert_eq!(actor.glyph, 'u');
+    assert_eq!(actor.glyph, 'Q');
     assert_eq!(
         tor_client_ascii::describe(state, &app.palette, 2, 0),
-        "u - a ruin scout (hostile, wounded)."
+        "Q - a ruin scout (hostile, wounded)."
     );
     let item = tiles
         .iter()

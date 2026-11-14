@@ -15,7 +15,7 @@ fn synthetic_digest(index: u64) -> [u8; 32] {
 
 fn views(count: usize, case: &str) -> (StateView, StateView) {
     let fixture = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v70.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v71.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");

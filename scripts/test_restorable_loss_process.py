@@ -175,6 +175,16 @@ class RestorableLossAsciiProcesses(LossHelpers, ProcessTestCase):
         self.assertEqual(u64(combat(final)["own_stats"]["hit_dice"]["total"]), 3)
         self.assertTrue(final["window_open"])
 
+    def test_native_messages_report_new_strength_loss(self):
+        self.server(scenario=prepare(self), seed=ZERO_WORD_SEED)
+        player, _ = self.client()
+        window, initial = self.window(token=SPECTATOR_TOKEN, observe=True)
+        self.assertEqual(losses(initial)["attributes"]["strength"], 0)
+        self.apply_losses(player)
+        weakened = self.ascii_frame(window, lambda frame: frame.get("state")
+                                    and losses(frame)["attributes"]["strength"] > 0)
+        self.assertIn("You feel weaker.", weakened["messages"]["turn"])
+
     def test_native_stats_and_drink_present_the_same_restorable_deficit(self):
         package = prepare(self)
         self.server(scenario=package, seed=ZERO_WORD_SEED)

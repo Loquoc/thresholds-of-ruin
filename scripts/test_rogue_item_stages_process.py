@@ -48,17 +48,39 @@ class RogueItemStageProcesses(ProcessTestCase):
             with self.subTest(edit=edit.__name__):
                 self.assertNotEqual(self.check(edit).returncode, 0)
 
+    def test_compiler_accepts_all_rogue_item_choices_in_one_stage(self):
+        def verify_table(stages):
+            self.assertNotIn("rogue.items_other", stages)
+            self.assertEqual(len(stages["rogue.items"]["bands"][0]["choices"]), 79)
+
+        accepted = self.check(verify_table)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+
+    def test_wide_rogue_item_tables_survive_without_scenario_sources(self):
+        package = self.directory / "rogue-wide-table"
+        shutil.copytree(ROOT / "scenarios/rogue", package)
+        server = self.server(scenario=package, seed=42)
+        owner, initial = self.client()
+        self.assertIsNone(self.request(owner, {"type": "save"})["error"])
+        owner.stop()
+        server.stop(save=False)
+
+        shutil.rmtree(package)
+        self.server(scenario=ROOT / "scenarios/two-room", seed=None)
+        _, reopened = self.client()
+        self.assertDisclosedStateEqual(reopened["state"], initial["state"])
+
     def test_grouped_missiles_use_their_own_quantity(self):
         def choice(stages, archetype):
             # Assert the intended operand exists before testing its validation.
             # Generated arrows use a distinct authoring recipe from trap ammo.
-            matches = [row for row in stages["rogue.items_other"]["bands"][0]["choices"]
+            matches = [row for row in stages["rogue.items"]["bands"][0]["choices"]
                        if row["archetype"] == archetype]
             self.assertEqual(len(matches), 1, archetype)
             return matches[0]
 
         def inherited_quantities(stages):
-            for row in stages["rogue.items_other"]["bands"][0]["choices"]:
+            for row in stages["rogue.items"]["bands"][0]["choices"]:
                 row.pop("quantity", None)
         accepted = self.check(inherited_quantities)
         self.assertEqual(accepted.returncode, 0, accepted.stderr)

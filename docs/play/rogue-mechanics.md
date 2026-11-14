@@ -145,14 +145,10 @@ rules still apply; this adds neither free expertise nor extra starter stock.
 
 ## Live content and layout policy
 
-The live package appends `rogue.expanded_stock` and `rogue.treasure_room` after
-all existing floor stages. Existing stage identities, relative order, weights,
-starting kits and rules stay intact; the new stages supply additional finite
-stock, not replacements. Frequencies are explicitly provisional conservative
-activation choices, not a completed balance campaign or exact Rogue parity.
+The live package rolls ordinary floor stock from one weighted item table.
 The [population reference](../reference/scenario-packages.md#live-rogue-content-policy)
-owns the exact item choices, weights and counts. Failed placement remains a saved
-skip; return visits and restarts never reroll or replenish these stages.
+describes the ordinary loot, food drought and treasure stages. Failed placements are
+recorded, and revisits and restarts preserve the outcome.
 
 The dungeon also enables zero or one omitted room slot per floor and a 1-in-15
 maze trial for each eligible dark room. Protected stairs, trap capacity and the

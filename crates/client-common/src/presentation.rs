@@ -397,6 +397,81 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                 },
             ),
             (
+                "creature.fey.leprechaun",
+                Presentation {
+                    noun: NounForms {
+                        message_key: "presentation.creature.fey.leprechaun.noun",
+                        singular: "leprechaun",
+                        plural: "leprechauns",
+                        indefinite: "a leprechaun",
+                    },
+                    ascii: AsciiAppearance {
+                        glyph: 'L',
+                        color: 0x67d8bd,
+                    },
+                },
+            ),
+            (
+                "creature.fey.nymph",
+                Presentation {
+                    noun: NounForms {
+                        message_key: "presentation.creature.fey.nymph.noun",
+                        singular: "nymph",
+                        plural: "nymphs",
+                        indefinite: "a nymph",
+                    },
+                    ascii: AsciiAppearance {
+                        glyph: 'N',
+                        color: 0xf2a8c1,
+                    },
+                },
+            ),
+            (
+                "creature.medusa",
+                Presentation {
+                    noun: NounForms {
+                        message_key: "presentation.creature.medusa.noun",
+                        singular: "medusa",
+                        plural: "medusas",
+                        indefinite: "a medusa",
+                    },
+                    ascii: AsciiAppearance {
+                        glyph: 'M',
+                        color: 0x8fb84f,
+                    },
+                },
+            ),
+            (
+                "creature.undead.phantom",
+                Presentation {
+                    noun: NounForms {
+                        message_key: "presentation.creature.undead.phantom.noun",
+                        singular: "phantom",
+                        plural: "phantoms",
+                        indefinite: "a phantom",
+                    },
+                    ascii: AsciiAppearance {
+                        glyph: 'P',
+                        color: 0xaab9ca,
+                    },
+                },
+            ),
+            (
+                "creature.xeroc",
+                Presentation {
+                    noun: NounForms {
+                        message_key: "presentation.creature.xeroc.noun",
+                        singular: "xeroc",
+                        plural: "xerocs",
+                        indefinite: "a xeroc",
+                    },
+                    ascii: AsciiAppearance {
+                        glyph: 'X',
+                        color: 0xae8f6d,
+                    },
+                },
+            ),
+            (
                 "creature.equine.quagga",
                 Presentation {
                     noun: NounForms {
@@ -406,7 +481,7 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                         indefinite: "a quagga",
                     },
                     ascii: AsciiAppearance {
-                        glyph: 'u',
+                        glyph: 'Q',
                         color: 0xa58f6c,
                     },
                 },
@@ -436,7 +511,7 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                         indefinite: "a black unicorn",
                     },
                     ascii: AsciiAppearance {
-                        glyph: 'u',
+                        glyph: 'U',
                         color: 0x869ba9,
                     },
                 },
@@ -526,7 +601,7 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                         indefinite: "an ice creature",
                     },
                     ascii: AsciiAppearance {
-                        glyph: 'E',
+                        glyph: 'I',
                         color: 0x8cbafa,
                     },
                 },
@@ -839,6 +914,52 @@ mod tests {
     }
 
     #[test]
+    fn rogue_roster_assets_have_distinct_classic_letters() {
+        let assets = [
+            ("creature.bird.emu", 'E'),
+            ("creature.serpent.snake", 'S'),
+            ("creature.serpent.rattlesnake", 'R'),
+            ("creature.goblin.hobgoblin", 'H'),
+            ("creature.undead.zombie", 'Z'),
+            ("creature.equine.quagga", 'Q'),
+            ("creature.centaur", 'C'),
+            ("creature.ape.yeti", 'Y'),
+            ("creature.troll", 'T'),
+            ("creature.equine.unicorn.black", 'U'),
+            ("creature.elemental.ice", 'I'),
+            ("creature.undead.vampire", 'V'),
+            ("creature.undead.wraith", 'W'),
+            ("creature.jabberwock", 'J'),
+            ("creature.bat", 'B'),
+            ("creature.bird.kestrel", 'K'),
+            ("creature.plant.venus.flytrap", 'F'),
+            ("creature.griffin", 'G'),
+            ("creature.fey.leprechaun", 'L'),
+            ("creature.fey.nymph", 'N'),
+            ("creature.humanoid.orc", 'O'),
+            ("creature.medusa", 'M'),
+            ("creature.undead.phantom", 'P'),
+            ("creature.xeroc", 'X'),
+            ("creature.aquator", 'A'),
+            ("creature.dragon", 'D'),
+        ];
+        let mut palette = Palette::default();
+        palette.apply(&PaletteUpdate {
+            revision: 1,
+            body: PaletteBody::Full {
+                assets: assets.iter().map(|(asset, _)| (*asset).into()).collect(),
+            },
+        });
+        for (asset, glyph) in assets {
+            assert_eq!(
+                resolve(&palette, Some(asset)).unwrap().ascii.glyph,
+                glyph,
+                "{asset}"
+            );
+        }
+    }
+
+    #[test]
     fn vocabulary_is_shared_keyed_and_falls_back_only_inside_a_current_palette() {
         let asset = "creature.equine.quagga.unfamiliar";
         let mut palette = Palette::default();
@@ -865,7 +986,7 @@ mod tests {
             jabberwock.noun.message_key,
             "presentation.creature.jabberwock.noun"
         );
-        assert_eq!(entry.ascii.glyph, 'u');
+        assert_eq!(entry.ascii.glyph, 'Q');
         assert_eq!(entry.noun.singular, "quagga");
         assert_eq!(entry.noun.plural, "quaggas");
         assert_eq!(entry.noun.indefinite, "a quagga");
@@ -891,7 +1012,7 @@ mod tests {
                 assets: [asset.to_owned()].into(),
             },
         });
-        assert_eq!(resolve(&palette, Some(asset)).unwrap().ascii.glyph, 'u');
+        assert_eq!(resolve(&palette, Some(asset)).unwrap().ascii.glyph, 'Q');
         assert!(resolve(&palette, Some("creature.jabberwock")).is_none());
     }
 }

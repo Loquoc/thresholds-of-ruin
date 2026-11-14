@@ -2450,7 +2450,8 @@ fn creature_catalog_is_private_scrollable_and_has_no_strike_binding() {
 
 #[test]
 fn wizard_creature_catalog_is_discoverable_in_ascii_help() {
-    assert!(tor_client_ascii::HELP
+    assert!(tor_client_ascii::HelpPage::HistoryAndReports
+        .rows()
         .iter()
         .any(|line| line.contains("F7") && line.contains("creature list")));
 }
