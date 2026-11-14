@@ -1498,6 +1498,20 @@ required on the final commit before merging.
 
 ### Formats and fixtures
 
+Every protocol (wire) or save/archive version update must add a corresponding
+new versioned golden fixture to the repository in the same change as the version
+update. This is required for every such version increment, including when the
+only serialized difference is the version field. Record
+`crates/protocol/tests/fixtures/wire-v<version>.json` for each wire version and
+`crates/server/fixtures/saved-scenarios-v<version>.json` for each save/archive
+version using the real recorder or current storage writer described below.
+Review and commit the generated fixture, then run the ordinary comparisons with
+recording disabled. A locally generated, uncommitted fixture is not sufficient;
+neither is reusing, renaming, relabeling or rewriting a published older fixture.
+Historical fixtures remain byte-for-byte unchanged. These requirements concern
+serialized-contract versions, not dependency package versions. Independently
+versioned fixture schemas retain their own versioning rules below.
+
 Polymorph's current wire book also requires a genuine known `direction_or_self`
 affordance and a paid `baleful_polymorph` diagnostic with only `target` and
 `changed`, not merely an older snapshot/diagnostic message kind. The recorder

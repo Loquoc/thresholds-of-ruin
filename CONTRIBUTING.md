@@ -87,8 +87,13 @@ The project is pre-release, so it supports only the **current** protocol, save
 format, and ruleset. They're listed in the
 [roadmap](docs/status.md#implemented-scope).
 
+- Every protocol (wire) or save/archive version update must add and commit a
+  corresponding new versioned golden fixture in the same change. Generate it
+  with the real current recorder or writer, review it, and preserve all previously
+  published fixture bytes unchanged. See [formats and fixtures](docs/development/testing.md#formats-and-fixtures).
 - When a format changes, update callers, fixtures, scenario certificates, and
-  documentation together.
+  documentation together. These are serialized-contract version requirements,
+  not requirements for dependency package version updates.
 - Saves are disposable across revisions. Don't add importers, compatibility
   readers, historical rules implementations, or defaults just to load old saves.
 - Keep version rejection and strict replay checks.
