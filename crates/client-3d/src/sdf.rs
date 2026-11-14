@@ -135,6 +135,14 @@ impl Sculpt {
         self.evaluate_among::<false>(p, steps).distance
     }
 
+    /// Conservative field range over a ball, including ordered carved holes.
+    pub(crate) fn field_bounds(&self, center: Vec3, radius: f32) -> (f32, f32) {
+        if !center.is_finite() || !radius.is_finite() || radius < 0.0 {
+            return (f32::NEG_INFINITY, f32::INFINITY);
+        }
+        self.steps_near(center, radius, &mut Vec::new())
+    }
+
     /// The steps that can shape the field anywhere within `radius` of
     /// `center`, written to `out` in order, and the range the field takes
     /// there. The field is followed as an interval through the steps: an

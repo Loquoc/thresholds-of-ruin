@@ -23,6 +23,7 @@ pub(crate) struct ContactTrace {
     /// Retain traversed geometry through all load-only closure iterations.
     /// These are residency dependencies, never ACTIVE population roots.
     pub regions: BTreeSet<RegionId>,
+    pub segments: Vec<Vec<Location>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,51 +52,58 @@ impl Game {
             return Err(ContactTraceError::InvalidOrigin);
         }
         let mut at = origin;
+        let mut segments = vec![vec![origin]];
         let mut exited_source = false;
         let mut seen = BTreeSet::new();
         let mut regions = BTreeSet::from([origin.region]);
-        let end =
-            loop {
-                let state = (at, direction, exited_source);
-                if seen.contains(&state) {
-                    break ContactEnd::Cycle;
-                }
-                if seen.len() == max_states {
-                    return Err(ContactTraceError::WorkLimit);
-                }
-                seen.insert(state);
-                let (step, dependencies) = self.world.ray_step_dependencies(at, direction);
-                regions.extend(dependencies.iter().copied());
-                let missing: BTreeSet<_> = dependencies
-                    .into_iter()
-                    .filter(|region| self.world.region(*region).is_none())
-                    .collect();
-                if !missing.is_empty() {
-                    regions.extend(missing.iter().copied());
-                    break ContactEnd::NeedsRegions(missing);
-                }
-                match step {
-                    RayStep::Solid | RayStep::Ambiguous => break ContactEnd::Obstruction,
-                    RayStep::Unavailable => break ContactEnd::Frontier,
-                    RayStep::Clear { to, rotation } => {
-                        at = to;
-                        direction = direction.rotated(rotation);
-                        regions.insert(at.region);
-                        if launch_footprint.binary_search(&at).is_err() {
-                            exited_source = true;
-                        }
-                        // Contact is occupancy, not combat eligibility or observer sight.
-                        // Loaded frozen bodies and noncombat bodies are real interceptors.
-                        if let Some(target) =
-                            self.actors.at(&self.world, at).keys().copied().find(|id| {
-                                self.actors[id].alive() && (*id != actor || exited_source)
-                            })
-                        {
-                            break ContactEnd::Body(target);
-                        }
+        let end = loop {
+            let state = (at, direction, exited_source);
+            if seen.contains(&state) {
+                break ContactEnd::Cycle;
+            }
+            if seen.len() == max_states {
+                return Err(ContactTraceError::WorkLimit);
+            }
+            seen.insert(state);
+            let (step, dependencies) = self.world.ray_step_dependencies(at, direction);
+            regions.extend(dependencies.iter().copied());
+            let missing: BTreeSet<_> = dependencies
+                .into_iter()
+                .filter(|region| self.world.region(*region).is_none())
+                .collect();
+            if !missing.is_empty() {
+                regions.extend(missing.iter().copied());
+                break ContactEnd::NeedsRegions(missing);
+            }
+            match step {
+                RayStep::Solid | RayStep::Ambiguous => break ContactEnd::Obstruction,
+                RayStep::Unavailable => break ContactEnd::Frontier,
+                RayStep::Clear { to, rotation } => {
+                    super::spatial_delivery::push_step(&mut segments, at, to, direction, rotation);
+                    at = to;
+                    direction = direction.rotated(rotation);
+                    regions.insert(at.region);
+                    if launch_footprint.binary_search(&at).is_err() {
+                        exited_source = true;
+                    }
+                    // Contact is occupancy, not combat eligibility or observer sight.
+                    // Loaded frozen bodies and noncombat bodies are real interceptors.
+                    if let Some(target) = self
+                        .actors
+                        .at(&self.world, at)
+                        .keys()
+                        .copied()
+                        .find(|id| self.actors[id].alive() && (*id != actor || exited_source))
+                    {
+                        break ContactEnd::Body(target);
                     }
                 }
-            };
-        Ok(ContactTrace { end, regions })
+            }
+        };
+        Ok(ContactTrace {
+            end,
+            regions,
+            segments,
+        })
     }
 }

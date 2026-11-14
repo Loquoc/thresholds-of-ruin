@@ -870,7 +870,25 @@ fn public_plan_review_visible_source_only_effect_still_discloses_and_licenses() 
         .combat
         .unwrap()
         .events;
-    assert!(matches!(events.as_slice(), [
+    assert_eq!(
+        events.len(),
+        2,
+        "one spatial receipt and one resolved outcome"
+    );
+    assert_eq!(events.iter().filter(|event| matches!(event,
+        tor_simulation::combat::DisclosedCombatEvent::Effect {caster: Some(SimActor(1)), ability: Some((id, _)), ..}
+        if id.as_str() == "fixture_observe_plan")).count(), 1);
+    let activities: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            !matches!(
+                event,
+                tor_simulation::combat::DisclosedCombatEvent::Effect { .. }
+            )
+        })
+        .cloned()
+        .collect();
+    assert!(matches!(activities.as_slice(), [
         tor_simulation::combat::DisclosedCombatEvent::Ability {
             caster: Some(SimActor(1)),
             target: Some(SimActor(2)),
@@ -1165,8 +1183,27 @@ fn public_plan_previously_learned_technique_survives_anonymous_target_sensation(
         .combat
         .unwrap()
         .events;
+    assert_eq!(
+        disclosed.len(),
+        2,
+        "one spatial receipt and one resolved outcome"
+    );
+    assert_eq!(
+        disclosed
+            .iter()
+            .filter(|event| matches!(event,
+        DisclosedCombatEvent::Effect {caster: Some(SimActor(1)), ability: Some((id, _)), ..}
+        if id.as_str() == "fixture_observe_plan"))
+            .count(),
+        1
+    );
+    let activities: Vec<_> = disclosed
+        .iter()
+        .filter(|event| !matches!(event, DisclosedCombatEvent::Effect { .. }))
+        .cloned()
+        .collect();
     assert!(
-        matches!(disclosed.as_slice(), [DisclosedCombatEvent::Ability {
+        matches!(activities.as_slice(), [DisclosedCombatEvent::Ability {
         caster: Some(SimActor(1)), target: Some(SimActor(2)), id,
         outcome: OutcomeStatus::Unaffected, strike: Some(0), ..
     }] if id.as_str() == "fixture_observe_plan")

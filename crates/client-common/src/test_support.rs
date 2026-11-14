@@ -97,6 +97,7 @@ pub fn stats() -> OwnStats {
 }
 pub fn observation() -> Observation {
     Observation {
+        public_effects: vec![],
         self_appearance: None,
         interactions: None,
         combat: Some(CombatView {

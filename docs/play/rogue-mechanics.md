@@ -174,8 +174,9 @@ balance or survival qualification for these newly enabled floors.
 Fruit, darts and shuriken can appear in supplemental floor stock and treasure
 rooms, but are not added to starting kits. Fruit is named
 ordinary food: take it and `eat fruit` with the same one-unit nutrition rules as
-a ration. Darts and shuriken are real weapons; acquire Knife expertise ordinarily
-and select a carried stack in Throw to spend exactly one free unit. Wielding
+a ration. Use Throw with a carried dart to spend one free unit. Dart expertise
+increases the range from 15/45 to 20/60 feet. Knife expertise unlocks Throw for
+shuriken. Wielding
 requires a singleton, but throwing does not require wielding. Hits consume the
 unit; misses may leave recoverable stock under ordinary landing rules. Dagger
 recovery and arrow behavior are unchanged.

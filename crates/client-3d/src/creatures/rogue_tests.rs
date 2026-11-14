@@ -1676,6 +1676,35 @@ fn long_hair_hangs_where_it_did_and_swings_smoothly_as_she_moves() {
     }
 }
 
+fn assert_joint_pigment(look: &Look, joint: J, color: Vec3) {
+    let linear = Color::srgb(color.x, color.y, color.z).to_linear();
+    let expected = Vec3::new(linear.red, linear.green, linear.blue).normalize();
+    let (world, rig, _, meshes) = spawn_one(look);
+    let mut stack = vec![rig.joint(joint).unwrap()];
+    let mut colors = Vec::new();
+    while let Some(entity) = stack.pop() {
+        if let Some(mesh) = world.get::<Mesh3d>(entity).and_then(|m| meshes.get(&m.0)) {
+            if let Some(bevy::render::mesh::VertexAttributeValues::Float32x4(values)) =
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+            {
+                colors.extend(values.iter().map(|c| Vec3::new(c[0], c[1], c[2])));
+            }
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    assert!(colors.len() > 100, "{joint:?}: no meaningful mesh witness");
+    let matching = colors
+        .iter()
+        .filter(|c| c.normalize().distance(expected) < 0.0001)
+        .count();
+    assert!(
+        matching > 100,
+        "{joint:?}: expected pigment {color:?}, found {matching} vertices"
+    );
+}
+
 #[test]
 fn transferred_bare_surfaces_use_the_recipient_skin_without_recoloring_cloth() {
     let mut donor = Look::with_choice(
@@ -1699,44 +1728,400 @@ fn transferred_bare_surfaces_use_the_recipient_skin_without_recoloring_cloth() {
     );
     recipient.skin = Vec3::new(0.72, 0.35, 0.23);
     recipient.outfit = Some(outfit::Outfit::native(&donor));
-    let has_pigment = |look: &Look, joint, color: Vec3| {
-        let linear = Color::srgb(color.x, color.y, color.z).to_linear();
-        let expected = Vec3::new(linear.red, linear.green, linear.blue).normalize();
-        let (world, rig, _, meshes) = spawn_one(look);
-        let mut stack = vec![rig.joint(joint).unwrap()];
-        let mut colors = Vec::new();
-        while let Some(entity) = stack.pop() {
-            if let Some(mesh) = world.get::<Mesh3d>(entity).and_then(|m| meshes.get(&m.0)) {
-                if let Some(bevy::render::mesh::VertexAttributeValues::Float32x4(values)) =
-                    mesh.attribute(Mesh::ATTRIBUTE_COLOR)
-                {
-                    colors.extend(values.iter().map(|c| Vec3::new(c[0], c[1], c[2])));
-                }
-            }
-            if let Some(children) = world.get::<Children>(entity) {
-                stack.extend(children.iter());
-            }
-        }
-        assert!(colors.len() > 100, "{joint:?}: no meaningful mesh witness");
-        let matching = colors
-            .iter()
-            .filter(|c| c.normalize().distance(expected) < 0.0001)
-            .count();
-        assert!(
-            matching > 100,
-            "{joint:?}: expected pigment {color:?}, found {matching} vertices"
-        );
-    };
     for joint in [J::HandL, J::LegL, J::FootL] {
-        has_pigment(&recipient, joint, recipient.skin);
+        assert_joint_pigment(&recipient, joint, recipient.skin);
     }
     // The same numeric donor pigment can be authored cloth. It must stay fixed.
     recipient.outfit.as_mut().unwrap().legs = outfit::Legs::Trousers(donor.skin);
-    has_pigment(&recipient, J::LegL, donor.skin);
+    assert_joint_pigment(&recipient, J::LegL, donor.skin);
     let mut equipment = Equipment::default();
     equipment.select("boots").unwrap();
     let restored = recipient.equipped(equipment).equipped(Equipment::default());
-    has_pigment(&restored, J::FootL, restored.skin);
+    assert_joint_pigment(&restored, J::FootL, restored.skin);
+}
+
+#[test]
+fn copied_native_boots_keep_wearer_skin_and_fixed_leather_distinct() {
+    let assert_foot = |look: &Look, expected: Vec3| {
+        let mut reference = look.clone();
+        let mut recipe = outfit::Composition::resolve(look).outfit;
+        let outfit::Feet::Boots(ref mut boots) = recipe.feet else {
+            panic!("boot witness")
+        };
+        boots.color = outfit::Pigment::Fixed(expected);
+        reference.outfit = Some(recipe);
+        // The fixed-color reference uses the same actual geometry, not a guessed
+        // vertex quota; rounded footwear shades many vertices independently.
+        reference.equipment = Equipment::default();
+        let actual = joint_surface_samples(look, J::FootL);
+        let expected = joint_surface_samples(&reference, J::FootL);
+        assert!(actual.len() > 100 && expected.len() > 100);
+        let actual = surface_signature(actual);
+        assert_eq!(actual, surface_signature(expected));
+        let outfit::Feet::Boots(ref mut boots) = reference.outfit.as_mut().unwrap().feet else {
+            panic!("boot negative control")
+        };
+        boots.color = outfit::Pigment::Fixed(Vec3::new(0.02, 0.03, 0.94));
+        assert_ne!(
+            actual,
+            surface_signature(joint_surface_samples(&reference, J::FootL)),
+            "the foot witness must detect an unrelated fixed color"
+        );
+    };
+    for (model, shade) in [
+        (CreatureModel::Zombie, 0.8),
+        (CreatureModel::Guardian, 0.85),
+        (CreatureModel::Yeti, 1.0),
+    ] {
+        let mut donor = Look::of(model, 42);
+        donor.skin = Vec3::new(0.1, 0.65, 0.2);
+        let mut wearer = Look::of(CreatureModel::Human, 91);
+        wearer.skin = Vec3::new(0.72, 0.35, 0.23);
+        wearer.outfit = Some(outfit::Outfit::native(&donor));
+        assert_foot(&wearer, wearer.skin * shade);
+        let mut gear = Equipment::default();
+        gear.select("boots").unwrap();
+        let covered = wearer.clone().equipped(gear);
+        assert_eq!(
+            outfit::Composition::resolve(&covered)
+                .outfit
+                .boot(covered.skin),
+            LEATHER * 0.75
+        );
+        let restored = covered.equipped(Equipment::default());
+        assert_foot(&restored, restored.skin * shade);
+        let outfit::Feet::Boots(ref mut boots) = wearer.outfit.as_mut().unwrap().feet else {
+            panic!("native boot recipe")
+        };
+        boots.color = outfit::Pigment::Fixed(donor.skin * shade);
+        assert_foot(&wearer, donor.skin * shade);
+    }
+}
+
+#[test]
+fn custom_belt_hardware_follows_its_band_frame_across_recipes() {
+    let pigment = Vec3::new(0.11, 0.91, 0.67);
+    let linear = Color::srgb(pigment.x, pigment.y, pigment.z).to_linear();
+    let tag = Vec3::new(linear.red, linear.green, linear.blue).normalize();
+    let count = |look: &Look, joint| {
+        joint_surface_samples(look, joint)
+            .iter()
+            .filter(|(_, c)| c.normalize().distance(tag) < 0.0001)
+            .count()
+    };
+    for model in [CreatureModel::Human, CreatureModel::Orc] {
+        let look = Look::with_choice(
+            model,
+            42,
+            Some(Variant {
+                woman: true,
+                build: 2,
+                ..default()
+            }),
+        );
+        for fitted in [false, true] {
+            for belt in [false, true] {
+                let mut dressed = look.clone().dressed(Wardrobe::Commoner);
+                let mut recipe = if fitted {
+                    outfit::Outfit::native(&Look::with_choice(CreatureModel::Mage, 42, None))
+                } else {
+                    outfit::Outfit::worn(&dressed)
+                };
+                assert_eq!(recipe.robe.is_some(), fitted);
+                recipe.belt = belt;
+                recipe.details.hip = Some(outfit::HipDecoration::BucklePouch {
+                    metal: pigment,
+                    pouch: LEATHER,
+                });
+                dressed.outfit = Some(recipe);
+                let (owner, other) = if fitted {
+                    (J::Hips, J::Torso)
+                } else {
+                    (J::Torso, J::Hips)
+                };
+                assert!(
+                    count(&dressed, owner) > 24,
+                    "custom hardware survives on belt owner"
+                );
+                assert_eq!(
+                    count(&dressed, other),
+                    0,
+                    "hardware must not attach to another moving joint"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn custom_belt_hardware_replaces_the_default_buckle() {
+    let look = Look::with_choice(CreatureModel::Leprechaun, 42, None);
+    let color = Color::srgb(0.74, 0.5, 0.26).to_linear();
+    let default_buckle = Vec3::new(color.red, color.green, color.blue).normalize();
+    let count = |look: &Look| {
+        let points = joint_surface_samples(look, J::Torso);
+        assert!(points.len() > 100);
+        points
+            .iter()
+            .filter(|(_, c)| c.normalize().distance(default_buckle) < 0.0001)
+            .count()
+    };
+    let mut plain = look.clone();
+    let mut recipe = outfit::Outfit::native(&look);
+    recipe.details.hip = None;
+    plain.outfit = Some(recipe);
+    assert!(
+        count(&plain) > 12,
+        "positive control must contain ordinary belt hardware"
+    );
+    assert_eq!(
+        count(&look),
+        0,
+        "custom buckle must replace rather than overlap default hardware"
+    );
+}
+
+#[test]
+fn closed_troll_boots_have_no_detached_claws_below_the_sole() {
+    let mut boots = Equipment::default();
+    boots.select("boots").unwrap();
+    let look = Look::of(CreatureModel::Troll, 42).equipped(boots);
+    let points = joint_surface_samples(&look, J::FootL);
+    assert!(points.len() > 100);
+    let lowest = points
+        .iter()
+        .map(|(p, _)| p.y)
+        .fold(f32::INFINITY, f32::min);
+    assert!(
+        lowest > -0.12,
+        "closed boot has detached anatomy below its sole: {lowest}"
+    );
+}
+
+#[test]
+fn toe_claws_follow_resolved_foot_coverage_and_restore_on_removal() {
+    let linear = Color::srgb(BONE.x, BONE.y, BONE.z).to_linear();
+    let bone = Vec3::new(linear.red, linear.green, linear.blue).normalize();
+    let samples = |look: &Look| {
+        let points = joint_surface_samples(look, J::FootL);
+        assert!(points.len() > 100);
+        assert!(points.iter().all(|(p, _)| p.is_finite() && p.y > -0.12));
+        let claws: Vec<_> = points
+            .iter()
+            .filter(|(_, c)| c.normalize().distance(bone) < 0.001)
+            .map(|(p, _)| *p)
+            .collect();
+        (surface_signature(points), claws)
+    };
+    for woman in [false, true] {
+        for build in [0, 2] {
+            let native = Look::with_choice(
+                CreatureModel::Troll,
+                42,
+                Some(Variant {
+                    woman,
+                    build,
+                    ..default()
+                }),
+            );
+            let (original, claws) = samples(&native);
+            assert!(
+                claws.len() >= 12,
+                "bare Troll must retain visible claw geometry"
+            );
+            for name in ["boots", "combat-boots"] {
+                let mut gear = Equipment::default();
+                gear.select(name).unwrap();
+                let dressed = native.clone().equipped(gear);
+                assert!(
+                    samples(&dressed).1.is_empty(),
+                    "{name}: closed footwear covers claws"
+                );
+                assert_eq!(samples(&dressed.equipped(Equipment::default())).0, original);
+            }
+            assert!(samples(&native.clone().dressed(Wardrobe::Ranger))
+                .1
+                .is_empty());
+            for sandal in [false, true] {
+                let mut look = native.clone();
+                let mut recipe = outfit::Outfit::native(&look);
+                recipe.feet = outfit::Feet::Shoes(outfit::Shoes {
+                    color: Vec3::new(0.03, 0.08, 0.7),
+                    heel: woman,
+                    sandal,
+                    straps: 0.0,
+                });
+                look.outfit = Some(recipe);
+                let (_, claws) = samples(&look);
+                if sandal {
+                    assert!(claws.len() >= 12, "sandals retain exposed toe anatomy");
+                    // All three claw lanes must survive the surface query, not
+                    // merely a left/right pair after a missed centre ray.
+                    let lowest = claws.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+                    let lanes: std::collections::BTreeSet<_> = claws
+                        .iter()
+                        .filter(|p| (p.y - lowest).abs() < 0.00001)
+                        .map(|p| (p.x * 10000.0).round() as i32)
+                        .collect();
+                    assert_eq!(lanes.len(), 3, "each exposed toe needs its fitted claw");
+                    assert!(lanes.contains(&0));
+                    assert!(
+                        claws.iter().all(|p| p.z > 0.10),
+                        "claws belong at the emitted toe front"
+                    );
+                } else {
+                    assert!(claws.is_empty(), "closed shoes cover claws");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn copied_native_neck_cut_preserves_torso_and_waist_consumers() {
+    let sample = |look: &Look| {
+        let (world, rig, _, meshes) = spawn_one(look);
+        [J::Hips, J::Torso].map(|joint| {
+            let points = joint_surface_samples_in(&world, &rig, &meshes, joint, true);
+            assert!(points.len() > 100);
+            surface_signature(points)
+        })
+    };
+    for model in [
+        CreatureModel::Orc,
+        CreatureModel::Zombie,
+        CreatureModel::Hobgoblin,
+        CreatureModel::Sentinel,
+        CreatureModel::Troll,
+    ] {
+        for woman in [false, true] {
+            for build in [0, 2] {
+                for names in [
+                    vec![],
+                    vec!["breastplate"],
+                    vec!["hawaiian-shirt", "chain-mail"],
+                ] {
+                    let mut native = Look::with_choice(
+                        model,
+                        42,
+                        Some(Variant {
+                            woman,
+                            build,
+                            hair: 0,
+                            ..default()
+                        }),
+                    );
+                    let mut gear = Equipment::default();
+                    for name in &names {
+                        gear.select(name).unwrap();
+                    }
+                    native = native.equipped(gear);
+                    let mut copied = native.clone();
+                    copied.outfit = Some(outfit::Outfit::native(&native));
+                    assert_eq!(sample(&copied), sample(&native),
+                        "{model:?}, woman={woman}, build={build}, gear={names:?}: native and explicit cut consumers");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn zombie_hip_rags_survive_explicit_outfit_copy() {
+    for woman in [false, true] {
+        let native = Look::with_choice(
+            CreatureModel::Zombie,
+            42,
+            Some(Variant { woman, ..default() }),
+        );
+        let mut copied = native.clone();
+        copied.outfit = Some(outfit::Outfit::native(&native));
+        let original = joint_surface_samples(&native, J::Hips);
+        let actual = joint_surface_samples(&copied, J::Hips);
+        assert!(original.len() > 100 && actual.len() > 100);
+        assert_eq!(
+            surface_signature(actual),
+            surface_signature(original),
+            "explicit outfit copy must retain the hip rags"
+        );
+    }
+}
+
+#[test]
+fn tunic_tatters_transfer_remove_and_follow_resolved_shirt_without_extra_attachments() {
+    let donor = Look::of(CreatureModel::Zombie, 42);
+    let detail = outfit::Outfit::native(&donor).details.hip;
+    assert!(matches!(
+        detail,
+        Some(outfit::HipDecoration::TunicTatters { shade: 0.7 })
+    ));
+    let sample = |look: &Look| {
+        let (world, rig, _, meshes) = spawn_one(look);
+        (
+            surface_signature(joint_surface_samples_in(
+                &world,
+                &rig,
+                &meshes,
+                J::Hips,
+                true,
+            )),
+            world.entities().len(),
+            rig.drapes.len(),
+        )
+    };
+    for (model, woman, build) in [
+        (CreatureModel::Human, true, 0),
+        (CreatureModel::Orc, false, 2),
+    ] {
+        let mut recipient = Look::with_choice(
+            model,
+            91,
+            Some(Variant {
+                woman,
+                build,
+                ..default()
+            }),
+        );
+        let mut recipe = outfit::Outfit::from_wardrobe(Wardrobe::Commoner, &recipient);
+        recipe.details.hip = detail;
+        recipient.outfit = Some(recipe);
+        for shirt in [None, Some("t-shirt"), Some("hawaiian-shirt")] {
+            let mut gear = Equipment::default();
+            if let Some(shirt) = shirt {
+                gear.select(shirt).unwrap();
+            }
+            let dressed = recipient.clone().equipped(gear);
+            let (with, entities, drapes) = sample(&dressed);
+            let mut removed = dressed.clone();
+            removed.outfit.as_mut().unwrap().details.hip = None;
+            let (without, base_entities, base_drapes) = sample(&removed);
+            assert!(
+                without.is_subset(&with),
+                "static detail must not replace unrelated hip geometry"
+            );
+            let scraps: BTreeSet<_> = with.difference(&without).copied().collect();
+            assert!(
+                scraps.len() >= 15,
+                "five visible geometric scraps, not an empty recipe"
+            );
+            assert_eq!((entities, drapes), (base_entities, base_drapes));
+            let mut resolved = dressed.clone();
+            resolved.outfit = Some(outfit::Composition::resolve(&dressed).outfit);
+            resolved.equipment = Equipment::default();
+            assert_eq!(
+                with,
+                sample(&resolved).0,
+                "scraps use the resolved tunic, not species pigment"
+            );
+            let restored = dressed.equipped(Equipment::default());
+            assert_eq!(sample(&restored).0, sample(&recipient).0);
+            assert_eq!(
+                recipient.outfit.unwrap(),
+                recipe,
+                "composition must not mutate the base recipe"
+            );
+        }
+    }
 }
 
 #[test]
@@ -3929,4 +4314,1000 @@ fn study_headwear_uses_centaur_head_frame_and_restores_native_geometry() {
     assert_eq!(signature(&base, J::Body), signature(&worn, J::Body));
     let restored = worn.equipped(Equipment::default());
     assert_eq!(signature(&base, J::Head), signature(&restored, J::Head));
+}
+
+#[test]
+fn earring_head_cache_matches_fresh_meshes_through_swaps_and_removal() {
+    for model in [CreatureModel::Medusa, CreatureModel::Nymph] {
+        let base = Look::with_choice(
+            model,
+            17,
+            Some(Variant {
+                woman: true,
+                hair: 2,
+                ..default()
+            }),
+        );
+        let mut bare = base.clone();
+        let mut outfit = outfit::Outfit::native(&bare);
+        outfit.trimmings.earrings = None;
+        bare.outfit = Some(outfit);
+        let selected = base.clone().dressed(Wardrobe::RoyalPrincess);
+        let mut equipment = outfit::Equipment::default();
+        equipment.select("helm").unwrap();
+        let helmed = base.clone().equipped(equipment);
+        let restored = helmed.clone().equipped(outfit::Equipment::default());
+        let looks = [&base, &selected, &bare, &helmed, &restored];
+        let expected = looks
+            .map(|look| surface_signature(joint_surface_samples_with_drapes(look, J::Head, false)));
+        assert!(
+            expected[0] != expected[2],
+            "native removal must change head geometry"
+        );
+        assert!(
+            expected[0] == expected[4],
+            "helm removal must restore native head"
+        );
+        for order in [[0, 1, 2, 3, 4], [4, 3, 2, 1, 0]] {
+            let mut materials = Assets::<StandardMaterial>::default();
+            let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
+            let mut meshes = Assets::<Mesh>::default();
+            let mut world = World::new();
+            for index in order {
+                let look = looks[index];
+                let parent = world.spawn(Transform::default()).id();
+                let mut queue = bevy::ecs::world::CommandQueue::default();
+                let rig = spawn(
+                    &mut Commands::new(&mut queue, &world),
+                    &mut library,
+                    &mut meshes,
+                    parent,
+                    look,
+                );
+                queue.apply(&mut world);
+                let actual = surface_signature(joint_surface_samples_in(
+                    &world,
+                    &rig,
+                    &meshes,
+                    J::Head,
+                    false,
+                ));
+                assert!(actual == expected[index], "{model:?}: head composition must not depend on cache history, order={order:?}, outfit={index}");
+            }
+        }
+    }
+}
+
+#[test]
+fn leaf_crown_head_cache_restores_after_headwear_and_hood_swaps() {
+    for model in [CreatureModel::Nymph] {
+        let base = Look::with_choice(
+            model,
+            17,
+            Some(Variant {
+                woman: true,
+                hair: 2,
+                ..default()
+            }),
+        );
+        let mut bare = base.clone();
+        let mut outfit = outfit::Outfit::native(&bare);
+        outfit.head = outfit::Headwear::Bare;
+        bare.outfit = Some(outfit);
+        let selected = base.clone().dressed(Wardrobe::RoyalPrincess);
+        let mut equipment = outfit::Equipment::default();
+        equipment.select("helm").unwrap();
+        let helmed = base.clone().equipped(equipment);
+        let restored = helmed.clone().equipped(outfit::Equipment::default());
+        let mut cloak = outfit::Equipment::default();
+        cloak.select("hooded-cloak").unwrap();
+        let hooded = base.clone().equipped(cloak);
+        assert!(matches!(
+            outfit::Outfit::worn(&hooded).head,
+            outfit::Headwear::Hood { .. }
+        ));
+        let unhooded = hooded.clone().equipped(outfit::Equipment::default());
+        let looks = [
+            &base, &selected, &bare, &helmed, &restored, &hooded, &unhooded,
+        ];
+        let expected = looks
+            .map(|look| surface_signature(joint_surface_samples_with_drapes(look, J::Head, false)));
+        assert!(
+            expected[0] != expected[2],
+            "native removal must change head geometry"
+        );
+        assert!(
+            expected[0] == expected[4],
+            "helm removal must restore native head"
+        );
+        assert!(
+            expected[0] == expected[6],
+            "cloak removal restores leaf crown"
+        );
+        for order in [[0, 1, 2, 3, 4, 5, 6], [6, 5, 4, 3, 2, 1, 0]] {
+            let mut materials = Assets::<StandardMaterial>::default();
+            let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
+            let mut meshes = Assets::<Mesh>::default();
+            let mut world = World::new();
+            for index in order {
+                let look = looks[index];
+                let parent = world.spawn(Transform::default()).id();
+                let mut queue = bevy::ecs::world::CommandQueue::default();
+                let rig = spawn(
+                    &mut Commands::new(&mut queue, &world),
+                    &mut library,
+                    &mut meshes,
+                    parent,
+                    look,
+                );
+                queue.apply(&mut world);
+                let actual = surface_signature(joint_surface_samples_in(
+                    &world,
+                    &rig,
+                    &meshes,
+                    J::Head,
+                    false,
+                ));
+                assert!(actual == expected[index], "{model:?}: head composition must not depend on cache history, order={order:?}, outfit={index}");
+            }
+        }
+    }
+}
+
+#[test]
+fn veiled_loose_hair_cache_matches_fresh_geometry_in_both_dressing_orders() {
+    let base = Look::with_choice(
+        CreatureModel::Human,
+        22,
+        Some(Variant {
+            woman: true,
+            hair: 0,
+            ..default()
+        }),
+    );
+    let plain = base.clone().dressed(Wardrobe::Commoner);
+    let veiled = base.clone().dressed(Wardrobe::Juliet);
+    let mut recolored = veiled.clone();
+    let mut recipe = outfit::Outfit::worn(&recolored);
+    recipe.head = outfit::Headwear::Veiled {
+        cap: Vec3::ONE,
+        veil: Vec3::splat(0.4),
+    };
+    recolored.outfit = Some(recipe);
+    let other = base.dressed(Wardrobe::Courtier);
+    let looks = [plain, veiled, recolored, other];
+    let expected: Vec<_> = looks
+        .iter()
+        .map(|look| {
+            let (_, rig, _, _) = spawn_one(look);
+            super::hair_contact::authored_points(rig.hair.as_ref().expect("long fall"))
+        })
+        .collect();
+    assert_ne!(
+        expected[0], expected[1],
+        "fixture must change actual hanging roots"
+    );
+    assert_eq!(expected[0], expected[3]);
+    assert_eq!(expected[1], expected[2]);
+    for order in [[0, 1, 2, 3, 0], [1, 0, 3, 2, 1]] {
+        let mut materials = Assets::<StandardMaterial>::default();
+        let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
+        let mut meshes = Assets::<Mesh>::default();
+        let mut world = World::new();
+        let mut cached = [None, None];
+        for index in order {
+            let parent = world.spawn(Transform::default()).id();
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            let rig = spawn(
+                &mut Commands::new(&mut queue, &world),
+                &mut library,
+                &mut meshes,
+                parent,
+                &looks[index],
+            );
+            queue.apply(&mut world);
+            let hair = rig.hair.as_ref().expect("cap must retain loose hair");
+            let authored = super::hair_contact::authored_points(hair);
+            assert_eq!(
+                authored, expected[index],
+                "stale cache for {order:?}/{index}"
+            );
+            let handles = super::hair_contact::source_meshes(hair);
+            let family = usize::from(index == 1 || index == 2);
+            if let Some(prior) = &cached[family] {
+                assert_eq!(prior, &handles, "same fitted geometry must reuse source");
+            }
+            cached[family] = Some(handles);
+            // Every crown vertex remains pinned after initial body contact.
+            let (entity, _) = rig
+                .drapes
+                .iter()
+                .find(|(_, kind)| *kind == Drape::Hair)
+                .unwrap();
+            let points = points_under(&world, &meshes, *entity);
+            let (attached, _) = super::hair_contact::attachment_witnesses(hair);
+            assert_eq!(points.len(), authored.len());
+            for ((point, rest), attached) in points.iter().zip(&authored).zip(attached) {
+                if attached {
+                    assert!(point.distance(*rest) < 1e-5);
+                }
+            }
+        }
+        assert_ne!(cached[0], cached[1], "bare and capped roots cannot alias");
+    }
+}
+
+#[test]
+fn tricorn_loose_hair_cache_is_separate_from_bare_and_veiled_in_both_orders() {
+    let base = Look::with_choice(
+        CreatureModel::Human,
+        22,
+        Some(Variant {
+            woman: true,
+            hair: 0,
+            ..default()
+        }),
+    );
+    let plain = base.clone().dressed(Wardrobe::Commoner);
+    let veiled = base.clone().dressed(Wardrobe::Juliet);
+    let mut recolored = veiled.clone();
+    let mut recipe = outfit::Outfit::worn(&recolored);
+    recipe.head = outfit::Headwear::Veiled {
+        cap: Vec3::ONE,
+        veil: Vec3::splat(0.4),
+    };
+    recolored.outfit = Some(recipe);
+    let other = base.clone().dressed(Wardrobe::Courtier);
+    let pirate = base.dressed(Wardrobe::Pirate);
+    let looks = [plain, veiled, recolored, other, pirate];
+    let expected: Vec<_> = looks
+        .iter()
+        .map(|look| {
+            let (_, rig, _, _) = spawn_one(look);
+            super::hair_contact::authored_points(rig.hair.as_ref().expect("long fall"))
+        })
+        .collect();
+    assert_ne!(
+        expected[0], expected[1],
+        "fixture must change actual hanging roots"
+    );
+    assert_eq!(expected[0], expected[3]);
+    assert_eq!(expected[1], expected[2]);
+    assert_ne!(expected[0], expected[4]);
+    assert_ne!(expected[1], expected[4]);
+    for order in [[0, 1, 4, 2, 3, 4, 0], [4, 1, 0, 4, 3, 2, 1]] {
+        let mut materials = Assets::<StandardMaterial>::default();
+        let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
+        let mut meshes = Assets::<Mesh>::default();
+        let mut world = World::new();
+        let mut cached = [None, None, None];
+        for index in order {
+            let parent = world.spawn(Transform::default()).id();
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            let rig = spawn(
+                &mut Commands::new(&mut queue, &world),
+                &mut library,
+                &mut meshes,
+                parent,
+                &looks[index],
+            );
+            queue.apply(&mut world);
+            let hair = rig.hair.as_ref().expect("cap must retain loose hair");
+            let authored = super::hair_contact::authored_points(hair);
+            assert_eq!(
+                authored, expected[index],
+                "stale cache for {order:?}/{index}"
+            );
+            let handles = super::hair_contact::source_meshes(hair);
+            let family = if index == 4 {
+                2
+            } else {
+                usize::from(index == 1 || index == 2)
+            };
+            if let Some(prior) = &cached[family] {
+                assert_eq!(prior, &handles, "same fitted geometry must reuse source");
+            }
+            cached[family] = Some(handles);
+            // Every crown vertex remains pinned after initial body contact.
+            let (entity, _) = rig
+                .drapes
+                .iter()
+                .find(|(_, kind)| *kind == Drape::Hair)
+                .unwrap();
+            let points = points_under(&world, &meshes, *entity);
+            let (attached, _) = super::hair_contact::attachment_witnesses(hair);
+            assert_eq!(points.len(), authored.len());
+            for ((point, rest), attached) in points.iter().zip(&authored).zip(attached) {
+                if attached {
+                    assert!(point.distance(*rest) < 1e-5);
+                }
+            }
+        }
+        assert_ne!(cached[0], cached[1], "bare and capped roots cannot alias");
+        assert_ne!(cached[0], cached[2], "bare and tricorn roots cannot alias");
+        assert_ne!(
+            cached[1], cached[2],
+            "veiled and tricorn roots cannot alias"
+        );
+    }
+}
+
+#[test]
+fn witch_hat_loose_hair_cache_is_separate_from_bare_and_veiled_in_both_orders() {
+    let base = Look::with_choice(
+        CreatureModel::Human,
+        22,
+        Some(Variant {
+            woman: true,
+            hair: 0,
+            ..default()
+        }),
+    );
+    let plain = base.clone().dressed(Wardrobe::Commoner);
+    let veiled = base.clone().dressed(Wardrobe::Juliet);
+    let mut recolored = veiled.clone();
+    let mut recipe = outfit::Outfit::worn(&recolored);
+    recipe.head = outfit::Headwear::Veiled {
+        cap: Vec3::ONE,
+        veil: Vec3::splat(0.4),
+    };
+    recolored.outfit = Some(recipe);
+    let other = base.clone().dressed(Wardrobe::Courtier);
+    let pirate = base.clone().dressed(Wardrobe::Pirate);
+    let witch = base.dressed(Wardrobe::Witch);
+    let looks = [plain, veiled, recolored, other, witch, pirate];
+    let expected: Vec<_> = looks
+        .iter()
+        .map(|look| {
+            let (_, rig, _, _) = spawn_one(look);
+            super::hair_contact::authored_points(rig.hair.as_ref().expect("long fall"))
+        })
+        .collect();
+    assert_ne!(
+        expected[0], expected[1],
+        "fixture must change actual hanging roots"
+    );
+    assert_eq!(expected[0], expected[3]);
+    assert_eq!(expected[1], expected[2]);
+    assert_ne!(expected[0], expected[4]);
+    assert_ne!(expected[1], expected[4]);
+    assert_ne!(expected[4], expected[5]);
+    for order in [[0, 1, 4, 5, 2, 3, 4, 5, 0], [5, 4, 1, 0, 5, 4, 3, 2, 1]] {
+        let mut materials = Assets::<StandardMaterial>::default();
+        let mut library = PropLibrary::new(crate::props::PropMaterials::new(&mut materials));
+        let mut meshes = Assets::<Mesh>::default();
+        let mut world = World::new();
+        let mut cached = [None, None, None, None];
+        for index in order {
+            let parent = world.spawn(Transform::default()).id();
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            let rig = spawn(
+                &mut Commands::new(&mut queue, &world),
+                &mut library,
+                &mut meshes,
+                parent,
+                &looks[index],
+            );
+            queue.apply(&mut world);
+            let hair = rig.hair.as_ref().expect("cap must retain loose hair");
+            let authored = super::hair_contact::authored_points(hair);
+            assert_eq!(
+                authored, expected[index],
+                "stale cache for {order:?}/{index}"
+            );
+            let handles = super::hair_contact::source_meshes(hair);
+            let family = if index >= 4 {
+                index - 2
+            } else {
+                usize::from(index == 1 || index == 2)
+            };
+            if let Some(prior) = &cached[family] {
+                assert_eq!(prior, &handles, "same fitted geometry must reuse source");
+            }
+            cached[family] = Some(handles);
+            // Every crown vertex remains pinned after initial body contact.
+            let (entity, _) = rig
+                .drapes
+                .iter()
+                .find(|(_, kind)| *kind == Drape::Hair)
+                .unwrap();
+            let points = points_under(&world, &meshes, *entity);
+            let (attached, _) = super::hair_contact::attachment_witnesses(hair);
+            assert_eq!(points.len(), authored.len());
+            for ((point, rest), attached) in points.iter().zip(&authored).zip(attached) {
+                if attached {
+                    assert!(point.distance(*rest) < 1e-5);
+                }
+            }
+        }
+        assert_ne!(cached[2], cached[3], "witch and tricorn roots cannot alias");
+        assert_ne!(cached[0], cached[1], "bare and capped roots cannot alias");
+        assert_ne!(
+            cached[0], cached[2],
+            "bare and witch_hat roots cannot alias"
+        );
+        assert_ne!(
+            cached[1], cached[2],
+            "veiled and witch_hat roots cannot alias"
+        );
+    }
+}
+
+#[test]
+fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
+    use bevy::math::Affine3A;
+    use bevy::render::mesh::VertexAttributeValues;
+
+    // Work on emitted triangles, including nested/scaled hand mesh children.
+    // Do not use the production surface query or its root placement recipe.
+    fn collect(
+        world: &World,
+        meshes: &Assets<Mesh>,
+        entity: Entity,
+        frame: Affine3A,
+        bone: Vec3,
+        claws: &mut Vec<[Vec3; 3]>,
+        hand: &mut Vec<[Vec3; 3]>,
+    ) {
+        let frame = frame
+            * world
+                .get::<Transform>(entity)
+                .map(Transform::compute_affine)
+                .unwrap_or_default();
+        if let Some(mesh) = world.get::<Mesh3d>(entity).and_then(|m| meshes.get(&m.0)) {
+            if let (
+                Some(VertexAttributeValues::Float32x3(points)),
+                Some(VertexAttributeValues::Float32x4(colors)),
+            ) = (
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR),
+            ) {
+                let indices: Vec<usize> = mesh
+                    .indices()
+                    .map(|indices| indices.iter().collect())
+                    .unwrap_or_else(|| (0..points.len()).collect());
+                for face in indices.as_chunks::<3>().0 {
+                    let is_bone = |i: usize| {
+                        let c = colors[i];
+                        Vec3::new(c[0], c[1], c[2]).normalize().distance(bone) < 0.001
+                    };
+                    let triangle = [face[0], face[1], face[2]]
+                        .map(|i| frame.transform_point3(Vec3::from(points[i])));
+                    // Ignore zero-area cone tip triangles.
+                    if (triangle[1] - triangle[0])
+                        .cross(triangle[2] - triangle[0])
+                        .length_squared()
+                        < 1e-16
+                    {
+                        continue;
+                    }
+                    if face.iter().all(|i| is_bone(*i)) {
+                        claws.push(triangle);
+                    } else {
+                        assert!(face.iter().all(|i| !is_bone(*i)), "mixed hand/claw face");
+                        hand.push(triangle);
+                    }
+                }
+            }
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            for child in children.iter() {
+                collect(world, meshes, child, frame, bone, claws, hand);
+            }
+        }
+    }
+
+    // Segment/triangle intersection; shared endpoints count as contact.
+    fn pierces(a: Vec3, b: Vec3, triangle: [Vec3; 3]) -> bool {
+        let direction = b - a;
+        let e1 = triangle[1] - triangle[0];
+        let e2 = triangle[2] - triangle[0];
+        let p = direction.cross(e2);
+        let det = e1.dot(p);
+        if det.abs() < 1e-12 {
+            return false;
+        }
+        let s = a - triangle[0];
+        let u = s.dot(p) / det;
+        let q = s.cross(e1);
+        let v = direction.dot(q) / det;
+        let t = e2.dot(q) / det;
+        let epsilon = 1e-5;
+        u >= -epsilon
+            && v >= -epsilon
+            && u + v <= 1.0 + epsilon
+            && t >= -epsilon
+            && t <= 1.0 + epsilon
+    }
+    fn intersects(a: [Vec3; 3], b: [Vec3; 3]) -> bool {
+        (0..3).any(|i| pierces(a[i], a[(i + 1) % 3], b) || pierces(b[i], b[(i + 1) % 3], a))
+    }
+
+    let linear = Color::srgb(BONE.x, BONE.y, BONE.z).to_linear();
+    let bone = Vec3::new(linear.red, linear.green, linear.blue).normalize();
+    for woman in [false, true] {
+        for build in 0..3 {
+            let look = Look::with_choice(
+                CreatureModel::Yeti,
+                42,
+                Some(Variant {
+                    woman,
+                    build,
+                    ..default()
+                }),
+            );
+            let (world, rig, _, meshes) = spawn_one(&look);
+            // Both sexes and all builds retain the native Yeti closed-hand recipe.
+            for joint in [J::HandL, J::HandR] {
+                let mut claws = Vec::new();
+                let mut hand = Vec::new();
+                collect(
+                    &world,
+                    &meshes,
+                    rig.joint(joint).unwrap(),
+                    Affine3A::IDENTITY,
+                    bone,
+                    &mut claws,
+                    &mut hand,
+                );
+                assert!(!hand.is_empty(), "positive emitted hand witness");
+                assert!(!claws.is_empty(), "positive emitted claw witness");
+
+                // Weld duplicate face vertices geometrically, not by mesh index:
+                // flat-shaded prism faces duplicate their corner vertices.
+                let mut unseen = vec![true; claws.len()];
+                let mut components = Vec::new();
+                while let Some(start) = unseen.iter().position(|v| *v) {
+                    unseen[start] = false;
+                    let mut component = vec![start];
+                    let mut cursor = 0;
+                    while cursor < component.len() {
+                        let current = claws[component[cursor]];
+                        for next in 0..claws.len() {
+                            if unseen[next]
+                                && current.iter().any(|a| {
+                                    claws[next].iter().any(|b| a.distance_squared(*b) < 1e-12)
+                                })
+                            {
+                                unseen[next] = false;
+                                component.push(next);
+                            }
+                        }
+                        cursor += 1;
+                    }
+                    components.push(component);
+                }
+                assert_eq!(
+                    components.len(),
+                    3,
+                    "three separate claws: {woman}/{build}/{joint:?}"
+                );
+                for (index, component) in components.iter().enumerate() {
+                    assert!(component.iter().any(|i| hand.iter().any(|surface|
+                        intersects(claws[*i], *surface))),
+                        "claw {index} must intersect the actual hand surface: {woman}/{build}/{joint:?}");
+                }
+            }
+        }
+    }
+}
+#[test]
+fn low_shoes_do_not_create_boot_shafts_on_fitted_legs() {
+    let shoe_color = Vec3::new(0.03, 0.08, 0.7);
+    let tag = |color: Vec3| {
+        let c = Color::srgb(color.x, color.y, color.z).to_linear();
+        Vec3::new(c.red, c.green, c.blue).normalize()
+    };
+    let shoe_tag = tag(shoe_color);
+    for woman in [false, true] {
+        for build in [0, 2] {
+            let variant = Variant {
+                woman,
+                build,
+                ..default()
+            };
+            let donor = Look::with_choice(CreatureModel::Troll, 42, Some(variant));
+            let recipe = outfit::Outfit::native(&donor);
+            for model in [
+                CreatureModel::Troll,
+                CreatureModel::Human,
+                CreatureModel::Orc,
+            ] {
+                let mut wearer = Look::with_choice(model, 42, Some(variant));
+                // Distinct recipient pigment makes accidental donor skin a failure.
+                wearer.skin = Vec3::new(0.67, 0.31, 0.12);
+                let skin_tag = tag(wearer.skin);
+                for sandal in [false, true] {
+                    let mut low_shoes = recipe;
+                    low_shoes.feet = outfit::Feet::Shoes(outfit::Shoes {
+                        color: shoe_color,
+                        heel: woman,
+                        sandal,
+                        straps: 0.0,
+                    });
+                    wearer.outfit = Some(low_shoes);
+                    for (shin, foot) in [(J::ShinL, J::FootL), (J::ShinR, J::FootR)] {
+                        let calf = joint_surface_samples(&wearer, shin);
+                        assert!(calf.len() > 100, "positive emitted calf witness");
+                        let is_shoe = |c: Vec3| c.normalize().distance(shoe_tag) < 0.001;
+                        let is_skin = |c: Vec3| c.normalize().distance(skin_tag) < 0.001;
+                        assert!(calf.iter().any(|(p, c)| p.y > -0.30 && is_skin(*c)),
+                            "fitted calf must retain wearer skin: {model:?}/{woman}/{build}/{shin:?}");
+                        // A zero-rise shoe has a narrow ankle band above its upper,
+                        // not a boot shaft reaching up to -0.24.
+                        let upper_shoe: Vec<_> = calf
+                            .iter()
+                            .filter(|(p, c)| p.y > -0.30 && is_shoe(*c))
+                            .collect();
+                        assert!(upper_shoe.is_empty(),
+                            "low shoe emitted {} boot-shaft vertices above ankle: {model:?}/{woman}/{build}/{sandal}/{shin:?}", upper_shoe.len());
+                        assert!(
+                            calf.iter().any(|(p, c)| p.y < -0.30 && is_shoe(*c)),
+                            "low shoe must retain its actual ankle strap"
+                        );
+                        let shoe = joint_surface_samples(&wearer, foot);
+                        assert!(
+                            shoe.len() > 100
+                                && shoe.iter().any(|(_, c)| c.normalize().distance(tag(shoe_color * 0.6)) < 0.001),
+                            "shoe sole must remain: {model:?}/{woman}/{build}/{sandal}/{foot:?}, vertices {}", shoe.len()
+                        );
+                        if sandal {
+                            assert!(
+                                shoe.iter().any(|(_, c)| is_skin(*c)),
+                                "sandal upper must expose the recipient skin"
+                            );
+                        }
+                    }
+                    // Actual native boots still own shafts, independent of leg
+                    // pigment. Equipping/removing boots restores the same shoe.
+                    let original = surface_signature(joint_surface_samples(&wearer, J::ShinL));
+                    let mut booted = wearer.clone();
+                    booted.outfit.as_mut().unwrap().feet = outfit::Feet::Boots(outfit::Boots {
+                        color: outfit::Pigment::Fixed(shoe_color),
+                        tall: false,
+                        heel: woman,
+                        buckles: false,
+                        cuffed: false,
+                    });
+                    assert!(
+                        joint_surface_samples(&booted, J::ShinL)
+                            .iter()
+                            .any(|(p, c)| p.y > -0.30 && c.normalize().distance(shoe_tag) < 0.001),
+                        "positive native boot shaft witness"
+                    );
+                    for name in ["boots", "combat-boots"] {
+                        let mut gear = Equipment::default();
+                        gear.select(name).unwrap();
+                        let equipped = wearer.clone().equipped(gear);
+                        let covered = joint_surface_samples(&equipped, J::ShinL);
+                        assert!(covered.len() > 100);
+                        assert!(
+                            covered
+                                .iter()
+                                .all(|(_, c)| c.normalize().distance(shoe_tag) >= 0.001),
+                            "equipment boots replace the shoe and its ankle strap"
+                        );
+                        let restored = equipped.equipped(Equipment::default());
+                        assert_eq!(
+                            surface_signature(joint_surface_samples(&restored, J::ShinL)),
+                            original,
+                            "removing equipment boots must restore low shoes"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn armored_wardrobe_keeps_low_shoes_separate_from_leg_armor() {
+    for wardrobe in [Wardrobe::Witch, Wardrobe::Princess] {
+        let base = Look::with_choice(
+            CreatureModel::Human,
+            42,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        )
+        .dressed(wardrobe);
+        let mut gear = Equipment::default();
+        gear.select("plate-mail").unwrap();
+        let dressed = base.equipped(gear);
+        let resolved = outfit::Composition::resolve(&dressed).outfit;
+        assert!(matches!(resolved.legs, outfit::Legs::Plate));
+        let outfit::Feet::Shoes(shoes) = resolved.feet else {
+            panic!("positive low shoe recipe");
+        };
+        assert_eq!(shoes.straps, 0.0);
+        let color = Color::srgb(shoes.color.x, shoes.color.y, shoes.color.z).to_linear();
+        let tag = Vec3::new(color.red, color.green, color.blue).normalize();
+        for joint in [J::ShinL, J::ShinR] {
+            let calf = joint_surface_samples(&dressed, joint);
+            let shoe: Vec<_> = calf
+                .iter()
+                .filter(|(_, c)| c.normalize().distance(tag) < 0.001)
+                .collect();
+            assert!(!shoe.is_empty(), "ankle strap remains present");
+            assert!(
+                shoe.iter().all(|(p, _)| p.y < -0.30),
+                "low shoe must not become a boot under plate mail: {wardrobe:?}/{joint:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sandal_bands_follow_actual_calf_and_leg_armor() {
+    use bevy::render::mesh::VertexAttributeValues;
+    let color = Vec3::new(0.03, 0.08, 0.7);
+    let c = Color::srgb(color.x, color.y, color.z).to_linear();
+    let tag = Vec3::new(c.red, c.green, c.blue).normalize();
+    for model in [CreatureModel::Human, CreatureModel::Orc] {
+        for woman in [false, true] {
+            for build in [0, 2] {
+                for plate in [false, true] {
+                    let mut look = Look::with_choice(
+                        model,
+                        42,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    )
+                    .dressed(Wardrobe::Goddess);
+                    let recipe = look.outfit.as_mut().unwrap();
+                    recipe.feet = outfit::Feet::Shoes(outfit::Shoes {
+                        color,
+                        heel: woman,
+                        sandal: true,
+                        straps: 1.0,
+                    });
+                    if plate {
+                        recipe.legs = outfit::Legs::Plate;
+                    }
+                    let (world, rig, _, meshes) = spawn_one(&look);
+                    for joint in [J::ShinL, J::ShinR] {
+                        let mut bands = Vec::new();
+                        let mut support = Vec::new();
+                        for child in world
+                            .get::<Children>(rig.joint(joint).unwrap())
+                            .unwrap()
+                            .iter()
+                        {
+                            let Some(mesh) =
+                                world.get::<Mesh3d>(child).and_then(|m| meshes.get(&m.0))
+                            else {
+                                continue;
+                            };
+                            let Some(VertexAttributeValues::Float32x3(pos)) =
+                                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                            else {
+                                panic!("positions");
+                            };
+                            let Some(VertexAttributeValues::Float32x4(colors)) =
+                                mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+                            else {
+                                panic!("colors");
+                            };
+                            let frame = world.get::<Transform>(child).unwrap().compute_affine();
+                            let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                            for ids in indices.as_chunks::<3>().0 {
+                                let tri = ids.map(|i| frame.transform_point3(Vec3::from(pos[i])));
+                                let is_band = ids.iter().all(|i| {
+                                    Vec3::new(colors[*i][0], colors[*i][1], colors[*i][2])
+                                        .normalize()
+                                        .distance(tag)
+                                        < 0.001
+                                });
+                                if is_band {
+                                    bands.push(tri);
+                                } else {
+                                    support.push(tri);
+                                }
+                            }
+                        }
+                        assert!(
+                            bands.len() >= 300 && support.len() > 100,
+                            "positive complete geometry"
+                        );
+                        // Independently intersect the emitted supporting mesh, including
+                        // the actual calf contour and any retained leg-armor surfaces.
+                        let radius = |at: Vec3| -> Option<f32> {
+                            let origin = Vec3::Y * at.y;
+                            let ray = at.xz().normalize();
+                            let ray = Vec3::new(ray.x, 0.0, ray.y);
+                            support
+                                .iter()
+                                .filter_map(|tri| {
+                                    let a = tri[0];
+                                    let e1 = tri[1] - a;
+                                    let e2 = tri[2] - a;
+                                    let h = ray.cross(e2);
+                                    let det = e1.dot(h);
+                                    if det.abs() < 1e-9 {
+                                        return None;
+                                    }
+                                    let s = origin - a;
+                                    let u = s.dot(h) / det;
+                                    let q = s.cross(e1);
+                                    let v = ray.dot(q) / det;
+                                    let t = e2.dot(q) / det;
+                                    (u >= -1e-5 && v >= -1e-5 && u + v <= 1.00001 && t >= 0.0)
+                                        .then_some(t)
+                                })
+                                .reduce(f32::max)
+                        };
+                        let mut intervals = Vec::new();
+                        let mut minimum = f32::INFINITY;
+                        let mut maximum = f32::NEG_INFINITY;
+                        for tri in bands {
+                            let center = (tri[0] + tri[1] + tri[2]) / 3.0;
+                            intervals.push((
+                                tri.iter().map(|p| p.y).fold(f32::INFINITY, f32::min),
+                                tri.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max),
+                            ));
+                            for at in [
+                                tri[0],
+                                tri[1],
+                                tri[2],
+                                center,
+                                (tri[0] + tri[1]) * 0.5,
+                                (tri[1] + tri[2]) * 0.5,
+                                (tri[2] + tri[0]) * 0.5,
+                            ] {
+                                assert!(
+                                    at.y > -0.4,
+                                    "strap stays above the separately articulated shoe"
+                                );
+                                let r=radius(at).unwrap_or_else(|| panic!("band has no calf support at {at:?}: {model:?}/{woman}/{build}/{plate}/{joint:?}"));
+                                let gap = at.xz().length() - r;
+                                minimum = minimum.min(gap);
+                                maximum = maximum.max(gap);
+                            }
+                        }
+                        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        let mut levels: Vec<(f32, f32)> = Vec::new();
+                        for (low, high) in intervals {
+                            if let Some(last) =
+                                levels.last_mut().filter(|last| low <= last.1 + 1e-5)
+                            {
+                                last.1 = last.1.max(high);
+                            } else {
+                                levels.push((low, high));
+                            }
+                        }
+                        assert_eq!(levels.len(), 7, "seven independent strap stations");
+                        let foot = if joint == J::ShinL {
+                            J::FootL
+                        } else {
+                            J::FootR
+                        };
+                        let shoe_top = joint_surface_samples(&look, foot)
+                            .into_iter()
+                            .map(|(p, _)| p.y)
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        assert!(
+                            levels[0].0 > -0.4 + shoe_top + 0.002,
+                            "lowest band clears actual shoe upper"
+                        );
+                        assert!(minimum >= -0.0005 && maximum <= 0.025,
+                            "band must clear and follow actual support, gap {minimum}..{maximum}: {model:?}/{woman}/{build}/{plate}/{joint:?}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn bare_feet_do_not_emit_boot_shafts_on_fitted_legs() {
+    use bevy::render::mesh::VertexAttributeValues;
+    let foot_color = Vec3::new(0.03, 0.08, 0.7);
+    let linear = Color::srgb(foot_color.x, foot_color.y, foot_color.z).to_linear();
+    let tag = Vec3::new(linear.red, linear.green, linear.blue).normalize();
+    for model in [CreatureModel::Nymph, CreatureModel::Troll] {
+        for woman in [false, true] {
+            for build in [0, 2] {
+                let mut look = Look::with_choice(
+                    model,
+                    42,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let mut recipe = outfit::Outfit::native(&look);
+                recipe.feet = outfit::Feet::Bare(outfit::Pigment::Fixed(foot_color));
+                look.outfit = Some(recipe);
+                let (world, rig, _, meshes) = spawn_one(&look);
+                for (shin, foot) in [(J::ShinL, J::FootL), (J::ShinR, J::FootR)] {
+                    let calf = joint_surface_samples_in(&world, &rig, &meshes, shin, false);
+                    let toes = joint_surface_samples_in(&world, &rig, &meshes, foot, false);
+                    assert!(
+                        calf.len() > 100 && toes.len() > 100,
+                        "positive calf and foot"
+                    );
+                    assert!(
+                        toes.iter()
+                            .any(|(_, c)| c.normalize().distance(tag) < 0.001),
+                        "bare foot retains its authored pigment"
+                    );
+                    let leather = LEATHER * 0.8;
+                    let c = Color::srgb(leather.x, leather.y, leather.z).to_linear();
+                    let leather_tag = Vec3::new(c.red, c.green, c.blue).normalize();
+                    let mut support = crate::props::Builder::default();
+                    let mut bindings = Vec::new();
+                    for child in world
+                        .get::<Children>(rig.joint(shin).unwrap())
+                        .unwrap()
+                        .iter()
+                    {
+                        let Some(mesh) = world.get::<Mesh3d>(child).and_then(|m| meshes.get(&m.0))
+                        else {
+                            continue;
+                        };
+                        let Some(VertexAttributeValues::Float32x3(pos)) =
+                            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                        else {
+                            panic!("positions");
+                        };
+                        let Some(VertexAttributeValues::Float32x4(colors)) =
+                            mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+                        else {
+                            panic!("colors");
+                        };
+                        let frame = world.get::<Transform>(child).unwrap().compute_affine();
+                        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                        for ids in indices.as_chunks::<3>().0 {
+                            let tri = ids.map(|i| frame.transform_point3(Vec3::from(pos[i])));
+                            if ids.iter().all(|i| {
+                                Vec3::new(colors[*i][0], colors[*i][1], colors[*i][2])
+                                    .normalize()
+                                    .distance(leather_tag)
+                                    < 0.001
+                            }) {
+                                bindings.push(tri);
+                            } else {
+                                support.tri(tri, Vec3::ONE);
+                            }
+                        }
+                    }
+                    assert!(bindings.len() >= 200, "two complete binding meshes");
+                    for height in [-0.3_f32, -0.36] {
+                        assert!(
+                            bindings
+                                .iter()
+                                .any(|t| t.iter().all(|v| (v.y - height).abs() < 0.011)),
+                            "both authored stations retained"
+                        );
+                    }
+                    for tri in bindings {
+                        for at in [
+                            tri[0],
+                            tri[1],
+                            tri[2],
+                            (tri[0] + tri[1]) * 0.5,
+                            (tri[1] + tri[2]) * 0.5,
+                            (tri[2] + tri[0]) * 0.5,
+                            (tri[0] + tri[1] + tri[2]) / 3.0,
+                        ] {
+                            let origin = Vec3::Y * at.y;
+                            let ray = (at - origin).normalize();
+                            let hit = support
+                                .outer_surface(origin, ray)
+                                .expect("actual emitted calf supports binding");
+                            let gap = (at - hit).dot(ray);
+                            assert!((-0.0005..=0.04).contains(&gap), "binding fits emitted calf: gap {gap}, {model:?}/{woman}/{build}/{shin:?}");
+                        }
+                    }
+                    assert!(!calf.iter().any(|(_, c)| c.normalize().distance(tag) < 0.001),
+                        "bare foot pigment must not create a boot shaft: {model:?}/{woman}/{build}/{shin:?}");
+                }
+            }
+        }
+    }
 }

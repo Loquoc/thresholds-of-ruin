@@ -317,6 +317,8 @@ class CompleteRecordingContracts(unittest.TestCase):
                 (384, 40000, 64 * 1024 * 1024, 240),
             "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
                 (256, 25000, 48 * 1024 * 1024, 180),
+            "test_native_surface_exit_explains_what_is_needed_before_retrieval":
+                (16, 1000, 8 * 1024 * 1024, 60),
         }
         self.assertEqual(case.limits, expected)
         for method, (requests, ticks, byte_limit, _) in expected.items():

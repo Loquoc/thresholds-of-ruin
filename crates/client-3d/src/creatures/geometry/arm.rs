@@ -1,7 +1,7 @@
 //! Organic arm surfaces shared by upright bipeds and riders on other body plans.
-use super::{closed_surface_step, cloth_over, sleeve_parts, SLEEVE_EASE};
+use super::{closed_surface_step, cloth_over, fitting, radial_parts, sleeve_parts, SLEEVE_EASE};
 use crate::props::Builder;
-use bevy::prelude::Vec3;
+use bevy::prelude::{Vec2, Vec3};
 
 fn upper_arm_step(build: f32) -> f32 {
     // Resolve the clavicle bridge and elbow folds before local refinement.
@@ -211,4 +211,54 @@ pub(in crate::creatures) fn forearm_form(
         0.016 * build,
     );
     arm
+}
+
+/// The armored lower arm follows the same anatomy as its organic counterpart.
+/// Its intentional axial closures remain beneath the separate elbow and hand.
+pub(super) fn metal_forearm(b: &mut Builder, build: f32, length: f32, muscle: f32, color: Vec3) {
+    let support = forearm_form(build, length, muscle);
+    let profile = radial_parts::LimbShellProfile {
+        heights: Vec2::new(0.0, -0.26 * length),
+        clearance: 0.003 * build,
+        thickness: 0.003 * build,
+        rows: 9,
+        sides: 16,
+    };
+    if let Some(shell) = profile.resolve(
+        &|height, angle| {
+            let origin = Vec3::Y * height;
+            let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+            fitting::surface_ray_hit(&support, origin, out, 0.0, 0.3).map(|p| (p - origin).dot(out))
+        },
+        color,
+        color,
+        false,
+    ) {
+        b.absorb_fitted(shell, |at| at);
+    }
+}
+
+/// Vambraces seat on the actual preceding metal mesh, including its retained
+/// elbow cop. Resolve before emission so a shell cannot become its own support.
+pub(super) fn metal_forearm_cuff(b: &mut Builder, build: f32, length: f32, color: Vec3) {
+    let profile = radial_parts::LimbShellProfile {
+        heights: Vec2::new(-0.13 * length, -0.25 * length),
+        clearance: 0.002 * build,
+        thickness: 0.003 * build,
+        rows: 6,
+        sides: 16,
+    };
+    let shell = profile.resolve(
+        &|height, angle| {
+            let origin = Vec3::Y * height;
+            let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+            b.outer_surface(origin, out).map(|p| (p - origin).dot(out))
+        },
+        color,
+        color,
+        true,
+    );
+    if let Some(shell) = shell {
+        b.absorb_fitted(shell, |at| at);
+    }
 }

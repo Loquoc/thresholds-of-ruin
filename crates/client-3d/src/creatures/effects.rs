@@ -12,6 +12,9 @@ pub struct Bolt {
     t: f32,
     wobble: f32,
     accent: Accent,
+    duration: f32,
+    arc: bool,
+    impact: bool,
 }
 
 #[derive(Component)]
@@ -69,6 +72,9 @@ pub fn bolt(
                 t: 0.0,
                 wobble,
                 accent,
+                duration: 0.32,
+                arc: true,
+                impact: true,
             },
             Transform::from_translation(from).with_scale(Vec3::ZERO),
             Visibility::default(),
@@ -172,23 +178,29 @@ pub fn effects(
             bolt.delay -= dt;
             continue;
         }
-        bolt.t += dt / 0.32;
+        bolt.t += dt / bolt.duration;
         let t = bolt.t.min(1.0);
         let side = (bolt.to - bolt.from).cross(Vec3::Y).normalize_or_zero();
-        let arc = Vec3::Y * (t * PI).sin() * 0.25 + side * (t * TAU * 1.5).sin() * bolt.wobble;
+        let arc = if bolt.arc {
+            Vec3::Y * (t * PI).sin() * 0.25 + side * (t * TAU * 1.5).sin() * bolt.wobble
+        } else {
+            Vec3::ZERO
+        };
         transform.translation = bolt.from.lerp(bolt.to, t) + arc;
         transform.scale = Vec3::splat(0.09 + 0.02 * (time.elapsed_secs() * 40.0).sin());
         if bolt.t >= 1.0 {
             commands.entity(e).despawn();
-            flash(
-                &mut commands,
-                &mut library,
-                &mut meshes,
-                bolt.to,
-                bolt.accent,
-                0.45,
-                0.0,
-            );
+            if bolt.impact {
+                flash(
+                    &mut commands,
+                    &mut library,
+                    &mut meshes,
+                    bolt.to,
+                    bolt.accent,
+                    0.45,
+                    0.0,
+                );
+            }
         }
     }
     for (e, mut fade, mut transform) in &mut fades {
@@ -443,4 +455,233 @@ pub fn stage(
         }
     }
     Some(impact + travel)
+}
+
+fn effect_accent(cue: tor_protocol::EffectCue) -> Accent {
+    use tor_protocol::EffectCue;
+    match cue {
+        EffectCue::Neutral => Accent::White,
+        EffectCue::Physical => Accent::Amber,
+        EffectCue::Fire => Accent::Ember,
+        EffectCue::Cold => Accent::Teal,
+        EffectCue::Lightning => Accent::Violet,
+        EffectCue::Poison => Accent::Danger,
+        EffectCue::Healing => Accent::Gold,
+        EffectCue::Status => Accent::Abyss,
+    }
+}
+
+/// A snapshot-owned marker, deliberately without a client countdown component.
+/// The next authoritative observation updates or removes its root entity.
+pub fn public_effect(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    appearance: tor_protocol::EffectAppearance,
+    cue: tor_protocol::EffectCue,
+    points: &[Vec<Vec3>],
+) -> Entity {
+    let accent = effect_accent(cue);
+    let model = if appearance == tor_protocol::EffectAppearance::Halo {
+        ring(library, meshes, accent)
+    } else {
+        sphere(library, meshes, accent)
+    };
+    let size = if appearance == tor_protocol::EffectAppearance::Cloud {
+        0.4
+    } else {
+        0.18
+    };
+    commands
+        .spawn((Transform::default(), Visibility::default()))
+        .with_children(|root| {
+            for point in points.iter().flatten() {
+                root.spawn((
+                    Transform::from_translation(*point).with_scale(Vec3::splat(size)),
+                    Visibility::default(),
+                ))
+                .with_children(|child| model.attach(child));
+            }
+        })
+        .id()
+}
+
+/// Present a server-resolved instant. Finite playback is cosmetic, not effect lifetime.
+/// Present only server-disclosed cell paths. Styling and playback speed are cosmetic;
+/// neither interpolation across segment boundaries nor invented impact flashes are allowed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "authoritative descriptor and geometry are independent inputs"
+)]
+pub fn stage_authoritative(
+    commands: &mut Commands,
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    timing: tor_protocol::EffectTiming,
+    appearance: tor_protocol::EffectAppearance,
+    delivery: tor_protocol::EffectDelivery,
+    cue: tor_protocol::EffectCue,
+    segments: &[Vec<Vec3>],
+) {
+    use tor_protocol::{EffectAppearance, EffectDelivery, EffectTiming};
+    let EffectTiming::Instant = timing;
+    // Private status belongs in the HUD, never an implied world-visible aura.
+    if appearance == EffectAppearance::StatusIndicator {
+        return;
+    }
+    let accent = effect_accent(cue);
+    let path = matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile)
+        && matches!(
+            appearance,
+            EffectAppearance::Bolt | EffectAppearance::Missile
+        );
+    for segment in segments {
+        if !path || segment.len() == 1 {
+            for point in segment {
+                let model = if appearance == EffectAppearance::Halo {
+                    ring(library, meshes, accent)
+                } else {
+                    sphere(library, meshes, accent)
+                };
+                let size = if appearance == EffectAppearance::Cloud {
+                    0.4
+                } else {
+                    0.18
+                };
+                commands
+                    .spawn((
+                        Fade {
+                            t: 0.0,
+                            life: 0.3,
+                            grow: size,
+                            base: size * 0.2,
+                        },
+                        Transform::from_translation(*point).with_scale(Vec3::ZERO),
+                        Visibility::default(),
+                    ))
+                    .with_children(|p| model.attach(p));
+            }
+            continue;
+        }
+        for (index, pair) in segment.windows(2).enumerate() {
+            let model = sphere(library, meshes, accent);
+            commands
+                .spawn((
+                    Bolt {
+                        from: pair[0],
+                        to: pair[1],
+                        delay: index as f32 * 0.08,
+                        t: 0.0,
+                        wobble: 0.0,
+                        accent,
+                        duration: 0.08,
+                        arc: false,
+                        impact: false,
+                    },
+                    Transform::from_translation(pair[0]).with_scale(Vec3::ZERO),
+                    Visibility::default(),
+                ))
+                .with_children(|p| model.attach(p));
+        }
+    }
+}
+
+#[cfg(test)]
+mod authoritative_tests {
+    use super::*;
+    use crate::{props::PropMaterials, Game};
+    use tor_client_3d_model::Happening;
+    use tor_protocol::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming, Position};
+
+    #[test]
+    fn appearance_is_distinct_from_delivery_and_private_status_has_no_world_aura() {
+        for (appearance, expected_flashes) in [
+            (EffectAppearance::Flash, 2),
+            (EffectAppearance::Halo, 2),
+            (EffectAppearance::Cloud, 2),
+            (EffectAppearance::StatusIndicator, 0),
+        ] {
+            let mut app = App::new();
+            let mut materials = Assets::<StandardMaterial>::default();
+            let library = PropLibrary::new(PropMaterials::new(&mut materials));
+            app.init_resource::<Game>()
+                .init_resource::<Assets<Mesh>>()
+                .insert_resource(materials)
+                .insert_resource(library)
+                .add_systems(Update, crate::scene::react);
+            app.world_mut()
+                .resource_mut::<Game>()
+                .pending
+                .push(Happening::Effect {
+                    caster: None,
+                    ability: None,
+                    tick: 4,
+                    timing: EffectTiming::Instant,
+                    appearance,
+                    delivery: EffectDelivery::Ray,
+                    cue: EffectCue::Neutral,
+                    segments: vec![vec![
+                        Position { x: 0, y: 0, z: 0 },
+                        Position { x: 1, y: 0, z: 0 },
+                    ]],
+                });
+            app.update();
+            assert_eq!(
+                app.world_mut().query::<&Bolt>().iter(app.world()).count(),
+                0
+            );
+            assert_eq!(
+                app.world_mut().query::<&Fade>().iter(app.world()).count(),
+                expected_flashes
+            );
+        }
+    }
+
+    #[test]
+    fn authoritative_rays_use_exact_segments_without_arcs_or_impact_claims() {
+        let mut app = App::new();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let library = PropLibrary::new(PropMaterials::new(&mut materials));
+        app.init_resource::<Game>()
+            .init_resource::<Assets<Mesh>>()
+            .insert_resource(materials)
+            .insert_resource(library)
+            .add_systems(Update, crate::scene::react);
+        app.world_mut()
+            .resource_mut::<Game>()
+            .pending
+            .push(Happening::Effect {
+                caster: None,
+                ability: None,
+                tick: 4,
+                timing: EffectTiming::Instant,
+                appearance: EffectAppearance::Bolt,
+                delivery: EffectDelivery::Ray,
+                cue: EffectCue::Neutral,
+                segments: vec![
+                    vec![
+                        Position { x: 0, y: 0, z: 0 },
+                        Position { x: 1, y: 0, z: 0 },
+                        Position { x: 0, y: 0, z: 0 },
+                    ],
+                    vec![Position { x: 8, y: 0, z: 0 }, Position { x: 8, y: 1, z: 0 }],
+                ],
+            });
+        app.update();
+        let mut query = app.world_mut().query::<&Bolt>();
+        let bolts: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(bolts.len(), 3);
+        let paths: Vec<_> = bolts.iter().map(|b| (b.from, b.to)).collect();
+        let point = |x, y| Vec3::new(x, 0.05, y);
+        for (from, to) in [
+            (point(0.0, 0.0), point(1.0, 0.0)),
+            (point(1.0, 0.0), point(0.0, 0.0)),
+            (point(8.0, 0.0), point(8.0, 1.0)),
+        ] {
+            assert!(paths
+                .iter()
+                .any(|(a, b)| a.distance(from) < 1e-6 && b.distance(to) < 1e-6));
+        }
+        assert!(bolts.iter().all(|b| !b.arc && !b.impact));
+    }
 }

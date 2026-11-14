@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 69;
+pub const PROTOCOL_VERSION: u32 = 70;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -797,6 +797,12 @@ pub struct Observation {
     pub self_target: ActorTarget,
     #[serde(deserialize_with = "read_linked_holds")]
     pub linked_holds: Vec<LinkedHold>,
+    /// Complete currently observed sustained effects. Omission ends observation,
+    /// not necessarily the world effect. Empty is an authoritative empty list.
+    #[serde(
+        deserialize_with = "crate::bounded::bounded::<_, PublicEffectView, MAX_PUBLIC_EFFECTS>"
+    )]
+    pub public_effects: Vec<PublicEffectView>,
     #[serde(with = "crate::integers::unsigned")]
     pub tick: u64,
     pub position: Position,
@@ -1278,11 +1284,161 @@ pub enum ObjectiveKind {
     ReachExit,
 }
 
+/// Authoritative delivery geometry, not a particular visual animation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectDelivery {
+    Ray,
+    Projectile,
+    Target,
+    Area,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectCue {
+    Neutral,
+    Physical,
+    Fire,
+    Cold,
+    Lightning,
+    Poison,
+    Healing,
+    Status,
+}
+
+/// A resolved instantaneous event; cosmetic duration belongs to the client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectTiming {
+    Instant,
+}
+
+/// Semantic presentation form, separate from delivery geometry and element cue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectAppearance {
+    Bolt,
+    Missile,
+    Flash,
+    Halo,
+    Cloud,
+    StatusIndicator,
+}
+
+/// Observer-scoped identity of a disclosed geometry point, for frame alignment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectAnchor {
+    pub key: String,
+    pub position: Position,
+}
+
+pub const MAX_PUBLIC_EFFECTS: usize = 128;
+
+/// A currently observed sustained effect, not a new simulation mechanic.
+/// IDs are opaque within one observer stream; reset discards their identity.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicEffectView {
+    pub id: String,
+    /// First observed tick, never an undisclosed original creation timestamp.
+    #[serde(with = "crate::integers::unsigned")]
+    pub observed_since: u64,
+    /// Disclosed absolute world-tick deadline, not wall-clock or actor-active time.
+    /// Null means no deadline is disclosed, not a promise of infinite duration.
+    #[serde(with = "crate::integers::optional_unsigned")]
+    pub expires_at: Option<u64>,
+    pub delivery: EffectDelivery,
+    pub appearance: EffectAppearance,
+    pub cue: EffectCue,
+    #[serde(deserialize_with = "read_effect_positions")]
+    pub segments: Vec<Vec<Position>>,
+    #[serde(deserialize_with = "crate::bounded::bounded::<_, EffectAnchor, MAX_EFFECT_POINTS>")]
+    pub anchors: Vec<EffectAnchor>,
+}
+
+impl PublicEffectView {
+    pub(crate) fn valid(&self, tick: u64) -> bool {
+        valid_effect_key(&self.id)
+            && self.observed_since <= tick
+            && self.expires_at.is_none_or(|deadline| deadline > tick)
+            && self.appearance != EffectAppearance::StatusIndicator
+            && valid_effect_geometry(self.delivery, &self.segments, &self.anchors)
+            && self
+                .segments
+                .iter()
+                .flatten()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.anchors.len()
+    }
+}
+
+fn valid_effect_key(key: &str) -> bool {
+    key.len() == 40
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn valid_effect_geometry(
+    delivery: EffectDelivery,
+    segments: &[Vec<Position>],
+    anchors: &[EffectAnchor],
+) -> bool {
+    if anchors.is_empty()
+        || anchors.len() > MAX_EFFECT_POINTS
+        || segments.is_empty()
+        || segments.iter().any(Vec::is_empty)
+        || segments
+            .iter()
+            .try_fold(0usize, |n, s| n.checked_add(s.len()))
+            .is_none_or(|n| n > MAX_EFFECT_POINTS)
+    {
+        return false;
+    }
+    let positions: std::collections::BTreeSet<_> = segments.iter().flatten().copied().collect();
+    let unique: std::collections::BTreeSet<_> = anchors.iter().map(|a| a.position).collect();
+    unique.len() == anchors.len()
+        && anchors
+            .iter()
+            .all(|a| positions.contains(&a.position) && valid_effect_key(&a.key))
+        && (!matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile)
+            || segments.iter().all(|segment| {
+                segment.windows(2).all(|pair| {
+                    pair[0].x.abs_diff(pair[1].x) <= 1
+                        && pair[0].y.abs_diff(pair[1].y) <= 1
+                        && pair[0].z.abs_diff(pair[1].z) <= 1
+                })
+            }))
+}
+
 /// A combat event as the observer knows it. An absent participant is one
 /// it couldn't see; the observer itself is `Observation::self_target`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CombatEventView {
+    /// Authoritative visible geometry, in the accompanying observation's frame.
+    /// Separate segments must never be joined across an undisclosed gap.
+    Effect {
+        #[serde(deserialize_with = "required_option")]
+        caster: Option<ActorTarget>,
+        #[serde(deserialize_with = "required_option")]
+        ability: Option<crate::ContentRef>,
+        #[serde(with = "crate::integers::unsigned")]
+        tick: u64,
+        timing: EffectTiming,
+        appearance: EffectAppearance,
+        #[serde(
+            deserialize_with = "crate::bounded::bounded::<_, EffectAnchor, MAX_EFFECT_POINTS>"
+        )]
+        anchors: Vec<EffectAnchor>,
+        delivery: EffectDelivery,
+        cue: EffectCue,
+        #[serde(deserialize_with = "read_effect_positions")]
+        segments: Vec<Vec<Position>>,
+    },
     /// A personal sensation. The source may be a local anonymous contact;
     /// no ability identity, species, strike ordinal or private plan is disclosed.
     UnseenAbility {
@@ -1317,6 +1473,70 @@ pub enum CombatEventView {
         actor: ActorTarget,
         cause: DeathCause,
     },
+}
+
+pub const MAX_EFFECT_POINTS: usize = 65_537;
+
+fn read_effect_positions<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<Vec<Position>>, D::Error> {
+    #[derive(Deserialize)]
+    struct Points(
+        #[serde(deserialize_with = "crate::bounded::bounded::<_, Position, MAX_EFFECT_POINTS>")]
+        Vec<Position>,
+    );
+    struct Segments;
+    impl<'de> serde::de::Visitor<'de> for Segments {
+        type Value = Vec<Vec<Position>>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("bounded visible effect segments")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut result = Vec::new();
+            let mut count = 0usize;
+            while let Some(Points(segment)) = seq.next_element::<Points>()? {
+                count = count
+                    .checked_add(segment.len())
+                    .ok_or_else(|| serde::de::Error::custom("effect limit"))?;
+                if segment.is_empty() || count > MAX_EFFECT_POINTS {
+                    return Err(serde::de::Error::custom("invalid effect geometry"));
+                }
+                result.push(segment);
+            }
+            if result.is_empty() {
+                return Err(serde::de::Error::custom("empty effect geometry"));
+            }
+            Ok(result)
+        }
+    }
+    d.deserialize_seq(Segments)
+}
+
+impl CombatEventView {
+    pub(crate) fn valid_effect(&self, now: u64) -> bool {
+        match self {
+            Self::Effect {
+                caster,
+                ability,
+                tick,
+                cue,
+                segments,
+                anchors,
+                delivery,
+                ..
+            } => {
+                valid_effect_geometry(*delivery, segments, anchors)
+                    && *tick <= now
+                    && ability.as_ref().is_none_or(|a| a.valid())
+                    && (ability.is_none() || caster.is_some())
+                    && (ability.is_some() || *cue == EffectCue::Neutral)
+            }
+            _ => true,
+        }
+    }
 }
 
 /// Why a disclosed actor died: its food reserve ran out, or it lost its Health
@@ -2482,5 +2702,104 @@ mod snapshot_capability_tests {
         )
         .is_err());
         assert!(AccessRole::Spectator.permits(&Request::Observe));
+    }
+}
+
+#[cfg(test)]
+mod spatial_effect_wire_tests {
+    use super::*;
+    #[test]
+    fn authoritative_effect_round_trips_without_world_coordinates() {
+        let event = CombatEventView::Effect {
+            caster: None,
+            ability: None,
+            tick: 9_007_199_254_740_993,
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Bolt,
+            anchors: vec![EffectAnchor {
+                key: "a".repeat(40),
+                position: Position { x: 0, y: 1, z: 0 },
+            }],
+            delivery: EffectDelivery::Ray,
+            cue: EffectCue::Neutral,
+            segments: vec![
+                vec![Position { x: 0, y: 1, z: 0 }],
+                vec![Position { x: 3, y: 1, z: 0 }],
+            ],
+        };
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["tick"], "9007199254740993");
+        assert_eq!(value["timing"], "instant");
+        assert_eq!(value["appearance"], "bolt");
+        assert_eq!(
+            serde_json::from_value::<CombatEventView>(value.clone()).unwrap(),
+            event
+        );
+        assert!(event.valid_effect(u64::MAX));
+        assert!(!event.valid_effect(1));
+        for field in [
+            "caster",
+            "ability",
+            "tick",
+            "timing",
+            "appearance",
+            "anchors",
+            "segments",
+        ] {
+            let mut invalid = value.clone();
+            invalid.as_object_mut().unwrap().remove(field);
+            assert!(
+                serde_json::from_value::<CombatEventView>(invalid).is_err(),
+                "{field}"
+            );
+        }
+        for anchors in [
+            serde_json::json!([]),
+            serde_json::json!([{"key":"a".repeat(40),"position":{"x":99,"y":0,"z":0}}]),
+            serde_json::json!([{"key":"", "position":{"x":0,"y":1,"z":0}}]),
+            serde_json::json!([{"key":"a".repeat(40),"position":{"x":0,"y":1,"z":0}}, {"key":"b".repeat(40),"position":{"x":0,"y":1,"z":0}}]),
+        ] {
+            let mut invalid = value.clone();
+            invalid["anchors"] = anchors;
+            assert!(!serde_json::from_value::<CombatEventView>(invalid)
+                .unwrap()
+                .valid_effect(u64::MAX));
+        }
+        let mut empty = value.clone();
+        empty["segments"] = serde_json::json!([]);
+        assert!(serde_json::from_value::<CombatEventView>(empty).is_err());
+        let mut leaked = value;
+        leaked["cue"] = serde_json::json!("fire");
+        assert!(!serde_json::from_value::<CombatEventView>(leaked)
+            .unwrap()
+            .valid_effect(u64::MAX));
+    }
+    #[test]
+    fn travelling_effect_segments_require_contiguous_disclosed_points() {
+        let at = |x| Position { x, y: 0, z: 0 };
+        let make = |delivery, points: Vec<Position>| CombatEventView::Effect {
+            caster: None,
+            ability: None,
+            tick: 1,
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Bolt,
+            delivery,
+            cue: EffectCue::Neutral,
+            anchors: vec![EffectAnchor {
+                key: "a".repeat(40),
+                position: points[0],
+            }],
+            segments: vec![points],
+        };
+        for delivery in [EffectDelivery::Ray, EffectDelivery::Projectile] {
+            assert!(make(delivery, vec![at(0), at(1), at(1), at(0)]).valid_effect(1));
+            assert!(!make(delivery, vec![at(0), at(2)]).valid_effect(1));
+            assert!(!make(delivery, vec![at(i32::MIN), at(i32::MAX)]).valid_effect(1));
+            let invalid = serde_json::to_value(make(delivery, vec![at(0), at(2)])).unwrap();
+            assert!(!serde_json::from_value::<CombatEventView>(invalid)
+                .unwrap()
+                .valid_effect(1));
+        }
+        assert!(make(EffectDelivery::Area, vec![at(0), at(9)]).valid_effect(1));
     }
 }

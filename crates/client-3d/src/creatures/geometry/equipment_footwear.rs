@@ -151,6 +151,11 @@ fn fit_snow_cuff_contact(shape: &mut BootShape, build: f32, contact_length: f32)
         + 0.004 * build;
 }
 
+#[cfg(test)]
+thread_local! {
+    static SHIN_SAMPLES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn shin_support(shin: LimbShape, trousered: bool, build: f32) -> crate::sdf::Sculpt {
     let form = limb_form(shin);
     if trousered {
@@ -158,6 +163,22 @@ fn shin_support(shin: LimbShape, trousered: bool, build: f32) -> crate::sdf::Scu
         cloth_over(form, ease, &[(-0.035, shin.radius_top + ease + 0.004)])
     } else {
         form
+    }
+}
+
+/// One wearer/outfit fit supplies both contact and the two rendered shafts.
+/// Only riding leather retains directional radii; other families need just
+/// the conservative envelope, without a per-Figure grid allocation.
+pub(super) struct FittedShin {
+    shape: BootShape,
+    appearance: FootwearAppearance,
+    build: f32,
+    riding: Option<Box<[[f32; 48]; 49]>>,
+}
+
+impl FittedShin {
+    pub fn envelope(&self) -> BootShape {
+        self.shape
     }
 }
 
@@ -171,9 +192,15 @@ pub(super) fn fit_shin(
     shin: LimbShape,
     trousered: bool,
     build: f32,
-) -> BootShape {
+) -> FittedShin {
     let mut shape = fit_shape(appearance, shape, build);
-    let required = shin_profile(shape, shin, trousered, build);
+    let radii = calf_support_grid(shape, shin, trousered, build);
+    let required: [f32; 49] = std::array::from_fn(|row| {
+        radii[row]
+            .iter()
+            .map(|radius| (radius + 0.006 * build) / (PI / 12.0).cos())
+            .fold(0.0f32, f32::max)
+    });
     shape.radius_bottom = shape.radius_bottom.max(required[0]);
     // Hold the fitted ankle, then open the calf end enough to clear every row.
     // This preserves an ankle taper instead of inflating the entire boot to
@@ -191,54 +218,37 @@ pub(super) fn fit_shin(
         let contact_length = shin.length + shape.top;
         fit_snow_cuff_contact(&mut shape, build, contact_length);
     }
-    shape
-}
-
-/// Per-height circular envelope of the actual clothed calf. The 12-sided
-/// shaft's flat faces retain the same clearance as the conservative cone.
-fn shin_profile(shape: BootShape, shin: LimbShape, trousered: bool, build: f32) -> [f32; 49] {
-    let support = shin_support(shin, trousered, build);
-    let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
-    let outside = low.abs().max(high.abs()).xz().length() + 0.05;
-    let clearance = 0.006 * build;
-    let polygon_inradius = (PI / 12.0).cos();
-    let mut required = [0.0f32; 49];
-    for (row, radius) in required.iter_mut().enumerate() {
-        let t = row as f32 / 48.0;
-        let center = Vec3::Y * (shape.bottom + (shape.top - shape.bottom) * t);
-        for k in 0..48 {
-            let angle = k as f32 * TAU / 48.0;
-            let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
-            let mut lo = 0.0;
-            let mut hi = outside;
-            for _ in 0..18 {
-                let middle = (lo + hi) * 0.5;
-                if support.distance(center + ray * middle) <= 0.0 {
-                    lo = middle;
-                } else {
-                    hi = middle;
-                }
-            }
-            *radius = radius.max((hi + clearance) / polygon_inradius);
-        }
+    let riding = if appearance == FootwearAppearance::RidingBoots {
+        Some(Box::new(std::array::from_fn(|row| {
+            std::array::from_fn(|column| {
+                ((radii[row][column] + 0.006 * build) / (PI / 48.0).cos()).max(shape.radius_bottom)
+            })
+        })))
+    } else {
+        None
+    };
+    FittedShin {
+        shape,
+        appearance,
+        build,
+        riding,
     }
-    required
 }
 
-/// Riding leather is fitted by direction: a rear calf muscle must not
-/// inflate the front and both sides into the same circular goblet shape.
-/// The coarser circular `fit_shin` envelope remains the conservative bound
-/// used by surrounding garments; no anatomy or contact contract is changed.
-fn riding_profile(
+/// Raw directional support, before each item's polygon compensation or
+/// ankle floor. Coverage is already resolved by fit_shape. Keep rear calf
+/// fullness rather than reducing it to a circular proxy for rendered leather.
+fn calf_support_grid(
     shape: BootShape,
     shin: LimbShape,
     trousered: bool,
     build: f32,
 ) -> [[f32; 48]; 49] {
+    #[cfg(test)]
+    SHIN_SAMPLES.with(|count| count.set(count.get() + 1));
     let support = shin_support(shin, trousered, build);
     let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
     let outside = low.abs().max(high.abs()).xz().length() + 0.05;
-    let facet = (PI / 48.0).cos();
     std::array::from_fn(|row| {
         let t = row as f32 / 48.0;
         let origin = Vec3::Y * (shape.bottom + (shape.top - shape.bottom) * t);
@@ -255,7 +265,7 @@ fn riding_profile(
                     high = middle;
                 }
             }
-            ((high + 0.006 * build) / facet).max(shape.radius_bottom)
+            high
         })
     })
 }
@@ -264,23 +274,24 @@ fn riding_profile(
 /// study boots retain their authored construction and the same public catalog.
 /// `shape` remains the conservative envelope returned by `fit_shin`, so cloth
 /// contact continues to enclose every ring without changing its API.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_fitted_shaft(
     p: &mut Parts,
-    appearance: FootwearAppearance,
-    shape: BootShape,
-    build: f32,
+    fit: &FittedShin,
     side: f32,
     color: Vec3,
     trim: Vec3,
-    shin: LimbShape,
-    trousered: bool,
 ) {
+    let appearance = fit.appearance;
+    let shape = fit.shape;
+    let build = fit.build;
     if appearance != FootwearAppearance::RidingBoots {
         emit_shaft(p, appearance, shape, build, side, color, trim);
         return;
     }
-    let radii = riding_profile(shape, shin, trousered, build);
+    let radii = fit
+        .riding
+        .as_deref()
+        .expect("riding fit retains its directional support");
     let y = |t: f32| shape.bottom + (shape.top - shape.bottom) * t;
     let radius = |t: f32, angle: f32| {
         let row = t.clamp(0.0, 1.0) * 48.0;
@@ -378,9 +389,13 @@ fn cord(builder: &mut Builder, a: Vec3, b: Vec3, radius: f32, color: Vec3) {
 }
 
 fn band(p: &mut Parts, shape: BootShape, t: f32, width: f32, color: Vec3) {
+    emit_band(&mut p.satin, shape, t, width, color);
+}
+
+fn emit_band(b: &mut Builder, shape: BootShape, t: f32, width: f32, color: Vec3) {
     let y = shape.bottom + (shape.top - shape.bottom) * t;
     let radius = shape.radius_bottom + (shape.radius_top - shape.radius_bottom) * t;
-    p.satin.prism(
+    b.prism(
         Vec3::Y * (y + width),
         Vec3::Y * (y - width),
         radius + 0.004,
@@ -389,6 +404,26 @@ fn band(p: &mut Parts, shape: BootShape, t: f32, width: f32, color: Vec3) {
         color,
         0.0,
     );
+}
+
+/// Hardware belongs to this emitted leather band, not to a second nominal
+/// shaft radius. Snap its rigid frame to an actual outward side facet; detail
+/// settings and the current recipe frame stay owned by the band builder.
+fn band_attachment(band: &Builder, height: f32, side: f32) -> Option<fitting::StrapAttachment> {
+    let desired = Vec3::new(side * 0.58, 0.0, 0.85).normalize();
+    let normal = band
+        .surface_triangles()
+        .filter_map(|tri| {
+            let normal = (tri[1] - tri[0]).cross(tri[2] - tri[0]).try_normalize()?;
+            (normal.y.abs() < 0.001 && normal.dot(desired) > 0.5).then_some(normal)
+        })
+        .max_by(|a, b| a.dot(desired).total_cmp(&b.dot(desired)))?;
+    let at = band.outer_surface(Vec3::Y * height, normal)?;
+    Some(fitting::StrapAttachment {
+        position: at,
+        normal,
+        rotation: Quat::from_rotation_y(normal.x.atan2(normal.z)),
+    })
 }
 
 /// A thin closed leather panel, with a buried underside rather than a
@@ -849,22 +884,27 @@ pub(super) fn emit_shaft(
         }
         BuckledBoots => {
             for t in [0.18, 0.52, 0.86] {
-                band(p, shape, t, 0.014, color * 0.68);
-                let x = side * radius(t) * 0.58;
-                let z = radius(t) * 0.85 + 0.008;
+                let mut leather = p.satin.empty_like();
+                emit_band(&mut leather, shape, t, 0.014, color * 0.68);
+                let mount = band_attachment(&leather, y(t), side);
+                p.satin.absorb(leather);
+                let Some(mount) = mount else {
+                    continue;
+                };
+                let point = |x, y| mount.position + mount.rotation * Vec3::new(x, y, 0.0);
                 let corners = [
-                    Vec3::new(x - 0.012, y(t) - 0.015, z),
-                    Vec3::new(x + 0.012, y(t) - 0.015, z),
-                    Vec3::new(x + 0.012, y(t) + 0.015, z),
-                    Vec3::new(x - 0.012, y(t) + 0.015, z),
+                    point(-0.012, -0.015),
+                    point(0.012, -0.015),
+                    point(0.012, 0.015),
+                    point(-0.012, 0.015),
                 ];
                 for k in 0..4 {
                     cord(&mut p.metal, corners[k], corners[(k + 1) % 4], 0.003, trim);
                 }
                 cord(
                     &mut p.metal,
-                    Vec3::new(x, y(t) - 0.012, z),
-                    Vec3::new(x, y(t) + 0.012, z),
+                    point(0.0, -0.012),
+                    point(0.0, 0.012),
                     0.002,
                     trim,
                 );
@@ -900,6 +940,259 @@ pub(super) fn emit_shaft(
 mod tests {
     use super::*;
 
+    // Frozen pre-consolidation recipes independently witness coverage and
+    // polygon compensation; do not rewrite these to call the new sampler.
+    fn legacy_fit_shin(
+        appearance: FootwearAppearance,
+        shape: BootShape,
+        shin: LimbShape,
+        trousered: bool,
+        build: f32,
+    ) -> BootShape {
+        let mut shape = fit_shape(appearance, shape, build);
+        let required = legacy_shin_profile(shape, shin, trousered, build);
+        shape.radius_bottom = shape.radius_bottom.max(required[0]);
+        // Hold the fitted ankle, then open the calf end enough to clear every row.
+        // This preserves an ankle taper instead of inflating the entire boot to
+        // the largest calf cross-section.
+        for (row, radius) in required.iter().enumerate().skip(1) {
+            let t = row as f32 / 48.0;
+            shape.radius_top = shape
+                .radius_top
+                .max((radius - shape.radius_bottom * (1.0 - t)) / t);
+        }
+        shape.cuff_radius = shape.radius_top + 0.002;
+        shape.sample_radius_top = shape.radius_top + shape.cuff_thickness + 0.004;
+        shape.sample_radius_bottom = shape.radius_bottom + 0.012;
+        if appearance == FootwearAppearance::SnowBoots {
+            let contact_length = shin.length + shape.top;
+            fit_snow_cuff_contact(&mut shape, build, contact_length);
+        }
+        shape
+    }
+    fn legacy_shin_profile(
+        shape: BootShape,
+        shin: LimbShape,
+        trousered: bool,
+        build: f32,
+    ) -> [f32; 49] {
+        let support = shin_support(shin, trousered, build);
+        let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
+        let outside = low.abs().max(high.abs()).xz().length() + 0.05;
+        let clearance = 0.006 * build;
+        let polygon_inradius = (PI / 12.0).cos();
+        let mut required = [0.0f32; 49];
+        for (row, radius) in required.iter_mut().enumerate() {
+            let t = row as f32 / 48.0;
+            let center = Vec3::Y * (shape.bottom + (shape.top - shape.bottom) * t);
+            for k in 0..48 {
+                let angle = k as f32 * TAU / 48.0;
+                let ray = Vec3::new(angle.sin(), 0.0, angle.cos());
+                let mut lo = 0.0;
+                let mut hi = outside;
+                for _ in 0..18 {
+                    let middle = (lo + hi) * 0.5;
+                    if support.distance(center + ray * middle) <= 0.0 {
+                        lo = middle;
+                    } else {
+                        hi = middle;
+                    }
+                }
+                *radius = radius.max((hi + clearance) / polygon_inradius);
+            }
+        }
+        required
+    }
+    fn legacy_riding_profile(
+        shape: BootShape,
+        shin: LimbShape,
+        trousered: bool,
+        build: f32,
+    ) -> [[f32; 48]; 49] {
+        let support = shin_support(shin, trousered, build);
+        let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
+        let outside = low.abs().max(high.abs()).xz().length() + 0.05;
+        let facet = (PI / 48.0).cos();
+        std::array::from_fn(|row| {
+            let t = row as f32 / 48.0;
+            let origin = Vec3::Y * (shape.bottom + (shape.top - shape.bottom) * t);
+            std::array::from_fn(|column| {
+                let angle = column as f32 * TAU / 48.0;
+                let direction = Vec3::new(angle.sin(), 0.0, angle.cos());
+                let mut low = 0.0;
+                let mut high = outside;
+                for _ in 0..18 {
+                    let middle = (low + high) * 0.5;
+                    if support.distance(origin + direction * middle) <= 0.0 {
+                        low = middle;
+                    } else {
+                        high = middle;
+                    }
+                }
+                ((high + 0.006 * build) / facet).max(shape.radius_bottom)
+            })
+        })
+    }
+    fn envelope_values(shape: BootShape) -> [f32; 8] {
+        [
+            shape.top,
+            shape.bottom,
+            shape.radius_top,
+            shape.radius_bottom,
+            shape.cuff_radius,
+            shape.cuff_thickness,
+            shape.sample_radius_top,
+            shape.sample_radius_bottom,
+        ]
+    }
+
+    /// Manual construction-only benchmark. Includes fitting moved into Figure,
+    /// unlike per-part mesh logs; intentionally makes no timing assertion.
+    #[test]
+    #[ignore = "manual isolated old/new calf-fit timing"]
+    fn profile_complete_calf_fit_work() {
+        let wearers: Vec<_> = [false, true]
+            .into_iter()
+            .flat_map(|woman| {
+                (0..3).map(move |build| {
+                    HumanoidBody::resolve(&Look::with_choice(
+                        CreatureModel::Human,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    ))
+                })
+            })
+            .collect();
+        for appearance in [
+            FootwearAppearance::RidingBoots,
+            FootwearAppearance::Jackboots,
+            FootwearAppearance::SnowBoots,
+        ] {
+            for pair in 0..6 {
+                for candidate in if pair % 2 == 0 {
+                    [false, true]
+                } else {
+                    [true, false]
+                } {
+                    let start = std::time::Instant::now();
+                    for body in &wearers {
+                        for trousered in [false, true] {
+                            let native = BootShape::fitted(body.build, -0.24);
+                            if candidate {
+                                let fit =
+                                    fit_shin(appearance, native, body.shin, trousered, body.build);
+                                std::hint::black_box(fit.envelope());
+                                for _side in [-1.0, 1.0] {
+                                    std::hint::black_box(&fit.riding);
+                                }
+                            } else {
+                                let shape = legacy_fit_shin(
+                                    appearance, native, body.shin, trousered, body.build,
+                                );
+                                std::hint::black_box(shape);
+                                if appearance == FootwearAppearance::RidingBoots {
+                                    for _side in [-1.0, 1.0] {
+                                        std::hint::black_box(legacy_riding_profile(
+                                            shape, body.shin, trousered, body.build,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    eprintln!("calf_fit_profile appearance={appearance:?} pair={pair} candidate={candidate} ms={:.6}",start.elapsed().as_secs_f64()*1000.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shared_calf_grid_preserves_all_family_fit_policies() {
+        for model in [CreatureModel::Human, CreatureModel::Orc] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    let body = HumanoidBody::resolve(&Look::with_choice(
+                        model,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    ));
+                    for trousered in [false, true] {
+                        for appearance in FootwearAppearance::ALL {
+                            let native = BootShape::fitted(body.build, -0.24);
+                            let expected = legacy_fit_shin(
+                                appearance, native, body.shin, trousered, body.build,
+                            );
+                            let fit =
+                                fit_shin(appearance, native, body.shin, trousered, body.build);
+                            assert_eq!(envelope_values(fit.envelope()), envelope_values(expected));
+                            assert_eq!(
+                                fit.riding.is_some(),
+                                appearance == FootwearAppearance::RidingBoots
+                            );
+                            if let Some(grid) = fit.riding.as_deref() {
+                                assert_eq!(
+                                    *grid,
+                                    legacy_riding_profile(
+                                        expected, body.shin, trousered, body.build
+                                    )
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resolved_calf_support_is_sampled_once_for_both_legs() {
+        let body = HumanoidBody::resolve(&Look::with_choice(CreatureModel::Human, 7, None));
+        for appearance in FootwearAppearance::ALL {
+            SHIN_SAMPLES.with(|count| count.set(0));
+            let fit = fit_shin(
+                appearance,
+                BootShape::fitted(body.build, -0.24),
+                body.shin,
+                true,
+                body.build,
+            );
+            let before = fit.riding.clone();
+            let envelope = envelope_values(fit.envelope());
+            for side in [-1.0, 1.0] {
+                let mut first = Parts::default();
+                let mut second = Parts::default();
+                emit_fitted_shaft(&mut first, &fit, side, Vec3::ONE, Vec3::ONE);
+                emit_fitted_shaft(&mut second, &fit, side, Vec3::ONE, Vec3::ONE);
+                assert!(!first.satin.is_empty());
+                for (a, b) in [
+                    (&first.matte, &second.matte),
+                    (&first.satin, &second.satin),
+                    (&first.metal, &second.metal),
+                ] {
+                    assert_eq!(
+                        a.surface_triangles().collect::<Vec<_>>(),
+                        b.surface_triangles().collect::<Vec<_>>()
+                    );
+                }
+            }
+            assert_eq!(
+                SHIN_SAMPLES.with(|count| count.get()),
+                1,
+                "one wearer fit serves contact and repeated meshes on both legs"
+            );
+            assert_eq!(fit.riding, before);
+            assert_eq!(envelope_values(fit.envelope()), envelope);
+        }
+    }
+
     #[test]
     fn riding_rear_seam_is_continuous_above_the_emitted_shaft() {
         for woman in [false, true] {
@@ -914,25 +1207,16 @@ mod tests {
                     }),
                 ));
                 for trousered in [false, true] {
-                    let shape = fit_shin(
+                    let fit = fit_shin(
                         FootwearAppearance::RidingBoots,
                         BootShape::fitted(body.build, -0.24),
                         body.shin,
                         trousered,
                         body.build,
                     );
+                    let shape = fit.envelope();
                     let mut parts = Parts::default();
-                    emit_fitted_shaft(
-                        &mut parts,
-                        FootwearAppearance::RidingBoots,
-                        shape,
-                        body.build,
-                        1.0,
-                        Vec3::splat(0.2),
-                        Vec3::ZERO,
-                        body.shin,
-                        trousered,
-                    );
+                    emit_fitted_shaft(&mut parts, &fit, 1.0, Vec3::splat(0.2), Vec3::ZERO);
                     let mut meshes = Assets::<Mesh>::default();
                     let mut materials = Assets::<StandardMaterial>::default();
                     let model = parts.finish(
@@ -1127,14 +1411,16 @@ mod tests {
                     body.shin,
                     false,
                     build,
-                ),
+                )
+                .envelope(),
                 fit_shin(
                     FootwearAppearance::SnowBoots,
                     BootShape::fitted(build, -0.24),
                     body.shin,
                     true,
                     build,
-                ),
+                )
+                .envelope(),
             ]
             .into_iter()
             .enumerate()
@@ -1571,7 +1857,7 @@ mod tests {
                     }),
                 ));
                 for trousered in [false, true] {
-                    let shape = fit_shin(
+                    let fit = fit_shin(
                         FootwearAppearance::RidingBoots,
                         BootShape::fitted(body.build, -0.24),
                         body.shin,
@@ -1579,17 +1865,7 @@ mod tests {
                         body.build,
                     );
                     let mut parts = Parts::default();
-                    emit_fitted_shaft(
-                        &mut parts,
-                        FootwearAppearance::RidingBoots,
-                        shape,
-                        body.build,
-                        1.0,
-                        Vec3::ONE,
-                        Vec3::ONE,
-                        body.shin,
-                        trousered,
-                    );
+                    emit_fitted_shaft(&mut parts, &fit, 1.0, Vec3::ONE, Vec3::ONE);
                     let origin = Vec3::Y * -0.14;
                     let radius = |direction| {
                         parts
@@ -1647,25 +1923,16 @@ mod tests {
                         ..default()
                     }),
                 ));
-                let shape = fit_shin(
+                let fit = fit_shin(
                     FootwearAppearance::RidingBoots,
                     BootShape::fitted(body.build, -0.24),
                     body.shin,
                     true,
                     body.build,
                 );
+                let shape = fit.envelope();
                 let mut parts = Parts::default();
-                emit_fitted_shaft(
-                    &mut parts,
-                    FootwearAppearance::RidingBoots,
-                    shape,
-                    body.build,
-                    1.0,
-                    Vec3::ONE,
-                    Vec3::ONE,
-                    body.shin,
-                    true,
-                );
+                emit_fitted_shaft(&mut parts, &fit, 1.0, Vec3::ONE, Vec3::ONE);
                 let rear_radius = |y| {
                     parts
                         .satin
@@ -1729,25 +1996,16 @@ mod tests {
                         sculpted_limb(&mut support, body.shin, Vec3::ONE);
                     }
                     for appearance in FootwearAppearance::ALL {
-                        let shape = fit_shin(
+                        let fit = fit_shin(
                             appearance,
                             BootShape::fitted(body.build, -0.24),
                             body.shin,
                             trousered,
                             body.build,
                         );
+                        let shape = fit.envelope();
                         let mut shaft = Parts::default();
-                        emit_fitted_shaft(
-                            &mut shaft,
-                            appearance,
-                            shape,
-                            body.build,
-                            1.0,
-                            Vec3::ONE,
-                            Vec3::ONE,
-                            body.shin,
-                            trousered,
-                        );
+                        emit_fitted_shaft(&mut shaft, &fit, 1.0, Vec3::ONE, Vec3::ONE);
                         assert!(shape.sample_radius_top >= shape.radius_top);
                         assert!(shape.sample_radius_bottom >= shape.radius_bottom);
                         // Offset samples from the fitter's rows/angles; testing
@@ -1824,6 +2082,144 @@ mod tests {
                         | FootwearAppearance::JungleBoots
                 ) {
                     assert!(!shaft.metal.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod buckle_seating_tests {
+    use super::*;
+    fn check(shape: BootShape, build: f32, side: f32, detail: usize) {
+        let mut shaft = Parts::default();
+        shaft.satin.sides_mul = detail;
+        shaft.metal.sides_mul = detail;
+        emit_shaft(
+            &mut shaft,
+            FootwearAppearance::BuckledBoots,
+            shape,
+            build,
+            side,
+            Vec3::ONE,
+            Vec3::ONE,
+        );
+        let bands = [0.18, 0.52, 0.86].map(|t| {
+            let mut band = Builder::default();
+            band.sides_mul = detail;
+            emit_band(&mut band, shape, t, 0.014, Vec3::ONE);
+            (shape.bottom + (shape.top - shape.bottom) * t, band)
+        });
+        assert!(shaft.metal.surface_triangles().count() > 0);
+        for at in shaft.metal.surface_triangles().flatten() {
+            let (y, support) = bands
+                .iter()
+                .min_by(|a, b| (at.y - a.0).abs().total_cmp(&(at.y - b.0).abs()))
+                .unwrap();
+            // End rails intentionally overhang the 14mm half-height leather by
+            // 1mm plus wire radius. Project to its side to test radial seating.
+            let hit = support
+                .outer_surface(
+                    Vec3::new(at.x, at.y.clamp(y - 0.013, y + 0.013), -0.2),
+                    Vec3::Z,
+                )
+                .expect("hardware footprint stays over band");
+            let gap = at.z - hit.z;
+            assert!(
+                (-0.005..=0.008).contains(&gap),
+                "band rail gap={gap} build={build} side={side} detail={detail}"
+            );
+        }
+    }
+    #[test]
+    fn buckles_follow_their_band_surface_across_builds_and_sides() {
+        for build in [0.85, 1.0, 1.15] {
+            let shape = fit_shape(
+                FootwearAppearance::BuckledBoots,
+                BootShape::fitted(build, -0.24),
+                build,
+            );
+            for side in [-1.0, 1.0] {
+                for detail in [1, 2, 3] {
+                    check(shape, build, side, detail);
+                }
+            }
+        }
+    }
+    #[test]
+    fn buckle_mounts_follow_actual_anatomy_and_trouser_fits() {
+        for model in [CreatureModel::Human, CreatureModel::Orc] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    let look = Look::with_choice(
+                        model,
+                        7,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let body = HumanoidBody::resolve(&look);
+                    for trousers in [false, true] {
+                        let fitted = fit_shin(
+                            FootwearAppearance::BuckledBoots,
+                            BootShape::fitted(body.build, -0.24),
+                            body.shin,
+                            trousers,
+                            body.build,
+                        );
+                        for side in [-1.0, 1.0] {
+                            check(fitted.envelope(), body.build, side, 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn band_mount_preserves_leather_recipe_and_recipe_frame() {
+        assert!(band_attachment(&Builder::default(), 0.0, 1.0).is_none());
+        let shape = BootShape::fitted(1.0, -0.24);
+        for detail in [1, 2, 3] {
+            for smooth in [false, true] {
+                for transformed in [false, true] {
+                    let mut parts = Parts::default();
+                    if transformed {
+                        parts.set_transform(Affine3A::from_scale_rotation_translation(
+                            Vec3::new(1.1, 0.9, 1.2),
+                            Quat::from_rotation_y(0.4),
+                            Vec3::new(0.3, 0.2, -0.1),
+                        ));
+                    }
+                    let mut target = parts.satin;
+                    target.sides_mul = detail;
+                    target.smooth = smooth;
+                    let mut old = target.empty_like();
+                    let mut band = target.empty_like();
+                    let t = 0.52;
+                    let y = shape.bottom + (shape.top - shape.bottom) * t;
+                    let radius = shape.radius_bottom + (shape.radius_top - shape.radius_bottom) * t;
+                    old.prism(
+                        Vec3::Y * (y + 0.014),
+                        Vec3::Y * (y - 0.014),
+                        radius + 0.004,
+                        radius + 0.004,
+                        12,
+                        Vec3::ONE,
+                        0.0,
+                    );
+                    emit_band(&mut band, shape, t, 0.014, Vec3::ONE);
+                    old.assert_same_recipe(&band);
+                    for side in [-1.0, 1.0] {
+                        let mount = band_attachment(&band, y, side).unwrap();
+                        assert!(mount.normal.x * side > 0.0 && mount.normal.z > 0.0);
+                        assert!((mount.rotation * Vec3::Y - Vec3::Y).length() < 1e-5);
+                        assert!((mount.rotation * Vec3::Z - mount.normal).length() < 1e-4);
+                        assert!((mount.position.y - y).abs() < 1e-5);
+                    }
+                    target.absorb(band);
+                    old.assert_same_recipe(&target);
                 }
             }
         }

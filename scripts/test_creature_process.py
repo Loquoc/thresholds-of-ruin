@@ -886,6 +886,15 @@ class NativeCreatureAbilityProcesses(ProcessTestCase):
             self.assertEqual(completed["state"]["observation"]["position"],
                              initial["state"]["observation"]["position"])
             self.assertIn(ability, str(completed["history"]))
+            # Effect narration may fill the ordinary message pager. Acknowledge
+            # it explicitly so the next ability key still opens its menu.
+            paged = completed
+            for _ in range(8):
+                if not paged["messages"]["more"]:
+                    break
+                paged = self.key(window, "enter", wait_for_simulation=False)
+                self.assertEqual(paged["state"], completed["state"])
+            self.assertFalse(paged["messages"]["more"], "Combat narration exceeded eight pages")
 
 
     def test_ruleset_defined_ability_is_selected_from_the_real_native_menu(self):

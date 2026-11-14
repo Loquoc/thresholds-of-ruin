@@ -621,6 +621,7 @@ impl Game {
             return Err(GameError::Rule(RuleError::InvalidPlan));
         }
         let role = self.publication_role(&outcome, site)?;
+        self.publish_target_effect(&outcome, disclosure_origin.ability_disclosure())?;
         if outcome.actor != outcome.target
             && outcome.target_participated()
             && outcome

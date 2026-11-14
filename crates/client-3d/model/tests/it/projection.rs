@@ -747,3 +747,120 @@ fn persistent_public_appearance_survives_identification_and_sampled_disguise() {
         ItemSurface::Neutral
     );
 }
+
+#[test]
+fn reset_picture_spatial_history_does_not_replay_ordered_effects() {
+    use tor_protocol::*;
+    let mut observed = observation();
+    observed.visible_cells.push(CellView {
+        key: "a".repeat(40),
+        position: observed.position,
+        wall: false,
+        material: "stone".into(),
+        asset: None,
+        lit: true,
+        door: None,
+        trap: None,
+        object_presentation: None,
+        stairs_up: false,
+        stairs_down: false,
+        place_hint: false,
+    });
+    let cell = &observed.visible_cells[0];
+    observed.combat.as_mut().unwrap().events = vec![CombatEventView::Effect {
+        caster: None,
+        ability: None,
+        tick: observed.tick,
+        timing: EffectTiming::Instant,
+        appearance: EffectAppearance::Bolt,
+        delivery: EffectDelivery::Ray,
+        cue: EffectCue::Neutral,
+        segments: vec![vec![cell.position]],
+        anchors: vec![EffectAnchor {
+            key: cell.key.clone(),
+            position: cell.position,
+        }],
+    }];
+    let state = from_observation(observed);
+    let picture = view(&state, &Palette::default());
+    assert!(
+        picture.events.is_empty(),
+        "snapshot history is not a new transient"
+    );
+}
+
+#[test]
+fn public_effect_lifecycle_replaces_shared_state_and_model_without_start_or_end_events() {
+    use tor_protocol::*;
+    let mut observed = observation();
+    let at = observed.position;
+    observed.visible_cells.push(CellView {
+        key: "a".repeat(40),
+        position: at,
+        wall: false,
+        material: "stone".into(),
+        asset: None,
+        lit: true,
+        door: None,
+        trap: None,
+        object_presentation: None,
+        stairs_up: false,
+        stairs_down: false,
+        place_hint: false,
+    });
+    let effect = PublicEffectView {
+        id: "b".repeat(40),
+        observed_since: observed.tick,
+        expires_at: Some(observed.tick + 20),
+        appearance: EffectAppearance::Cloud,
+        cue: EffectCue::Fire,
+        delivery: EffectDelivery::Area,
+        segments: vec![vec![at]],
+        anchors: vec![EffectAnchor {
+            key: "a".repeat(40),
+            position: at,
+        }],
+    };
+    observed.public_effects = vec![effect.clone()];
+    let mut client = from_observation(observed.clone());
+    let first = view(&client, &Palette::default());
+    assert_eq!(first.public_effects, vec![effect.clone()]);
+    assert!(
+        first.events.is_empty(),
+        "presence is not a replayed Start event"
+    );
+    let mut updated = effect.clone();
+    updated.cue = EffectCue::Cold;
+    updated.expires_at = None;
+    for effects in [vec![updated.clone()], vec![], vec![updated.clone()]] {
+        let mut next = client.state().clone();
+        next.revision += 1;
+        next.snapshot = SnapshotId(format!("effect-picture-{}", next.revision));
+        next.observation.public_effects = effects.clone();
+        let delta = StateDelta::between(client.state(), &next).unwrap();
+        client
+            .apply(StreamUpdate {
+                context: client.context().clone(),
+                actor: next.observation.actor,
+                branch: client.branch().clone(),
+                cursor: StreamCursor {
+                    sequence: client.cursor().sequence + 1,
+                    tick: next.observation.tick,
+                },
+                body: UpdateBody::ObservationDelta {
+                    base: client.observation_base(),
+                    state: Box::new(delta),
+                    event: None,
+                },
+            })
+            .unwrap();
+        let picture = view(&client, &Palette::default());
+        assert_eq!(picture.public_effects, effects);
+        assert!(picture.events.is_empty());
+    }
+    // Reconnect/reset uses the current full snapshot, never a remembered old instance.
+    observed.public_effects.clear();
+    observed.visible_cells.clear();
+    let reset = from_observation(observed);
+    assert!(view(&reset, &Palette::default()).public_effects.is_empty());
+}

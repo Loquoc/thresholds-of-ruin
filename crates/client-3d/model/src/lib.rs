@@ -51,7 +51,8 @@ pub use interaction::{
 pub use inventory::{InventoryBrowser, InventoryFilter, MAX_INVENTORY_SEARCH};
 pub use map::{map_destinations, MapDestination, MapSelection};
 pub use observation::{
-    happenings, observed_harm, view, Ability, Actor, Carried, GroundItem, Happening, Terrain, View,
+    happenings, observed_harm, outcome_happenings, view, Ability, Actor, Carried, GroundItem,
+    Happening, Terrain, View,
 };
 
 pub use routing::{approach_cells, attack_at_hand, step_toward};

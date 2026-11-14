@@ -51,30 +51,7 @@ pub(super) fn emit(
             fitted_band(&mut p.matte, skin, 0.035, 0.07, 0.006, color * 0.8);
         }
         TorsoOrnament::RivetedVest { strap, rivets } => {
-            // A riveted leather vest on shoulder straps.
-            for side in [-1.0f32, 1.0] {
-                let (f, k) = (on(side * 0.11, 0.41, true), on(side * 0.11, 0.41, false));
-                tube(
-                    &mut p.satin,
-                    &[
-                        f,
-                        Vec3::new(side * 0.13, 0.53, 0.05),
-                        Vec3::new(side * 0.13, 0.53, -0.06),
-                        k,
-                    ],
-                    &[(0.03, 0.01); 4],
-                    strap,
-                );
-            }
-            for k in 0..3 {
-                p.metal.blob(
-                    on(-0.1 + k as f32 * 0.1, 0.16, true),
-                    Vec3::splat(0.012),
-                    0,
-                    0.0,
-                    rivets,
-                );
-            }
+            emit_riveted_vest(p, body, garment, garment, strap, rivets);
         }
         TorsoOrnament::StitchedFront { thread } => {
             for k in 0..3 {
@@ -149,43 +126,78 @@ pub(super) fn emit(
             ring: ring_color,
             shoulder_straps,
         } => {
-            // A harness strap across the chest, buckled to a ring at the sternum.
+            // The ring follows the same resolved ribbon as the chest strap.
             for front in [true, false] {
-                let strap = [
+                let path = [
                     (Vec2::new(0.15 * sh, 0.45), 0.026 * b),
                     (Vec2::new(0.05 * b, 0.33), 0.026 * b),
                     (Vec2::new(-0.06 * b, 0.21), 0.026 * b),
                     (Vec2::new(-0.13 * w, 0.05), 0.022 * b),
                 ];
-                fitted_ribbon(&mut p.satin, garment, &strap, front, 0.016, color);
-            }
-            let (ring, normal) = torso_surface_frame(garment, Vec2::new(0.03 * b, 0.31), true);
-            p.metal.torus(
-                ring + normal * 0.026,
-                normal,
-                0.03,
-                0.008,
-                14,
-                4,
-                ring_color,
-            );
-            if let Some(color) = shoulder_straps {
-                // Shoulder straps over bare skin, riveted.
-                for side in [-1.0f32, 1.0] {
-                    let front = torso_surface(skin, side * 0.1 * b, 0.42, true);
-                    let back = torso_surface(skin, side * 0.1 * b, 0.42, false);
-                    tube(
-                        &mut p.satin,
-                        &[
-                            front,
-                            Vec3::new(side * 0.12 * b, 0.54, 0.05),
-                            Vec3::new(side * 0.12 * b, 0.54, -0.06),
-                            back,
-                        ],
-                        &[(0.032, 0.011); 4],
-                        color,
-                    );
+                let strap = FittedStrap::fit(
+                    garment,
+                    &path,
+                    front,
+                    0.016,
+                    StrapEdgePolicy::EndUnsupportedRows,
+                );
+                strap.emit(&mut p.satin, color, true);
+                if front {
+                    if let Some(at) = strap.at_height(0.31) {
+                        let dy = (at.rotation * Vec3::Y).y.abs() * 0.03;
+                        let ends = [0.31 - dy, 0.31 + dy].map(|height| {
+                            let end = strap.at_height(height)?;
+                            Some((strap.sample_projected(end.position.truncate())?, end.normal))
+                        });
+                        if let [Some((a, na)), Some((z, nz))] = ends {
+                            let along = (z - a).normalize_or(Vec3::Y);
+                            let normal = na + nz;
+                            let normal =
+                                (normal - along * normal.dot(along)).normalize_or(at.normal);
+                            let center = (a + z) * 0.5 + normal * 0.008;
+                            let emit = |builder: &mut Builder, center| {
+                                builder.torus(center, normal, 0.03, 0.008, 14, 4, ring_color);
+                            };
+                            let mut ring = Builder::default();
+                            emit(&mut ring, center);
+                            // Keep the hardware rigid. Its finite footprint can
+                            // cross a convex ribbon even when the two chord
+                            // endpoints are seated. Translate only its depth
+                            // to clear the retained ribbon under that footprint.
+                            let mut lift = 0.0f32;
+                            for tri in ring.surface_triangles() {
+                                for i in 0..=4 {
+                                    for j in 0..=4 - i {
+                                        let point = tri[0]
+                                            + (tri[1] - tri[0]) * (i as f32 / 4.0)
+                                            + (tri[2] - tri[0]) * (j as f32 / 4.0);
+                                        if let Some(support) =
+                                            strap.sample_projected(point.truncate())
+                                        {
+                                            lift = lift.max(support.z + 0.0005 - point.z);
+                                        }
+                                    }
+                                }
+                            }
+                            emit(&mut p.metal, center + Vec3::Z * lift);
+                        }
+                    }
                 }
+            }
+            if let Some(color) = shoulder_straps {
+                emit_shoulder_straps(
+                    p,
+                    body,
+                    skin,
+                    ShoulderStrapProfile {
+                        chest_fraction: 5.0 / 9.0,
+                        shoulder_fraction: 0.48,
+                        chest_drop: 0.09,
+                        half_width: 0.032,
+                    },
+                    color,
+                    None,
+                );
             }
         }
         TorsoOrnament::StockAndButtons {
@@ -303,4 +315,181 @@ pub(super) fn leaf(b: &mut Builder, root: Vec3, dir: Vec3, len: f32, width: f32,
         &|_, _, t| color * (0.88 + 0.24 * (t * PI).sin()),
         Some(across),
     );
+}
+
+/// Shoulder support may bridge a layer edge; hardware still seats on the
+/// actual garment, never on the smoothed shoulder-only envelope.
+pub(super) fn emit_riveted_vest(
+    p: &mut Parts,
+    body: HumanoidBody,
+    garment: &Sculpt,
+    shoulders: &Sculpt,
+    strap: Vec3,
+    rivets: Vec3,
+) {
+    // A riveted leather vest on shoulder straps.
+    emit_shoulder_straps(
+        p,
+        body,
+        shoulders,
+        ShoulderStrapProfile {
+            chest_fraction: 11.0 / 18.0,
+            shoulder_fraction: 0.52,
+            chest_drop: 0.10,
+            half_width: 0.030,
+        },
+        strap,
+        Some(garment),
+    );
+    for k in 0..3 {
+        p.metal.blob(
+            torso_surface(garment, -0.1 + k as f32 * 0.1, 0.16, true),
+            Vec3::splat(0.012),
+            0,
+            0.0,
+            rivets,
+        );
+    }
+}
+
+/// Both native recipes share the same finite-width surface construction. This
+/// keeps their selected garment/skin support and their own style parameters.
+fn emit_shoulder_straps(
+    parts: &mut Parts,
+    body: HumanoidBody,
+    support: &Sculpt,
+    profile: ShoulderStrapProfile,
+    color: Vec3,
+    lower_support: Option<&Sculpt>,
+) {
+    let core = super::super::anatomy::TorsoCoreProfile::biped(body);
+    for side in [-1.0, 1.0] {
+        let path = profile.path(core, side);
+        let mut fitted = FittedShoulderStrap::fit(support, &path, 0.014);
+        if let Some(garment) = lower_support {
+            fitted.seat_lower(support, garment, path[0].0.y, profile.chest_drop / 3.0);
+        }
+        fitted.emit(&mut parts.satin, color);
+    }
+}
+
+/// A shoulder ornament whose dome and rim belong to one local attachment.
+pub(super) fn shoulder_disc(p: &mut Parts, side: f32, b: f32, trim: Vec3) {
+    let center = Vec3::new(side * 0.01, 0.03, 0.0) * b;
+    let radii = Vec3::new(0.06, 0.03, 0.065) * b;
+    p.metal.blob(center, radii, 1, 0.0, trim * 0.85);
+    // One frame for both pieces: the ring crowns the dome, rather than
+    // cutting diagonally through it. Its lower half seats into the metal.
+    p.metal.torus(
+        center + Vec3::Y * (radii.y * 0.5),
+        Vec3::Y,
+        radii.x.min(radii.z) * 0.82,
+        radii.y * 0.2,
+        24,
+        4,
+        trim,
+    );
+}
+
+#[cfg(test)]
+mod shoulder_disc_tests {
+    use super::*;
+
+    #[test]
+    fn shoulder_disc_scales_its_entire_attachment_not_only_its_dome() {
+        for side in [-1.0, 1.0] {
+            let mut base = Parts::default();
+            shoulder_disc(&mut base, side, 1.0, Vec3::ONE);
+            let reference: Vec<_> = base.metal.surface_triangles().flatten().collect();
+            for build in [0.7, 1.4] {
+                let mut scaled = Parts::default();
+                shoulder_disc(&mut scaled, side, build, Vec3::ONE);
+                let points: Vec<_> = scaled.metal.surface_triangles().flatten().collect();
+                assert_eq!(points.len(), reference.len());
+                for (point, expected) in points.into_iter().zip(&reference) {
+                    assert!(
+                        (point / build).distance(*expected) < 0.000001,
+                        "entire ornament must share wearer scale"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shoulder_rim_stays_above_its_dome_equator() {
+        for side in [-1.0, 1.0] {
+            for build in [0.7, 1.0, 1.4] {
+                let mut dome = Parts::default();
+                dome.metal.blob(
+                    Vec3::new(side * 0.01, 0.03, 0.0) * build,
+                    Vec3::new(0.06, 0.03, 0.065) * build,
+                    1,
+                    0.0,
+                    Vec3::ONE * 0.85,
+                );
+                let prefix = dome.metal.surface_triangles().count();
+                let mut actual = Parts::default();
+                shoulder_disc(&mut actual, side, build, Vec3::ONE);
+                let rim: Vec<_> = actual
+                    .metal
+                    .surface_triangles()
+                    .skip(prefix)
+                    .flatten()
+                    .collect();
+                assert!(!rim.is_empty());
+                assert!(
+                    rim.iter().all(|p| p.y > 0.034 * build),
+                    "rim must not slice through opposite sides of the dome"
+                );
+            }
+        }
+    }
+    #[test]
+    fn shoulder_rim_crown_is_visible_and_its_underside_seats_in_emitted_dome() {
+        for side in [-1.0, 1.0] {
+            for build in [0.7, 1.0, 1.4] {
+                let center = Vec3::new(side * 0.01, 0.03, 0.0) * build;
+                let mut dome = Parts::default();
+                dome.metal.blob(
+                    center,
+                    Vec3::new(0.06, 0.03, 0.065) * build,
+                    1,
+                    0.0,
+                    Vec3::ONE,
+                );
+                let prefix = dome.metal.surface_triangles().count();
+                let mut actual = Parts::default();
+                shoulder_disc(&mut actual, side, build, Vec3::ONE);
+                let mut crowns = 0;
+                let mut seats = 0;
+                for point in actual.metal.surface_triangles().skip(prefix).flatten() {
+                    let relative_y = (point.y - center.y) / build;
+                    if (relative_y - 0.021).abs() > 0.000001
+                        && (relative_y - 0.009).abs() > 0.000001
+                    {
+                        continue;
+                    }
+                    let surface = dome
+                        .metal
+                        .inner_surface(point.with_y(center.y + 0.1 * build), Vec3::NEG_Y)
+                        .expect("ring crosses actual dome footprint");
+                    if relative_y > 0.015 {
+                        crowns += 1;
+                        assert!(
+                            point.y > surface.y + 0.0005 * build,
+                            "raised crown stays visible around the whole dome"
+                        );
+                    } else {
+                        seats += 1;
+                        assert!(
+                            point.y < surface.y - 0.0005 * build,
+                            "rim underside must overlap the dome rather than float"
+                        );
+                    }
+                }
+                assert!(crowns >= 24 && seats >= 24);
+            }
+        }
+    }
 }

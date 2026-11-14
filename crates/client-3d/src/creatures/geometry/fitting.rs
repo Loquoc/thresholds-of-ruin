@@ -1,5 +1,85 @@
 use super::*;
 
+pub(super) const RIBBON_THICKNESS: f32 = 0.007;
+
+/// Style width and endpoint treatment, independent of the authored boundary's
+/// height curve. Both ends resolve against the actual contiguous support.
+#[derive(Clone, Copy)]
+pub(super) struct BoundaryTrimProfile {
+    pub half_width: f32,
+    pub support_fraction: f32,
+    pub terminal_width_fraction: f32,
+    pub taper_start: f32,
+}
+
+impl BoundaryTrimProfile {
+    pub fn path(
+        self,
+        form: &crate::sdf::Sculpt,
+        height: &dyn Fn(f32) -> f32,
+        front: bool,
+    ) -> Vec<(Vec2, f32)> {
+        let supported = |x| torso_surface_hit(form, x, height(x), front).is_some();
+        if !supported(0.0) {
+            return Vec::new();
+        }
+        let span = |side| {
+            let mut inside = 0.0;
+            // Stop at the first sampled gap. This 4 mm construction-time
+            // scan is not a proof of continuity below its resolution.
+            for step in 1..=112 {
+                let mut outside = step as f32 * 0.004;
+                if supported(outside * side) {
+                    inside = outside;
+                } else {
+                    for _ in 0..10 {
+                        let middle = (inside + outside) * 0.5;
+                        if supported(middle * side) {
+                            inside = middle;
+                        } else {
+                            outside = middle;
+                        }
+                    }
+                    return Some(inside * self.support_fraction);
+                }
+            }
+            // Beyond the bounded torso search, do not invent a silhouette.
+            None
+        };
+        let (Some(left), Some(right)) = (span(-1.0), span(1.0)) else {
+            return Vec::new();
+        };
+        if left.min(right) <= self.half_width {
+            return Vec::new();
+        }
+        (-24..=24)
+            .map(|i| {
+                let t = i as f32 / 24.0;
+                let x = t * if t < 0.0 { left } else { right };
+                let taper = ease((t.abs() - self.taper_start) / (1.0 - self.taper_start));
+                let width = self.half_width * (1.0 - taper * (1.0 - self.terminal_width_fraction));
+                (Vec2::new(x, height(x)), width)
+            })
+            .collect()
+    }
+
+    pub fn fit(
+        self,
+        form: &crate::sdf::Sculpt,
+        height: &dyn Fn(f32) -> f32,
+        front: bool,
+        clearance: f32,
+    ) -> FittedStrap {
+        FittedStrap::fit(
+            form,
+            &self.path(form, height, front),
+            front,
+            clearance,
+            StrapEdgePolicy::EndUnsupportedRows,
+        )
+    }
+}
+
 /// Find the first actual front/back hit at a fixed lateral position. Whether
 /// z=0 lies inside is not a reliable silhouette test on a curved or cut garment.
 /// A miss remains explicit so a sewn edge can end at the silhouette.
@@ -33,16 +113,27 @@ pub(in crate::creatures) fn surface_ray_hit(
     clearance: f32,
     reach: f32,
 ) -> Option<Vec3> {
+    surface_field_ray_hit(&|at| form.distance(at), origin, outward, clearance, reach)
+}
+
+/// The same bounded ray query for composed support in different joint frames.
+pub(super) fn surface_field_ray_hit(
+    field: &dyn Fn(Vec3) -> f32,
+    origin: Vec3,
+    outward: Vec3,
+    clearance: f32,
+    reach: f32,
+) -> Option<Vec3> {
     let at = |depth: f32| origin + outward * depth;
     let mut depth = reach;
     let mut previous = depth;
     for _ in 0..128 {
-        let distance = form.distance(at(depth)) - clearance;
+        let distance = field(at(depth)) - clearance;
         if distance <= 0.0 {
             let (mut inside, mut outside) = (depth, previous);
             for _ in 0..10 {
                 let middle = (inside + outside) * 0.5;
-                if form.distance(at(middle)) <= clearance {
+                if field(at(middle)) <= clearance {
                     inside = middle;
                 } else {
                     outside = middle;
@@ -65,15 +156,23 @@ pub(in crate::creatures) fn surface_ray_hit(
 /// Point attachments may slide to a lateral edge when their authored ray misses.
 /// Full-width ribbons instead retain the exact pattern plane and end as a row.
 pub(super) fn torso_surface(form: &crate::sdf::Sculpt, x: f32, y: f32, front: bool) -> Vec3 {
+    torso_surface_clipped_hit(form, x, y, front).unwrap_or(Vec3::new(x, y, 0.0))
+}
+
+// Retain hit provenance while applying the same lateral-clipping policy.
+fn torso_surface_clipped_hit(
+    form: &crate::sdf::Sculpt,
+    x: f32,
+    y: f32,
+    front: bool,
+) -> Option<Vec3> {
     let hit = |lateral| torso_surface_hit(form, lateral, y, front);
     if let Some(surface) = hit(x) {
-        return surface;
+        return Some(surface);
     }
     // All fitted profiles stay within the garment's vertical extent. Near
     // an armhole or waist edge, preserve height and find the last supported x.
-    let Some(mut surface) = hit(0.0) else {
-        return Vec3::new(x, y, 0.0);
-    };
+    let mut surface = hit(0.0)?;
     let (mut inside, mut outside) = (0.0, x);
     for _ in 0..10 {
         let middle = (inside + outside) * 0.5;
@@ -84,7 +183,7 @@ pub(super) fn torso_surface(form: &crate::sdf::Sculpt, x: f32, y: f32, front: bo
             outside = middle;
         }
     }
-    surface
+    Some(surface)
 }
 
 /// Outward sculpt normal shared by torso, shoulder and waist attachments.
@@ -126,7 +225,16 @@ pub(super) fn fitted_panel(
     color: Vec3,
 ) {
     let outward = if front { Vec3::Z } else { Vec3::NEG_Z };
-    let at = |y: f32, x: f32| torso_surface(form, x, y, front) + outward * offset;
+    let at = |y: f32, x: f32| {
+        // Keep the original profile's clipped lateral footprint. Expanding
+        // before clipping would grow panels around unsupported silhouettes.
+        // Retain support provenance instead of tracing the same hit again.
+        let Some(base) = torso_surface_clipped_hit(form, x, y, front) else {
+            return Vec3::new(x, y, 0.0) + outward * offset;
+        };
+        torso_surface_hit_offset(form, base.x, base.y, front, offset)
+            .unwrap_or(base + outward * offset)
+    };
     let columns = (profile
         .iter()
         .map(|(_, width)| *width)
@@ -135,13 +243,21 @@ pub(super) fn fitted_panel(
         / 0.012)
         .ceil()
         .max(4.0) as usize;
+    // Adjacent profile windows share this exact endpoint and column grid.
+    // Keep its evaluated row rather than repeat the same support queries.
+    let mut previous_row: Option<Vec<Vec3>> = None;
     for pair in profile.windows(2) {
         // Long chords cut through a curved bust even when their endpoints
         // touch the surface. Keep both directions close to the torso mesh's
         // resolution, including the narrow vertical trim on fitted robes.
         let rows = ((pair[1].0 - pair[0].0).abs() / 0.012).ceil().max(1.0) as usize;
-        let points: Vec<Vec<Vec3>> = (0..=rows)
+        let mut points: Vec<Vec<Vec3>> = (0..=rows)
             .map(|row| {
+                if row == 0 {
+                    if let Some(points) = previous_row.take() {
+                        return points;
+                    }
+                }
                 let t = row as f32 / rows as f32;
                 let (height, width) = if row == rows {
                     pair[1]
@@ -170,6 +286,7 @@ pub(super) fn fitted_panel(
                 );
             }
         }
+        previous_row = points.pop();
     }
 }
 
@@ -178,6 +295,166 @@ pub(super) fn fitted_panel(
 pub(in crate::creatures) const BELT_BOTTOM_Y: f32 = 0.045;
 pub(in crate::creatures) const BELT_TOP_Y: f32 = 0.095;
 pub(in crate::creatures) const BELT_CENTER_Y: f32 = (BELT_BOTTOM_Y + BELT_TOP_Y) * 0.5;
+
+/// Preserve the caller's silhouette contract instead of silently changing fit.
+#[derive(Clone, Copy)]
+pub(super) enum StrapEdgePolicy {
+    ClampToSilhouette,
+    EndUnsupportedRows,
+}
+
+type StrapRow = Vec<(Vec3, Vec3)>;
+
+/// One fitted path is authoritative for both cloth and attached hardware.
+/// Separate strips preserve real gaps where full-width support is missing.
+pub(super) struct FittedStrap {
+    pub strips: Vec<Vec<StrapRow>>,
+    outward: Vec3,
+}
+
+pub(super) struct StrapAttachment {
+    pub position: Vec3,
+    pub normal: Vec3,
+    pub rotation: Quat,
+}
+
+impl FittedStrap {
+    pub fn fit(
+        form: &crate::sdf::Sculpt,
+        path: &[(Vec2, f32)],
+        front: bool,
+        clearance: f32,
+        policy: StrapEdgePolicy,
+    ) -> Self {
+        let mut support = form.clone();
+        support.inflate(clearance);
+        let outward = if front { Vec3::Z } else { Vec3::NEG_Z };
+        let mut strips = Vec::new();
+        let mut strip = Vec::new();
+        for row in ribbon_path_rows(path) {
+            let fitted: Option<StrapRow> = row
+                .into_iter()
+                .map(|at| {
+                    let surface = match policy {
+                        StrapEdgePolicy::ClampToSilhouette => {
+                            torso_surface(&support, at.x, at.y, front)
+                        }
+                        StrapEdgePolicy::EndUnsupportedRows => {
+                            torso_surface_hit(&support, at.x, at.y, front)?
+                        }
+                    };
+                    Some((surface, sculpt_surface_normal(&support, surface, outward)))
+                })
+                .collect();
+            if let Some(row) = fitted {
+                strip.push(row);
+            } else if !strip.is_empty() {
+                strips.push(std::mem::take(&mut strip));
+            }
+        }
+        if !strip.is_empty() {
+            strips.push(strip);
+        }
+        Self { strips, outward }
+    }
+
+    /// Sample the exact outer triangles retained for emission in torso XY.
+    /// Unsupported strips and points outside the authored patch remain absent.
+    pub fn sample_projected(&self, at: Vec2) -> Option<Vec3> {
+        if !at.is_finite() {
+            return None;
+        }
+        for strip in &self.strips {
+            for pair in strip.windows(2) {
+                for column in 0..pair[0].len().min(pair[1].len()).saturating_sub(1) {
+                    let q = [
+                        pair[0][column].0,
+                        pair[0][column + 1].0,
+                        pair[1][column + 1].0,
+                        pair[1][column].0,
+                    ];
+                    for [a, b, c] in [[q[0], q[1], q[2]], [q[0], q[2], q[3]]] {
+                        let ab = b.truncate() - a.truncate();
+                        let ac = c.truncate() - a.truncate();
+                        let ap = at - a.truncate();
+                        let det = ab.perp_dot(ac);
+                        if det.abs() < 1e-12 {
+                            continue;
+                        }
+                        let u = ap.perp_dot(ac) / det;
+                        let v = ab.perp_dot(ap) / det;
+                        if u >= -1e-6 && v >= -1e-6 && u + v <= 1.0 + 1e-6 {
+                            return Some(a + ab.extend(b.z - a.z) * u + ac.extend(c.z - a.z) * v);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn emit(&self, builder: &mut Builder, color: Vec3, cap_ends: bool) {
+        for strip in &self.strips {
+            emit_ribbon_strip(builder, strip, self.outward, color, cap_ends);
+        }
+    }
+
+    /// Keep every exposed cap except the terminal end joined to another patch.
+    pub fn emit_joined_terminal(&self, builder: &mut Builder, color: Vec3) {
+        for (i, strip) in self.strips.iter().enumerate() {
+            emit_ribbon_strip_caps(
+                builder,
+                strip,
+                self.outward,
+                color,
+                true,
+                i + 1 != self.strips.len(),
+            );
+        }
+    }
+
+    /// Hardware follows the actual sampled centreline, never an independent ray.
+    /// Height must lie within a contiguous supported strip; gaps stay explicit.
+    pub fn at_height(&self, height: f32) -> Option<StrapAttachment> {
+        let center = |row: &StrapRow| {
+            let hi = row.len() / 2;
+            let lo = (row.len() - 1) / 2;
+            (
+                (row[lo].0 + row[hi].0) * 0.5,
+                (row[lo].1 + row[hi].1).normalize_or(self.outward),
+            )
+        };
+        if !height.is_finite() {
+            return None;
+        }
+        for strip in &self.strips {
+            for pair in strip.windows(2) {
+                if pair.iter().any(Vec::is_empty) {
+                    continue;
+                }
+                let (a, na) = center(&pair[0]);
+                let (b, nb) = center(&pair[1]);
+                let dy = b.y - a.y;
+                if dy.abs() < 1e-7 {
+                    continue;
+                }
+                let t = (height - a.y) / dy;
+                if !(0.0..=1.0).contains(&t) {
+                    continue;
+                }
+                let normal = na.lerp(nb, t).normalize_or(self.outward);
+                let across = (b - a).cross(normal).normalize_or(Vec3::X);
+                let along = normal.cross(across).normalize_or(Vec3::Y);
+                return Some(StrapAttachment {
+                    position: a.lerp(b, t),
+                    normal,
+                    rotation: Quat::from_mat3(&Mat3::from_cols(across, along, normal)),
+                });
+            }
+        }
+        None
+    }
+}
 
 /// An open buckle frame and tongue in a caller-supplied attachment frame.
 /// The strap remains visible through its windows; the tongue joins the rim.
@@ -214,106 +491,567 @@ pub(super) fn buckle_frame(
 
 /// A shared accessory assembly: the strap and its hardware use the same
 /// garment surface, including the fuller female chest and fitted waist.
+/// A bounded layer patch in an explicit orthonormal projection frame.
+/// The footprint bounds come from the resolved ribbon, not rendered triangles.
+/// Bounds are conservative within one authored segment, never the whole torso.
+fn ribbon_layer_patch(
+    support: &crate::sdf::Sculpt,
+    rows: &[StrapRow],
+    along: Vec3,
+    outward: Vec3,
+) -> crate::sdf::Sculpt {
+    use crate::sdf::{Sculpt, Shape};
+    if rows.len() < 2 || rows.iter().any(|row| row.len() < 2) {
+        return Sculpt::default();
+    }
+    let Some(outward) = outward.try_normalize() else {
+        return Sculpt::default();
+    };
+    let Some(along) = (along - outward * along.dot(outward)).try_normalize() else {
+        return Sculpt::default();
+    };
+    if rows.iter().flatten().any(|(p, _)| !p.is_finite()) {
+        return Sculpt::default();
+    }
+    let across = along.cross(outward);
+    let mut patch = support.clone();
+    for axis in [along, across] {
+        let (lo, hi) = rows
+            .iter()
+            .flatten()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), (p, _)| {
+                (lo.min(p.dot(axis)), hi.max(p.dot(axis)))
+            });
+        patch.carve(Shape::Beyond(axis, hi), 0.0);
+        patch.carve(Shape::Beyond(-axis, -lo), 0.0);
+    }
+    // Retain only this face. Cloth is emitted inward from its fitted surface;
+    // this is its existing thickness, not extra clearance or global inflation.
+    let inner = rows
+        .iter()
+        .flatten()
+        .map(|(p, _)| p.dot(outward))
+        .fold(f32::INFINITY, f32::min)
+        - RIBBON_THICKNESS;
+    patch.carve(Shape::Beyond(-outward, -inner), 0.0);
+    patch
+}
+
+#[cfg(test)]
+mod layer_envelope_tests {
+    use super::*;
+
+    #[test]
+    fn whole_baldric_hardware_respects_only_complete_armor_coverage() {
+        for woman in [false, true] {
+            for reverse in [false, true] {
+                let body = HumanoidBody::resolve(&Look::with_choice(
+                    CreatureModel::Human,
+                    2,
+                    Some(Variant { woman, ..default() }),
+                ));
+                let garment = torso_garment(body, TorsoMaterial::Cloth, false);
+                let resolved = FittedBaldric::resolve(
+                    &garment,
+                    body,
+                    Baldric {
+                        color: LEATHER,
+                        reverse,
+                        buckle: true,
+                    },
+                    0.0,
+                );
+                let mut base = Parts::default();
+                resolved.emit(&mut base);
+                let metal = base.metal.surface_triangles().count();
+                let cloth = base.satin.surface_triangles().count();
+                assert!(metal > 0 && cloth > 0);
+                let mut armor = garment.clone();
+                armor.inflate(0.10);
+                let mut hidden = Parts::default();
+                resolved.emit_covered(&mut hidden, Some(&armor));
+                assert!(
+                    hidden.metal.is_empty(),
+                    "enclosing armor covers complete buckle"
+                );
+                assert_eq!(hidden.satin.surface_triangles().count(), cloth);
+                let center = resolved.front.at_height(0.3).unwrap().position;
+                armor.carve(crate::sdf::Shape::Beyond(Vec3::X, center.x), 0.0);
+                let mut partial = Parts::default();
+                resolved.emit_covered(&mut partial, Some(&armor));
+                assert_eq!(partial.metal.surface_triangles().count(), metal);
+                assert_eq!(partial.satin.surface_triangles().count(), cloth);
+                let mut outside = Parts::default();
+                resolved.emit_covered(&mut outside, Some(&garment));
+                assert_eq!(
+                    outside.metal.surface_triangles().count(),
+                    metal,
+                    "hardware outside armor stays visible"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn retained_baldric_support_tracks_actual_cloth_across_bodies() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                for reverse in [false, true] {
+                    let look = Look::with_choice(
+                        CreatureModel::Human,
+                        2,
+                        Some(Variant {
+                            woman,
+                            build,
+                            ..default()
+                        }),
+                    );
+                    let body = HumanoidBody::resolve(&look);
+                    let garment = torso_garment(body, TorsoMaterial::Cloth, false);
+                    let mut parts = Parts::default();
+                    let resolved = FittedBaldric::resolve(
+                        &garment,
+                        body,
+                        Baldric {
+                            color: LEATHER,
+                            reverse,
+                            buckle: false,
+                        },
+                        0.0,
+                    );
+                    resolved.emit(&mut parts);
+                    let layer = &resolved.support;
+                    // Inspect the emitted over-shoulder turn, not only a front midpoint.
+                    let row = &resolved.shoulder[resolved.shoulder.len() / 2];
+                    let center = row[row.len() / 2].0;
+                    let origin = Vec3::new(center.x, 0.0, center.z);
+                    let cloth = parts
+                        .satin
+                        .outer_surface(origin, Vec3::Y)
+                        .expect("actual shoulder cloth");
+                    let top = surface_ray_hit(layer, origin, Vec3::Y, 0.0, 0.8)
+                        .expect("retained shoulder support");
+                    assert!(
+                        top.distance(cloth) < 0.003,
+                        "shoulder envelope must follow actual turn"
+                    );
+                    for row in &resolved.shoulder {
+                        for (point, _) in row {
+                            assert!(
+                                layer.distance(*point).abs() < 0.002,
+                                "retain every shoulder row"
+                            );
+                        }
+                    }
+                    // Both authored diagonals cross this independently known midpoint.
+                    let origin = Vec3::new(0.0, 0.26, 0.0);
+                    for outward in [Vec3::Z, Vec3::NEG_Z] {
+                        let cloth = parts
+                            .satin
+                            .outer_surface(origin, outward)
+                            .expect("actual cloth crosses the midpoint");
+                        let retained = surface_ray_hit(layer, origin, outward, 0.0, 0.5)
+                            .expect("retained layer carries the crossing");
+                        assert!(
+                            (retained - cloth).length() < 0.003,
+                            "layer must follow cloth without bulky clearance: {woman} {build} {reverse}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn retained_patch_frame_moves_with_its_recipe_and_rejects_empty_rows() {
+        use crate::sdf::{Sculpt, Shape};
+        let mut form = Sculpt::default();
+        form.add(Shape::Ellipsoid(Vec3::ZERO, Vec3::ONE), 0.0);
+        let rows: Vec<StrapRow> = [-0.2f32, 0.2]
+            .into_iter()
+            .map(|z| {
+                [-0.04f32, 0.04]
+                    .into_iter()
+                    .map(|x| {
+                        let p = Vec3::new(x, (1.0 - x * x - z * z).sqrt(), z);
+                        (p, p.normalize())
+                    })
+                    .collect()
+            })
+            .collect();
+        let top = ribbon_layer_patch(&form, &rows, Vec3::Z, Vec3::Y);
+        assert!(top.distance(Vec3::new(0.0, 0.999, 0.0)).abs() < 0.002);
+        assert!(top.distance(Vec3::new(0.4, 0.9, 0.0)) > 0.3);
+        let empty = ribbon_layer_patch(&form, &[], Vec3::Z, Vec3::Y);
+        assert!(empty.distance(Vec3::ZERO) > 0.0);
+        for bad in [Vec3::ZERO, Vec3::Y, Vec3::splat(f32::NAN)] {
+            let rejected = ribbon_layer_patch(&form, &rows, bad, Vec3::Y);
+            assert!(rejected.distance(Vec3::ZERO) > 0.0);
+        }
+    }
+
+    #[test]
+    fn retained_layer_is_local_and_carries_its_outer_surface() {
+        use crate::sdf::{Sculpt, Shape};
+        let mut support = Sculpt::default();
+        support.add(Shape::Ellipsoid(Vec3::ZERO, Vec3::ONE), 0.0);
+        let rows: Vec<StrapRow> = [-0.2f32, 0.2]
+            .into_iter()
+            .map(|y| {
+                [-0.04f32, 0.04]
+                    .into_iter()
+                    .map(|x| {
+                        let p = Vec3::new(x, y, (1.0 - x * x - y * y).sqrt());
+                        (p, p.normalize())
+                    })
+                    .collect()
+            })
+            .collect();
+        let patch = ribbon_layer_patch(&support, &rows, Vec3::Y, Vec3::Z);
+        assert!(
+            patch.distance(Vec3::new(0.0, 0.0, 0.999)).abs() < 0.002,
+            "retained cloth must carry its resolved outer surface"
+        );
+        assert!(
+            patch.distance(Vec3::new(0.4, 0.0, 0.9)) > 0.3,
+            "unrelated torso must not be inflated"
+        );
+        assert!(
+            patch.distance(Vec3::new(0.0, 0.0, -1.0)) > 1.0,
+            "front patch must not create a back layer"
+        );
+    }
+}
+
+/// One anatomy-relative shoulder strap recipe. The torso owns its landmarks;
+/// each garment keeps its own lateral stations, lower attachment and width.
+#[derive(Clone, Copy)]
+pub(super) struct ShoulderStrapProfile {
+    pub chest_fraction: f32,
+    pub shoulder_fraction: f32,
+    pub chest_drop: f32,
+    pub half_width: f32,
+}
+
+impl ShoulderStrapProfile {
+    pub fn path(
+        self,
+        core: super::super::anatomy::TorsoCoreProfile,
+        side: f32,
+    ) -> [(Vec2, f32); 2] {
+        let shoulder = core.shoulder_seat(side);
+        [
+            (
+                Vec2::new(
+                    side * core.chest.upper.1.x * self.chest_fraction,
+                    core.upper_chest_anchor().y - self.chest_drop,
+                ),
+                self.half_width,
+            ),
+            (
+                Vec2::new(shoulder.x * self.shoulder_fraction, shoulder.y - 0.01),
+                self.half_width,
+            ),
+        ]
+    }
+}
+
+/// Front, back and shoulder turn retain one fitted surface. Missing terminal
+/// support cannot turn an earlier surviving row into a floating bridge.
+pub(super) struct FittedShoulderStrap {
+    pub front: FittedStrap,
+    pub back: FittedStrap,
+    pub bridge: Option<Vec<StrapRow>>,
+}
+
+impl FittedShoulderStrap {
+    pub fn fit(support: &crate::sdf::Sculpt, path: &[(Vec2, f32)], clearance: f32) -> Self {
+        let mut grown = support.clone();
+        grown.inflate(clearance);
+        let front = FittedStrap::fit(&grown, path, true, 0.0, StrapEdgePolicy::EndUnsupportedRows);
+        let back = FittedStrap::fit(
+            &grown,
+            path,
+            false,
+            0.0,
+            StrapEdgePolicy::EndUnsupportedRows,
+        );
+        let bridge = path
+            .last()
+            .and_then(|(top, _)| terminal_shoulder_bridge(&grown, &front, &back, top.y));
+        Self {
+            front,
+            back,
+            bridge,
+        }
+    }
+
+    /// Seat sewn lower ends while preserving the shoulder turn and upper rows.
+    /// The taper and its normals use one field, not independently moved vertices.
+    pub fn seat_lower(
+        &mut self,
+        shoulder: &crate::sdf::Sculpt,
+        garment: &crate::sdf::Sculpt,
+        start: f32,
+        span: f32,
+    ) {
+        let field = |p: Vec3| {
+            let t = ((p.y - start) / span).clamp(0.0, 1.0);
+            let weight = t * t * (3.0 - 2.0 * t);
+            (garment.distance(p) - 0.010) * (1.0 - weight) + (shoulder.distance(p) - 0.014) * weight
+        };
+        for strap in [&mut self.front, &mut self.back] {
+            let outward = strap.outward;
+            for strip in &mut strap.strips {
+                for row in strip {
+                    if row.iter().all(|(p, _)| p.y >= start + span) {
+                        continue;
+                    }
+                    let seated = row
+                        .iter()
+                        .map(|(p, old_normal)| {
+                            if p.y >= start + span {
+                                return Some((*p, *old_normal));
+                            }
+                            let p = surface_field_ray_hit(
+                                &field,
+                                Vec3::new(p.x, p.y, 0.0),
+                                outward,
+                                0.0,
+                                0.45,
+                            )?;
+                            let e = 0.0015;
+                            let normal = Vec3::new(
+                                field(p + Vec3::X * e) - field(p - Vec3::X * e),
+                                field(p + Vec3::Y * e) - field(p - Vec3::Y * e),
+                                field(p + Vec3::Z * e) - field(p - Vec3::Z * e),
+                            )
+                            .normalize_or(outward);
+                            Some((p, normal))
+                        })
+                        .collect::<Option<StrapRow>>();
+                    if let Some(seated) = seated {
+                        *row = seated;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn emit(&self, builder: &mut Builder, color: Vec3) {
+        if self.bridge.is_some() {
+            self.front.emit_joined_terminal(builder, color);
+            self.back.emit_joined_terminal(builder, color);
+        } else {
+            self.front.emit(builder, color, true);
+            self.back.emit(builder, color, true);
+        }
+        if let Some(rows) = &self.bridge {
+            emit_ribbon_strip(builder, rows, Vec3::Y, color, false);
+        }
+    }
+}
+
+/// Connect only fully supported terminal rows. A missing end is not permission
+/// to bridge an unrelated lower opening. Exact cloned endpoints keep seams shared.
+pub(super) fn terminal_shoulder_bridge(
+    support: &crate::sdf::Sculpt,
+    front: &FittedStrap,
+    back: &FittedStrap,
+    top: f32,
+) -> Option<Vec<StrapRow>> {
+    let a = front.strips.last()?.last()?;
+    let b = back.strips.last()?.last()?;
+    if a.is_empty() || a.len() != b.len() {
+        return None;
+    }
+    let center_y = |row: &StrapRow| (row[(row.len() - 1) / 2].0.y + row[row.len() / 2].0.y) * 0.5;
+    if (center_y(a) - top).abs() > 1e-5 || (center_y(b) - top).abs() > 1e-5 {
+        return None;
+    }
+    try_ribbon_surface_turn(support, a, b, Vec3::Y)
+}
+
+/// The resolved cloth and its analytic support travel together through the
+/// composition, so torso and lower-panel roots cannot disagree about a layer.
+pub(super) struct FittedBaldric {
+    front: FittedStrap,
+    back: FittedStrap,
+    shoulder: Vec<StrapRow>,
+    waist: Vec<StrapRow>,
+    pub support: crate::sdf::Sculpt,
+    body: HumanoidBody,
+    recipe: Baldric,
+}
+
+impl FittedBaldric {
+    pub fn resolve(
+        garment: &crate::sdf::Sculpt,
+        body: HumanoidBody,
+        baldric: Baldric,
+        overlay: f32,
+    ) -> Self {
+        let b = body.build;
+        let core = super::super::anatomy::TorsoCoreProfile::biped(body);
+        let side = if baldric.reverse { -1.0 } else { 1.0 };
+        let path = [
+            (
+                Vec2::new(-side * core.shoulder.x * 0.8, core.shoulder.y - 0.01),
+                0.025 * b,
+            ),
+            (
+                Vec2::new(
+                    -side * core.chest.upper.1.x * (8.0 / 9.0),
+                    core.chest.upper.0.y + 0.045,
+                ),
+                0.025 * b,
+            ),
+            (Vec2::new(-side * 0.065 * b, 0.325), 0.025 * b),
+            (Vec2::new(side * 0.065 * b, 0.195), 0.025 * b),
+            (
+                Vec2::new(
+                    core.waist_anchor(side * (13.0 / 15.0)).x,
+                    BELT_CENTER_Y - body.torso.y,
+                ),
+                0.022 * b,
+            ),
+        ];
+        // Trace the complete support envelope at the authored x/y coordinates.
+        // Large normal offsets on a tightly curved waist can cross each other
+        // and fold the strip; resolving the grown surface first keeps it a sheet.
+        let skin = torso_shape(body, None, true);
+        let mut support = torso_layer_support(&skin, garment);
+        support.inflate(BALDRIC_SURFACE_OFFSET + overlay);
+        let garment = &support;
+        let fitted_front = FittedStrap::fit(
+            garment,
+            &path,
+            true,
+            0.0,
+            StrapEdgePolicy::ClampToSilhouette,
+        );
+        let fitted_back = FittedStrap::fit(
+            garment,
+            &path,
+            false,
+            0.0,
+            StrapEdgePolicy::ClampToSilhouette,
+        );
+        let front = &fitted_front.strips[0];
+        let back = &fitted_back.strips[0];
+        let shoulder = ribbon_surface_turn(garment, &front[0], &back[0], Vec3::Y);
+        let waist = ribbon_surface_turn(
+            garment,
+            front.last().unwrap(),
+            back.last().unwrap(),
+            Vec3::X * side,
+        );
+        // Keep one bounded footprint per authored path segment. The row indices
+        // use the same sampling rule as ribbon_path_rows, so clamp adjustments are
+        // retained without rebuilding a second approximation of the fitted path.
+        let mut retained = crate::sdf::Sculpt::default();
+        let mut begin = 0;
+        for pair in path.windows(2) {
+            let count = ((pair[1].0 - pair[0].0).length() / 0.006).ceil().max(1.0) as usize;
+            let along = (pair[1].0 - pair[0].0).extend(0.0);
+            for (rows, outward) in [(front, Vec3::Z), (back, Vec3::NEG_Z)] {
+                retained.union(
+                    ribbon_layer_patch(garment, &rows[begin..=begin + count], along, outward),
+                    0.0,
+                );
+            }
+            begin += count;
+        }
+        retained.union(
+            ribbon_layer_patch(garment, &shoulder, Vec3::Z, Vec3::Y),
+            0.0,
+        );
+        retained.union(
+            ribbon_layer_patch(garment, &waist, Vec3::Z, Vec3::X * side),
+            0.0,
+        );
+        Self {
+            front: fitted_front,
+            back: fitted_back,
+            shoulder,
+            waist,
+            support: retained,
+            body,
+            recipe: baldric,
+        }
+    }
+
+    /// Emit the resolved cloth and expose its retained obstacle for composition.
+    /// Production apron draping does not consume it until transition fitting is
+    /// visually qualified; callers may retain this layer without re-solving it.
+    #[cfg(test)]
+    pub fn emit(&self, p: &mut Parts) -> &crate::sdf::Sculpt {
+        self.emit_covered(p, None)
+    }
+
+    /// Only an actual outer armor layer may suppress the complete hardware.
+    pub fn emit_covered(
+        &self,
+        p: &mut Parts,
+        armor: Option<&crate::sdf::Sculpt>,
+    ) -> &crate::sdf::Sculpt {
+        let baldric = self.recipe;
+        let b = self.body.build;
+        let side = if baldric.reverse { -1.0 } else { 1.0 };
+        for (rows, outward) in [
+            (&self.front.strips[0], Vec3::Z),
+            (&self.back.strips[0], Vec3::NEG_Z),
+            (&self.shoulder, Vec3::Y),
+            (&self.waist, Vec3::X * side),
+        ] {
+            emit_ribbon_strip(&mut p.satin, rows, outward, baldric.color, false);
+        }
+        if baldric.buckle {
+            let attachment = self
+                .front
+                .at_height(0.3)
+                .expect("baldric crosses buckle height");
+            let centre = attachment.position + attachment.normal * 0.007;
+            let frame = attachment.rotation;
+            let half = Vec2::new(0.034 * b, 0.027 * b);
+            let depth = half.min_element() * 0.17 * 0.8;
+            let points: Vec<_> = [-1.0, 1.0]
+                .into_iter()
+                .flat_map(|x| {
+                    [-1.0, 1.0].into_iter().flat_map(move |y| {
+                        [-1.0, 1.0].into_iter().map(move |z| {
+                            centre + frame * Vec3::new(x * half.x, y * half.y, z * depth)
+                        })
+                    })
+                })
+                .collect();
+            if !armor.is_some_and(|cover| {
+                layer_coverage::WholeDetailCoverage::front().hides(cover, &points)
+            }) {
+                buckle_frame(
+                    &mut p.metal,
+                    centre,
+                    frame,
+                    half,
+                    Vec3::new(0.74, 0.5, 0.26),
+                );
+            }
+        }
+        &self.support
+    }
+}
+
+#[cfg(test)]
 pub(super) fn fitted_baldric(
     p: &mut Parts,
     garment: &crate::sdf::Sculpt,
     body: HumanoidBody,
     baldric: Baldric,
     overlay: f32,
-) {
-    let b = body.build;
-    let side = if baldric.reverse { -1.0 } else { 1.0 };
-    let path = [
-        (
-            Vec2::new(
-                -side * 0.20 * body.shoulders * b,
-                body.shoulder(1.0).y - 0.01,
-            ),
-            0.025 * b,
-        ),
-        (
-            Vec2::new(-side * 0.16 * body.shoulders * b, 0.43),
-            0.025 * b,
-        ),
-        (Vec2::new(-side * 0.065 * b, 0.325), 0.025 * b),
-        (Vec2::new(side * 0.065 * b, 0.195), 0.025 * b),
-        (
-            Vec2::new(side * 0.13 * body.waist * b, BELT_CENTER_Y - body.torso.y),
-            0.022 * b,
-        ),
-    ];
-    // Trace the complete support envelope at the authored x/y coordinates.
-    // Large normal offsets on a tightly curved waist can cross each other
-    // and fold the strip; resolving the grown surface first keeps it a sheet.
-    let skin = torso_shape(body, None, true);
-    let mut support = torso_layer_support(&skin, garment);
-    support.inflate(BALDRIC_SURFACE_OFFSET + overlay);
-    let garment = &support;
-    let front = ribbon_surface_rows(garment, &path, true, 0.0);
-    let back = ribbon_surface_rows(garment, &path, false, 0.0);
-    let shoulder = ribbon_surface_turn(garment, &front[0], &back[0], Vec3::Y);
-    let waist = ribbon_surface_turn(
-        garment,
-        front.last().unwrap(),
-        back.last().unwrap(),
-        Vec3::X * side,
-    );
-    for (rows, outward) in [
-        (&front, Vec3::Z),
-        (&back, Vec3::NEG_Z),
-        (&shoulder, Vec3::Y),
-        (&waist, Vec3::X * side),
-    ] {
-        emit_ribbon_strip(&mut p.satin, rows, outward, baldric.color, false);
-    }
-    if baldric.buckle {
-        // Place hardware on the strap's centreline, rather than choosing a
-        // separate species-specific point that may drift off it.
-        let segment = path
-            .windows(2)
-            .find(|pair| pair[0].0.y >= 0.3 && pair[1].0.y <= 0.3)
-            .expect("baldric crosses the buckle height");
-        let t = (segment[0].0.y - 0.3) / (segment[0].0.y - segment[1].0.y);
-        let at = segment[0].0.lerp(segment[1].0, t);
-        let (surface, normal) = torso_surface_frame(garment, at, true);
-        let centre = surface + normal * 0.007;
-        let direction = (segment[1].0 - segment[0].0).normalize();
-        let before = torso_surface_frame(garment, at - direction * 0.01, true).0;
-        let after = torso_surface_frame(garment, at + direction * 0.01, true).0;
-        let across = (after - before).cross(normal).normalize_or(Vec3::X);
-        let along = normal.cross(across).normalize_or(Vec3::Y);
-        let frame = Quat::from_mat3(&Mat3::from_cols(across, along, normal));
-        buckle_frame(
-            &mut p.metal,
-            centre,
-            frame,
-            Vec2::new(0.034 * b, 0.027 * b),
-            Vec3::new(0.74, 0.5, 0.26),
-        );
-    }
-}
-
-/// A flat strap follows the garment across its full width. Sweeping a tube
-/// through a few surface points can twist its wide axis away from the cloth
-/// and interpolate back inside a fuller chest. Each row here is projected
-/// after interpolation; the narrow turned edges give leather real thickness.
-pub(super) fn ribbon_surface_rows(
-    form: &crate::sdf::Sculpt,
-    path: &[(Vec2, f32)],
-    front: bool,
-    offset: f32,
-) -> Vec<Vec<(Vec3, Vec3)>> {
-    ribbon_path_rows(path)
-        .into_iter()
-        .map(|row| {
-            row.into_iter()
-                .map(|at| {
-                    let (surface, normal) = torso_surface_frame(form, at, front);
-                    (surface + normal * offset, normal)
-                })
-                .collect()
-        })
-        .collect()
+) -> crate::sdf::Sculpt {
+    let resolved = FittedBaldric::resolve(garment, body, baldric, overlay);
+    resolved.emit(p);
+    resolved.support
 }
 
 /// Sample a strip in the garment's pattern plane before fitting its depth.
@@ -369,7 +1107,20 @@ pub(super) fn ribbon_surface_turn(
     end: &[(Vec3, Vec3)],
     outward: Vec3,
 ) -> Vec<Vec<(Vec3, Vec3)>> {
-    assert_eq!(start.len(), end.len());
+    try_ribbon_surface_turn(form, start, end, outward)
+        .expect("ribbon turn requires continuous support")
+}
+
+pub(super) fn try_ribbon_surface_turn(
+    form: &crate::sdf::Sculpt,
+    start: &[(Vec3, Vec3)],
+    end: &[(Vec3, Vec3)],
+    outward: Vec3,
+) -> Option<Vec<Vec<(Vec3, Vec3)>>> {
+    if start.len() != end.len() || start.is_empty() {
+        return None;
+    }
+
     let span = start
         .iter()
         .zip(end)
@@ -394,17 +1145,16 @@ pub(super) fn ribbon_surface_turn(
                         }
                         surface = form.onto(surface, -outward);
                     }
-                    debug_assert!(
-                        surface.is_finite() && form.distance(surface).abs() < 0.002,
-                        "ribbon turn must stay on its support: {surface}"
-                    );
-                    (surface, sculpt_surface_normal(form, surface, outward))
+                    if !surface.is_finite() || form.distance(surface).abs() >= 0.002 {
+                        return None;
+                    }
+                    Some((surface, sculpt_surface_normal(form, surface, outward)))
                 })
-                .collect(),
+                .collect::<Option<Vec<_>>>()?,
         );
     }
     rows.push(end.to_vec());
-    rows
+    Some(rows)
 }
 
 pub(super) fn emit_ribbon_strip(
@@ -414,11 +1164,22 @@ pub(super) fn emit_ribbon_strip(
     color: Vec3,
     cap_ends: bool,
 ) {
+    emit_ribbon_strip_caps(b, points, outward, color, cap_ends, cap_ends);
+}
+
+fn emit_ribbon_strip_caps(
+    b: &mut Builder,
+    points: &[Vec<(Vec3, Vec3)>],
+    outward: Vec3,
+    color: Vec3,
+    cap_start: bool,
+    cap_end: bool,
+) {
     if points.len() < 2 || points[0].len() < 2 {
         return;
     }
     let columns = points[0].len() - 1;
-    let thickness = 0.007;
+    let thickness = RIBBON_THICKNESS;
     let inside_between = |a: (Vec3, Vec3), z: (Vec3, Vec3)| {
         (a.0 + z.0) * 0.5 - (a.1 + z.1).normalize_or(outward) * (thickness * 0.5)
     };
@@ -460,8 +1221,11 @@ pub(super) fn emit_ribbon_strip(
             );
         }
     }
-    if cap_ends {
-        for (end, next) in [(0, 1), (points.len() - 1, points.len() - 2)] {
+    for (enabled, end, next) in [
+        (cap_start, 0, 1),
+        (cap_end, points.len() - 1, points.len() - 2),
+    ] {
+        if enabled {
             let inside = inside_between(points[end][columns / 2], points[next][columns / 2]);
             for column in 0..columns {
                 let (a, z) = (points[end][column], points[end][column + 1]);
@@ -483,33 +1247,14 @@ pub(super) fn fitted_ribbon(
     offset: f32,
     color: Vec3,
 ) {
-    // Grow the support before tracing it. Moving already fitted vertices
-    // along changing normals also moves their x/y and can fold a narrow seam.
-    let mut support = form.clone();
-    support.inflate(offset);
-    let outward = if front { Vec3::Z } else { Vec3::NEG_Z };
-    let fit = |row: &[Vec2]| -> Option<Vec<(Vec3, Vec3)>> {
-        row.iter()
-            .map(|at| {
-                // A sewn edge ends where its complete width leaves the
-                // garment; no unsupported vertex is pulled toward the neck
-                // or waist while its neighbours remain at their authored x/y.
-                let surface = torso_surface_hit(&support, at.x, at.y, front)?;
-                Some((surface, sculpt_surface_normal(&support, surface, outward)))
-            })
-            .collect()
-    };
-    let rows = ribbon_path_rows(path);
-    let mut points = Vec::new();
-    for row in rows {
-        if let Some(row) = fit(&row) {
-            points.push(row);
-        } else if !points.is_empty() {
-            emit_ribbon_strip(b, &points, outward, color, true);
-            points.clear();
-        }
-    }
-    emit_ribbon_strip(b, &points, outward, color, true);
+    FittedStrap::fit(
+        form,
+        path,
+        front,
+        offset,
+        StrapEdgePolicy::EndUnsupportedRows,
+    )
+    .emit(b, color, true);
 }
 
 /// An attachment can cross an opening or the top of an outer garment.
@@ -520,6 +1265,19 @@ pub(super) fn torso_layer_support(
 ) -> crate::sdf::Sculpt {
     let mut support = skin.clone();
     support.union(garment.clone(), 0.0);
+    support
+}
+
+/// A continuous support transition beneath a strap crossing an outer-layer edge.
+pub(super) fn torso_layer_transition_support(
+    inner: &crate::sdf::Sculpt,
+    outer: &crate::sdf::Sculpt,
+) -> crate::sdf::Sculpt {
+    let mut support = inner.clone();
+    // The union stays outside both layers. It blends wherever their fields
+    // differ by less than three ribbon thicknesses, including near a bib edge.
+    // One quarter of this radius bounds field expansion, not vertex movement.
+    support.union(outer.clone(), RIBBON_THICKNESS * 3.0);
     support
 }
 
@@ -686,5 +1444,194 @@ pub(super) fn fitted_band(
             Vec3::Y * (low + high) * 0.5,
             color,
         );
+    }
+}
+
+#[cfg(test)]
+mod strap_attachment_tests {
+    use super::*;
+
+    #[test]
+    fn fitted_strap_joined_terminal_preserves_all_other_exposed_caps() {
+        let row = |y| {
+            vec![
+                (Vec3::new(-0.02, y, 0.2), Vec3::Z),
+                (Vec3::new(0.02, y, 0.2), Vec3::Z),
+            ]
+        };
+        let strap = FittedStrap {
+            strips: vec![vec![row(0.0), row(0.1)], vec![row(0.3), row(0.4), row(0.5)]],
+            outward: Vec3::Z,
+        };
+        let mut builder = Builder::default();
+        strap.emit_joined_terminal(&mut builder, Vec3::ONE);
+        // Three cells:12 surface triangles +12 sidewalls +3 exposed caps*2.
+        assert_eq!(builder.surface_triangles().count(), 30);
+    }
+
+    #[test]
+    fn ribbon_turn_rejects_an_unsupported_interior_between_valid_ends() {
+        let mut form = crate::sdf::Sculpt::default();
+        for z in [-0.15, 0.15] {
+            form.add(
+                crate::sdf::Shape::Ellipsoid(Vec3::new(0.0, 0.5, z), Vec3::splat(0.04)),
+                0.0,
+            );
+        }
+        let row = |z| {
+            [-0.01, 0.01].map(|x| {
+                (
+                    Vec3::new(x, 0.5 + (0.04f32.powi(2) - 0.01f32.powi(2)).sqrt(), z),
+                    Vec3::Y,
+                )
+            })
+        };
+        let a = row(-0.15);
+        let b = row(0.15);
+        assert!(a
+            .iter()
+            .chain(&b)
+            .all(|(at, _)| form.distance(*at).abs() < 1e-5));
+        assert!(try_ribbon_surface_turn(&form, &a, &b, Vec3::Y).is_none());
+    }
+
+    #[test]
+    fn fitted_strap_hardware_uses_the_same_supported_rows_across_shapes() {
+        for depth in [0.13, 0.22] {
+            for side in [-1.0, 1.0] {
+                let mut form = crate::sdf::Sculpt::default();
+                form.add(
+                    crate::sdf::Shape::Ellipsoid(Vec3::Y * 0.25, Vec3::new(0.3, 0.4, depth)),
+                    0.0,
+                );
+                let mut path = [
+                    (Vec2::new(-0.08 * side, 0.1), 0.025),
+                    (Vec2::new(0.08 * side, 0.4), 0.025),
+                ];
+                for reverse in [false, true] {
+                    if reverse {
+                        path.reverse();
+                    }
+                    let strap = FittedStrap::fit(
+                        &form,
+                        &path,
+                        true,
+                        0.01,
+                        StrapEdgePolicy::EndUnsupportedRows,
+                    );
+                    assert_eq!(strap.strips.len(), 1);
+                    let at = strap.at_height(0.25).expect("supported center");
+                    assert!(at.position.is_finite() && at.normal.is_finite());
+                    assert!((at.position.y - 0.25).abs() < 1e-6);
+                    assert!(at.position.x.abs() < 0.001);
+                    assert!(
+                        (form.distance(at.position) - 0.01).abs() < 0.001,
+                        "hardware center must stay on strap clearance, not float"
+                    );
+                    assert!((at.rotation * Vec3::Z).dot(at.normal) > 0.999);
+                    for row in &strap.strips[0] {
+                        for (point, _) in row {
+                            assert!((form.distance(*point) - 0.01).abs() < 0.001);
+                        }
+                    }
+                    assert!(strap.at_height(0.8).is_none());
+                    assert!(strap.at_height(f32::NAN).is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fitted_strap_hardware_does_not_bridge_an_unsupported_gap() {
+        let mut form = crate::sdf::Sculpt::default();
+        for y in [0.1, 0.4] {
+            form.add(
+                crate::sdf::Shape::Ellipsoid(Vec3::Y * y, Vec3::new(0.15, 0.065, 0.12)),
+                0.0,
+            );
+        }
+        let path = [(Vec2::new(0.0, 0.02), 0.025), (Vec2::new(0.0, 0.48), 0.025)];
+        let strap = FittedStrap::fit(
+            &form,
+            &path,
+            true,
+            0.01,
+            StrapEdgePolicy::EndUnsupportedRows,
+        );
+        assert_eq!(strap.strips.len(), 2);
+        assert!(strap.at_height(0.1).is_some());
+        assert!(strap.at_height(0.4).is_some());
+        assert!(
+            strap.at_height(0.25).is_none(),
+            "hardware must not bridge a real clothing opening"
+        );
+    }
+
+    #[test]
+    fn fitted_strap_keeps_missing_support_explicit_and_preserves_edge_policy() {
+        let mut form = crate::sdf::Sculpt::default();
+        form.add(
+            crate::sdf::Shape::Ellipsoid(Vec3::Y * 0.25, Vec3::new(0.10, 0.3, 0.10)),
+            0.0,
+        );
+        let path = [(Vec2::new(0.4, 0.1), 0.025), (Vec2::new(0.4, 0.4), 0.025)];
+        let end = FittedStrap::fit(
+            &form,
+            &path,
+            true,
+            0.01,
+            StrapEdgePolicy::EndUnsupportedRows,
+        );
+        assert!(end.strips.is_empty());
+        assert!(end.at_height(0.25).is_none());
+        let clamp = FittedStrap::fit(&form, &path, true, 0.0, StrapEdgePolicy::ClampToSilhouette);
+        assert_eq!(clamp.strips.len(), 1);
+        assert!(clamp.strips[0].iter().flatten().all(|(p, _)| p.x < 0.11));
+        let empty = FittedStrap::fit(&form, &[], true, 0.0, StrapEdgePolicy::EndUnsupportedRows);
+        assert!(empty.at_height(0.25).is_none());
+    }
+}
+
+#[cfg(test)]
+mod projected_strap_tests {
+    use super::*;
+
+    #[test]
+    fn projected_sampler_follows_emitted_diagonal_and_preserves_gaps() {
+        let row = |y: f32, z: f32| {
+            vec![
+                (Vec3::new(0.0, y, 0.0), Vec3::Z),
+                (Vec3::new(1.0, y, z), Vec3::Z),
+            ]
+        };
+        let patch = FittedStrap {
+            strips: vec![
+                vec![row(0.0, 0.0), row(1.0, 1.0)],
+                vec![row(3.0, 0.0), row(4.0, 1.0)],
+            ],
+            outward: Vec3::Z,
+        };
+        // Non-planar quad: fixed diagonal yields min(x,y), not bilinear x*y.
+        for (at, z) in [
+            (Vec2::new(0.75, 0.25), 0.25),
+            (Vec2::new(0.25, 0.75), 0.25),
+            (Vec2::splat(0.5), 0.5),
+        ] {
+            let hit = patch.sample_projected(at).unwrap();
+            assert!((hit.z - z).abs() < 1e-6);
+            assert!((hit.truncate() - at).length() < 1e-6);
+        }
+        for at in [
+            Vec2::new(0.5, 2.0),
+            Vec2::new(-0.1, 0.5),
+            Vec2::splat(f32::NAN),
+        ] {
+            assert!(patch.sample_projected(at).is_none());
+        }
+        let collapsed = FittedStrap {
+            strips: vec![vec![row(0.0, 0.0), row(0.0, 1.0)]],
+            outward: Vec3::Z,
+        };
+        assert!(collapsed.sample_projected(Vec2::ZERO).is_none());
     }
 }

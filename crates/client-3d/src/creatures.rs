@@ -1567,7 +1567,7 @@ pub(crate) use animation::MotionProfile;
 pub use animation::{animate, soften, Boredom, WalkingCarriage, BORED_AFTER};
 pub(crate) use animation::{refresh_pose, PoseRefresh};
 pub use corpse::{snuff, spawn_corpse, Snuffed};
-pub use effects::{effects, stage, Bolt, Fade};
+pub use effects::{effects, public_effect, stage, stage_authoritative, Bolt, Fade};
 pub use geometry::spawn;
 pub(crate) mod loading;
 pub(crate) use hair_budget::HairSolving;

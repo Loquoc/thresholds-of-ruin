@@ -5,11 +5,12 @@ use crate::weapon_profiles::{RangeBands, PROJECTILE_STEP_FEET};
 use crate::{ActorId, Game, GameError};
 use tor_world::{Direction, Location, RayStep};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ProjectileImpact {
     pub location: Location,
     pub distance_feet: u32,
     pub target: Option<ActorId>,
+    pub segments: Vec<Vec<Location>>,
 }
 
 impl Game {
@@ -35,6 +36,7 @@ impl Game {
             location: origin.location,
             distance_feet: 0,
             target: None,
+            segments: vec![vec![origin.location]],
         };
         let mut direction = Direction::from(direction).rotated(origin.orientation);
         let mut left_launch_footprint = false;
@@ -49,6 +51,13 @@ impl Game {
             if self.region_frozen(to.region) {
                 break;
             }
+            super::spatial_delivery::push_step(
+                &mut impact.segments,
+                impact.location,
+                to,
+                direction,
+                rotation,
+            );
             impact.location = to;
             impact.distance_feet += PROJECTILE_STEP_FEET;
             direction = direction.rotated(rotation);
@@ -117,7 +126,8 @@ mod tests {
             ProjectileImpact {
                 location: at(2),
                 distance_feet: 5,
-                target: None
+                target: None,
+                segments: vec![vec![at(1), at(2)]],
             }
         );
         let hit = trace(&mut game, 60);
@@ -126,7 +136,8 @@ mod tests {
             ProjectileImpact {
                 location: at(3),
                 distance_feet: 10,
-                target: Some(ActorId(2))
+                target: Some(ActorId(2)),
+                segments: vec![vec![at(1), at(2), at(3)]],
             }
         );
         assert_eq!(game.world, before_world);
@@ -141,7 +152,8 @@ mod tests {
             ProjectileImpact {
                 location: at(1),
                 distance_feet: 0,
-                target: None
+                target: None,
+                segments: vec![vec![at(1)]],
             }
         );
         game.world.set_door(at(2), true);
@@ -182,7 +194,8 @@ mod tests {
             ProjectileImpact {
                 location: at(0),
                 distance_feet: maximum,
-                target: None
+                target: None,
+                segments: vec![vec![at(0)]; (maximum / PROJECTILE_STEP_FEET + 1) as usize],
             }
         );
         assert_eq!(game.world, before);

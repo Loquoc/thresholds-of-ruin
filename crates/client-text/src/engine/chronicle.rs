@@ -493,7 +493,8 @@ impl Chronicler {
                                 variant: self.blows,
                             }
                         }
-                        CombatEventView::UnseenAbility { .. }
+                        CombatEventView::Effect { .. }
+                        | CombatEventView::UnseenAbility { .. }
                         | CombatEventView::AnonymousAbility { .. }
                         | CombatEventView::EscapeResolved { .. } => {
                             Beat::EscapeHold(tor_client_common::narration::combat_event(e, b, a))
@@ -1002,7 +1003,7 @@ mod tests {
                 "door":{"id":tor_protocol::DoorTarget::from_digest([7; 32]),"name":"Oak Door","description":"","open":false,
                     "reachable":true,"approaches":[]}}],
             "ground_items":[],"inventory":[],
-            "charts":[],"linked_holds":[],"visible_actors":[{"id":tor_protocol::ActorTarget::from_digest([2; 32]),"name":"ruin scout","description":"",
+            "charts":[],"linked_holds":[],"public_effects":[],"visible_actors":[{"id":tor_protocol::ActorTarget::from_digest([2; 32]),"name":"ruin scout","description":"",
                 "position":{"x":2,"y":0,"z":0}}],
             "combat":{"public_plan":null,"hp":"50","max_hp":"50","sequence":null,"preparation_remaining":null,
                 "preparation_active":false,"recovery_remaining":"0","actors":[],

@@ -162,3 +162,79 @@ fn an_unfamiliar_technique_keeps_a_neutral_motion_regardless_of_caption() {
     assert_eq!(pose("custom_support", "Spark Lance (Fire)"), Move::Gesture);
     assert_eq!(pose("custom_support", "Bind Wounds"), Move::Gesture);
 }
+
+#[test]
+fn live_breath_does_not_fabricate_a_path_without_authoritative_geometry() {
+    let (mut app, caster, _) = scene("rogue.breath_weapon", "Breath Weapon", true, true);
+    app.update();
+    assert!(app.world().get::<Anim>(caster).unwrap().action.is_some());
+    let mut bolts = app.world_mut().query::<&Bolt>();
+    assert_eq!(bolts.iter(app.world()).count(), 0);
+}
+
+#[test]
+fn authoritative_geometry_renders_without_an_actor_or_a_hidden_gap_connector() {
+    use tor_protocol::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming};
+    let (mut app, _, _) = scene("fixture", "Fixture", false, false);
+    app.world_mut().resource_mut::<Game>().pending = vec![Happening::Effect {
+        caster: None,
+        ability: None,
+        tick: 1,
+        timing: EffectTiming::Instant,
+        appearance: EffectAppearance::Bolt,
+        delivery: EffectDelivery::Ray,
+        cue: EffectCue::Neutral,
+        segments: vec![
+            vec![Position { x: 0, y: 0, z: 0 }, Position { x: 1, y: 0, z: 0 }],
+            vec![Position { x: 5, y: 0, z: 0 }, Position { x: 6, y: 0, z: 0 }],
+        ],
+    }];
+    app.update();
+    let mut bolts = app.world_mut().query::<&Bolt>();
+    assert_eq!(
+        bolts.iter(app.world()).count(),
+        2,
+        "never connect hidden gap"
+    );
+}
+
+#[test]
+fn authoritative_target_effect_replaces_canned_visual_but_keeps_actor_motion() {
+    use tor_protocol::{ContentRef, EffectAppearance, EffectCue, EffectDelivery, EffectTiming};
+    let (mut app, caster_entity, _) = scene("spark_lance_fire", "Spark Lance", true, true);
+    app.world_mut()
+        .resource_mut::<Game>()
+        .pending
+        .push(Happening::Effect {
+            caster: Some(ActorTarget::from_digest([11; 32])),
+            ability: Some(ContentRef {
+                id: "spark_lance_fire".into(),
+                name: "Spark Lance".into(),
+            }),
+            tick: 1,
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Flash,
+            delivery: EffectDelivery::Target,
+            cue: EffectCue::Fire,
+            segments: vec![vec![Position { x: 1, y: 0, z: 0 }]],
+        });
+    app.update();
+    assert!(app
+        .world()
+        .get::<Anim>(caster_entity)
+        .unwrap()
+        .action
+        .is_some());
+    let mut bolts = app.world_mut().query::<&Bolt>();
+    assert_eq!(
+        bolts.iter(app.world()).count(),
+        0,
+        "no guessed caster-to-target path"
+    );
+    let mut fades = app.world_mut().query::<&Fade>();
+    assert_eq!(
+        fades.iter(app.world()).count(),
+        1,
+        "only authoritative target effect"
+    );
+}

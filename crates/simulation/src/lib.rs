@@ -497,6 +497,7 @@ pub enum GameError {
     Blocked,
     /// No distinction between unknown, hidden, carried, and out-of-reach items.
     ItemUnavailable,
+    ExitItemRequired,
     InvalidQuantity,
     DoorUnavailable,
     IdentityExhausted,

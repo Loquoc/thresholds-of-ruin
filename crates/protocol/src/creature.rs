@@ -454,6 +454,11 @@ impl<'de> Deserialize<'de> for RestorableLossesView {
 pub struct PersonalCondition {
     pub condition: ContentRef,
     pub phase: crate::ConditionPhase,
+    pub appearance: crate::EffectAppearance,
+    pub cue: crate::EffectCue,
+    /// Authoritative actor-active ticks, NOT wall time or world-tick deadline.
+    /// None lasts until removed. The complete snapshot replaces prior state;
+    /// absence ends presentation, including after reconnect or disclosure loss.
     #[serde(with = "crate::integers::optional_unsigned")]
     pub remaining_ticks: Option<u64>,
 }
@@ -464,13 +469,24 @@ impl<'de> Deserialize<'de> for PersonalCondition {
         struct Fields {
             condition: ContentRef,
             phase: crate::ConditionPhase,
+            appearance: crate::EffectAppearance,
+            cue: crate::EffectCue,
             #[serde(with = "crate::integers::optional_unsigned")]
             remaining_ticks: Option<u64>,
         }
         let fields: Fields = crate::bounded::named_map(deserializer)?;
+        if fields.appearance != crate::EffectAppearance::StatusIndicator
+            || fields.cue != crate::EffectCue::Status
+        {
+            return Err(serde::de::Error::custom(
+                "invalid personal status presentation",
+            ));
+        }
         Ok(Self {
             condition: fields.condition,
             phase: fields.phase,
+            appearance: fields.appearance,
+            cue: fields.cue,
             remaining_ticks: fields.remaining_ticks,
         })
     }
@@ -478,6 +494,8 @@ impl<'de> Deserialize<'de> for PersonalCondition {
 impl PersonalCondition {
     pub(crate) fn valid(&self) -> bool {
         self.condition.valid()
+            && self.appearance == crate::EffectAppearance::StatusIndicator
+            && self.cue == crate::EffectCue::Status
             && self
                 .remaining_ticks
                 .map_or(self.phase == crate::ConditionPhase::Active, |remaining| {

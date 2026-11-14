@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 68;
+pub(crate) const ARCHIVE_VERSION: u32 = 69;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -4209,15 +4209,15 @@ impl Engine {
                         adapt::action(&action),
                         tor_simulation::IntentionOrigin::Human,
                     )
-                    .map_err(|error| {
-                        Failure::new(
-                            if matches!(error, tor_simulation::GameError::ActorBusy) {
-                                ErrorCode::ActorBusy
-                            } else {
-                                ErrorCode::InvalidAction
-                            },
-                            "Intention is unavailable",
-                        )
+                    .map_err(|error| match error {
+                        tor_simulation::GameError::ExitItemRequired => Failure::new(
+                            ErrorCode::InvalidAction,
+                            "You need the objective item to leave through the surface exit",
+                        ),
+                        tor_simulation::GameError::ActorBusy => {
+                            Failure::new(ErrorCode::ActorBusy, "Intention is unavailable")
+                        }
+                        _ => Failure::new(ErrorCode::InvalidAction, "Intention is unavailable"),
                     })?;
                 (
                     Author::User {

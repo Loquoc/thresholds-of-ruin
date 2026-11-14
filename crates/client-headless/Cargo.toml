@@ -18,3 +18,5 @@ tokio.workspace = true
 
 [dev-dependencies]
 tor-client-common = { workspace = true, features = ["test-support"] }
+futures-util.workspace = true
+tokio-tungstenite.workspace = true

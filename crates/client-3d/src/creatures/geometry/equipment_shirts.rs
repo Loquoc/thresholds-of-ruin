@@ -352,9 +352,10 @@ fn emit_tie(
 ) {
     let b = body.build;
     let hem = body.bust.map_or(0.27, |bust| bust.fold) - 0.03;
+    let mut triangles = Vec::new();
     let mut panel = |points: [Vec3; 4], tint: f32| {
         let fitted = [points[0], points[3], points[2], points[1]].map(|at| {
-            visible_at(surface, armor, at.truncate()).map(|support| support + Vec3::Z * at.z)
+            visible_at(surface, None, at.truncate()).map(|support| support + Vec3::Z * at.z)
         });
         if let [Some(a), Some(b), Some(c), Some(d)] = fitted {
             // Keep the known outward parameter winding. The spindle poles
@@ -366,7 +367,7 @@ fn emit_tie(
                     .length_squared()
                     > 1e-16
                 {
-                    p.matte.tri(triangle, color * tint);
+                    triangles.push((triangle, color * tint));
                 }
             }
         }
@@ -428,6 +429,17 @@ fn emit_tie(
                 );
             }
         }
+    }
+    if armor.is_some_and(|cover| {
+        layer_coverage::WholeDetailCoverage::front().hides_components(
+            cover,
+            triangles.iter().map(|(triangle, _)| triangle.as_slice()),
+        )
+    }) {
+        return;
+    }
+    for (triangle, color) in triangles {
+        p.matte.tri(triangle, color);
     }
 }
 
@@ -1072,6 +1084,63 @@ mod tests {
             leaves > 10 && petals > 10,
             "readable floral sleeve colors: {leaves} leaves, {petals} petals"
         );
+    }
+
+    #[test]
+    fn partially_covered_tie_remains_whole() {
+        use bevy::render::mesh::VertexAttributeValues;
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        ));
+        let skin = torso_shape(body, None, false);
+        let shirt = test_envelope(ShirtAppearance::HawaiianShirt, body, &skin);
+        let mut armor = shirt.clone();
+        armor.inflate(0.06);
+        armor.carve(crate::sdf::Shape::Beyond(Vec3::NEG_X, 0.0), 0.0);
+        let count = |armor: Option<&crate::sdf::Sculpt>| {
+            let mut p = Parts::default();
+            emit_tie(&mut p, body, &shirt, armor, Vec3::ONE);
+            let mut materials = Assets::<StandardMaterial>::default();
+            let materials = crate::props::PropMaterials::new(&mut materials);
+            let mut meshes = Assets::<Mesh>::default();
+            p.finish(&mut meshes, &materials)
+                .0
+                .iter()
+                .map(|(h, _)| {
+                    let Some(VertexAttributeValues::Float32x3(points)) =
+                        meshes.get(h).unwrap().attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("tie positions")
+                    };
+                    points.len()
+                })
+                .sum::<usize>()
+        };
+        let whole = count(None);
+        assert!(whole > 100, "positive complete tie fixture");
+        assert_eq!(
+            count(Some(&armor)),
+            whole,
+            "partial armor must retain whole knot and tails"
+        );
+        let mut hole = shirt.clone();
+        hole.inflate(0.06);
+        let hem = body.bust.unwrap().fold - 0.03;
+        hole.carve(
+            crate::sdf::Shape::Capsule(
+                Vec3::new(0.003, hem + 0.004, -1.0),
+                Vec3::new(0.003, hem + 0.004, 1.0),
+                0.0001,
+                0.0001,
+            ),
+            0.0,
+        );
+        assert_eq!(count(Some(&hole)), whole, "tiny hole retains complete tie");
     }
 
     #[test]

@@ -4,7 +4,7 @@ use super::*;
 pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
     let fem = l.v.woman;
     let plain_boots = Boots {
-        color: LEATHER * 0.75,
+        color: Pigment::Fixed(LEATHER * 0.75),
         tall: false,
         heel: false,
         buckles: false,
@@ -48,7 +48,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                 }),
                 legs: Legs::Trousers(Vec3::new(0.3, 0.2, 0.12)),
                 feet: Feet::Boots(Boots {
-                    color: LEATHER * 1.05,
+                    color: Pigment::Fixed(LEATHER * 1.05),
                     tall: true,
                     heel: false,
                     buckles: false,
@@ -147,7 +147,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                 hands: Pigment::Fixed(LEATHER),
                 legs: Legs::Trousers(Vec3::new(0.22, 0.2, 0.15)),
                 feet: Feet::Boots(Boots {
-                    color: LEATHER * 0.7,
+                    color: Pigment::Fixed(LEATHER * 0.7),
                     tall: true,
                     heel: fem,
                     buckles: true,
@@ -226,7 +226,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             hands: Pigment::Fixed(STEEL),
             legs: Legs::Plate,
             feet: Feet::Boots(Boots {
-                color: STEEL,
+                color: Pigment::Fixed(STEEL),
                 tall: false,
                 heel: false,
                 buckles: false,
@@ -271,7 +271,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                 hands: Pigment::Skin(1.0),
                 legs: Legs::Fitted(Pigment::Fixed(DARK * 2.0)),
                 feet: Feet::Boots(Boots {
-                    color: DARK * 1.6,
+                    color: Pigment::Fixed(DARK * 1.6),
                     tall: false,
                     heel: fem,
                     buckles: false,
@@ -407,7 +407,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                 hands: Pigment::Skin(1.0),
                 legs: Legs::Fitted(Pigment::Fixed(DARK * 2.2)),
                 feet: Feet::Boots(Boots {
-                    color: LEATHER * 0.7,
+                    color: Pigment::Fixed(LEATHER * 0.7),
                     tall: false,
                     heel: fem,
                     buckles: false,
@@ -496,7 +496,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                     ..Skirt::PLAIN
                 }),
                 feet: Feet::Boots(Boots {
-                    color: black * 1.4,
+                    color: Pigment::Fixed(black * 1.4),
                     tall: true,
                     heel: fem,
                     buckles: true,
@@ -592,6 +592,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                 skirt: Some(Skirt {
                     color: white,
                     length: 0.24,
+                    // Both layers tuck over the bodice on its resolved waist support.
+                    waistline: Some(0.07),
                     trim: Some(GILT),
                     layers: [
                         Some(Layer {
@@ -876,7 +878,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                     ..Skirt::PLAIN
                 }),
                 feet: Feet::Boots(Boots {
-                    color: velvet * 1.4,
+                    color: Pigment::Fixed(velvet * 1.4),
                     tall: true,
                     heel: fem,
                     buckles: true,

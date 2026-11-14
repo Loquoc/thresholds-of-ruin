@@ -771,6 +771,58 @@ impl NecklineCut {
         Some(cut)
     }
 
+    /// Trace the opening on its uncut support, before meshing. The authored
+    /// two-dimensional V is not the boundary of its tapered three-dimensional
+    /// cutter on a curved chest. Both sides use their own support, so asymmetric
+    /// anatomy is preserved without inspecting or colliding rendered triangles.
+    pub(super) fn surface_rim(
+        &self,
+        body: HumanoidBody,
+        support: &crate::sdf::Sculpt,
+        top: f32,
+        margin: f32,
+    ) -> [Vec<Vec2>; 2] {
+        let opening = self.opening(body, top, margin);
+        let distance = |x, y| torso_surface_hit(support, x, y, true).map(|p| opening.distance(p));
+        // The uncut plate already has a neck aperture, so its central ray
+        // need not exist at the collar. Find the lower intersection first.
+        let mut bottom = self.bottom;
+        let Some(mut upper) = (1..=32)
+            .map(|i| self.bottom + (top - 0.01 - self.bottom) * i as f32 / 32.0)
+            .find(|&y| distance(0.0, y).is_some_and(|d| d < 0.0))
+        else {
+            return [Vec::new(), Vec::new()];
+        };
+        for _ in 0..16 {
+            let y = (bottom + upper) * 0.5;
+            if distance(0.0, y).is_some_and(|d| d < 0.0) {
+                upper = y;
+            } else {
+                bottom = y;
+            }
+        }
+        [-1.0, 1.0].map(|side| {
+            (0..=20)
+                .filter_map(|i| {
+                    let y = upper + (top - 0.01 - upper) * i as f32 / 20.0;
+                    let mut inner = 0.0;
+                    let mut outer = (1..=64)
+                        .map(|k| body.shoulders * body.build * k as f32 / 64.0)
+                        .find(|&x| distance(side * x, y).is_some_and(|d| d >= 0.0))?;
+                    for _ in 0..16 {
+                        let x = (inner + outer) * 0.5;
+                        if distance(side * x, y).is_none_or(|d| d < 0.0) {
+                            inner = x;
+                        } else {
+                            outer = x;
+                        }
+                    }
+                    Some(Vec2::new(side * (inner + outer) * 0.5, y))
+                })
+                .collect()
+        })
+    }
+
     /// The opening's half-width at a height, where it is open at all.
     pub fn edge(&self, y: f32) -> f32 {
         let t = (y - self.bottom) / (self.collar - self.bottom);

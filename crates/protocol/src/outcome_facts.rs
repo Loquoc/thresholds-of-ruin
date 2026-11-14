@@ -983,6 +983,7 @@ impl OutcomeFacts {
         if self.facts.iter().any(|fact| {
             matches!(fact,
             OutcomeFact::PublicPlan { record } if !record.valid_at(tick))
+                || matches!(fact, OutcomeFact::Combat { event, .. } if !event.valid_effect(tick))
         }) {
             return Err(InvalidState::InvalidCombat);
         }
@@ -1018,6 +1019,10 @@ impl OutcomeFacts {
         }
         for fact in &self.facts {
             match fact {
+                OutcomeFact::Combat {
+                    event: effect @ CombatEventView::Effect { .. },
+                    ..
+                } if !effect.valid_effect(u64::MAX) => return Err(InvalidState::InvalidCombat),
                 OutcomeFact::OwnAction {
                     event,
                     underfoot: Some(contents),
@@ -1068,6 +1073,7 @@ impl OutcomeFacts {
 }
 fn event_subjects(event: &CombatEventView) -> Vec<ActorTarget> {
     match event {
+        CombatEventView::Effect { caster, .. } => caster.iter().copied().collect(),
         CombatEventView::UnseenAbility { target, .. } => vec![*target],
         CombatEventView::AnonymousAbility { caster, target, .. }
         | CombatEventView::Ability { caster, target, .. } => {
@@ -1187,6 +1193,7 @@ impl OutcomeFacts {
             actor,
             self_target,
             linked_holds,
+            public_effects,
             tick: _,
             position,
             visible_cells,
@@ -1204,6 +1211,7 @@ impl OutcomeFacts {
             || actor != &after.actor
             || self_target != &after.self_target
             || linked_holds != &after.linked_holds
+            || public_effects != &after.public_effects
             || position != &after.position
             || visible_cells != &after.visible_cells
             || ground_items != &after.ground_items
@@ -1244,6 +1252,7 @@ mod tests {
             actor: ActorId(1),
             self_target: ActorTarget::from_digest([1; 32]),
             linked_holds: vec![],
+            public_effects: vec![],
             tick: 1,
             position: Position { x: 0, y: 0, z: 0 },
             visible_cells: vec![],

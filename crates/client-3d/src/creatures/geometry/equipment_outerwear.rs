@@ -4,14 +4,140 @@ use crate::creatures::outfit::outerwear::{
     OuterwearAppearance, OuterwearCut, OuterwearFastening, OuterwearNeck,
 };
 
+/// Shared torso-local winding recipe. Attachment consumers select a winding,
+/// never reconstruct its slope, station or support clearance independently.
+#[derive(Clone, Copy)]
+struct WrappingLayout {
+    first_height: f32,
+    spacing: f32,
+    rise: f32,
+    half_span: f32,
+    build_scale: f32,
+    clearance: f32,
+    clearance_step: f32,
+}
+#[derive(Clone, Copy)]
+struct WrapWinding {
+    height: f32,
+    slope: f32,
+    half_span: f32,
+    build_scale: f32,
+    clearance: f32,
+    edge_clearance: f32,
+}
+impl WrappingLayout {
+    fn for_body(body: HumanoidBody) -> Self {
+        Self {
+            first_height: 0.045,
+            spacing: 0.041,
+            rise: 0.075,
+            half_span: 0.23,
+            build_scale: body.build,
+            clearance: 0.014,
+            clearance_step: 0.0005,
+        }
+    }
+    fn winding(self, index: usize) -> WrapWinding {
+        WrapWinding {
+            height: self.first_height + index as f32 * self.spacing,
+            slope: if index.is_multiple_of(2) {
+                self.rise
+            } else {
+                -self.rise
+            },
+            half_span: self.half_span,
+            build_scale: self.build_scale,
+            clearance: self.clearance + index as f32 * self.clearance_step,
+            // Preserve authored default trim arithmetic while following any
+            // shared support-clearance change.
+            edge_clearance: 0.018 + (self.clearance - 0.014) + index as f32 * self.clearance_step,
+        }
+    }
+}
+impl WrapWinding {
+    fn height_at(self, x: f32) -> f32 {
+        self.height + self.slope * x / (self.half_span * self.build_scale)
+    }
+    fn path(self, width: f32) -> Vec<(Vec2, f32)> {
+        (0..17)
+            .map(|j| {
+                let x = (j as f32 / 16.0 * 2.0 - 1.0) * self.half_span * self.build_scale;
+                (Vec2::new(x, self.height_at(x)), width * 0.60)
+            })
+            .collect()
+    }
+}
+fn emit_wrap_winding(
+    p: &mut Parts,
+    support: &crate::sdf::Sculpt,
+    winding: WrapWinding,
+    width: f32,
+    cloth: Vec3,
+    index: usize,
+) {
+    let path = winding.path(width);
+    for front in [true, false] {
+        fitting::fitted_ribbon(
+            &mut p.matte,
+            support,
+            &path,
+            front,
+            winding.clearance,
+            cloth * (0.76 + 0.08 * (index % 4) as f32),
+        );
+        let edge: Vec<_> = path
+            .iter()
+            .map(|(at, _)| (*at + Vec2::Y * (width * 0.53), 0.0015))
+            .collect();
+        fitting::fitted_ribbon(
+            &mut p.matte,
+            support,
+            &edge,
+            front,
+            winding.edge_clearance,
+            cloth * 0.52,
+        );
+    }
+}
+
 // Torso-local apron attachment. The lower panel is emitted in the hip frame,
 // so its root must include both the torso joint offset and rendered scale.
 const APRON_WAIST_LOW: f32 = 0.045;
 const APRON_WAIST_HIGH: f32 = 0.069;
 const APRON_ROOT_OVERLAP: f32 = 0.040;
 
+pub(super) const APRON_STRAP_CLEARANCE: f32 = 0.022;
+
 fn apron_panel_top(body: HumanoidBody) -> f32 {
     body.torso.y + APRON_WAIST_HIGH * storybook_part(Plan::Biped, J::Torso).y + APRON_ROOT_OVERLAP
+}
+
+/// Bib styling owns the lower width; anatomical shoulder span owns the upper mount.
+fn apron_shoulder_path(
+    core: super::super::anatomy::TorsoCoreProfile,
+    bib_width: f32,
+    side: f32,
+) -> [(Vec2, f32); 2] {
+    let shoulder = core.shoulder_seat(side);
+    [
+        (
+            Vec2::new(side * bib_width * 0.43, core.chest.upper.0.y - 0.015),
+            0.024,
+        ),
+        (Vec2::new(shoulder.x * 0.52, shoulder.y - 0.01), 0.024),
+    ]
+}
+
+/// Connect only fully supported terminal rows. A missing end is not permission
+/// to bridge an unrelated lower opening. Exact cloned endpoints keep seams shared.
+#[cfg(test)]
+fn apron_shoulder_bridge(
+    support: &crate::sdf::Sculpt,
+    front: &fitting::FittedStrap,
+    back: &fitting::FittedStrap,
+    top: f32,
+) -> Option<Vec<Vec<(Vec3, Vec3)>>> {
+    fitting::terminal_shoulder_bridge(support, front, back, top)
 }
 
 /// Torso-local decoration. `support` must include every retained shirt and
@@ -22,44 +148,28 @@ pub(super) fn emit_torso(
     body: HumanoidBody,
     support: &crate::sdf::Sculpt,
 ) {
+    emit_torso_with_layout(p, appearance, body, support, WrappingLayout::for_body(body));
+}
+fn emit_torso_with_layout(
+    p: &mut Parts,
+    appearance: OuterwearAppearance,
+    body: HumanoidBody,
+    support: &crate::sdf::Sculpt,
+    layout: WrappingLayout,
+) {
     let r = appearance.recipe();
     match r.cut {
         OuterwearCut::Robe => emit_robe_torso(p, body, support, r.cloth, r.trim),
         OuterwearCut::Wraps { bands, width } => {
             for i in 0..bands {
-                let y = 0.045 + i as f32 * 0.041;
-                let slope = if i % 2 == 0 { 0.075 } else { -0.075 };
-                for front in [true, false] {
-                    let path: Vec<_> = (0..17)
-                        .map(|j| {
-                            let x = (j as f32 / 16.0 * 2.0 - 1.0) * 0.23 * body.build;
-                            (
-                                Vec2::new(x, y + slope * x / (0.23 * body.build)),
-                                width * 0.60,
-                            )
-                        })
-                        .collect();
-                    fitting::fitted_ribbon(
-                        &mut p.matte,
-                        support,
-                        &path,
-                        front,
-                        0.014 + i as f32 * 0.0005,
-                        r.cloth * (0.76 + 0.08 * (i % 4) as f32),
-                    );
-                    let edge: Vec<_> = path
-                        .iter()
-                        .map(|(at, _)| (*at + Vec2::Y * (width * 0.53), 0.0015))
-                        .collect();
-                    fitting::fitted_ribbon(
-                        &mut p.matte,
-                        support,
-                        &edge,
-                        front,
-                        0.018 + i as f32 * 0.0005,
-                        r.cloth * 0.52,
-                    );
-                }
+                emit_wrap_winding(
+                    p,
+                    support,
+                    layout.winding(i as usize),
+                    width,
+                    r.cloth,
+                    i as usize,
+                );
             }
             for sign in [-1.0, 1.0] {
                 fitting::fitted_ribbon(
@@ -89,21 +199,11 @@ pub(super) fn emit_torso(
                 0.018,
                 r.cloth,
             );
-            for sign in [-1.0, 1.0] {
-                let x = sign * width * 0.43;
-                for front in [true, false] {
-                    fitting::fitted_ribbon(
-                        &mut p.matte,
-                        support,
-                        &[
-                            (Vec2::new(x, 0.37), 0.024),
-                            (Vec2::new(sign * width * 0.65, 0.49), 0.024),
-                        ],
-                        front,
-                        0.022,
-                        r.cloth * 0.88,
-                    );
-                }
+            let core = super::super::anatomy::TorsoCoreProfile::biped(body);
+            for side in [-1.0, 1.0] {
+                let path = apron_shoulder_path(core, width, side);
+                fitting::FittedShoulderStrap::fit(support, &path, APRON_STRAP_CLEARANCE)
+                    .emit(&mut p.matte, r.cloth * 0.88);
             }
             fitting::fitted_band(
                 &mut p.matte,
@@ -518,6 +618,26 @@ pub(super) fn emit_lower(
     support: &[Vec3],
     torso_support: &crate::sdf::Sculpt,
 ) {
+    emit_lower_with_layout(
+        p,
+        appearance,
+        body,
+        clearance,
+        support,
+        torso_support,
+        WrappingLayout::for_body(body),
+    );
+}
+fn emit_lower_with_layout(
+    p: &mut Parts,
+    appearance: OuterwearAppearance,
+    body: HumanoidBody,
+    clearance: Vec2,
+    support: &[Vec3],
+    torso_support: &crate::sdf::Sculpt,
+    layout: WrappingLayout,
+) {
+    let winding = layout.winding(1);
     let r = appearance.recipe();
     let (width, length, pocket) = match r.cut {
         OuterwearCut::Apron { length, pocket, .. } => (clearance.x * 1.40, length, pocket),
@@ -528,7 +648,18 @@ pub(super) fn emit_lower(
     let torso_scale = storybook_part(Plan::Biped, J::Torso);
     // Match the second emitted winding, not the pelvis clearance ellipse.
     let mut root_support = torso_support.clone();
-    root_support.inflate(0.0145);
+    root_support.inflate(winding.clearance);
+    let fitted_root = if let OuterwearCut::Wraps { width, .. } = r.cut {
+        Some(fitting::FittedStrap::fit(
+            torso_support,
+            &winding.path(width),
+            true,
+            winding.clearance,
+            fitting::StrapEdgePolicy::EndUnsupportedRows,
+        ))
+    } else {
+        None
+    };
     // Preserve the authored hem and pocket proportions. Only the upper edge
     // extends to overlap the actual torso-bound waistband/bib; translating the
     // entire panel would shorten it and move its established floor clearance.
@@ -550,6 +681,35 @@ pub(super) fn emit_lower(
         .collect();
     let depths = apron_depth_envelope(&depths, height / 20.0);
     for &center in centers {
+        // A fully unsupported seam is absent; partially supported edges fit
+        // inward to the selected winding footprint instead of deleting a panel.
+        let supported_root = |x: f32| {
+            fitted_root
+                .as_ref()
+                .and_then(|patch| patch.sample_projected(Vec2::new(x, winding.height_at(x))))
+        };
+        let center_x = center * body.build / torso_scale.x;
+        if wraps && supported_root(center_x).is_none() {
+            continue;
+        }
+        let fitted_root_x = |desired: f32| {
+            if !wraps || supported_root(desired).is_some() {
+                return desired;
+            }
+            let mut inside = center_x;
+            let mut outside = desired;
+            for _ in 0..16 {
+                let x = (inside + outside) * 0.5;
+                if supported_root(x).is_some() {
+                    inside = x;
+                } else {
+                    outside = x;
+                }
+            }
+            inside
+        };
+        let left_root = fitted_root_x((center * body.build - width * 0.5) / torso_scale.x);
+        let right_root = fitted_root_x((center * body.build + width * 0.5) / torso_scale.x);
         let point = |u: f32, t: f32| {
             let row = (t * 20.0).floor() as usize;
             let front = depths[row.min(20)].max(depths[(row + 1).min(20)]);
@@ -564,8 +724,12 @@ pub(super) fn emit_lower(
                 front + 0.035 + 0.025 * t + (u * PI * 4.0).cos() * 0.009 * t,
             );
             if wraps {
-                let root_x = (center * body.build + u * width * 0.5) / torso_scale.x;
-                let root_y = 0.086 - 0.075 * root_x / (0.23 * body.build);
+                let desired_x = (center * body.build + u * width * 0.5) / torso_scale.x;
+                let root_x = left_root + (right_root - left_root) * ((u + 1.0) * 0.5);
+                let release = (t / 0.05).clamp(0.0, 1.0);
+                let release = release * release * (3.0 - 2.0 * release);
+                at.x += (root_x - desired_x) * torso_scale.x * (1.0 - release);
+                let root_y = winding.height_at(root_x);
                 let root_height = body.torso.y + root_y * torso_scale.y;
                 at.y += (root_height - top) * (1.0 - t);
                 let blend = ((root_height - at.y - 0.012) / 0.070).clamp(0.0, 1.0);
@@ -578,7 +742,35 @@ pub(super) fn emit_lower(
                     ) {
                         // First follow the real winding through its cloth
                         // thickness, then ease out over the retained skirt.
-                        let sewn_z = hit.z * torso_scale.z + 0.001;
+                        let sampled = fitted_root.as_ref().and_then(|patch| {
+                            patch.sample_projected(Vec2::new(
+                                at.x / torso_scale.x,
+                                (at.y - body.torso.y) / torso_scale.y,
+                            ))
+                        });
+                        let seam = sampled.or_else(|| {
+                            let patch = fitted_root.as_ref()?;
+                            let x = at.x / torso_scale.x;
+                            let target_y = (at.y - body.torso.y) / torso_scale.y;
+                            let mut supported_y = winding.height_at(x);
+                            let mut boundary = patch.sample_projected(Vec2::new(x, supported_y))?;
+                            let mut absent_y = target_y;
+                            // Continue the facet-to-support offset from the exact
+                            // patch boundary, then decay it through the drape blend.
+                            for _ in 0..16 {
+                                let y = (supported_y + absent_y) * 0.5;
+                                if let Some(sample) = patch.sample_projected(Vec2::new(x, y)) {
+                                    supported_y = y;
+                                    boundary = sample;
+                                } else {
+                                    absent_y = y;
+                                }
+                            }
+                            let underlying =
+                                torso_surface_hit(&root_support, x, supported_y, true)?;
+                            Some(hit + Vec3::Z * (boundary.z - underlying.z))
+                        });
+                        let sewn_z = seam.unwrap_or(hit).z * torso_scale.z + 0.001;
                         let ease = blend * blend * (3.0 - 2.0 * blend);
                         at.z = sewn_z + (at.z - sewn_z) * ease;
                     }
@@ -586,9 +778,14 @@ pub(super) fn emit_lower(
             }
             at
         };
-        for row in 0..20 {
-            let t0 = row as f32 / 20.0;
-            let t1 = (row + 1) as f32 / 20.0;
+        let mut row_stations: Vec<f32> = (0..=20).map(|row| row as f32 / 20.0).collect();
+        if wraps {
+            // Only refine the sewn root, retaining every authored downstream row.
+            row_stations.extend((1..10).map(|row| row as f32 / 200.0));
+            row_stations.sort_by(f32::total_cmp);
+        }
+        for pair in row_stations.windows(2) {
+            let [t0, t1] = [pair[0], pair[1]];
             for column in 0..20 {
                 let u0 = column as f32 / 10.0 - 1.0;
                 let u1 = (column + 1) as f32 / 10.0 - 1.0;
@@ -627,6 +824,251 @@ pub(super) fn emit_lower(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_wrapping_preserves_both_complete_tail_panels() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let body = HumanoidBody::resolve(&Look::with_choice(
+                    CreatureModel::Human,
+                    22,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                ));
+                let support = torso_garment(body, TorsoMaterial::Cloth, false);
+                let mut lower = Parts::default();
+                emit_lower_with_layout(
+                    &mut lower,
+                    OuterwearAppearance::MummyWrapping,
+                    body,
+                    Vec2::splat(0.2),
+                    &[],
+                    &support,
+                    WrappingLayout::for_body(body),
+                );
+                assert_eq!(
+                    lower.matte.surface_triangles().count(),
+                    2 * 29 * 20 * 4,
+                    "default tail lost: woman={woman} build={build}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_selected_winding_does_not_invent_tail_attachment() {
+        for woman in [false, true] {
+            let body = HumanoidBody::resolve(&Look::with_choice(
+                CreatureModel::Human,
+                22,
+                Some(Variant { woman, ..default() }),
+            ));
+            let support = torso_garment(body, TorsoMaterial::Cloth, false);
+            let mut layout = WrappingLayout::for_body(body);
+            layout.first_height = 10.0;
+            let mut lower = Parts::default();
+            emit_lower_with_layout(
+                &mut lower,
+                OuterwearAppearance::MummyWrapping,
+                body,
+                Vec2::splat(0.2),
+                &[],
+                &support,
+                layout,
+            );
+            assert_eq!(lower.matte.surface_triangles().count(), 0);
+        }
+    }
+
+    #[test]
+    fn selected_winding_parameters_move_actual_tail_attachment() {
+        let mut failures = Vec::new();
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Human,
+                    22,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let body = HumanoidBody::resolve(&look);
+                let support = torso_garment(body, TorsoMaterial::Cloth, false);
+                let scale = storybook_part(Plan::Biped, J::Torso);
+                let belt = crate::creatures::robe::belt_on(body, BELT_CENTER_Y, &support);
+                let default_layout = WrappingLayout::for_body(body);
+                for mutation in 0..6 {
+                    let mut layout = default_layout;
+                    match mutation {
+                        0 => layout.first_height += 0.06,
+                        1 => layout.rise = -0.04,
+                        2 => layout.half_span *= 0.75,
+                        3 => layout.clearance += 0.012,
+                        4 => layout.spacing += 0.035,
+                        _ => layout.clearance_step += 0.012,
+                    }
+                    let winding = layout.winding(1);
+                    let recipe = OuterwearAppearance::MummyWrapping.recipe();
+                    let OuterwearCut::Wraps { width, .. } = recipe.cut else {
+                        unreachable!()
+                    };
+                    let mut upper = Parts::default();
+                    upper.set_transform(Affine3A::from_scale_rotation_translation(
+                        scale,
+                        Quat::IDENTITY,
+                        body.torso,
+                    ));
+                    emit_wrap_winding(&mut upper, &support, winding, width, recipe.cloth, 1);
+                    upper.set_transform(Affine3A::IDENTITY);
+                    let mut lower = Parts::default();
+                    emit_lower_with_layout(
+                        &mut lower,
+                        OuterwearAppearance::MummyWrapping,
+                        body,
+                        Vec2::new(belt.x * scale.x, belt.y * scale.z),
+                        &[],
+                        &support,
+                        layout,
+                    );
+                    for (center, u) in [-0.10, 0.075]
+                        .into_iter()
+                        .flat_map(|center| [-0.8, 0.0, 0.8].map(|u| (center, u)))
+                    {
+                        let x = (center + u * 0.055 * 0.5) * body.build;
+                        let root = body.torso.y + winding.height_at(x / scale.x) * scale.y;
+                        let mut contacts = 0;
+                        let mut gaps = Vec::new();
+                        for sample in 0..=15 {
+                            let ray = Vec3::new(x, root - sample as f32 * 0.001, 0.0);
+                            if let (Some(a), Some(b)) = (
+                                upper.matte.outer_surface(ray, Vec3::Z),
+                                lower.matte.outer_surface(ray, Vec3::Z),
+                            ) {
+                                gaps.push((sample, a.z - b.z));
+                                if (a.z - b.z).abs() <= 0.004 {
+                                    contacts += 1;
+                                }
+                            }
+                        }
+                        for pair in gaps.windows(2) {
+                            assert!((pair[0].1 - pair[1].1).abs() < 0.004,
+                                "discontinuous emitted root seam: woman={woman} build={build} mutation={mutation} gaps={gaps:?}");
+                        }
+                        if contacts < 5 {
+                            let detail = format!("woman={woman} build={build} mutation={mutation} center={center} u={u} contacts={contacts} gaps={gaps:?}");
+                            eprintln!("selected winding attachment diagnostic: {detail}");
+                            failures.push(detail);
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "selected winding contact failures: {failures:?}"
+        );
+    }
+
+    #[test]
+    fn shared_winding_defaults_preserve_emitted_band_geometry() {
+        fn legacy(
+            p: &mut Parts,
+            support: &crate::sdf::Sculpt,
+            body: HumanoidBody,
+            bands: usize,
+            width: f32,
+            cloth: Vec3,
+        ) {
+            for i in 0..bands {
+                let y = 0.045 + i as f32 * 0.041;
+                let slope = if i % 2 == 0 { 0.075 } else { -0.075 };
+                for front in [true, false] {
+                    let path: Vec<_> = (0..17)
+                        .map(|j| {
+                            let x = (j as f32 / 16.0 * 2.0 - 1.0) * 0.23 * body.build;
+                            (
+                                Vec2::new(x, y + slope * x / (0.23 * body.build)),
+                                width * 0.60,
+                            )
+                        })
+                        .collect();
+                    fitting::fitted_ribbon(
+                        &mut p.matte,
+                        support,
+                        &path,
+                        front,
+                        0.014 + i as f32 * 0.0005,
+                        cloth * (0.76 + 0.08 * (i % 4) as f32),
+                    );
+                    let edge: Vec<_> = path
+                        .iter()
+                        .map(|(at, _)| (*at + Vec2::Y * (width * 0.53), 0.0015))
+                        .collect();
+                    fitting::fitted_ribbon(
+                        &mut p.matte,
+                        support,
+                        &edge,
+                        front,
+                        0.018 + i as f32 * 0.0005,
+                        cloth * 0.52,
+                    );
+                }
+            }
+        }
+        for woman in [false, true] {
+            for build in 0..3 {
+                let body = HumanoidBody::resolve(&Look::with_choice(
+                    CreatureModel::Human,
+                    22,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                ));
+                let support = torso_garment(body, TorsoMaterial::Cloth, false);
+                let recipe = OuterwearAppearance::MummyWrapping.recipe();
+                let OuterwearCut::Wraps { bands, width } = recipe.cut else {
+                    unreachable!()
+                };
+                let mut old = Parts::default();
+                legacy(
+                    &mut old,
+                    &support,
+                    body,
+                    bands as usize,
+                    width,
+                    recipe.cloth,
+                );
+                let mut new = Parts::default();
+                let layout = WrappingLayout::for_body(body);
+                for i in 0..bands {
+                    emit_wrap_winding(
+                        &mut new,
+                        &support,
+                        layout.winding(i as usize),
+                        width,
+                        recipe.cloth,
+                        i as usize,
+                    );
+                }
+                let old: Vec<_> = old.matte.surface_triangles().collect();
+                let new: Vec<_> = new.matte.surface_triangles().collect();
+                assert_eq!(old.len(), new.len());
+                for (a, b) in old.iter().flatten().zip(new.iter().flatten()) {
+                    assert!(
+                        (*a - *b).length() < 0.000001,
+                        "default wrapping geometry changed"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn mummy_tail_roots_contact_emitted_torso_wrappings() {
         for (woman, layer_ease) in [(false, 0.0), (true, 0.0), (false, 0.04), (true, 0.04)] {
@@ -685,14 +1127,197 @@ mod tests {
                         }
                     }
                     assert!(upper_hits >= 5, "fixture must intersect actual torso bands");
-                    assert!(contacts >= 5,
-                        "tail root must overlap emitted torso bands in height AND depth: woman {woman}, build {build}, center {center}, layer ease {layer_ease}, contacts {contacts}");
+                    assert!(
+                        contacts >= 5,
+                        "tail root must overlap emitted torso bands in height AND depth: woman {woman}, build {build}, center {center}, layer ease {layer_ease}, contacts {contacts}"
+                    );
                 }
                 let low = lower.matte.bounds().0;
                 assert!(
                     (low.y - (0.045 - 0.39 - 0.025)).abs() < 0.0001,
                     "attachment change preserves authored torn hem clearance"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn apron_shared_shoulder_preserves_legacy_fit_and_emission() {
+        for (model, woman) in [CreatureModel::Human, CreatureModel::Orc]
+            .into_iter()
+            .flat_map(|model| [false, true].map(|woman| (model, woman)))
+        {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    model,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let body = HumanoidBody::resolve(&look);
+                let core = super::super::super::anatomy::TorsoCoreProfile::biped(body);
+                for material in [
+                    None,
+                    Some(TorsoMaterial::Leather),
+                    Some(TorsoMaterial::Plate),
+                ] {
+                    let support = torso_shape(body, material, true);
+                    for side in [-1.0, 1.0] {
+                        let path = apron_shoulder_path(core, 0.2 * body.build, side);
+                        let mut p = Parts::default();
+                        let r = OuterwearAppearance::Apron.recipe();
+                        let support = &support;
+                        let front = fitting::FittedStrap::fit(
+                            support,
+                            &path,
+                            true,
+                            APRON_STRAP_CLEARANCE,
+                            fitting::StrapEdgePolicy::EndUnsupportedRows,
+                        );
+                        let back = fitting::FittedStrap::fit(
+                            support,
+                            &path,
+                            false,
+                            APRON_STRAP_CLEARANCE,
+                            fitting::StrapEdgePolicy::EndUnsupportedRows,
+                        );
+                        let mut grown = support.clone();
+                        grown.inflate(APRON_STRAP_CLEARANCE);
+                        let bridge = apron_shoulder_bridge(&grown, &front, &back, path[1].0.y);
+                        if bridge.is_some() {
+                            front.emit_joined_terminal(&mut p.matte, r.cloth * 0.88);
+                            back.emit_joined_terminal(&mut p.matte, r.cloth * 0.88);
+                        } else {
+                            front.emit(&mut p.matte, r.cloth * 0.88, true);
+                            back.emit(&mut p.matte, r.cloth * 0.88, true);
+                        }
+                        if let Some(rows) = bridge {
+                            fitting::emit_ribbon_strip(
+                                &mut p.matte,
+                                &rows,
+                                Vec3::Y,
+                                r.cloth * 0.88,
+                                false,
+                            );
+                        }
+                        let mut shared = Builder::default();
+                        fitting::FittedShoulderStrap::fit(support, &path, APRON_STRAP_CLEARANCE)
+                            .emit(&mut shared, r.cloth * 0.88);
+                        p.matte.assert_same_recipe(&shared);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn apron_shoulder_recipe_tracks_anatomy_and_keeps_bib_style_separate() {
+        let body = wearer(true);
+        let core = super::super::super::anatomy::TorsoCoreProfile::biped(body);
+        let original = apron_shoulder_path(core, 0.2, 1.0);
+        let mut moved = core;
+        moved.shoulder += Vec3::new(0.04, 0.05, 0.0);
+        moved.chest.upper.0.y += 0.03;
+        let changed = apron_shoulder_path(moved, 0.2, 1.0);
+        assert!(changed[1].0.x > original[1].0.x + 0.02);
+        assert!((changed[1].0.y - original[1].0.y - 0.05).abs() < 1e-6);
+        assert!((changed[0].0.y - original[0].0.y - 0.03).abs() < 1e-6);
+        assert_eq!(changed[0].0.x, original[0].0.x);
+        let wider_bib = apron_shoulder_path(core, 0.25, 1.0);
+        assert!(wider_bib[0].0.x > original[0].0.x);
+        assert_eq!(wider_bib[1], original[1]);
+        let left = apron_shoulder_path(core, 0.2, -1.0);
+        for i in 0..2 {
+            assert_eq!(left[i].0.x, -original[i].0.x);
+            assert_eq!(left[i].0.y, original[i].0.y);
+        }
+    }
+
+    #[test]
+    fn apron_shoulder_bridge_reuses_end_rows_and_rejects_missing_ends() {
+        for woman in [false, true] {
+            let body = wearer(woman);
+            let core = super::super::super::anatomy::TorsoCoreProfile::biped(body);
+            let path = apron_shoulder_path(core, 0.2 * body.build, 1.0);
+            let support = torso_shape(body, Some(TorsoMaterial::Leather), true);
+            let front = fitting::FittedStrap::fit(
+                &support,
+                &path,
+                true,
+                0.022,
+                fitting::StrapEdgePolicy::EndUnsupportedRows,
+            );
+            let back = fitting::FittedStrap::fit(
+                &support,
+                &path,
+                false,
+                0.022,
+                fitting::StrapEdgePolicy::EndUnsupportedRows,
+            );
+            let mut grown = support.clone();
+            grown.inflate(APRON_STRAP_CLEARANCE);
+            let bridge = apron_shoulder_bridge(&grown, &front, &back, path[1].0.y)
+                .expect("supported bridge");
+            assert_eq!(
+                bridge.first().unwrap(),
+                front.strips.last().unwrap().last().unwrap()
+            );
+            assert_eq!(
+                bridge.last().unwrap(),
+                back.strips.last().unwrap().last().unwrap()
+            );
+            assert!(bridge
+                .iter()
+                .flatten()
+                .all(|(at, _)| at.is_finite() && grown.distance(*at).abs() < 0.002));
+            assert!(apron_shoulder_bridge(&grown, &front, &back, path[1].0.y + 0.05).is_none());
+            let missing = fitting::FittedStrap::fit(
+                &support,
+                &[],
+                false,
+                0.022,
+                fitting::StrapEdgePolicy::EndUnsupportedRows,
+            );
+            assert!(apron_shoulder_bridge(&grown, &front, &missing, path[1].0.y).is_none());
+        }
+    }
+
+    #[test]
+    fn apron_straps_cover_the_actual_shoulder_top_instead_of_ending_as_tabs() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let body = HumanoidBody::resolve(&look);
+                let support = torso_shape(body, Some(TorsoMaterial::Leather), true);
+                let mut parts = Parts::default();
+                emit_torso(&mut parts, OuterwearAppearance::Apron, body, &support);
+                assert!(
+                    parts
+                        .matte
+                        .outer_surface(Vec3::new(0.0, 0.45, 0.0), Vec3::Y)
+                        .is_none(),
+                    "the neck opening must remain clear"
+                );
+                for side in [-1.0, 1.0] {
+                    let origin = Vec3::new(body.shoulder(side).x * 0.52, 0.40, 0.0);
+                    let actual = parts.matte.outer_surface(origin, Vec3::Y).expect(
+                        "apron needs continuous cloth over the shoulder, not separate tabs",
+                    );
+                    assert!(
+                        support.distance(actual) > 0.012 && support.distance(actual) < 0.03,
+                        "shoulder strap must fit its actual layered support"
+                    );
+                }
             }
         }
     }
@@ -745,8 +1370,10 @@ mod tests {
                             upper.matte.outer_surface(ray, Vec3::Z).is_some(),
                             "fixture must hit the emitted waistband"
                         );
-                        assert!(lower.matte.outer_surface(ray, Vec3::Z).is_some(),
-                            "hanging panel overlaps waistband: {model:?}, woman {woman}, build {build}");
+                        assert!(
+                            lower.matte.outer_surface(ray, Vec3::Z).is_some(),
+                            "hanging panel overlaps waistband: {model:?}, woman {woman}, build {build}"
+                        );
                         for y in [0.055, 0.075, 0.095] {
                             assert!(
                                 lower

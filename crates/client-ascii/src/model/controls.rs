@@ -54,7 +54,7 @@ commands![
         Extinguish
     ),
     ("faster", "show journeys more quickly", Faster),
-    ("fire", "choose a disclosed Launch source (f)", Fire),
+    ("fire", "fire from a launcher or by hand (f)", Fire),
     ("help", "controls and map symbols (?)", Help),
     ("history", "read server game history (F2)", History),
     ("ignite", "choose a disclosed light to ignite", Ignite),
@@ -187,6 +187,27 @@ impl App {
                     .command_selected
                     .saturating_add(1)
                     .min(self.command_matches().len().saturating_sub(1));
+            }
+            Input::Key { key: Key::Tab } => {
+                let text = self
+                    .command_line
+                    .as_deref()
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase();
+                let mut matches = COMMANDS.iter().filter(|row| row.name.starts_with(&text));
+                match (matches.next(), matches.next()) {
+                    (Some(choice), None) => {
+                        self.command_line = Some(choice.name.to_owned());
+                        self.command_selected = 0;
+                        self.command_selected_explicit = false;
+                        self.status = "Enter selects; Esc cancels.".into();
+                    }
+                    (None, _) => self.status = "No command name starts with that text.".into(),
+                    _ => {
+                        self.status = "More than one command matches. Type more of its name.".into()
+                    }
+                }
             }
             Input::Key { key: Key::Enter } => {
                 let text = self.command_line.as_deref().unwrap_or("").trim();

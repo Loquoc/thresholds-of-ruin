@@ -277,6 +277,21 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                 },
             ),
             (
+                "creature.humanoid.orc",
+                Presentation {
+                    noun: NounForms {
+                        message_key: "presentation.creature.humanoid.orc.noun",
+                        singular: "orc",
+                        plural: "orcs",
+                        indefinite: "an orc",
+                    },
+                    ascii: AsciiAppearance {
+                        glyph: 'O',
+                        color: 0xa6e07a,
+                    },
+                },
+            ),
+            (
                 "creature.goblin.hobgoblin",
                 Presentation {
                     noun: NounForms {
@@ -286,7 +301,7 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                         indefinite: "a hobgoblin",
                     },
                     ascii: AsciiAppearance {
-                        glyph: 'o',
+                        glyph: 'H',
                         color: 0xef958c,
                     },
                 },
@@ -316,7 +331,7 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                         indefinite: "an emu",
                     },
                     ascii: AsciiAppearance {
-                        glyph: 'B',
+                        glyph: 'E',
                         color: 0xa58f6c,
                     },
                 },
@@ -361,7 +376,7 @@ pub fn vocabulary() -> &'static AssetTable<Presentation> {
                         indefinite: "a rattlesnake",
                     },
                     ascii: AsciiAppearance {
-                        glyph: 'S',
+                        glyph: 'R',
                         color: 0xf2c14e,
                     },
                 },

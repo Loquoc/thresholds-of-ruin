@@ -756,6 +756,7 @@ fn state() -> crate::StateView {
             actor: crate::ActorId(7),
             self_target: crate::ActorTarget::from_digest([7; 32]),
             linked_holds: vec![],
+            public_effects: vec![],
             tick: 10,
             position: crate::Position { x: 0, y: 0, z: 0 },
             visible_cells: vec![],

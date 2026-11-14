@@ -45,6 +45,8 @@ class AmuletProcesses(ProcessTestCase):
             (384, 40000, 64 * 1024 * 1024, 240),
         "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
             (256, 25000, 48 * 1024 * 1024, 180),
+        "test_native_surface_exit_explains_what_is_needed_before_retrieval":
+            (16, 1000, 8 * 1024 * 1024, 60),
     }
 
     def setUp(self):
@@ -127,10 +129,10 @@ class AmuletProcesses(ProcessTestCase):
             }
         self.assertDisclosedStateEqual(actual, expected)
 
-    def fixture(self):
+    def fixture(self, start_depth=26):
         manifest = copy.deepcopy(encounter_sources()["manifest"])
         selected = next(row for row in manifest["characters"] if row["id"] == ACTOR)
-        selected["anchor"] = "dungeon/26/up"
+        selected["anchor"] = f"dungeon/{start_depth}/up"
         selected["creature"]["nutrition"] = {"kind": "exempt"}
         selected["known_identities"].append("item.amulet.fixture-retrieval")
         manifest.update(id="amulet-process", default_character=ACTOR, characters=[selected])
@@ -401,6 +403,28 @@ class AmuletProcesses(ProcessTestCase):
         text.stop()
         observer.stop()
         server.stop(save=False)
+
+    def test_native_surface_exit_explains_what_is_needed_before_retrieval(self):
+        self.server(scenario=self.fixture(start_depth=1), character=ACTOR)
+        window = self.launch("tor-client-ascii", ["--connect", self.address, "--actor", str(ACTOR),
+                                                 "--report-frames"])
+        initial = self.ascii_frame(window, lambda frame: frame.get("state") and not frame["busy"])
+        self.assertEqual(observation(initial)["combat"]["exit"], underfoot(initial["state"])["key"])
+        native = self.native_keys(window)
+        for _ in range(8):
+            if not initial["messages"]["more"]:
+                break
+            initial = self.native_press(window, native, "Return", "enter",
+                                        seconds=self.remaining(20), wait_for_simulation=False)
+        self.assertFalse(initial["messages"]["more"])
+        native("Shift_L", True)
+        try:
+            refused = self.native_press(window, native, "comma", "ascend",
+                                        seconds=self.remaining(20), wait_for_simulation=False)
+        finally:
+            native("Shift_L", False)
+        self.assertEqual(refused["status"], "You need the objective item to leave through the surface exit.")
+        self.assertDisclosedStateEqual(refused["state"], initial["state"])
 
     def test_native_up_escapes_only_from_the_disclosed_surface_endpoint(self):
         server = self.server("--checkpoint-interval", 1, scenario=self.fixture(), character=ACTOR)

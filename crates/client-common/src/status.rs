@@ -4,6 +4,33 @@
 use crate::ClientState;
 use tor_protocol::*;
 
+/// Snapshot facts only: a client does not decrement world deadlines or infer
+/// that an effect ended globally when it leaves this observer's disclosure.
+pub fn public_effects_label(effects: &[PublicEffectView]) -> Option<String> {
+    if effects.is_empty() {
+        return None;
+    }
+    let mut labels: Vec<_> = effects
+        .iter()
+        .take(3)
+        .map(|effect| {
+            let lifetime = effect.expires_at.map_or_else(
+                || "while observed".into(),
+                |tick| format!("expires T:{tick}"),
+            );
+            format!(
+                "{}{} ({lifetime})",
+                crate::narration::effect_cue_label(effect.cue),
+                crate::narration::effect_appearance_label(effect.appearance)
+            )
+        })
+        .collect();
+    if effects.len() > 3 {
+        labels.push(format!("+{} more", effects.len() - 3));
+    }
+    Some(format!("Effects:{}", labels.join(", ")))
+}
+
 fn place_name(o: &Observation) -> Option<&str> {
     o.places
         .iter()
@@ -112,6 +139,9 @@ pub fn lines(state: &ClientState, activities: &[&str]) -> [String; 2] {
         second.push(crate::stats::hunger_label(hunger).into());
     }
     second.push(format!("T:{}", o.tick));
+    if let Some(effects) = public_effects_label(&o.public_effects) {
+        second.push(effects);
+    }
     if !o.linked_holds.is_empty() {
         second.push(format!("Held:{}", o.linked_holds.len()));
     }
@@ -177,5 +207,37 @@ mod tests {
         assert_eq!(second, "HP:12(12)  Gold:0  T:42  Running");
         let [_, second] = lines(&state(observation, true), &["Running"]);
         assert_eq!(second, "HP:12(12)  Gold:0  T:42  Running  Wizard");
+    }
+}
+
+#[cfg(test)]
+mod public_effect_tests {
+    use super::*;
+
+    #[test]
+    fn public_effect_status_describes_server_deadline_without_inventing_permanence() {
+        let mut effect = PublicEffectView {
+            id: "a".repeat(40),
+            observed_since: 5,
+            expires_at: Some(20),
+            appearance: EffectAppearance::Cloud,
+            cue: EffectCue::Fire,
+            delivery: EffectDelivery::Area,
+            anchors: vec![EffectAnchor {
+                key: "b".repeat(40),
+                position: Position { x: 0, y: 0, z: 0 },
+            }],
+            segments: vec![vec![Position { x: 0, y: 0, z: 0 }]],
+        };
+        assert_eq!(
+            public_effects_label(&[effect.clone()]),
+            Some("Effects:fiery cloud (expires T:20)".into())
+        );
+        effect.expires_at = None;
+        assert_eq!(
+            public_effects_label(&[effect]),
+            Some("Effects:fiery cloud (while observed)".into())
+        );
+        assert_eq!(public_effects_label(&[]), None);
     }
 }

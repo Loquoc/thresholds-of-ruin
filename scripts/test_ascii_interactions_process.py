@@ -39,8 +39,25 @@ class AsciiInteractionProcesses(ProcessTestCase):
         selected = press("T", "take_off")
         self.assertEqual(view(selected), view(equipped), "opening a selection costs no turn")
         self.assertEqual(len(selected["item_rows"]), 1, "T excludes equipped weapons and accessories")
-        removed = press("Return", "enter", wait_for_ready=True, wait_for_admission=True)
+        def screenshot_accepted(frame):
+            return "Screenshot accepted into game history" in frame["status"] and not frame["busy"]
+
+        captured = press("F1", "screenshot", seconds=8, wait_for_simulation=False)
+        if not screenshot_accepted(captured):
+            captured = self.ascii_frame(window, screenshot_accepted)
+        self.assertEqual(captured["item_rows"], selected["item_rows"])
+        self.assertEqual(view(captured), view(selected))
+        self.assertIn("b -", selected["item_rows"][0])
+        native("b", True)
+        try:
+            removed = self.ascii_frame(
+                window, lambda f: f["can_admit_intention"] and not f["busy"] and int(view(f)["tick"]) >= 600
+            )
+        finally:
+            native("b", False)
         self.assertIsNone(next(item for item in view(removed)["interactions"]["inventory"] if item["item"] == mail)["equipped_slot"])
+        self.assertNotEqual(removed["input_done"], "south_west")
+        self.assertEqual(view(removed)["position"], view(equipped)["position"])
         self.assertEqual(int(view(removed)["tick"]), 600)
         choosing = press("q", "drink")
         self.assertEqual(view(choosing), view(removed))
