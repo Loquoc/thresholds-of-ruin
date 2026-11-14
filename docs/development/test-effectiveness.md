@@ -312,3 +312,17 @@ contract test reproduced the mismatch (one failing method, one root cause).
 The allowlist now matches the lock; additional witnesses reject a 2.1.6 installed
 environment and retained history even with valid integrity hashes. This preserves
 strict reproducibility rather than accepting mixed dependency versions.
+
+### Many-actor checkpoint fixture synchronization
+
+Windows debug CI exposed one stale-picture fixture failure in the many-actor
+retention/restart test. The action helper legitimately returned a started picture
+at tick 13160; the final saved and restored picture was tick 13200. Captured final
+pre-restart and restored payloads matched exactly apart from connection-local
+snapshot/revision identifiers. The fixture now waits for tick 13200, completed
+work and current input permissions before the save barrier. Exact restored-state
+and history assertions remain unchanged. Two deterministic stream witnesses reject
+started, observation-only and stale-permission frames and retain already-completed
+pictures without waiting for another publication. Local process validation with
+older protected binaries hit a rules-import setup mismatch; hosted execution on
+the final head remains required.
