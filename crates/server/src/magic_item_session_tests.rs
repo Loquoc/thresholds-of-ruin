@@ -329,6 +329,30 @@ fn encoded_paid_identify_requires_exact_owner_category_and_carried_target_then_r
     let admitted = ack(wire.send(OWNER, "identify", request.clone()));
     let resolved = wire.finish(OWNER, "identify", &request);
     assert_eq!(resolved.entry_id(), admitted.entry_id());
+    let before_discoveries = wire.checkpoint();
+    for (actor, expected) in [(OWNER, true), (OTHER, false)] {
+        let reply = wire.send(actor, "discoveries", Request::Discoveries);
+        let rows = reply
+            .into_iter()
+            .find_map(|message| match message {
+                ServerMessage::Discoveries {
+                    context,
+                    request_id,
+                    rows,
+                } => {
+                    assert_eq!(context.actor, actor);
+                    assert_eq!(request_id, "discoveries");
+                    Some(rows)
+                }
+                _ => None,
+            })
+            .expect("correlated discoveries reply");
+        assert_eq!(
+            rows.iter().any(|row| row.name == "scroll of identify wand"),
+            expected
+        );
+    }
+    assert_eq!(wire.checkpoint(), before_discoveries);
     let identified = wire.snapshot(OWNER);
     assert!(identified
         .state

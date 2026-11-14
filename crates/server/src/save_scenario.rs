@@ -660,7 +660,7 @@ struct PopulationBand {
     depth: source::PopulationDepth,
     #[serde(
         serialize_with = "mapped::serialize",
-        deserialize_with = "bounded_stored::<_, source::PopulationChoice, 64>"
+        deserialize_with = "bounded_stored::<_, source::PopulationChoice, { tor_simulation::floor_activation::MAX_ITEM_CHOICES }>"
     )]
     choices: Vec<source::PopulationChoice>,
 }
@@ -5082,7 +5082,7 @@ mod tests {
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 70);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 71);
         assert_eq!(super::RULES_INPUT_FORMAT, 26);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently
@@ -8244,7 +8244,15 @@ mod population_boundary_tests {
                 "{field}"
             );
             let mut bad = good.clone();
-            bad[field][0]["choices"] = json!(vec![good[field][0]["choices"][0].clone(); 65]);
+            let max_choices = if field == "item_bands" {
+                tor_simulation::floor_activation::MAX_ITEM_CHOICES
+            } else {
+                64
+            };
+            let choice = good[field][0]["choices"][0].clone();
+            bad[field][0]["choices"] = json!(vec![choice.clone(); max_choices]);
+            assert!(serde_json::from_value::<Owned<source::PopulationStage>>(bad.clone()).is_ok());
+            bad[field][0]["choices"] = json!(vec![choice; max_choices + 1]);
             assert!(
                 serde_json::from_value::<Owned<source::PopulationStage>>(bad).is_err(),
                 "{field}"
@@ -8261,8 +8269,11 @@ mod population_boundary_tests {
         .unwrap();
         let good = serde_json::to_value(Borrowed(&stage)).unwrap();
         let mut bad = good.clone();
-        bad["bands"][0]["choices"] =
-            Value::Array(vec![json!({"archetype":"marker","weight":1}); 65]);
+        bad["bands"][0]["choices"] = Value::Array(vec![
+            json!({"archetype":"marker","weight":1});
+            tor_simulation::floor_activation::MAX_ITEM_CHOICES
+                + 1
+        ]);
         assert!(serde_json::from_value::<Owned<source::PopulationStage>>(bad).is_err());
         let mut bad = good.clone();
         bad["bands"] = Value::Array(vec![good["bands"][0].clone(); 33]);

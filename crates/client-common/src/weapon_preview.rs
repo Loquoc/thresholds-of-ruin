@@ -88,6 +88,28 @@ impl WeaponPreview {
                 _ => false,
             }
     }
+    pub fn projectile_aim(&self) -> Option<(Direction, ProjectileDeliverySelection)> {
+        match &self.action {
+            Action::UseAbility {
+                invocation:
+                    AbilityInvocation {
+                        aim:
+                            AbilityAim::DirectionalProjectile {
+                                direction,
+                                delivery,
+                            },
+                        ..
+                    },
+                ..
+            } => Some((*direction, *delivery)),
+            _ => None,
+        }
+    }
+
+    pub fn terms(&self) -> Option<&AbilityWeaponPreview> {
+        self.preview.as_ref()
+    }
+
     pub fn ready(&self) -> bool {
         self.preview.is_some()
     }

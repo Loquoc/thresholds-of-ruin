@@ -432,8 +432,20 @@ fn extended_command_abbreviation_requires_uniqueness_or_explicit_menu_choice() {
     assert_eq!(key(&mut app, Key::Commands), Effect::None);
     assert_eq!(text(&mut app, "searc"), Effect::None);
     assert_eq!(action(key(&mut app, Key::Enter)), expected_search());
-    let help = tor_client_ascii::HELP.join("\n");
-    for hint in ["s       Search", "z Z", "r a", "#", "S       save"] {
+    use tor_client_ascii::HelpPage;
+    let help = [HelpPage::Play, HelpPage::CombatAndItems]
+        .into_iter()
+        .flat_map(HelpPage::rows)
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n");
+    for hint in [
+        "Search nearby",
+        "z / Z",
+        "read a scroll",
+        "#",
+        "Save and close",
+    ] {
         assert!(help.contains(hint), "missing help hint: {hint}");
     }
 }

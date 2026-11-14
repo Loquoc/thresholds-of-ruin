@@ -63,6 +63,10 @@ impl ProjectileMenu {
             Err("Projectile choices changed. Choose the ability again.".into())
         }
     }
+    pub fn delivery(&self) -> Option<ProjectileDeliverySelection> {
+        self.delivery
+    }
+
     pub fn step(&self) -> Step {
         if self.delivery.is_some() {
             Step::Direction

@@ -17,6 +17,7 @@ fn label(name: &str, fallback: &str) -> String {
 pub enum Topic {
     /// The observer's own action, as its history event records it.
     Own(Event),
+    WorkChanged,
     /// Another actor came into sight.
     Noticed(ActorTarget),
     /// Another actor left sight.
@@ -25,6 +26,8 @@ pub enum Topic {
     Door,
     /// A newly disclosed entrance, trap presence, or trap family.
     Discovery,
+    DoorDiscovered,
+    TrapDiscovered(Option<TrapFamily>),
     /// Involuntary motion or a collision.
     Motion,
     /// The observer finished timed item work.
@@ -196,17 +199,106 @@ pub fn observation_lines(
 ) -> Vec<Line> {
     let lines = outcome_lines(&OutcomeFacts::capture(before, after, event));
     #[cfg(test)]
-    assert_eq!(lines, observation_lines_legacy(before, after, event));
+    {
+        let mut legacy = lines.clone();
+        for line in &mut legacy {
+            if matches!(line.topic, Topic::DoorDiscovered | Topic::TrapDiscovered(_)) {
+                line.topic = Topic::Discovery;
+            }
+        }
+        assert_eq!(legacy, observation_lines_legacy(before, after, event));
+    }
     lines
 }
 
 /// Render ordered disclosed outcomes independently of visual refresh cadence.
 pub fn outcome_lines(outcomes: &OutcomeFacts) -> Vec<Line> {
-    outcomes
-        .facts
+    let facts = &outcomes.facts;
+    let replaced = facts.iter().find(|fact| {
+        matches!(
+            fact,
+            OutcomeFact::OwnWorkChanged {
+                change: OutcomeWorkChange::Replaced { .. },
+                ..
+            }
+        )
+    });
+    facts
         .iter()
-        .filter_map(|fact| outcome_line(outcomes, fact))
+        .filter_map(|fact| match (fact, replaced) {
+            (
+                OutcomeFact::OwnAction { event, name, .. },
+                Some(OutcomeFact::OwnWorkChanged { work, .. }),
+            ) => {
+                let action = match event {
+                    Event::ItemStarted { action } => {
+                        ItemWorkKind::from_action(action).map(|(kind, _)| {
+                            work_phrase(&OutcomeWork::Item {
+                                work: kind,
+                                name: name.as_ref().map(|name| name.text.clone()),
+                            })
+                        })
+                    }
+                    Event::AbilityStarted { ability, .. } => {
+                        Some(format!("using {}", label(&ability.name, "an ability")))
+                    }
+                    _ => None,
+                };
+                action.map_or_else(
+                    || outcome_line(outcomes, fact),
+                    |action| {
+                        Some(Line::new(
+                            Topic::WorkChanged,
+                            format!("You abandon {} and begin {action}.", work_phrase(work)),
+                        ))
+                    },
+                )
+            }
+            (
+                OutcomeFact::OwnWorkChanged {
+                    change: OutcomeWorkChange::Replaced { .. },
+                    ..
+                },
+                _,
+            ) if facts.iter().any(|fact| {
+                matches!(
+                    fact,
+                    OutcomeFact::OwnAction {
+                        event: Event::AbilityStarted { .. } | Event::ItemStarted { .. },
+                        ..
+                    }
+                )
+            }) =>
+            {
+                None
+            }
+            _ => outcome_line(outcomes, fact),
+        })
         .collect()
+}
+
+fn work_phrase(work: &OutcomeWork) -> String {
+    match work {
+        OutcomeWork::Attack => "your attack".into(),
+        OutcomeWork::Ability { name } => format!("using {}", label(name, "an ability")),
+        OutcomeWork::Action => "your action".into(),
+        OutcomeWork::Item { work, name } => {
+            let verb = match work {
+                ItemWorkKind::Equip => "equipping",
+                ItemWorkKind::Unequip => "removing",
+                ItemWorkKind::Drink => "drinking",
+                ItemWorkKind::Eat => "eating",
+                ItemWorkKind::Read => "reading",
+                ItemWorkKind::Ignite => "lighting",
+                ItemWorkKind::Extinguish => "extinguishing",
+                ItemWorkKind::Zap => "zapping",
+            };
+            format!(
+                "{verb} the {}",
+                label(name.as_deref().unwrap_or(""), "item")
+            )
+        }
+    }
 }
 
 /// Render one disclosed fact without coupling callers to a parallel line list.
@@ -220,18 +312,29 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
     };
     let mut line = match fact {
         OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => return None,
+        OutcomeFact::OwnWorkChanged { work, change, .. } => {
+            let subject = work_phrase(work);
+            let text = match change {
+                OutcomeWorkChange::Paused => format!("You pause {subject}."),
+                OutcomeWorkChange::Cancelled | OutcomeWorkChange::Replaced { .. } => {
+                    format!("You abandon {subject}.")
+                }
+                OutcomeWorkChange::Failed => format!("You cannot complete {subject}."),
+            };
+            Line::new(Topic::WorkChanged, text)
+        }
         OutcomeFact::OwnAction { event, name, .. } => Line::new(
             Topic::Own(event.clone()),
             action_with_name(event, name.as_ref()),
         ),
         OutcomeFact::TrapDiscovered { family } => Line::new(
-            Topic::Discovery,
+            Topic::TrapDiscovered(*family),
             family.map_or_else(
                 || "You notice a trap.".into(),
                 |family| format!("You recognize a {}.", family.name()),
             ),
         ),
-        OutcomeFact::DoorDiscovered => Line::new(Topic::Discovery, "You notice a door."),
+        OutcomeFact::DoorDiscovered => Line::new(Topic::DoorDiscovered, "You notice a door."),
         OutcomeFact::Displaced => Line::new(Topic::Motion, "You move involuntarily."),
         OutcomeFact::Impacted => Line::new(Topic::Motion, "You collide with an obstruction."),
         OutcomeFact::Noticed { actor, name, .. } => {

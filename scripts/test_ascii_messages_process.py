@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from rogue_test_support import disclosed_frames, ordered_combat_events
 from arena_matrix import toml_source
+from stream_relay import StreamRelay
 from process_harness import (
     ProcessTestCase, ROOT, ascii_input_completion, headless_fight_completion, non_graphical,
 )
@@ -54,7 +55,7 @@ def headless_combat_boundary(test, intention=None):
 class AsciiMessageProcesses(ProcessTestCase):
     graphical = True
 
-    def combat_package(self):
+    def combat_package(self, *, healing_potion=False):
         # Preserve the shipped creatures, equipment and species-owned behavior.
         # Their explore/wake policy may leave the distant dungeon doorway before
         # combat starts. A small closed chamber makes continuous sight a fixture
@@ -77,6 +78,20 @@ class AsciiMessageProcesses(ProcessTestCase):
             "items": [{"id": 101, "at": [0, 0, 0], "archetype": "dungeon.delver_blade",
                        "carried_by": 1, "equipped_slot": 0}],
         }), encoding="utf-8", newline="\n")
+        if healing_potion:
+            catalog = package / "catalog/items.toml"
+            items = tomllib.loads(catalog.read_text(encoding="utf-8"))
+            rogue = ROOT / "scenarios/rogue/catalog/items.toml"
+            potion = tomllib.loads(rogue.read_text(encoding="utf-8"))["items"]["rogue.healing"]
+            del potion["appearance_pool"], potion["asset"]
+            potion["consumable"]["effects"] = potion["consumable"]["effects"][:1]
+            items["items"]["dungeon.healing"] = potion
+            catalog.write_text(toml_source(items), encoding="utf-8", newline="\n")
+            region = package / "regions/1.toml"
+            document = tomllib.loads(region.read_text(encoding="utf-8"))
+            document["items"].append({"id": 102, "at": [0, 0, 0],
+                                      "archetype": "dungeon.healing", "carried_by": 1})
+            region.write_text(toml_source(document), encoding="utf-8", newline="\n")
         validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                    capture_output=True, text=True, encoding="utf-8", timeout=20)
         self.assertEqual(validated.returncode, 0, validated.stderr)
@@ -158,6 +173,63 @@ class AsciiMessageProcesses(ProcessTestCase):
         window = self.launch("tor-client-ascii", ["--connect", self.address, "--automation"])
         frame = self.ascii_frame(window, lambda f: f["state"] is not None and not f["busy"])
         return window, frame
+
+    def test_help_opens_on_play_and_pages_without_taking_a_turn(self):
+        self.server()
+        window, initial = self.window()
+        opened = self.key(window, "help")
+        self.assertEqual(opened["screen"].get("help_page"), "Play")
+        self.assertEqual(self.key(window, "right")["screen"]["help_page"], "Combat and items")
+        self.assertEqual(self.key(window, "right")["screen"]["help_page"], "Map symbols")
+        self.assertEqual(self.key(window, "right")["screen"]["help_page"], "History and reports")
+        self.assertEqual(self.key(window, "left")["screen"]["help_page"], "Map symbols")
+        closed = self.key(window, "escape")
+        self.assertFalse(closed["screen"]["help"])
+        self.assertEqual(closed["state"], initial["state"])
+        self.assertEqual(self.key(window, "help")["screen"]["help_page"], "Play")
+
+    def test_drinking_replaces_a_suspended_attack_in_one_message(self):
+        self.server(scenario=self.combat_package(healing_potion=True))
+        wire = []
+        relay = StreamRelay(self.address, on_server_message=wire.append)
+        self.addCleanup(relay.close)
+        window = self.launch("tor-client-ascii", ["--connect", relay.address, "--automation"])
+        frame = self.ascii_frame(window, lambda f: f["state"] is not None and not f["busy"])
+        trace = []
+        for _ in range(16):
+            scout = next((actor for actor in frame["state"]["observation"]["visible_actors"]
+                          if actor["name"] == "ruin scout"), None)
+            self.assertIsNotNone(scout, trace)
+            key = "right" if scout["position"]["x"] > 0 else "left"
+            window.write(json.dumps({"type": "key", "key": key}))
+            frame = self.ascii_frame(window, ascii_input_completion(key, wait_for_ready=True))
+            trace.append(frame["messages"]["turn"])
+            paused = next((row for row in frame.get("intentions", []) if row["phase"] == "paused"), None)
+            if paused is not None:
+                break
+        else:
+            self.fail(f"No suspended attack: {trace!r}")
+
+        self.key(window, "drink", wait_for_simulation=False)
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        frame = self.ascii_frame(window, lambda f: "drinking" in f["messages"]["turn"]
+                                 or "begin to drink" in f["messages"]["turn"])
+        turn = frame["messages"]["turn"]
+        self.assertEqual(turn.count("You abandon your attack and begin drinking the potion of healing."), 1)
+        self.assertNotIn("Your attack was interrupted.", turn)
+        facts = [fact for message in wire if message["type"] == "update"
+                 for body in [message["update"]["body"]] if body["type"] == "outcome"
+                 for fact in body["facts"]["facts"] if fact["kind"] == "own_work_changed"
+                 and fact["intention"] == paused["intention"]]
+        self.assertEqual([fact["change"]["kind"] for fact in facts], ["paused", "replaced"])
+        self.assertEqual([fact["work"]["kind"] for fact in facts], ["attack", "attack"])
+        self.assertNotEqual(facts[-1]["change"]["replacement"], paused["intention"])
+        self.work_replacement_sample = next(
+            message for message in wire
+            if message["type"] == "update"
+            and message["update"]["body"]["type"] == "outcome"
+            and facts[-1] in message["update"]["body"]["facts"]["facts"]
+        )
 
     def test_fight_messages_persist_and_the_single_map_names_creatures(self):
         self.server(scenario=self.combat_package())

@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 70;
+pub const PROTOCOL_VERSION: u32 = 71;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -82,6 +82,7 @@ impl AccessRole {
                     | Request::Palette
                     | Request::Map { .. }
                     | Request::Chart { .. }
+                    | Request::Discoveries
                     | Request::History { .. }
                     | Request::HistoryBranch { .. }
                     | Request::ReadAttachment { .. }
@@ -2079,6 +2080,8 @@ pub enum Request {
     Chart {
         query: crate::chart_pages::ChartQuery,
     },
+    /// Read-only appearance mappings learned by the attached actor.
+    Discoveries,
     /// The whole current palette, as after attaching.
     Palette,
     Command {
@@ -2312,6 +2315,12 @@ pub enum ServerMessage {
         request_id: String,
         page: Box<crate::chart_pages::ChartPage>,
     },
+    Discoveries {
+        context: ReplyContext,
+        request_id: String,
+        #[serde(deserialize_with = "read_item_discoveries")]
+        rows: Vec<ItemDiscoveryView>,
+    },
     #[serde(deserialize_with = "crate::creature_catalog::read_reply")]
     CreatureCatalog {
         context: ReplyContext,
@@ -2387,6 +2396,21 @@ pub enum ServerMessage {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemDiscoveryView {
+    pub appearance: String,
+    pub name: String,
+}
+
+pub const MAX_ITEM_DISCOVERIES: usize = 4096;
+
+fn read_item_discoveries<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<ItemDiscoveryView>, D::Error> {
+    crate::bounded::bounded::<D, ItemDiscoveryView, MAX_ITEM_DISCOVERIES>(d)
+}
+
 impl ServerMessage {
     pub fn reply_context(&self) -> Option<&ReplyContext> {
         match self {
@@ -2396,6 +2420,7 @@ impl ServerMessage {
             | Self::AbilityWeaponPreview { context, .. }
             | Self::MapPage { context, .. }
             | Self::ChartPage { context, .. }
+            | Self::Discoveries { context, .. }
             | Self::CreatureCatalog { context, .. }
             | Self::AdvancementPage { context, .. }
             | Self::Ack { context, .. }

@@ -23,6 +23,7 @@ pub enum Event {
     Refused(String),
     Ready,
     History(HistoryPage),
+    Discoveries(Vec<ItemDiscoveryView>),
     CreatureInspection(Box<CreatureInspectionView>),
     CreatureCatalog(Box<CreatureCatalogPage>),
     ProjectileChoicesSent(String),
@@ -557,6 +558,7 @@ fn present(message: ServerMessage, tx: &SyncSender<Event>) -> Result<(), Error> 
             publish(tx, Event::History(page))?;
             publish(tx, Event::Status("History loaded.".into()))
         }
+        ServerMessage::Discoveries { rows, .. } => publish(tx, Event::Discoveries(rows)),
         ServerMessage::CreatureCatalog { page, .. } => publish(tx, Event::CreatureCatalog(page)),
         ServerMessage::CombatDiagnostics { report, .. } => {
             publish(tx, Event::CombatDiagnostics(report))

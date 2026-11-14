@@ -55,15 +55,6 @@ CATEGORIES = {
 FOOD = ["rogue.fruit", "rogue.ration"]
 
 
-# A population band holds at most 64 choices, so ordinary placement is two
-# independent groups. Each group's chance is 36% x its category share, keeping
-# every item type's expected count per floor equal to Rogue's.
-GROUPS = {"rogue.items": ("potion", "scroll"),
-          "rogue.items_other": ("food", "weapon", "armor", "ring", "wand")}
-# Treasure rooms draw one band; rings and wands are omitted to fit 64 choices.
-TREASURE = ("potion", "scroll", "food", "weapon", "armor")
-
-
 def choices(categories=tuple(CATEGORIES)):
     """(archetype, weight, quantity) with weight = category % x subtype %."""
     rows = []
@@ -76,12 +67,6 @@ def choices(categories=tuple(CATEGORIES)):
     return rows
 
 
-def group_chance(categories):
-    """(numerator, denominator) of 36% x the categories' share of all items."""
-    share = sum(CATEGORIES[name][0] for name in categories)
-    return 36 * share, 100 * sum(weight for weight, _ in CATEGORIES.values())
-
-
 def foe_bands(text):
     """The raw actor band list of the ordinary foe stage, for treasure rooms."""
     start = text.index('id = "rogue.eight_species_foes"')
@@ -90,9 +75,9 @@ def foe_bands(text):
     return text[bands + len("bands = "):end]
 
 
-def choice_rows(categories):
+def choice_rows():
     rows = []
-    for archetype, weight, quantity in choices(categories):
+    for archetype, weight, quantity in choices():
         extra = f", quantity = {quantity}" if quantity else ""
         rows.append(f'{{ archetype = "{archetype}", weight = {weight}{extra} }}')
     return rows
@@ -102,16 +87,14 @@ def render(text):
     lines = [BEGIN,
              "# Rogue's ordinary item placement: nine attempts at 36%, weights are\n",
              "# category percent x subtype percent. Values match the research tables.\n"]
-    for stage, categories in GROUPS.items():
-        numerator, denominator = group_chance(categories)
-        lines += ['[[floor_activation.profiles."rogue.low_depth".stages]]\n',
-                  f'id = "{stage}"\n', "version = 1\n", 'kind = "chance_items"\n',
-                  "attempts = 9\n",
-                  f"chance = {{ numerator = {numerator}, denominator = {denominator} }}\n",
-                  "quantity = 1\n",
-                  'bands = [{ depth = { kind = "open", minimum = 1 }, choices = [\n']
-        lines += [f"  {row},\n" for row in choice_rows(categories)]
-        lines += ["] }]\n", "\n"]
+    lines += ['[[floor_activation.profiles."rogue.low_depth".stages]]\n',
+              'id = "rogue.items"\n', "version = 1\n", 'kind = "chance_items"\n',
+              "attempts = 9\n",
+              "chance = { numerator = 36, denominator = 100 }\n",
+              "quantity = 1\n",
+              'bands = [{ depth = { kind = "open", minimum = 1 }, choices = [\n']
+    lines += [f"  {row},\n" for row in choice_rows()]
+    lines += ["] }]\n", "\n"]
     lines += ["# Rogue forces food on the fourth new floor in a row without any: its\n",
               "# counter includes the new floor, while this threshold counts earlier floors.\n",
               '[[floor_activation.profiles."rogue.low_depth".stages]]\n',
@@ -123,7 +106,7 @@ def render(text):
               '[{ archetype = "rogue.ration", weight = 9 }, { archetype = "rogue.fruit", weight = 1 }] }]\n',
               "\n",
               "# Rogue's treasure room: 1 in 20 floors, monsters drawn as if one level\n",
-              "# deeper. Counts are provisional tuning; rings and wands are omitted.\n",
+              "# deeper. Room counts are provisional tuning.\n",
               '[[floor_activation.profiles."rogue.low_depth".stages]]\n',
               'id = "rogue.treasure_room"\n', "version = 1\n", 'kind = "room_cluster"\n',
               "chance = { numerator = 1, denominator = 20 }\n",
@@ -132,7 +115,7 @@ def render(text):
               'depth_growth = { kind = "racial_after", depth = 26 }\n',
               "avoid_protagonist_sight = false\n",
               'item_bands = [{ depth = { kind = "open", minimum = 1 }, choices = ['
-              + ", ".join(choice_rows(TREASURE)) + "] }]\n",
+              + ", ".join(choice_rows()) + "] }]\n",
               "actor_bands = " + foe_bands(text),
               END]
     return "".join(lines)
