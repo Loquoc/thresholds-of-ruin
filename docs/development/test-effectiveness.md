@@ -326,3 +326,9 @@ started, observation-only and stale-permission frames and retain already-complet
 pictures without waiting for another publication. Local process validation with
 older protected binaries hit a rules-import setup mismatch; hosted execution on
 the final head remains required.
+
+The initial standalone checkpoint regression class also exposed the CI planner's
+fail-closed unregistered-owner check (four failing planner methods, one ownership
+registration root cause). The same two assertions now live under the existing
+reviewed `test_process_harness.ActionCompletion` owner. Planner selection and
+coverage gates are unchanged; no tests were dropped.
