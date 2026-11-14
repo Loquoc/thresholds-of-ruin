@@ -83,3 +83,14 @@ and listed CI entry points. It does not inspect transitive execution or enforce
 network access. Review the full diff, including changed tests and build hooks,
 even if the checker passes. During migration, Actions remains disabled and
 publication requires the maintainer's authorization.
+
+## November 14 dependency refresh
+
+The maintainer explicitly approved Ruff 0.17.3 to 0.17.4 and SQLAlchemy 2.1.6
+to 2.1.8, including refreshed review hashes after the sampler consistency fix.
+These patch updates retain the existing lint and bounded arena-test purposes,
+package registries, runner types, permissions, triggers and artifact retention.
+SQLAlchemy remains wheel-only and hash-pinned. Its strict sampler allowlist is
+updated together with rejection tests for the superseded environment and history;
+no compatibility fallback or test gate is relaxed. The two requirements hashes
+record these reviewed inputs. Hosted CI still qualifies the final PR head.

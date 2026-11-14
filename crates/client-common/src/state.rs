@@ -970,6 +970,7 @@ mod outcome_stream_tests {
         // a newly versioned live recording is generated.
         let actor = ActorId(1);
         let observation = Observation {
+            public_effects: vec![],
             charts: vec![],
             self_appearance: None,
             interactions: None,

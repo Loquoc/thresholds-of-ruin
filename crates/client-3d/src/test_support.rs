@@ -50,6 +50,7 @@ pub(crate) fn view(revision: u64) -> View {
         tick: 0,
         revision,
         events: vec![],
+        public_effects: vec![],
     }
 }
 

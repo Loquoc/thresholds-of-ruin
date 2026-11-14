@@ -245,6 +245,18 @@ impl Canvas {
                 self.outline(x, y, tile.step, tile.step, DANGER);
             }
         }
+        // Temporary glyphs overlay the freshly rebuilt map, never its memory.
+        for effect in app.effect_animations.glyphs(o) {
+            if !map::BAND.contains(&(effect.position.z - o.position.z)) {
+                continue;
+            }
+            if let Some((cx, cy)) = map::cell_center(o, effect.position) {
+                let x = cx - map::STEP / 2;
+                let y = cy - map::STEP / 2;
+                self.rect(x, y, map::STEP - 1, map::STEP - 1, 0x182430);
+                self.text(x + 1, y + 1, &effect.glyph.to_string(), effect.color, 2, 1);
+            }
+        }
         // A cursor over an unknown column is still shown.
         if let Some(cursor) = cursor {
             let dx = cursor.x - o.position.x + map::COLS / 2;

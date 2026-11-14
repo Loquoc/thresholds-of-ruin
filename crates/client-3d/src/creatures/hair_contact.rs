@@ -617,7 +617,14 @@ fn constrain_faces(
         // Edge relaxation is cheap relative to support queries. Diffuse the
         // displacement through the mesh before the next collision sweep.
         for _ in 0..8 {
-            corrected |= limit_stretch(points, edges, influence, distance);
+            let stretched = limit_stretch(points, edges, influence, distance);
+            corrected |= stretched;
+            // With unchanged points and a stable contact field, another
+            // identical sweep cannot improve the result. Keep the complete
+            // first sweep, then continue with face contact as usual.
+            if !stretched {
+                break;
+            }
         }
         for tri in triangles {
             for weights in SAMPLES {
@@ -1229,6 +1236,27 @@ mod tests {
 mod face_constraint_tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn blocked_stretch_does_not_repeat_identical_initial_sweeps() {
+        // Both endpoints touch opposite sides of a solid slab. Their desired
+        // shortening enters the slab, so neither endpoint can move. The stable
+        // field must not be queried eight times for identical pre-sweeps.
+        let mut points = [Vec3::new(-0.02, 0.2, 0.0), Vec3::new(0.02, 0.2, 0.0)];
+        let original = points;
+        let calls = Cell::new(0usize);
+        let field = |p: Vec3| {
+            calls.set(calls.get() + 1);
+            p.x.abs() - 0.02
+        };
+        constrain_faces(&mut points, &[], &[(0, 1, 0.001)], &[1.0; 2], &field);
+        assert_eq!(points, original, "contact blocks inward shortening");
+        assert_eq!(
+            calls.get(),
+            28,
+            "one pre-sweep and one post-sweep, two endpoints with seven field queries each"
+        );
+    }
 
     #[test]
     fn unmoved_far_faces_are_queried_once_while_contact_continues() {

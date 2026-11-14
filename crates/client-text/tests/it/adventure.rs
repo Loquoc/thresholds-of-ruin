@@ -26,7 +26,7 @@ fn state() -> StateView {
         "ground_items":[
             {"presentation":null,"supply_reachable":false,"reachable":true,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(1),"name":"copper token","description":"A small copper disc."},"position":{"x":0,"y":0,"z":0}},
             {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(2),"name":"stone tablet","description":"A weathered slab of stone."},"position":{"x":6,"y":0,"z":0}}
-        ],"inventory":[],"charts":[],"linked_holds":[],"visible_actors":[]}})).unwrap()
+        ],"inventory":[],"charts":[],"linked_holds":[],"public_effects":[],"visible_actors":[]}})).unwrap()
 }
 
 #[test]
@@ -1047,7 +1047,7 @@ pub(crate) fn walled(map: &[&str]) -> StateView {
         "snapshot":"fixture-snapshot","wizard_game": false, "revision": "0", "observation": {
             "actor": "1", "self_target":super::actor_target(1),"tick": "0", "position": {"x": 0, "y": 0, "z": 0},
             "ready": true, "places": [], "visible_cells": cells,
-            "ground_items": items, "inventory": [], "charts":[],"linked_holds":[],"visible_actors": actors
+            "ground_items": items, "inventory": [], "charts":[],"linked_holds":[],"public_effects":[],"visible_actors": actors
         }
     }))
     .unwrap()
@@ -1879,6 +1879,8 @@ fn personal_stats_distinguish_active_fainting_and_protection_without_hidden_caus
                 name: "Fixture Faint".into(),
             },
             phase: ConditionPhase::Active,
+            appearance: tor_protocol::EffectAppearance::StatusIndicator,
+            cue: tor_protocol::EffectCue::Status,
             remaining_ticks: Some(200),
         },
         PersonalCondition {
@@ -1887,6 +1889,8 @@ fn personal_stats_distinguish_active_fainting_and_protection_without_hidden_caus
                 name: "Fixture Ice".into(),
             },
             phase: ConditionPhase::Protection,
+            appearance: tor_protocol::EffectAppearance::StatusIndicator,
+            cue: tor_protocol::EffectCue::Status,
             remaining_ticks: Some(400),
         },
         PersonalCondition {
@@ -1895,6 +1899,8 @@ fn personal_stats_distinguish_active_fainting_and_protection_without_hidden_caus
                 name: "Fixture Haste".into(),
             },
             phase: ConditionPhase::Active,
+            appearance: tor_protocol::EffectAppearance::StatusIndicator,
+            cue: tor_protocol::EffectCue::Status,
             remaining_ticks: None,
         },
     ];

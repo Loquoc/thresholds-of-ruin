@@ -43,7 +43,8 @@ class NutritionTriggerProcesses(ProcessTestCase):
         self.assertEqual(saved["rules_rng"], GAMMA)
         self.assertEqual(combat(paused)["own_stats"]["conditions"], [{
             "condition": {"id": "fixture_stupor", "name": "Fixture Faint"},
-            "phase": "active", "remaining_ticks": "1100"}])
+            "phase": "active", "remaining_ticks": "1100",
+            "appearance": "status_indicator", "cue": "status"}])
         other = self.request(peer, {"type": "snapshot"})
         self.assertEqual(combat(other)["own_stats"]["conditions"], [])
         self.assertEqual(actor_creature(saved)["conditions"][0]["remaining"], 1100)

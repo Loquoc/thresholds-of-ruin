@@ -625,6 +625,7 @@ fn ordered_strikes_legitimate_large_snapshot_keeps_its_independent_32_mib_assemb
             self_target: ActorTarget::from_digest([1; 32]),
             charts: Vec::new(),
             linked_holds: vec![],
+            public_effects: vec![],
             tick: 1,
             position: Position { x: 0, y: 0, z: 0 },
             ready: true,

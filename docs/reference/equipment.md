@@ -216,8 +216,9 @@ Neither spear availability nor starting expertise is changed.
 
 The `rogue.dart` and `rogue.shuriken` items are standalone stackable weapons,
 not ammunition. Dart melee is fixed 1 Keen (not an invalid one-sided die) and its
-throw is 1d3 Keen; shuriken melee is 1d2 Keen and its throw is 2d4 Keen. Both use
-ordinary Knife expertise to enable Throw, 20/60-foot ranges and 60/40 timing.
+throw is 1d3 Keen. Its base Throw range is 15/45 feet and Dart expertise
+increases it to 20/60 feet. Shuriken melee is 1d2 Keen, and Knife expertise
+unlocks its 2d4 Keen throw at 20/60 feet. Both use 60/40 timing.
 These handling choices and damage categories are TOR adaptations; expertise is
 not free. A successful hit consumes the thrown unit. Misses use ordinary bounded
 floor recovery, including loss when no legal landing exists. Birth conditions,

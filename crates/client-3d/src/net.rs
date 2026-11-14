@@ -209,6 +209,19 @@ fn present(
 
 fn presentation_event(connection: &Connection, message: &ServerMessage) -> Option<Event> {
     match message {
+        ServerMessage::Update { update } if matches!(update.body, UpdateBody::Outcome { .. }) => {
+            let UpdateBody::Outcome { facts, .. } = &update.body else {
+                unreachable!()
+            };
+            let mut picture = view(&connection.state, &connection.palette);
+            picture
+                .events
+                .extend(tor_client_3d_model::outcome_happenings(
+                    facts,
+                    &picture.visible,
+                ));
+            Some(Event::View(Box::new(picture)))
+        }
         ServerMessage::Update { .. }
         | ServerMessage::Snapshot { .. }
         | ServerMessage::Palette { .. }

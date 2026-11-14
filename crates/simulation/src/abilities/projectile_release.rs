@@ -64,12 +64,28 @@ impl Game {
         completion.spent_items = preparation.item_lineage();
         let released = self.extract_reserved_item_unit(&mut preparation)?;
         self.apply_outcome(completion)?;
+        let effect_origin = self.capture_spatial_effect_origin(actor)?;
         let impact = self.trace_projectile_flight(
             actor,
             plan.origin,
             plan.direction,
             &plan.launch_footprint,
             plan.range,
+        )?;
+        self.publish_spatial_effect(
+            crate::combat::SpatialEffect {
+                actor,
+                target: impact.target,
+                ability: plan.ability.clone(),
+                source_disclosure: crate::combat::SourceAbilityDisclosure::Public,
+                tick: self.tick(),
+                delivery: crate::combat::EffectDelivery::Projectile,
+                timing: crate::combat::EffectTiming::Instant,
+                appearance: crate::combat::EffectAppearance::Missile,
+                cue: crate::combat::EffectCue::Physical,
+                segments: impact.segments,
+            },
+            effect_origin,
         )?;
         let successful_hit = if let Some(target) = impact.target {
             self.resolve_projectile_encounter(

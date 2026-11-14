@@ -95,6 +95,43 @@ class AssetPresentationProcesses(ProcessTestCase):
         self.assertIn("iron greatsword", self.say(text, "inventory"))
         self.assertNotIn("amulet", self.say(text, "examine iron greatsword"))
 
+    def test_native_map_colors_follow_disclosed_potion_and_scroll_assets(self):
+        package = prepare(self)
+        manifest = package / "scenario.toml"
+        scenario = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        scenario["assets"]["presentation"].extend(["item.potion.amber", "item.potion.smoky", "item.scroll.vel-mor"])
+        manifest.write_text(toml_source(scenario), encoding="utf-8", newline="\n")
+        path = package / "catalog/items.toml"
+        catalog = tomllib.loads(path.read_text(encoding="utf-8"))
+        for name, kind, asset in [
+            ("amber potion", "potion", "item.potion.amber"),
+            ("smoky potion", "potion", "item.potion.smoky"),
+            ("scroll titled VEL MOR", "scroll", "item.scroll.vel-mor"),
+        ]:
+            key = asset.rsplit(".", 1)[1]
+            catalog["items"][f"dungeon.{key}"] = {
+                "name": name, "class": kind, "asset": asset,
+                "identity": f"item.{kind}.sample-{key}",
+            }
+        path.write_text(toml_source(catalog), encoding="utf-8", newline="\n")
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        region["size"] = [3, 2, 2]
+        for x, name in enumerate(("amber", "smoky", "vel-mor")):
+            region["items"].append({"id": 103 + x, "at": [x, 1, 0], "archetype": f"dungeon.{name}"})
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+                                   capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+        self.server(scenario=package)
+        window = self.launch("tor-client-ascii", ["--connect", self.address, "--report-frames"])
+        frame = self.settled_palette(window)
+        tiles = {(tile["position"]["x"], tile["position"]["y"]): (tile["glyph"], tile["color"])
+                 for tile in frame["map_tiles"] if tile["kind"] == "item"}
+        self.assertEqual(tiles[(0, 1)], ("!", 0xFFBF3F))
+        self.assertEqual(tiles[(1, 1)], ("!", 0xA6A3AE))
+        self.assertEqual(tiles[(2, 1)], ("?", 0xFFFFFF))
+
     def test_native_client_repairs_an_asset_disclosed_only_in_self_appearance(self):
         package = prepare(self)
         path = package / "scenario.toml"

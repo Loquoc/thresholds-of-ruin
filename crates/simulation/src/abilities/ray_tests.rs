@@ -1583,3 +1583,59 @@ fn rolled_back_first_contact_opposition_restores_all_conditions_and_rng() {
         "rollback includes conditions, RNG and emitted events"
     );
 }
+
+#[test]
+fn ray_release_publishes_authoritative_spatial_path_even_without_a_hit() {
+    let mut game = fixture();
+    game.actors.get_mut(&ActorId(2)).unwrap().location = Location {
+        region: RegionId(1),
+        position: Position { x: 3, y: 3, z: 0 },
+    };
+    let captured = plan(&game);
+    game.resolve_ray(captured.as_ray().unwrap(), None).unwrap();
+    let events = serde_json::to_value(game.combat_events()).unwrap();
+    assert!(
+        events
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event.get("Effect").is_some()),
+        "a resolved ray must communicate its traversed geometry even when no actor is hit"
+    );
+}
+
+#[test]
+fn authoritative_ray_path_preserves_bounces_and_actual_interception() {
+    let mut game = fixture();
+    buff(&mut game, ActorId(1), "ray_agile", ActorId(1));
+    buff(&mut game, ActorId(2), "ray_agile", ActorId(2));
+    game.world.set_wall(at(0), true).unwrap();
+    game.world.set_wall(at(4), true).unwrap();
+    let captured = plan(&game);
+    game.resolve_ray(captured.as_ray().unwrap(), None).unwrap();
+    let effect = game
+        .combat_events()
+        .iter()
+        .find_map(|event| match event {
+            crate::combat::CombatEvent::Effect { effect } => Some(effect),
+            _ => None,
+        })
+        .expect("ray geometry");
+    assert_eq!(effect.delivery, crate::combat::EffectDelivery::Ray);
+    assert_eq!(
+        effect.segments,
+        vec![vec![at(1), at(2), at(3), at(2), at(1), at(2), at(3)]]
+    );
+    let mut game = contact_fixture();
+    let captured = plan(&game);
+    game.resolve_ray(captured.as_ray().unwrap(), None).unwrap();
+    let effect = game
+        .combat_events()
+        .iter()
+        .find_map(|event| match event {
+            crate::combat::CombatEvent::Effect { effect } => Some(effect),
+            _ => None,
+        })
+        .expect("contact geometry");
+    assert_eq!(effect.segments, vec![vec![at(1), at(2), at(3)]]);
+}

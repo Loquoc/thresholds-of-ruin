@@ -1,14 +1,14 @@
 //! A resolved head component owns both its cache dependencies and its geometry.
 //! Unrelated garments reuse the head; neck adornments cannot inherit an older
 //! outfit merely because it selected the same headwear.
-use super::super::outfit::Neck;
+use super::super::outfit::{Earrings, Neck};
 use super::*;
 
 #[derive(Clone, Copy, Debug)]
 struct Finish {
     headwear: Headwear,
     neck_band: Option<Neck>,
-    earrings: Option<(Vec3, Vec3)>,
+    earrings: Option<Earrings>,
     cuirass: bool,
     hood_binding: Option<Vec3>,
 }
@@ -70,9 +70,15 @@ impl Recipe {
                 0.0,
             );
         } else {
-            biped_neck(&mut p.matte, b, slim, neck);
+            biped_neck_on_body(&mut p.matte, body, neck);
             if let Some(worn) = neck_band {
-                accessory_parts::neck_band(p, worn, b, slim);
+                accessory_parts::neck_band_on_support(
+                    p,
+                    worn,
+                    b,
+                    slim,
+                    Some(&face_shape(l, !matches!(style, Style::Hobgoblin | Style::Troll)).form),
+                );
             }
         }
         match style {
@@ -241,19 +247,9 @@ impl Recipe {
                         equipment_hair(p, l, kind);
                     }
                     Headwear::Helm => {
-                        tube(
-                            &mut p.metal,
-                            &[
-                                Vec3::Y * 0.04,
-                                Vec3::Y * 0.14,
-                                Vec3::Y * 0.26,
-                                Vec3::Y * 0.31,
-                            ],
-                            &[(0.128, 0.132), (0.136, 0.14), (0.13, 0.134), (0.11, 0.112)],
-                            STEEL,
-                        );
-                        p.metal
-                            .blob(Vec3::Y * 0.3, Vec3::new(0.11, 0.05, 0.112), 0, 0.0, STEEL);
+                        let mut helm_shell = p.metal.empty_like();
+                        native_helm_shell(&mut helm_shell);
+                        // Retain shell-only support; visor, face and plume are not fit surfaces.
                         // The visor: a dark slit, a raised ridge down the face, breathing holes.
                         p.matte.cuboid(
                             Vec3::new(0.0, 0.17, 0.128),
@@ -278,15 +274,8 @@ impl Recipe {
                                 );
                             }
                         }
-                        p.metal.torus(
-                            Vec3::Y * 0.05,
-                            Vec3::Y,
-                            0.13,
-                            0.014,
-                            18,
-                            4,
-                            Vec3::new(0.8, 0.62, 0.3),
-                        );
+                        native_helm_rim(&mut p.metal, &helm_shell);
+                        p.metal.absorb(helm_shell);
                         if fem {
                             braid(p, Vec3::new(0.0, 0.05, -0.12), hair_color(l));
                         }
@@ -440,7 +429,7 @@ impl Recipe {
                         // The crown is tucked under the cap; a braid emerges
                         // below its rear rim, preserving the wearer's hair color.
                         if fem && grows_scalp_hair(l) {
-                            braid(p, headwear_parts::WINGED_HELM_HAIR_ROOT, hair_color(l));
+                            headwear_parts::winged_helm_braid(p, hair_color(l));
                         }
                     }
                     Headwear::Crown { metal, gem } => headwear_parts::crown(p, metal, gem),
@@ -448,31 +437,19 @@ impl Recipe {
                     Headwear::Tricorn { color, trim } => headwear_parts::tricorn(p, color, trim),
                     Headwear::WitchHat { color, band } => headwear_parts::witch_hat(p, color, band),
                     Headwear::Wreath(color) => headwear_parts::wreath(p, color),
+                    Headwear::LeafCrown(color) => headwear_parts::leaf_crown(p, color),
                     Headwear::Circlet { color, gem, broad } => {
                         headwear_parts::circlet(p, color, gem, broad)
                     }
                     Headwear::Veiled { cap, veil } => headwear_parts::veiled(p, cap, veil),
                 }
-                if let Some((metal, gem)) = earrings {
-                    for side in [-1.0, 1.0] {
-                        let at = Vec3::new(side * 0.117, 0.085, 0.005);
-                        p.metal
-                            .prism(at, at - Vec3::Y * 0.035, 0.002, 0.002, 5, metal, 0.0);
-                        p.metal.blob(
-                            at - Vec3::Y * 0.045,
-                            Vec3::new(0.010, 0.017, 0.006),
-                            1,
-                            0.0,
-                            metal,
-                        );
-                        p.satin.blob(
-                            at + Vec3::new(0.0, -0.045, 0.005),
-                            Vec3::new(0.007, 0.012, 0.005),
-                            1,
-                            0.0,
-                            gem,
-                        );
-                    }
+                if let Some(recipe) = earrings {
+                    accessory_parts::earrings(
+                        p,
+                        recipe,
+                        &face_shape(l, !matches!(l.style, Style::Hobgoblin | Style::Troll)).form,
+                        EarAnatomy::default(),
+                    );
                 }
                 match style {
                     Style::Hero => {}
@@ -567,6 +544,48 @@ impl Recipe {
     }
 }
 
+const NATIVE_HELM_OPENING: f32 = 0.04;
+
+fn native_helm_shell(b: &mut Builder) {
+    tube(
+        b,
+        &[
+            Vec3::Y * NATIVE_HELM_OPENING,
+            Vec3::Y * 0.14,
+            Vec3::Y * 0.26,
+            Vec3::Y * 0.31,
+        ],
+        &[(0.128, 0.132), (0.136, 0.14), (0.13, 0.134), (0.11, 0.112)],
+        STEEL,
+    );
+    b.blob(Vec3::Y * 0.3, Vec3::new(0.11, 0.05, 0.112), 0, 0.0, STEEL);
+}
+
+fn native_helm_rim(b: &mut Builder, shell: &Builder) {
+    let profile = radial_parts::RoundedBandProfile {
+        height: NATIVE_HELM_OPENING + 0.014,
+        half_height: 0.014,
+        clearance: 0.0017,
+        radial_half: 0.00565,
+        sides: 40,
+        sections: 8,
+    };
+    let color = Vec3::new(0.8, 0.62, 0.3);
+    let Some(rim) = profile.resolve(
+        |y, angle, gap| {
+            let origin = Vec3::Y * y;
+            let out = Vec3::new(angle.sin(), 0.0, angle.cos());
+            shell.outer_surface(origin, out).map(|hit| hit + out * gap)
+        },
+        color,
+    ) else {
+        return;
+    };
+    for triangle in rim.surface_triangles() {
+        b.tri(triangle, color);
+    }
+}
+
 #[cfg(test)]
 mod study_hood_tests {
     use super::*;
@@ -590,5 +609,331 @@ mod study_hood_tests {
         assert_eq!(native.finish.hood_binding, None);
         assert_eq!(study.finish.hood_binding, Some(kind.recipe().trim));
         assert_ne!(native.key(&base), study.key(&equipped));
+    }
+}
+
+#[cfg(test)]
+mod earring_tests {
+    use super::*;
+
+    // Index count measures emitted triangles; final vertex deduplication is not additive.
+    fn mesh_index_count(parts: Parts) -> usize {
+        let mut materials = Assets::<StandardMaterial>::default();
+        let mut meshes = Assets::<Mesh>::default();
+        let model = parts.finish(
+            &mut meshes,
+            &crate::props::PropMaterials::new(&mut materials),
+        );
+        model
+            .0
+            .iter()
+            .map(|(mesh, _)| meshes.get(mesh).unwrap().indices().unwrap().len())
+            .sum()
+    }
+
+    fn head_count(look: &Look) -> usize {
+        let mut parts = Parts::default();
+        Recipe::resolve(look).emit(&mut parts, look, HumanoidBody::resolve(look));
+        mesh_index_count(parts)
+    }
+
+    #[test]
+    fn leaf_crown_is_single_replaceable_headwear_owner() {
+        for woman in [false, true] {
+            let native = Look::with_choice(
+                CreatureModel::Nymph,
+                17,
+                Some(Variant { woman, ..default() }),
+            );
+            assert!(matches!(Outfit::worn(&native).head, Headwear::LeafCrown(_)));
+            let royal = native.clone().dressed(Wardrobe::RoyalPrincess);
+            if woman {
+                assert!(matches!(Outfit::worn(&royal).head, Headwear::Crown { .. }));
+            }
+            let mut bare = native.clone();
+            let mut outfit = Outfit::worn(&bare);
+            outfit.head = Headwear::Bare;
+            bare.outfit = Some(outfit);
+            let mut leaves = Parts::default();
+            headwear_parts::leaf_crown(&mut leaves, native.cloth);
+            assert_eq!(
+                head_count(&native) - head_count(&bare),
+                mesh_index_count(leaves)
+            );
+            assert_ne!(
+                Recipe::resolve(&native).key(&native),
+                Recipe::resolve(&bare).key(&bare)
+            );
+            assert_ne!(
+                Recipe::resolve(&native).key(&native),
+                Recipe::resolve(&royal).key(&royal)
+            );
+        }
+    }
+
+    #[test]
+    fn nymph_anatomy_does_not_emit_removable_leaf_crown() {
+        let native = Look::with_choice(
+            CreatureModel::Nymph,
+            17,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        );
+        let mut covered = native.clone();
+        let mut outfit = Outfit::worn(&native);
+        outfit.head = Headwear::Helm;
+        covered.outfit = Some(outfit);
+        let count = |look: &Look| {
+            let mut parts = Parts::default();
+            rogue::head_details(&mut parts, look);
+            mesh_index_count(parts)
+        };
+        assert!(count(&covered) > 0, "pointed ears remain anatomy");
+        assert_eq!(
+            count(&native),
+            count(&covered),
+            "removable crown must not be emitted by anatomy"
+        );
+    }
+
+    #[test]
+    fn native_earrings_have_one_outfit_owner_in_actual_meshes() {
+        for model in [CreatureModel::Nymph, CreatureModel::Medusa] {
+            let native = Look::with_choice(
+                model,
+                17,
+                Some(Variant {
+                    woman: true,
+                    ..default()
+                }),
+            );
+            let mut anatomy = Parts::default();
+            rogue::head_details(&mut anatomy, &native);
+            let metal_only = Parts {
+                metal: anatomy.metal,
+                ..default()
+            };
+            assert_eq!(
+                mesh_index_count(metal_only),
+                0,
+                "{model:?}: anatomy must not emit outfit jewelry"
+            );
+            for look in [
+                native.clone(),
+                native.clone().dressed(Wardrobe::RoyalPrincess),
+                native.clone().dressed(Wardrobe::SylvanDuelist),
+            ] {
+                let mut outfit = Outfit::worn(&look);
+                let selected = outfit.trimmings.earrings.expect("selected pair");
+                let mut pair = Parts::default();
+                accessory_parts::earrings(
+                    &mut pair,
+                    selected,
+                    &face_shape(
+                        &look,
+                        !matches!(look.style, Style::Hobgoblin | Style::Troll),
+                    )
+                    .form,
+                    EarAnatomy::default(),
+                );
+                let pair_indices = mesh_index_count(pair);
+                assert!(pair_indices > 0);
+                outfit.trimmings.earrings = None;
+                let mut bare = look.clone();
+                bare.outfit = Some(outfit);
+                assert_eq!(
+                    head_count(&look) - head_count(&bare),
+                    pair_indices,
+                    "{model:?}: exactly one selected pair"
+                );
+                assert_ne!(
+                    Recipe::resolve(&look).key(&look),
+                    Recipe::resolve(&bare).key(&bare)
+                );
+            }
+            let man = Look::with_choice(
+                model,
+                17,
+                Some(Variant {
+                    woman: false,
+                    ..default()
+                }),
+            );
+            assert!(Outfit::worn(&man).trimmings.earrings.is_none());
+        }
+    }
+
+    #[test]
+    fn earring_recipe_kind_and_material_are_head_cache_inputs() {
+        let base = Look::with_choice(
+            CreatureModel::Nymph,
+            17,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        );
+        let mut keys = std::collections::HashSet::new();
+        for earrings in [
+            None,
+            Some(Earrings::Drops { metal: Vec3::ONE }),
+            Some(Earrings::Drops {
+                metal: Vec3::splat(0.5),
+            }),
+            Some(Earrings::Hoops { metal: Vec3::ONE }),
+            Some(Earrings::GemDrops {
+                metal: Vec3::ONE,
+                gem: Vec3::X,
+            }),
+            Some(Earrings::GemDrops {
+                metal: Vec3::ONE,
+                gem: Vec3::Y,
+            }),
+        ] {
+            let mut look = base.clone();
+            let mut outfit = Outfit::native(&look);
+            outfit.trimmings.earrings = earrings;
+            look.outfit = Some(outfit);
+            assert!(keys.insert(Recipe::resolve(&look).key(&look)));
+        }
+    }
+}
+
+#[cfg(test)]
+mod native_helm_rim_tests {
+    use super::*;
+    #[test]
+    fn native_helm_rim_upper_edge_clears_actual_shell() {
+        let mut shell = Parts::default().metal;
+        native_helm_shell(&mut shell);
+        let mut rim = shell.empty_like();
+        native_helm_rim(&mut rim, &shell);
+        let tris: Vec<_> = rim.surface_triangles().collect();
+        let top = tris
+            .iter()
+            .flatten()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mut count = 0;
+        let (mut min, mut max) = (f32::INFINITY, f32::NEG_INFINITY);
+        let mut worst = Vec3::ZERO;
+        for p in tris.iter().flatten().filter(|p| (p.y - top).abs() < 1e-6) {
+            let origin = Vec3::Y * p.y;
+            let out = (*p - origin).normalize();
+            let hit = shell
+                .outer_surface(origin, out)
+                .expect("upper rim requires shell support");
+            let gap = (*p - hit).dot(out);
+            if gap < min {
+                min = gap;
+                worst = *p;
+            }
+            max = max.max(gap);
+            count += 1;
+        }
+        eprintln!(
+            "native helm actual upper-edge witnesses={count} min={min} max={max} worst={worst:?}"
+        );
+        assert!(count >= 18);
+        assert!(
+            min >= 0.0,
+            "gold upper edge intersects shell: min={min} worst={worst:?}"
+        );
+        assert!(
+            max <= 0.018,
+            "gold upper edge stands off too far: max={max}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod native_helm_rim_controls {
+    use super::*;
+    #[test]
+    fn native_helm_shell_recipe_is_unchanged() {
+        let mut actual = Parts::default().metal;
+        let mut expected = actual.empty_like();
+        native_helm_shell(&mut actual);
+        tube(
+            &mut expected,
+            &[
+                Vec3::Y * 0.04,
+                Vec3::Y * 0.14,
+                Vec3::Y * 0.26,
+                Vec3::Y * 0.31,
+            ],
+            &[(0.128, 0.132), (0.136, 0.14), (0.13, 0.134), (0.11, 0.112)],
+            STEEL,
+        );
+        expected.blob(Vec3::Y * 0.3, Vec3::new(0.11, 0.05, 0.112), 0, 0.0, STEEL);
+        actual.assert_same_recipe(&expected);
+    }
+    #[test]
+    fn native_helm_rim_is_supported_with_bounded_relief() {
+        let mut shell = Parts::default().metal;
+        native_helm_shell(&mut shell);
+        let mut rim = shell.empty_like();
+        native_helm_rim(&mut rim, &shell);
+        let triangles: Vec<_> = rim.surface_triangles().collect();
+        assert_eq!(
+            triangles.len(),
+            640,
+            "complete closed-band topology required"
+        );
+        let key = |p: Vec3| p.to_array().map(|v| (v * 1e7).round() as i64);
+        let mut edges = std::collections::BTreeMap::new();
+        for tri in &triangles {
+            for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+                let (a, b) = (key(a), key(b));
+                assert_ne!(a, b, "degenerate rim edge");
+                let (pair, sign) = if a < b { ((a, b), 1) } else { ((b, a), -1) };
+                let count = edges.entry(pair).or_insert((0usize, 0i32));
+                count.0 += 1;
+                count.1 += sign;
+            }
+        }
+        assert!(
+            edges
+                .values()
+                .all(|&(count, winding)| count == 2 && winding == 0),
+            "rim must be closed with consistently wound shared edges"
+        );
+        let (mut min_gap, mut max_gap) = (f32::INFINITY, f32::NEG_INFINITY);
+        let mut worst = Vec3::ZERO;
+        let mut samples = 0usize;
+        for tri in triangles {
+            for point in [
+                tri[0],
+                tri[1],
+                tri[2],
+                (tri[0] + tri[1]) * 0.5,
+                (tri[1] + tri[2]) * 0.5,
+                (tri[2] + tri[0]) * 0.5,
+                (tri[0] + tri[1] + tri[2]) / 3.0,
+            ] {
+                assert!(point.is_finite());
+                assert!((0.04 - 1e-6..=0.068 + 1e-6).contains(&point.y));
+                let origin = Vec3::Y * point.y;
+                let outward = (point - origin).normalize();
+                let support = shell
+                    .outer_surface(origin, outward)
+                    .expect("supported full band");
+                let gap = (point - support).dot(outward);
+                if gap < min_gap {
+                    min_gap = gap;
+                    worst = point;
+                }
+                max_gap = max_gap.max(gap);
+                samples += 1;
+            }
+        }
+        eprintln!("whole-band samples={samples} min={min_gap} max={max_gap} worst={worst:?}");
+        assert!(
+            min_gap >= 0.0009,
+            "rim minimum relief {min_gap} at {worst:?}"
+        );
+        assert!(max_gap <= 0.0131, "rim maximum relief {max_gap}");
     }
 }

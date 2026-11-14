@@ -9,6 +9,7 @@
 //! that map and modal screens on a fixed-size [`render::Canvas`]. Hit testing must
 //! use the same logical coordinates after native-window scaling. [`messages`]
 //! retains player-visible turns independently of display refreshes.
+pub mod effects;
 pub mod map;
 pub mod messages;
 mod model;

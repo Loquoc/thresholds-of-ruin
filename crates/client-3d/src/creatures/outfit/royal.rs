@@ -33,7 +33,7 @@ pub(super) fn princess(wearer: &Look) -> Outfit {
         trimmings: Trimmings {
             armlets: Some(GILT),
             bracelets: Some(GILT),
-            earrings: Some((GILT, gem)),
+            earrings: Some(Earrings::GemDrops { metal: GILT, gem }),
             neck: Some(Neck::Pendant { metal: GILT, gem }),
             waist: Some(Waist::Jeweled { metal: GILT, gem }),
             ..Trimmings::NONE

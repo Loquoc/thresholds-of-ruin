@@ -250,7 +250,10 @@ fn host_condition_application_preserves_unpublished_observer_extension() {
         .unwrap();
     assert!(matches!(
         observation.combat.unwrap().events.as_slice(),
-        [crate::combat::DisclosedCombatEvent::Ability { .. }]
+        [
+            crate::combat::DisclosedCombatEvent::Effect { .. },
+            crate::combat::DisclosedCombatEvent::Ability { .. }
+        ]
     ));
     game.seal_event_observations().unwrap();
     assert_eq!(round_trip(&game), game);

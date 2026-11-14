@@ -669,6 +669,49 @@ pub(crate) fn object_presentation(
     }
 }
 
+/// Only ordinary physical cells already disclosed in this exact frame can anchor
+/// geometry. Ambiguous offsets are omitted rather than guessing through a join.
+fn effect_frame_anchors(
+    view: &s::Observation,
+    scene: &[w::SightCell],
+    salt: &str,
+) -> std::collections::BTreeMap<p::Position, String> {
+    if view.combat.as_ref().is_none_or(|combat| {
+        !combat
+            .events
+            .iter()
+            .any(|event| matches!(event, s::combat::DisclosedCombatEvent::Effect { .. }))
+    }) {
+        return Default::default();
+    }
+    let disclosed: std::collections::BTreeSet<_> = view
+        .visible_cells
+        .iter()
+        .map(|cell| (cell.location, cell.frame))
+        .collect();
+    let mut anchors = std::collections::BTreeMap::new();
+    let mut ambiguous = std::collections::BTreeSet::new();
+    for cell in scene
+        .iter()
+        .filter(|cell| cell.physical && disclosed.contains(&(cell.location, cell.rotation)))
+    {
+        let position = p::Position {
+            x: cell.offset.x,
+            y: cell.offset.y,
+            z: cell.offset.z,
+        };
+        let key = cell_key(salt, view.actor.0, cell.location);
+        if anchors.get(&position).is_some_and(|old| old != &key) {
+            ambiguous.insert(position);
+        }
+        anchors.insert(position, key);
+    }
+    for position in ambiguous {
+        anchors.remove(&position);
+    }
+    anchors
+}
+
 pub(crate) fn observation(
     view: s::Observation,
     scene: &[w::SightCell],
@@ -677,6 +720,7 @@ pub(crate) fn observation(
     terrain: Terrain,
     targets: &crate::wire_adapter::TargetScope,
 ) -> p::Observation {
+    let effect_anchors = effect_frame_anchors(&view, scene, salt);
     let offset = |position: w::Position| p::Position {
         x: position.x,
         y: position.y,
@@ -871,6 +915,7 @@ pub(crate) fn observation(
         })
         .collect();
     p::Observation {
+        public_effects: Vec::new(),
         charts: vec![],
         self_appearance: Some(p::CreatureAppearance {
             seed: targets.appearance_seed(view.actor),
@@ -1012,7 +1057,7 @@ pub(crate) fn observation(
             events: c
                 .events
                 .into_iter()
-                .map(|event| combat_event_view(event, targets))
+                .filter_map(|event| combat_event_view(event, targets, &effect_anchors))
                 .collect(),
             objective: c.objective.map(|o| match o {
                 s::combat::ObjectiveKind::RetrieveAndReturn => p::ObjectiveKind::RetrieveAndReturn,
@@ -1092,10 +1137,96 @@ fn injury_view(injury: s::combat::Injury) -> p::Injury {
 fn combat_event_view(
     event: s::combat::DisclosedCombatEvent,
     targets: &crate::wire_adapter::TargetScope,
-) -> p::CombatEventView {
+    frame_anchors: &std::collections::BTreeMap<p::Position, String>,
+) -> Option<p::CombatEventView> {
     use s::combat::DisclosedCombatEvent as E;
     let id = |actor: s::ActorId| targets.actor(actor);
-    match event {
+    Some(match event {
+        E::Effect {
+            caster,
+            caster_reference,
+            ability,
+            tick,
+            timing,
+            appearance,
+            delivery,
+            cue,
+            segments,
+        } => {
+            let anchors: Vec<_> = segments
+                .iter()
+                .flatten()
+                .map(|at| p::Position {
+                    x: at.x,
+                    y: at.y,
+                    z: at.z,
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .filter_map(|position| {
+                    frame_anchors.get(&position).map(|key| p::EffectAnchor {
+                        key: key.clone(),
+                        position,
+                    })
+                })
+                .collect();
+            if anchors.is_empty() {
+                return None;
+            }
+            p::CombatEventView::Effect {
+                anchors,
+                caster: caster
+                    .zip(caster_reference)
+                    .map(|(actor, kind)| targets.actor_reference(actor, kind)),
+                ability: ability.map(|(id, name)| p::ContentRef {
+                    id: id.to_string(),
+                    name,
+                }),
+                tick,
+                timing: match timing {
+                    s::combat::EffectTiming::Instant => p::EffectTiming::Instant,
+                },
+                appearance: match appearance {
+                    s::combat::EffectAppearance::Bolt => p::EffectAppearance::Bolt,
+                    s::combat::EffectAppearance::Missile => p::EffectAppearance::Missile,
+                    s::combat::EffectAppearance::Flash => p::EffectAppearance::Flash,
+                    s::combat::EffectAppearance::Halo => p::EffectAppearance::Halo,
+                    s::combat::EffectAppearance::Cloud => p::EffectAppearance::Cloud,
+                    s::combat::EffectAppearance::StatusIndicator => {
+                        p::EffectAppearance::StatusIndicator
+                    }
+                },
+                delivery: match delivery {
+                    s::combat::EffectDelivery::Ray => p::EffectDelivery::Ray,
+                    s::combat::EffectDelivery::Projectile => p::EffectDelivery::Projectile,
+                    s::combat::EffectDelivery::Target => p::EffectDelivery::Target,
+                    s::combat::EffectDelivery::Area => p::EffectDelivery::Area,
+                },
+                cue: match cue {
+                    s::combat::EffectCue::Neutral => p::EffectCue::Neutral,
+                    s::combat::EffectCue::Physical => p::EffectCue::Physical,
+                    s::combat::EffectCue::Fire => p::EffectCue::Fire,
+                    s::combat::EffectCue::Cold => p::EffectCue::Cold,
+                    s::combat::EffectCue::Lightning => p::EffectCue::Lightning,
+                    s::combat::EffectCue::Poison => p::EffectCue::Poison,
+                    s::combat::EffectCue::Healing => p::EffectCue::Healing,
+                    s::combat::EffectCue::Status => p::EffectCue::Status,
+                },
+                segments: segments
+                    .into_iter()
+                    .map(|segment| {
+                        segment
+                            .into_iter()
+                            .map(|at| p::Position {
+                                x: at.x,
+                                y: at.y,
+                                z: at.z,
+                            })
+                            .collect()
+                    })
+                    .collect(),
+            }
+        }
         E::UnseenAbility {
             caster,
             target,
@@ -1165,7 +1296,7 @@ fn combat_event_view(
                 s::combat::DeathCause::Starvation => p::DeathCause::Starvation,
             },
         },
-    }
+    })
 }
 
 pub fn cell_key(salt: &str, actor: u64, location: w::Location) -> String {
@@ -1433,7 +1564,9 @@ mod ordered_strike_privacy_tests {
                     strike: Some(1),
                 },
                 &scope,
-            );
+                &Default::default(),
+            )
+            .unwrap();
             let value = serde_json::to_value(view).unwrap();
             assert_eq!(value["strike"], 1);
             assert_eq!(
@@ -1536,5 +1669,53 @@ fn item_knowledge(value: s::ItemKnowledge) -> p::ItemKnowledge {
             armor_deterioration: value.condition.armor_deterioration,
             protected: value.condition.protected,
         },
+    }
+}
+
+#[cfg(test)]
+mod spatial_effect_adapter_tests {
+    use super::*;
+
+    #[test]
+    fn spatial_effect_adapter_keeps_disclosed_frame_and_opaque_source() {
+        let scope = crate::wire_adapter::TargetScope::new(uuid::Uuid::from_u128(19), s::ActorId(1));
+        let event = combat_event_view(
+            s::combat::DisclosedCombatEvent::Effect {
+                caster: Some(s::ActorId(2)),
+                caster_reference: Some(s::perception::ActorReferenceKind::Creature),
+                ability: Some((
+                    s::content_ids::AbilityId::new("basic_melee").unwrap(),
+                    "Strike".into(),
+                )),
+                tick: 7,
+                timing: s::combat::EffectTiming::Instant,
+                appearance: s::combat::EffectAppearance::Flash,
+                delivery: s::combat::EffectDelivery::Target,
+                cue: s::combat::EffectCue::Physical,
+                segments: vec![vec![w::Position { x: -2, y: 3, z: 1 }]],
+            },
+            &scope,
+            &std::collections::BTreeMap::from([(
+                p::Position { x: -2, y: 3, z: 1 },
+                "a".repeat(40),
+            )]),
+        )
+        .unwrap();
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["type"], "effect");
+        assert_eq!(
+            value["caster"],
+            serde_json::to_value(scope.actor(s::ActorId(2))).unwrap()
+        );
+        assert_eq!(value["tick"], "7");
+        assert_eq!(
+            value["segments"],
+            serde_json::json!([[{"x":-2,"y":3,"z":1}]])
+        );
+        assert!(!value.to_string().contains("region"));
+        assert_eq!(
+            serde_json::from_value::<p::CombatEventView>(value).unwrap(),
+            event
+        );
     }
 }

@@ -122,7 +122,7 @@ fn sample_state() -> StateView {
                     "identified": true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default()
                 }
             ],
-            "charts":[],"linked_holds":[],"visible_actors": [
+            "charts":[],"linked_holds":[],"public_effects":[],"visible_actors": [
                 {
                     "id":super::actor_target(2),
                     "name": "goblin scout",

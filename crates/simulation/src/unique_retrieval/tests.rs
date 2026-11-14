@@ -173,7 +173,7 @@ fn intentional_surface_up_requires_exact_item_and_never_wins_by_position() {
     let before = game.clone();
     assert_eq!(
         game.act(ActorId(1), Action::Move(Direction::Up)),
-        Err(GameError::ItemUnavailable)
+        Err(GameError::ExitItemRequired)
     );
     assert_eq!(game, before, "missing bound item is a zero-time refusal");
     game.teleport(ActorId(1), at(2, 0, 1)).unwrap();
@@ -669,7 +669,7 @@ fn queued_terminal_exit_round_trips_and_rechecks_stale_endpoint_and_ownership() 
                     entry.location = ItemLocation::Ground(at(1, 1, 1))
                 })
                 .unwrap();
-            GameError::ItemUnavailable
+            GameError::ExitItemRequired
         };
         let mut restored = checkpoint_round_trip(&stale);
         let tick = restored.tick();
@@ -869,7 +869,7 @@ fn ordinary_take_drop_preserves_identity_and_requires_explicit_terminal_up() {
     let before = game.clone();
     assert_eq!(
         game.act(ActorId(1), Action::Move(Direction::Up)),
-        Err(GameError::ItemUnavailable)
+        Err(GameError::ExitItemRequired)
     );
     assert_eq!(game, before);
     game.act(
@@ -1003,7 +1003,7 @@ fn cancelling_preparation_with_terminal_up_uses_the_same_atomic_ownership_check(
             assert_eq!(game.tick(), before.tick());
             assert_eq!(game.health(target), before.health(target));
         } else {
-            assert_eq!(result, Err(GameError::ItemUnavailable));
+            assert_eq!(result, Err(GameError::ExitItemRequired));
             assert_eq!(game, before);
         }
     }

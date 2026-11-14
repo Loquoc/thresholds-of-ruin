@@ -291,7 +291,7 @@ impl Equipment {
         }
         if let Some(item) = self.feet {
             base.feet = Feet::Boots(Boots {
-                color: LEATHER * 0.75,
+                color: Pigment::Fixed(LEATHER * 0.75),
                 tall: false,
                 heel: false,
                 buckles: true,
@@ -299,7 +299,7 @@ impl Equipment {
             });
             if let FootItem::Appearance(kind) = item {
                 base.feet = Feet::Boots(Boots {
-                    color: kind.color(),
+                    color: Pigment::Fixed(kind.color()),
                     tall: false,
                     heel: kind.heeled(),
                     buckles: false,
@@ -401,6 +401,37 @@ mod tests {
     }
 
     #[test]
+    fn native_boot_recipes_resolve_skin_for_the_wearer() {
+        let recipient = Vec3::new(0.72, 0.35, 0.23);
+        for (model, shade) in [
+            (CreatureModel::Zombie, 0.8),
+            (CreatureModel::Guardian, 0.85),
+            (CreatureModel::Yeti, 1.0),
+        ] {
+            let donor = Look::of(model, 42);
+            let recipe = Outfit::native(&donor);
+            assert_eq!(recipe.boot(donor.skin), donor.skin * shade);
+            assert_eq!(recipe.boot(recipient), recipient * shade, "{model:?}");
+            let mut fixed = recipe;
+            let Feet::Boots(mut boots) = recipe.feet else {
+                panic!("native boot recipe")
+            };
+            boots.color = Pigment::Fixed(donor.skin * shade);
+            fixed.feet = Feet::Boots(boots);
+            assert_eq!(fixed.boot(recipient), donor.skin * shade);
+            assert_ne!(
+                fixed, recipe,
+                "equal donor RGB must not erase the skin binding"
+            );
+            let mut gear = Equipment::default();
+            gear.select("boots").unwrap();
+            let covered = gear.compose(recipe);
+            assert_eq!(covered.boot(recipient), LEATHER * 0.75);
+            assert_eq!(Equipment::default().compose(recipe), recipe);
+        }
+    }
+
+    #[test]
     fn native_chest_details_are_recipe_owned_and_covered_without_mutation() {
         for model in [
             CreatureModel::Human,
@@ -471,6 +502,47 @@ mod tests {
             Composition::resolve(&equipped.equipped(Equipment::default())),
             original
         );
+    }
+
+    #[test]
+    fn native_earrings_follow_outfit_ownership_and_helm_removal() {
+        for model in [CreatureModel::Nymph, CreatureModel::Medusa] {
+            let native = Look::with_choice(
+                model,
+                17,
+                Some(Variant {
+                    woman: true,
+                    ..default()
+                }),
+            );
+            let earrings = Composition::resolve(&native).outfit.trimmings.earrings;
+            assert!(
+                earrings.is_some(),
+                "{model:?}: native jewelry must belong to the resolved outfit"
+            );
+            let royal = native.clone().dressed(Wardrobe::RoyalPrincess);
+            assert_eq!(
+                Composition::resolve(&royal).outfit.trimmings.earrings,
+                Outfit::from_wardrobe(Wardrobe::RoyalPrincess, &native)
+                    .trimmings
+                    .earrings
+            );
+            let mut equipment = Equipment::default();
+            equipment.select("helm").unwrap();
+            let helmed = native.clone().equipped(equipment);
+            assert!(Composition::resolve(&helmed)
+                .outfit
+                .trimmings
+                .earrings
+                .is_none());
+            assert_eq!(
+                Composition::resolve(&helmed.equipped(Equipment::default()))
+                    .outfit
+                    .trimmings
+                    .earrings,
+                earrings
+            );
+        }
     }
 
     #[test]

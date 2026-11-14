@@ -64,39 +64,34 @@ pub(in crate::creatures) fn face_shape(l: &Look, nose: bool) -> FaceShape {
         jaw *= Vec3::new(1.12, 0.96, 1.04);
     }
     let mut head = Sculpt::default();
-    head.add(
-        Ellipsoid(
-            Vec3::new(0.0, 0.182, -0.012),
-            Vec3::new(0.096, 0.102, 0.102),
-        ),
-        0.0,
-    )
-    .add(Ellipsoid(Vec3::new(0.0, 0.112, 0.025), jaw), 0.022)
-    .add(
-        Ellipsoid(
-            // Taller support joins the lower lip to the jaw without changing
-            // the chin's forward plane, width, or lower extent.
-            Vec3::new(0.0, 0.065, if soft { 0.07 } else { 0.068 }),
-            Vec3::new(0.037, 0.031, 0.027)
-                * if soft {
-                    Vec3::new(0.8, 0.88, 0.95)
-                } else if fem {
-                    Vec3::splat(0.9)
-                } else {
-                    Vec3::ONE
-                },
-        ),
-        0.024,
-    )
-    .add(
-        Capsule(
-            Vec3::new(0.0, 0.02, -0.01),
-            Vec3::new(0.0, 0.1, -0.01),
-            0.044 * n,
-            0.046,
-        ),
-        0.03,
-    );
+    let cranium = super::super::anatomy::HumanoidCranium::STANDARD;
+    head.add(Ellipsoid(cranium.center, cranium.radii), 0.0)
+        .add(Ellipsoid(Vec3::new(0.0, 0.112, 0.025), jaw), 0.022)
+        .add(
+            Ellipsoid(
+                // Taller support joins the lower lip to the jaw without changing
+                // the chin's forward plane, width, or lower extent.
+                Vec3::new(0.0, 0.065, if soft { 0.07 } else { 0.068 }),
+                Vec3::new(0.037, 0.031, 0.027)
+                    * if soft {
+                        Vec3::new(0.8, 0.88, 0.95)
+                    } else if fem {
+                        Vec3::splat(0.9)
+                    } else {
+                        Vec3::ONE
+                    },
+            ),
+            0.024,
+        )
+        .add(
+            Capsule(
+                Vec3::new(0.0, 0.02, -0.01),
+                Vec3::new(0.0, 0.1, -0.01),
+                0.044 * n,
+                0.046,
+            ),
+            0.03,
+        );
     for side in [-1.0f32, 1.0] {
         // A broad malar pad flows into the midcheek. A thin raised ridge
         // over an empty lower cheek ages healthy faces at portrait distance.
@@ -113,8 +108,8 @@ pub(in crate::creatures) fn face_shape(l: &Look, nose: bool) -> FaceShape {
         )
         .add(
             Ellipsoid(
-                Vec3::new(side * 0.098, 0.15, -0.005),
-                Vec3::new(0.014, 0.03, 0.022),
+                EarAnatomy::default().center(side),
+                EarAnatomy::default().radii,
             ),
             0.01,
         );
@@ -344,8 +339,10 @@ pub(super) fn human_face(p: &mut Parts, l: &Look, nose: bool) {
     };
     head.mesh(
         &mut p.matte,
-        Vec3::new(-0.125, 0.0, -0.13),
-        Vec3::new(0.125, 0.3, 0.14),
+        Vec3::new(-0.125, 0.0, -0.13)
+            .min(EarAnatomy::default().center(-1.0) - EarAnatomy::default().radii),
+        Vec3::new(0.125, 0.3, 0.14)
+            .max(EarAnatomy::default().center(1.0) + EarAnatomy::default().radii),
         0.0055,
         &|at, _| {
             let mouth_y = mouth_height(at.x);
@@ -364,8 +361,13 @@ pub(super) fn human_face(p: &mut Parts, l: &Look, nose: bool) {
             let warm = ((1.0 - Vec2::new(at.x, at.y - 0.13).length() / 0.02).clamp(0.0, 1.0)
                 * f32::from(u8::from(at.z > 0.1)))
             .max(
-                (1.0 - (at.x.abs() - 0.098).abs() / 0.015).clamp(0.0, 1.0)
-                    * f32::from(u8::from((at.y - 0.15).abs() < 0.03))
+                (1.0 - (at.x.abs() - EarAnatomy::default().center.x).abs()
+                    / (EarAnatomy::default().radii.x + 0.001))
+                    .clamp(0.0, 1.0)
+                    * f32::from(u8::from(
+                        (at.y - EarAnatomy::default().center.y).abs()
+                            < EarAnatomy::default().radii.y,
+                    ))
                     * 0.6,
             );
             let base = face.lerp(flush, cheek.max(warm * 0.6)).lerp(lips, lip);

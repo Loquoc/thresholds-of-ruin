@@ -77,6 +77,7 @@ pub(crate) fn outcome_observation(
     ready: bool,
     targets: &crate::wire_adapter::TargetScope,
 ) -> p::OutcomeObservation {
+    let effect_anchors = effect_frame_anchors(view, scene, salt);
     let disclosed: std::collections::BTreeMap<_, _> = view
         .visible_cells
         .iter()
@@ -306,7 +307,7 @@ pub(crate) fn outcome_observation(
                 .events
                 .iter()
                 .cloned()
-                .map(|event| combat_event_view(event, targets))
+                .filter_map(|event| combat_event_view(event, targets, &effect_anchors))
                 .collect(),
             objective: combat.objective.map(|objective| match objective {
                 s::combat::ObjectiveKind::RetrieveAndReturn => p::ObjectiveKind::RetrieveAndReturn,
@@ -451,7 +452,45 @@ mod tests {
             dead: false,
             terminal: false,
         });
+        view.combat
+            .as_mut()
+            .unwrap()
+            .events
+            .push(s::combat::DisclosedCombatEvent::Effect {
+                caster: Some(actor),
+                caster_reference: Some(s::perception::ActorReferenceKind::Creature),
+                ability: Some((
+                    s::content_ids::AbilityId::new("fixture_strike").unwrap(),
+                    "Fixture Strike".into(),
+                )),
+                tick: view.tick,
+                timing: s::combat::EffectTiming::Instant,
+                appearance: s::combat::EffectAppearance::Flash,
+                delivery: s::combat::EffectDelivery::Target,
+                cue: s::combat::EffectCue::Physical,
+                segments: vec![vec![w::Position { x: 0, y: 0, z: 0 }]],
+            });
         assert_projection(&view, false);
+        let full = observation(
+            view.clone(),
+            &scene,
+            "fixture-salt",
+            false,
+            &|_| [None, None, None],
+            &targets,
+        );
+        let p::CombatEventView::Effect { anchors, .. } =
+            full.combat.as_ref().unwrap().events.last().unwrap()
+        else {
+            panic!("spatial effect missing");
+        };
+        assert!(!anchors.is_empty());
+        for anchor in anchors {
+            assert!(full
+                .visible_cells
+                .iter()
+                .any(|cell| cell.position == anchor.position && cell.key == anchor.key));
+        }
         let compact = outcome_observation(&view, &scene, "fixture-salt", false, &targets);
         let disclosed = compact
             .visible_actors

@@ -246,6 +246,8 @@ pub(crate) fn own_stats(stats: s::creatures::OwnStats) -> p::OwnStats {
                     s::conditions::ConditionPhase::Protection => p::ConditionPhase::Protection,
                 },
                 remaining_ticks: entry.remaining_ticks,
+                appearance: p::EffectAppearance::StatusIndicator,
+                cue: p::EffectCue::Status,
             })
             .collect(),
         health_recovery: p::HealthRecoveryView {
@@ -665,7 +667,9 @@ mod tests {
         assert_eq!(conditions[0]["condition"]["id"], "fear");
         assert_eq!(conditions[0]["phase"], "active");
         assert_eq!(conditions[0]["remaining_ticks"], "200");
-        assert_eq!(conditions[0].as_object().unwrap().len(), 3);
+        assert_eq!(conditions[0]["appearance"], "status_indicator");
+        assert_eq!(conditions[0]["cue"], "status");
+        assert_eq!(conditions[0].as_object().unwrap().len(), 5);
         for hidden in [
             "source",
             "qualification",
