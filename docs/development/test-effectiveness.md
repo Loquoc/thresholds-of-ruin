@@ -303,3 +303,32 @@ virtual display cannot open its socket; that setup failure is not a test pass.
 The new spatial-receipt restoration witness initially tried to checkpoint before
 sealing event observations. It now completes the normal observation transaction
 before restoring; its hidden-contact and restored-state assertions are unchanged.
+
+### Dependency update consistency
+
+The SQLAlchemy 2.1.8 Dependabot update changed the hash-pinned environment but
+left the sampler's strict allowlist at 2.1.6. The existing allowlist/requirements
+contract test reproduced the mismatch (one failing method, one root cause).
+The allowlist now matches the lock; additional witnesses reject a 2.1.6 installed
+environment and retained history even with valid integrity hashes. This preserves
+strict reproducibility rather than accepting mixed dependency versions.
+
+### Many-actor checkpoint fixture synchronization
+
+Windows debug CI exposed one stale-picture fixture failure in the many-actor
+retention/restart test. The action helper legitimately returned a started picture
+at tick 13160; the final saved and restored picture was tick 13200. Captured final
+pre-restart and restored payloads matched exactly apart from connection-local
+snapshot/revision identifiers. The fixture now waits for tick 13200, completed
+work and current input permissions before the save barrier. Exact restored-state
+and history assertions remain unchanged. Two deterministic stream witnesses reject
+started, observation-only and stale-permission frames and retain already-completed
+pictures without waiting for another publication. Local process validation with
+older protected binaries hit a rules-import setup mismatch; hosted execution on
+the final head remains required.
+
+The initial standalone checkpoint regression class also exposed the CI planner's
+fail-closed unregistered-owner check (four failing planner methods, one ownership
+registration root cause). The same two assertions now live under the existing
+reviewed `test_process_harness.ActionCompletion` owner. Planner selection and
+coverage gates are unchanged; no tests were dropped.

@@ -10,7 +10,7 @@ import re
 import tomllib
 
 from checkpoint_payload import HEADER, crc32c, decode_checkpoint_payload
-from process_harness import ROOT, ProcessTestCase, SPECTATOR_TOKEN, TOKEN, creature_package
+from process_harness import ROOT, ProcessTestCase, SPECTATOR_TOKEN, TOKEN, creature_package, headless_fight_completion
 
 
 SAVE_VERSION = int(re.search(r"pub\(crate\) const ARCHIVE_VERSION: u32 = (\d+);",
@@ -18,6 +18,18 @@ SAVE_VERSION = int(re.search(r"pub\(crate\) const ARCHIVE_VERSION: u32 = (\d+);"
 
 
 class CheckpointFixture:
+    def settled_waits(self, player, frame, count):
+        """Retain the completed action picture, not an admission/start picture."""
+        expected_tick = str(count * 100)
+        def complete(current):
+            return (current["state"]["observation"]["tick"] == expected_tick
+                    and headless_fight_completion(current))
+        if not complete(frame):
+            frame = self.frame(player, complete)
+        self.assertEqual(frame["state"]["observation"]["tick"], expected_tick)
+        self.assertTrue(frame["state"]["observation"]["ready"])
+        return frame
+
     def saving_server(self, target=3600000, maximum=7200000, *, writer_barrier=False):
         """A server that checkpoints every four actions, with explicit save timing."""
         # Eight journal records cover four completed gameplay intentions. Keep a
@@ -392,6 +404,7 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
                 # A queued SaveBehind reply is not durable completion. Use the
                 # ordinary explicit-save barrier before reading a checkpoint.
                 self.flush_save()
+        completed = self.settled_waits(player, completed, 132)
         self.flush_save()
         checkpoint = self.read_checkpoint()
         self.assertGreaterEqual(len(checkpoint["boundaries"]), 128)
