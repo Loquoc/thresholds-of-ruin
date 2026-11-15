@@ -94,3 +94,23 @@ SQLAlchemy remains wheel-only and hash-pinned. Its strict sampler allowlist is
 updated together with rejection tests for the superseded environment and history;
 no compatibility fallback or test gate is relaxed. The two requirements hashes
 record these reviewed inputs. Hosted CI still qualifies the final PR head.
+
+## November 15 Linux release verification budget
+
+PR #11 run 43697031043 exhausted the 40-minute Ubuntu release Python job
+limit twice without a failed test: 659 and 681 of the same 770 selected tests
+completed successfully. Build time was 332 and 329 seconds. The ordinary
+room-topology acceptance witness completed in 1,552 and 1,557 seconds. The
+same complete inventory passed in 2,088 seconds including build in run
+43686561081, leaving too little runner-variance headroom at the former limit.
+
+The maintainer-approved correction limits this single unsharded Ubuntu release Python job
+to 60 minutes and its verifier step to 55 minutes, reserving time for setup and
+evidence upload. Other job limits, all test-level action/time/output budgets,
+selection, two test workers, receipt completeness, and required gates stay
+unchanged. No jobs, triggers, permissions, network destinations, artifact
+retention, display tests, or workload are added. The longest configured job
+remains the existing 75-minute Windows release Rust owner. This is bounded
+headroom for ordinary project acceptance, not permission for extra diagnostics.
+The maintainer explicitly approved these two timeout changes and the matching
+CI review hash update on November 15.
