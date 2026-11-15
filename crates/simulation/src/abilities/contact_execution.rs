@@ -5,7 +5,6 @@ use super::{
     *,
 };
 use crate::{Game, GameError};
-use tor_world::Direction;
 
 impl Game {
     pub(super) fn resolve_contact_release(
@@ -18,10 +17,10 @@ impl Game {
         let effect_origin = self.capture_spatial_effect_origin(ray.actor)?;
         let invalid = || GameError::Rule(RuleError::InvalidPlan);
         let trace = self
-            .trace_first_body(
+            .trace_first_body_trajectory(
                 ray.actor,
                 ray.origin.location,
-                Direction::from(ray.direction).rotated(ray.origin.orientation),
+                ray.aim.trajectory(ray.origin.orientation)?,
                 &ray.launch_footprint,
                 MAX_CONTACT_STATES,
             )

@@ -475,3 +475,13 @@ knowledge are separate: learning a device type does not reveal every instance's
 charges. `zap <name or #id> <direction>` works at rank zero and spends a charge
 when it resolves, even if the ray misses or is resisted. Empty devices still take
 time. See [item authority and knowledge](../reference/magic-items.md#reading-identification-and-charged-devices).
+
+## Relative cell targeting
+
+For a ray, use its ability name followed by `cell <x> <y> <z>`, for example
+`frost ray cell 4 -2 0`. For a device use `zap <item> cell 4 -2 0`.
+After choosing projectile delivery, enter the same `cell` syntax instead of a
+direction. Coordinates are offsets in the current observation, not world or
+region identifiers. Only currently visible cells can be selected; the server
+checks physical visibility, range and obstruction. Direction controls remain
+available. A stale selection must be selected again rather than retargeted.

@@ -220,6 +220,18 @@ fn presentation_event(connection: &Connection, message: &ServerMessage) -> Optio
                     facts,
                     &picture.visible,
                 ));
+            for event in &mut picture.events {
+                if let Happening::Effect {
+                    presentation,
+                    object_model,
+                    ..
+                } = event
+                {
+                    *object_model = presentation.object.as_ref().and_then(|object| {
+                        tor_client_3d_model::effect_object_model(&connection.palette, object)
+                    });
+                }
+            }
             Some(Event::View(Box::new(picture)))
         }
         ServerMessage::Update { .. }

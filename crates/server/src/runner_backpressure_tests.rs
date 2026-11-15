@@ -67,9 +67,9 @@ fn commit(client: u64, request_id: impl Into<String>) -> Mail {
     Mail::Request {
         client,
         request_id: request_id.into(),
-        request: Request::CommitAttachment {
+        request: Box::new(Request::CommitAttachment {
             upload_id: "pending-upload".into(),
-        },
+        }),
         timing: None,
     }
 }
@@ -107,7 +107,7 @@ fn stalled_ingress_is_bounded_and_overflow_only_disconnects_the_sender() {
         Mail::Request {
             client: peer.id,
             request_id: "query".into(),
-            request: Request::Snapshot,
+            request: Box::new(Request::Snapshot),
             timing: None,
         },
         &mut held,
@@ -375,7 +375,7 @@ async fn recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect
                 .send(Mail::Request {
                     client: peer.id,
                     request_id: request_id.into(),
-                    request: annotation(&peer_snapshot, request_id),
+                    request: Box::new(annotation(&peer_snapshot, request_id)),
                     timing: None,
                 })
                 .await
@@ -386,7 +386,7 @@ async fn recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect
             .send(Mail::Request {
                 client: original.id,
                 request_id: "abandoned".into(),
-                request: abandoned.clone(),
+                request: Box::new(abandoned.clone()),
                 timing: None,
             })
             .await
@@ -403,7 +403,7 @@ async fn recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect
             .send(Mail::Request {
                 client: original.id,
                 request_id: "accepted".into(),
-                request: accepted.clone(),
+                request: Box::new(accepted.clone()),
                 timing: None,
             })
             .await
@@ -464,7 +464,7 @@ async fn recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect
             .send(Mail::Request {
                 client: reconnect.id,
                 request_id: "attach".into(),
-                request: Request::Attach { actor: ActorId(1) },
+                request: Box::new(Request::Attach { actor: ActorId(1) }),
                 timing: None,
             })
             .await
@@ -481,7 +481,7 @@ async fn recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect
             .send(Mail::Request {
                 client: reconnect.id,
                 request_id: "accepted".into(),
-                request: accepted,
+                request: Box::new(accepted),
                 timing: None,
             })
             .await
@@ -513,7 +513,7 @@ async fn recovery_preserves_surviving_fifo_and_receipts_after_overload_reconnect
             .send(Mail::Request {
                 client: reconnect.id,
                 request_id: "abandoned".into(),
-                request: abandoned,
+                request: Box::new(abandoned),
                 timing: None,
             })
             .await
@@ -589,7 +589,7 @@ fn recovery_stops_when_storage_becomes_overdue_again() {
         Mail::Request {
             client: id,
             request_id: "second".into(),
-            request: second,
+            request: Box::new(second),
             timing: None,
         },
     ]);

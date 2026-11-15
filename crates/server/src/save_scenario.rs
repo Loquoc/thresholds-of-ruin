@@ -3676,6 +3676,9 @@ impl AdvancementPolicy {
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "tor_simulation::rules::AbilityDef", deny_unknown_fields)]
 struct AbilityDefinition {
+    effect_visual: tor_simulation::rules::EffectVisual,
+    #[serde(deserialize_with = "tor_simulation::rules::read_effect_style")]
+    effect_style: Option<String>,
     cancellable: bool,
     #[serde(with = "mapped")]
     interaction: tor_simulation::rules::Interaction,
@@ -4463,7 +4466,7 @@ struct RulesInput {
     #[serde(with = "mapped")]
     document: tor_simulation::rules::RulesetDocument,
 }
-const RULES_INPUT_FORMAT: u32 = 26;
+const RULES_INPUT_FORMAT: u32 = 27;
 pub(crate) fn encode_rules_document(
     document: &tor_simulation::rules::RulesetDocument,
 ) -> Result<String, crate::Failure> {
@@ -5076,14 +5079,14 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (69, 37, "interactions-v58", 26, 10, 34, "tor-arena-run-v6")
+            (70, 37, "interactions-v60", 27, 10, 34, "tor-arena-run-v6")
         );
     }
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 71);
-        assert_eq!(super::RULES_INPUT_FORMAT, 26);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 72);
+        assert_eq!(super::RULES_INPUT_FORMAT, 27);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently
         // of their physical framing, which remains unchanged.

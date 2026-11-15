@@ -560,6 +560,12 @@ pub fn interpret(
                         weapon,
                     });
                 }
+                crate::parser::grammar::AbilitySelection::CellRay { offset } => {
+                    return invoke(tor_protocol::AbilityInvocation {
+                        aim: tor_protocol::AbilityAim::CellRay { offset: *offset },
+                        weapon,
+                    });
+                }
                 crate::parser::grammar::AbilitySelection::DirectionalRay { direction } => {
                     return invoke(tor_protocol::AbilityInvocation {
                         aim: tor_protocol::AbilityAim::DirectionalRay {

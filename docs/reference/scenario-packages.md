@@ -869,7 +869,7 @@ The manifest’s `ruleset = "rules.toml"` names a relative TOML file inside the
 package. Ordinary scenarios import the general rules rather than copy them:
 
 ```toml
-import = "interactions-v58"
+import = "interactions-v60"
 
 [[overrides]]
 op = "set"
@@ -940,6 +940,14 @@ The actor-wide timing operation is
 Its exact value vocabulary is `normal`, `haste`, `slow`; other scopes and enum
 object/array spellings reject. [Source folding](creature-rules.md#derivation-and-sources)
 defines cancellation and rounding without modifying Speed.
+
+Ability definitions may author `effect_visual` (`neutral`, `flame`, `frost`,
+`sparks`, `vapor`, or `radiance`) and nullable `effect_style`. Omitted authoring
+fields use neutral styling; stored rules retain their explicit values. Style keys
+have at most 80 ASCII bytes and nonempty dot-separated lowercase letter/digit/
+hyphen components. These are public appearance hints, not damage categories or
+asset URLs. Put them on the ability definition, not a same-named talent or feat.
+Physical missile appearance is captured from the actual released item separately.
 
 Abilities may select `invocation = "directional_contact_ray"` for non-bouncing
 first-creature delivery. Existing bounded Sight rays retain one target-owned

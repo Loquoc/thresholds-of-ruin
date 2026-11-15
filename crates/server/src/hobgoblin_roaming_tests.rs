@@ -18,6 +18,10 @@ fn fixture() -> Game {
 }
 
 fn fixture_with(allow_stairs: bool, foes: u64) -> Game {
+    fixture_with_seed(allow_stairs, foes, 42)
+}
+
+fn fixture_with_seed(allow_stairs: bool, foes: u64, seed: u64) -> Game {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/rogue-exploration");
     let production = crate::scenario_package::read_package(&root).unwrap();
     let mut manifest = production.manifest.clone();
@@ -52,7 +56,7 @@ fn fixture_with(allow_stairs: bool, foes: u64) -> Game {
         .as_deref()
         .unwrap_or(&production.rules_source);
     let package = Package::from_parts(manifest, regions, rules).unwrap();
-    package.build(42, true).unwrap()
+    package.build(seed, true).unwrap()
 }
 
 fn commit_ai(game: &mut Game) -> SimAction {
@@ -176,22 +180,30 @@ fn hobgoblin_stair_policy_blocks_the_only_exit_and_allowed_counterfactual_takes_
 
 #[test]
 fn hobgoblin_prefers_the_unvisited_end_after_returning_to_corridor_center() {
-    let mut game = fixture();
-    for x in 1..=5 {
-        for y in 1..=3 {
-            if y != 2 || !(2..=4).contains(&x) {
-                wall_column(&mut game, x, y);
+    for seed in [0, 42] {
+        let mut game = fixture_with_seed(false, 1, seed);
+        game.act(Actor(1), SimAction::Wait).unwrap();
+        for x in 1..=5 {
+            for y in 1..=3 {
+                if y != 2 || !(2..=4).contains(&x) {
+                    wall_column(&mut game, x, y);
+                }
             }
         }
-    }
-    for (direction, x) in [
-        (Direction::West, 2),
-        (Direction::East, 3),
-        (Direction::East, 4),
-    ] {
+        // Either end is initially equally good. These two seeds exercise both
+        // choices; returning must still select the independently unvisited end.
         ready_ai(&mut game);
-        assert_eq!(commit_ai(&mut game), SimAction::Move(direction));
-        assert_eq!(game.observe(Actor(3)).unwrap().location, at(1, x, 2));
+        let (first_x, return_direction, unvisited_x) = match commit_ai(&mut game) {
+            SimAction::Move(Direction::West) => (2, Direction::East, 4),
+            SimAction::Move(Direction::East) => (4, Direction::West, 2),
+            other => panic!("expected one of the two corridor ends, got {other:?}"),
+        };
+        assert_eq!(game.observe(Actor(3)).unwrap().location, at(1, first_x, 2));
+        for x in [3, unvisited_x] {
+            ready_ai(&mut game);
+            assert_eq!(commit_ai(&mut game), SimAction::Move(return_direction));
+            assert_eq!(game.observe(Actor(3)).unwrap().location, at(1, x, 2));
+        }
     }
 }
 

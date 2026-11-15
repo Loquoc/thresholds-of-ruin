@@ -1147,6 +1147,17 @@ impl Connection {
                 _ => {}
             }
             let ask = match &message {
+                ServerMessage::Update { update }
+                    if matches!(&update.body, UpdateBody::Outcome { .. }) =>
+                {
+                    let UpdateBody::Outcome { facts, .. } = &update.body else {
+                        unreachable!()
+                    };
+                    self.palette.notice(
+                        observation_assets(&self.state.state().observation)
+                            .chain(crate::palette::outcome_effect_assets(&facts.facts)),
+                    )
+                }
                 ServerMessage::Update { .. } | ServerMessage::Snapshot { .. } => self
                     .palette
                     .notice(observation_assets(&self.state.state().observation)),

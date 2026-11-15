@@ -431,6 +431,35 @@ fn directional_ray_commands_select_direction_without_a_visible_creature() {
         assert!(parse(&format!("arbitrary ray {noun}"), &state).is_err());
     }
     assert_eq!(state, before);
+    state.observation.visible_cells.push(CellView {
+        object_presentation: None,
+        lit: true,
+        door: None,
+        trap: None,
+        material: String::new(),
+        key: "visible-cell".into(),
+        stairs_up: false,
+        stairs_down: false,
+        position: Position { x: 4, y: -2, z: 1 },
+        wall: false,
+        place_hint: false,
+        asset: None,
+    });
+    assert!(matches!(
+        parse("arbitrary ray cell 4 -2 1", &state).unwrap(),
+        Input::Command(Command::Act {
+            action: Action::UseAbility {
+                invocation: tor_protocol::AbilityInvocation {
+                    aim: tor_protocol::AbilityAim::CellRay { offset: [4, -2, 1] },
+                    ..
+                },
+                ..
+            }
+        })
+    ));
+    assert!(parse("arbitrary ray cell 4 -2 0", &state).is_err());
+    state.observation.visible_cells.clear();
+    assert!(parse("arbitrary ray cell 4 -2 1", &state).is_err());
 }
 
 fn magic_state() -> StateView {

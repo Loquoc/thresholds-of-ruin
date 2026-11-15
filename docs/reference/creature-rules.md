@@ -1023,7 +1023,9 @@ Rogue content. Shared ordinary retreat and paid cancel-and-step provide escape
 authority for both classes; there is no extra Mage movement node.
 
 A `directional_ray` invocation selects one of the ten ordinary movement directions,
-with no actor target, destination or predicted collision path. Its bounded `sight`
+with no actor target or predicted collision path. A `cell_ray` instead selects an
+exact currently visible physical cell offset; `cell_projectile` does the same
+for a physical projectile. Directional forms remain supported. Its bounded `sight`
 range supplies the clear-visit budget. Preparation captures the source's reference
 cell, body frame, selected direction, source skill/check/effect operands, token
 bindings, costs and timing. Release discovers recipients through current geometry;
@@ -1040,7 +1042,10 @@ check, no success effects, and explicit component damage on failure. There are n
 riders, unlocks or selected-weapon payloads in this invocation.
 
 Each clear physical cell spends one range visit. A solid wall or closed door
-reverses the whole direction without spending a visit; an open door passes.
+reflects only the incident components normal to the blocking faces without
+spending a visit; tangential components continue unchanged. This preserves the
+incidence/reflection angle for walls, floors, ceilings and deterministic corners.
+An open door passes.
 Unavailable or ambiguous physical continuations stop the ray. Independent limits
 of 64 probes and 32 reversals terminate no-progress geometry. Physical portal
 rotations rotate the direction; sight-only images and abstract stair links do not

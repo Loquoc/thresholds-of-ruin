@@ -1,5 +1,6 @@
 use super::animation::ease;
 use super::*;
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Effects: bolts, flashes, shockwaves and wards.
@@ -8,13 +9,14 @@ use super::*;
 pub struct Bolt {
     from: Vec3,
     to: Vec3,
-    delay: f32,
-    t: f32,
+    delay: Duration,
+    elapsed: Duration,
     wobble: f32,
     accent: Accent,
-    duration: f32,
+    duration: Duration,
     arc: bool,
     impact: bool,
+    physical: bool,
 }
 
 #[derive(Component)]
@@ -48,6 +50,60 @@ fn ring(library: &mut PropLibrary, meshes: &mut Assets<Mesh>, accent: Accent) ->
     })
 }
 
+/// Small cached silhouettes; no per-frame mesh allocation or extra lights.
+fn effect_form(
+    library: &mut PropLibrary,
+    meshes: &mut Assets<Mesh>,
+    form: tor_protocol::EffectAppearance,
+    accent: Accent,
+) -> Model {
+    use tor_protocol::EffectAppearance;
+    library.get(format!("fx-form:{form:?}:{accent:?}"), meshes, move || {
+        let mut parts = Parts {
+            accent: Some(accent),
+            ..default()
+        };
+        match form {
+            EffectAppearance::Bolt => {
+                parts
+                    .glow
+                    .blob(Vec3::ZERO, Vec3::new(3.5, 0.45, 0.45), 0, 0.0, Vec3::ONE);
+            }
+            EffectAppearance::Missile => {
+                parts
+                    .metal
+                    .blob(Vec3::ZERO, Vec3::new(2.8, 0.3, 0.3), 0, 0.0, Vec3::ONE);
+            }
+            EffectAppearance::Halo => {
+                for radius in [0.7, 1.0] {
+                    parts
+                        .glow
+                        .torus(Vec3::ZERO, Vec3::Y, radius, 0.035, 24, 3, Vec3::ONE);
+                }
+            }
+            EffectAppearance::Cloud => {
+                for point in [
+                    Vec3::ZERO,
+                    Vec3::new(-0.4, 0.2, 0.0),
+                    Vec3::new(0.35, 0.0, 0.3),
+                ] {
+                    parts.glow.blob(point, Vec3::splat(0.65), 0, 0.0, Vec3::ONE);
+                }
+            }
+            EffectAppearance::Flash | EffectAppearance::StatusIndicator => {
+                for scale in [
+                    Vec3::new(1.0, 0.18, 0.18),
+                    Vec3::new(0.18, 1.0, 0.18),
+                    Vec3::new(0.18, 0.18, 1.0),
+                ] {
+                    parts.glow.blob(Vec3::ZERO, scale, 0, 0.0, Vec3::ONE);
+                }
+            }
+        }
+        parts
+    })
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "effect construction receives its asset stores and trajectory together"
@@ -68,13 +124,14 @@ pub fn bolt(
             Bolt {
                 from,
                 to,
-                delay,
-                t: 0.0,
+                delay: Duration::from_secs_f32(delay.max(0.0)),
+                elapsed: Duration::ZERO,
                 wobble,
                 accent,
-                duration: 0.32,
+                duration: Duration::from_millis(320),
                 arc: true,
                 impact: true,
+                physical: false,
             },
             Transform::from_translation(from).with_scale(Vec3::ZERO),
             Visibility::default(),
@@ -172,14 +229,22 @@ pub fn effects(
     mut bolts: Query<(Entity, &mut Bolt, &mut Transform), Without<Fade>>,
     mut fades: Query<(Entity, &mut Fade, &mut Transform), Without<Bolt>>,
 ) {
-    let dt = time.delta_secs();
+    let delta = time.delta();
+    let dt = delta.as_secs_f32();
     for (e, mut bolt, mut transform) in &mut bolts {
-        if bolt.delay > 0.0 {
-            bolt.delay -= dt;
-            continue;
-        }
-        bolt.t += dt / bolt.duration;
-        let t = bolt.t.min(1.0);
+        let travel_dt = if !bolt.delay.is_zero() {
+            if delta < bolt.delay {
+                bolt.delay -= delta;
+                continue;
+            }
+            let remaining = delta - bolt.delay;
+            bolt.delay = Duration::ZERO;
+            remaining
+        } else {
+            delta
+        };
+        bolt.elapsed += travel_dt;
+        let t = (bolt.elapsed.as_secs_f32() / bolt.duration.as_secs_f32()).min(1.0);
         let side = (bolt.to - bolt.from).cross(Vec3::Y).normalize_or_zero();
         let arc = if bolt.arc {
             Vec3::Y * (t * PI).sin() * 0.25 + side * (t * TAU * 1.5).sin() * bolt.wobble
@@ -187,8 +252,16 @@ pub fn effects(
             Vec3::ZERO
         };
         transform.translation = bolt.from.lerp(bolt.to, t) + arc;
-        transform.scale = Vec3::splat(0.09 + 0.02 * (time.elapsed_secs() * 40.0).sin());
-        if bolt.t >= 1.0 {
+        if !bolt.arc {
+            transform.rotation =
+                Quat::from_rotation_arc(Vec3::X, (bolt.to - bolt.from).normalize_or(Vec3::X));
+        }
+        transform.scale = if bolt.physical {
+            Vec3::ONE
+        } else {
+            Vec3::splat(0.09 + 0.02 * (time.elapsed_secs() * 40.0).sin())
+        };
+        if bolt.elapsed >= bolt.duration {
             commands.entity(e).despawn();
             if bolt.impact {
                 flash(
@@ -457,17 +530,15 @@ pub fn stage(
     Some(impact + travel)
 }
 
-fn effect_accent(cue: tor_protocol::EffectCue) -> Accent {
-    use tor_protocol::EffectCue;
-    match cue {
-        EffectCue::Neutral => Accent::White,
-        EffectCue::Physical => Accent::Amber,
-        EffectCue::Fire => Accent::Ember,
-        EffectCue::Cold => Accent::Teal,
-        EffectCue::Lightning => Accent::Violet,
-        EffectCue::Poison => Accent::Danger,
-        EffectCue::Healing => Accent::Gold,
-        EffectCue::Status => Accent::Abyss,
+fn effect_accent(visual: tor_protocol::EffectVisual) -> Accent {
+    use tor_protocol::EffectVisual;
+    match visual {
+        EffectVisual::Neutral => Accent::White,
+        EffectVisual::Flame => Accent::Ember,
+        EffectVisual::Frost => Accent::Teal,
+        EffectVisual::Sparks => Accent::Violet,
+        EffectVisual::Vapor => Accent::Teal,
+        EffectVisual::Radiance => Accent::Gold,
     }
 }
 
@@ -478,15 +549,11 @@ pub fn public_effect(
     library: &mut PropLibrary,
     meshes: &mut Assets<Mesh>,
     appearance: tor_protocol::EffectAppearance,
-    cue: tor_protocol::EffectCue,
+    visual: tor_protocol::EffectVisual,
     points: &[Vec<Vec3>],
 ) -> Entity {
-    let accent = effect_accent(cue);
-    let model = if appearance == tor_protocol::EffectAppearance::Halo {
-        ring(library, meshes, accent)
-    } else {
-        sphere(library, meshes, accent)
-    };
+    let accent = effect_accent(visual);
+    let model = effect_form(library, meshes, appearance, accent);
     let size = if appearance == tor_protocol::EffectAppearance::Cloud {
         0.4
     } else {
@@ -518,18 +585,20 @@ pub fn stage_authoritative(
     library: &mut PropLibrary,
     meshes: &mut Assets<Mesh>,
     timing: tor_protocol::EffectTiming,
-    appearance: tor_protocol::EffectAppearance,
+    presentation: &tor_protocol::EffectPresentation,
+    object_model: Option<tor_client_3d_model::ItemModel>,
     delivery: tor_protocol::EffectDelivery,
-    cue: tor_protocol::EffectCue,
+    _cue: tor_protocol::EffectCue,
     segments: &[Vec<Vec3>],
 ) {
     use tor_protocol::{EffectAppearance, EffectDelivery, EffectTiming};
     let EffectTiming::Instant = timing;
+    let appearance = presentation.form;
     // Private status belongs in the HUD, never an implied world-visible aura.
     if appearance == EffectAppearance::StatusIndicator {
         return;
     }
-    let accent = effect_accent(cue);
+    let accent = effect_accent(presentation.visual);
     let path = matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile)
         && matches!(
             appearance,
@@ -538,11 +607,7 @@ pub fn stage_authoritative(
     for segment in segments {
         if !path || segment.len() == 1 {
             for point in segment {
-                let model = if appearance == EffectAppearance::Halo {
-                    ring(library, meshes, accent)
-                } else {
-                    sphere(library, meshes, accent)
-                };
+                let model = effect_form(library, meshes, appearance, accent);
                 let size = if appearance == EffectAppearance::Cloud {
                     0.4
                 } else {
@@ -564,19 +629,23 @@ pub fn stage_authoritative(
             continue;
         }
         for (index, pair) in segment.windows(2).enumerate() {
-            let model = sphere(library, meshes, accent);
+            let model = match object_model {
+                Some(kind) => library.item(kind, meshes),
+                None => effect_form(library, meshes, appearance, accent),
+            };
             commands
                 .spawn((
                     Bolt {
                         from: pair[0],
                         to: pair[1],
-                        delay: index as f32 * 0.08,
-                        t: 0.0,
+                        delay: Duration::from_millis(index as u64 * 80),
+                        elapsed: Duration::ZERO,
                         wobble: 0.0,
                         accent,
-                        duration: 0.08,
+                        duration: Duration::from_millis(80),
                         arc: false,
                         impact: false,
+                        physical: object_model.is_some(),
                     },
                     Transform::from_translation(pair[0]).with_scale(Vec3::ZERO),
                     Visibility::default(),
@@ -592,6 +661,124 @@ mod authoritative_tests {
     use crate::{props::PropMaterials, Game};
     use tor_client_3d_model::Happening;
     use tor_protocol::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming, Position};
+
+    #[test]
+    fn delayed_bolt_uses_the_remainder_of_its_starting_frame() {
+        // The first two cases cross or exactly reach the delay boundary. The
+        // final case remains hidden; none may discard elapsed travel time.
+        for (delay, expected_x, visible) in
+            [(0.03, 0.02, true), (0.05, 0.0, true), (0.08, 0.0, false)]
+        {
+            let mut app = App::new();
+            let mut materials = Assets::<StandardMaterial>::default();
+            let library = PropLibrary::new(PropMaterials::new(&mut materials));
+            let mut time = Time::<()>::default();
+            time.advance_by(std::time::Duration::from_millis(50));
+            app.insert_resource(time)
+                .init_resource::<Assets<Mesh>>()
+                .insert_resource(library)
+                .add_systems(Update, effects);
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Bolt {
+                        from: Vec3::ZERO,
+                        to: Vec3::X,
+                        delay: Duration::from_secs_f64(delay),
+                        elapsed: Duration::ZERO,
+                        wobble: 0.0,
+                        accent: Accent::White,
+                        duration: Duration::from_secs(1),
+                        arc: false,
+                        impact: false,
+                        physical: false,
+                    },
+                    Transform::from_scale(Vec3::ZERO),
+                ))
+                .id();
+            app.update();
+            let transform = app.world().get::<Transform>(entity).unwrap();
+            assert!((transform.translation.x - expected_x).abs() < 1e-6);
+            assert_eq!(transform.scale.x > 0.0, visible);
+        }
+    }
+
+    #[test]
+    fn contiguous_hops_never_blank_at_fixed_tick_boundaries() {
+        let mut app = App::new();
+        let mut materials = Assets::<StandardMaterial>::default();
+        app.insert_resource(Time::<()>::default())
+            .insert_resource(PropLibrary::new(PropMaterials::new(&mut materials)))
+            .init_resource::<Assets<Mesh>>()
+            .add_systems(Update, effects);
+        for index in 0..4 {
+            app.world_mut().spawn((
+                Bolt {
+                    from: Vec3::X * index as f32,
+                    to: Vec3::X * (index + 1) as f32,
+                    delay: Duration::from_millis(index as u64 * 80),
+                    elapsed: Duration::ZERO,
+                    wobble: 0.0,
+                    accent: Accent::White,
+                    duration: Duration::from_millis(80),
+                    arc: false,
+                    impact: false,
+                    physical: false,
+                },
+                Transform::from_scale(Vec3::ZERO),
+            ));
+        }
+        for tick in 1..16 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_millis(20));
+            app.update();
+            let visible = app
+                .world_mut()
+                .query_filtered::<&Transform, With<Bolt>>()
+                .iter(app.world())
+                .filter(|transform| transform.scale.x > 0.0)
+                .count();
+            assert!(visible > 0, "blank at 50 Hz tick {tick}");
+            // Capture holds are real zero-delta updates, not additional simulation time.
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::ZERO);
+            app.update();
+        }
+    }
+
+    #[test]
+    fn cached_projectile_meshes_keep_bounds_after_cpu_extraction() {
+        use bevy::render::primitives::Aabb;
+        let mut materials = Assets::<StandardMaterial>::default();
+        let mut library = PropLibrary::new(PropMaterials::new(&mut materials));
+        let mut meshes = Assets::<Mesh>::default();
+        let first = library.item(tor_client_3d_model::ItemModel::Arrow, &mut meshes);
+        assert!(!first.0.is_empty());
+        for (handle, _) in &first.0 {
+            assert!(meshes.remove(handle).is_some());
+        }
+        // RENDER_WORLD-only CPU geometry has gone, but cached GPU handles remain reusable.
+        let late = library.item(tor_client_3d_model::ItemModel::Arrow, &mut meshes);
+        assert_eq!(first.0.len(), late.0.len());
+        let mut world = World::new();
+        world
+            .commands()
+            .spawn(Transform::default())
+            .with_children(|p| late.attach(p));
+        world.flush();
+        let drawn: Vec<_> = world
+            .query_filtered::<Option<&Aabb>, With<Mesh3d>>()
+            .iter(&world)
+            .collect();
+        assert_eq!(drawn.len(), first.0.len());
+        assert!(drawn
+            .iter()
+            .all(|bounds| bounds.is_some_and(|b| b.center.is_finite()
+                && b.half_extents.is_finite()
+                && b.half_extents.max_element() > 0.0)));
+    }
 
     #[test]
     fn appearance_is_distinct_from_delivery_and_private_status_has_no_world_aura() {
@@ -617,7 +804,8 @@ mod authoritative_tests {
                     ability: None,
                     tick: 4,
                     timing: EffectTiming::Instant,
-                    appearance,
+                    presentation: tor_protocol::EffectPresentation::neutral(appearance),
+                    object_model: None,
                     delivery: EffectDelivery::Ray,
                     cue: EffectCue::Neutral,
                     segments: vec![vec![
@@ -655,7 +843,8 @@ mod authoritative_tests {
                 ability: None,
                 tick: 4,
                 timing: EffectTiming::Instant,
-                appearance: EffectAppearance::Bolt,
+                presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
+                object_model: None,
                 delivery: EffectDelivery::Ray,
                 cue: EffectCue::Neutral,
                 segments: vec![

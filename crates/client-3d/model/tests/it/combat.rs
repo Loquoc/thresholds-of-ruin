@@ -116,7 +116,7 @@ fn authoritative_effect_projection_keeps_redacted_path_breaks_without_actor_look
         tick: 17,
         anchors: vec![],
         timing: EffectTiming::Instant,
-        appearance: EffectAppearance::Bolt,
+        presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
         delivery: EffectDelivery::Ray,
         cue: EffectCue::Neutral,
         segments: segments.clone(),
@@ -127,7 +127,8 @@ fn authoritative_effect_projection_keeps_redacted_path_breaks_without_actor_look
         matches!(&events[0], tor_client_3d_model::Happening::Effect {
         caster: None, ability: None, tick: 17,
         timing: EffectTiming::Instant,
-        appearance: EffectAppearance::Bolt,
+        presentation: tor_protocol::EffectPresentation { form: EffectAppearance::Bolt, .. },
+        object_model: None,
         delivery: EffectDelivery::Ray, cue: EffectCue::Neutral, segments: actual,
     } if actual == &segments)
     );
@@ -166,7 +167,7 @@ fn ordered_effects_align_each_cell_and_split_missing_or_rotated_picture_points()
         ability: None,
         tick: 1,
         timing: EffectTiming::Instant,
-        appearance: EffectAppearance::Bolt,
+        presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
         delivery: EffectDelivery::Ray,
         cue: EffectCue::Neutral,
         segments: vec![vec![point(0, 0), point(1, 0), point(2, 0)]],

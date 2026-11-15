@@ -25,6 +25,12 @@ pub fn input(
         return Ok(Some(Progress::Cancel));
     }
     if menu.step() == Step::Direction {
+        if let Some(offset) = tor_client_common::abilities::parse_cell_aim(&line) {
+            return menu
+                .cell_action(state, offset?)
+                .map(|a| Some(Progress::Action(a)));
+        }
+
         return crate::parser::lexicon::parse_direction(&line)
             .map(|d| menu.action(state, d).map(|a| Some(Progress::Action(a))))
             .unwrap_or(Ok(None));
@@ -51,7 +57,7 @@ pub fn input(
 pub fn lines(menu: &ProjectileMenu) -> Vec<String> {
     let mut lines = vec![menu.title()];
     if menu.step() == Step::Direction {
-        lines.push("Which direction? Use the usual direction names, or cancel.".into());
+        lines.push("Which direction? Use a direction, cell <x> <y> <z>, or cancel.".into());
         return lines;
     }
     lines.extend(menu.rows().into_iter().enumerate().map(|(i, row)| {

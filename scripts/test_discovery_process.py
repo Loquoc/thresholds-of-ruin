@@ -86,6 +86,51 @@ class DiscoveryProcesses(ProcessTestCase):
         self.assertFalse(restored["state"]["wizard_game"])
 
     @non_graphical
+    def test_headless_examination_and_secret_open_survive_source_free_checkpoint(self):
+        checkpoint_interval = 1
+        self.discovery_samples = {}
+        source = package(self)
+        server = self.server("--checkpoint-interval", checkpoint_interval, scenario=source, seed=42)
+        owner, _ = self.client()
+        spectator, _ = self.client(SPECTATOR_TOKEN)
+        presence = self.capture_discovery_snapshot(spectator, "presence")
+        self.assertIsNone(next(iter(traps(presence).values()))["family"])
+        trap = next(iter(traps(presence).values()))
+        self.assertIsNone(self.act(owner, {"type": "examine_trap", "trap": trap["id"]})["error"])
+        initial = self.capture_discovery_snapshot(spectator, "family")
+        first = next(iter(traps(initial).values()))
+        self.assertEqual(first["family"], "rust")
+        self.assertEqual(observation(initial)["tick"], "0", "Explicit examination is not a paid search")
+        self.assertIsNone(self.act(owner, {"type": "examine_trap", "trap": trap["id"]})["error"])
+        for _ in range(3):
+            self.assertDisclosedStateEqual(self.snapshot(spectator)["state"], initial["state"])
+        moved = self.act(owner, {"type": "move", "direction": "east"})
+        self.assertIsNone(moved["error"])
+        adjacent = settle_rogue_action(self, owner, moved)
+        entrance = next(iter(doors(adjacent).values()))
+        opened_action = self.act(owner, {"type": "set_door", "door": entrance["id"], "open": True})
+        self.assertIsNone(opened_action["error"])
+        settle_rogue_action(self, owner, opened_action)
+        opened = self.capture_discovery_snapshot(spectator, "opened")
+        self.assertTrue(next(iter(doors(opened).values()))["open"])
+        self.assertEqual(len(traps(opened)), 2)
+        # Saved discovery is actor knowledge; spectators of that actor see the
+        # same known family, not the other trap's still-unknown mechanism.
+        self.assertEqual(sum(trap["family"] is None for trap in traps(opened).values()), 1)
+        self.assertIsNone(self.request(spectator, {"type": "snapshot"})["error"])
+        self.assertIsNone(self.request(owner, {"type": "save"})["error"])
+        owner.stop(save=False)
+        spectator.stop(save=False)
+        server.stop(save=False)
+        shutil.rmtree(source)
+        self.server("--checkpoint-interval", checkpoint_interval, scenario=ROOT / "scenarios/two-room", seed=None)
+        restored_client, _ = self.client(SPECTATOR_TOKEN)
+        restored = self.capture_discovery_snapshot(restored_client, "restored")
+        self.assertDisclosedStateEqual(restored["state"], opened["state"])
+        self.assertEqual(traps(restored), traps(opened))
+        self.assertFalse(restored["state"]["wizard_game"])
+
+    @non_graphical
     def test_text_examination_and_secret_open_survive_source_free_checkpoint(self):
         self.reopen(1)
 

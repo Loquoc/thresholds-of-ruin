@@ -225,7 +225,7 @@ pub struct ProjectilePlan {
     pub actor: ActorId,
     pub ability: crate::content_ids::AbilityId,
     pub origin: super::Placement,
-    pub direction: super::StepDirection,
+    pub aim: super::FlightAim,
     pub selection: ProjectileDeliverySelection,
     pub source: ProjectileSource,
     pub launch_footprint: Vec<tor_world::Location>,
@@ -266,7 +266,7 @@ impl<'de> Deserialize<'de> for ProjectilePlan {
             actor: ActorId,
             ability: crate::content_ids::AbilityId,
             origin: super::Placement,
-            direction: super::StepDirection,
+            aim: super::FlightAim,
             selection: ProjectileDeliverySelection,
             source: ProjectileSource,
             #[serde(deserialize_with = "read_footprint")]
@@ -295,7 +295,7 @@ impl<'de> Deserialize<'de> for ProjectilePlan {
             actor: f.actor,
             ability: f.ability,
             origin: f.origin,
-            direction: f.direction,
+            aim: f.aim,
             selection: f.selection,
             source: f.source,
             launch_footprint: f.launch_footprint,
@@ -315,6 +315,9 @@ impl<'de> Deserialize<'de> for ProjectilePlan {
 }
 impl ProjectilePlan {
     pub(crate) fn valid(&self, rules: &crate::rules::Ruleset) -> bool {
+        if !self.aim.valid() {
+            return false;
+        }
         let Some(definition) = rules.ability(&self.ability) else {
             return false;
         };
@@ -655,9 +658,10 @@ impl crate::Game {
         &self,
         actor: ActorId,
         ability: &crate::content_ids::AbilityId,
-        direction: super::StepDirection,
+        direction: impl Into<super::FlightAim>,
         selection: ProjectileDeliverySelection,
     ) -> Result<ProjectilePlan, crate::GameError> {
+        let direction = direction.into();
         let caster = self.creature(actor).ok_or(crate::GameError::UnknownActor)?;
         if caster.health().dead() {
             return Err(crate::GameError::Rule(super::RuleError::Dead));
@@ -768,11 +772,19 @@ impl crate::Game {
                     .map_err(|_| invalid())?,
             )
             .map_err(|_| invalid())?;
+        self.validate_flight_aim(
+            actor,
+            direction,
+            Some(
+                source.range(rules).ok_or_else(invalid)?.long_feet
+                    / crate::weapon_profiles::PROJECTILE_STEP_FEET,
+            ),
+        )?;
         let plan = ProjectilePlan {
             actor,
             ability: ability.clone(),
             origin,
-            direction,
+            aim: direction,
             selection,
             range: source.range(rules).ok_or_else(invalid)?,
             source,

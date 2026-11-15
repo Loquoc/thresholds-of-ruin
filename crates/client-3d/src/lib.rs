@@ -724,6 +724,22 @@ enum Aim {
 }
 
 impl Aim {
+    fn cell(&self, offset: [i32; 3]) -> Option<Cmd> {
+        match self {
+            Self::Device(item) => Some(Cmd::ZapCell(*item, offset)),
+            Self::Projectile => Some(Cmd::Projectile(
+                tor_client_3d_model::ProjectileStep::FireCell(offset),
+            )),
+            Self::Ability {
+                id,
+                target: tor_protocol::AbilityTargetKind::DirectionalRay,
+            } => Some(Cmd::Ability(
+                id.clone(),
+                tor_client_3d_model::AbilityTarget::Cell(offset),
+            )),
+            Self::Ability { .. } => None,
+        }
+    }
     /// The command a movement input completes, if this aim takes directions.
     fn along(&self, direction: tor_protocol::Direction) -> Option<Cmd> {
         use tor_protocol::AbilityTargetKind as Kind;

@@ -2087,7 +2087,7 @@ fn sustained_fixture(tick: u64) -> StateView {
         observed_since: tick,
         expires_at: Some(tick + 100),
         delivery: EffectDelivery::Area,
-        appearance: EffectAppearance::Cloud,
+        presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Cloud),
         cue: EffectCue::Cold,
         segments: vec![vec![point]],
         anchors: vec![EffectAnchor {
@@ -2141,7 +2141,7 @@ fn public_effect_snapshot_rejects_undisclosed_geometry_time_and_identity() {
             2 => effect.id.clear(),
             3 => effect.anchors[0].key = "d".repeat(40),
             4 => effect.segments[0].push(Position { x: 999, y: 0, z: 0 }),
-            5 => effect.appearance = EffectAppearance::StatusIndicator,
+            5 => effect.presentation.form = EffectAppearance::StatusIndicator,
             6 => effect.anchors.clear(),
             7 => bad.observation.public_effects.push(original.clone()),
             8 => bad.observation.public_effects = vec![original; MAX_PUBLIC_EFFECTS + 1],

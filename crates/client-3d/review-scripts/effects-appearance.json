@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1200,
+    900
+  ],
+  "actors": [],
+  "ground_items": [
+    {
+      "model": "Arrow",
+      "position": [
+        -3,
+        0,
+        0
+      ],
+      "yaw": 0
+    }
+  ],
+  "cameras": [
+    {
+      "id": "overview",
+      "position": [
+        0,
+        8,
+        8
+      ],
+      "target": [
+        0,
+        0.5,
+        0
+      ],
+      "fov_degrees": 45
+    }
+  ],
+  "events": [],
+  "effects": [
+    {
+      "tick": 1,
+      "delivery": "ray",
+      "presentation": {
+        "form": "bolt",
+        "visual": "flame",
+        "style": null,
+        "object": null
+      },
+      "admitted_assets": [],
+      "segments": [
+        [
+          [
+            -2,
+            0.8,
+            -1.5
+          ],
+          [
+            -1,
+            0.8,
+            -1.5
+          ],
+          [
+            0,
+            0.8,
+            -1.5
+          ],
+          [
+            1,
+            0.8,
+            -1.5
+          ],
+          [
+            2,
+            0.8,
+            -1.5
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "ray",
+      "presentation": {
+        "form": "bolt",
+        "visual": "frost",
+        "style": null,
+        "object": null
+      },
+      "admitted_assets": [],
+      "segments": [
+        [
+          [
+            -2,
+            0.8,
+            -0.5
+          ],
+          [
+            -1,
+            0.8,
+            -0.5
+          ],
+          [
+            0,
+            0.8,
+            -0.5
+          ],
+          [
+            1,
+            0.8,
+            -0.5
+          ],
+          [
+            2,
+            0.8,
+            -0.5
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "projectile",
+      "presentation": {
+        "form": "missile",
+        "visual": "neutral",
+        "style": null,
+        "object": {
+          "kind": {
+            "kind": "item",
+            "class": "weapon"
+          },
+          "name": "disclosed projectile",
+          "asset": "item.weapon.arrow"
+        }
+      },
+      "admitted_assets": [
+        "item.weapon.arrow"
+      ],
+      "segments": [
+        [
+          [
+            -2,
+            0.8,
+            0.5
+          ],
+          [
+            -1,
+            0.8,
+            0.5
+          ],
+          [
+            0,
+            0.8,
+            0.5
+          ],
+          [
+            1,
+            0.8,
+            0.5
+          ],
+          [
+            2,
+            0.8,
+            0.5
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "projectile",
+      "presentation": {
+        "form": "missile",
+        "visual": "neutral",
+        "style": null,
+        "object": {
+          "kind": {
+            "kind": "item",
+            "class": "weapon"
+          },
+          "name": "disclosed projectile",
+          "asset": "item.weapon.dagger"
+        }
+      },
+      "admitted_assets": [
+        "item.weapon.dagger"
+      ],
+      "segments": [
+        [
+          [
+            -2,
+            0.8,
+            1.5
+          ],
+          [
+            -1,
+            0.8,
+            1.5
+          ],
+          [
+            0,
+            0.8,
+            1.5
+          ],
+          [
+            1,
+            0.8,
+            1.5
+          ],
+          [
+            2,
+            0.8,
+            1.5
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "ray",
+      "presentation": {
+        "form": "bolt",
+        "visual": "sparks",
+        "style": null,
+        "object": null
+      },
+      "admitted_assets": [],
+      "segments": [
+        [
+          [
+            -2,
+            0.8,
+            3
+          ],
+          [
+            -1,
+            0.8,
+            3
+          ]
+        ],
+        [
+          [
+            1,
+            0.8,
+            3
+          ],
+          [
+            2,
+            0.8,
+            3
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "area",
+      "presentation": {
+        "form": "cloud",
+        "visual": "vapor",
+        "style": null,
+        "object": null
+      },
+      "admitted_assets": [],
+      "segments": [
+        [
+          [
+            -1.5,
+            0.8,
+            -3
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "area",
+      "presentation": {
+        "form": "halo",
+        "visual": "radiance",
+        "style": null,
+        "object": null
+      },
+      "admitted_assets": [],
+      "segments": [
+        [
+          [
+            0,
+            0.8,
+            -3
+          ]
+        ]
+      ]
+    },
+    {
+      "tick": 1,
+      "delivery": "area",
+      "presentation": {
+        "form": "flash",
+        "visual": "flame",
+        "style": null,
+        "object": null
+      },
+      "admitted_assets": [],
+      "segments": [
+        [
+          [
+            1.5,
+            0.8,
+            -3
+          ]
+        ]
+      ]
+    }
+  ],
+  "captures": [
+    {
+      "tick": 2,
+      "name": "effects-02",
+      "camera": "overview"
+    },
+    {
+      "tick": 4,
+      "name": "effects-04",
+      "camera": "overview"
+    },
+    {
+      "tick": 8,
+      "name": "effects-08",
+      "camera": "overview"
+    },
+    {
+      "tick": 12,
+      "name": "effects-12",
+      "camera": "overview"
+    },
+    {
+      "tick": 30,
+      "name": "effects-30",
+      "camera": "overview"
+    }
+  ]
+}

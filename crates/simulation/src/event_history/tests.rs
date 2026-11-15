@@ -541,7 +541,14 @@ fn host_event_identity_requires_the_disclosed_reference_cell() {
                 }
             )));
         } else {
-            assert!(third_party.is_empty());
+            assert!(
+                matches!(third_party.as_slice(), [DisclosedCombatEvent::Effect {
+                caster: None, caster_reference: None, ability: None,
+                cue: crate::combat::EffectCue::Neutral, delivery: crate::combat::EffectDelivery::Target,
+                appearance: crate::combat::EffectAppearance::Flash, object: None, segments, ..
+            }] if *segments == vec![vec![Position { x: 0, y: -1, z: 0 }]]),
+                "only the visible target flash is licensed: {third_party:?}"
+            );
             assert!(events(&game, ActorId(2)).iter().any(|event| matches!(
                 event,
                 DisclosedCombatEvent::UnseenAbility {
@@ -1077,7 +1084,13 @@ fn source_disclosure_ceiling_names_only_licensed_historical_observers() {
                 .collect();
             assert_eq!(
                 spatial.len(),
-                usize::from(ceiling.permits(observer, ActorId(1)))
+                1,
+                "visible geometry survives source-name restrictions"
+            );
+            assert!(
+                matches!(spatial[0], DisclosedCombatEvent::Effect { ability, cue, .. }
+                if ability.is_some() == ceiling.permits(observer, ActorId(1))
+                && (ceiling.permits(observer, ActorId(1)) || *cue == crate::combat::EffectCue::Neutral))
             );
             let disclosed: Vec<_> = all
                 .iter()
@@ -1584,8 +1597,12 @@ fn commit_event_facts_keep_hidden_identity_and_reject_stale_or_wrong_owner() {
     assert_eq!(facts.proof.witness, proof.witness);
     assert_eq!(facts.proof.entries, proof.entries);
     assert!(
-        facts.proof.entries.is_empty(),
-        "a third party must not identify the invisible source"
+        matches!(facts.proof.entries.as_slice(), [entry]
+        if entry.key.kind == EventKind::Effect
+        && entry.source == Some(ActorReferenceKind::Contact)
+        && entry.disclosed_ability.is_none()
+        && entry.spatial.as_ref() == Some(&vec![vec![at(2, 1)]])),
+        "only a visible target flash and tactile source reference are licensed"
     );
     let original = hidden.clone();
     let mut candidate = hidden.clone();
@@ -1596,7 +1613,16 @@ fn commit_event_facts_keep_hidden_identity_and_reject_stale_or_wrong_owner() {
         .record_event_observation(&witness, &proof, &mut rich)
         .unwrap();
     assert_eq!(candidate.event_receipts, hidden.event_receipts);
-    assert!(events(&candidate, observer).is_empty());
+    assert!(matches!(
+        events(&candidate, observer).as_slice(),
+        [DisclosedCombatEvent::Effect {
+            caster_reference: Some(ActorReferenceKind::Contact),
+            ability: None,
+            cue: crate::combat::EffectCue::Neutral,
+            delivery: crate::combat::EffectDelivery::Target,
+            ..
+        }]
+    ));
     let victim_sources: Vec<_> = candidate.event_receipts.observers[&ActorId(2)]
         .entries
         .iter()
@@ -1616,9 +1642,9 @@ fn commit_event_facts_keep_hidden_identity_and_reject_stale_or_wrong_owner() {
             ..
         }
     )));
-    assert_eq!(
+    assert_ne!(
         candidate.event_receipts, original.event_receipts,
-        "empty hidden proof must remain a no-op, not manufacture a receipt watermark"
+        "committing the visible flash must record its receipt without identifying the source"
     );
     let retained = original.event_receipts.observers.clone();
     drop(candidate);
@@ -2171,6 +2197,7 @@ fn spatial_effects_freeze_identity_and_geometry_before_resolution() {
             tick: game.tick,
             timing: crate::combat::EffectTiming::Instant,
             appearance: crate::combat::EffectAppearance::Flash,
+            object_origin: None,
             delivery: EffectDelivery::Target,
             cue: EffectCue::Fire,
             segments: vec![vec![at(1, 1), at(2, 1)]],
@@ -2230,6 +2257,7 @@ fn spatial_effect_positions_follow_current_observer_frame_not_old_offsets() {
             tick: game.tick,
             timing: crate::combat::EffectTiming::Instant,
             appearance: crate::combat::EffectAppearance::Flash,
+            object_origin: None,
             delivery: EffectDelivery::Target,
             cue: EffectCue::Physical,
             segments: vec![vec![at(2, 1)]],
@@ -2290,6 +2318,7 @@ fn spatial_target_effect_does_not_locate_an_invisible_target() {
                 tick: game.tick,
                 timing: crate::combat::EffectTiming::Instant,
                 appearance: crate::combat::EffectAppearance::Flash,
+                object_origin: None,
                 delivery,
                 cue: EffectCue::Physical,
                 segments: vec![vec![at(2, 1)]],
@@ -2346,6 +2375,7 @@ fn spatial_receipt_key_binds_timing_appearance_and_semantics() {
             tick: 7,
             timing: EffectTiming::Instant,
             appearance: EffectAppearance::Bolt,
+            object_origin: None,
             delivery: EffectDelivery::Ray,
             cue: EffectCue::Fire,
             segments: vec![vec![at(1, 1)]],
@@ -2389,4 +2419,96 @@ fn spatial_capture_uses_reference_only_observations() {
         origin.origin.spatial.as_ref().unwrap()[&ActorId(3)].source,
         Some(ActorReferenceKind::Creature)
     );
+}
+
+#[test]
+fn frozen_projectile_appearance_is_observer_specific_without_live_item_lookup() {
+    use crate::appearance_catalog::{ObjectPresentation, ObjectPresentationKind};
+    let game = fixture();
+    let ordinary = ObjectPresentation {
+        name: std::sync::Arc::from("arrow"),
+        asset: Some(std::sync::Arc::from("weapon.arrow")),
+        kind: ObjectPresentationKind::Item {
+            class: crate::ItemClass::Weapon,
+        },
+    };
+    let object = crate::combat::EffectObjectOrigin {
+        subject: crate::ItemId(999),
+        ordinary: ordinary.clone(),
+        observers: BTreeMap::from([(ActorId(1), None), (ActorId(2), Some(4))]),
+    };
+    // Projection itself uses immutable provenance, not a still-live item record.
+    assert!(game.items.get(&object.subject).is_none());
+    assert_eq!(
+        game.effect_object_presentation(ActorId(1), &object),
+        Some(ordinary)
+    );
+    assert_eq!(game.effect_object_presentation(ActorId(3), &object), None);
+    assert_eq!(
+        game.effect_object_presentation(ActorId(2), &object),
+        Some(game.cosmetic_object(
+            ActorId(2),
+            999,
+            crate::appearance_state::AppearanceChannel::Item,
+            4
+        ))
+    );
+    // Serialization cannot silently overwrite one observer's captured phase.
+    let encoded = serde_json::to_string(&object).unwrap();
+    let duplicate = encoded.replace("\"2\":4", "\"2\":4,\"2\":5");
+    assert_ne!(duplicate, encoded);
+    assert!(serde_json::from_str::<crate::combat::EffectObjectOrigin>(&duplicate).is_err());
+}
+
+#[test]
+fn visible_flight_does_not_require_identifying_its_hidden_source() {
+    use crate::combat::{EffectAppearance, EffectCue, EffectDelivery, EffectTiming, SpatialEffect};
+    let mut game = fixture();
+    template(&mut game, ActorId(1), Some("event_invisible"));
+    game.teleport(ActorId(3), at(4, 2)).unwrap();
+    game.host_region_continuation = true;
+    game.begin_event_batch().unwrap();
+    let origin = game.capture_spatial_effect_origin(ActorId(1)).unwrap();
+    assert_eq!(
+        origin.origin.spatial.as_ref().unwrap()[&ActorId(3)].source,
+        None
+    );
+    assert!(origin.origin.spatial.as_ref().unwrap()[&ActorId(3)]
+        .visible
+        .contains(&at(4, 1)));
+    game.publish_spatial_effect(
+        SpatialEffect {
+            actor: ActorId(1),
+            target: None,
+            ability: AbilityId::new("basic_melee").unwrap(),
+            source_disclosure: SourceAbilityDisclosure::Concealed,
+            tick: game.tick,
+            timing: EffectTiming::Instant,
+            appearance: EffectAppearance::Missile,
+            object_origin: None,
+            delivery: EffectDelivery::Projectile,
+            cue: EffectCue::Physical,
+            segments: vec![vec![at(4, 1)]],
+        },
+        origin,
+    )
+    .unwrap();
+    game.seal_participant_events().unwrap();
+    game.host_region_continuation = false;
+    let witness = game.event_observation_witness();
+    capture(&mut game, ActorId(3), &witness);
+    let disclosed = events(&game, ActorId(3));
+    assert!(
+        matches!(
+            disclosed.first(),
+            Some(DisclosedCombatEvent::Effect {
+                caster: None,
+                ability: None,
+                cue: EffectCue::Neutral,
+                ..
+            })
+        ),
+        "actual visible-flight events: {disclosed:?}"
+    );
+    assert!(game.event_receipts_valid());
 }

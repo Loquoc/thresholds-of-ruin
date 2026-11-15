@@ -18,6 +18,7 @@ pub enum Cmd {
     Use(ItemTarget, ItemOperation),
     /// Zap a device that is aimed along a direction.
     Zap(ItemTarget, Direction),
+    ZapCell(ItemTarget, [i32; 3]),
     /// Zap a device at yourself, when it offers that.
     ZapSelf(ItemTarget),
     /// Answer the pending identification choice; `None` declines it.
@@ -68,6 +69,7 @@ pub enum ProjectileStep {
     Previous,
     /// Fire the chosen delivery along a direction.
     Fire(Direction),
+    FireCell([i32; 3]),
     Cancel,
 }
 
@@ -78,6 +80,7 @@ pub enum AbilityTarget {
     Actor(ActorTarget),
     /// A step or ray along a direction.
     Direction(Direction),
+    Cell([i32; 3]),
 }
 
 /// The longest place name the ASCII client also accepts.
@@ -208,6 +211,9 @@ pub fn request(state: &ClientState, command: Cmd) -> Result<Request, String> {
             quantity: None,
         },
         Cmd::Use(item, operation) => item_action(view, item, operation)?,
+        Cmd::ZapCell(item, offset) => {
+            tor_client_common::items::zap_cell_action(view, item, offset)?
+        }
         Cmd::Zap(item, direction) => zap_action(view, item, direction)?,
         Cmd::ZapSelf(item) => zap_self_action(view, item)?,
         Cmd::Identify(item) => identification_action(view, item)?,
@@ -277,6 +283,14 @@ fn ability_action(view: &Observation, id: &str, target: AbilityTarget) -> Result
     let direction = match target {
         AbilityTarget::Actor(actor) => {
             return tor_client_common::abilities::action(view, id, actor)
+        }
+        AbilityTarget::Cell(offset) => {
+            return tor_client_common::abilities::invocation_action(
+                view,
+                id,
+                AbilityInvocation::cell_ray(offset),
+                SupplySelection::Carried,
+            );
         }
         AbilityTarget::Direction(direction) => direction,
     };

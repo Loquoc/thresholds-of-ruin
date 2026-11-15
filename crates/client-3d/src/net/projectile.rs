@@ -74,6 +74,19 @@ pub(super) async fn step(
             *menu = None;
             return publish(tx, Event::Projectile(None));
         }
+        ProjectileStep::FireCell(offset) => {
+            let Some(chosen) = menu.take() else {
+                return abandon(menu, "Choose a projectile ability first.".into(), tx);
+            };
+            publish(tx, Event::Projectile(None))?;
+            return match chosen.cell_action(state, offset) {
+                Ok(action) => {
+                    let request = state.command_request(Command::Act { action });
+                    transact(connection, request, tx).await
+                }
+                Err(reason) => publish(tx, Event::Status(reason)),
+            };
+        }
         ProjectileStep::Fire(direction) => {
             let Some(chosen) = menu.take() else {
                 return abandon(menu, "Choose a projectile ability first.".into(), tx);

@@ -17,6 +17,26 @@ from rogue_earned_route_process import (
 )
 
 
+def rules_before_effect_presentation(raw):
+    """Reverse only the five documented, non-gameplay rules60 additions.
+
+    Exact byte assertions keep historical dependency checks independent of the
+    current resolver and fail if any unrelated rules content changes.
+    """
+    for ability, visual, style in (
+            ('spark_lance_fire', 'flame', 'magic.lance.fire'),
+            ('spark_lance_cold', 'frost', 'magic.lance.cold'),
+            ('shell_impact', 'radiance', 'magic.shell'),
+            ('shell_keen', 'radiance', 'magic.shell'),
+            ('shell_energy', 'radiance', 'magic.shell')):
+        old = f'id = "{ability}"\n'.encode()
+        added = old + f'effect_visual = "{visual}"\neffect_style = "{style}"\n'.encode()
+        if raw.count(added) != 1:
+            raise AssertionError('Historical rules projection requires exact authored presentation: ' + ability)
+        raw = raw.replace(added, old, 1)
+    return raw
+
+
 class RestoredPictureIdentity(unittest.TestCase):
     def test_only_attachment_picture_capabilities_change(self):
         old = {'state': {'snapshot': 'old', 'revision': '12', 'tick': '100',
@@ -1670,7 +1690,7 @@ class RouteResumeHardeningTests(unittest.TestCase):
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         bundled = ROOT / 'crates/simulation/data/default-ruleset.toml'
         self.assertEqual(source['rules_dependencies'], {
-            'interactions-v57': hashlib.sha256(bundled.read_bytes().replace(b'id = "interactions-v58"', b'id = "interactions-v57"', 1)).hexdigest()})
+            'interactions-v57': hashlib.sha256(rules_before_effect_presentation(bundled.read_bytes()).replace(b'id = "interactions-v60"', b'id = "interactions-v57"', 1)).hexdigest()})
         self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
         for name in source['package_inputs']:
             current = (snapshot / 'package' / name).read_bytes()
@@ -1717,7 +1737,7 @@ class RouteResumeHardeningTests(unittest.TestCase):
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
         self.assertEqual(source['rules_dependencies'], prior['rules_dependencies'])
         bundled = ROOT / 'crates/simulation/data/default-ruleset.toml'
-        self.assertEqual(hashlib.sha256(bundled.read_bytes().replace(b'id = "interactions-v58"', b'id = "interactions-v57"', 1)).hexdigest(),
+        self.assertEqual(hashlib.sha256(rules_before_effect_presentation(bundled.read_bytes()).replace(b'id = "interactions-v60"', b'id = "interactions-v57"', 1)).hexdigest(),
                          source['rules_dependencies']['interactions-v57'])
         self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
         for name in source['package_inputs']:
@@ -1793,7 +1813,7 @@ class RouteResumeHardeningTests(unittest.TestCase):
             self.assertEqual(new, old, name)
         # Historical v30 remains immutable; the current selector is tested by v31.
 
-    def test_current_baseline_v31_changes_only_required_rules_identity(self):
+    def test_historical_baseline_v31_changes_only_required_rules_identity(self):
         from process_harness import ROOT
         import hashlib
         import json
@@ -1822,17 +1842,95 @@ class RouteResumeHardeningTests(unittest.TestCase):
                 current = current.replace(b'import = "interactions-v58"', b'import = "interactions-v57"', 1)
             self.assertEqual(current, old, name)
         bundled = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
-        self.assertEqual(bundled.count(b'id = "interactions-v58"'), 1)
-        self.assertEqual(source['rules_dependencies'], {'interactions-v58': hashlib.sha256(bundled).hexdigest()})
+        self.assertEqual(bundled.count(b'id = "interactions-v60"'), 1)
+        self.assertEqual(source['rules_dependencies'], {'interactions-v58': hashlib.sha256(rules_before_effect_presentation(bundled).replace(b'id = "interactions-v60"', b'id = "interactions-v58"', 1)).hexdigest()})
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
-        self.assertEqual(hashlib.sha256(bundled.replace(b'id = "interactions-v58"', b'id = "interactions-v57"', 1)).hexdigest(),
+        self.assertEqual(hashlib.sha256(rules_before_effect_presentation(bundled).replace(b'id = "interactions-v60"', b'id = "interactions-v57"', 1)).hexdigest(),
                          prior['rules_dependencies']['interactions-v57'])
         self.assertTrue(source['reference'].startswith(prior['reference'] + '; '))
         self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
         self.assertIn('compiler and route qualification pending', source['reference'])
         self.assertIn('source bytes only', transition['only_transformation'])
+
+    def test_historical_baseline_v32_changes_only_required_rules_identity(self):
+        from process_harness import ROOT
+        import hashlib
+        import json
+        from arena_evaluation import files
+        previous = ROOT / 'scripts/fixtures/rogue-earned-baseline-v31'
+        snapshot = ROOT / 'scripts/fixtures/rogue-earned-baseline-v32'
+        prior = json.loads((previous / 'source.json').read_text())
+        source = json.loads((snapshot / 'source.json').read_text())
+        raw = (snapshot / 'format-transition.json').read_bytes()
+        transition = json.loads(raw)
+        self.assertEqual((transition['previous_ruleset'], transition['current_ruleset']),
+                         ('interactions-v58', 'interactions-v59'))
+        self.assertEqual((transition['previous_scenario_format'], transition['current_scenario_format']), (37, 37))
+        self.assertEqual((transition['previous_snapshot'], transition['current_snapshot']), (previous.name, snapshot.name))
+        self.assertEqual(transition['previous_source_sha256'], hashlib.sha256((previous / 'source.json').read_bytes()).hexdigest())
+        for key in ('package_inputs', 'rules_dependencies', 'reference'):
+            self.assertEqual(transition['previous_' + key], prior[key])
+        self.assertEqual(files(previous / 'package'), prior['package_inputs'])
+        self.assertEqual(files(snapshot / 'package'), source['package_inputs'])
+        self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
+        for name in source['package_inputs']:
+            old = (previous / 'package' / name).read_bytes()
+            current = (snapshot / 'package' / name).read_bytes()
+            if name == 'rules.toml':
+                self.assertEqual(current.count(b'import = "interactions-v59"'), 1)
+                current = current.replace(b'import = "interactions-v59"', b'import = "interactions-v58"', 1)
+            self.assertEqual(current, old, name)
+        bundled = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
+        self.assertEqual(bundled.count(b'id = "interactions-v60"'), 1)
+        self.assertEqual(source['rules_dependencies'], {'interactions-v59': hashlib.sha256(rules_before_effect_presentation(bundled).replace(b'id = "interactions-v60"', b'id = "interactions-v59"', 1)).hexdigest()})
+        self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
+        self.assertEqual(hashlib.sha256(rules_before_effect_presentation(bundled).replace(b'id = "interactions-v60"', b'id = "interactions-v58"', 1)).hexdigest(),
+                         prior['rules_dependencies']['interactions-v58'])
+        self.assertTrue(source['reference'].startswith(prior['reference'] + '; '))
+        self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
+        self.assertIn('compiler and route qualification pending', source['reference'])
+        self.assertIn('source bytes only', transition['only_transformation'])
+
+    def test_current_baseline_v33_changes_only_required_rules_identity(self):
+        from process_harness import ROOT
+        import hashlib
+        import json
+        from arena_evaluation import files
+        previous = ROOT / 'scripts/fixtures/rogue-earned-baseline-v32'
+        snapshot = ROOT / 'scripts/fixtures/rogue-earned-baseline-v33'
+        prior = json.loads((previous / 'source.json').read_text())
+        source = json.loads((snapshot / 'source.json').read_text())
+        raw = (snapshot / 'format-transition.json').read_bytes()
+        transition = json.loads(raw)
+        self.assertEqual((transition['previous_ruleset'], transition['current_ruleset']),
+                         ('interactions-v59', 'interactions-v60'))
+        self.assertEqual((transition['previous_scenario_format'], transition['current_scenario_format']), (37, 37))
+        self.assertEqual((transition['previous_snapshot'], transition['current_snapshot']), (previous.name, snapshot.name))
+        self.assertEqual(transition['previous_source_sha256'], hashlib.sha256((previous / 'source.json').read_bytes()).hexdigest())
+        for key in ('package_inputs', 'rules_dependencies', 'reference'):
+            self.assertEqual(transition['previous_' + key], prior[key])
+        self.assertEqual(files(previous / 'package'), prior['package_inputs'])
+        self.assertEqual(files(snapshot / 'package'), source['package_inputs'])
+        self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
+        for name in source['package_inputs']:
+            old = (previous / 'package' / name).read_bytes()
+            current = (snapshot / 'package' / name).read_bytes()
+            if name == 'rules.toml':
+                self.assertEqual(current.count(b'import = "interactions-v60"'), 1)
+                current = current.replace(b'import = "interactions-v60"', b'import = "interactions-v59"', 1)
+            self.assertEqual(current, old, name)
+        bundled = (ROOT / 'crates/simulation/data/default-ruleset.toml').read_bytes()
+        self.assertEqual(bundled.count(b'id = "interactions-v60"'), 1)
+        self.assertEqual(source['rules_dependencies'], {'interactions-v60': hashlib.sha256(bundled).hexdigest()})
+        self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
+        self.assertEqual(hashlib.sha256(rules_before_effect_presentation(bundled).replace(b'id = "interactions-v60"', b'id = "interactions-v59"', 1)).hexdigest(),
+                         prior['rules_dependencies']['interactions-v59'])
+        self.assertTrue(source['reference'].startswith(prior['reference'] + '; '))
+        self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
+        self.assertIn('compiler and route qualification pending', source['reference'])
+        self.assertIn('source bytes only', transition['only_transformation'])
         loader = (ROOT / 'scripts/test_rogue_earned_route_process.py').read_text()
-        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v31'", loader)
+        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v33'", loader)
 
     def test_artifact_capacity_is_infrastructure_not_controller_failure(self):
         self.assertEqual(classify_failure(ValueError('JSON artifact exceeds bounded size')),

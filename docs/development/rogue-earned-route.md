@@ -17,15 +17,15 @@ fixture, never a replacement or an independent rate sample.
 The route arm named `production` is the explicit, frozen preactivation E/S source
 snapshot at `8d09063840c51aa4189b146c287829102856b279`, with an explicitly recorded
 adaptation for the current scenario format. Its ordinary population remains two
-emus and two snakes. The current source-only fixture is baseline v31, retaining exact package inputs
+emus and two snakes. The current source-only fixture is baseline v32, retaining exact package inputs
 and its current bundled-rule source hash. Its latest transition changes only the
-bundled rules import from identity 57 to `interactions-v58` for shared item use
-and generated carrier inventory. Earlier v30 adds the explicit item/corpse keys
+bundled rules import from identity 58 to `interactions-v60` for seeded exploration
+tie-breaking. Earlier v31 covers shared item use and generated carrier inventory; v30 adds the explicit item/corpse keys
 required by scenario format 37; v29 retains the preceding capability-format
 transition. These adaptations do not add current production loot to the frozen
 baseline.
-The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v30/source.json)
-and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v31/format-transition.json)
+The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v31/source.json)
+and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v32/format-transition.json)
 retain the exact old/new identities and hashes; their historical proof is not
 rewritten. The dependency digest attests to actual bundled source bytes, not a
 compiler certificate. No body-package enrollment, two-HD player kit, treasure-room stages, darts,

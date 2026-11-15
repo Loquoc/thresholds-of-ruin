@@ -68,7 +68,8 @@ pub fn invocation_action(
         .find(|ability| ability.id == id)
         .ok_or_else(|| format!("You don't have {id}."))?;
     if ability.target_kind == AbilityTargetKind::DirectionalProjectile {
-        let tor_protocol::AbilityAim::DirectionalProjectile { delivery, .. } = invocation.aim
+        let (tor_protocol::AbilityAim::DirectionalProjectile { delivery, .. }
+        | tor_protocol::AbilityAim::CellProjectile { delivery, .. }) = invocation.aim
         else {
             return Err("Choose an exact projectile delivery and direction.".into());
         };
@@ -81,6 +82,7 @@ pub fn invocation_action(
     } else if matches!(
         invocation.aim,
         tor_protocol::AbilityAim::DirectionalProjectile { .. }
+            | tor_protocol::AbilityAim::CellProjectile { .. }
     ) {
         return Err("That ability does not select a projectile.".into());
     }
@@ -96,11 +98,17 @@ pub fn invocation_action(
             return Err("That ability does not select a step.".into());
         }
         tor_protocol::AbilityAim::DirectionalRay { .. }
+        | tor_protocol::AbilityAim::CellRay { .. }
             if ability.target_kind != AbilityTargetKind::DirectionalRay =>
         {
             return Err("That ability does not select a ray direction.".into());
         }
         _ => {}
+    }
+    if let tor_protocol::AbilityAim::CellRay { offset }
+    | tor_protocol::AbilityAim::CellProjectile { offset, .. } = invocation.aim
+    {
+        validate_cell_aim(view, offset)?;
     }
     if invocation.weapon != tor_protocol::WeaponSelection::Default && !ability.weapon_selection {
         return Err("That ability does not select a weapon.".into());
@@ -400,6 +408,45 @@ pub fn match_command<'a, 'b>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cell_selection_requires_current_disclosure_and_strict_relative_syntax() {
+        assert_eq!(parse_cell_aim("cell 4 -2 1").unwrap().unwrap(), [4, -2, 1]);
+        assert!(parse_cell_aim("north").is_none());
+        for invalid in [
+            "cell 0 0 0",
+            "cell 1 2",
+            "cell 1 2 3 4",
+            "cell 2147483648 0 0",
+        ] {
+            assert!(parse_cell_aim(invalid).unwrap().is_err());
+        }
+        let mut view = crate::test_support::observation();
+        view.visible_cells.push(tor_protocol::CellView {
+            object_presentation: None,
+            lit: true,
+            door: None,
+            trap: None,
+            material: String::new(),
+            key: "visible".into(),
+            stairs_up: false,
+            stairs_down: false,
+            position: tor_protocol::Position { x: 4, y: -2, z: 1 },
+            wall: false,
+            place_hint: false,
+            asset: None,
+        });
+        assert!(validate_cell_aim(&view, [0, 0, 0]).is_err());
+        let cell = view
+            .visible_cells
+            .iter()
+            .find(|c| [c.position.x, c.position.y, c.position.z] != [0, 0, 0])
+            .unwrap();
+        let offset = [cell.position.x, cell.position.y, cell.position.z];
+        assert!(validate_cell_aim(&view, offset).is_ok());
+        view.visible_cells.clear();
+        assert!(validate_cell_aim(&view, offset).is_err());
+    }
+
     #[test]
     fn projectile_selection_requires_exact_delivery_without_actor_or_ray_fallback() {
         let mut view = crate::test_support::observation();
@@ -1112,4 +1159,46 @@ mod supply_tests {
         )
         .is_ok());
     }
+}
+
+/// Cell aim uses only an offset in the current disclosed observation. The server
+/// separately verifies physical visibility, range and collision; remembered map
+/// cells are deliberately not eligible here.
+pub fn validate_cell_aim(view: &Observation, offset: [i32; 3]) -> Result<(), String> {
+    if offset == [0, 0, 0]
+        || !view
+            .visible_cells
+            .iter()
+            .any(|cell| [cell.position.x, cell.position.y, cell.position.z] == offset)
+    {
+        return Err("Choose a currently visible cell other than your own.".into());
+    }
+    Ok(())
+}
+
+/// Explicit relative-cell syntax shared by the interactive clients.
+pub fn parse_cell_aim(text: &str) -> Option<Result<[i32; 3], String>> {
+    let mut words = text.split_whitespace();
+    if !words
+        .next()
+        .is_some_and(|word| word.eq_ignore_ascii_case("cell"))
+    {
+        return None;
+    }
+    let coordinates: Vec<_> = words.collect();
+    Some((|| {
+        if coordinates.len() != 3 {
+            return Err("Use cell <x> <y> <z> relative to your character.".into());
+        }
+        let mut offset = [0; 3];
+        for (out, token) in offset.iter_mut().zip(coordinates) {
+            *out = token
+                .parse::<i32>()
+                .map_err(|_| "Cell coordinates must be signed 32-bit integers.".to_string())?;
+        }
+        if offset == [0, 0, 0] {
+            return Err("Choose a cell other than your own.".into());
+        }
+        Ok(offset)
+    })())
 }

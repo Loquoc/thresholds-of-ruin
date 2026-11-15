@@ -343,3 +343,18 @@ pub fn ground_name(ground: &tor_protocol::GroundItemView) -> &str {
 pub fn map_item_name(item: &tor_protocol::MapItemAppearance) -> &str {
     item.presentation.as_ref().map_or(&item.name, object_name)
 }
+
+/// Cell targeting retains the same disclosed device admission and never guesses
+/// its hidden activation effect or remaining charges.
+pub fn zap_cell_action(
+    view: &Observation,
+    item: ItemTarget,
+    offset: [i32; 3],
+) -> Result<Action, String> {
+    zap_action(view, item, Direction::North)?;
+    crate::abilities::validate_cell_aim(view, offset)?;
+    Ok(Action::Zap {
+        item,
+        aim: tor_protocol::DeviceAim::Cell { offset },
+    })
+}

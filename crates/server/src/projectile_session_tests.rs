@@ -248,8 +248,10 @@ fn paid_projectile_reopens(delivery: ProjectileDeliveryKind) {
         };
         assert_eq!(plan.selection, expected_selection);
         assert_eq!(
-            plan.direction,
-            tor_simulation::abilities::StepDirection::East
+            plan.aim,
+            tor_simulation::abilities::FlightAim::Direction {
+                direction: tor_simulation::abilities::StepDirection::East
+            }
         );
         assert_eq!((plan.preparation, plan.recovery), (300, 100));
         assert_eq!((plan.range.short_feet, plan.range.long_feet), (20, 60));
@@ -766,5 +768,146 @@ fn encoded_standalone_stack_storage_rejection_preserves_admission_and_actual_rel
     assert!(
         completed,
         "bounded ordinary waits must reach the actual refused then retried release"
+    );
+}
+
+#[test]
+fn delayed_projectile_release_delivers_frozen_appearance_to_stationary_observer() {
+    fn contains_arrow(value: &Value) -> bool {
+        match value {
+            Value::Object(fields) => {
+                fields.get("presentation").is_some_and(|presentation| {
+                    presentation["form"] == "missile"
+                        && presentation["object"]["name"] == "fixture arrow"
+                }) || fields.values().any(contains_arrow)
+            }
+            Value::Array(values) => values.iter().any(contains_arrow),
+            _ => false,
+        }
+    }
+    let mut wire =
+        Wire::connect(Engine::memory(projectile_scenario(ProjectileDeliveryKind::Launch)).unwrap());
+    let observation = wire.service.engine.observation(SOURCE).unwrap();
+    let launcher = observation
+        .inventory
+        .iter()
+        .find(|i| i.name == "secondary sword")
+        .unwrap()
+        .id;
+    let ammunition = observation
+        .inventory
+        .iter()
+        .find(|i| i.name == "fixture arrow")
+        .unwrap()
+        .id;
+    let request = wire.request(
+        SOURCE,
+        Action::UseAbility {
+            id: "fixture.launch".into(),
+            invocation: AbilityInvocation::directional_projectile(
+                Direction::East,
+                ProjectileDeliverySelection::Launch {
+                    launcher: EquippedProjectileWeapon {
+                        item: launcher,
+                        socket: 10,
+                    },
+                    ammunition,
+                },
+            ),
+            supplies: SupplySelection::Carried,
+        },
+    );
+    ack(wire.send(SOURCE, "appearance-release", request));
+    let mut saw_flight = false;
+    for ordinal in 0..16 {
+        wire.service.run_until_blocked();
+        let messages = wire.drain(TARGET);
+        saw_flight |= contains_arrow(&serde_json::to_value(messages).unwrap());
+        if saw_flight {
+            break;
+        }
+        wire.drain(SOURCE);
+        let actor = wire.service.engine.next_actor().unwrap();
+        let wait = wire.request(actor, Action::Wait);
+        let messages = wire.send(actor, &format!("appearance-wait-{ordinal}"), wait);
+        if actor == TARGET {
+            saw_flight |= contains_arrow(&serde_json::to_value(messages).unwrap());
+        }
+    }
+    assert!(saw_flight, "ordinary delayed release must send its observer-safe arrow appearance to the stationary target, not only the shooter");
+}
+
+#[test]
+fn encoded_cell_projectile_preserves_offset_and_rejects_undisclosed_input() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("cell-projectile.db");
+    let mut wire = Wire::connect(
+        Engine::open(&path, projectile_scenario(ProjectileDeliveryKind::Throw)).unwrap(),
+    );
+    let observation = wire.service.engine.observation(SOURCE).unwrap();
+    let weapon = observation
+        .inventory
+        .iter()
+        .find(|item| item.name == "secondary sword")
+        .unwrap()
+        .id;
+    let action = |offset| Action::UseAbility {
+        id: "fixture.throw".into(),
+        invocation: AbilityInvocation {
+            aim: AbilityAim::CellProjectile {
+                offset,
+                delivery: ProjectileDeliverySelection::Throw {
+                    source: ThrownSourceSelection::Equipped {
+                        item: weapon,
+                        socket: 10,
+                    },
+                },
+            },
+            weapon: WeaponSelection::Default,
+        },
+        supplies: SupplySelection::Carried,
+    };
+    let before = saved(&wire.service);
+    let request = wire.request(SOURCE, action([1000, 0, 0]));
+    let rejected = wire.send(SOURCE, "hidden-cell", request);
+    assert!(
+        rejected
+            .iter()
+            .any(|message| matches!(message, ServerMessage::Error { .. })),
+        "{rejected:?}"
+    );
+    assert_eq!(
+        saved(&wire.service),
+        before,
+        "hidden coordinates cannot claim or pay"
+    );
+    let request = wire.request(SOURCE, action([2, 1, 0]));
+    ack(wire.send(SOURCE, "cell-release", request.clone()));
+    wire.service.run_until_blocked();
+    for actor in ACTORS {
+        wire.drain(actor);
+    }
+    let started = ack(wire.send(SOURCE, "cell-release", request));
+    assert!(matches!(
+        started,
+        RequestReceipt::Admitted {
+            phase: IntentionPhase::Started,
+            ..
+        }
+    ));
+    let pending = saved(&wire.service);
+    let frozen: Plan =
+        serde_json::from_value(live_actor(&pending, SOURCE)["pending"]["plan"].clone()).unwrap();
+    assert_eq!(
+        frozen.as_projectile().unwrap().aim,
+        tor_simulation::abilities::FlightAim::Cell { offset: [2, 1, 0] }
+    );
+    wire.service.engine.flush().unwrap();
+    drop(wire);
+    let reopened = Engine::open(&path, crate::Scenario::two_room(999)).unwrap();
+    assert_eq!(
+        saved_engine(&reopened),
+        pending,
+        "cell aim is frozen in source-free replay"
     );
 }

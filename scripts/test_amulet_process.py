@@ -41,6 +41,8 @@ class AmuletProcesses(ProcessTestCase):
     # Current history is repeated in frames even with map memory omitted. These
     # measured diagnostic allowances retain all work/time bounds and assertions.
     limits = {
+        "test_unique_identity_revisits_source_free_restore_and_headless_surface_escape":
+            (384, 40000, 64 * 1024 * 1024, 240),
         "test_unique_identity_revisits_source_free_restore_and_text_surface_escape":
             (384, 40000, 64 * 1024 * 1024, 240),
         "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
@@ -299,6 +301,98 @@ class AmuletProcesses(ProcessTestCase):
         self.assertEqual([event for event in events if event["type"] == "escaped"],
                          [{"type": "escaped", "item": identity}])
         self.assertFalse(escaped["state"]["wizard_game"])
+
+    @non_graphical
+    def test_unique_identity_revisits_source_free_restore_and_headless_surface_escape(self):
+        package = self.fixture()
+        server = self.server("--checkpoint-interval", 1, scenario=package, character=ACTOR)
+        player, current = self.client()
+        self.assertEqual(observation(current)["combat"]["objective"], "retrieve_and_exit")
+        self.assertEqual(observation(current)["combat"]["own_stats"]["nutrition"]["kind"], "exempt")
+        identity = self.ground_amulet(current)["item"]["id"]
+        created = self.retrieval_receipts(player)
+        self.assertEqual([(row["scope"], row["result"]["kind"]) for row in created],
+                         [("dungeon/26", "created")])
+
+        # Spectator snapshots and reconnects must not activate the objective.
+        observer, watched = self.client(token=SPECTATOR_TOKEN, observe=True)
+        self.assert_spectator_state_equal(watched["state"], current["state"])
+        self.assert_spectator_state_equal(self.request(observer, {"type": "snapshot"})["state"], current["state"])
+        self.assertEqual(self.retrieval_receipts(player), created)
+        observer.stop()
+        player.stop()
+        player, reopened = self.client()
+        self.assertDisclosedStateEqual(reopened["state"], current["state"])
+        self.assertEqual(self.retrieval_receipts(player), created)
+
+        current = self.transition(player, reopened, "down")
+        self.assertEqual(self.ground_amulet(current)["item"]["id"], identity)
+        current = self.transition(player, current, "up")
+        self.assertEqual(self.ground_amulet(current)["item"]["id"], identity)
+        # Internal ascent is legal before retrieval, and a real reentry into
+        # already-populated 26 must relocate the same ordinary identity again.
+        current = self.transition(player, current, "up")
+        current = self.transition(player, current, "down")
+        current, _ = self.take_amulet(player, current, identity)
+        current = self.transition(player, current, "down")
+        self.assert_carried(current, identity)
+        current = self.transition(player, current, "up")
+        self.assert_carried(current, identity)
+        receipts = self.retrieval_receipts(player)
+        self.assertEqual([row["scope"] for row in receipts],
+                         ["dungeon/26", "dungeon/27", "dungeon/26", "dungeon/26", "dungeon/27", "dungeon/26"])
+        self.assertEqual([row["result"]["kind"] for row in receipts],
+                         ["created", "relocated", "relocated", "relocated", "already_carried", "already_carried"])
+        self.assertEqual(len({row["result"]["item"] for row in receipts}), 1)
+        self.assertTrue(all(row["entrant"] == ACTOR for row in receipts))
+        bound = self.bound_authority(player)
+        self.assertEqual(bound["retrieval"]["entry_count"], 6)
+        self.assertEqual(bound["retrieval"]["placement_count"], 4)
+        before = self.request(player, {"type": "snapshot"})
+        player.stop()
+        server.stop(save=False)
+        shutil.rmtree(package)
+        server = self.server("--checkpoint-interval", 1, scenario=unrelated_fallback(self),
+                             seed=None, save_actor=ACTOR)
+        player, current = self.client()
+        self.assertDisclosedStateEqual(current["state"], before["state"])
+        self.assertEqual(current["history"], before["history"])
+        self.assertEqual(self.bound_authority(player), bound)
+        self.assertEqual(self.retrieval_receipts(player), receipts)
+
+        current = self.surface(player, current, identity)
+        self.assertEqual(self.retrieval_receipts(player), receipts, "Subthreshold ascent cannot respawn the Amulet")
+        dropped = self.ordinary(player, {"type": "drop", "item": identity})
+        self.assertEqual(self.ground_amulet(dropped)["item"]["id"], identity)
+        observer, watched = self.client(token=SPECTATOR_TOKEN, observe=True)
+        self.assert_spectator_state_equal(watched["state"], dropped["state"])
+        refused = self.act(player, {"type": "move", "direction": "up"})
+        self.assertIsNotNone(refused["error"])
+        unchanged = self.request(observer, {"type": "snapshot"})
+        self.assertDisclosedStateEqual(unchanged["state"], watched["state"], "Missing artifact refusal must cost zero time")
+        self.assertEqual(unchanged["history"], dropped["history"])
+        self.ordinary(player, {"type": "take", "item": identity})
+        carried = self.request(observer, {"type": "snapshot"})
+        self.assert_carried(carried, identity)
+        self.assertFalse(observation(carried)["combat"]["victory"])
+        admitted = self.act(player, {"type": "move", "direction": "up"})
+        self.assertIsNone(admitted["error"])
+        settle_rogue_action(self, player, admitted, survive=False)
+        start = len(observer.transcript)
+        escaped = self.request(observer, {"type": "snapshot"})
+        self.assert_escape(carried, escaped, identity)
+        # request() returns a ready frame with no message. Preserve the actual
+        # server response emitted during this request for wire-sample recording.
+        responses = [json.loads(line).get("message") for line in observer.transcript[start:]
+                     if line.startswith("{")]
+        snapshots = [message for message in responses if message and message["type"] == "snapshot"]
+        self.assertEqual(len(snapshots), 1)
+        self.escape_sample = copy.deepcopy(snapshots[0])
+        self.assertEqual(self.escape_sample["type"], "snapshot")
+        self.assertEqual(self.escape_sample["snapshot"]["state"], escaped["state"])
+        player.stop()
+        observer.stop()
+        server.stop(save=False)
 
     @non_graphical
     def test_unique_identity_revisits_source_free_restore_and_text_surface_escape(self):

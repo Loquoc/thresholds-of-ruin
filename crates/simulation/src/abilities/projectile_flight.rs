@@ -1,9 +1,9 @@
 //! Physical traversal is release-only: it observes actual occupancy, never an
 //! aimed actor or the launcher's perception. Terrain owns crossing rotations.
-use super::{Placement, RuleError, StepDirection};
+use super::{Placement, RuleError};
 use crate::weapon_profiles::{RangeBands, PROJECTILE_STEP_FEET};
 use crate::{ActorId, Game, GameError};
-use tor_world::{Direction, Location, RayStep};
+use tor_world::{Location, RayVectorStep};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ProjectileImpact {
@@ -21,7 +21,7 @@ impl Game {
         &mut self,
         actor: ActorId,
         origin: Placement,
-        direction: StepDirection,
+        direction: impl Into<super::FlightAim>,
         launch_footprint: &[Location],
         range: RangeBands,
     ) -> Result<ProjectileImpact, GameError> {
@@ -38,29 +38,31 @@ impl Game {
             target: None,
             segments: vec![vec![origin.location]],
         };
-        let mut direction = Direction::from(direction).rotated(origin.orientation);
+        let mut trajectory = direction.into().trajectory(origin.orientation)?;
         let mut left_launch_footprint = false;
         for _ in 0..range.long_feet / PROJECTILE_STEP_FEET {
             if self.region_frozen(impact.location.region) {
                 break;
             }
-            let RayStep::Clear { to, rotation } = self.world.ray_step(impact.location, direction)
+            let delta = trajectory.advance();
+            let RayVectorStep::Clear { to, rotation } =
+                self.world.ray_vector_step(impact.location, delta)
             else {
                 break;
             };
             if self.region_frozen(to.region) {
                 break;
             }
-            super::spatial_delivery::push_step(
+            super::spatial_delivery::push_vector_step(
                 &mut impact.segments,
                 impact.location,
                 to,
-                direction,
+                delta,
                 rotation,
             );
             impact.location = to;
             impact.distance_feet += PROJECTILE_STEP_FEET;
-            direction = direction.rotated(rotation);
+            trajectory.rotate(rotation);
             left_launch_footprint |= launch_footprint.binary_search(&to).is_err();
             let occupants: Vec<_> = self.actors.at(&self.world, to).keys().copied().collect();
             for target in occupants {
@@ -89,8 +91,9 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::abilities::StepDirection;
     use crate::weapon_profiles::MAX_PROJECTILE_STEPS;
-    use tor_world::{Passage, Position, RegionId};
+    use tor_world::{Direction, Passage, Position, RegionId};
 
     fn at(x: i32) -> Location {
         Location {

@@ -12,6 +12,9 @@ pub enum DeviceAim {
     Direction {
         direction: crate::abilities::StepDirection,
     },
+    Cell {
+        offset: [i32; 3],
+    },
     SelfTarget {},
 }
 impl<'de> Deserialize<'de> for DeviceAim {
@@ -22,10 +25,15 @@ impl<'de> Deserialize<'de> for DeviceAim {
             Direction {
                 direction: crate::abilities::StepDirection,
             },
+            Cell {
+                offset: [i32; 3],
+            },
             SelfTarget {},
         }
         Ok(match crate::bounded::named_map(d)? {
             Fields::Direction { direction } => Self::Direction { direction },
+            Fields::Cell { offset } if offset != [0; 3] => Self::Cell { offset },
+            Fields::Cell { .. } => return Err(serde::de::Error::custom("zero device bearing")),
             Fields::SelfTarget {} => Self::SelfTarget {},
         })
     }

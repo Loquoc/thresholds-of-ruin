@@ -18,10 +18,10 @@ from process_work_budget import ProcessWorkBudget
 from rogue_roster_package import PRODUCTION, encounter_sources, unrelated_fallback
 from scalar_wire import u64
 from status_condition_package import combat, observation
-from rogue_test_support import disclosed_frames, resolved_events, decision_boundary
+from rogue_test_support import disclosed_frames, resolved_events, decision_boundary, ordered_combat_events
 
 
-def mechanism_package(test, species):
+def mechanism_package(test, species, *, size=None, start=None, foe=None):
     source = encounter_sources()
     identity = "rogue." + species
     if identity not in source["actors"]:
@@ -31,9 +31,9 @@ def mechanism_package(test, species):
     character = copy.deepcopy(source["manifest"]["characters"][0])
     character["anchor"] = "1/start"
     manifest.update(id="rogue-mechanism-" + species, default_character=1, characters=[character])
-    region = {"id": 1, "name": "Authored Rogue mechanism encounter", "size": [9, 5, 2],
-              "chamber": True, "gravity": [0, 0, -1], "anchors": {"start": [2, 2, 0]},
-              "actors": [{"id": 3, "at": [3, 2, 0], "archetype": identity,
+    region = {"id": 1, "name": "Authored Rogue mechanism encounter", "size": size or [9, 5, 2],
+              "chamber": True, "gravity": [0, 0, -1], "anchors": {"start": start or [2, 2, 0]},
+              "actors": [{"id": 3, "at": foe or [3, 2, 0], "archetype": identity,
                           "controller": "external"}]}
     package = test.directory / ("mechanism-" + species)
     (package / "regions").mkdir(parents=True)
@@ -290,6 +290,44 @@ class RogueCorrosionRayProcesses(ProcessTestCase):
         self.assertLessEqual(hp - u64(combat(hit)["hp"]), 36)
         self.assertEqual(combat(after)["hp"], combat(original)["hp"])
         self.reopen_without_source(package, server, clients)
+
+    def test_production_dragon_accepts_off_axis_cell_and_emits_actual_path(self):
+        package = mechanism_package(self, "dragon", size=[11, 11, 2],
+                                    start=[1, 1, 0], foe=[3, 2, 0])
+        server = self.server("--checkpoint-interval", 4096, scenario=package, seed=42)
+        player, _ = self.client(actor=1)
+        dragon, _ = self.client(actor=3)
+        clients = (player, dragon)
+        self.advance_until(clients, lambda frames: observation(frames[1])["ready"])
+        before = self.snapshot(dragon)
+        start = len(dragon.transcript)
+        self.assertIsNone(self.command(dragon, {"type": "act", "action": {
+            "type": "use_ability", "id": "rogue.breath_weapon",
+            "invocation": {"aim": {"kind": "cell_ray", "offset": [4, 2, 0]},
+                           "weapon": {"kind": "default"}},
+            "supplies": {"kind": "carried"}}})["error"])
+        self.advance_until(clients, lambda frames: not frames[1]["intentions"])
+        effects = [event for event in ordered_combat_events(disclosed_frames(dragon, start), after=before)
+                   if event["type"] == "effect" and event["delivery"] == "ray"]
+        self.assertTrue(effects, "Production cell aim must produce authoritative visible flight")
+        self.assertEqual(effects[-1]["cue"], "fire")
+        points = effects[-1]["segments"][0]
+        expected = [{"x": x, "y": y, "z": 0} for x, y in
+                    [(0, 0), (1, 1), (2, 1), (3, 2), (4, 2), (5, 3), (6, 3)]]
+        self.assertEqual(points, expected)
+        # Preserve an actual wire Outcome, not the headless projection or a
+        # reconstructed event. Expose it only after source-free reopening passes.
+        samples = []
+        for frame in disclosed_frames(dragon, start):
+            message = frame.get("message") or {}
+            body = message.get("update", {}).get("body", {})
+            if body.get("type") == "outcome" and any(
+                    fact["kind"] == "combat" and fact["event"] == effects[-1]
+                    for fact in body["facts"]["facts"]):
+                samples.append(message)
+        self.assertTrue(samples, "actual cell-ray Outcome must be retained")
+        self.reopen_without_source(package, server, clients)
+        self.cell_ray_sample = copy.deepcopy(samples[-1])
 
 
 class RogueMechanismSnapshotTests(unittest.TestCase):

@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 69;
+pub(crate) const ARCHIVE_VERSION: u32 = 70;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -3994,12 +3994,12 @@ impl Engine {
         // A live whole-scope chart can change outside ordinary sight, even on
         // a same-tick wait or condition expiry. The predicate reads only the
         // active marker; the canonical census runs once in revision_view below.
-        let perception_changed = perception_changed
+        let mut perception_changed = perception_changed
             || self
                 .actors()
                 .into_iter()
                 .any(|observer| self.game.monster_detection_active(SimActor(observer.0)));
-        let observers: Vec<_> = self
+        let mut observers: Vec<_> = self
             .actors()
             .into_iter()
             .filter(|_| perception_changed)
@@ -4034,6 +4034,22 @@ impl Engine {
         };
         outcome.next_tick = candidate.game.tick();
         outcome.next_actor = candidate.game.next_actor();
+        // A paid projectile may resolve while an otherwise stationary actor
+        // waits. Its path is new public event evidence even when the map and
+        // perception inputs did not change. Capture each attached observer at
+        // this commit boundary; never depend on a later free read to license
+        // the flight. Ordinary waits with no new spatial event keep the fast path.
+        if !perception_changed
+            && candidate.game.event_history_boundary() != self.game.event_history_boundary()
+            && candidate
+                .game
+                .combat_events()
+                .iter()
+                .any(|event| matches!(event, tor_simulation::combat::CombatEvent::Effect { .. }))
+        {
+            perception_changed = true;
+            observers = self.actors();
+        }
         let event_witness = candidate.game.event_observation_witness();
         // Phase 3a: stationary capability changes still own disclosure duties.
         // Stationary waits usually change only tick/readiness. Capability
@@ -5868,7 +5884,7 @@ mod earned_growth_identity_tests {
         let engine = Engine::memory(Scenario::two_room(42)).unwrap();
         Engine::replay(engine.archive.clone(), None, None).unwrap();
         assert_eq!(engine.archive.version, ARCHIVE_VERSION);
-        assert_eq!(engine.archive.ruleset, "interactions-v58");
+        assert_eq!(engine.archive.ruleset, "interactions-v60");
         for (version, ruleset) in [
             (ARCHIVE_VERSION - 1, RULESET),
             (ARCHIVE_VERSION, "interactions-v42"),

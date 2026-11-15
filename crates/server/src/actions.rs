@@ -161,6 +161,13 @@ pub enum AbilityAim {
     SelfStep {
         direction: Direction,
     },
+    CellRay {
+        offset: [i32; 3],
+    },
+    CellProjectile {
+        offset: [i32; 3],
+        delivery: ProjectileDeliverySelection,
+    },
     DirectionalRay {
         direction: Direction,
     },
@@ -262,6 +269,7 @@ mod tests {
             AbilityAim::DirectionalRay {
                 direction: Direction::SouthWest,
             },
+            AbilityAim::CellRay { offset: [4, -2, 1] },
         ] {
             let action = Action::UseAbility {
                 id: sim::content_ids::AbilityId::new("fixture_selection").unwrap(),
@@ -286,7 +294,7 @@ mod tests {
                 unreachable!()
             };
             match aim {
-                AbilityAim::DirectionalProjectile { .. } => {
+                AbilityAim::DirectionalProjectile { .. } | AbilityAim::CellProjectile { .. } => {
                     unreachable!("this fixture uses independent equipped-weapon aims")
                 }
                 AbilityAim::ActorTarget { target } => assert_eq!(
@@ -307,6 +315,9 @@ mod tests {
                         direction: wire::Direction::Up
                     }
                 ),
+                AbilityAim::CellRay { offset } => {
+                    assert_eq!(invocation.aim, wire::AbilityAim::CellRay { offset })
+                }
                 AbilityAim::DirectionalRay { .. } => assert_eq!(
                     invocation.aim,
                     wire::AbilityAim::DirectionalRay {
@@ -792,5 +803,6 @@ mod magic_item_adapter_tests {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceAim {
     Direction { direction: Direction },
+    Cell { offset: [i32; 3] },
     SelfTarget {},
 }

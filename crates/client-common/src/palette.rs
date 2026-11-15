@@ -145,6 +145,24 @@ impl<V> AssetTable<V> {
 
 /// Every disclosed asset, including own-body and corpse-body appearances.
 /// Item presentation and the body represented by its remains are distinct assets.
+/// Public object keys carried only by an ordered outcome, which need not
+/// appear in the last requested map picture. Do not inspect private metadata.
+pub(crate) fn outcome_effect_assets(
+    facts: &[tor_protocol::OutcomeFact],
+) -> impl Iterator<Item = &str> {
+    facts.iter().filter_map(|fact| {
+        let tor_protocol::OutcomeFact::Combat { event, .. } = fact else {
+            return None;
+        };
+        event
+            .effect_presentation()?
+            .object
+            .as_ref()?
+            .asset
+            .as_deref()
+    })
+}
+
 pub fn observation_assets(observation: &Observation) -> impl Iterator<Item = &str> {
     let cells = observation.visible_cells.iter().flat_map(|cell| {
         [
@@ -180,7 +198,25 @@ pub fn observation_assets(observation: &Observation) -> impl Iterator<Item = &st
         .self_appearance
         .as_ref()
         .and_then(|body| body.asset.as_deref());
-    cells.chain(items).chain(actors).chain([own]).flatten()
+    let effects = observation
+        .combat
+        .iter()
+        .flat_map(|combat| &combat.events)
+        .filter_map(|event| event.effect_presentation())
+        .filter_map(|presentation| presentation.object.as_ref())
+        .map(|object| object.asset.as_deref());
+    let sustained = observation
+        .public_effects
+        .iter()
+        .filter_map(|effect| effect.presentation.object.as_ref())
+        .map(|object| object.asset.as_deref());
+    cells
+        .chain(items)
+        .chain(actors)
+        .chain([own])
+        .chain(effects)
+        .chain(sustained)
+        .flatten()
 }
 
 /// Frozen map recipes participate in palette repair without acquiring actions.
@@ -435,5 +471,47 @@ mod tests {
         assert!(palette.notice(map_assets(&rows)));
         palette.apply(&full(2, &["item.potion.false", "item.wand.false"]));
         assert!(!palette.notice(observation_assets(&o)));
+    }
+    #[test]
+    fn transient_effect_asset_is_not_lost_when_the_map_picture_is_unchanged() {
+        use tor_protocol::*;
+        let fact = OutcomeFact::Combat {
+            event: CombatEventView::Effect {
+                caster: None,
+                ability: None,
+                tick: 0,
+                timing: EffectTiming::Instant,
+                delivery: EffectDelivery::Projectile,
+                cue: EffectCue::Neutral,
+                presentation: EffectPresentation {
+                    form: EffectAppearance::Missile,
+                    visual: EffectVisual::Neutral,
+                    style: Some("projectile.arrow".into()),
+                    object: Some(ObjectPresentation {
+                        name: "arrow".into(),
+                        asset: Some("item.weapon.arrow".into()),
+                        kind: ObjectPresentationKind::Item {
+                            class: ItemClass::Weapon,
+                        },
+                    }),
+                },
+                segments: vec![],
+                anchors: vec![],
+            },
+            basic_attack: false,
+        };
+        let facts = [fact];
+        let mut palette = Palette::default();
+        palette.apply(&full(1, &[]));
+        assert_eq!(
+            outcome_effect_assets(&facts).collect::<Vec<_>>(),
+            ["item.weapon.arrow"]
+        );
+        assert!(palette.notice(outcome_effect_assets(&facts)));
+        palette.apply(&full(2, &["item.weapon.arrow"]));
+        assert!(!palette.notice(outcome_effect_assets(&facts)));
+        assert!(outcome_effect_assets(&[OutcomeFact::Impacted])
+            .next()
+            .is_none());
     }
 }

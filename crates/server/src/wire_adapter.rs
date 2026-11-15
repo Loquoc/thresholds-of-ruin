@@ -59,8 +59,10 @@ pub fn decode_action(
             supplies,
         } => {
             let id = s::content_ids::AbilityId::new(id).map_err(|_| unavailable())?;
-            if matches!(invocation.aim, p::AbilityAim::DirectionalProjectile { .. })
-                && invocation.weapon != p::WeaponSelection::Default
+            if matches!(
+                invocation.aim,
+                p::AbilityAim::DirectionalProjectile { .. } | p::AbilityAim::CellProjectile { .. }
+            ) && invocation.weapon != p::WeaponSelection::Default
             {
                 return Err(unavailable());
             }
@@ -82,6 +84,13 @@ pub fn decode_action(
                         s::perception::ActorReferenceKind::Contact => {
                             a::AbilityAim::ContactTarget { target: identity }
                         }
+                    }
+                }
+                p::AbilityAim::CellRay { offset } => a::AbilityAim::CellRay { offset: *offset },
+                p::AbilityAim::CellProjectile { offset, delivery } => {
+                    a::AbilityAim::CellProjectile {
+                        offset: *offset,
+                        delivery: decode_projectile_delivery(*delivery, scope, observation)?,
                     }
                 }
                 p::AbilityAim::DirectionalProjectile {
@@ -428,6 +437,13 @@ pub fn encode_action(action: &a::Action, scope: &TargetScope) -> p::Action {
                     a::AbilityAim::ContactTarget { target } => p::AbilityAim::ActorTarget {
                         target: scope.contact(*target),
                     },
+                    a::AbilityAim::CellRay { offset } => p::AbilityAim::CellRay { offset: *offset },
+                    a::AbilityAim::CellProjectile { offset, delivery } => {
+                        p::AbilityAim::CellProjectile {
+                            offset: *offset,
+                            delivery: encode_projectile_delivery(*delivery, scope),
+                        }
+                    }
                     a::AbilityAim::DirectionalProjectile {
                         direction,
                         delivery,

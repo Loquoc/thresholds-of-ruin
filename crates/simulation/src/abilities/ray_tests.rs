@@ -295,7 +295,7 @@ fn directional_plan_is_strict_targetless_and_freezes_source_only() {
         "ability",
         "delivery",
         "origin",
-        "direction",
+        "aim",
         "launch_footprint",
         "traversal",
         "resolution",
@@ -317,6 +317,14 @@ fn directional_plan_is_strict_targetless_and_freezes_source_only() {
             .collect::<std::collections::BTreeSet<_>>(),
         fields.into_iter().collect()
     );
+    assert_eq!(
+        value["aim"],
+        serde_json::json!({"kind":"direction", "direction":"east"})
+    );
+    let mut legacy = value.clone();
+    legacy.as_object_mut().unwrap().remove("aim");
+    legacy["direction"] = serde_json::json!("east");
+    assert!(serde_json::from_value::<RayPlan>(legacy).is_err());
     for field in fields {
         let mut missing = value.clone();
         missing.as_object_mut().unwrap().remove(field);
@@ -1638,4 +1646,108 @@ fn authoritative_ray_path_preserves_bounces_and_actual_interception() {
         })
         .expect("contact geometry");
     assert_eq!(effect.segments, vec![vec![at(1), at(2), at(3)]]);
+}
+
+#[test]
+fn diagonal_ray_reflects_wall_normal_without_reversing_tangent() {
+    let mut game = fixture();
+    empty_ray_world(&mut game, 1);
+    game.actors.get_mut(&ActorId(1)).unwrap().location = ray_cell(1, 1, 1, 4);
+    game.actors.get_mut(&ActorId(2)).unwrap().location = ray_cell(1, 7, 7, 0);
+    for y in 0..9 {
+        for z in 0..9 {
+            game.world.set_wall(ray_cell(1, 3, y, z), true).unwrap();
+        }
+    }
+    let captured = game
+        .ability_plan_with_supplies(
+            ActorId(1),
+            &AbilityId::new("fixture_ray").unwrap(),
+            AbilityInvocation::directional_ray(StepDirection::SouthEast),
+            Default::default(),
+        )
+        .unwrap();
+    game.resolve_ray(captured.as_ray().unwrap(), None).unwrap();
+    let effect = game
+        .combat_events()
+        .iter()
+        .find_map(|event| match event {
+            crate::combat::CombatEvent::Effect { effect } => Some(effect),
+            _ => None,
+        })
+        .expect("authoritative reflected ray path");
+    assert_eq!(
+        effect.segments,
+        vec![vec![
+            ray_cell(1, 1, 1, 4),
+            ray_cell(1, 2, 2, 4),
+            ray_cell(1, 1, 3, 4),
+            ray_cell(1, 0, 4, 4),
+        ]]
+    );
+}
+
+#[test]
+fn disclosed_off_axis_cell_launches_the_authoritative_slope_not_a_unit_direction() {
+    let mut game = fixture();
+    empty_ray_world(&mut game, 1);
+    game.set_region_light(RegionId(1), true).unwrap();
+    game.actors.get_mut(&ActorId(1)).unwrap().location = ray_cell(1, 1, 1, 4);
+    game.actors.get_mut(&ActorId(2)).unwrap().location = ray_cell(1, 7, 7, 0);
+    let captured = game
+        .ability_plan_with_supplies(
+            ActorId(1),
+            &AbilityId::new("fixture_ray").unwrap(),
+            AbilityInvocation::cell_ray([4, 2, 0]),
+            Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        captured.work(),
+        crate::Work::UseAbility {
+            id: AbilityId::new("fixture_ray").unwrap(),
+            invocation: AbilityInvocation::cell_ray([4, 2, 0]),
+            supplies: Default::default(),
+        }
+    );
+    game.resolve_ray(captured.as_ray().unwrap(), None).unwrap();
+    let effect = game
+        .combat_events()
+        .iter()
+        .find_map(|event| match event {
+            crate::combat::CombatEvent::Effect { effect } => Some(effect),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        effect.segments,
+        vec![vec![
+            ray_cell(1, 1, 1, 4),
+            ray_cell(1, 2, 2, 4),
+            ray_cell(1, 3, 2, 4),
+            ray_cell(1, 4, 3, 4),
+            ray_cell(1, 5, 3, 4),
+            ray_cell(1, 6, 4, 4),
+            ray_cell(1, 7, 4, 4),
+        ]]
+    );
+}
+
+#[test]
+fn zero_undisclosed_and_out_of_range_cells_are_rejected_without_state_change() {
+    let mut game = fixture();
+    empty_ray_world(&mut game, 1);
+    game.set_region_light(RegionId(1), true).unwrap();
+    let before = game.clone();
+    for offset in [[0, 0, 0], [7, 0, 0], [0, 0, 900]] {
+        assert!(game
+            .ability_plan_with_supplies(
+                ActorId(1),
+                &AbilityId::new("fixture_ray").unwrap(),
+                AbilityInvocation::cell_ray(offset),
+                Default::default(),
+            )
+            .is_err());
+        assert_eq!(game, before);
+    }
 }

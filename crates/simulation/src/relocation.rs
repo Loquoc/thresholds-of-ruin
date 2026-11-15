@@ -1,8 +1,8 @@
 //! Ordinary effect relocation: bounded live destinations, shared lifecycle and
 //! no privileged setup shortcuts. Random selection belongs to the owning RNG.
-use crate::abilities::{Placement, StepDirection};
+use crate::abilities::Placement;
 use crate::{ActorId, Game, GameError};
-use tor_world::{compose_rotation, Direction, Location, Position, RayStep};
+use tor_world::{compose_rotation, Location, Position};
 
 impl Game {
     /// Current-floor cells only. A generated scope supplies its deterministic
@@ -80,11 +80,13 @@ impl Game {
         &self,
         actor: ActorId,
         origin: Placement,
-        direction: StepDirection,
+        direction: impl Into<crate::abilities::FlightAim>,
     ) -> Result<Option<Placement>, GameError> {
         let source = self.actors.get(&actor).ok_or(GameError::UnknownActor)?;
-        let direction = Direction::from(direction).rotated(origin.orientation);
-        let RayStep::Clear { to, rotation } = self.world.ray_step(origin.location, direction)
+        let mut trajectory = direction.into().trajectory(origin.orientation)?;
+        let tor_world::RayVectorStep::Clear { to, rotation } = self
+            .world
+            .ray_vector_step(origin.location, trajectory.advance())
         else {
             return Ok(None);
         };

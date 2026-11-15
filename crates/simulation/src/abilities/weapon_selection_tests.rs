@@ -1908,12 +1908,7 @@ fn projectile_candidate_eligibility_survives_age_order_change_but_not_expiry_or_
     game.with_effect_publication(|candidate| candidate.apply_outcome(update))
         .unwrap();
     let captured = game
-        .capture_projectile_plan(
-            actor,
-            &original.ability,
-            original.direction,
-            original.selection,
-        )
+        .capture_projectile_plan(actor, &original.ability, original.aim, original.selection)
         .unwrap();
     assert_eq!(captured.conditional_tokens[0].order, u64::MAX);
     let mut update = game.actor_outcome(actor).unwrap();
@@ -2015,7 +2010,7 @@ fn paid_throw_fixture(cursed: bool) -> (Game, Plan, ItemId) {
         .ability_plan_with_supplies(
             ActorId(1),
             &captured.ability,
-            AbilityInvocation::directional_projectile(captured.direction, captured.selection),
+            captured.aim.projectile_invocation(captured.selection),
             Default::default(),
         )
         .unwrap();
@@ -3204,7 +3199,7 @@ fn detached_projectile_sources_retain_generation_and_exact_weapon_witnesses() {
                 .capture_projectile_plan(
                     ActorId(1),
                     &captured.ability,
-                    captured.direction,
+                    captured.aim,
                     ProjectileDeliverySelection::Throw {
                         source: ThrownSourceSelection::Carried {
                             item,

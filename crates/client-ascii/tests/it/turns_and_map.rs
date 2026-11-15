@@ -1986,11 +1986,11 @@ fn visual_event(delivery: EffectDelivery, segments: Vec<Vec<Position>>) -> Comba
         ability: None,
         tick: 100,
         timing: EffectTiming::Instant,
-        appearance: if delivery == EffectDelivery::Projectile {
+        presentation: EffectPresentation::neutral(if delivery == EffectDelivery::Projectile {
             EffectAppearance::Missile
         } else {
             EffectAppearance::Bolt
-        },
+        }),
         cue: EffectCue::Neutral,
         delivery,
         anchors: points
@@ -2271,4 +2271,42 @@ fn ascii_effects_ambiguous_neighbor_uses_generic_glyph() {
     duplicate.position = Position { x: 8, y: 8, z: 0 };
     o.visible_cells.push(duplicate);
     assert_eq!(a.glyphs(&o)[0].glyph, '*');
+}
+
+#[test]
+fn flying_object_glyph_rechecks_the_current_palette() {
+    let mut event = visual_event(EffectDelivery::Projectile, vec![path(&[0, 1])]);
+    let CombatEventView::Effect { presentation, .. } = &mut event else {
+        unreachable!()
+    };
+    presentation.object = Some(ObjectPresentation {
+        name: "arrow".into(),
+        asset: Some("item.weapon.arrow".into()),
+        kind: ObjectPresentationKind::Item {
+            class: ItemClass::Weapon,
+        },
+    });
+    let mut fx = tor_client_ascii::effects::EffectAnimations::default();
+    fx.push(&event);
+    let o = view();
+    let mut palette = tor_client_common::Palette::default();
+    assert_eq!(fx.glyphs_with_palette(&o, &palette)[0].glyph, '*');
+    palette.apply(&PaletteUpdate {
+        revision: 1,
+        body: PaletteBody::Full {
+            assets: ["item.weapon.arrow".into()].into_iter().collect(),
+        },
+    });
+    let expected = tor_client_common::presentation::resolve(&palette, Some("item.weapon.arrow"))
+        .unwrap()
+        .ascii
+        .glyph;
+    assert_eq!(fx.glyphs_with_palette(&o, &palette)[0].glyph, expected);
+    palette.apply(&PaletteUpdate {
+        revision: 2,
+        body: PaletteBody::Full {
+            assets: Default::default(),
+        },
+    });
+    assert_eq!(fx.glyphs_with_palette(&o, &palette)[0].glyph, '*');
 }

@@ -100,8 +100,12 @@ because they might appear tactically better to an observer with hidden knowledge
 | 13 | Anonymous-alert investigation | Outside Flee and without engagement, route to licensed alert location; do not invent a target attack |
 | 14 | Safe Search items | Equipment improvement, then useful nearby loot, then known Gold; each has policy and visible-hostile gates |
 | 15 | Doors | Search plus door permission and voluntary input: first disclosed reachable closed door |
-| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits then stable location order |
+| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits, breaking equal-best ties with the copied actor-owned RNG |
 | 17 | Fallback | Wait through ordinary action execution |
+
+Stable location ordering defines the candidate list, not a preferred compass direction.
+Only a tie draws randomness; a unique best neighbor and an idle Wait do not.
+This removes shared coordinate bias without introducing persistent goals or a planner.
 
 An idle Wait profile forbids roaming and detours, not retaliation or every useful
 underfoot action. Tool permissions remain independent. One decision does not
@@ -128,6 +132,20 @@ unsupported/reserved condition families and replacement/eviction cases that woul
 make the action unsafe. The current threat and effect eligibility are rechecked;
 this is not a general utility search or optimal buff planner. The exact predicate
 is owned by [ai_defense.rs](../../crates/simulation/src/ai_defense.rs).
+
+## Limited two-step retreat
+
+A strictly farther legal retreat retains priority. If none exists, a single-cell
+actor with a local remembered chart may take an equal-distance first step when a
+remembered second step leads farther from the licensed threat. This fallback
+shares a budget of 512 newly expanded route nodes. Exhaustion is unknown, not
+proof of escape; ordinary direct-retreat searches retain their existing behavior.
+
+Both steps must preserve the local frame and ordinary displacement. Larger bodies,
+folded or rotated transitions and unknown links are not certified by this fallback.
+It chooses only the first action and replans afterward; stale memory or changed
+occupancy can invalidate the opportunity. This is not a general planner,
+multi-threat danger assessment, or guarantee of safety.
 
 ## Item decisions and bounded search
 

@@ -524,7 +524,7 @@ fn combat_event_with_names(
     match event {
         CombatEventView::Effect {
             caster,
-            appearance,
+            presentation,
             delivery,
             cue,
             segments,
@@ -533,7 +533,7 @@ fn combat_event_with_names(
             *caster,
             observer,
             actor_name,
-            *appearance,
+            presentation,
             *delivery,
             *cue,
             segments,
@@ -2246,25 +2246,24 @@ fn effect_description(
     caster: Option<ActorTarget>,
     observer: ActorTarget,
     actor_name: &impl Fn(ActorTarget) -> String,
-    appearance: EffectAppearance,
+    presentation: &tor_protocol::EffectPresentation,
     delivery: EffectDelivery,
-    cue: EffectCue,
+    _cue: EffectCue,
     segments: &[Vec<Position>],
 ) -> String {
-    let material = if cue == EffectCue::Status {
-        // A semantic status cue does not tell us which condition changed.
-        ""
-    } else {
-        effect_cue_label(cue)
-    };
-    let kind = effect_appearance_label(appearance);
+    let appearance = presentation.form;
+    let material = effect_visual_label(presentation.visual);
+    let kind = presentation.object.as_ref().map_or_else(
+        || effect_appearance_label(appearance),
+        |object| object.name.as_str(),
+    );
     let path = matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile);
     let subject = match caster.filter(|_| path) {
         Some(id) if id == observer => format!("Your {material}{kind}"),
         Some(id) => format!("The {}'s {material}{kind}", actor_name(id)),
         None => format!(
             "{} {material}{kind}",
-            if cue == EffectCue::Lightning {
+            if kind.starts_with(['a', 'e', 'i', 'o', 'u']) && material.is_empty() {
                 "An"
             } else {
                 "A"
@@ -2321,6 +2320,17 @@ fn effect_description(
 }
 
 /// Client wording for a server-authored presentation form, independent of delivery.
+pub fn effect_visual_label(visual: tor_protocol::EffectVisual) -> &'static str {
+    match visual {
+        tor_protocol::EffectVisual::Neutral => "",
+        tor_protocol::EffectVisual::Flame => "fiery ",
+        tor_protocol::EffectVisual::Frost => "frosty ",
+        tor_protocol::EffectVisual::Sparks => "sparking ",
+        tor_protocol::EffectVisual::Vapor => "misty ",
+        tor_protocol::EffectVisual::Radiance => "radiant ",
+    }
+}
+
 pub fn effect_appearance_label(appearance: EffectAppearance) -> &'static str {
     match appearance {
         EffectAppearance::Bolt => "bolt",
@@ -2357,7 +2367,7 @@ mod authoritative_effect_tests {
             tick: 12,
             anchors: vec![],
             timing: EffectTiming::Instant,
-            appearance: EffectAppearance::Bolt,
+            presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
             delivery: EffectDelivery::Ray,
             cue: EffectCue::Neutral,
             segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
@@ -2372,7 +2382,10 @@ mod authoritative_effect_tests {
             tick: 12,
             anchors: vec![],
             timing: EffectTiming::Instant,
-            appearance: EffectAppearance::Cloud,
+            presentation: tor_protocol::EffectPresentation {
+                visual: tor_protocol::EffectVisual::Flame,
+                ..tor_protocol::EffectPresentation::neutral(EffectAppearance::Cloud)
+            },
             delivery: EffectDelivery::Area,
             cue: EffectCue::Fire,
             segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
@@ -2403,7 +2416,15 @@ mod authoritative_effect_tests {
             caster,
             ActorTarget::from_digest([1; 32]),
             &|_| "dragon".into(),
-            appearance,
+            &tor_protocol::EffectPresentation {
+                visual: match cue {
+                    EffectCue::Fire => tor_protocol::EffectVisual::Flame,
+                    EffectCue::Cold => tor_protocol::EffectVisual::Frost,
+                    EffectCue::Lightning => tor_protocol::EffectVisual::Sparks,
+                    _ => tor_protocol::EffectVisual::Neutral,
+                },
+                ..tor_protocol::EffectPresentation::neutral(appearance)
+            },
             delivery,
             cue,
             &segments,
@@ -2444,7 +2465,7 @@ mod authoritative_effect_tests {
                 None,
                 &[&[0, 1], &[0, -1]]
             ),
-            "An electrical bolt streaks through separate visible stretches."
+            "A sparking bolt streaks through separate visible stretches."
         );
         // Isolated disclosed points are not evidence of a visible flight.
         assert_eq!(
@@ -2532,7 +2553,7 @@ mod authoritative_effect_tests {
                 tick: 12,
                 anchors: vec![],
                 timing: EffectTiming::Instant,
-                appearance: EffectAppearance::Bolt,
+                presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
                 delivery: EffectDelivery::Ray,
                 cue: EffectCue::Fire,
                 segments: vec![vec![

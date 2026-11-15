@@ -761,7 +761,7 @@ impl Game {
             PlannedEffect::TeleportRandom => self.random_relocation_candidates(target)?,
             PlannedEffect::TeleportToRayOrigin => match plan {
                 ResolutionPlan::RayEncounter { ray, .. } => self
-                    .ray_relocation_destination(target, ray.origin, ray.direction)?
+                    .ray_relocation_destination(target, ray.origin, ray.aim)?
                     .into_iter()
                     .collect(),
                 _ => return Err(GameError::Rule(RuleError::InvalidPlan)),

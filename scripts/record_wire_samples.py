@@ -85,26 +85,45 @@ def amulet_recording_case():
     """Reuse the bounded non-graphical acceptance route, never another driver."""
     from test_amulet_process import AmuletProcesses
     return AmuletProcesses(
-        "test_unique_identity_revisits_source_free_restore_and_text_surface_escape")
+        "test_unique_identity_revisits_source_free_restore_and_headless_surface_escape")
+
+
+def physical_projectile_recording_case():
+    """Real headless source queries, paid dagger/arrow flights and source-free reopen."""
+    from test_projectile_process import ProjectileProcesses
+    return ProjectileProcesses(
+        "test_headless_projectile_payment_recovery_and_source_free_restart")
+
+
+def work_replacement_recording_case():
+    from test_ascii_messages_process import AsciiMessageProcesses
+    return AsciiMessageProcesses("test_headless_drink_replacement_records_authoritative_work_facts")
+
+
+def cell_ray_recording_case():
+    """Reuse production off-axis flight, exact path and source-free reopen."""
+    from test_rogue_corrosion_ray_process import RogueCorrosionRayProcesses
+    return RogueCorrosionRayProcesses(
+        "test_production_dragon_accepts_off_axis_cell_and_emits_actual_path")
 
 
 def utility_wands_recording_case():
-    """Reuse the real utility-zap/Text/reopen acceptance case, not another driver."""
+    """Record genuine utility-zap/reopen facts without a presentation client."""
     from test_rogue_utility_wands_process import RogueUtilityWandsProcesses
     return RogueUtilityWandsProcesses(
-        "test_persistent_first_contact_utility_state_displays_in_text_and_reopens_without_source")
+        "test_persistent_first_contact_utility_state_reopens_without_source_headless")
 
 
 def self_device_recording_case():
-    """Reuse real Text Nothing/Identify/self-aim acceptance and its raw snapshot."""
+    """Record real headless Nothing/Identify/self-aim and its raw snapshot."""
     from test_magic_items_process import MagicItemProcesses
-    return MagicItemProcesses("test_text_nothing_unknown_direction_and_identified_self_skip")
+    return MagicItemProcesses("test_headless_nothing_direction_and_identified_self")
 
 
 def polymorph_recording_case():
-    """Reuse actual Text self-Zap, source deletion and exact request replay."""
+    """Record actual headless self-Zap, source deletion and exact request replay."""
     from test_magic_items_process import MagicItemProcesses
-    return MagicItemProcesses("test_text_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger")
+    return MagicItemProcesses("test_headless_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger")
 
 
 def polymorph_diagnostic_recording_case():
@@ -114,9 +133,9 @@ def polymorph_diagnostic_recording_case():
 
 
 def drain_refusal_recording_case():
-    """Reuse actual imported Drain Text refusal; never synthesize wire facts."""
+    """Record actual imported Drain refusal; never synthesize wire facts."""
     from test_magic_items_process import MagicItemProcesses
-    return MagicItemProcesses("test_imported_drain_weak_text_attempt_spends_time_not_charge_or_identity")
+    return MagicItemProcesses("test_headless_drain_weak_attempt_spends_time_not_charge_or_identity")
 
 
 def first_contact_recording_case():
@@ -126,15 +145,15 @@ def first_contact_recording_case():
 
 
 def hallucination_recording_case():
-    """Reuse the genuine Text/cadence/source-free case and its raw snapshots."""
+    """Record genuine headless cadence/source-free state and raw snapshots."""
     from test_magic_items_process import MagicItemProcesses
-    return MagicItemProcesses("test_imported_hallucination_text_visual_cadence_and_source_free_reopen")
+    return MagicItemProcesses("test_headless_hallucination_visual_cadence_and_source_free_reopen")
 
 
 def detection_recording_case():
     """Genuine paid Detection/Mapping and source-deleted spectator recovery."""
     from test_magic_items_process import MagicItemProcesses
-    return MagicItemProcesses("test_imported_detection_history_empty_retention_source_free_spectator")
+    return MagicItemProcesses("test_headless_detection_history_empty_retention_source_free_spectator")
 
 
 def growth_recording_case():
@@ -152,14 +171,14 @@ def haste_recording_case():
 def torch_recording_case():
     """Actual adventure control and fuel states, not synthetic server frames."""
     from test_magic_items_process import MagicItemProcesses
-    return MagicItemProcesses("test_imported_torch_text_explicit_control_fuel_drop_and_source_free_reopen")
+    return MagicItemProcesses("test_headless_torch_control_fuel_drop_and_source_free_reopen")
 
 
 def discovery_recording_case():
-    """Reuse Text examination/opening and source-free checkpoint acceptance."""
+    """Record headless examination/opening and source-free checkpoint state."""
     from test_discovery_process import DiscoveryProcesses
     return DiscoveryProcesses(
-        "test_text_examination_and_secret_open_survive_source_free_checkpoint")
+        "test_headless_examination_and_secret_open_survive_source_free_checkpoint")
 
 
 def scare_pickup_recording_case():
@@ -266,6 +285,22 @@ CLIENT = [
                 {"type": "ignite", "item": "i_" + "04" * 32},
                 {"type": "extinguish", "item": "i_" + "04" * 32},
                 {"type": "zap", "item": "i_" + "04" * 32, "aim": {"kind": "direction", "direction": "east"}},
+                # Authored client-schema examples, not evidence of server admission.
+                {"type": "zap", "item": "i_" + "04" * 32,
+                 "aim": {"kind": "cell", "offset": [4, 2, 1]}},
+                {"type": "use_ability", "id": "fixture_directional_ray",
+                 "invocation": {"aim": {"kind": "cell_ray", "offset": [4, 2, 1]},
+                                "weapon": {"kind": "default"}},
+                 "supplies": {"kind": "carried"}},
+                *({"type": "use_ability", "id": "fixture_projectile",
+                   "invocation": {"aim": {"kind": "cell_projectile", "offset": [4, 2, 1],
+                                          "delivery": delivery}, "weapon": {"kind": "default"}},
+                   "supplies": {"kind": "carried"}} for delivery in [
+                       {"kind": "throw", "source": {"kind": "equipped", "item": "i_" + "04" * 32, "socket": 10}},
+                       {"kind": "throw", "source": {"kind": "carried", "item": "i_" + "04" * 32, "socket": 10}},
+                       {"kind": "launch", "launcher": {"item": "i_" + "04" * 32, "socket": 10},
+                        "ammunition": "i_" + "05" * 32},
+                   ]),
                 {"type": "identify", "choice": "choice-sample", "item": "i_" + "04" * 32},
                 {"type": "identify", "choice": "choice-sample", "item": None},
                 {"type": "eat", "item": "i_" + "04" * 32},
@@ -390,6 +425,19 @@ class Recorder(ProcessTestCase):
     def record_noticed(self, server_samples):
         server_samples["zz.noticed_position"] = run_recording_case(
             NoticedRecordingCase(), "noticed_sample")
+
+    def record_physical_projectiles(self, server_samples):
+        samples = run_recording_case(physical_projectile_recording_case(), "physical_projectile_samples")
+        self.assertEqual(set(samples), {'dagger', 'arrow'})
+        from test_projectile_process import physical_missile_sample
+        verified = {name: physical_missile_sample([sample], name) for name, sample in samples.items()}
+        server_samples.update({'zz.projectile.' + name: sample for name, sample in verified.items()})
+
+    def record_cell_ray(self, server_samples):
+        sample = run_recording_case(cell_ray_recording_case(), "cell_ray_sample")
+        self.assertEqual(sample["type"], "update")
+        self.assertEqual(sample["update"]["body"]["type"], "outcome")
+        server_samples["zz.cell_ray"] = copy.deepcopy(sample)
 
     def record_projectile_choices(self, server_samples):
         self.save = self.save.parent / "projectile-samples.db"
@@ -1113,6 +1161,8 @@ class Recorder(ProcessTestCase):
         partner.stop()
         care_server.stop()
         self.record_projectile_choices(server_samples)
+        self.record_cell_ray(server_samples)
+        self.record_physical_projectiles(server_samples)
         self.record_advancement(server_samples)
         self.record_public_plan(server_samples)
         self.record_nutrition(server_samples)
@@ -1133,10 +1183,8 @@ class Recorder(ProcessTestCase):
         self.record_scare_crumble(server_samples)
         self.record_noticed(server_samples)
         self.record_observer_door(server_samples)
-        from test_ascii_messages_process import AsciiMessageProcesses
         server_samples["zz.work_replacement"] = run_recording_case(
-            AsciiMessageProcesses("test_drinking_replaces_a_suspended_attack_in_one_message"),
-            "work_replacement_sample",
+            work_replacement_recording_case(), "work_replacement_sample",
         )
         self.server_samples = server_samples
 
@@ -1247,7 +1295,7 @@ def record_samples(*, output=None, detection_checkpoint=None):
         decoded = decode_checkpoint_payload(raw)
         json.loads(decoded)  # Validate before publishing any output member.
         target = Path(detection_checkpoint)
-        provenance = {"producer": "MagicItemProcesses.test_imported_detection_history_empty_retention_source_free_spectator",
+        provenance = {"producer": "MagicItemProcesses.test_headless_detection_history_empty_retention_source_free_spectator",
                       "raw_bytes": len(raw), "raw_sha256": hashlib.sha256(raw).hexdigest(),
                       "decoded_bytes": len(decoded), "decoded_sha256": hashlib.sha256(decoded).hexdigest()}
         exports = [(target, decoded), (Path(str(target) + ".torc"), raw),
