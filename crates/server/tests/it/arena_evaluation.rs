@@ -532,7 +532,7 @@ items = [{ id = 100, at = [7,2,0], archetype = "eval_gold", quantity = 7 }]
         if potion && drink_requested {
             let state = engine.state(ActorId(1)).unwrap();
             drank = state.observation.inventory.is_empty()
-                && state.observation.combat.as_ref().unwrap().hp >= hp_before_drink + 1;
+                && state.observation.combat.as_ref().unwrap().hp > hp_before_drink;
         }
         if collected && (!equipment || equipped) && (!potion || drank) {
             break;

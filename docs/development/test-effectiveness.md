@@ -161,6 +161,37 @@ output, clipping, offset and supported/missing-transition witnesses, and report
 construction cost separately from per-frame performance. See the
 [performance policy](performance.md) for measurement provenance and comparison.
 
+### Animation budgets during population changes
+
+A cloak pacing review found that reducing both the scheduled slot and each wearer
+ordinal modulo the previous population repeated a slot when new wearers arrived.
+The first crowd frame and return from an empty scene could therefore fit every
+cloak despite the one-wearer budget. Match the selected ordinal exactly instead.
+Retain startup, growth, empty-return and multi-frame interval/population controls
+alongside the stable-crowd fairness test. Extracted pure scheduler regressions
+established the failure and corrected counts. The native Cargo owner run passed
+all five scheduler tests, and the broader animation selection passed 26 tests.
+These runs do not qualify visual cloth appearance or frame-time improvements.
+
+### Background hair results across presentation resets
+
+A deferred hair solve owns state and a separate mesh-write payload. Resetting
+only its returned state left callers able to publish the pre-reset payload.
+The native regression first failed on that stale payload; receipt after reset
+must return the state without mesh writes, and a subsequent solve must still
+succeed. Retain the normal background-versus-inline equality control. This
+qualifies result invalidation, not a rendered scene transition or cloth quality.
+
+### Hair dispatch ordering under a worker budget
+
+The hair dispatch selector partitions to the available-worker prefix before
+sorting that prefix rather than sorting every positive-wait wearer. Its oracle
+retains the previous stable full sort: descending `total_cmp` priority, input
+ordinal ties, unchanged eligibility and empty, partial and oversized budgets.
+NaN/infinite distances and equivalent priorities remain ordering controls.
+Isolated selector comparisons do not establish animation frame-time or FPS gains;
+the waiting population and selection vector still use crowd-sized storage.
+
 ### Existing cloth defects and qualification limits
 
 The recovery audit found two existing cloth failure families across nine methods:

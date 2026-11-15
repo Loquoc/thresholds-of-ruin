@@ -114,11 +114,14 @@ impl HairRig {
         if let Some(contacts) = self.contacts_while_away.take() {
             state.set_contacts(contacts);
         }
-        if std::mem::take(&mut self.reset_while_away) {
+        let reset = std::mem::take(&mut self.reset_while_away);
+        if reset {
             state.reset_presentation();
         }
         self.state = Some(state);
-        Some(returned.solved)
+        // The returned state is reusable, but mesh writes from before a
+        // presentation reset must not overwrite the newly entered scene.
+        Some(if reset { None } else { returned.solved })
     }
 }
 
@@ -839,10 +842,22 @@ mod tests {
         let frame = hair.rest_frame.unwrap() * Affine3A::from_rotation_x(0.2);
         hair.send(frame, 0.1, false);
         hair.reset_presentation();
-        assert!(hair.receive(true).is_some());
+        assert!(
+            hair.receive(true).expect("a solve was running").is_none(),
+            "reset must discard mesh writes from the previous presentation"
+        );
         assert!(hair.rest_frame.is_none() && hair.fitted.is_empty());
         // Nothing is away any more, so there is nothing more to receive.
         assert!(hair.receive(false).is_none());
+        // Reset invalidates one result, not the next presentation's solver.
+        let new_frame = frame * Affine3A::from_rotation_z(-0.15);
+        hair.send(new_frame, 0.1, false);
+        assert!(hair
+            .receive(true)
+            .expect("fresh solve was running")
+            .is_some());
+        assert!(!hair.is_away());
+        assert!(hair.rest_frame.is_some() && !hair.fitted.is_empty());
     }
 
     #[test]

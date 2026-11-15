@@ -3538,3 +3538,42 @@ comparisons are accepted for the sampled poses. See the
 [bare-foot qualification record](procedural-model-handoff.md#bare-feet-own-anatomy-not-boot-shafts)
 for coverage and the disclosed exploratory cold-construction cost. This is local
 qualification, not hosted CI or merge qualification.
+
+### Short padded wrist-cuff refinement (2026-11-15)
+
+A bounded local candidate shortens the padded glove cuff from 0.110 to 0.075
+model-space height and narrows its authored upper radius from 0.066 to 0.058.
+Its strap station follows the shorter profile; quilting uses a lighter version
+of the glove fabric rather than contrasting gold. Wrist opening, support
+clearance, wall thickness, grip, hand and knuckle geometry remain unchanged.
+The nearby taper changes with the new station spacing; this is not identical
+forearm geometry. Other glove styles retain their recipes.
+
+The glove owner passes 17 tests, including open/closed grip and surface-relief
+controls; the forearm-plan owner passes eight tests including sleeve coverage
+and outer-sleeve clearance. Authored-height assertions now distinguish the
+short padded cuff from taller styles; contact and stitch-relief bounds were not
+relaxed. Matched local offscreen views show a less dominant cuff and quieter
+quilting. This is bounded static review, not all-body, continuous-motion or FPS
+qualification. The separate bulbous knuckle-pad concern remains unresolved.
+
+### Fine padded-cuff quilting (2026-11-15)
+
+The follow-up halves the padded cuff's stitch radius to 0.00075 model units and
+reduces its fabric contrast. Centerlines now seat against the actual faceted
+cuff before straps or rims are added; projecting before decoration also avoids
+threads fitting against one another. A naive thin-tube trial was not accepted:
+keeping its old offset could have left the finer thread floating above cloth.
+
+All 18 glove-owner tests and eight forearm-plan tests pass locally. A new
+actual-triangle witness checks that stitch inner surfaces reach the cuff while
+outer surfaces remain visible at segment midpoints, across two sizes and both
+unsupported and sleeve-supported cuffs. Existing visibility limits remain;
+the maximum relief limit is tighter. Four matched offscreen views retain the
+short cuff silhouette while replacing the raised-cord appearance with finer
+quilting. Hand/grip and knuckle geometry are unchanged.
+
+This adds 216 support-ray queries during construction of each padded cuff;
+construction timing and FPS effects are not qualified. It does not add per-frame
+work. Static views and sampled attachment checks do not qualify every sleeve or
+continuous motion. The knuckle pads remain a separate unresolved refinement.

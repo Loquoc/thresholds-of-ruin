@@ -86,7 +86,9 @@ impl CloakPacing {
         let wearers = self.wearers.max(1);
         self.interval == 0
             || (self.frame.is_multiple_of(self.interval)
-                && (self.frame / self.interval) % wearers == ordinal % wearers)
+                // Match one ordinal, not its residue: newly added wearers must not
+                // repeat slots from the previous frame's smaller population.
+                && (self.frame / self.interval) % wearers == ordinal)
     }
 
     fn finish_frame(&mut self, wearers: u32) {
@@ -3847,6 +3849,52 @@ mod cloak_pacing_tests {
         for _ in 0..5 {
             assert!((0..4).all(|ordinal| pacing.fits(ordinal)));
             pacing.finish_frame(4);
+        }
+    }
+
+    #[test]
+    fn new_or_growing_crowds_do_not_repeat_a_previous_slot() {
+        for previous in [0, 1, 3] {
+            let mut pacing = CloakPacing::every(1);
+            if previous != 0 {
+                pacing.finish_frame(previous);
+            }
+            let selected: Vec<_> = (0..8).filter(|&ordinal| pacing.fits(ordinal)).collect();
+            assert_eq!(selected.len(), 1, "previous {previous}: {selected:?}");
+        }
+    }
+
+    #[test]
+    fn a_crowd_returning_after_an_empty_frame_keeps_the_budget() {
+        let mut pacing = CloakPacing::every(1);
+        pacing.finish_frame(5);
+        pacing.finish_frame(0);
+        let selected: Vec<_> = (0..5).filter(|&ordinal| pacing.fits(ordinal)).collect();
+        assert_eq!(selected, vec![0]);
+    }
+
+    #[test]
+    fn crowd_changes_keep_interval_slots_and_resume_fair_turns() {
+        for interval in [2, 3] {
+            let mut pacing = CloakPacing::every(interval);
+            for wearers in [0, 8, 1, 8, 0, 5, 2, 7] {
+                let count = (0..wearers).filter(|&ordinal| pacing.fits(ordinal)).count();
+                assert!(count <= 1);
+                if !pacing.frame.is_multiple_of(interval) {
+                    assert_eq!(count, 0);
+                }
+                pacing.finish_frame(wearers);
+            }
+            let mut fitted = [0; 7];
+            for _ in 0..interval * 7 {
+                for ordinal in 0..7 {
+                    if pacing.fits(ordinal) {
+                        fitted[ordinal as usize] += 1;
+                    }
+                }
+                pacing.finish_frame(7);
+            }
+            assert_eq!(fitted, [1; 7]);
         }
     }
 
