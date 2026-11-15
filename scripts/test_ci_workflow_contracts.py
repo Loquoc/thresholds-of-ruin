@@ -449,8 +449,6 @@ class LinuxDebugShardWorkflow(unittest.TestCase):
         self.assertIn('--profile debug --directory .local/shard-coverage/linux-debug', gate)
         self.assertIn('--origin-attempt "${{ steps.linux_cohort.outputs.origin_attempt }}"', gate)
 
-
-class LinuxReleasePythonBudget(unittest.TestCase):
     def test_only_unsharded_linux_release_gets_bounded_setup_and_verifier_headroom(self):
         profiles = workflow_job('profiles')
         expression = re.search(r'^    timeout-minutes: (.+)$', profiles, re.M)[1]
