@@ -18,6 +18,8 @@ pub struct CaveParams {
     /// rgb: mineral flecks.
     pub accent: Vec4,
     /// x: the even light of a lit room on the rock the character sees.
+    /// y: above a half, surface noise is read from the baked textures.
+    /// z: above a half, the rock is lit as a matte surface.
     pub light: Vec4,
 }
 

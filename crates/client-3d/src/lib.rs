@@ -6,6 +6,9 @@
 //! window keeps one steady world and the camera glides after the player.
 // The frame diagnostics report is one large `serde_json::json!` object.
 #![recursion_limit = "256"]
+/// Set by the Android host: restricts the calling thread to the given cores.
+#[cfg(target_os = "android")]
+pub static THREAD_PINNER: std::sync::OnceLock<fn(&[usize])> = std::sync::OnceLock::new();
 mod autoplay;
 mod bestiary;
 mod cave;
@@ -37,6 +40,7 @@ mod progression;
 mod props;
 #[cfg(test)]
 mod render_contracts;
+mod render_profile;
 mod review_clock;
 mod review_script;
 mod sdf;
@@ -82,7 +86,11 @@ const HELP: &str = "WASD/arrows: move   Q/E: turn   wheel: zoom   click: act   G
 X: door   I: pack   Space: wait   R/F: up/down   M: map   Tab: control   Esc: close/quit";
 
 pub fn run() -> Result<(), Error> {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    run_with(std::env::args().skip(1).collect())
+}
+
+/// Runs the client with explicit arguments, for hosts without a command line.
+pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     if arguments
         .first()
         .is_some_and(|arg| arg == "--startup-window")
@@ -113,7 +121,7 @@ pub fn run() -> Result<(), Error> {
     let mut bestiary = false;
     let mut autoplay = false;
     let mut hunt = false;
-    let mut args = std::env::args().skip(1);
+    let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or(format!("Missing value for {arg}"));
         match arg.as_str() {
@@ -322,6 +330,7 @@ pub fn run() -> Result<(), Error> {
         bestiary::run(diagnostics);
         return Ok(());
     }
+    let render_profile = render_profile::RenderProfile::from_environment()?;
     let connection = connect
         .map(|address| std::env::var("TOR_SERVER_TOKEN").map(|token| (address, token)))
         .transpose()
@@ -518,6 +527,7 @@ pub fn run() -> Result<(), Error> {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
     load_internal_asset!(app, cave::SHADER, "cave.wgsl", Shader::from_wgsl);
+    app.add_plugins(render_profile::plugin(render_profile));
     let exit = app.run();
     let network_result = network.lock().unwrap().shutdown();
 
@@ -880,6 +890,8 @@ fn setup(
             },
             extension: CaveExtension {
                 params: CaveParams::default(),
+                lattice: None,
+                sums: None,
             },
         }),
         crystal_mat: [
