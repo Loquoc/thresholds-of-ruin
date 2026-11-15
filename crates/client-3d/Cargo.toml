@@ -19,6 +19,8 @@ workspace = true
 [dependencies]
 tor-client-common = { path = "../client-common" }
 tor-protocol = { path = "../protocol" }
+# The menu runs a private server in this process, so one package plays alone.
+tor-server = { path = "../server" }
 tor-client-3d-model = { path = "model" }
 tokio = { version = "1.53", features = ["macros", "rt", "net", "sync", "time"] }
 serde_json = "1"

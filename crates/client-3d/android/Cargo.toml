@@ -39,7 +39,7 @@ target_sdk_version = 35
 name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
-label = "Thresholds of Ruin 3D (experimental)"
+label = "Thresholds of Ruin (experimental)"
 
 [package.metadata.android.application.activity]
 orientation = "landscape"

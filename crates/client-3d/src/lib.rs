@@ -16,6 +16,8 @@ mod chrome;
 mod creatures;
 mod cursor;
 mod diagnostics;
+mod embedded;
+pub use embedded::install_scenarios;
 mod equipment;
 mod frame_stats;
 mod gallery;
@@ -25,6 +27,7 @@ mod interact;
 mod inventory;
 mod launch;
 mod lighting;
+mod local_host;
 mod loot_labels;
 mod map_journal;
 mod minimap;
@@ -44,6 +47,7 @@ mod render_profile;
 mod review_clock;
 mod review_script;
 mod sdf;
+mod session;
 mod showcase;
 mod startup;
 #[cfg(test)]
@@ -121,6 +125,9 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     let mut bestiary = false;
     let mut autoplay = false;
     let mut hunt = false;
+    let mut menu = false;
+    let mut scenario_root: Option<PathBuf> = None;
+    let mut touch_controls = cfg!(target_os = "android");
     let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or(format!("Missing value for {arg}"));
@@ -272,9 +279,13 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
             }
             "--demo-interact" => autoplay = true,
             "--demo-hunt" => hunt = true,
+            "--menu" => menu = true,
+            "--scenario-root" => scenario_root = Some(PathBuf::from(value()?)),
+            "--touch-controls" => touch_controls = true,
             _ => {
                 println!(
-                    "tor-client-3d [--scenario DIR] [--save FILE | --save-root DIR] [--seed N] [--server-bin EXE]\n\
+                    "tor-client-3d --menu [--scenario-root DIR] [--save-root DIR] [--touch-controls]  (standalone: title, menu, private server in this process)\n\
+                     tor-client-3d [--scenario DIR] [--save FILE | --save-root DIR] [--seed N] [--server-bin EXE]\n\
                      tor-client-3d --connect 127.0.0.1:PORT [--actor 1] [--observe]  (token from TOR_SERVER_TOKEN)\n\
                      Offline: --bestiary or --gallery [--azimuth DEGREES]\n\
                      Model review: --lineups [--women] [--jump] [--lively] [--antic N] [--turn DEGREES] [--bust-study contours|volumes] or --fallen-lineups [--capture DIR]\n\
@@ -322,6 +333,12 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     {
         return Err("--review-step-hz requires offline --lineups".into());
     }
+    if menu && (connect.is_some() || save.is_some() || seed.is_some() || gallery || bestiary) {
+        return Err(
+            "--menu chooses its own game; it cannot be combined with --connect, --save, --seed, --gallery or --bestiary"
+                .into(),
+        );
+    }
     if gallery {
         gallery::run(diagnostics);
         return Ok(());
@@ -335,39 +352,58 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
         .map(|address| std::env::var("TOR_SERVER_TOKEN").map(|token| (address, token)))
         .transpose()
         .map_err(|_| "--connect requires TOR_SERVER_TOKEN")?;
-    let mut splash = startup::Splash::start(diagnostics.capture.as_deref())?;
-    if splash.cancelled() {
-        return Ok(());
-    }
-    let mut server: Option<launch::OwnedChild> = None;
-    let (address, token) = match connection {
-        Some(connection) => connection,
-        None => {
-            let credentials = launch::Credentials::new();
-            let started =
-                launch::start(&server_bin, &scenario, save, seed, &save_root, &credentials)?;
-            println!(
-                "{}",
-                serde_json::json!({"type":"local_server", "address":started.address,
-                                           "save":started.save, "pid": started.child.id()})
-            );
-            server = Some(started.child);
-            (started.address, credentials.owner)
-        }
+    // The standalone menu draws its own title in the game window and starts
+    // a game only once one is chosen.
+    let standalone = menu.then(|| {
+        session::Session::new(
+            scenario_root.unwrap_or_else(|| launch::repo_root().join("scenarios")),
+            save_root.clone(),
+        )
+    });
+    let mut splash = if standalone.is_some() {
+        startup::Splash::inert()
+    } else {
+        startup::Splash::start(diagnostics.capture.as_deref())?
     };
     if splash.cancelled() {
         return Ok(());
     }
-    let network = Arc::new(Mutex::new(Network::start(address, token, actor, observe)));
+    let mut server: Option<launch::OwnedChild> = None;
+    let network = if standalone.is_some() {
+        Network::idle()
+    } else {
+        let (address, token) = match connection {
+            Some(connection) => connection,
+            None => {
+                let credentials = launch::Credentials::new();
+                let started =
+                    launch::start(&server_bin, &scenario, save, seed, &save_root, &credentials)?;
+                println!(
+                    "{}",
+                    serde_json::json!({"type":"local_server", "address":started.address,
+                                               "save":started.save, "pid": started.child.id()})
+                );
+                server = Some(started.child);
+                (started.address, credentials.owner)
+            }
+        };
+        if splash.cancelled() {
+            return Ok(());
+        }
+        Network::start(address, token, actor, observe)
+    };
+    let network = Arc::new(Mutex::new(network));
     splash.preparing_renderer();
 
+    let shown_at_once = standalone.is_some();
     let mut app = App::new();
     app.add_plugins(graphics::plugins().set(WindowPlugin {
         primary_window: Some(Window {
             title: "Thresholds of Ruin — 3D prototype".into(),
             resolution: WindowResolution::new(1440., 900.),
-            visible: false,
-            focused: false,
+            // The standalone title is drawn in this window, so it shows at once.
+            visible: shown_at_once,
+            focused: shown_at_once,
             // Timing frames measures headroom, so it lifts the display cap.
             present_mode: if diagnostics.frame_stats.is_some() {
                 bevy::window::PresentMode::AutoNoVsync
@@ -432,7 +468,12 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     )
     .add_systems(
         PreUpdate,
-        playtest_capture::keyboard.after(bevy::input::InputSystem),
+        (
+            playtest_capture::keyboard.after(bevy::input::InputSystem),
+            hud::touch_keys
+                .after(bevy::input::InputSystem)
+                .run_if(resource_exists::<hud::TouchControls>),
+        ),
     )
     .add_systems(Last, playtest_capture::capture)
     .add_systems(
@@ -440,7 +481,9 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
         (
             (receive, creatures::loading::poll, startup::tick).chain(),
             react,
-            (pile_picker::update, interact::keys, hud::buttons).chain(),
+            (pile_picker::update, interact::keys, hud::buttons)
+                .chain()
+                .run_if(session::has_input),
             (
                 (progression::sync, progression::controls).chain(),
                 (
@@ -473,9 +516,9 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
             )
                 .chain(),
             interact::panel_buttons,
-            input,
+            input.run_if(session::has_input),
             interact::hover,
-            interact::click,
+            interact::click.run_if(session::has_input),
             interact::pursue,
             interact::show_hover,
             rig_camera,
@@ -528,11 +571,25 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     }
     load_internal_asset!(app, cave::SHADER, "cave.wgsl", Shader::from_wgsl);
     app.add_plugins(render_profile::plugin(render_profile));
+    // Both decide which HUD buttons exist, so they precede its setup.
+    if touch_controls {
+        app.insert_resource(hud::TouchControls::default());
+    }
+    if let Some(standalone) = standalone {
+        app.insert_resource(standalone)
+            .add_plugins(session::SessionPlugin);
+    }
     let exit = app.run();
     let network_result = network.lock().unwrap().shutdown();
+    // A game still running when the window closed without the menu.
+    let hosted_result = app
+        .world_mut()
+        .get_resource_mut::<session::Session>()
+        .map_or(Ok(()), |mut session| session.shutdown());
 
     let server_result = server.as_mut().map_or(Ok(()), launch::OwnedChild::stop);
     network_result?;
+    hosted_result?;
     server_result?;
     if exit.is_success() {
         Ok(())
@@ -695,6 +752,18 @@ struct Game {
 }
 
 impl Game {
+    /// The state a new game starts from after leaving this one. Serials keep
+    /// counting, so caches stamped with an earlier game's serial redraw.
+    fn restarted(self) -> Self {
+        Self {
+            busy: true,
+            capture_serial: self.capture_serial,
+            view_serial: self.view_serial + 1,
+            advancement_serial: self.advancement_serial + 1,
+            ..default()
+        }
+    }
+
     /// Input owns the context used to interpret it. The worker cannot upgrade it
     /// to a newer revision, control grant, stream, or branch.
     fn send(&mut self, net: &Net, command: Cmd) -> bool {
