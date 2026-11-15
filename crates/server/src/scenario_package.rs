@@ -73,7 +73,7 @@ pub use tor_simulation::EdibleSpec;
 use tor_simulation::Game;
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
-pub const RULESET: &str = "interactions-v60";
+pub const RULESET: &str = "interactions-v61";
 const VALIDATOR: &str = "tor-scenario-51";
 /// The manifest and the validator's files are bounded to this.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
@@ -5417,7 +5417,7 @@ mod tests {
         let original = read_package(&root).unwrap();
         original.check_identity().unwrap();
         assert_eq!(original.certificate.validator, "tor-scenario-51");
-        assert_eq!(original.certificate.ruleset, "interactions-v60");
+        assert_eq!(original.certificate.ruleset, "interactions-v61");
         let current_artifact = artifact::relative_root(&original);
         for (boundary, identity) in [
             ("validator", "tor-scenario-27"),
@@ -5434,6 +5434,7 @@ mod tests {
             ("ruleset", "interactions-v42"),
             ("ruleset", "interactions-v56"),
             ("ruleset", "interactions-v58"),
+            ("ruleset", "interactions-v60"),
         ] {
             let mut package = original.clone();
             if boundary == "validator" {
@@ -5447,7 +5448,7 @@ mod tests {
             assert!(crate::storage::schema::scenario::decode_content_package(&encoded).is_err());
             assert!(package.check_identity().is_err(), "{boundary}");
         }
-        for previous in ["interactions-v35", "interactions-v56", "interactions-v58"] {
+        for previous in ["interactions-v35", "interactions-v56", "interactions-v58", "interactions-v60"] {
             assert!(
                 resolve_rules_source(&format!("import = \"{previous}\"\n"), "rules.toml").is_err()
             );
@@ -7257,7 +7258,7 @@ mod tests {
 
     #[test]
     fn shared_rules_import_accepts_validated_scenario_override() {
-        let source = r#"import = "interactions-v60"
+        let source = r#"import = "interactions-v61"
 [[overrides]]
 op = "set"
 path = ["constants", "base_defense"]

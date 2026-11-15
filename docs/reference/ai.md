@@ -95,7 +95,7 @@ because they might appear tactically better to an observer with hidden knowledge
 | 8 | Flee | Select a legal disclosed retreat using the current heuristic. Without a committed prefix, a qualifying step ability may implement it; otherwise ordinary Move owns abandonment/debt |
 | 9 | Resume committed paused prefix when no retreat chosen | Do not replace it with new gear/healing/attacks or repeat its first strike |
 | 10 | Proactive self-defense | Requires a current sensed engaged target and a narrowly recognized useful self-condition plan |
-| 11 | Engaged attack | Current matching visible target; normal hostile ability choice outside Flee, basic attacks only when cornered in Flee |
+| 11 | Engaged attack | Current matching visible target; supported ranged positioning before hostile ability choice outside Flee, basic attacks only when cornered in Flee |
 | 12 | Remembered pursuit | Outside Flee, first legal route step toward last seen; unusable pursuit clears engagement and returns to Search |
 | 13 | Anonymous-alert investigation | Outside Flee and without engagement, route to licensed alert location; do not invent a target attack |
 | 14 | Safe Search items | Equipment improvement, then useful nearby loot, then known Gold; each has policy and visible-hostile gates |
@@ -133,6 +133,23 @@ make the action unsafe. The current threat and effect eligibility are rechecked;
 this is not a general utility search or optimal buff planner. The exact predicate
 is owned by [ai_defense.rs](../../crates/simulation/src/ai_defense.rs).
 
+## Conservative ranged positioning
+
+Outside Flee, an engaged actor with a currently disclosed target may make one
+legal step out of adjacent melee before attacking. This is capability-driven,
+not keyed to a monster name: ordinary planning must admit an affordable,
+currently usable actor-targeted sight-range ability whose authored preference
+is outside melee. Unfunded or melee-only actors keep the ordinary attack policy.
+
+The local guard supports upright column bodies and ordinary frame-preserving
+movement. Destination body cells, the clear corridor and required solid footing
+must already be disclosed in the appropriate local occurrence; a location alias
+through a portal is not proof of support. It rejects unsupported orientation or
+gravity, unknown support, and positions adjacent to any disclosed hostile body
+cell, and preserves the admitted ability's effective range. Unsupported cases
+fall back to the ordinary policy rather than reading hidden topology. The actor
+replans next turn; this is not general kiting, a route planner or guaranteed safety.
+
 ## Limited two-step retreat
 
 A strictly farther legal retreat retains priority. If none exists, a single-cell
@@ -155,8 +172,11 @@ gear, one healing reserve and supplies for one payable safe healing use. Food
 reserve depends on required nutrition. Gold interest is separately authored; it
 does not grant theft or teach hidden magical effects.
 
-The item policy uses bounded remembered-route detours (up to three steps), not a
-whole hidden-floor loot oracle. Projectile-source search scans at most 128
+Useful disclosed items and authored gold interest have no fixed gameplay
+distance cutoff. Pursuit still requires a known reachable route, a safe goal and
+first step, and the existing higher-priority needs; it is not a hidden-floor loot
+oracle. Route search is finite over remembered topology, not a fixed CPU budget.
+Projectile-source search scans at most 128
 inventory rows and considers bounded launcher choices; no unbounded inventory
 scan is implied by a generic projectile ability. Selection is deterministic at
 its stable tie-breaks. See [item tactics](../../crates/simulation/src/ai_items.rs),

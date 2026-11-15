@@ -144,8 +144,9 @@ escapes, blocked/unknown-route behavior, same-region folded-chart rejection,
 preview purity and checkpointed AI execution. Additional
 candidate searches are an explicit correctness cost, not a measured speedup.
 The approved deterministic correction was introduced under historical rules identity 57.
-The current `interactions-v60` additionally covers shared item use and carrier
-generation; it does not relabel this earlier correction or its test receipts.
+The current `interactions-v61` additionally covers shared item use, carrier
+generation, disclosed resource-aware ranged positioning and useful item pursuit
+without a fixed three-cell gameplay cutoff; it does not relabel this earlier correction or its test receipts.
 All saves pinned to the previous identity are rejected, not only saves containing
 the affected AI state; scenario certificates must be regenerated. Wire and stored
 schema versions are unchanged. Serializer shape compatibility alone does not

@@ -1503,8 +1503,15 @@ new versioned golden fixture to the repository in the same change as the version
 update. This is required for every such version increment, including when the
 only serialized difference is the version field. Record
 `crates/protocol/tests/fixtures/wire-v<version>.json` for each wire version and
-`crates/server/fixtures/saved-scenarios-v<version>.json` for each save/archive
-version using the real recorder or current storage writer described below.
+`crates/server/fixtures/saved-scenarios-v<archive-version>-<ruleset>.json`
+for each save/archive version using the real recorder or current storage writer
+described below. Saved-scenario metadata embeds the rules identity, so a rules-only
+identity change also requires a newly generated golden under that archive/rules
+pair; it does not require an artificial archive-format increment. Published
+archive-only and archive/rules fixture files remain untouched. The existing
+archive 70 / historical rules identity 60 pair explicitly retains its original
+archive-only filename; this exact-pair naming exception is not a fallback
+for another rules identity or archive version.
 Review and commit the generated fixture, then run the ordinary comparisons with
 recording disabled. A locally generated, uncommitted fixture is not sufficient;
 neither is reusing, renaming, relabeling or rewriting a published older fixture.
@@ -1581,7 +1588,9 @@ fixtures loading. `scripts/test_documentation.py` checks that the versions state
 in the docs match the code.
 
 Saved scenario metadata has a golden fixture produced by the current storage
-writer. After an accepted save-schema change, set `TOR_RECORD_SCENARIO_FIXTURES`
+writer, selected by both archive version and supported rules identity with no
+historical fallback. After an accepted save-schema or rules-identity change, set
+`TOR_RECORD_SCENARIO_FIXTURES`
 to the new fixture's absolute path and run
 `cargo test -p tor-server --lib current_writer_matches_golden_scenario_fixture`.
 Review the generated diff, unset the variable, and rerun the ordinary schema
