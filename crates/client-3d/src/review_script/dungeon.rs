@@ -25,7 +25,11 @@ pub(super) fn setup(
             perceptual_roughness: 0.88,
             ..default()
         },
-        extension: CaveExtension { params },
+        extension: CaveExtension {
+            params,
+            lattice: None,
+            sums: None,
+        },
     });
     let crystal = [
         (

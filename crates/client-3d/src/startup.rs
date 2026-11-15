@@ -119,6 +119,17 @@ pub(crate) struct Splash {
 
 impl Splash {
     pub(crate) fn start(captures: Option<&Path>) -> Result<Self, Error> {
+        // Android cannot start a second process for the splash window.
+        if cfg!(target_os = "android") {
+            return Ok(Self {
+                child: Mutex::new(None),
+                input: Mutex::new(None),
+                cancelled: Arc::new(AtomicBool::new(false)),
+                progress: Progress::default(),
+                handoff: Handoff::default(),
+                finished: false,
+            });
+        }
         let mut command = Command::new(std::env::current_exe()?);
         command
             .arg("--startup-window")
