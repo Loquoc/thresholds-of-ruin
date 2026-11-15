@@ -1903,6 +1903,28 @@ impl App {
             self.status = "Never mind.".into();
             return Effect::None;
         }
+        if let Input::Click { x, y } = input {
+            let action = self.state.as_ref().and_then(|state| {
+                let position = crate::render::known_cell_at(state, x, y)?;
+                let item = self.zap_item()?;
+                Some(tor_client_common::items::zap_cell_action(
+                    &state.state().observation,
+                    item,
+                    [position.x, position.y, position.z],
+                ))
+            });
+            if let Some(action) = action {
+                self.zap_selection = None;
+                return match action {
+                    Ok(action) => self.act(action),
+                    Err(reason) => {
+                        self.status = reason;
+                        Effect::None
+                    }
+                };
+            }
+            return Effect::None;
+        }
         let Input::Key { key } = input else {
             return Effect::None;
         };
@@ -2349,6 +2371,28 @@ impl App {
                 AbilityTargetKind::SelfStep | AbilityTargetKind::DirectionalRay
             )
         }) {
+            if let Input::Click { x, y } = input {
+                if self
+                    .selected_ability
+                    .as_ref()
+                    .is_some_and(|ability| ability.target_kind == AbilityTargetKind::DirectionalRay)
+                {
+                    if let Some(position) = self
+                        .state
+                        .as_ref()
+                        .and_then(|state| crate::render::known_cell_at(state, x, y))
+                    {
+                        let ability = self.selected_ability.take().expect("selected ray");
+                        return self.choose_ability_invocation(
+                            ability,
+                            tor_protocol::AbilityInvocation::cell_ray([
+                                position.x, position.y, position.z,
+                            ]),
+                        );
+                    }
+                }
+                return Effect::None;
+            }
             if let Input::Key { key } = input {
                 if key == Key::Escape {
                     self.selected_ability = None;
@@ -3519,6 +3563,22 @@ impl App {
         if self.busy {
             return Effect::None;
         }
+        if menu.step() == Step::Direction {
+            if let Input::Click { x, y } = input {
+                if let Some(position) = crate::render::known_cell_at(state, x, y) {
+                    let action = menu.cell_action(state, [position.x, position.y, position.z]);
+                    self.projectile_selection = None;
+                    return match action {
+                        Ok(action) => self.act(action),
+                        Err(reason) => {
+                            self.status = reason;
+                            Effect::None
+                        }
+                    };
+                }
+                return Effect::None;
+            }
+        }
         let Input::Key { key } = input else {
             return Effect::None;
         };
@@ -3623,6 +3683,20 @@ impl App {
             ),
         };
         if let Some(preview) = &self.weapon_confirmation {
+            if let Some((offset, delivery)) = preview.projectile_cell_aim() {
+                return Some(format!(
+                    "{} toward cell {}, {}, {}? {} Esc cancels.",
+                    action(delivery),
+                    offset[0],
+                    offset[1],
+                    offset[2],
+                    if preview.ready() {
+                        "Enter confirms."
+                    } else {
+                        "Checking shot."
+                    }
+                ));
+            }
             let (direction, delivery) = preview.projectile_aim()?;
             let action = action(delivery);
             return Some(if preview.ready() {

@@ -1515,10 +1515,50 @@ versioned fixture schemas retain their own versioning rules below.
 Polymorph's current wire book also requires a genuine known `direction_or_self`
 affordance and a paid `baleful_polymorph` diagnostic with only `target` and
 `changed`, not merely an older snapshot/diagnostic message kind. The recorder
-reuses the ordinary Text self-Zap/source-free-reopen case for its exact request
+uses the ordinary headless self-Zap/source-free-reopen case for its exact request
 and snapshot, plus one minimal authored self-ability diagnostic case. Selected
 form IDs and body/advancement ledgers are not wire sample material. Both process
 cases and their cleanup must succeed before either sample is published.
+
+The physical dagger/arrow and persistent utility-condition wire samples use
+headless production-process owners, not presentation clients:
+`ProjectileProcesses.test_headless_projectile_payment_recovery_and_source_free_restart`
+and
+`RogueUtilityWandsProcesses.test_persistent_first_contact_utility_state_reopens_without_source_headless`.
+They preserve actual admitted actions, payment, source-free reopening, raw server
+messages and complete cleanup. The independent Text/native projectile tests
+still own menus, preview/confirmation and narration. The utility Text test still
+checks persistent status rendering at both pre-save and reopened boundaries.
+A headless recording does not count as either client's acceptance coverage.
+
+Polymorph and Detection/Mapping recording likewise use dedicated headless
+process owners. Polymorph records a genuine paid self-Zap and replays the exact
+captured client request after source deletion, retaining privacy, charge and
+identity assertions. Detection retains paid positive/empty attempts, full paged
+history and source-free spectator reconstruction. Their original Text acceptance
+methods remain unchanged and own command translation and chart rendering;
+headless success is not credited as Text UI verification.
+
+The remaining Amulet escape, self-device, weak Drain refusal, hallucination,
+torch and discovery fixture sources also have explicit headless owners. They
+retain actual production admission, time/resource changes, observer-visible
+state, raw server envelopes and applicable source-free reopening. Original
+Text acceptance methods remain separate: prompt selection, prose, chart or
+status formatting and native input are client contracts, not fixture-generation
+prerequisites. Recording must not launch Text or ASCII merely to drive a server
+state transition. Qualify those client assertions separately in their own tests.
+
+The `zz.work_replacement` wire sample is recorded by
+`AsciiMessageProcesses.test_headless_drink_replacement_records_authoritative_work_facts`
+through the actual server and headless client. It owns the paused-attack/replacement
+intention identities, potion consumption and tick payment, and the unchanged raw
+`own_work_changed` Outcome. The recorder waits for the complete test and cleanup.
+The separate unchanged
+`AsciiMessageProcesses.test_drinking_replaces_a_suspended_attack_in_one_message`
+owns native menu input and exactly one combined narration line without a duplicate
+interruption message. It remains graphical and runs in normal CI. A successful
+wire recording does not qualify that native UI test; unavailable local display
+coverage must still be reported separately, never as a headless UI pass.
 
 When the protocol version changes, rerun `python scripts/record_wire_samples.py`
 to record `crates/protocol/tests/fixtures/wire-v<version>.json` and review its

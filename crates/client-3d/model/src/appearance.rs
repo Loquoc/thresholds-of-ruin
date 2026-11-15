@@ -341,6 +341,14 @@ pub fn object_model(palette: &Palette, presentation: &ObjectPresentation) -> Ite
     }
 }
 
+/// Effects never substitute a plausible-but-unknown weapon silhouette.
+pub fn effect_object_model(palette: &Palette, object: &ObjectPresentation) -> Option<ItemModel> {
+    palette
+        .resolve(items(), object.asset.as_deref())
+        .copied()
+        .filter(|model| *model != ItemModel::ShortSword)
+}
+
 fn item_shape(palette: &Palette, class: ItemClass, asset: Option<&str>) -> ItemModel {
     if let Some(model) = palette.resolve(items(), asset) {
         return *model;
@@ -446,6 +454,44 @@ pub fn wearing(palette: &Palette, worn: &[WornView]) -> Wearing {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn flying_objects_require_admitted_nonplaceholder_recipes() {
+        use tor_protocol::{
+            ItemClass, ObjectPresentation, ObjectPresentationKind, PaletteBody, PaletteUpdate,
+        };
+        let mut palette = Palette::default();
+        let mut object = ObjectPresentation {
+            name: "not a model selector".into(),
+            asset: Some("item.weapon.arrow".into()),
+            kind: ObjectPresentationKind::Item {
+                class: ItemClass::Weapon,
+            },
+        };
+        assert_eq!(effect_object_model(&palette, &object), None);
+        palette.apply(&PaletteUpdate {
+            revision: 1,
+            body: PaletteBody::Full {
+                assets: ["item.weapon.arrow".into(), "item.weapon.unknown".into()]
+                    .into_iter()
+                    .collect(),
+            },
+        });
+        assert_eq!(
+            effect_object_model(&palette, &object),
+            Some(ItemModel::Arrow)
+        );
+        object.asset = Some("item.weapon.unknown".into());
+        assert_eq!(effect_object_model(&palette, &object), None);
+        object.asset = Some("item.weapon.arrow".into());
+        palette.apply(&PaletteUpdate {
+            revision: 2,
+            body: PaletteBody::Full {
+                assets: Default::default(),
+            },
+        });
+        assert_eq!(effect_object_model(&palette, &object), None);
+    }
+
     use super::*;
     use std::collections::{BTreeMap, BTreeSet};
     use tor_protocol::{PaletteBody, PaletteUpdate};

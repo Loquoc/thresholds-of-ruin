@@ -391,6 +391,15 @@ pub fn click(
             return;
         }
     }
+    if let (Some(aim), Some(cell)) = (&game.aiming, hover.cell) {
+        let local = cell - game.offset;
+        if let Some(command) = aim.cell([local.x, local.y, local.z]) {
+            game.aiming = None;
+            *pursuit = Pursuit::default();
+            send(&net, &mut game, command);
+            return;
+        }
+    }
     // An ability waiting for a creature takes the clicked one.
     if let (Some(aim), Some(Focus::Actor(actor))) = (&game.aiming, hover.focus) {
         if let Some(command) = aim.at(actor) {

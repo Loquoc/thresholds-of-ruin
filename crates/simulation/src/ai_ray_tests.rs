@@ -242,3 +242,49 @@ fn queued_ray_restores_without_target_and_starts_with_directional_work() {
     assert!(preparation.started + preparation.remaining > restored.tick);
     assert_eq!(preparation.plan.work().target(), None);
 }
+
+#[test]
+fn arbitrary_flight_aim_uses_only_disclosed_physical_target_occurrences() {
+    let game = fixture();
+    let mut view = game.observe(ActorId(2)).unwrap();
+    let target = ActorId(1);
+    let location = view
+        .visible_actors
+        .iter()
+        .find(|other| other.id == target)
+        .unwrap()
+        .location;
+    let cell = SightCell {
+        physical: true,
+        location,
+        offset: Position { x: 4, y: 2, z: -1 },
+        rotation: 0,
+        wall: false,
+    };
+    assert_eq!(
+        disclosed_flight_aim(target, &[cell], &view, [0, 0, 1], 6),
+        Some(crate::abilities::FlightAim::Cell { offset: [4, 2, 0] })
+    );
+    assert_eq!(
+        disclosed_flight_aim(target, &[cell], &view, [0, 0, 1], 3),
+        None
+    );
+    assert_eq!(
+        disclosed_flight_aim(
+            target,
+            &[SightCell {
+                physical: false,
+                ..cell
+            }],
+            &view,
+            [0, 0, 1],
+            6
+        ),
+        None
+    );
+    view.visible_actors.retain(|other| other.id != target);
+    assert_eq!(
+        disclosed_flight_aim(target, &[cell], &view, [0, 0, 1], 6),
+        None
+    );
+}

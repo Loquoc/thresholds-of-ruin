@@ -1,5 +1,5 @@
 # Canonical rules content; initial starter values remain provisional until paired evaluation.
-id = "interactions-v58"
+id = "interactions-v60"
 
 # Expertise identities are authored explicitly; this foundation adds no free grants.
 expertises = []
@@ -288,6 +288,8 @@ ai = { priority = 20, hostile = true, minimum_resource_percent = 0, range_prefer
 [[abilities]]
 interaction = "hostile_to_target"
 id = "spark_lance_fire"
+effect_visual = "flame"
+effect_style = "magic.lance.fire"
 name = "Spark Lance (Fire)"
 tags = ["attack"]
 basic_attack = false
@@ -301,6 +303,8 @@ ai = { priority = 10, hostile = true, minimum_resource_percent = 0, range_prefer
 [[abilities]]
 interaction = "hostile_to_target"
 id = "spark_lance_cold"
+effect_visual = "frost"
+effect_style = "magic.lance.cold"
 name = "Spark Lance (Cold)"
 tags = ["attack"]
 basic_attack = false
@@ -327,6 +331,8 @@ ai = { priority = 30, hostile = true, minimum_resource_percent = 100, range_pref
 [[abilities]]
 interaction = "non_hostile"
 id = "shell_impact"
+effect_visual = "radiance"
+effect_style = "magic.shell"
 name = "Shell (Impact)"
 tags = []
 basic_attack = false
@@ -340,6 +346,8 @@ ai = { priority = 30, hostile = false, minimum_resource_percent = 100, range_pre
 [[abilities]]
 interaction = "non_hostile"
 id = "shell_keen"
+effect_visual = "radiance"
+effect_style = "magic.shell"
 name = "Shell (Keen)"
 tags = []
 basic_attack = false
@@ -353,6 +361,8 @@ ai = { priority = 30, hostile = false, minimum_resource_percent = 100, range_pre
 [[abilities]]
 interaction = "non_hostile"
 id = "shell_energy"
+effect_visual = "radiance"
+effect_style = "magic.shell"
 name = "Shell (Energy)"
 tags = []
 basic_attack = false

@@ -665,8 +665,25 @@ impl Game {
                 }
             }
             candidates.sort_by_key(|(visits, at, _)| (*visits, *at));
-            if let Some((_, _, direction)) = candidates.first() {
-                return Some(AiDecision::action(Action::Move(*direction), ai, behavior));
+            if let Some((least_visits, _, _)) = candidates.first() {
+                // Stable ordering makes replay independent of container iteration,
+                // but coordinates must not decide between equally good destinations.
+                // Advance only the private decision's actor-owned stream; execution
+                // commits it together with the chosen action and visit history.
+                let tied = candidates
+                    .iter()
+                    .take_while(|(visits, _, _)| visits == least_visits)
+                    .count();
+                let index = if tied > 1 {
+                    (crate::dice::random_word(&mut behavior.rng) % tied as u64) as usize
+                } else {
+                    0
+                };
+                return Some(AiDecision::action(
+                    Action::Move(candidates[index].2),
+                    ai,
+                    behavior,
+                ));
             }
         }
         Some(AiDecision::action(Action::Wait, ai, behavior))
@@ -729,7 +746,8 @@ impl Game {
             }
             None => return None,
         };
-        Direction::HORIZONTAL
+        let mut plateau = Vec::new();
+        let direct = Direction::HORIZONTAL
             .into_iter()
             .chain([Direction::Up, Direction::Down])
             .filter_map(|direction| {
@@ -761,10 +779,59 @@ impl Game {
                     // this decision has no known current route to compare.
                     return None;
                 };
+                if distance == current {
+                    plateau.push((direction, at, orientation));
+                }
                 (distance > current).then_some((distance, direction))
             })
             .max_by_key(|(distance, _)| *distance)
-            .map(|(_, direction)| direction)
+            .map(|(_, direction)| direction);
+        if direct.is_some()
+            || current_route.is_none()
+            || actor_state.body.cells != [[0, 0, 0]]
+            || !local_chart()
+        {
+            return direct;
+        }
+        // Anchor routing cannot certify a larger footprint's second-step fit.
+        // Only single-cell, two-step local witnesses; no state or assumed future
+        // occupancy. Execution rechecks the first step and the next decision
+        // re-evaluates the threat. Unknown or exhausted searches are not escape.
+        let mut remaining = 512;
+        let mut distances = std::collections::BTreeMap::new();
+        let ordinary_step =
+            |from: Location, to: Location, orientation: u8, direction: Direction| {
+                let (x, y, z) = direction.rotated(actor_state.orientation).delta();
+                to.region == view.location.region
+                    && orientation == actor_state.orientation
+                    && displacement(from, to) == [i64::from(x), i64::from(y), i64::from(z)]
+            };
+        for (first, at, orientation) in plateau {
+            if !ordinary_step(view.location, at, orientation, first) {
+                continue;
+            }
+            let Ok(search) = self.route_search_from(actor, at, orientation) else {
+                continue;
+            };
+            for (second, end, end_orientation) in search.remembered_steps() {
+                if !ordinary_step(at, end, end_orientation, second) {
+                    continue;
+                }
+                let distance = *distances.entry(end).or_insert_with(|| {
+                    self.route_search_from(actor, end, end_orientation)
+                        .ok()?
+                        .route_bounded(threat, &mut remaining)
+                        .ok()??
+                        .len()
+                        .try_into()
+                        .ok()
+                });
+                if distance.is_some_and(|distance: u128| distance > current) {
+                    return Some(first);
+                }
+            }
+        }
+        None
     }
 
     /// Default combat policy uses personal capabilities and resources, never
@@ -823,6 +890,36 @@ impl Game {
                                 )
                             }) == Some(*direction)
                         }),
+                        crate::abilities::AbilityAim::CellRay { offset } => {
+                            let crate::rules::Reach::Sight { range } = definition.reach else {
+                                return None;
+                            };
+                            disclosed_flight_aim(
+                                target,
+                                sight,
+                                view,
+                                self.actors.get(&actor)?.body.eye,
+                                range,
+                            ) == Some(crate::abilities::FlightAim::Cell { offset: *offset })
+                        }
+                        crate::abilities::AbilityAim::CellProjectile { offset, .. } => {
+                            preparation.plan.as_projectile().is_some_and(|plan| {
+                                u16::try_from(
+                                    plan.range.long_feet
+                                        / crate::weapon_profiles::PROJECTILE_STEP_FEET,
+                                )
+                                .ok()
+                                .and_then(|range| {
+                                    disclosed_flight_aim(
+                                        target,
+                                        sight,
+                                        view,
+                                        self.actors.get(&actor)?.body.eye,
+                                        range,
+                                    )
+                                }) == Some(crate::abilities::FlightAim::Cell { offset: *offset })
+                            })
+                        }
                         _ => false,
                     };
                     if selected && self.preparation_still_available(preparation, Some(sight)) {
@@ -877,7 +974,7 @@ impl Game {
                 let crate::rules::Reach::Sight { range } = definition.reach else {
                     continue;
                 };
-                let Some(direction) = disclosed_ray_direction(
+                let Some(direction) = disclosed_flight_aim(
                     target,
                     sight,
                     view,
@@ -886,7 +983,7 @@ impl Game {
                 ) else {
                     continue;
                 };
-                crate::abilities::AbilityInvocation::directional_ray(direction)
+                direction.ray_invocation()
             } else {
                 crate::abilities::AbilityInvocation::actor_target(target)
             };
@@ -937,7 +1034,7 @@ impl Game {
             let crate::rules::Reach::Sight { range } = definition.reach else {
                 continue;
             };
-            let Some(direction) = disclosed_ray_direction(
+            let Some(direction) = disclosed_flight_aim(
                 target,
                 sight,
                 view,
@@ -952,7 +1049,7 @@ impl Game {
         for (_, item, direction) in candidates {
             let work = crate::Work::Zap {
                 item,
-                aim: crate::DeviceAim::Direction { direction },
+                aim: direction.device(),
             };
             if let Some(pending) = self.preparation(actor).filter(|pending| {
                 !pending.active
@@ -1122,6 +1219,35 @@ impl Game {
 
 /// Choose solely from disclosed physical occurrences. Neither first-hit bodies,
 /// terrain collision, hidden defenses nor a ray trace participates in this choice.
+fn disclosed_flight_aim(
+    target: ActorId,
+    sight: &[tor_world::SightCell],
+    view: &crate::Observation,
+    eye: [i32; 3],
+    range: u16,
+) -> Option<crate::abilities::FlightAim> {
+    if let Some(direction) = disclosed_ray_direction(target, sight, view, eye, range) {
+        return Some(direction.into());
+    }
+    let target = view.visible_actors.iter().find(|other| {
+        other.id == target && other.disclosure == crate::perception::ActorDisclosure::Creature
+    })?;
+    sight
+        .iter()
+        .filter(|cell| cell.physical && !cell.wall && cell.location == target.location)
+        .filter_map(|cell| {
+            let offset = [
+                cell.offset.x.checked_add(eye[0])?,
+                cell.offset.y.checked_add(eye[1])?,
+                cell.offset.z.checked_add(eye[2])?,
+            ];
+            let distance = offset.iter().map(|n| n.unsigned_abs()).max()?;
+            (distance > 0 && distance <= u32::from(range)).then_some((distance, offset))
+        })
+        .min()
+        .map(|(_, offset)| crate::abilities::FlightAim::Cell { offset })
+}
+
 fn disclosed_ray_direction(
     target: ActorId,
     sight: &[tor_world::SightCell],
@@ -1177,6 +1303,109 @@ mod tests {
             position: Position { x, y, z: 0 },
         }
     }
+    #[test]
+    fn explore_equal_neighbors_use_actor_rng_without_mutating_preview() {
+        let mut game = fixture();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let mut choices = BTreeSet::new();
+        for seed in 0..26 {
+            game.actors.get_mut(&ActorId(2)).unwrap().behavior.rng = seed;
+            let before = game.clone();
+            let decision = game.choose_ai(ActorId(2)).unwrap();
+            assert!(matches!(decision.action, Action::Move(_)));
+            assert_eq!(decision.action, game.choose_ai(ActorId(2)).unwrap().action);
+            assert_eq!(game, before, "preview must not commit RNG or visit history");
+            assert_ne!(
+                decision.behavior.rng,
+                before.actors[&ActorId(2)].behavior.rng
+            );
+            choices.insert(format!("{:?}", decision.action));
+        }
+        assert!(
+            choices.len() >= 3,
+            "equally good neighbors must not all resolve by coordinate: {choices:?}"
+        );
+    }
+
+    #[test]
+    fn explore_unique_least_visited_neighbor_and_idle_wait_do_not_draw() {
+        let mut game = fixture();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let candidates: Vec<_> = Direction::HORIZONTAL
+            .into_iter()
+            .filter_map(|direction| {
+                game.actor_translation(ActorId(2), direction)
+                    .map(|(at, _)| (at, direction))
+            })
+            .collect();
+        assert!(candidates.len() > 2);
+        let preferred = candidates[1];
+        for (at, _) in candidates {
+            game.combat
+                .ai
+                .get_mut(&ActorId(2))
+                .unwrap()
+                .visits
+                .insert(at, if at == preferred.0 { 0 } else { 10 });
+        }
+        let rng = game.actors[&ActorId(2)].behavior.rng;
+        let decision = game.choose_ai(ActorId(2)).unwrap();
+        assert_eq!(decision.action, Action::Move(preferred.1));
+        assert_eq!(decision.behavior.rng, rng);
+        game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.idle =
+            crate::behavior::IdleBehavior::Wait;
+        let decision = game.choose_ai(ActorId(2)).unwrap();
+        assert_eq!(decision.action, Action::Wait);
+        assert_eq!(decision.behavior.rng, rng);
+    }
+
+    #[test]
+    fn explore_rng_commits_with_execution_and_survives_checkpoint() {
+        let mut game = fixture();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        game.act(ActorId(1), Action::Wait).unwrap();
+        let chosen = game.choose_ai(ActorId(2)).unwrap();
+        let rng = game.actors[&ActorId(2)].behavior.rng;
+        game.admit_ai_intention(ActorId(2)).unwrap();
+        assert_eq!(game.actors[&ActorId(2)].behavior.rng, rng);
+        let mut shared = crate::checkpoint::SharedState::default();
+        let snapshot =
+            serde_json::from_value(serde_json::to_value(game.checkpoint(&mut shared)).unwrap())
+                .unwrap();
+        let shared = serde_json::from_value(serde_json::to_value(shared).unwrap()).unwrap();
+        let mut restored =
+            Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+        for candidate in [&mut game, &mut restored] {
+            let execution = candidate.execute_next_intention().unwrap();
+            assert_eq!(execution.action, Some(chosen.action.clone()));
+            execution.outcome.unwrap();
+            assert_eq!(
+                candidate.actors[&ActorId(2)].behavior.rng,
+                chosen.behavior.rng
+            );
+            assert_eq!(candidate.combat.ai[&ActorId(2)].visits, chosen.ai.visits);
+        }
+        assert_eq!(game, restored);
+    }
+
     #[test]
     fn invalid_ai_profile_and_missing_creature_have_distinct_errors() {
         let mut game = fixture();

@@ -439,12 +439,17 @@ impl Game {
             let directional = pending
                 .plan
                 .as_ray()
-                .map(|plan| (plan.origin, plan.direction))
+                .and_then(|plan| {
+                    plan.aim
+                        .direction()
+                        .map(|direction| (plan.origin, direction))
+                })
                 .or_else(|| {
-                    pending
-                        .plan
-                        .as_projectile()
-                        .map(|plan| (plan.origin, plan.direction))
+                    pending.plan.as_projectile().and_then(|plan| {
+                        plan.aim
+                            .direction()
+                            .map(|direction| (plan.origin, direction))
+                    })
                 });
             let aim = if let Some((origin, launch_direction)) = directional {
                 let mut directions = scene

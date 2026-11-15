@@ -2,8 +2,7 @@
 //! at execution. No actor target or future collision path is a plan operand.
 use super::contact_policy::{RayResolution, RayTraversal};
 use super::{
-    CheckPhase, CheckSide, CheckSite, Placement, Plan, PlannedEffect, RuleError, StepDirection,
-    TokenClaim,
+    CheckPhase, CheckSide, CheckSite, Placement, Plan, PlannedEffect, RuleError, TokenClaim,
 };
 use crate::content_ids::{AbilityId, ConditionId, DescriptorId, TalentId};
 use crate::rules::{
@@ -13,7 +12,7 @@ use crate::rules::{
 use crate::{ActorId, Game, GameError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use tor_world::{Direction, Location, RayStep};
+use tor_world::{Location, RayVectorStep};
 
 pub const MAX_RAY_VISITS: u16 = crate::limits::SIGHT_RANGE;
 pub const MAX_RAY_PROBES: u16 = 64;
@@ -123,7 +122,7 @@ pub struct RayPlan {
     pub ability: AbilityId,
     pub delivery: RayDelivery,
     pub origin: Placement,
-    pub direction: StepDirection,
+    pub aim: super::FlightAim,
     pub launch_footprint: Vec<Location>,
     pub traversal: RayTraversal,
     pub resolution: RayResolution,
@@ -145,7 +144,7 @@ impl<'de> Deserialize<'de> for RayPlan {
             ability: AbilityId,
             delivery: RayDelivery,
             origin: Placement,
-            direction: StepDirection,
+            aim: super::FlightAim,
             #[serde(deserialize_with = "read_footprint")]
             launch_footprint: Vec<Location>,
             traversal: RayTraversal,
@@ -170,7 +169,7 @@ impl<'de> Deserialize<'de> for RayPlan {
             ability: f.ability,
             delivery: f.delivery,
             origin: f.origin,
-            direction: f.direction,
+            aim: f.aim,
             launch_footprint: f.launch_footprint,
             traversal: f.traversal,
             resolution: f.resolution,
@@ -301,7 +300,8 @@ impl RayPlan {
         let Some(definition) = rules.ability(&self.ability) else {
             return false;
         };
-        if RayDelivery::from_invocation(definition.invocation) != Some(self.delivery)
+        if !self.aim.valid()
+            || RayDelivery::from_invocation(definition.invocation) != Some(self.delivery)
             || !definition_shape_valid(definition)
         {
             return false;
@@ -434,10 +434,10 @@ impl Game {
         &self,
         actor: ActorId,
         ability: &AbilityId,
-        direction: StepDirection,
+        direction: impl Into<super::FlightAim>,
         supplies: crate::supplies::SupplySelection,
     ) -> Result<Plan, GameError> {
-        self.compile_ray_source(actor, ability, direction, supplies, None)
+        self.compile_ray_source(actor, ability, direction.into(), supplies, None)
     }
 
     pub(crate) fn compile_device_plan(
@@ -447,6 +447,9 @@ impl Game {
         aim: crate::DeviceAim,
         preparation: u64,
     ) -> Result<Plan, GameError> {
+        if let crate::DeviceAim::Cell { offset } = aim {
+            self.validate_flight_aim(actor, super::FlightAim::Cell { offset }, None)?;
+        }
         let source = self
             .items
             .get(&item)
@@ -477,8 +480,12 @@ impl Game {
             }
         }
         if !is_self && !matches!(aim, crate::DeviceAim::SelfTarget {}) {
-            let crate::DeviceAim::Direction { direction } = aim else {
-                return Err(GameError::ItemUnavailable);
+            let direction = match aim {
+                crate::DeviceAim::Direction { direction } => {
+                    super::FlightAim::Direction { direction }
+                }
+                crate::DeviceAim::Cell { offset } => super::FlightAim::Cell { offset },
+                _ => return Err(GameError::ItemUnavailable),
             };
             return self.compile_device_ray_plan(actor, item, direction, preparation);
         }
@@ -516,9 +523,10 @@ impl Game {
         &self,
         actor: ActorId,
         item: crate::ItemId,
-        direction: StepDirection,
+        direction: impl Into<super::FlightAim>,
         preparation: u64,
     ) -> Result<Plan, GameError> {
+        let direction = direction.into();
         let source = self
             .items
             .get(&item)
@@ -544,7 +552,7 @@ impl Game {
             item,
             charges,
             discovery: device.discovery,
-            aim: crate::DeviceAim::Direction { direction },
+            aim: direction.device(),
             delivery: super::DeviceDeliveryPlan::Ray { plan: ray },
         })
     }
@@ -552,7 +560,7 @@ impl Game {
         &self,
         actor: ActorId,
         ability: &AbilityId,
-        direction: StepDirection,
+        direction: super::FlightAim,
         supplies: crate::supplies::SupplySelection,
         item_preparation: Option<u64>,
     ) -> Result<Plan, GameError> {
@@ -606,6 +614,18 @@ impl Game {
             Reach::UntilObstruction => RayTraversal::FirstBody,
             _ => return Err(invalid()),
         };
+        self.validate_flight_aim(
+            actor,
+            direction,
+            if item_preparation.is_some() {
+                None
+            } else {
+                match traversal {
+                    RayTraversal::Bounded { clear_visits } => Some(u32::from(clear_visits)),
+                    RayTraversal::FirstBody => None,
+                }
+            },
+        )?;
         let origin = Placement::capture(self, actor).ok_or(GameError::UnknownActor)?;
         let mut launch_footprint: Vec<_> = self
             .body_cells(
@@ -710,7 +730,7 @@ impl Game {
             ability: ability.clone(),
             delivery: RayDelivery::from_invocation(definition.invocation).ok_or_else(invalid)?,
             origin,
-            direction,
+            aim: direction,
             launch_footprint,
             traversal,
             resolution,
@@ -869,7 +889,7 @@ impl Game {
         };
         self.rules_rng = rng;
         let mut at = ray.origin.location;
-        let mut direction = Direction::from(ray.direction).rotated(ray.origin.orientation);
+        let mut trajectory = ray.aim.trajectory(ray.origin.orientation)?;
         let mut visits = 0;
         let mut reversals = 0;
         let mut encounters = RayEncounters::default();
@@ -883,25 +903,31 @@ impl Game {
             {
                 break;
             }
-            match self.world.ray_step(at, direction) {
-                RayStep::Solid => {
+            let mut probe = trajectory;
+            let delta = probe.advance();
+            match self.world.ray_vector_step(at, delta) {
+                RayVectorStep::Solid { normal_axes } => {
                     if ray.delivery == RayDelivery::FirstContact {
                         break;
                     }
-                    let (x, y, z) = direction.delta();
-                    direction =
-                        Direction::from_delta([-i64::from(x), -i64::from(y), -i64::from(z)])
-                            .ok_or_else(invalid)?;
+                    trajectory.reflect(normal_axes);
                     reversals += 1;
                 }
-                RayStep::Unavailable | RayStep::Ambiguous => break,
-                RayStep::Clear { to, rotation } => {
+                RayVectorStep::Unavailable | RayVectorStep::Ambiguous => break,
+                RayVectorStep::Clear { to, rotation } => {
                     if self.region_frozen(to.region) {
                         break;
                     }
-                    super::spatial_delivery::push_step(&mut segments, at, to, direction, rotation);
+                    super::spatial_delivery::push_vector_step(
+                        &mut segments,
+                        at,
+                        to,
+                        delta,
+                        rotation,
+                    );
                     at = to;
-                    direction = direction.rotated(rotation);
+                    probe.rotate(rotation);
+                    trajectory = probe;
                     visits += 1;
                     let occupants: BTreeSet<_> = self
                         .actors
@@ -987,12 +1013,13 @@ impl Game {
             return Ok(regions);
         }
         let mut at = ray.origin.location;
-        let mut direction = Direction::from(ray.direction).rotated(ray.origin.orientation);
+        let mut trajectory = ray.aim.trajectory(ray.origin.orientation)?;
         for _ in 0..clear_visits.min(MAX_RAY_PROBES) {
             if self.region_frozen(at.region) {
                 break;
             }
-            let (step, dependencies) = self.world.ray_step_dependencies(at, direction);
+            let delta = trajectory.advance();
+            let (step, dependencies) = self.world.ray_vector_step_dependencies(at, delta);
             let missing = dependencies
                 .iter()
                 .any(|id| self.world.region(*id).is_none());
@@ -1000,14 +1027,14 @@ impl Game {
             if missing {
                 break;
             }
-            let RayStep::Clear { to, rotation } = step else {
+            let RayVectorStep::Clear { to, rotation } = step else {
                 break;
             };
             if self.region_frozen(to.region) {
                 break;
             }
             at = to;
-            direction = direction.rotated(rotation);
+            trajectory.rotate(rotation);
             let target = self.actors.at(&self.world, at).keys().copied().find(|id| {
                 self.actors[id].alive()
                     && !self.actor_frozen(*id)

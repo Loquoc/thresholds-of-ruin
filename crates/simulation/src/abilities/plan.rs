@@ -596,15 +596,12 @@ impl Plan {
             },
             Self::Projectile(plan) => Work::UseAbility {
                 id: plan.ability.clone(),
-                invocation: super::AbilityInvocation::directional_projectile(
-                    plan.direction,
-                    plan.selection,
-                ),
+                invocation: plan.aim.projectile_invocation(plan.selection),
                 supplies: crate::supplies::SupplySelection::Carried,
             },
             Self::Ray(plan) => Work::UseAbility {
                 id: plan.ability.clone(),
-                invocation: super::AbilityInvocation::directional_ray(plan.direction),
+                invocation: plan.aim.ray_invocation(),
                 supplies: plan.supplies.clone(),
             },
             Self::Ability(plan) => Work::UseAbility {
@@ -823,7 +820,7 @@ impl Plan {
                                 .is_some_and(super::discernible_device_definition_valid))
                         && match delivery {
                             DeviceDeliveryPlan::Ray { plan } => {
-                                matches!(aim, crate::DeviceAim::Direction {direction} if *direction == plan.direction)
+                                *aim == plan.aim.device()
                                     && plan.valid(rules)
                                     && plan.cost.is_none()
                                     && plan.cooldown.is_none()

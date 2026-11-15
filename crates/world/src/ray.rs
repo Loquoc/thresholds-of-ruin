@@ -16,7 +16,105 @@ pub enum RayStep {
     Ambiguous,
 }
 
+/// A vector probe retains the source-frame face axes needed for reflection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RayVectorStep {
+    Clear { to: Location, rotation: u8 },
+    Solid { normal_axes: [bool; 3] },
+    Unavailable,
+    Ambiguous,
+}
+
 impl World {
+    /// Probe a single raster step with one, two or three active axes.
+    /// All cardinal route permutations are examined, so a clear route cannot
+    /// silently choose between contradictory portal destinations. Unknown
+    /// geometry supplies dependencies, never an invented reflecting surface.
+    pub fn ray_vector_step(&self, from: Location, delta: [i32; 3]) -> RayVectorStep {
+        self.ray_vector_step_dependencies(from, delta).0
+    }
+
+    pub fn ray_vector_step_dependencies(
+        &self,
+        from: Location,
+        delta: [i32; 3],
+    ) -> (RayVectorStep, BTreeSet<RegionId>) {
+        let mut dependencies = BTreeSet::new();
+        if self.known_region(from.region).is_some() {
+            dependencies.insert(from.region);
+        }
+        if !self.contains(from)
+            || self.opaque(from)
+            || delta == [0; 3]
+            || delta.iter().any(|n| !(-1..=1).contains(n))
+        {
+            return (RayVectorStep::Unavailable, dependencies);
+        }
+        let axes: Vec<usize> = (0..3).filter(|&axis| delta[axis] != 0).collect();
+        let orders: &[&[usize]] = match axes.len() {
+            1 => &[&[0]],
+            2 => &[&[0, 1], &[1, 0]],
+            _ => &[
+                &[0, 1, 2],
+                &[0, 2, 1],
+                &[1, 0, 2],
+                &[1, 2, 0],
+                &[2, 0, 1],
+                &[2, 1, 0],
+            ],
+        };
+        let mut endpoint = None;
+        let mut normals = [false; 3];
+        let mut unavailable = false;
+        let mut clear = false;
+        for order in orders {
+            let mut at = from;
+            let mut rotation = 0;
+            for (index, &slot) in order.iter().enumerate() {
+                let axis = axes[slot];
+                let mut unit = [0i64; 3];
+                unit[axis] = i64::from(delta[axis]);
+                let direction = Direction::from_delta(crate::rotate_vector(rotation, unit))
+                    .expect("rotated cardinal remains cardinal");
+                let Some((to, turn)) =
+                    self.ray_neighbor(at, direction, &mut Some(&mut dependencies))
+                else {
+                    unavailable = true;
+                    break;
+                };
+                let next_rotation = compose_rotation(rotation, turn);
+                let final_cell = index + 1 == order.len();
+                if final_cell {
+                    let candidate = (to, next_rotation);
+                    if endpoint.is_some_and(|previous| previous != candidate) {
+                        return (RayVectorStep::Ambiguous, dependencies);
+                    }
+                    endpoint = Some(candidate);
+                }
+                if self.opaque(to) {
+                    normals[axis] = true;
+                    break;
+                }
+                if final_cell {
+                    clear = true;
+                }
+                at = to;
+                rotation = next_rotation;
+            }
+        }
+        let result = if clear {
+            let (to, rotation) = endpoint.expect("clear route has endpoint");
+            RayVectorStep::Clear { to, rotation }
+        } else if unavailable {
+            RayVectorStep::Unavailable
+        } else {
+            RayVectorStep::Solid {
+                normal_axes: normals,
+            }
+        };
+        (result, dependencies)
+    }
+
     /// Resolve one physical step in any supported direction without loading or
     /// generating regions. Abstract stairs and sight-only rim projection never
     /// redirect a ray; ordinary geometry at those locations still applies.
@@ -154,6 +252,74 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_vector_steps_reach_all_twenty_six_neighbors() {
+        let world = world();
+        let from = cell(1, 1, 1, 1);
+        for x in -1..=1 {
+            for y in -1..=1 {
+                for z in -1..=1 {
+                    if [x, y, z] == [0; 3] {
+                        continue;
+                    }
+                    assert_eq!(
+                        world.ray_vector_step(from, [x, y, z]),
+                        RayVectorStep::Clear {
+                            to: cell(1, 1 + x, 1 + y, 1 + z),
+                            rotation: 0
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reflecting_faces_distinguish_wall_ceiling_and_corner() {
+        let from = cell(1, 1, 1, 1);
+        for axis in 0..3 {
+            let mut world = world();
+            for a in 0..3 {
+                for b in 0..3 {
+                    let mut p = [0; 3];
+                    p[axis] = 2;
+                    p[(axis + 1) % 3] = a;
+                    p[(axis + 2) % 3] = b;
+                    world.set_wall(cell(1, p[0], p[1], p[2]), true).unwrap();
+                }
+            }
+            let mut normal_axes = [false; 3];
+            normal_axes[axis] = true;
+            assert_eq!(
+                world.ray_vector_step(from, [1, 1, 1]),
+                RayVectorStep::Solid { normal_axes }
+            );
+        }
+        let mut world = world();
+        world.set_wall(cell(1, 2, 2, 2), true).unwrap();
+        assert_eq!(
+            world.ray_vector_step(from, [1, 1, 1]),
+            RayVectorStep::Solid {
+                normal_axes: [true; 3]
+            }
+        );
+    }
+
+    #[test]
+    fn missing_geometry_and_invalid_steps_do_not_create_bounce_faces() {
+        let world = world();
+        for delta in [[0, 0, 0], [2, 0, 0], [i32::MIN, 0, 0]] {
+            assert_eq!(
+                world.ray_vector_step(cell(1, 1, 1, 1), delta),
+                RayVectorStep::Unavailable
+            );
+        }
+        assert_eq!(
+            world.ray_vector_step(cell(1, 2, 2, 2), [1, 1, 1]),
+            RayVectorStep::Unavailable
+        );
+    }
+
+    #[test]
     fn every_supported_direction_reaches_clear_terrain_and_stops_at_a_wall() {
         let from = cell(1, 1, 1, 1);
         for direction in directions() {
@@ -251,6 +417,11 @@ mod tests {
                     RayStep::Clear { to, rotation },
                     "{direction:?}, rotation={rotation}"
                 );
+                let (x, y, z) = direction.delta();
+                assert_eq!(
+                    world.ray_vector_step(from, [x, y, z]),
+                    RayVectorStep::Clear { to, rotation }
+                );
                 world.place_door(to, 1, false, 1).unwrap();
                 assert_eq!(world.ray_step(from, direction), RayStep::Solid);
                 world.set_door(to, true);
@@ -284,6 +455,10 @@ mod tests {
                 world.ray_step(from, Direction::NorthEast),
                 RayStep::Clear { to, rotation },
                 "rotation={rotation}"
+            );
+            assert_eq!(
+                world.ray_vector_step(from, [1, -1, 0]),
+                RayVectorStep::Clear { to, rotation }
             );
             world.set_wall(cell(1, 2, 0, 1), true).unwrap();
             assert_eq!(

@@ -65,10 +65,11 @@ impl Game {
         let released = self.extract_reserved_item_unit(&mut preparation)?;
         self.apply_outcome(completion)?;
         let effect_origin = self.capture_spatial_effect_origin(actor)?;
+        let object_origin = self.capture_effect_object(&released, &effect_origin)?;
         let impact = self.trace_projectile_flight(
             actor,
             plan.origin,
-            plan.direction,
+            plan.aim,
             &plan.launch_footprint,
             plan.range,
         )?;
@@ -82,6 +83,7 @@ impl Game {
                 delivery: crate::combat::EffectDelivery::Projectile,
                 timing: crate::combat::EffectTiming::Instant,
                 appearance: crate::combat::EffectAppearance::Missile,
+                object_origin: Some(object_origin),
                 cue: crate::combat::EffectCue::Physical,
                 segments: impact.segments,
             },

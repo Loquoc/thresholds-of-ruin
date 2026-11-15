@@ -665,8 +665,10 @@ impl<'de> Deserialize<'de> for AbilityInvocation {
             weapon: WeaponSelection,
         }
         let Fields { aim, weapon } = named_map(deserializer)?;
-        if matches!(aim, AbilityAim::DirectionalProjectile { .. })
-            && !matches!(weapon, WeaponSelection::Default)
+        if matches!(
+            aim,
+            AbilityAim::DirectionalProjectile { .. } | AbilityAim::CellProjectile { .. }
+        ) && !matches!(weapon, WeaponSelection::Default)
         {
             return Err(serde::de::Error::custom(
                 "projectile delivery is the sole weapon selector",
@@ -743,6 +745,15 @@ pub(crate) enum AbilityAim {
     SelfStep {
         direction: Direction,
     },
+    CellRay {
+        #[serde(deserialize_with = "read_cell_offset")]
+        offset: [i32; 3],
+    },
+    CellProjectile {
+        #[serde(deserialize_with = "read_cell_offset")]
+        offset: [i32; 3],
+        delivery: ProjectileDeliverySelection,
+    },
     DirectionalRay {
         direction: Direction,
     },
@@ -776,6 +787,15 @@ impl<'de> Deserialize<'de> for AbilityAim {
                 #[serde(deserialize_with = "direction_token")]
                 direction: Direction,
             },
+            CellRay {
+                #[serde(deserialize_with = "read_cell_offset")]
+                offset: [i32; 3],
+            },
+            CellProjectile {
+                #[serde(deserialize_with = "read_cell_offset")]
+                offset: [i32; 3],
+                delivery: ProjectileDeliverySelection,
+            },
             DirectionalRay {
                 #[serde(deserialize_with = "direction_token")]
                 direction: Direction,
@@ -791,6 +811,10 @@ impl<'de> Deserialize<'de> for AbilityAim {
             Fields::ContactTarget { target } => Self::ContactTarget { target },
             Fields::SelfStep { direction } => Self::SelfStep { direction },
             Fields::DirectionalRay { direction } => Self::DirectionalRay { direction },
+            Fields::CellRay { offset } => Self::CellRay { offset },
+            Fields::CellProjectile { offset, delivery } => {
+                Self::CellProjectile { offset, delivery }
+            }
             Fields::DirectionalProjectile {
                 direction,
                 delivery,
@@ -809,6 +833,13 @@ impl From<crate::actions::AbilityAim> for AbilityAim {
             }
             crate::actions::AbilityAim::ContactTarget { target } => {
                 Self::ContactTarget { target: target.0 }
+            }
+            crate::actions::AbilityAim::CellRay { offset } => Self::CellRay { offset },
+            crate::actions::AbilityAim::CellProjectile { offset, delivery } => {
+                Self::CellProjectile {
+                    offset,
+                    delivery: delivery.into(),
+                }
             }
             crate::actions::AbilityAim::DirectionalProjectile {
                 direction,
@@ -834,6 +865,11 @@ impl From<AbilityAim> for crate::actions::AbilityAim {
             },
             AbilityAim::ContactTarget { target } => Self::ContactTarget {
                 target: tor_simulation::ActorId(target),
+            },
+            AbilityAim::CellRay { offset } => Self::CellRay { offset },
+            AbilityAim::CellProjectile { offset, delivery } => Self::CellProjectile {
+                offset,
+                delivery: delivery.into(),
             },
             AbilityAim::DirectionalProjectile {
                 direction,
@@ -1928,7 +1964,13 @@ mod tests {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum DeviceAim {
-    Direction { direction: Direction },
+    Direction {
+        direction: Direction,
+    },
+    Cell {
+        #[serde(deserialize_with = "read_cell_offset")]
+        offset: [i32; 3],
+    },
     SelfTarget {},
 }
 impl<'de> Deserialize<'de> for DeviceAim {
@@ -1936,12 +1978,19 @@ impl<'de> Deserialize<'de> for DeviceAim {
         #[derive(Deserialize)]
         #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
         enum Fields {
-            Direction { direction: Direction },
+            Direction {
+                direction: Direction,
+            },
+            Cell {
+                #[serde(deserialize_with = "read_cell_offset")]
+                offset: [i32; 3],
+            },
             SelfTarget {},
         }
         Ok(match named_map(d)? {
             Fields::Direction { direction } => Self::Direction { direction },
             Fields::SelfTarget {} => Self::SelfTarget {},
+            Fields::Cell { offset } => Self::Cell { offset },
         })
     }
 }
@@ -1952,6 +2001,7 @@ impl From<crate::actions::DeviceAim> for DeviceAim {
                 direction: direction.into(),
             },
             crate::actions::DeviceAim::SelfTarget {} => Self::SelfTarget {},
+            crate::actions::DeviceAim::Cell { offset } => Self::Cell { offset },
         }
     }
 }
@@ -1962,6 +2012,17 @@ impl From<DeviceAim> for crate::actions::DeviceAim {
                 direction: direction.into(),
             },
             DeviceAim::SelfTarget {} => Self::SelfTarget {},
+            DeviceAim::Cell { offset } => Self::Cell { offset },
         }
     }
+}
+
+fn read_cell_offset<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[i32; 3], D::Error> {
+    let offset = <[i32; 3] as Deserialize>::deserialize(d)?;
+    if offset == [0, 0, 0] {
+        return Err(serde::de::Error::custom(
+            "cell aim must have a nonzero offset",
+        ));
+    }
+    Ok(offset)
 }

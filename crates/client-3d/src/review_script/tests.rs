@@ -766,3 +766,53 @@ fn death_event_starts_real_fall_without_rebuilding_outfit() {
     assert_eq!(spec.outfit, "royal-princess");
     assert!(spec.equipment.is_empty());
 }
+
+#[test]
+fn effect_track_is_bounded_capture_only_and_preserves_disclosure_segments() {
+    let mut value = fixture();
+    value["effects"] = json!([{"tick":0,"delivery":"projectile",
+        "presentation":{"form":"missile","visual":"neutral","style":null,
+            "object":{"kind":{"type":"item","class":"weapon"},"name":"arrow","asset":"item.weapon.arrow"}},
+        "admitted_assets":["item.weapon.arrow"],
+        "segments":[[[0,1,0],[1,1,0]],[[4,1,0],[5,1,0]]]}]);
+    // Use the public protocol serializer, not a hand-guessed tagged object shape.
+    value["effects"][0]["presentation"]["object"] =
+        serde_json::to_value(tor_protocol::ObjectPresentation {
+            name: "arrow".into(),
+            asset: Some("item.weapon.arrow".into()),
+            kind: tor_protocol::ObjectPresentationKind::Item {
+                class: tor_protocol::ItemClass::Weapon,
+            },
+        })
+        .unwrap();
+    let script = parse(value.clone()).unwrap();
+    assert_eq!(
+        script.effects[0].object_model(),
+        Some(tor_client_3d_model::ItemModel::Arrow)
+    );
+    let mut unadmitted = script.effects[0].clone();
+    unadmitted.admitted_assets.clear();
+    assert_eq!(unadmitted.object_model(), None);
+    assert_eq!(
+        serde_json::to_value(script).unwrap()["effects"][0]["segments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap()).is_err());
+    for (key, invalid) in [
+        ("segments", json!([])),
+        ("segments", json!([[]])),
+        ("segments", json!([[[1000000, 0, 0]]])),
+        ("tick", json!(1)),
+        ("admitted_assets", json!(["https://example.com/asset"])),
+    ] {
+        let mut bad = value.clone();
+        bad["effects"][0][key] = invalid;
+        assert!(parse(bad).is_err(), "{key}");
+    }
+    let mut bad = value;
+    bad["effects"][0]["secret_actor"] = json!(123);
+    assert!(parse(bad).is_err());
+}

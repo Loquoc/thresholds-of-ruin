@@ -271,7 +271,7 @@ impl Canvas {
             }
         }
         // Temporary glyphs overlay the freshly rebuilt map, never its memory.
-        for effect in app.effect_animations.glyphs(o) {
+        for effect in app.effect_animations.glyphs_with_palette(o, &app.palette) {
             if !map::BAND.contains(&(effect.position.z - o.position.z)) {
                 continue;
             }

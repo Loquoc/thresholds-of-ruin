@@ -20,8 +20,8 @@ pub fn public_effects_label(effects: &[PublicEffectView]) -> Option<String> {
             );
             format!(
                 "{}{} ({lifetime})",
-                crate::narration::effect_cue_label(effect.cue),
-                crate::narration::effect_appearance_label(effect.appearance)
+                crate::narration::effect_visual_label(effect.presentation.visual),
+                crate::narration::effect_appearance_label(effect.presentation.form)
             )
         })
         .collect();
@@ -220,7 +220,10 @@ mod public_effect_tests {
             id: "a".repeat(40),
             observed_since: 5,
             expires_at: Some(20),
-            appearance: EffectAppearance::Cloud,
+            presentation: tor_protocol::EffectPresentation {
+                visual: tor_protocol::EffectVisual::Flame,
+                ..tor_protocol::EffectPresentation::neutral(EffectAppearance::Cloud)
+            },
             cue: EffectCue::Fire,
             delivery: EffectDelivery::Area,
             anchors: vec![EffectAnchor {

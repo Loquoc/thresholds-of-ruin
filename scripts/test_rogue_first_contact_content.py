@@ -53,7 +53,8 @@ class RogueFirstContactContent(unittest.TestCase):
                       "against": {"kind": "opposed", "skill": {"kind": "named", "skill": "lore"}}},
             "on_success": [], "on_failure": [{"kind": "damage", "damage": {"kind": "components",
                 "components": [{"category": "energy", "amount": {"kind": "rolled", "dice": {
-                    "count": 1, "sides": 4, "bonus": 1}}}]}}], "descriptors": [], "riders": []}))
+                    "count": 1, "sides": 4, "bonus": 1}}}]}}], "descriptors": [], "riders": []}) | {
+                "effect_visual": "radiance", "effect_style": "magic.missile"})
 
     def test_first_contact_catalog_does_not_change_live_eight_or_starting_kits(self):
         manifest = source("scenario.toml")

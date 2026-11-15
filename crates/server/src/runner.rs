@@ -19,7 +19,7 @@ pub(crate) enum Mail {
     Request {
         client: u64,
         request_id: String,
-        request: Request,
+        request: Box<Request>,
         /// When the socket read it, if timing diagnostics are on.
         timing: Option<crate::diagnostics::RequestTiming>,
     },
@@ -116,10 +116,8 @@ impl SimulationHandle {
 fn holds(mail: &Mail, overdue: bool, held: usize) -> bool {
     matches!(
         mail,
-        Mail::Request {
-            request: Request::Command { .. } | Request::CommitAttachment { .. },
-            ..
-        }
+        Mail::Request { request, .. }
+            if matches!(request.as_ref(), Request::Command { .. } | Request::CommitAttachment { .. })
     ) && (overdue || held > 0)
 }
 
@@ -184,11 +182,11 @@ fn receive(service: &mut Service, mail: Mail) -> bool {
             timing,
         } => {
             let Some(timing) = timing else {
-                service.handle(client, request_id, request);
+                service.handle(client, request_id, *request);
                 return true;
             };
             let handling = Instant::now();
-            service.handle(client, request_id.clone(), request);
+            service.handle(client, request_id.clone(), *request);
             timing.diagnostics.timing(
                 "server_handled",
                 client,
@@ -323,7 +321,7 @@ mod backpressure_tests {
         Mail::Request {
             client: 1,
             request_id: "r".into(),
-            request,
+            request: Box::new(request),
             timing: None,
         }
     }

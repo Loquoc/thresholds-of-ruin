@@ -52,6 +52,8 @@ struct EffectKey {
     appearance: crate::combat::EffectAppearance,
     delivery: crate::combat::EffectDelivery,
     cue: crate::combat::EffectCue,
+    #[serde(deserialize_with = "crate::bounded::required_option")]
+    object_subject: Option<crate::ItemId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -134,6 +136,7 @@ impl EventKey {
                     appearance: effect.appearance,
                     delivery: effect.delivery,
                     cue: effect.cue,
+                    object_subject: effect.object_origin.as_ref().map(|object| object.subject),
                 }),
                 _ => None,
             },
@@ -153,6 +156,34 @@ struct SpatialWitness {
 #[derive(Clone, Debug)]
 pub(crate) struct SpatialEffectOrigin {
     origin: EventOrigin,
+}
+
+pub(crate) fn read_effect_object_observers<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<BTreeMap<ActorId, Option<u64>>, D::Error> {
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = BTreeMap<ActorId, Option<u64>>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("bounded unique effect observers")
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            self,
+            mut map: A,
+        ) -> Result<Self::Value, A::Error> {
+            use serde::de::Error;
+            let mut result = BTreeMap::new();
+            while let Some((id, phase)) = map.next_entry::<ActorId, Option<u64>>()? {
+                if result.len() >= crate::limits::EVENT_RECEIPTS
+                    || result.insert(id, phase).is_some()
+                {
+                    return Err(A::Error::custom("duplicate or excessive effect observers"));
+                }
+            }
+            Ok(result)
+        }
+    }
+    d.deserialize_map(Visitor)
 }
 
 pub(crate) const MAX_EFFECT_POINTS: usize = 65_537;
@@ -374,6 +405,81 @@ impl Game {
         Ok(SpatialEffectOrigin { origin })
     }
 
+    /// Capture only public physical appearance, before the unit can be consumed.
+    pub(crate) fn capture_effect_object(
+        &self,
+        released: &crate::supplies::ExtractedItemUnit,
+        origin: &SpatialEffectOrigin,
+    ) -> Result<crate::combat::EffectObjectOrigin, GameError> {
+        use crate::appearance_catalog::{ObjectPresentation, ObjectPresentationKind};
+        let item = &released.item;
+        // A generic corpse avoids revealing species from an otherwise anonymous object.
+        let corpse = item.corpse.is_some();
+        let ordinary = ObjectPresentation {
+            name: std::sync::Arc::from(if corpse {
+                "corpse"
+            } else {
+                &item.spec.appearance
+            }),
+            asset: (!corpse)
+                .then(|| item.spec.asset.as_deref().map(std::sync::Arc::from))
+                .flatten(),
+            kind: ObjectPresentationKind::Item {
+                class: item.spec.class,
+            },
+        };
+        let mut observers = BTreeMap::new();
+        for observer in origin.origin.spatial.as_ref().ok_or_else(invalid)?.keys() {
+            let phase = self
+                .projected_hallucination(*observer)?
+                .map(|clock| clock.phase());
+            observers.insert(*observer, phase);
+        }
+        Ok(crate::combat::EffectObjectOrigin {
+            subject: released.knowledge_source,
+            ordinary,
+            observers,
+        })
+    }
+
+    fn effect_object_origin_valid(&self, effect: &crate::combat::SpatialEffect) -> bool {
+        let Some(object) = &effect.object_origin else {
+            return true;
+        };
+        effect.appearance == crate::combat::EffectAppearance::Missile
+            && effect.delivery == crate::combat::EffectDelivery::Projectile
+            && object.subject.0 > 0
+            && object.subject.0 < self.next_item_id
+            && object.ordinary.valid()
+            && matches!(
+                object.ordinary.kind,
+                crate::appearance_catalog::ObjectPresentationKind::Item { .. }
+            )
+            && !object.observers.is_empty()
+            && object.observers.len() <= crate::limits::EVENT_RECEIPTS
+            && object.observers.iter().all(|(observer, phase)| {
+                observer.0 > 0
+                    && observer.0 < self.next_actor_id
+                    && phase.is_none_or(|phase| phase <= effect.tick)
+            })
+    }
+
+    fn effect_object_presentation(
+        &self,
+        observer: ActorId,
+        object: &crate::combat::EffectObjectOrigin,
+    ) -> Option<crate::appearance_catalog::ObjectPresentation> {
+        Some(match object.observers.get(&observer)? {
+            Some(phase) => self.cosmetic_object(
+                observer,
+                object.subject.0,
+                crate::appearance_state::AppearanceChannel::Item,
+                *phase,
+            ),
+            None => object.ordinary.clone(),
+        })
+    }
+
     /// Attach the actual resolved path to immutable pre-resolution disclosure.
     pub(crate) fn publish_spatial_effect(
         &mut self,
@@ -382,6 +488,7 @@ impl Game {
     ) -> Result<(), GameError> {
         if effect.actor != origin.origin.actor
             || effect.tick > self.tick
+            || !self.effect_object_origin_valid(&effect)
             || !valid_segments(&effect.segments)
             || self.content.rules.ability(&effect.ability).is_none()
         {
@@ -552,8 +659,8 @@ impl<'de> Deserialize<'de> for EventReceipt {
     }
 }
 
-/// Build a candidate receipt without publishing it. Neutral geometry can still
-/// disclose an unseen source or restricted device's hidden contact endpoint.
+/// Visible flight is independent of source identity. Hidden contact endpoints
+/// remain suppressed: stopping geometry may otherwise locate an unseen target.
 fn spatial_receipt(
     index: usize,
     event: &CombatEvent,
@@ -564,11 +671,9 @@ fn spatial_receipt(
         return None;
     };
     let witness = origin?.spatial.as_ref()?.get(&owner)?;
-    if witness.source != Some(ActorReferenceKind::Creature)
-        || !effect.source_disclosure.permits(owner, effect.actor)
-        || effect
-            .target
-            .is_some_and(|target| !witness.identified.contains(&target))
+    if effect
+        .target
+        .is_some_and(|target| !witness.identified.contains(&target))
         || (effect.delivery == crate::combat::EffectDelivery::Target && effect.target.is_none())
     {
         return None;
@@ -1512,6 +1617,16 @@ impl Game {
                             tick: effect.tick,
                             timing: effect.timing,
                             appearance: effect.appearance,
+                            visual: self.content.rules.ability(&effect.ability)?.effect_visual,
+                            style: self
+                                .content
+                                .rules
+                                .ability(&effect.ability)?
+                                .effect_style
+                                .clone(),
+                            object: effect.object_origin.as_ref().and_then(|object| {
+                                self.effect_object_presentation(observer, object)
+                            }),
                             delivery: effect.delivery,
                             segments,
                         })
@@ -1637,7 +1752,23 @@ impl Game {
             if effect.actor.0 == 0 || effect.actor.0 >= self.next_actor_id || effect.tick > self.tick
             || effect.target.is_some_and(|target| target.0 == 0 || target.0 >= self.next_actor_id)
             || (effect.delivery == crate::combat::EffectDelivery::Target && effect.target.is_none())
+            || !self.effect_object_origin_valid(effect)
             || self.content.rules.ability(&effect.ability).is_none() || !valid_segments(&effect.segments))) {
+            return false;
+        }
+        let provenance = self.event_log.iter().try_fold(0usize, |total, event| {
+            let count = match event {
+                CombatEvent::Effect { effect } => effect
+                    .object_origin
+                    .as_ref()
+                    .map_or(0, |object| object.observers.len()),
+                _ => 0,
+            };
+            total
+                .checked_add(count)
+                .filter(|count| *count <= crate::limits::EVENT_RECEIPTS)
+        });
+        if provenance.is_none() {
             return false;
         }
         let mut total = 0usize;
@@ -1678,10 +1809,8 @@ impl Game {
                 }
                 match (event, &receipt.spatial) {
                     (CombatEvent::Effect { effect }, Some(segments))
-                        if receipt.source == Some(ActorReferenceKind::Creature)
-                            && effect.source_disclosure.permits(*owner, effect.actor)
-                            && (effect.target.is_none()
-                                || receipt.target == Some(ActorReferenceKind::Creature))
+                        if (effect.target.is_none()
+                            || receipt.target == Some(ActorReferenceKind::Creature))
                             && valid_segments(segments)
                             && segments_are_subpaths(segments, &effect.segments) => {}
                     (CombatEvent::Effect { .. }, _) => return false,

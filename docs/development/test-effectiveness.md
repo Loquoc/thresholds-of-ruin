@@ -333,6 +333,46 @@ registration root cause). The same two assertions now live under the existing
 reviewed `test_process_harness.ActionCompletion` owner. Planner selection and
 coverage gates are unchanged; no tests were dropped.
 
+### Effect appearance descriptor reconstruction
+
+The instantaneous effect wire round-trip test exposed one stale-oracle root cause
+when `appearance` moved into `presentation.form`: its expected JSON path and its
+required-field removal probe still named the old field. Both assertions were
+updated to the new contract without dropping the missing-field rejection check.
+One failing method appeared in two local executions; the focused three-method
+wire owner then passed. This is fixture migration evidence, not a production
+regression or full protocol qualification.
+
+### Effects reconstruction: delayed observer receipt regression
+
+An ordinary encoded delayed projectile release failed to deliver its frozen public
+arrow appearance to a stationary attached observer. The new server transport test
+failed once at its intended assertion, then passed after observer selection was
+extended to newly resolved spatial events. The existing ordinary stationary Wait
+fast-path regression also passed, preserving zero unnecessary observer receipt
+work when no effect occurs. This is one production root cause and one first-red
+method, not full effects, archive-compatibility, native-rendering, or CI qualification.
+
+### Cell-bearing plan schema witness
+
+The reconstructed cell-targeting simulation run exposed one stale schema oracle:
+the strict ray-plan test still listed `direction` after the plan acquired the
+closed `aim` record. The test now requires `aim`, checks its exact directional
+encoding, rejects the old top-level direction, and retains every missing-field
+assertion. This is one stale-test root cause and one failing method, not a
+production defect or a weakened compatibility gate.
+
+### Authored effect source placement
+
+The combined real-process witness first failed during strict scenario validation,
+before gameplay: two visual descriptors had been attached to same-named talents
+rather than abilities. The fix moves those fields to the ability overrides in
+both Rogue sources, preserving strict unknown-field rejection. A compiler-backed
+regression checks the seven intended ability descriptions in both packages.
+This is one authored-source configuration defect; the setup failure is not
+positive gameplay coverage. Its process rerun and the new Rust regression must
+be reported separately when executed.
+
 ## Scale-mail tip frame, 13 November 2026
 
 `creatures::geometry::armor_parts::tests::scale_tips_point_down_and_lift_away_from_their_support`
@@ -344,3 +384,132 @@ support normals, two row offsets and the closed five-sided plate topology.
 This is one root cause and one distinct failing method, not eight defects.
 The correction keeps the existing shared surface lattice and plate dimensions;
 it does not change armor fit, layers, motion or cloth simulation.
+
+## Effect playback and late cached instances, 15 November 2026
+
+Fixed-tick native captures exposed two distinct presentation defects:
+
+- Repeated floating-point delay subtraction left a blank frame at the eighth
+  50 Hz tick between contiguous 80 ms cell hops. The ECS regression
+  `creatures::effects::authoritative_tests::contiguous_hops_never_blank_at_fixed_tick_boundaries`
+  reproduced that exact boundary. Integer `Duration` playback preserves the
+  remaining time and removes the gap without changing disclosed geometry.
+- A flying arrow reused after a ground arrow could cast a shadow while its
+  visible surface disappeared. An isolated moving arrow and an elevated static
+  arrow were positive controls. The CPU mesh was already extracted because
+  procedural geometry is render-world-only, so the late cached instance lacked
+  finite local bounds. The regression
+  `creatures::effects::authoritative_tests::cached_projectile_meshes_keep_bounds_after_cpu_extraction`
+  fails after removing CPU geometry while retaining reusable cached handles.
+  Retaining small local bounds with each model fixes late attachments without
+  retaining CPU vertex data or disabling batching.
+
+Both regressions failed before their respective corrections and passed after.
+Identical software-Vulkan captures confirmed the arrow surface reappeared and
+that the eighth-tick gap disappeared; separated disclosures stayed separated and
+instantaneous effects expired. This is local rendering evidence, not hardware
+GPU, Windows or hosted-CI qualification. An earlier batch-isolation hypothesis
+passed its structural assertion but did not fix the image; that ineffective
+code and assertion were replaced, not counted as another production defect.
+The capture-track schema test is feature coverage, not a third defect.
+
+## Integrated format qualification, 15 November 2026
+
+The reconstructed effects/targeting boundary records wire 72 and archive 70
+with the real recorder and writer. A full protocol integration run found one
+stale explicit revision oracle (`current_wire_protocol_revision_is_explicitly_pinned`)
+still expecting 71; the correction changes that pinned expected version to 72,
+not the version rejection behavior or message assertions. This is one test
+migration issue, not a production regression.
+
+Wire recording now has an explicit server-contract owner for the real paused
+attack to drink replacement Outcome. Its selector test first failed because the
+new factory did not exist; the actual server/headless case then passed, including
+intention identities, potion consumption, elapsed tick payment and cleanup. The
+original ASCII menu/narration method is unchanged and still graphical. Its local
+run could not open a display and is not credited as passed; normal CI retains
+that distinct UI coverage. The fixture was not synthesized from the expected
+payload, partially exported, or recorded by a special hosted job.
+
+## Headless recorder ownership, 15 November 2026
+
+The utility and physical-projectile recorder selector tests first failed against
+the old Text selectors. Dedicated headless process witnesses now provide raw
+server samples after complete cleanup. The real-process checks reject any Text
+or ASCII launch, and verify utility anonymous/persistent state and projectile
+source queries, payment, exact dagger/arrow appearance, durable dagger recovery
+and source-free reopening. Initial new projectile driver attempts failed on a
+missing advancement overview and a misspelled wire aim tag; those setup errors
+were corrected and are not production defects or regression evidence.
+
+Text projectile and native methods are unchanged. The utility server scenario
+is shared through explicit before/restored boundaries; its Text test still
+asserts both status strings at each boundary. Recording does not claim Text or
+ASCII verification. Other existing Text-backed recorder owners remain staged
+migration work, not silently relabeled headless coverage.
+
+The second migration slice moves Polymorph and Detection/Mapping recorder
+selection to dedicated headless process cases. Both selector assertions first
+failed against the Text-backed selections. Actual guarded recorder-owner runs
+passed while rejecting any Text/ASCII launch: Polymorph preserves payment,
+source deletion, exact captured-request replay and private-ledger exclusion;
+Detection preserves nonempty/empty acquisition history, real paged Mapping and
+source-free spectator reconstruction. All 36 pre-existing magic-item test
+methods remain byte-identical. These are additional boundary ownership checks,
+not newly discovered gameplay defects or reruns of the preserved Text tests.
+
+The final ownership slice supplies headless Amulet, self-device, weak Drain,
+hallucination, torch and discovery owners. Selector expectations first failed
+against the presentation-backed selections. Original client test methods and
+UI assertions are preserved. Guarded real-process recording succeeds without
+Text/ASCII launches, including historical/visual state, payment and recovery.
+New driver qualification corrected the torch fixture's held-light socket and
+used the existing terminal-aware settlement mode for a verified Amulet victory;
+these are setup/driver corrections, not gameplay fixes. The unchanged victory
+assertions still require terminal success and the same carried identity.
+Fixture bytes are not rewritten by this ownership migration. Complete recorder
+qualification against the final integrated runtime is separate from these
+individual-owner results and must not be inferred from them.
+
+Following the test-architecture clarification, all remaining wire producers were
+split from their Text acceptance owners. A complete local recorder run with a
+global launch guard rejected any Text, ASCII or 3D client attempt and succeeded
+using 41 real server launches and 74 headless client launches. All 82 server
+sample kinds were retained, with 64 maintained client schema examples and nine
+captured client queries. Ordinary protocol comparison then passed all 308
+integration and 88 library tests. This qualifies genuine wire samples, not local
+native UI behavior; the original presentation-client test methods remain intact.
+
+### PR #11 full-profile Python feedback (2026-11-15)
+
+The first Linux debug Python shard exposed eight distinct failing methods
+(nine failures including both natural-roll subtests), not nine production bugs.
+Two exact catalog oracles omitted the newly authored visual/style fields; their
+mechanical definitions remain exact. Four process methods assumed an exploring
+practice target stayed in touch range. Their local fixtures now explicitly wait,
+without changing generic fixture defaults or production AI. After that correction,
+the Text self/ally method exposed a second fixture defect: Mend inherited hostile
+interaction semantics from its bolt template even though its AI hint was friendly.
+The supportive fixture now explicitly authors non-hostile interaction; all target
+selection, neutral refusal, payment/completion and restart assertions remain.
+
+The native strength-loss witness submitted another action before inspecting the
+rendered turn. CI retained the correct weakness message in the preceding turn's
+log. The driver now submits just the strength-loss action and checks its rendered
+turn before any later action can archive it. Native presentation qualification
+remains required in ordinary CI, not replaced with a headless claim.
+
+The Rogue round-trip oracle incorrectly equated the player's visible Wait with
+the entire world's durable endpoint. Retained history showed two undisclosed
+actors moving afterward. The oracle retains exact branch, tick, durable tail,
+public subsequence and source-free restart comparisons, and now requires the
+public endpoint to be a paid Wait. Any later entries must belong to other actors,
+be scheduler-authored autonomous admission/start records, and have non-public
+scope. Negative unit witnesses reject own-actor tails, public tails, wrong authors,
+wrong work kinds and an unpaid or non-Wait endpoint. No save bytes or gameplay
+were changed by these corrections.
+
+Focused local requalification passed 19 catalog/history tests, 20 documentation
+tests, both natural-roll subcases, headless and both Text self/ally paths, and
+the complete affected Rogue walkthrough. The two native methods remain CI-only
+in this environment. These are focused local results, not current-head CI.

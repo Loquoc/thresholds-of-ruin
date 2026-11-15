@@ -56,6 +56,7 @@ pub enum AbilitySelection {
     ActorTarget { direct: NounPhrase },
     SelfStep { direction: Direction },
     DirectionalRay { direction: Direction },
+    CellRay { offset: [i32; 3] },
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParsedCommand {

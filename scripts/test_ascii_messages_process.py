@@ -188,6 +188,63 @@ class AsciiMessageProcesses(ProcessTestCase):
         self.assertEqual(closed["state"], initial["state"])
         self.assertEqual(self.key(window, "help")["screen"]["help_page"], "Play")
 
+    @non_graphical
+    def test_headless_drink_replacement_records_authoritative_work_facts(self):
+        # Wire ownership only. The unchanged native test below owns menu input
+        # and the single combined message; this is not its headless substitute.
+        self.server(scenario=self.combat_package(healing_potion=True))
+        wire = []
+        relay = StreamRelay(self.address, on_server_message=wire.append)
+        self.addCleanup(relay.close)
+        self.address = relay.address
+        player, current = self.client()
+        self.assertFalse(current["state"]["wizard_game"])
+        for _ in range(16):
+            view = current["state"]["observation"]
+            scout = next(actor for actor in view["visible_actors"] if actor["name"] == "ruin scout")
+            x = scout["position"]["x"]
+            action = ({"type": "use_ability", "id": "basic_melee",
+                       "invocation": {"aim": {"kind": "actor_target", "target": scout["id"]},
+                                      "weapon": {"kind": "default"}}}
+                      if abs(x) == 1 else {"type": "move", "direction": "east" if x > 0 else "west"})
+            current = self.act(player, action)
+            self.assertIsNone(current["error"])
+            stopped = headless_combat_boundary(self)
+            if not stopped(current):
+                current = self.frame(player, stopped)
+            current = self.picture_after(player, current)
+            paused = next((row for row in current["intentions"] if row["phase"] == "paused"), None)
+            if paused:
+                break
+        else:
+            self.fail("No ordinary suspended attack")
+        view = current["state"]["observation"]
+        potion, = [item for item in view["inventory"] if item["class"] == "potion"]
+        before_tick = int(view["tick"])
+        action = {"type": "drink", "item": potion["id"]}
+        admitted = self.command(player, {"type": "act", "action": action})
+        self.assertIsNone(admitted["error"])
+        replacement, = [row["intention"] for row in admitted["intentions"]
+                        if row["intention"] != paused["intention"]]
+        def spent(frame):
+            state = frame.get("state")
+            return state is not None and all(item["id"] != potion["id"]
+                                             for item in state["observation"]["inventory"])
+        completed = admitted if spent(admitted) else self.frame(player, spent)
+        self.assertGreater(int(completed["state"]["observation"]["tick"]), before_tick)
+        self.assertIsNone(self.request(player, {"type": "snapshot"})["error"])
+        facts = [fact for message in wire if message["type"] == "update"
+                 for body in [message["update"]["body"]] if body["type"] == "outcome"
+                 for fact in body["facts"]["facts"] if fact["kind"] == "own_work_changed"
+                 and fact["intention"] == paused["intention"]]
+        self.assertEqual([fact["change"]["kind"] for fact in facts], ["paused", "replaced"])
+        self.assertEqual([fact["work"]["kind"] for fact in facts], ["attack", "attack"])
+        self.assertEqual(facts[-1]["change"]["replacement"], replacement)
+        self.assertNotEqual(replacement, paused["intention"])
+        self.work_replacement_sample = next(message for message in wire
+            if message["type"] == "update" and message["update"]["body"]["type"] == "outcome"
+            and facts[-1] in message["update"]["body"]["facts"]["facts"])
+
     def test_drinking_replaces_a_suspended_attack_in_one_message(self):
         self.server(scenario=self.combat_package(healing_potion=True))
         wire = []

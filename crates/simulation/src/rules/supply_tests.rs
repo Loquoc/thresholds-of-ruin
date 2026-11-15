@@ -189,6 +189,8 @@ fn authoring_field_values(value: &Value, fields: &[&str]) -> Vec<Value> {
 // Match the named adapter's Fields order so the rejected positional probe
 // is otherwise structurally complete, rather than failing on misplaced fields.
 const ABILITY_FIELDS: &[&str] = &[
+    "effect_visual",
+    "effect_style",
     "cancellable",
     "interaction",
     "id",
@@ -276,8 +278,9 @@ fn phase5_container_rules_toml_rejects_positional_ability_definition() {
         .position(|ability| ability.id.as_str() == "rattling_blow")
         .unwrap();
     // Every positional field has a TOML value: use a real paid ability and a
-    // valid non-null cooldown, rather than an impossible TOML null fixture.
+    // valid non-null cooldown and style, rather than impossible TOML nulls.
     document.abilities[index].cooldown = std::num::NonZeroU64::new(100);
+    document.abilities[index].effect_style = Some("fixture.positional".into());
     Ruleset::validate(document.clone()).unwrap();
     let named = toml::to_string(&document).unwrap();
     assert_eq!(toml::from_str::<RulesetDocument>(&named).unwrap(), document);

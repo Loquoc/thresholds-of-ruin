@@ -35,7 +35,7 @@ impl Game {
             phase,
         }
     }
-    fn cosmetic_object(
+    pub(crate) fn cosmetic_object(
         &self,
         observer: ActorId,
         subject: u64,

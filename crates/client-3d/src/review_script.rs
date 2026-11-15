@@ -637,6 +637,30 @@ fn apply(
     if run.phase != Phase::Apply {
         return;
     }
+    for effect in run
+        .script
+        .effects
+        .iter()
+        .filter(|effect| effect.tick == run.tick)
+    {
+        // Never connect separated disclosures or infer a source/target from a model.
+        let segments: Vec<Vec<Vec3>> = effect
+            .segments
+            .iter()
+            .map(|segment| segment.iter().copied().map(Vec3::from_array).collect())
+            .collect();
+        creatures::stage_authoritative(
+            &mut commands,
+            &mut library,
+            &mut meshes,
+            tor_protocol::EffectTiming::Instant,
+            &effect.presentation,
+            effect.object_model(),
+            effect.delivery,
+            tor_protocol::EffectCue::Neutral,
+            &segments,
+        );
+    }
     for (entity, mut actor, mut anim, mut transform, rig) in &mut actors {
         let mut rebuild = false;
         for event in run.script.events.iter().filter(|e| e.tick == run.tick) {

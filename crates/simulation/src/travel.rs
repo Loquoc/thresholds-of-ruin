@@ -229,6 +229,18 @@ impl<'a> RouteSearch<'a> {
     }
 
     pub(crate) fn route(&mut self, destination: Location) -> Result<Vec<TravelStep>, GameError> {
+        let mut remaining = usize::MAX;
+        self.route_bounded(destination, &mut remaining)?
+            .ok_or(GameError::Blocked)
+    }
+
+    /// None means budget exhaustion, not an unreachable destination. Speculative
+    /// callers share the budget across queries and must not score it as escape.
+    pub(crate) fn route_bounded(
+        &mut self,
+        destination: Location,
+        remaining: &mut usize,
+    ) -> Result<Option<Vec<TravelStep>>, GameError> {
         if self.knowledge.cells.get(&destination) != Some(&false) {
             return Err(GameError::Blocked);
         }
@@ -237,12 +249,16 @@ impl<'a> RouteSearch<'a> {
             self.started = true;
         }
         while !self.settled.contains_key(&destination) {
+            if *remaining == 0 {
+                return Ok(None);
+            }
             let Some((cost, _, node)) = self.queue.pop_first() else {
                 return Err(GameError::Blocked);
             };
             if self.distances[&node] != cost {
                 continue;
             }
+            *remaining -= 1;
             self.settled.entry(node.0).or_insert(node);
             self.expand(cost, node);
         }
@@ -257,7 +273,24 @@ impl<'a> RouteSearch<'a> {
             cursor = parent;
         }
         route.reverse();
-        Ok(route)
+        Ok(Some(route))
+    }
+
+    /// The same remembered transitions used by routing, without reading terrain.
+    pub(crate) fn remembered_steps(&self) -> Vec<(Direction, Location, u8)> {
+        DIRECTIONS
+            .into_iter()
+            .chain(
+                Direction::HORIZONTAL
+                    .into_iter()
+                    .filter(|d| d.components().is_some()),
+            )
+            .filter_map(|direction| {
+                self.actor.movement_duration(direction).ok()?;
+                self.step(self.start, direction)
+                    .map(|(at, orientation)| (direction, at, orientation))
+            })
+            .collect()
     }
 
     fn expand(&mut self, cost: u128, node: Node) {
@@ -269,40 +302,7 @@ impl<'a> RouteSearch<'a> {
                 .into_iter()
                 .filter(|d| d.components().is_some()),
         ) {
-            let local = direction.rotated(node.1);
-            let edge = if let Some((a, b)) = local.components() {
-                let path = |first, second: Direction| {
-                    let (side, r1) = self
-                        .knowledge
-                        .edges
-                        .get(&(node.0, first))?
-                        .traversable(self.actor.locomotion().flying)?;
-                    if self.knowledge.cells.get(&side) != Some(&false) {
-                        return None;
-                    }
-                    let (to, r2) = self
-                        .knowledge
-                        .edges
-                        .get(&(side, second.rotated(r1)))?
-                        .traversable(self.actor.locomotion().flying)?;
-                    Some((to, tor_world::compose_rotation(r1, r2)))
-                };
-                match (path(a, b), path(b, a)) {
-                    (Some(a), Some(b)) if a == b => Some(a),
-                    (Some(a), None) | (None, Some(a)) => Some(a),
-                    _ => None,
-                }
-            } else {
-                self.knowledge
-                    .edges
-                    .get(&(node.0, local))
-                    .and_then(|edge| edge.traversable(self.actor.locomotion().flying))
-            };
-            if let Some((to, rotation)) = edge {
-                if self.knowledge.cells.get(&to) != Some(&false) {
-                    continue;
-                }
-                let next = (to, tor_world::compose_rotation(node.1, rotation));
+            if let Some(next) = self.step(node, direction) {
                 let Ok(duration) = self.actor.movement_duration(direction) else {
                     continue;
                 };
@@ -315,6 +315,43 @@ impl<'a> RouteSearch<'a> {
                 }
             }
         }
+    }
+    fn step(&self, node: Node, direction: Direction) -> Option<Node> {
+        if self.actor.locomotion().stationary {
+            return None;
+        }
+        let local = direction.rotated(node.1);
+        let edge = if let Some((a, b)) = local.components() {
+            let path = |first, second: Direction| {
+                let (side, r1) = self
+                    .knowledge
+                    .edges
+                    .get(&(node.0, first))?
+                    .traversable(self.actor.locomotion().flying)?;
+                if self.knowledge.cells.get(&side) != Some(&false) {
+                    return None;
+                }
+                let (to, r2) = self
+                    .knowledge
+                    .edges
+                    .get(&(side, second.rotated(r1)))?
+                    .traversable(self.actor.locomotion().flying)?;
+                Some((to, tor_world::compose_rotation(r1, r2)))
+            };
+            match (path(a, b), path(b, a)) {
+                (Some(a), Some(b)) if a == b => Some(a),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                _ => None,
+            }
+        } else {
+            self.knowledge
+                .edges
+                .get(&(node.0, local))
+                .and_then(|edge| edge.traversable(self.actor.locomotion().flying))
+        };
+        let (to, rotation) = edge?;
+        (self.knowledge.cells.get(&to) == Some(&false))
+            .then_some((to, tor_world::compose_rotation(node.1, rotation)))
     }
 }
 

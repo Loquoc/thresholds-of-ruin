@@ -101,9 +101,27 @@ impl AbilityInvocation {
             weapon: WeaponSelection::Default,
         }
     }
+    pub fn cell_ray(offset: [i32; 3]) -> Self {
+        Self {
+            aim: AbilityAim::CellRay { offset },
+            weapon: WeaponSelection::Default,
+        }
+    }
+    pub fn cell_projectile(offset: [i32; 3], delivery: ProjectileDeliverySelection) -> Self {
+        Self {
+            aim: AbilityAim::CellProjectile { offset, delivery },
+            weapon: WeaponSelection::Default,
+        }
+    }
     pub(crate) fn valid(self) -> bool {
         self.weapon.valid()
             && match self.aim {
+                AbilityAim::CellRay { offset } => {
+                    offset != [0; 3] && self.weapon == WeaponSelection::Default
+                }
+                AbilityAim::CellProjectile { offset, delivery } => {
+                    offset != [0; 3] && self.weapon == WeaponSelection::Default && delivery.valid()
+                }
                 AbilityAim::DirectionalProjectile { delivery, .. } => {
                     self.weapon == WeaponSelection::Default && delivery.valid()
                 }
@@ -182,6 +200,13 @@ pub enum AbilityAim {
     DirectionalRay {
         direction: StepDirection,
     },
+    CellRay {
+        offset: [i32; 3],
+    },
+    CellProjectile {
+        offset: [i32; 3],
+        delivery: ProjectileDeliverySelection,
+    },
     DirectionalProjectile {
         direction: StepDirection,
         delivery: ProjectileDeliverySelection,
@@ -204,16 +229,27 @@ impl<'de> Deserialize<'de> for AbilityAim {
             DirectionalRay {
                 direction: StepDirection,
             },
+            CellRay {
+                offset: [i32; 3],
+            },
+            CellProjectile {
+                offset: [i32; 3],
+                delivery: ProjectileDeliverySelection,
+            },
             DirectionalProjectile {
                 direction: StepDirection,
                 delivery: ProjectileDeliverySelection,
             },
         }
-        Ok(match crate::bounded::named_map(deserializer)? {
+        let result = match crate::bounded::named_map(deserializer)? {
             Fields::ActorTarget { target } => Self::ActorTarget { target },
             Fields::ContactTarget { target } => Self::ContactTarget { target },
             Fields::SelfStep { direction } => Self::SelfStep { direction },
             Fields::DirectionalRay { direction } => Self::DirectionalRay { direction },
+            Fields::CellRay { offset } => Self::CellRay { offset },
+            Fields::CellProjectile { offset, delivery } => {
+                Self::CellProjectile { offset, delivery }
+            }
             Fields::DirectionalProjectile {
                 direction,
                 delivery,
@@ -221,7 +257,18 @@ impl<'de> Deserialize<'de> for AbilityAim {
                 direction,
                 delivery,
             },
-        })
+        };
+        if matches!(
+            result,
+            Self::CellRay { offset: [0, 0, 0] }
+                | Self::CellProjectile {
+                    offset: [0, 0, 0],
+                    ..
+                }
+        ) {
+            return Err(serde::de::Error::custom("zero flight bearing"));
+        }
+        Ok(result)
     }
 }
 impl AbilityAim {
@@ -229,6 +276,8 @@ impl AbilityAim {
         match self {
             Self::ActorTarget { target } | Self::ContactTarget { target } => target,
             Self::SelfStep { .. }
+            | Self::CellRay { .. }
+            | Self::CellProjectile { .. }
             | Self::DirectionalRay { .. }
             | Self::DirectionalProjectile { .. } => actor,
         }
@@ -243,8 +292,10 @@ impl AbilityAim {
         match self {
             Self::ActorTarget { .. } | Self::ContactTarget { .. } => InvocationKind::ActorTarget,
             Self::SelfStep { .. } => InvocationKind::SelfStep,
-            Self::DirectionalRay { .. } => InvocationKind::DirectionalRay,
-            Self::DirectionalProjectile { .. } => InvocationKind::DirectionalProjectile,
+            Self::DirectionalRay { .. } | Self::CellRay { .. } => InvocationKind::DirectionalRay,
+            Self::DirectionalProjectile { .. } | Self::CellProjectile { .. } => {
+                InvocationKind::DirectionalProjectile
+            }
         }
     }
     pub fn step(self) -> Option<StepDirection> {
@@ -252,6 +303,8 @@ impl AbilityAim {
             Self::SelfStep { direction } => Some(direction),
             Self::ActorTarget { .. }
             | Self::ContactTarget { .. }
+            | Self::CellRay { .. }
+            | Self::CellProjectile { .. }
             | Self::DirectionalRay { .. }
             | Self::DirectionalProjectile { .. } => None,
         }

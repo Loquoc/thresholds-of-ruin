@@ -328,7 +328,7 @@ claim that broader performance and scaling work is finished.
   describes actor-private recognition with a shared roll, eligible adjacent
   touch searches and no discovery through read-only queries. Success is not
   guaranteed. No executable TOML value or gameplay rule changed.
-- **Certificate evidence:** the existing `tor-scenario-50` validator reproduced
+- **Historical certificate evidence:** the validator identified below reproduced
   the baseline certificate byte-for-byte, then validated the corrected package.
   Only authored rules and source-closure content hashes changed; effective
   rules, model, index, dependency hashes and validator identity are unchanged.
@@ -337,6 +337,10 @@ claim that broader performance and scaling work is finished.
 - **Limits:** this is certificate generation and source/semantic review, not a
   fresh gameplay regression run. Checked discovery's positive, failed-roll and
   nondisclosure witnesses remain unchanged and must pass final-head hosted CI.
+
+| Milestone | Status | Historical format change |
+| --- | --- | --- |
+| CH-006 Search comment correction | Completed historical certificate check | No format change; the recorded run used `tor-scenario-50`, not the current validator. |
 
 ### CH-010: Performance-trace parsing is not full fixture validation
 

@@ -335,7 +335,7 @@ async fn connection(
                             let timing = timing.as_ref().map(|diagnostics| crate::diagnostics::RequestTiming {
                                 started: std::time::Instant::now(), diagnostics: diagnostics.clone(),
                             });
-                            let request = Mail::Request { client: client.id, request_id, request: *request, timing };
+                            let request = Mail::Request { client: client.id, request_id, request, timing };
                             if mail.send(request).await.is_err() {
                                 break;
                             }

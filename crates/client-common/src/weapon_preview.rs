@@ -29,12 +29,14 @@ impl WeaponPreview {
             *invocation,
             supplies.clone(),
         )?;
-        let projectile_binding =
-            if matches!(invocation.aim, AbilityAim::DirectionalProjectile { .. }) {
-                Some(crate::projectiles::ProjectileMenu::new(state, id)?)
-            } else {
-                None
-            };
+        let projectile_binding = if matches!(
+            invocation.aim,
+            AbilityAim::DirectionalProjectile { .. } | AbilityAim::CellProjectile { .. }
+        ) {
+            Some(crate::projectiles::ProjectileMenu::new(state, id)?)
+        } else {
+            None
+        };
         Ok(Self {
             projectile_binding,
             context: state.reply_context(),
@@ -106,6 +108,19 @@ impl WeaponPreview {
         }
     }
 
+    pub fn projectile_cell_aim(&self) -> Option<([i32; 3], ProjectileDeliverySelection)> {
+        match &self.action {
+            Action::UseAbility {
+                invocation:
+                    AbilityInvocation {
+                        aim: AbilityAim::CellProjectile { offset, delivery },
+                        ..
+                    },
+                ..
+            } => Some((*offset, *delivery)),
+            _ => None,
+        }
+    }
     pub fn terms(&self) -> Option<&AbilityWeaponPreview> {
         self.preview.as_ref()
     }
@@ -181,7 +196,7 @@ pub fn explicit_action(action: &Action) -> bool {
                 weapon: WeaponSelection::Equipped { .. },
                 ..
             } | AbilityInvocation {
-                aim: AbilityAim::DirectionalProjectile { .. },
+                aim: AbilityAim::DirectionalProjectile { .. } | AbilityAim::CellProjectile { .. },
                 ..
             },
             ..

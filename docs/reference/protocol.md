@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":71,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":72,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -1464,8 +1464,7 @@ attachment identity and must not be used for that comparison.
 
 Resolved spatial deliveries also emit machine-readable `effect` events. Each
 contains nullable `caster` and `ability`, the resolution `tick`, explicit
-`timing: "instant"`, an `appearance` form (`bolt`, `missile`, `flash`, `halo`,
-`cloud`, or private HUD `status_indicator`), a delivery class
+`timing: "instant"`, a required `presentation` descriptor, and a delivery class
 (`ray`, `projectile`, `target`, or `area`), a coarse cue (`neutral`, `physical`,
 `fire`, `cold`, `lightning`, `poison`, `healing`, or `status`), and ordered
 `segments` of observer-relative cell positions. Required `anchors` pair disclosed
@@ -1491,18 +1490,31 @@ resolution changes sight, placement or life. It then clips the actual delivery
 path to that frozen permission. For the current picture, only those permitted
 cells still represented in the current ordinary scene are remapped into its
 observer frame. Historical offscreen fragments can therefore be omitted; later
-sight never expands an old effect. Spatial events are suppressed entirely when
-the source creature was not disclosed before resolution, since even a neutral
-path could locate an unseen caster. Target-local events additionally require the
-target creature to have been disclosed then. Restricted source policies suppress
-spatial geometry when the observer lacks the event-time source license: even a
-neutral endpoint could reveal hidden interception. Other observers receive effects
+sight never expands an old effect. Visible motion does not require identifying
+its source: `caster` and `ability` remain independently licensed, and an
+unlicensed ability has a neutral mechanical cue. An existing tactile Contact
+reference is not Creature identification. Target-local events additionally require
+the target creature to have been disclosed then. No hidden launch point or gap
+is added to the clipped path. Other observers receive effects
 only after the normal observation commit proof is recorded; frozen permissions
 alone never publish history. No raw world location, undisclosed damage amount,
 private item identity or hidden route is sent.
 
-Appearance describes semantic presentation separately from the delivery footprint
-and elemental cue. It does not grant visibility to a hidden source or condition.
+`presentation` contains `form` (`bolt`, `missile`, `flash`, `halo`, `cloud`, or
+private HUD `status_indicator`), `visual` (`neutral`, `flame`, `frost`, `sparks`,
+`vapor`, or `radiance`), and required nullable `style` and `object`. Style is a
+cosmetic key of at most 80 ASCII bytes, with nonempty dot-separated lowercase
+letter/digit/hyphen components; it is not a URL or instruction. Physical objects
+are allowed only for `missile` and carry the ordinary observer-safe object
+presentation, not an actionable item reference, charges, or combat statistics.
+The server freezes observer-specific projectile appearance at release, including
+that observer's hallucination phase. Later item destruction or identification does
+not retroactively change it. The client resolves an asset only through its admitted
+palette and does not guess a weapon from its display name.
+
+Visual appearance and styling are separate from mechanical damage cues and do not
+grant visibility to a hidden source or condition. Clients adapt these authored
+semantics to their medium rather than inventing the projectile's identity.
 
 These events describe resolved one-shot deliveries, not a scheduled visual
 launch/impact timeline. Clients choose their own colors, particles, durations and
@@ -1516,7 +1528,7 @@ history outside the current scene remain future work.
 Required `observation.public_effects` is a bounded complete snapshot (at most
 128 entries and 65,537 total points), not a list of event patches. Each
 `PublicEffectView` carries an opaque observer-stream-scoped `id`, `observed_since`,
-required nullable `expires_at`, and the same delivery, appearance, cue, segmented
+required nullable `expires_at`, and the same delivery, presentation descriptor, cue, segmented
 geometry and keyed anchors used by transient effects. Every point must be anchored
 to a currently disclosed cell. IDs must be distinct; producers emit ID-sorted
 entries. Private HUD `status_indicator` is not a public effect appearance.
@@ -1689,8 +1701,13 @@ it, but unrelated observers receive no such row. It discloses no item family,
 ability identity, Health amount or recipient count. Exact retries do not append
 another refusal or pay again.
 
-Read and Zap take an opaque carried `item`; Zap also takes a closed string
-`direction`. Each item interaction row includes `readable`, `zappable`, and an
+Read and Zap take an opaque carried `item`; Zap takes a closed `aim` object:
+`direction` with a direction token, `cell` with an exact three-integer `offset`,
+or `self_target`. Ability aims similarly include `cell_ray` and `cell_projectile`;
+the latter retains its explicit `delivery` selector. Cell offsets describe the
+current disclosed observation, never global locations or hidden actor identities.
+The backend rechecks physical visibility, bounds and range; clients do not supply
+collision paths or outcomes. Each item interaction row includes `readable`, `zappable`, and an
 explicit nullable `charges` count. Unknown loaded and empty devices have identical
 affordances. Charges are present only for the owner's current exact-instance
 knowledge. They do not represent quantity, free units or reservations.

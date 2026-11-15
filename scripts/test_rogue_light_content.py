@@ -22,6 +22,7 @@ class RogueLightContent(unittest.TestCase):
         definitions = [row["value"] for row in source("rules.toml")["overrides"]
                        if row["path"] == ["abilities", "rogue.wand_light"]]
         self.assertEqual(definitions, [{"id": "rogue.wand_light", "name": "Room Light",
+            "effect_visual": "radiance", "effect_style": "magic.room-light",
             "interaction": "non_hostile", "tags": [], "basic_attack": False,
             "invocation": "actor_target", "timing": {"source": {"kind": "fixed", "prepare": 100, "recover": 100}},
             "reach": {"kind": "self_only"}, "strikes": {"kind": "authored", "strikes": [{

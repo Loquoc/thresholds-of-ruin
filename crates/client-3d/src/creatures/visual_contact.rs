@@ -501,7 +501,11 @@ mod tests {
             Mesh::ATTRIBUTE_POSITION,
             vec![[0.0, 0.0, 0.0], [0.1, -0.2, 0.0], [0.0, -0.2, 0.1]],
         );
-        let model = Model(vec![(meshes.add(mesh), Handle::default())], Vec::new());
+        let model = Model(
+            vec![(meshes.add(mesh), Handle::default())],
+            Vec::new(),
+            Vec::new(),
+        );
         let scale = Vec3::new(1.1, 0.9, 1.2);
         let legacy = Part::from_model(vec![J::ArmL], &model, &mut meshes, scale, false);
         let study = Part::from_model(vec![J::ArmL], &model, &mut meshes, scale, true);

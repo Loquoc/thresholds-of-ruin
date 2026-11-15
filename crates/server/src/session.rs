@@ -5231,14 +5231,14 @@ mod tests {
         mail.send(crate::runner::Mail::Request {
             client: client.id,
             request_id: "rewind".into(),
-            request: Request::Command {
+            request: Box::new(Request::Command {
                 context: service.input_context(client.id).unwrap(),
                 branch: branch.clone(),
                 command: Command::Wizard {
                     expected_revision: revision,
                     operation: "rewind initial".into(),
                 },
-            },
+            }),
             timing: None,
         })
         .await

@@ -253,6 +253,16 @@ impl ProjectileMenu {
         self.request_id = None;
         Ok(None)
     }
+    pub fn cell_action(&self, state: &ClientState, offset: [i32; 3]) -> Result<Action, String> {
+        self.require_current(state)?;
+        let delivery = self.delivery.ok_or("Choose a projectile source first.")?;
+        crate::abilities::invocation_action(
+            &state.state().observation,
+            &self.ability.id,
+            AbilityInvocation::cell_projectile(offset, delivery),
+            SupplySelection::Carried,
+        )
+    }
     pub fn action(&self, state: &ClientState, direction: Direction) -> Result<Action, String> {
         self.require_current(state)?;
         let delivery = self.delivery.ok_or("Choose the projectile source first.")?;
