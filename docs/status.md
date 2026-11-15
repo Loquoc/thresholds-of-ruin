@@ -54,7 +54,7 @@ grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 | Equipment and magic | Explicit primary attack socket, grip capacity, armor/corrosion, curses/enchantment, identification, thrown/projectile/ray attacks, control effects, sensing/mapping and finite portable lights | [Items](reference/items.md), [equipment](reference/equipment.md), [magic](reference/magic-items.md), [effect details](reference/consumable-effects.md) |
 | Forms | Baleful Polymorph, retained personal progression, compatible carried gear, cancellation and pending return | [Polymorph](reference/polymorph.md) |
 | Diagnostics | Privileged inspection/setup/rewind, exact bounded pages, shared-kernel arenas, matrices and search | [Wizard](development/wizard.md), [arena](development/arena.md) |
-| Optional 3D | Independent procedural client with responsive startup, asynchronous model stand-ins, inventory/equipment/portrait, advancement preview/confirmation and combined map/journal; separately qualified from the core workspace | [3D guide](../crates/client-3d/README.md), [art continuation](plans/3d-art-continuation.md) |
+| Optional 3D | Independent procedural client with responsive startup, asynchronous model stand-ins, inventory/equipment/portrait, advancement preview/confirmation and combined map/journal; render profiles for hardware of different strength, with an experimental Android build; separately qualified from the core workspace | [3D guide](../crates/client-3d/README.md), [art continuation](plans/3d-art-continuation.md) |
 
 Gameplay submissions bind to attachment input authority, not picture revision.
 Changed control/origin/operands can invalidate input; a redraw cannot restore it.

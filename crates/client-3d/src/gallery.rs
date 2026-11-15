@@ -152,6 +152,8 @@ fn setup(
                 player: Vec4::new(0.0, 0.0, 0.0, 100.0),
                 ..default()
             },
+            lattice: None,
+            sums: None,
         },
     });
     let spot = |i: usize| IVec3::new((i % 7) as i32 + 2, 0, (i / 7) as i32 + 1);

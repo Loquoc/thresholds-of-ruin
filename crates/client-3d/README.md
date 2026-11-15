@@ -252,6 +252,47 @@ does not finish by the existing quit deadline still produces a failure. Capture
 intervals and `--quit-after` use elapsed real time, so animation-clock clamping
 does not stretch these timers on a slow renderer.
 
+## Render profiles
+
+A render profile sets how much the client spends drawing each frame. It is
+chosen once at start-up, and there is no player-facing choice yet: this is the
+machinery for one.
+
+| Profile | Used by | What it does |
+| --- | --- | --- |
+| `full` | Desktop, by default | Every effect, drawn exactly as before profiles existed |
+| `low` | The [experimental Android client](android/README.md) | Half-size picture that shrinks further under load, baked rock noise, matte rock lighting, no ambient occlusion, bloom or shadows, serial scheduling, paced cloak fitting |
+
+Developers can pick a profile and override single settings with
+`TOR_RENDER_PROFILE`, a comma-separated list such as `low,scale=0.67,shadows=on`.
+An unknown name, setting or value stops the client with an error.
+
+| Setting | Values | Effect |
+| --- | --- | --- |
+| `scale` | 0.25 to 1 | Fraction of the screen's width and height that is drawn. Applied on Android only so far |
+| `adaptive` | `on`, `off` | Lower the scale by up to a fifth while frames miss thirty a second, and restore it afterwards |
+| `noise` | `hashed`, `baked` | Compute the rock's surface noise for every pixel, or read it from two textures baked at start-up |
+| `lighting` | `full`, `diffuse` | Light the rock with the engine's full model, or as a matte surface without highlights |
+| `occlusion`, `bloom`, `antialiasing`, `shadows` | `on`, `off` | Keep or drop each effect |
+| `scheduling` | `parallel`, `serial` | Spread the engine's systems over worker threads, or run them in turn on one thread for the game and one for rendering |
+| `cloaks` | 0 or more | 0 fits every cloak every frame; otherwise one wearer is fitted every that many frames, wearers taking turns |
+| `pin` | `on`, `off` | Keep the game and render threads on the fastest cores, where the host supports it |
+
+`TOR_RENDER_REPORT=5` logs a `render-report` line every five seconds with the
+frame rate, mean and slowest frame, time spent in the game's own update, the
+current scale and how much is on screen.
+
+Two settings were measured on a desktop GPU and deliberately left out of `full`:
+
+- `noise=baked` shortened the typical frame by about a quarter in an ordinary
+  room, but it changes the rock: wall strata are smoother and floor cracks run
+  straighter. It stays opt-in until the baked pattern matches.
+- `scheduling=serial` made no measurable difference with one creature or with
+  a hundred. On the Android tablet it roughly doubled the frame rate.
+
+Offline review modes and scripted captures always draw with `full` on desktop,
+so reference images do not depend on the environment.
+
 ## Missing models
 
 Gameplay selects procedural recipes from disclosed, palette-approved asset IDs.

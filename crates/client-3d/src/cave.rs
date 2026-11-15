@@ -35,6 +35,14 @@ pub type CaveMaterial = ExtendedMaterial<StandardMaterial, CaveExtension>;
 pub struct CaveExtension {
     #[uniform(100)]
     pub params: CaveParams,
+    /// Baked noise for render profiles that read it instead of hashing per
+    /// pixel: lattice values, then whole noise sums with their slopes. Both
+    /// stay unset, and unread, otherwise.
+    #[texture(101, dimension = "3d")]
+    #[sampler(102)]
+    pub lattice: Option<Handle<Image>>,
+    #[texture(103, dimension = "3d")]
+    pub sums: Option<Handle<Image>>,
 }
 
 #[cfg(test)]

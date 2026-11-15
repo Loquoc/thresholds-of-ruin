@@ -42,6 +42,8 @@ fn fixture() -> (App, Handle<CaveMaterial>, Entity) {
             base: StandardMaterial::default(),
             extension: CaveExtension {
                 params: CaveParams::default(),
+                lattice: None,
+                sums: None,
             },
         });
     app.insert_resource(Palette {
