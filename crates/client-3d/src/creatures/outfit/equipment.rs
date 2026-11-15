@@ -273,8 +273,10 @@ impl Equipment {
             // An overlaid plate covers sewn bodice ornaments; independent
             // neck jewelry and straps are fitted onto the resolved exterior.
             base.torso_ornament = None;
+            base.regalia = None;
         }
         if let Some(item) = self.head {
+            base.veil = None;
             base.head = match item {
                 HeadItem::SteelHelm => Headwear::Helm,
                 HeadItem::Appearance(kind) => Headwear::Equipment(kind),
@@ -689,6 +691,7 @@ mod look_tests {
         let man = Look::with_choice(CreatureModel::Human, 17, Some(Variant::default()));
         for wardrobe in Wardrobe::ALL {
             let expected = match wardrobe {
+                Wardrobe::RoyalBride => Wardrobe::RoyalGroom,
                 Wardrobe::Princess | Wardrobe::RoyalPrincess => Wardrobe::Courtier,
                 Wardrobe::SylvanDuelist => Wardrobe::Ranger,
                 other => other,

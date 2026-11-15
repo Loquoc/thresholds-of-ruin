@@ -158,7 +158,12 @@ pub(super) fn styled_sleeve_top(
     side: f32,
     b: f32,
     arm_len: f32,
+    muscle: f32,
+    trim: Vec3,
 ) {
+    if sleeve.cut == SleeveCut::Draped {
+        arm_drape::emit(p, sleeve, side, b, arm_len, muscle, trim);
+    }
     let builder = if sleeve.sheer {
         &mut p.sheer
     } else {
@@ -187,7 +192,7 @@ pub(super) fn styled_sleeve_top(
         );
     }
     if sleeve.cut == SleeveCut::OffShoulder {
-        royal_parts::sleeve_swag(builder, b, arm_len, color, sleeve.flare);
+        royal_parts::sleeve_swag(builder, side, b, arm_len, muscle, sleeve);
     }
     if sleeve.cut == SleeveCut::Short {
         // A fitted cap over the shoulder, ending a third of the way down the

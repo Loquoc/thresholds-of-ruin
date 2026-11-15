@@ -332,17 +332,8 @@ pub(super) fn waist(p: &mut Parts, waist: Waist, body: HumanoidBody, support: &c
                 }
             }
         }
-        Waist::CrossedBelts(color) => {
-            for (tilt, gap) in [(-0.04, 0.008), (0.04, 0.013)] {
-                waist_parts::slanted_band(
-                    &mut p.matte,
-                    body,
-                    support,
-                    Vec2::new(0.075, 0.105),
-                    Vec2::new(tilt, gap),
-                    color,
-                );
-            }
+        Waist::Pointed { color, edge } => {
+            waist_parts::pointed_band(p, body, support, Vec2::new(0.10, 0.065), 0.025, color, edge);
         }
         Waist::Crossed(color) => {
             // Cords crossing round the waist above the hips, tied in front
@@ -1223,6 +1214,8 @@ mod armlet_attachment_tests {
                 side,
                 body.build,
                 body.arm_length,
+                body.profile.muscle,
+                Vec3::X,
             ),
             3 => biped_pauldron(&mut p, side, body, PauldronFinish::STEEL),
             _ => unreachable!(),

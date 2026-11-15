@@ -1270,7 +1270,7 @@ fn bard_puffs_extend_down_the_upper_arm_on_both_body_cuts() {
         for scale in [0.7, 1.0, 1.4] {
             for side in [-1.0, 1.0] {
                 let mut parts = Parts::default();
-                styled_sleeve_top(&mut parts, sleeve, side, scale, scale);
+                styled_sleeve_top(&mut parts, sleeve, side, scale, scale, 1.0, Vec3::X);
                 let positions = garment_positions(parts);
                 assert!(positions.iter().all(|p| p.is_finite()));
                 assert!(
@@ -1794,7 +1794,7 @@ fn slanted_leather_bands_follow_the_body_and_have_real_width() {
 }
 
 #[test]
-fn sylvan_panel_waist_stays_below_the_crossed_belts_without_lowering_royal_skirts() {
+fn sylvan_panel_waist_preserves_its_seam_without_lowering_royal_skirts() {
     let look = Look::with_choice(
         CreatureModel::Human,
         7,
@@ -1824,7 +1824,10 @@ fn waist_attachment_distinguishes_fitted_pieces_from_hip_ornaments() {
     for waist in [
         Waist::Sash(Vec3::X),
         Waist::Crossed(Vec3::X),
-        Waist::CrossedBelts(Vec3::X),
+        Waist::Pointed {
+            color: Vec3::X,
+            edge: Vec3::Y,
+        },
     ] {
         assert_eq!(waist.attachment(), J::Torso);
     }
@@ -2154,6 +2157,56 @@ fn goddess_skirt_layers_emit_a_supported_overlap_at_the_bodice_waist() {
                     "complete emitted waist rim, not one raised vertex"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn wedding_train_extends_rear_without_lowering_hem_or_moving_attachment() {
+    let plain = ClothSurface::new(
+        SkirtCut::straight(Vec2::splat(0.15), Vec2::splat(0.4)),
+        0.9,
+        12,
+        0.28,
+        42,
+    );
+    let train = plain.clone().with_hem(Hem::Train {
+        extension: 0.42,
+        front_rise: 0.0,
+    });
+    for angle in [0.0, PI * 0.5, PI, TAU] {
+        assert_eq!(
+            train.point(0.0, angle, false),
+            plain.point(0.0, angle, false)
+        );
+        assert_eq!(
+            train.point(1.0, angle, false).y,
+            plain.point(1.0, angle, false).y
+        );
+    }
+    assert_eq!(train.point(1.0, 0.0, false), plain.point(1.0, 0.0, false));
+    assert!((plain.point(1.0, PI, false).z - train.point(1.0, PI, false).z - 0.42).abs() < 1e-5);
+}
+
+#[test]
+fn detached_draped_sleeve_has_an_upper_arm_seat_and_long_free_tail() {
+    let sleeve = Sleeve {
+        color: Vec3::new(0.1, 0.1, 0.1),
+        cut: SleeveCut::Draped,
+        puff: false,
+        puff_lining: None,
+        sheer: false,
+        flare: Some(Vec3::Y),
+    };
+    for side in [-1.0, 1.0] {
+        for scale in [0.85, 1.0, 1.2] {
+            let mut p = Parts::default();
+            styled_sleeve_top(&mut p, sleeve, side, scale, scale, 1.0, Vec3::X);
+            let points = garment_positions(p);
+            assert!(points.len() > 100, "detached cloth must be emitted");
+            assert!(points.iter().any(|p| p.y < -0.55 * scale), "long free tail");
+            assert!(points.iter().all(|p| p.is_finite()));
+            assert!(points.iter().all(|p| p.y < -0.075 * scale), "bare shoulder");
         }
     }
 }

@@ -12,7 +12,6 @@ pub(super) fn emit(
 ) {
     let b = body.build;
     let (sh, w) = (body.shoulders * b, body.waist * b);
-    let on = |x, y, front| torso_surface(garment, x, y, front);
     match ornament {
         TorsoOrnament::LacedFront { cord } => {
             // Lacing up the front of the jerkin and a strap across it.
@@ -55,10 +54,17 @@ pub(super) fn emit(
         }
         TorsoOrnament::StitchedFront { thread } => {
             for k in 0..3 {
-                p.matte.cuboid(
-                    on(0.055 * b, 0.2 + k as f32 * 0.04, true) + Vec3::Z * 0.003,
-                    Vec3::new(0.04 * b, 0.005, 0.004),
-                    Quat::IDENTITY,
+                let height = 0.2 + k as f32 * 0.04;
+                embroidery_parts::StitchProfile {
+                    radius: 0.005,
+                    max_step: 0.01,
+                }
+                .emit(
+                    &mut p.matte,
+                    &[Vec2::new(0.015 * b, height), Vec2::new(0.095 * b, height)],
+                    &|uv| {
+                        torso_surface_hit(garment, uv.x, uv.y, true).map(|at| at + Vec3::Z * 0.006)
+                    },
                     thread,
                 );
             }
@@ -109,11 +115,11 @@ pub(super) fn emit(
             }
             for side in [-1.0f32, 1.0] {
                 for k in 0..3 {
-                    p.metal.blob(
-                        on(side * 0.055, 0.13 + k as f32 * 0.08, true),
-                        Vec3::splat(0.011),
-                        0,
-                        0.0,
+                    emit_sewn_stud(
+                        &mut p.metal,
+                        garment,
+                        Vec2::new(side * 0.055, 0.13 + k as f32 * 0.08),
+                        0.011,
                         buttons,
                     );
                 }
@@ -242,14 +248,19 @@ pub(super) fn emit(
                     leaves * (0.85 + 0.3 * rand(98, k)),
                 );
             }
-            let (at, normal) = torso_surface_frame(skin, Vec2::new(0.0, 0.1), true);
-            p.metal.blob(
-                at + normal * 0.02,
-                Vec3::new(0.022, 0.03, 0.01),
-                0,
-                0.0,
-                pin,
-            );
+            // The pin belongs to the composed surface, including an exposed
+            // skin opening. Bury its back slightly instead of floating the
+            // whole ornament beyond its own depth.
+            if let Some(at) = torso_surface_hit(garment, 0.0, 0.1, true) {
+                let normal = sculpt_surface_normal(garment, at, Vec3::Z);
+                p.metal.blob(
+                    at + normal * 0.008,
+                    Vec3::new(0.022, 0.03, 0.01),
+                    0,
+                    0.0,
+                    pin,
+                );
+            }
         }
         TorsoOrnament::NeckBandAndDisc { metal } => {
             // A gilt neckline and a bronze disc at the waist.
@@ -342,11 +353,11 @@ pub(super) fn emit_riveted_vest(
         Some(garment),
     );
     for k in 0..3 {
-        p.metal.blob(
-            torso_surface(garment, -0.1 + k as f32 * 0.1, 0.16, true),
-            Vec3::splat(0.012),
-            0,
-            0.0,
+        emit_sewn_stud(
+            &mut p.metal,
+            garment,
+            Vec2::new(-0.1 + k as f32 * 0.1, 0.16),
+            0.012,
             rivets,
         );
     }
@@ -491,5 +502,73 @@ mod shoulder_disc_tests {
                 assert!(crowns >= 24 && seats >= 24);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod hardware_tests {
+    use super::*;
+    use crate::sdf::Shape;
+
+    fn body() -> HumanoidBody {
+        HumanoidBody::resolve(&Look::with_choice(CreatureModel::Human, 42, None))
+    }
+
+    fn ornaments() -> [TorsoOrnament; 3] {
+        [
+            TorsoOrnament::LeafBodice {
+                leaves: Vec3::ONE,
+                pin: Vec3::ONE,
+            },
+            TorsoOrnament::RivetedVest {
+                strap: Vec3::ONE,
+                rivets: Vec3::ONE,
+            },
+            TorsoOrnament::HighCollar {
+                collar: Vec3::ONE,
+                pads: Vec3::ONE,
+                cravat: Vec3::ONE,
+                buttons: Vec3::ONE,
+            },
+        ]
+    }
+
+    #[test]
+    fn sewn_hardware_requires_its_garment_support() {
+        for ornament in ornaments() {
+            let mut parts = Parts::default();
+            let empty = Sculpt::default();
+            emit(&mut parts, ornament, body(), &empty, &empty, None);
+            assert_eq!(
+                parts.metal.surface_triangles().count(),
+                0,
+                "unsupported sewn hardware must not be emitted"
+            );
+        }
+    }
+
+    #[test]
+    fn rivets_keep_supported_stations_without_fallback_neighbors() {
+        let mut support = Sculpt::default();
+        support.add(
+            Shape::Ellipsoid(Vec3::new(0.0, 0.16, 0.0), Vec3::new(0.04, 0.025, 0.12)),
+            0.0,
+        );
+        let mut parts = Parts::default();
+        emit(&mut parts, ornaments()[1], body(), &support, &support, None);
+        let points: Vec<_> = parts.metal.surface_triangles().flatten().collect();
+        assert!(!points.is_empty(), "supported center rivet survives");
+        assert!(
+            points.iter().all(|p| p.x.abs() < 0.02),
+            "unsupported outer rivets are not relocated to guessed points"
+        );
+    }
+}
+
+/// Sewn hardware belongs at its authored station, not a guessed point or
+/// a different garment edge when that station lacks support.
+fn emit_sewn_stud(builder: &mut Builder, support: &Sculpt, at: Vec2, radius: f32, color: Vec3) {
+    if let Some(center) = torso_surface_hit(support, at.x, at.y, true) {
+        builder.blob(center, Vec3::splat(radius), 0, 0.0, color);
     }
 }

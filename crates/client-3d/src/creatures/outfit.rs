@@ -58,6 +58,7 @@ impl Arms {
                     | SleeveCut::Gauntlet
                     | SleeveCut::Draped
                     | SleeveCut::OffShoulder
+                    | SleeveCut::Bishop
                     | SleeveCut::Short
             ),
             _ => false,
@@ -79,6 +80,8 @@ pub(crate) enum SleeveCut {
     Draped,
     /// Off the shoulder: a gathered band round the upper arm.
     OffShoulder,
+    /// Detached gathered sheer sleeve, continuing to a narrow wrist cuff.
+    Bishop,
     /// A plain short sleeve over the top of the upper arm, its hem turned
     /// up; the rest of the arm bare.
     Short,
@@ -114,7 +117,7 @@ pub(crate) enum Legs {
 /// Footwear, fitted to the wearer's feet.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Feet {
-    /// Bare feet with wrappings at the ankle, in the skin's colour.
+    /// Bare feet. Optional calf bindings belong to the outfit trimmings.
     Bare(Pigment),
     Boots(Boots),
     /// Low shoes or sandals with the leg bare above them.
@@ -432,6 +435,11 @@ pub(crate) enum Hem {
     },
     /// Shorter in front by this share of its length, long behind.
     HighLow(f32),
+    /// Ground-level rear extension; length is radial, not below the feet.
+    Train {
+        extension: f32,
+        front_rise: f32,
+    },
 }
 
 impl Hem {
@@ -440,6 +448,7 @@ impl Hem {
     pub fn reach(self, angle: f32) -> f32 {
         match self {
             Hem::Even => 1.0,
+            Hem::Train { front_rise, .. } => 1.0 - front_rise * angle.cos().max(0.0).powi(2),
             Hem::Points { count, depth } => {
                 let phase = (angle * count as f32 / std::f32::consts::TAU).rem_euclid(1.0);
                 1.0 - depth * (1.0 - (2.0 * phase - 1.0).abs())
@@ -661,8 +670,8 @@ pub(crate) enum Waist {
     Coins(Vec3),
     /// Cords crossing round the waist, tied in front.
     Crossed(Vec3),
-    /// Two broad leather straps fitted across the waist.
-    CrossedBelts(Vec3),
+    /// A support-fitted V waistpiece with a bound edge.
+    Pointed { color: Vec3, edge: Vec3 },
 }
 
 impl Waist {
@@ -670,7 +679,7 @@ impl Waist {
     /// ornaments stay with the skirt. Placement and animation must agree.
     pub(crate) fn attachment(self) -> J {
         match self {
-            Self::Sash(_) | Self::Crossed(_) | Self::CrossedBelts(_) => J::Torso,
+            Self::Sash(_) | Self::Crossed(_) | Self::Pointed { .. } => J::Torso,
             Self::Jeweled { .. } | Self::Coins(_) => J::Hips,
         }
     }
@@ -719,6 +728,9 @@ pub(crate) struct Trimmings {
     /// Bands round the upper arms.
     pub armlets: Option<Vec3>,
     pub bracelets: Option<Vec3>,
+    /// Two fitted leather bands on an exposed, non-furry calf.
+    /// Bare-foot recipes only; footwear keeps its own calf details.
+    pub calf_bindings: Option<Vec3>,
     pub earrings: Option<Earrings>,
     pub waist: Option<Waist>,
     /// Stiff pointed shoulders standing up over the arms.
@@ -735,6 +747,7 @@ impl Trimmings {
         neck: None,
         armlets: None,
         bracelets: None,
+        calf_bindings: None,
         earrings: None,
         waist: None,
         peaks: None,
@@ -817,6 +830,7 @@ pub(crate) struct NeckDrape {
 /// Authored cloak appearance and cut, independent of its wearer's anatomy.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Cloak {
+    pub embroidery: Option<Vec3>,
     pub exterior: Vec3,
     pub lining: Vec3,
     pub length: f32,
@@ -827,6 +841,7 @@ pub(crate) struct Cloak {
 impl Cloak {
     pub const fn new(exterior: Vec3, lining: Vec3) -> Self {
         Self {
+            embroidery: None,
             exterior,
             lining,
             length: 1.08,
@@ -882,9 +897,28 @@ pub(crate) enum HipDecoration {
     },
 }
 
+/// Independent sheer head-to-back drape; crown selection is separate.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Veil {
+    pub color: Vec3,
+    pub trim: Vec3,
+    pub gem: Vec3,
+    pub length: f32,
+    pub spread: f32,
+}
+
+/// Ceremonial fitted ornaments, shared by any coat or armour recipe.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Regalia {
+    pub metal: Vec3,
+    pub gem: Vec3,
+}
+
 /// One humanoid's clothes and armour.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Outfit {
+    pub veil: Option<Veil>,
+    pub regalia: Option<Regalia>,
     pub head: Headwear,
     pub tunic: Vec3,
     /// The tunic's front: its opening, edging, lacing and support.
@@ -960,6 +994,10 @@ pub enum Wardrobe {
     /// A purple sweetheart gown with detached sleeves, two thigh slits,
     /// lavender lining, gold embroidery and a jeweled crown. Female only.
     RoyalPrincess,
+    /// Ivory sweetheart wedding gown with sapphire jewellery and a bordered veil.
+    RoyalBride,
+    /// Navy ceremonial coat, lion cuirass and lined royal cloak.
+    RoyalGroom,
     /// Green embroidered open panels, dark trousers, drapes and tall boots.
     SylvanDuelist,
     /// A laced black bodice over red, belled sleeves, a broad belt and a
@@ -988,7 +1026,7 @@ pub enum Wardrobe {
 }
 
 impl Wardrobe {
-    pub const ALL: [Wardrobe; 32] = [
+    pub const ALL: [Wardrobe; 34] = [
         Wardrobe::Native,
         Wardrobe::Commoner,
         Wardrobe::Ranger,
@@ -1005,6 +1043,8 @@ impl Wardrobe {
         Wardrobe::Genie,
         Wardrobe::Princess,
         Wardrobe::RoyalPrincess,
+        Wardrobe::RoyalBride,
+        Wardrobe::RoyalGroom,
         Wardrobe::SylvanDuelist,
         Wardrobe::Pirate,
         Wardrobe::Maiden,
@@ -1052,6 +1092,7 @@ impl Wardrobe {
     /// they must not silently accept the substitute used when browsing outfits.
     pub(crate) fn recipe_for(self, woman: bool) -> Self {
         match (self, woman) {
+            (Self::RoyalBride, false) => Self::RoyalGroom,
             (Self::Princess | Self::RoyalPrincess, false) => Self::Courtier,
             (Self::SylvanDuelist, false) => Self::Ranger,
             _ => self,
@@ -1088,6 +1129,8 @@ impl Outfit {
     /// nothing worn over it. Recipes set what differs.
     pub fn base(l: &Look) -> Outfit {
         Outfit {
+            veil: None,
+            regalia: None,
             head: Headwear::Bare,
             tunic: l.cloth,
             bodice: Bodice::PLAIN,
@@ -1129,6 +1172,7 @@ impl Outfit {
                 | SleeveCut::Gauntlet
                 | SleeveCut::Draped
                 | SleeveCut::OffShoulder
+                | SleeveCut::Bishop
                 | SleeveCut::Short => skin,
             },
         }
@@ -1139,7 +1183,9 @@ impl Outfit {
         match self.arms {
             Arms::Styled(sleeve) => match sleeve.cut {
                 SleeveCut::Bell | SleeveCut::Gauntlet | SleeveCut::Draped => sleeve.color,
-                SleeveCut::Puff | SleeveCut::OffShoulder | SleeveCut::Short => skin,
+                SleeveCut::Puff | SleeveCut::OffShoulder | SleeveCut::Bishop | SleeveCut::Short => {
+                    skin
+                }
             },
             _ => self.sleeve(skin),
         }

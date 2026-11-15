@@ -263,6 +263,7 @@ impl OuterwearRecipe {
             return None;
         };
         Some(Cloak {
+            embroidery: self.embroidered.then_some(self.trim),
             exterior: self.cloth,
             lining: self.lining,
             length: cut.length,
