@@ -2387,7 +2387,8 @@ mod authoritative_effect_tests {
                 ..tor_protocol::EffectPresentation::neutral(EffectAppearance::Cloud)
             },
             delivery: EffectDelivery::Area,
-            cue: EffectCue::Fire,
+            // Appearance is authored independently of the mechanical cue.
+            cue: EffectCue::Neutral,
             segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
         };
         assert_eq!(
@@ -2495,7 +2496,8 @@ mod authoritative_effect_tests {
     }
 
     #[test]
-    fn target_and_area_cues_do_not_guess_condition_recipient_or_full_shape() {
+    fn target_and_area_cues_do_not_invent_appearance_recipient_or_full_shape() {
+        // Healing/poison cues are not evidence of an authored visible style.
         assert_eq!(
             narrate(
                 EffectAppearance::Flash,
@@ -2514,7 +2516,7 @@ mod authoritative_effect_tests {
                 None,
                 &[&[1]]
             ),
-            "A healing halo shines briefly."
+            "A halo shines briefly."
         );
         assert_eq!(
             narrate(
@@ -2524,7 +2526,7 @@ mod authoritative_effect_tests {
                 None,
                 &[&[1, 2], &[5]]
             ),
-            "A poisonous cloud briefly appears across an area."
+            "A cloud briefly appears across an area."
         );
         assert_eq!(
             narrate(
@@ -2578,7 +2580,8 @@ mod authoritative_effect_tests {
             assert_eq!(
                 text,
                 vec![
-                    "Your fiery bolt streaks through view.",
+                    // A Fire cue cannot override explicitly neutral presentation.
+                    "Your bolt streaks through view.",
                     &format!("You used Magic Bolt on {ending}")
                 ]
             );

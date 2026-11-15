@@ -479,3 +479,37 @@ sample kinds were retained, with 64 maintained client schema examples and nine
 captured client queries. Ordinary protocol comparison then passed all 308
 integration and 88 library tests. This qualifies genuine wire samples, not local
 native UI behavior; the original presentation-client test methods remain intact.
+
+### PR #11 full-profile Python feedback (2026-11-15)
+
+The first Linux debug Python shard exposed eight distinct failing methods
+(nine failures including both natural-roll subtests), not nine production bugs.
+Two exact catalog oracles omitted the newly authored visual/style fields; their
+mechanical definitions remain exact. Four process methods assumed an exploring
+practice target stayed in touch range. Their local fixtures now explicitly wait,
+without changing generic fixture defaults or production AI. After that correction,
+the Text self/ally method exposed a second fixture defect: Mend inherited hostile
+interaction semantics from its bolt template even though its AI hint was friendly.
+The supportive fixture now explicitly authors non-hostile interaction; all target
+selection, neutral refusal, payment/completion and restart assertions remain.
+
+The native strength-loss witness submitted another action before inspecting the
+rendered turn. CI retained the correct weakness message in the preceding turn's
+log. The driver now submits just the strength-loss action and checks its rendered
+turn before any later action can archive it. Native presentation qualification
+remains required in ordinary CI, not replaced with a headless claim.
+
+The Rogue round-trip oracle incorrectly equated the player's visible Wait with
+the entire world's durable endpoint. Retained history showed two undisclosed
+actors moving afterward. The oracle retains exact branch, tick, durable tail,
+public subsequence and source-free restart comparisons, and now requires the
+public endpoint to be a paid Wait. Any later entries must belong to other actors,
+be scheduler-authored autonomous admission/start records, and have non-public
+scope. Negative unit witnesses reject own-actor tails, public tails, wrong authors,
+wrong work kinds and an unpaid or non-Wait endpoint. No save bytes or gameplay
+were changed by these corrections.
+
+Focused local requalification passed 19 catalog/history tests, 20 documentation
+tests, both natural-roll subcases, headless and both Text self/ally paths, and
+the complete affected Rogue walkthrough. The two native methods remain CI-only
+in this environment. These are focused local results, not current-head CI.
