@@ -5448,7 +5448,12 @@ mod tests {
             assert!(crate::storage::schema::scenario::decode_content_package(&encoded).is_err());
             assert!(package.check_identity().is_err(), "{boundary}");
         }
-        for previous in ["interactions-v35", "interactions-v56", "interactions-v58", "interactions-v60"] {
+        for previous in [
+            "interactions-v35",
+            "interactions-v56",
+            "interactions-v58",
+            "interactions-v60",
+        ] {
             assert!(
                 resolve_rules_source(&format!("import = \"{previous}\"\n"), "rules.toml").is_err()
             );
