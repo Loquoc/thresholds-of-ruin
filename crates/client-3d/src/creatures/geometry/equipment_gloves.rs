@@ -204,7 +204,8 @@ pub(in crate::creatures) fn emit_hand(
 fn cuff_profile(appearance: GloveAppearance) -> [(f32, f32); 3] {
     match appearance {
         GloveAppearance::Old => [(0.0, 0.045), (0.035, 0.044), (0.105, 0.064)],
-        GloveAppearance::Padded => [(0.0, 0.047), (0.035, 0.048), (0.110, 0.066)],
+        // Padded gloves end near the wrist rather than becoming a tall gauntlet.
+        GloveAppearance::Padded => [(0.0, 0.047), (0.025, 0.048), (0.075, 0.058)],
         GloveAppearance::Riding => [(0.0, 0.043), (0.035, 0.042), (0.120, 0.063)],
         GloveAppearance::Fencing => [(0.0, 0.042), (0.030, 0.043), (0.140, 0.072)],
     }
@@ -353,6 +354,31 @@ fn emit_cuff_with_opening(
             }
         }
     }
+    // Resolve fine quilting against the actual faceted cloth before adding
+    // rings or straps: those decorations must not become stitch support.
+    let mut padded_stitches = Vec::new();
+    if appearance == GloveAppearance::Padded {
+        for col in 0..12 {
+            for direction in [-1.0, 1.0] {
+                let path: Vec<_> = (0..=8)
+                    .map(|row| {
+                        let angle = (col as f32 + direction * row as f32 / 4.0) * TAU / 12.0;
+                        let ray = Vec3::new(angle.cos(), 0.0, angle.sin());
+                        let y = profile[row].0 * length;
+                        let origin =
+                            wrist + Vec3::Y * y.clamp(0.000001, profile[8].0 * length - 0.000001);
+                        let mut at = p
+                            .matte
+                            .outer_surface(origin, ray)
+                            .expect("quilt rests on cuff");
+                        at.y = wrist.y + y;
+                        at + ray * (0.0004 * build)
+                    })
+                    .collect();
+                padded_stitches.push(path);
+            }
+        }
+    }
     for row in [0, 8] {
         let path: Vec<_> = (0..=24)
             .map(|i| point(row, i as f32 * TAU / 24.0, false))
@@ -415,22 +441,9 @@ fn emit_cuff_with_opening(
         ]
         .map(|v| center + v * build);
         seam(&mut p.metal, &corners, 0.0018 * build, GOLD);
-        if appearance == GloveAppearance::Padded {
-            // Continuous crossing stitches form two rows of diamonds. Follow
-            // each sampled ring instead of using a chord which cuts into the
-            // curved cuff and hides most of the quilting beneath its surface.
-            for col in 0..12 {
-                for direction in [-1.0, 1.0] {
-                    let path: Vec<_> = (0..=8)
-                        .map(|row| {
-                            let angle = (col as f32 + direction * row as f32 / 4.0) * TAU / 12.0;
-                            point(row, angle, false)
-                                + Vec3::new(angle.cos(), 0.0, angle.sin()) * (0.001 * build)
-                        })
-                        .collect();
-                    seam(&mut p.matte, &path, 0.0015 * build, THREAD * 0.70);
-                }
-            }
+        for path in padded_stitches {
+            // Fine fabric stitches, not thick decorative cords.
+            seam(&mut p.matte, &path, 0.00075 * build, color * 1.15);
         }
     }
 }
@@ -964,7 +977,12 @@ mod tests {
                 assert!(wall.x - wrist.x > 0.037 * build, "clearance around forearm");
                 let (lo, hi) = p.matte.bounds();
                 assert!(lo.is_finite() && hi.is_finite());
-                assert!(hi.y > wrist.y + 0.1 * length);
+                let minimum_height = if appearance == GloveAppearance::Padded {
+                    0.074 // Short wrist cuff, including its retained quilt stitching.
+                } else {
+                    0.1
+                };
+                assert!(hi.y > wrist.y + minimum_height * length);
             }
         }
     }
@@ -1042,6 +1060,91 @@ mod tests {
     }
 
     #[test]
+    fn padded_cuff_is_shorter_than_a_gauntlet_with_a_bounded_wrist_width() {
+        for build in [0.83, 1.08] {
+            for length in [0.8, 1.0, 1.2] {
+                let mut cuff = Parts::default();
+                emit_cuff(
+                    &mut cuff,
+                    GloveAppearance::Padded,
+                    Vec3::ZERO,
+                    build,
+                    length,
+                );
+                let top = cuff.matte.bounds().1.y;
+                assert!(top >= 0.075 * length - 0.00001);
+                assert!(top <= 0.075 * length + 0.002 * build);
+                let wrist = cuff
+                    .matte
+                    .outer_surface(Vec3::Y * (0.005 * length), Vec3::X)
+                    .unwrap();
+                assert!(wrist.x > 0.047 * build && wrist.x < 0.049 * build);
+            }
+        }
+    }
+
+    #[test]
+    fn fine_quilting_overlaps_actual_cuff_wall_between_samples() {
+        let mut probe = Builder::default();
+        seam(
+            &mut probe,
+            &(0..9).map(|i| Vec3::Y * i as f32).collect::<Vec<_>>(),
+            0.001,
+            Vec3::ONE,
+        );
+        let quilt_count = 24 * probe.surface_triangles().count();
+        for build in [0.83, 1.08] {
+            for supported in [false, true] {
+                let mut cuff = Parts::default();
+                if supported {
+                    cuff.matte.blob(
+                        Vec3::Y * 0.04,
+                        Vec3::new(0.075, 0.08, 0.065) * build,
+                        2,
+                        0.0,
+                        Vec3::ONE,
+                    );
+                }
+                emit_cuff(&mut cuff, GloveAppearance::Padded, Vec3::ZERO, build, 1.0);
+                let triangles: Vec<_> = cuff.matte.surface_triangles().collect();
+                // Quilting is emitted last, after the body and strap. Retain
+                // actual emitted triangles, not an idealized radial profile.
+                let split = triangles.len() - quilt_count;
+                let mut wall = Builder::default();
+                let mut threads = Builder::default();
+                for (i, triangle) in triangles.into_iter().enumerate() {
+                    if i < split {
+                        wall.tri(triangle, Vec3::ONE);
+                    } else {
+                        threads.tri(triangle, Vec3::ONE);
+                    }
+                }
+                for row in [5.5f32, 6.5, 7.5] {
+                    let origin = Vec3::Y * (0.025 + (row - 4.0) * 0.050 / 4.0);
+                    for direction in [-1.0, 1.0] {
+                        let angle = direction * row / 4.0 * TAU / 12.0;
+                        let ray = Vec3::new(angle.cos(), 0.0, angle.sin());
+                        let cloth = wall
+                            .outer_surface(origin, ray)
+                            .expect("cloth witness")
+                            .dot(ray);
+                        let inner = threads
+                            .inner_surface(origin, ray)
+                            .expect("thread witness")
+                            .dot(ray);
+                        let outer = threads.outer_surface(origin, ray).unwrap().dot(ray);
+                        assert!(
+                            inner <= cloth + 0.00001,
+                            "floating stitch: {inner} > {cloth}, supported={supported}"
+                        );
+                        assert!(outer > cloth + 0.0001 * build, "buried stitch");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn quilt_stitches_follow_cuff_between_rings() {
         for build in [0.83, 1.08] {
             let mut cuff = Parts::default();
@@ -1049,8 +1152,8 @@ mod tests {
             // Above the strap, between stitch intersections and away from rims.
             // The two families must remain visible on both faces of each diamond.
             for row in [5.5f32, 6.5, 7.5] {
-                let y = 0.035 + (row - 4.0) * (0.110 - 0.035) / 4.0;
-                let authored_radius = (0.048 + (row - 4.0) * (0.066 - 0.048) / 4.0) * build;
+                let y = 0.025 + (row - 4.0) * (0.075 - 0.025) / 4.0;
+                let authored_radius = (0.048 + (row - 4.0) * (0.058 - 0.048) / 4.0) * build;
                 for direction in [-1.0, 1.0] {
                     let angle = direction * row / 4.0 * TAU / 12.0;
                     let ray = Vec3::new(angle.cos(), 0.0, angle.sin());
@@ -1062,8 +1165,8 @@ mod tests {
                         "quilt chord buried between rings: {stitch:?}"
                     );
                     assert!(
-                        radius < authored_radius + 0.0035 * build,
-                        "oversized wall must not masquerade as stitch relief: {stitch:?}"
+                        radius < authored_radius + 0.0028 * build,
+                        "fine quilting must not become raised cords: {stitch:?}"
                     );
                 }
             }
