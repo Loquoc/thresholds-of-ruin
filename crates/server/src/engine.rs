@@ -5884,7 +5884,7 @@ mod earned_growth_identity_tests {
         let engine = Engine::memory(Scenario::two_room(42)).unwrap();
         Engine::replay(engine.archive.clone(), None, None).unwrap();
         assert_eq!(engine.archive.version, ARCHIVE_VERSION);
-        assert_eq!(engine.archive.ruleset, "interactions-v60");
+        assert_eq!(engine.archive.ruleset, "interactions-v61");
         for (version, ruleset) in [
             (ARCHIVE_VERSION - 1, RULESET),
             (ARCHIVE_VERSION, "interactions-v42"),

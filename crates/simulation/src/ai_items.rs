@@ -30,9 +30,6 @@ impl Game {
                 } else {
                     route(item.location)?
                 };
-                if path.len() > 3 {
-                    return None;
-                }
                 let action = if let Some(step) = path.first() {
                     let (at, _) = self.actor_translation(actor, step.direction)?;
                     if self.exposed_to_visible_hostile(actor, at, view) {
@@ -137,9 +134,6 @@ impl Game {
                 } else {
                     route(item.location)?
                 };
-                if path.len() > 3 {
-                    return None;
-                }
                 let action = if let Some(step) = path.first() {
                     let (at, _) = self.actor_translation(actor, step.direction)?;
                     if self.exposed_to_visible_hostile(actor, at, view) {
@@ -939,6 +933,237 @@ mod tests {
         .unwrap();
         game.refresh_navigation();
         other
+    }
+
+    #[test]
+    fn known_gold_has_no_gameplay_distance_cutoff_and_preserves_disclosure() {
+        let (mut game, actor, at) = gold_fixture();
+        let origin = Location {
+            position: tor_world::Position {
+                x: 0,
+                ..at.position
+            },
+            ..at
+        };
+        game.teleport(actor, origin).unwrap();
+        let destination = Location {
+            position: tor_world::Position {
+                x: 4,
+                ..at.position
+            },
+            ..at
+        };
+        game.place_item_stack(20, destination, None, 7, gold(false))
+            .unwrap();
+        game.refresh_navigation();
+        let view = game.observe(actor).unwrap();
+        let mut profile = game.combat.ai[&actor].profile.clone();
+        let path = game
+            .route_search(actor)
+            .unwrap()
+            .route(destination)
+            .unwrap();
+        assert_eq!(path.len(), 4);
+        let mut calls = 0;
+        let mut route = |_| {
+            calls += 1;
+            Some(path.clone())
+        };
+        assert_eq!(
+            game.choose_known_gold(actor, &view, &profile, &mut route),
+            None,
+            "IdleWait retains its station"
+        );
+        assert_eq!(calls, 0);
+        profile.idle = crate::behavior::IdleBehavior::Explore;
+        let before = game.clone();
+        let mut calls = 0;
+        let mut route = |_| {
+            calls += 1;
+            Some(path.clone())
+        };
+        assert_eq!(
+            game.choose_known_gold(actor, &view, &profile, &mut route),
+            Some(Action::Move(path[0].direction))
+        );
+        assert_eq!(calls, 1, "one route lookup per disclosed candidate");
+        assert_eq!(game, before, "choice remains pure");
+        game.configure_ai(actor, profile.clone()).unwrap();
+        let searches = crate::diagnostics::work_counts().route_searches;
+        assert_eq!(
+            game.choose_ai(actor).unwrap().action,
+            Action::Move(path[0].direction)
+        );
+        assert_eq!(
+            crate::diagnostics::work_counts().route_searches - searches,
+            1,
+            "ordinary decision shares one remembered-topology search"
+        );
+
+        assert_eq!(
+            game.choose_known_gold(actor, &view, &profile, &mut |_| None),
+            None,
+            "unreachable goal"
+        );
+        let mut unknown = view.clone();
+        unknown
+            .ground_items
+            .iter_mut()
+            .find(|item| item.id == ItemId(20))
+            .unwrap()
+            .known_currency = None;
+        assert_eq!(
+            game.choose_known_gold(actor, &unknown, &profile, &mut |_| panic!(
+                "unknown currency must not route"
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn distant_gold_candidates_keep_distance_then_id_ranking() {
+        let (mut game, actor, _) = gold_fixture();
+        let region = tor_world::RegionId(901);
+        game.world
+            .add_chamber(tor_world::Region {
+                id: region,
+                name: "competing gold".into(),
+                bounds: tor_world::Extent::new(6, 9, 2).unwrap(),
+            })
+            .unwrap();
+        let at = Location {
+            region,
+            position: tor_world::Position { x: 0, y: 4, z: 0 },
+        };
+        let origin = Location {
+            position: tor_world::Position {
+                x: 0,
+                ..at.position
+            },
+            ..at
+        };
+        game.teleport(actor, origin).unwrap();
+        let east = Location {
+            position: tor_world::Position {
+                x: 4,
+                y: 0,
+                ..at.position
+            },
+            ..at
+        };
+        let diagonal = Location {
+            position: tor_world::Position {
+                x: 4,
+                y: 8,
+                ..at.position
+            },
+            ..at
+        };
+        game.place_item_stack(20, east, None, 7, gold(false))
+            .unwrap();
+        game.place_item_stack(19, diagonal, None, 7, gold(false))
+            .unwrap();
+        game.refresh_navigation();
+        let mut profile = game.combat.ai[&actor].profile.clone();
+        profile.idle = crate::behavior::IdleBehavior::Explore;
+        let mut search = game.route_search(actor).unwrap();
+        let a = search.route(east).unwrap();
+        let b = search.route(diagonal).unwrap();
+        assert_eq!(a.len(), 4);
+        assert_eq!(b.len(), 4);
+        assert_ne!(
+            a[0].direction, b[0].direction,
+            "ranking witness must distinguish first actions"
+        );
+        let view = game.observe(actor).unwrap();
+        assert_eq!(
+            game.choose_known_gold(actor, &view, &profile, &mut |at| search.route(at).ok()),
+            Some(Action::Move(b[0].direction)),
+            "same-distance lower item id wins"
+        );
+        let nearer = Location {
+            position: tor_world::Position {
+                x: 1,
+                ..at.position
+            },
+            ..at
+        };
+        game.place_item_stack(21, nearer, None, 7, gold(false))
+            .unwrap();
+        game.refresh_navigation();
+        let view = game.observe(actor).unwrap();
+        let mut search = game.route_search(actor).unwrap();
+        let nearest = search.route(nearer).unwrap();
+        assert_eq!(nearest.len(), 1);
+        assert_eq!(
+            game.choose_known_gold(actor, &view, &profile, &mut |at| search.route(at).ok()),
+            Some(Action::Move(nearest[0].direction)),
+            "shorter route outranks lower item id"
+        );
+    }
+
+    #[test]
+    fn useful_loot_has_no_gameplay_distance_cutoff_but_blocked_steps_reject() {
+        let (mut game, actor, at) = gold_fixture();
+        let origin = Location {
+            position: tor_world::Position {
+                x: 0,
+                y: 2,
+                ..at.position
+            },
+            ..at
+        };
+        game.teleport(actor, origin).unwrap();
+        let destination = Location {
+            position: tor_world::Position {
+                x: 4,
+                y: 2,
+                ..at.position
+            },
+            ..at
+        };
+        game.place_item_stack(21, destination, None, 1, healing_potion())
+            .unwrap();
+        game.refresh_navigation();
+        let view = game.observe(actor).unwrap();
+        let path = game
+            .route_search(actor)
+            .unwrap()
+            .route(destination)
+            .unwrap();
+        assert_eq!(path.len(), 4);
+        let profile = crate::ai::AiProfile::general();
+        assert_eq!(
+            game.choose_nearby_loot(actor, &view, &profile, &[], &mut |_| Some(path.clone())),
+            Some(Action::Move(path[0].direction))
+        );
+        let mut waiting = profile.clone();
+        waiting.idle = crate::behavior::IdleBehavior::Wait;
+        assert_eq!(
+            game.choose_nearby_loot(actor, &view, &waiting, &[], &mut |_| panic!(
+                "stationary policy must not route off-cell"
+            )),
+            None
+        );
+        assert_eq!(
+            game.choose_nearby_loot(actor, &view, &profile, &[], &mut |_| None),
+            None
+        );
+        let mut gone = view.clone();
+        gone.ground_items.clear();
+        assert_eq!(
+            game.choose_nearby_loot(actor, &gone, &profile, &[], &mut |_| panic!(
+                "absent item must not route"
+            )),
+            None
+        );
+        // A formerly remembered path does not authorize movement through a new
+        // obstacle. Ordinary authoritative movement remains the final gate.
+        game.set_wall(path[0].destination, true).unwrap();
+        assert_eq!(
+            game.choose_nearby_loot(actor, &view, &profile, &[], &mut |_| Some(path.clone())),
+            None
+        );
     }
 
     #[test]

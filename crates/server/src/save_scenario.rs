@@ -5079,7 +5079,7 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (70, 37, "interactions-v60", 27, 10, 34, "tor-arena-run-v6")
+            (70, 37, "interactions-v61", 27, 10, 34, "tor-arena-run-v6")
         );
     }
 
@@ -6163,13 +6163,49 @@ mod tests {
         assert!(decode_content_package(&serde_json::to_vec(&bad).unwrap()).is_err());
     }
 
+    fn scenario_fixture_name(archive_version: u32, ruleset: &str) -> String {
+        match (archive_version, ruleset) {
+            // This exact published pair predates rules-aware filenames. It is
+            // a name mapping, not fallback to an older fixture or save reader.
+            (70, "interactions-v60") => "saved-scenarios-v70.json".into(),
+            _ => format!("saved-scenarios-v{archive_version}-{ruleset}.json"),
+        }
+    }
+
+    #[test]
+    fn scenario_golden_identity_tracks_archive_and_rules_independently() {
+        assert_eq!(
+            scenario_fixture_name(70, "interactions-v60"),
+            "saved-scenarios-v70.json",
+            "the exact published pair keeps its original filename"
+        );
+        assert_eq!(
+            scenario_fixture_name(70, "interactions-v59"),
+            "saved-scenarios-v70-interactions-v59.json",
+            "a different rules identity never reuses the legacy file"
+        );
+        assert_eq!(
+            scenario_fixture_name(69, "interactions-v60"),
+            "saved-scenarios-v69-interactions-v60.json",
+            "a different archive never reuses archive-only naming"
+        );
+        assert_eq!(
+            scenario_fixture_name(71, "fixture.future-rules"),
+            "saved-scenarios-v71-fixture.future-rules.json"
+        );
+    }
+
     fn current_scenarios() -> BTreeMap<String, Value> {
-        // Captured from the current writer. Only machine-specific package
-        // directories are normalized to null; this is not an old-save reader.
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "fixtures/saved-scenarios-v{}.json",
-            crate::engine::ARCHIVE_VERSION
-        ));
+        // Certificates embed rules identity even when the physical archive
+        // format is unchanged. Keep every published archive/rules golden intact.
+        // Only machine-specific package directories are normalized to null;
+        // this is not an old-save reader and has no historical fallback.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(scenario_fixture_name(
+                crate::engine::ARCHIVE_VERSION,
+                crate::scenario_package::RULESET,
+            ));
         let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
             panic!(
                 "{}: {error}; record the current writer with TOR_RECORD_SCENARIO_FIXTURES",

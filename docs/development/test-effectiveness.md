@@ -544,3 +544,14 @@ Focused local requalification passed 19 catalog/history tests, 20 documentation
 tests, both natural-roll subcases, headless and both Text self/ally paths, and
 the complete affected Rogue walkthrough. The two native methods remain CI-only
 in this environment. These are focused local results, not current-head CI.
+
+### PR #13 performance ledger identity feedback (2026-11-15)
+
+Linux debug Python CI exposed one tooling defect in one existing test method:
+the new ranged-loot comparison used its hyphenated CLI key as the ledger workload
+name, violating the established lowercase/underscore identifier contract. The
+canonical ledger name is now `ranged_loot`; the `ranged-loot` command selector and
+strict ledger validator remain unchanged. A new actual-CLI round-trip witness
+failed before the correction and now checks the independent canonical name,
+written counts/percentiles, raw hash, validation and duplicate rejection. This
+is a performance-report integration fix, not a gameplay, fixture or timing change.

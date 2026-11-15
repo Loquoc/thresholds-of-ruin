@@ -21,7 +21,7 @@ future work. No hosted
 qualification or measured hosted saving is claimed.
 
 **Current formats:** protocol **72**, save format **70**, scenario format **37**,
-ruleset **`interactions-v60`**, scenario validator **`tor-scenario-51`**.
+ruleset **`interactions-v61`**, scenario validator **`tor-scenario-51`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not

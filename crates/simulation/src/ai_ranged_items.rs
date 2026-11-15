@@ -282,34 +282,34 @@ impl Game {
         {
             return result;
         }
-        let ground: Vec<_> =
-            view.ground_items
-                .iter()
-                .take(INVENTORY_BOUND)
-                .filter(|row| row.identified)
-                .filter(|row| {
-                    self.known_launcher_family(actor, row.id).is_some()
-                        || self.known_payload_family(actor, row.id).is_some()
-                })
-                .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
-                .filter(|row| {
-                    if row.location == view.location {
-                        return true;
-                    }
-                    if profile.idle == crate::behavior::IdleBehavior::Wait {
-                        return false;
-                    }
-                    route(row.location).is_some_and(|path| {
-                        path.len() <= 3
-                            && path.first().is_some_and(|step| {
-                                self.actor_translation(actor, step.direction).is_some_and(
-                                    |(at, _)| !self.exposed_to_visible_hostile(actor, at, view),
-                                )
+        let ground: Vec<_> = view
+            .ground_items
+            .iter()
+            .take(INVENTORY_BOUND)
+            .filter(|row| row.identified)
+            .filter(|row| {
+                self.known_launcher_family(actor, row.id).is_some()
+                    || self.known_payload_family(actor, row.id).is_some()
+            })
+            .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
+            .filter(|row| {
+                if row.location == view.location {
+                    return true;
+                }
+                if profile.idle == crate::behavior::IdleBehavior::Wait {
+                    return false;
+                }
+                route(row.location).is_some_and(|path| {
+                    path.first().is_some_and(|step| {
+                        self.actor_translation(actor, step.direction)
+                            .is_some_and(|(at, _)| {
+                                !self.exposed_to_visible_hostile(actor, at, view)
                             })
                     })
                 })
-                .map(|row| row.id)
-                .collect();
+            })
+            .map(|row| row.id)
+            .collect();
         let Some(choice) = self.known_launcher_choice(actor, view, &ground) else {
             return result;
         };

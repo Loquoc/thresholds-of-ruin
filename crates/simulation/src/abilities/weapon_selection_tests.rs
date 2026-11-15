@@ -3294,6 +3294,65 @@ fn ranged_loot_choice(game: &Game) -> Option<crate::Action> {
 }
 
 #[test]
+fn ranged_loot_pursues_disclosed_payload_beyond_three_steps() {
+    let (mut game, _, _, _, ammo) = projectile_launch_fixture();
+    let actor = ActorId(1);
+    let region = tor_world::RegionId(900);
+    game.world
+        .add_chamber(tor_world::Region {
+            id: region,
+            name: "ranged loot route".into(),
+            bounds: tor_world::Extent::new(8, 3, 2).unwrap(),
+        })
+        .unwrap();
+    let origin = tor_world::Location {
+        region,
+        position: tor_world::Position { x: 1, y: 1, z: 0 },
+    };
+    game.teleport(actor, origin).unwrap();
+    let destination = tor_world::Location {
+        position: tor_world::Position {
+            x: 5,
+            ..origin.position
+        },
+        ..origin
+    };
+    let payload = (*game.items[&ammo].spec).clone();
+    let ground = game
+        .spawn_item_stack(destination, None, 20, payload)
+        .unwrap();
+    game.refresh_navigation();
+    let view = game.observe(actor).unwrap();
+    assert!(view
+        .ground_items
+        .iter()
+        .any(|row| row.id == ground && row.identified));
+    let path = game
+        .route_search(actor)
+        .unwrap()
+        .route(destination)
+        .unwrap();
+    assert_eq!(path.len(), 4);
+    let profile = crate::ai::AiProfile::general();
+    assert_eq!(
+        game.ranged_loot_quantities(actor, &view, &profile, &mut |_| Some(path.clone()))
+            .get(&ground),
+        Some(&4)
+    );
+    assert_eq!(
+        game.choose_nearby_loot(actor, &view, &profile, &[], &mut |_| Some(path.clone())),
+        Some(crate::Action::Move(path[0].direction))
+    );
+    let mut waiting = profile;
+    waiting.idle = crate::behavior::IdleBehavior::Wait;
+    assert!(game
+        .ranged_loot_quantities(actor, &view, &waiting, &mut |_| panic!(
+            "stationary actor must not route"
+        ))
+        .is_empty());
+}
+
+#[test]
 fn ranged_loot_collects_only_six_known_compatible_shots_across_stacks() {
     let (mut game, _, _, _, ammo) = projectile_launch_fixture();
     let actor = ActorId(1);

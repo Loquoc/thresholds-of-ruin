@@ -537,8 +537,13 @@ impl Game {
                         && actor.disclosure.reference() == Some(reference)
                 })
             {
+                if let Some(direction) =
+                    self.ai_ranged_reposition(id, target, &snapshot.sight, &snapshot.scene, view)
+                {
+                    return Some(AiDecision::action(Action::Move(direction), ai, behavior));
+                }
                 if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, false)
+                    self.choose_ai_ability(id, target, &snapshot.sight, view, false, false)
                 {
                     return Some(ability.decision(ai, behavior));
                 }
@@ -551,7 +556,7 @@ impl Game {
                 })
             {
                 if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, true)
+                    self.choose_ai_ability(id, target, &snapshot.sight, view, true, false)
                 {
                     return Some(ability.decision(ai, behavior));
                 }
@@ -834,6 +839,224 @@ impl Game {
         None
     }
 
+    // Experimental conservative local positioning. Ordinary attack planning
+    // proves own funding/cooldowns; the movement policy reads only disclosed cells.
+    fn ai_ranged_reposition(
+        &self,
+        actor: ActorId,
+        target: ActorId,
+        sight: &[tor_world::SightCell],
+        scene: &[tor_world::SightCell],
+        view: &crate::Observation,
+    ) -> Option<Direction> {
+        let creature = self.creature(actor)?;
+        // Ordinary melee-only actors never pay for a second attack-plan search.
+        if !creature.derived().abilities.iter().any(|ability| {
+            creature
+                .build()
+                .ruleset()
+                .ability(ability)
+                .is_some_and(|definition| {
+                    definition.ai.hostile
+                        && definition.ai.range_preference
+                            == crate::rules::RangePreference::OutsideMelee
+                        && definition.invocation == crate::abilities::InvocationKind::ActorTarget
+                        && matches!(definition.reach, crate::rules::Reach::Sight { .. })
+                })
+        }) {
+            return None;
+        }
+        if self.condition_blocks_action(actor, &Action::Move(Direction::North))
+            || !self.attack_available_in_scene(actor, target, sight)
+        {
+            return None;
+        }
+        let AiAbilityChoice::Frozen(plan) =
+            self.choose_ai_ability(actor, target, sight, view, false, true)?
+        else {
+            return None;
+        };
+        let crate::Work::UseAbility { id, invocation, .. } = plan.work() else {
+            return None;
+        };
+        if !matches!(
+            invocation.aim,
+            crate::abilities::AbilityAim::ActorTarget { .. }
+        ) {
+            return None;
+        }
+        let definition = creature.build().ruleset().ability(&id)?;
+        if definition.ai.range_preference != crate::rules::RangePreference::OutsideMelee {
+            return None;
+        }
+        let crate::rules::Reach::Sight { range } = plan.as_ability()?.reach else {
+            return None;
+        };
+        let origin = self.actors.get(&actor)?;
+        // This small policy supports only upright columns. Own morphology is
+        // known; unsupported forms keep the ordinary attack policy unchanged.
+        if origin.body.eye[0] != 0
+            || origin.body.eye[1] != 0
+            || origin.body.eye[2] < 0
+            || origin
+                .body
+                .cells
+                .iter()
+                .any(|cell| cell[0] != 0 || cell[1] != 0 || cell[2] < 0)
+            || tor_world::rotate_vector(origin.orientation, [0, 0, 1]) != [0, 0, 1]
+            || u32::try_from(origin.body.eye[2]).ok()? > u32::from(range)
+        {
+            return None;
+        }
+        // The narrow ground policy understands downward/absent current gravity.
+        // It does not inspect undisclosed gravity fields at hypothetical locations.
+        if !origin.locomotion().hovers()
+            && self
+                .world
+                .gravity(view.location)
+                .is_some_and(|g| g[0] != 0 || g[1] != 0 || g[2] >= 0)
+        {
+            return None;
+        }
+        let target = view
+            .visible_actors
+            .iter()
+            .find(|other| other.id == target)?
+            .location;
+        if target.region != view.location.region || target.position.z != view.location.position.z {
+            return None;
+        }
+        let distance = |a: Location, b: Location| {
+            a.position
+                .x
+                .abs_diff(b.position.x)
+                .max(a.position.y.abs_diff(b.position.y))
+        };
+        // Scene offsets are body-relative; the attack sight above is eye-relative.
+        // Do not mix unwrapped coordinates with a disclosed folded chart.
+        if scene
+            .iter()
+            .filter(|cell| cell.physical && cell.location.region == view.location.region)
+            .any(|cell| {
+                cell.rotation != origin.orientation
+                    || [
+                        i64::from(cell.location.position.x) - i64::from(view.location.position.x),
+                        i64::from(cell.location.position.y) - i64::from(view.location.position.y),
+                        i64::from(cell.location.position.z) - i64::from(view.location.position.z),
+                    ] != tor_world::rotate_vector(
+                        origin.orientation,
+                        [
+                            i64::from(cell.offset.x),
+                            i64::from(cell.offset.y),
+                            i64::from(cell.offset.z),
+                        ],
+                    )
+            })
+        {
+            return None;
+        }
+        Direction::HORIZONTAL.into_iter().find(|direction| {
+            let Some((at, orientation)) = self.actor_translation(actor, *direction) else {
+                return false;
+            };
+            if at.region != target.region
+                || at.position.z != target.position.z
+                || orientation != origin.orientation
+                || distance(at, target) != 2
+                || distance(at, target) > u32::from(range)
+            {
+                return false;
+            }
+            // An ordinary legal step may fall. Require presently disclosed solid
+            // ground, rather than predicting support using hidden destination state.
+            if !origin.locomotion().hovers() {
+                let Some(z) = at.position.z.checked_sub(1) else {
+                    return false;
+                };
+                let below = Location {
+                    region: at.region,
+                    position: tor_world::Position { z, ..at.position },
+                };
+                let support_offset = tor_world::rotate_vector(
+                    tor_world::inverse_rotation(origin.orientation),
+                    [
+                        i64::from(below.position.x) - i64::from(view.location.position.x),
+                        i64::from(below.position.y) - i64::from(view.location.position.y),
+                        i64::from(below.position.z) - i64::from(view.location.position.z),
+                    ],
+                );
+                // A location disclosed through a different occurrence is not
+                // proof of footing at this step. Use only the current chart,
+                // never a hidden topology query or hypothetical awareness.
+                if !scene.iter().any(|cell| {
+                    cell.physical
+                        && cell.wall
+                        && cell.location == below
+                        && cell.rotation == origin.orientation
+                        && [
+                            i64::from(cell.offset.x),
+                            i64::from(cell.offset.y),
+                            i64::from(cell.offset.z),
+                        ] == support_offset
+                }) || !view
+                    .visible_cells
+                    .iter()
+                    .any(|cell| cell.location == below && cell.wall)
+                {
+                    return false;
+                }
+            }
+            let Some(eye_z) = at.position.z.checked_add(origin.body.eye[2]) else {
+                return false;
+            };
+            // Every destination body cell must already be disclosed. ActorView
+            // has one row per disclosed hostile body cell, not just an anchor.
+            if origin.body.cells.iter().any(|cell| {
+                let Some(z) = at.position.z.checked_add(cell[2]) else {
+                    return true;
+                };
+                !view.visible_cells.iter().any(|visible| {
+                    visible.location
+                        == Location {
+                            region: at.region,
+                            position: tor_world::Position { z, ..at.position },
+                        }
+                        && !visible.wall
+                })
+            }) {
+                return false;
+            }
+            if view
+                .visible_actors
+                .iter()
+                .filter(|other| self.perceived_hostile(actor, other.id, other.disclosure))
+                .any(|other| {
+                    other.location.region != at.region || distance(at, other.location) <= 1
+                })
+            {
+                return false;
+            }
+            // A completely disclosed clear rectangle is deliberately stricter
+            // than sight-line prediction; unseen cells cannot justify a move.
+            (at.position.x.min(target.position.x)..=at.position.x.max(target.position.x)).all(|x| {
+                (at.position.y.min(target.position.y)..=at.position.y.max(target.position.y)).all(
+                    |y| {
+                        (at.position.z..=eye_z).all(|z| {
+                            view.visible_cells.iter().any(|cell| {
+                                cell.location
+                                    == Location {
+                                        region: at.region,
+                                        position: tor_world::Position { x, y, z },
+                                    }
+                                    && !cell.wall
+                            })
+                        })
+                    },
+                )
+            })
+        })
+    }
+
     /// Default combat policy uses personal capabilities and resources, never
     /// enemy defenses, immunity or condition state. Choices reserve nothing;
     /// ordinary execution rechecks funding and reach before preparation.
@@ -844,6 +1067,7 @@ impl Game {
         sight: &[tor_world::SightCell],
         view: &crate::Observation,
         basic_only: bool,
+        consider_reposition: bool,
     ) -> Option<AiAbilityChoice> {
         use crate::rules::RangePreference;
         let creature = self.creature(actor)?;
@@ -945,7 +1169,10 @@ impl Game {
             .collect();
         candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
         for (_, id, hints, cost) in candidates {
-            if hints.range_preference == RangePreference::OutsideMelee && in_melee {
+            if hints.range_preference == RangePreference::OutsideMelee
+                && in_melee
+                && !consider_reposition
+            {
                 continue;
             }
             if let Some(cost) = cost {
@@ -1624,6 +1851,500 @@ mod tests {
         assert_eq!(game, before);
     }
 
+    fn ranged_specialist_fixture(magical: bool) -> Game {
+        ranged_specialist_fixture_with_modifiers(magical, Vec::new())
+    }
+    fn ranged_specialist_fixture_with_modifiers(
+        magical: bool,
+        modifiers: Vec<crate::rules::Modifier>,
+    ) -> Game {
+        use crate::{
+            content_ids::{AbilityId, FlagId},
+            rules::{Modifier, ModifierOp, Scope},
+        };
+        let mut foe = test_creatures::species();
+        for op in [
+            ModifierOp::GrantAbility {
+                ability: AbilityId::new("fixture_mana_ray").unwrap(),
+            },
+            ModifierOp::Flag {
+                flag: FlagId::new("magical").unwrap(),
+            },
+        ] {
+            if magical || matches!(op, ModifierOp::GrantAbility { .. }) {
+                foe.modifiers.push(Modifier {
+                    cancellable: false,
+                    scope: Scope::Always,
+                    op,
+                });
+            }
+        }
+        foe.modifiers.extend(modifiers);
+        configured_game(test_creatures::species(), foe, paid_probe_rules())
+    }
+
+    #[test]
+    fn funded_ranged_specialist_repositions_before_basic_melee() {
+        let game = ranged_specialist_fixture(true);
+        let before = game.clone();
+        let decision = game.choose_ai(ActorId(2)).unwrap();
+        assert!(
+            matches!(decision.action, Action::Move(_)),
+            "funded ranged specialist should seek shooting space, got {:?}",
+            decision.action
+        );
+        assert_eq!(game, before, "preview remains pure");
+    }
+
+    #[test]
+    fn ranged_positioning_supports_upright_eye_height() {
+        let mut game = ranged_specialist_fixture(true);
+        game.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 0, 1]],
+                eye: [0, 0, 1],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            game.choose_ai(ActorId(2)).unwrap().action,
+            Action::Move(_)
+        ));
+    }
+
+    #[test]
+    fn ranged_positioning_rejects_negative_eye_without_disclosure() {
+        let mut game = ranged_specialist_fixture(true);
+        for actor in [ActorId(1), ActorId(2)] {
+            let mut location = game.actors[&actor].location;
+            location.position.z = 1;
+            game.teleport(actor, location).unwrap();
+        }
+        game.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 0, -1]],
+                eye: [0, 0, -1],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        let mut view = snapshot.view.clone();
+        assert!(view
+            .visible_actors
+            .iter()
+            .any(|other| other.id == ActorId(1)));
+        view.visible_cells = tor_world::Shared::new(Vec::new());
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_rejects_wide_or_pitched_own_bodies() {
+        let mut wide = ranged_specialist_fixture(true);
+        wide.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 1, 0]],
+                eye: [0, 0, 0],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        assert!(!matches!(
+            wide.choose_ai(ActorId(2)).unwrap().action,
+            Action::Move(_)
+        ));
+        let mut pitched = ranged_specialist_fixture(true);
+        pitched
+            .set_body(
+                ActorId(2),
+                crate::BodySpec {
+                    cells: vec![[0, 0, 0], [0, 0, 1]],
+                    eye: [0, 0, 1],
+                    mass: 80,
+                },
+            )
+            .unwrap();
+        let rotation = (0..24)
+            .find(|r| tor_world::rotate_vector(*r, [0, 0, 1]) == [1, 0, 0])
+            .unwrap();
+        pitched.actors.get_mut(&ActorId(2)).unwrap().orientation = rotation;
+        pitched.refresh_navigation();
+        assert!(!matches!(
+            pitched.choose_ai(ActorId(2)).unwrap().action,
+            Action::Move(_)
+        ));
+    }
+
+    #[test]
+    fn ranged_positioning_requires_disclosed_destination_and_corridor() {
+        let game = ranged_specialist_fixture(true);
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        let mut view = snapshot.view.clone();
+        view.visible_cells = tor_world::Shared::new(Vec::new());
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_requires_upper_body_disclosure() {
+        let mut game = ranged_specialist_fixture(true);
+        game.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 0, 1]],
+                eye: [0, 0, 0],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        let mut view = snapshot.view.clone();
+        // Keep the entire ground-level corridor and support, omit only upper
+        // destination body cells. Eye height zero keeps them outside the corridor.
+        view.visible_cells = tor_world::Shared::new(
+            view.visible_cells
+                .iter()
+                .filter(|cell| !(cell.location.position.x == 3 && cell.location.position.z == 1))
+                .cloned()
+                .collect(),
+        );
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_requires_intermediate_corridor_disclosure() {
+        let game = ranged_specialist_fixture(true);
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        let mut view = snapshot.view.clone();
+        // Preserve every destination cell and ground support. Each candidate's
+        // rectangle crosses x=2, between the target x=1 and destination x=3.
+        view.visible_cells = tor_world::Shared::new(
+            view.visible_cells
+                .iter()
+                .filter(|cell| !(cell.location.position.x == 2 && cell.location.position.z == 0))
+                .cloned()
+                .collect(),
+        );
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_requires_support_occurrence_not_location_alias() {
+        let game = ranged_specialist_fixture(true);
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        // Projection-boundary witness: location-only public rows remain, but
+        // candidate footing is no longer disclosed at its physical offset.
+        // This is not claimed to construct a real-world portal failure.
+        let scene: Vec<_> = snapshot
+            .scene
+            .iter()
+            .filter(|cell| {
+                !(cell.location.region == RegionId(1)
+                    && cell.location.position.x == 3
+                    && cell.location.position.z == -1)
+            })
+            .copied()
+            .collect();
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &scene,
+                &snapshot.view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_footing_is_yaw_equivariant() {
+        for orientation in (0..24).filter(|r| tor_world::rotate_vector(*r, [0, 0, 1]) == [0, 0, 1])
+        {
+            let mut game = ranged_specialist_fixture(true);
+            game.actors.get_mut(&ActorId(2)).unwrap().orientation = orientation;
+            game.refresh_navigation();
+            assert!(
+                matches!(game.choose_ai(ActorId(2)).unwrap().action, Action::Move(_)),
+                "upright yaw {orientation} must retain disclosed footing"
+            );
+        }
+    }
+
+    #[test]
+    fn ranged_positioning_rejects_non_downward_current_gravity() {
+        for gravity in [[0, 0, 1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]] {
+            let mut game = ranged_specialist_fixture(true);
+            game.world.set_gravity(RegionId(1), gravity).unwrap();
+            let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+            assert_eq!(
+                game.ai_ranged_reposition(
+                    ActorId(2),
+                    ActorId(1),
+                    &snapshot.sight,
+                    &snapshot.scene,
+                    &snapshot.view
+                ),
+                None,
+                "unsupported current gravity {gravity:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ranged_positioning_physical_downward_portal_boundary() {
+        for rotation in (0..24).filter(|r| tor_world::rotate_vector(*r, [0, 0, 1]) == [0, 0, 1]) {
+            let mut game = ranged_specialist_fixture(true);
+            game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
+            let source = at(1, 3, 1);
+            let destination = at(2, 1, 1);
+            game.connect_portal_area(
+                tor_world::Passage {
+                    from: source,
+                    direction: Direction::Down,
+                    to: destination,
+                },
+                rotation,
+                1,
+                1,
+            )
+            .unwrap();
+            let below = Location {
+                position: Position {
+                    z: -1,
+                    ..source.position
+                },
+                ..source
+            };
+            assert!(game.world.is_wall(below));
+            assert_eq!(
+                game.world.physics_neighbor(source, Direction::Down),
+                Some((destination, rotation))
+            );
+            let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+            let cross_region = snapshot.scene.iter().any(|cell| {
+                cell.physical && cell.offset.z < 0 && cell.location.region != source.region
+            });
+            let disclosed_coordinate_support = snapshot
+                .view
+                .visible_cells
+                .iter()
+                .any(|cell| cell.location == below && cell.wall);
+            assert!(
+                cross_region || !disclosed_coordinate_support,
+                "real snapshot must disclose the crossing or withhold coordinate-only support"
+            );
+            assert_ne!(
+                game.ai_ranged_reposition(
+                    ActorId(2),
+                    ActorId(1),
+                    &snapshot.sight,
+                    &snapshot.scene,
+                    &snapshot.view
+                ),
+                Some(Direction::East)
+            );
+        }
+    }
+
+    #[test]
+    fn ranged_positioning_avoids_every_disclosed_hostile_body_cell() {
+        let mut game = ranged_specialist_fixture(true);
+        game.set_body(
+            ActorId(1),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [1, -1, 0]],
+                eye: [0, 0, 0],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        let view = game.observe(ActorId(2)).unwrap();
+        assert_eq!(
+            view.visible_actors
+                .iter()
+                .filter(|row| row.id == ActorId(1))
+                .count(),
+            2
+        );
+        let Action::Move(direction) = game.choose_ai(ActorId(2)).unwrap().action else {
+            panic!("expected disclosed safe alternative");
+        };
+        let (at, _) = game.actor_translation(ActorId(2), direction).unwrap();
+        assert!(view
+            .visible_actors
+            .iter()
+            .filter(|row| row.id == ActorId(1))
+            .all(|row| at
+                .position
+                .x
+                .abs_diff(row.location.position.x)
+                .max(at.position.y.abs_diff(row.location.position.y))
+                > 1));
+    }
+
+    #[test]
+    fn ranged_positioning_effective_range_guard() {
+        use crate::rules::{AbilityStat, Modifier, ModifierOp, Scope, Stat};
+        let game = ranged_specialist_fixture_with_modifiers(
+            true,
+            vec![Modifier {
+                cancellable: false,
+                scope: Scope::Always,
+                op: ModifierOp::Add {
+                    stat: Stat::Ability {
+                        ability: crate::content_ids::AbilityId::new("fixture_mana_ray").unwrap(),
+                        stat: AbilityStat::Range,
+                    },
+                    value: -5,
+                },
+            }],
+        );
+        assert_eq!(
+            game.creature(ActorId(2))
+                .unwrap()
+                .derived()
+                .ability_reach(&crate::content_ids::AbilityId::new("fixture_mana_ray").unwrap())
+                .unwrap(),
+            crate::rules::Reach::Sight { range: 1 }
+        );
+        assert_eq!(
+            game.choose_ai(ActorId(2)).unwrap().action,
+            basic(ActorId(1))
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_ledge_guard() {
+        let mut game = ranged_specialist_fixture(true);
+        game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
+        for y in 0..3 {
+            game.set_wall(
+                Location {
+                    region: RegionId(1),
+                    position: Position { x: 3, y, z: -1 },
+                },
+                false,
+            )
+            .unwrap();
+        }
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(
+            game.actor_translation(ActorId(2), Direction::East)
+                .is_some(),
+            "a legal step is not proof of support"
+        );
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn unfunded_ranged_specialist_does_not_reposition() {
+        let game = ranged_specialist_fixture(false);
+        assert_eq!(
+            game.choose_ai(ActorId(2)).unwrap().action,
+            basic(ActorId(1))
+        );
+    }
+
+    #[test]
+    fn ranged_specialist_uses_created_space_for_a_shot() {
+        let mut game = ranged_specialist_fixture(true);
+        let Action::Move(direction) = game.choose_ai(ActorId(2)).unwrap().action else {
+            panic!("expected reposition")
+        };
+        let (at, _) = game.actor_translation(ActorId(2), direction).unwrap();
+        game.act(ActorId(1), Action::Wait).unwrap();
+        game.act(ActorId(2), Action::Move(direction)).unwrap();
+        assert_eq!(game.actors[&ActorId(2)].location, at);
+        assert!(
+            matches!(game.choose_ai(ActorId(2)).unwrap().action, Action::UseAbility { id, .. } if id.as_str() == "fixture_mana_ray")
+        );
+    }
+
     #[test]
     fn paid_choices_preserve_mana_for_ranged_combat() {
         let mut unfunded = paid_fixture(false, false);
@@ -1764,7 +2485,7 @@ mod tests {
     }
 
     #[test]
-    fn loot_range_and_safe_first_step_are_checked_on_remembered_routes() {
+    fn loot_pursues_distant_remembered_routes_but_preserves_safe_first_step() {
         use tor_world::{Extent, Region, World};
         let mut world = World::new(vec![], vec![]).unwrap();
         world
@@ -1825,7 +2546,7 @@ mod tests {
             game.choose_nearby_loot(actor, &view, &AiProfile::general(), &[], &mut |at| search
                 .route(at)
                 .ok()),
-            None
+            Some(Action::Move(Direction::East))
         );
     }
 
