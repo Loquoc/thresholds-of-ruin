@@ -1249,11 +1249,28 @@ fn public_plan_previously_learned_technique_survives_anonymous_target_sensation(
             .combat
             .unwrap()
             .events,
-        vec![DisclosedCombatEvent::UnseenAbility {
-            caster: None,
-            target: SimActor(2),
-            outcome: OutcomeStatus::Unaffected,
-        }],
+        vec![
+            // The target perceives a local flash, not the hidden source or technique.
+            DisclosedCombatEvent::Effect {
+                caster: None,
+                caster_reference: None,
+                ability: None,
+                tick: 300,
+                timing: tor_simulation::combat::EffectTiming::Instant,
+                appearance: tor_simulation::combat::EffectAppearance::Flash,
+                object: None,
+                visual: tor_simulation::rules::EffectVisual::Neutral,
+                style: None,
+                delivery: tor_simulation::combat::EffectDelivery::Target,
+                cue: tor_simulation::combat::EffectCue::Neutral,
+                segments: vec![vec![tor_world::Position { x: 0, y: 0, z: 0 }]],
+            },
+            DisclosedCombatEvent::UnseenAbility {
+                caster: None,
+                target: SimActor(2),
+                outcome: OutcomeStatus::Unaffected,
+            },
+        ],
         "prior technique knowledge cannot attribute a new hidden action"
     );
     assert!(
