@@ -440,7 +440,7 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
     }
     // The tunic's own skirt is a separate drape (see below).
     garment_details::emit_hip_static(p, outfit.details, body, tunic);
-    if cuirass {
+    if cuirass && outfit.regalia.is_none() {
         // Long tabard panels front and back, gilt-edged, falling past the belt.
         for (z, lean) in [(0.19f32, -0.07f32), (-0.19, 0.07)] {
             let down = Vec3::new(0.0, 1.0, lean).normalize();
@@ -1013,7 +1013,7 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         attachment_support.union(armor.clone(), 0.0);
     }
     let garment = &attachment_support;
-    if cuirass {
+    if cuirass && outfit.regalia.is_none() {
         // The separate gorget belongs to the articulated plate armour.
         p.matte.torus(
             Vec3::Y * 0.555,
@@ -1103,7 +1103,10 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
                 fitted_ribbon(&mut p.metal, &support, &path, true, 0.003, GILT);
             }
         }
-        for front in [true, false] {
+        for front in [true, false]
+            .into_iter()
+            .filter(|_| outfit.regalia.is_none())
+        {
             // Below a low-cut front the tabard rises only to a point
             // beneath the plunge.
             let top = match neckline.filter(|_| front) {
@@ -1156,6 +1159,14 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
     }
     if let (Some(item), Some(armor)) = (armor_item, &equipped_plate) {
         armor_parts::emit(p, armor, body, item);
+    }
+    if let Some(veil) = outfit.veil {
+        veil::emit(p, body, veil);
+    }
+    if let Some(regalia) = outfit.regalia {
+        wedding_groom::torso(p, body, garment, regalia.metal, regalia.gem);
+        wedding_groom::collar(p, body, outfit.tunic, regalia.metal);
+        wedding_groom::sword(p, body, LEATHER * 0.65, regalia.metal, regalia.gem);
     }
     if let Some(ornament) = outfit.torso_ornament {
         if let TorsoOrnament::RivetedVest { strap, rivets } = ornament {
@@ -1634,9 +1645,28 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
             if let Some(styled) = styled {
                 if let Some(shirt) = l.equipment.shirt.filter(|_| styled.cut == SleeveCut::Short) {
                     equipment_shirts::emit_short_sleeve(p, shirt, body, side, arm_len);
+                } else if styled.cut == SleeveCut::Bishop {
+                    bishop_sleeve::upper(
+                        p,
+                        body,
+                        side,
+                        styled.color,
+                        styled.flare.unwrap_or(styled.color),
+                    );
                 } else {
-                    styled_sleeve_top(p, styled, side, b, arm_len);
+                    styled_sleeve_top(
+                        p,
+                        styled,
+                        side,
+                        b,
+                        arm_len,
+                        body.profile.muscle,
+                        outfit.bodice.edge,
+                    );
                 }
+            }
+            if let Some(regalia) = outfit.regalia {
+                wedding_groom::epaulette(p, side, b, arm_len, body.profile.muscle, regalia.metal);
             }
             if let Some(color) = outfit.trimmings.armlets {
                 accessory_parts::armlet(p, color, b, arm_len);
@@ -1650,6 +1680,19 @@ fn arms(kit: &mut Kit, figure: &Figure, torso: Entity) {
         });
         let lower = kit.joint(fore, upper, body.elbow(), &format!("fore{tag}"), |p| {
             forearm.emit(p, body, side);
+            if let Some(sleeve) = styled.filter(|s| s.cut == SleeveCut::Bishop) {
+                bishop_sleeve::lower(
+                    p,
+                    body,
+                    side,
+                    sleeve.color,
+                    sleeve.flare.unwrap_or(sleeve.color),
+                );
+            }
+            if let Some(regalia) = outfit.regalia {
+                let support = forearm_sleeve_form(b, arm_len, body.profile.muscle);
+                wedding_groom::bracer(p, &support, b, arm_len, regalia.metal);
+            }
         });
         let grip = kit
             .commands
@@ -1844,7 +1887,6 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
             }
             // Bare legs end in the foot itself, not in a shaft round the
             // ankle, unless boots are pulled on over them.
-            let bare_leg = matches!(outfit.legs, Legs::Bare(_)) && boots.is_none();
             if let Some(shaft) = &figure.native_shaft {
                 shaft.emit(&mut p.satin, boot);
             } else if boots.is_some() && !furry {
@@ -1892,10 +1934,13 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                     }
                 }
             }
-            if barefoot && !bare_leg && !furry {
-                // Native leather bindings follow the actual calf, not an
-                // implicit skin-colored boot. Resolve both before emission.
-                let color = LEATHER * 0.8;
+            if let Some(color) = outfit
+                .trimmings
+                .calf_bindings
+                .filter(|_| barefoot && !furry)
+            {
+                // The outfit owns these bindings, not the foot or leg anatomy.
+                // Resolve both against the actual calf before emission.
                 let bindings: Vec<_> = [-0.3f32, -0.36]
                     .into_iter()
                     .filter_map(|height| {
@@ -1989,15 +2034,14 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 if shoes.sandal && style == Style::Troll {
                     // Sandals expose toes. Mount their claws on the emitted
                     // upper, in its actual ankle frame, not the bare-foot frame.
-                    let roots: Vec<_> = [-1.0, 0.0, 1.0]
-                        .into_iter()
-                        .filter_map(|side| {
-                            p.satin
-                                .outer_surface(Vec3::new(side * 0.035 * b, -0.057, 0.0), Vec3::Z)
-                        })
-                        .map(|at| at - Vec3::Z * 0.004)
-                        .collect();
-                    exposed_claws(p, roots, Vec3::new(0.0, -0.004, 0.025), 0.008);
+                    fitted_toe_claws(
+                        p,
+                        Vec3::new(0.0, -0.057, 0.0),
+                        0.035 * b,
+                        0.004,
+                        Vec3::new(0.0, -0.004, 0.025),
+                        0.008,
+                    );
                 }
             } else if let Some(boots) = boots.filter(|_| !furry) {
                 p.set_transform(Affine3A::IDENTITY);
@@ -2021,17 +2065,34 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                     );
                 }
                 if furry || style == Style::Troll {
-                    exposed_claws(
+                    fitted_toe_claws(
                         p,
-                        [-1.0, 0.0, 1.0].map(|side| Vec3::new(side * 0.035, -0.44, 0.17)),
-                        Vec3::new(0.0, -0.02, 0.05),
-                        0.012,
+                        Vec3::new(0.0, body.feet[1].0.y - 0.4, 0.0),
+                        0.035 * b,
+                        0.004 * b,
+                        Vec3::new(0.0, -0.02, 0.05) * b,
+                        0.012 * b,
                     );
                 }
             }
         });
     }
     rogue::biped_features(kit, l);
+}
+
+/// Fit the three toe lanes to their finished foot, in its owner's recipe frame.
+/// Resolve every root first so one claw never becomes another claw's support.
+/// Bare feet and sandals retain their own seat, spread and claw dimensions.
+fn fitted_toe_claws(p: &mut Parts, seat: Vec3, spread: f32, inset: f32, tip: Vec3, radius: f32) {
+    let roots: Vec<_> = [-1.0, 0.0, 1.0]
+        .into_iter()
+        .filter_map(|lane| {
+            p.satin
+                .outer_surface(seat + Vec3::X * (lane * spread), Vec3::Z)
+        })
+        .map(|at| at - Vec3::Z * inset)
+        .collect();
+    exposed_claws(p, roots, tip, radius);
 }
 
 /// One anatomical claw recipe follows the exposed hand or foot owning its roots.
@@ -2182,6 +2243,7 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
             let mut recipe =
                 super::cloak::Recipe::new(body, cloak.exterior, cloak.lining, cloak.ragged);
             recipe.length = cloak.length;
+            recipe.embroidery = cloak.embroidery;
             if let Some(study) = study {
                 recipe.satin = study.satin;
                 recipe.embroidery = study.embroidered.then_some(study.trim);
@@ -2439,3 +2501,11 @@ mod necklace_layers_tests;
 #[cfg(test)]
 #[path = "torso_foundation_tests.rs"]
 mod torso_foundation_tests;
+
+#[cfg(test)]
+#[path = "stitch_attachment_tests.rs"]
+mod stitch_attachment_tests;
+
+#[cfg(test)]
+#[path = "native_hardware_tests.rs"]
+mod native_hardware_tests;

@@ -734,3 +734,35 @@ fn modular_worn_equipment_review_fixtures_resolve_all_studies_and_layers() {
         assert!(appearances.contains(appearance.name()));
     }
 }
+
+#[test]
+fn death_event_starts_real_fall_without_rebuilding_outfit() {
+    let mut v = fixture();
+    v["captures"][0]["tick"] = json!(10);
+    v["events"] = json!([{"tick":1,"actor":"woman","operation":{"type":"death"}}]);
+    assert!(parse(v.clone()).is_ok());
+    v["events"][0]["tick"] = json!(0);
+    assert!(parse(v.clone()).is_err());
+    v["events"][0]["tick"] = json!(1);
+    v["events"][0]["operation"]["phase"] = json!(1.0);
+    assert!(parse(v).is_err());
+    let mut spec = parse(fixture()).unwrap().actors.remove(0);
+    let mut velocity = Vec3::X;
+    let mut transform = Transform::from_xyz(2.0, 0.0, 4.0);
+    let mut anim = spec.animation(transform.translation, 90.0);
+    anim.act(creatures::Move::Jump);
+    assert!(!apply_operation(
+        &mut spec,
+        &mut velocity,
+        &mut anim,
+        &mut transform,
+        &Operation::Death {}
+    ));
+    assert_eq!(anim.dead, Some(0.0));
+    assert!(anim.action.is_none());
+    assert_eq!(velocity, Vec3::ZERO);
+    assert_eq!(transform.translation, Vec3::new(2.0, 0.0, 4.0));
+    assert_eq!(anim.yaw, 90_f32.to_radians());
+    assert_eq!(spec.outfit, "royal-princess");
+    assert!(spec.equipment.is_empty());
+}

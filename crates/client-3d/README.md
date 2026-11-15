@@ -125,7 +125,7 @@ and stops it on exit. Other options:
   (90 for profiles); `--capture-every SECS` adds timed motion frames to the
   line-up captures. `--outfit NAME` dresses humanoids from the wardrobe:
   `commoner`, `ranger`, `knight`, `courtier`, `leotard`, `sarong`, `tavern`,
-  `queen`, `pharaoh`, `goddess`, `juliet`, `jungle`, `genie`, `princess`, `royal-princess`, `sylvan-duelist`,
+  `queen`, `pharaoh`, `goddess`, `juliet`, `jungle`, `genie`, `princess`, `royal-princess`, `royal-bride`, `royal-groom`, `sylvan-duelist`,
   `pirate`, `maiden` and `witch`. Character-study recipes add `elven-ranger`,
   `rogue`, `paladin`, `barbarian`, `valkyrie`, `cleric`, `druid`, `bard`,
   `vampire-noble`, `necromancer` and `desert`. `adventurer` is the Rogue armor
@@ -886,6 +886,25 @@ swags, lavender lining, two thigh openings around a central panel, and a jeweled
 crown. On male figures it selects the courtier outfit. For the female review use
 `--women --family Warrior,orc,nymph --outfit royal-princess`.
 
+`royal-bride` and `royal-groom` add the paired wedding reference recipes.
+The bride combines an ivory sweetheart corset, detached gathered sheer sleeves,
+lilac skirt layers, a front opening and rear train, sapphire jewelry and a long
+bordered veil. Male browsing substitutes the groom; exact bride requests reject
+that substitution. The groom has a navy coat, exposed lion cuirass, epaulettes,
+crossed waist belts, a sheathed ceremonial sword and an embroidered lined cloak.
+Run [the royal wedding review](review-scripts/royal-wedding.json) through the
+scene-script renderer for front and back views. A scripted
+`{"type":"death"}` event (tick 1 or later) starts the real fall animation,
+stops translation and cancels the current action without rebuilding clothing;
+subsequent captures can inspect fall and settled-corpse composition.
+
+The wedding pieces use the same body-fitted torso and limb supports as existing
+outfits. Veils and regalia are separate optional recipe slots; an equipment helm
+removes the veil, and replacement body armor removes regalia. Gathered sleeves
+emit one sheer surface per arm joint. The veil is a neutral, torso-anchored drape,
+not a cloth simulation: head-turn attachment and floor contact remain limitations.
+These local outfits do not add new server inventory items.
+
 Gathered sleeve puffs can expose a contrasting lining between raised fabric strips.
 The Bard uses red strips over cream lining on both body cuts, with female bell
 sleeves and the separate male short-sleeve cut. Plain puffs remain available.
@@ -915,7 +934,9 @@ Caster belts continue to share the dedicated robe attachment.
 
 `sylvan-duelist` adds the green-and-gold forest outfit alongside both princess
 presets. Female wearers have two embroidered shoulder-to-waist panels, an open
-center and torso sides, dark trousers, tall boots and hanging green cloth.
+center and torso sides, dark trousers, tall boots and leaf-pointed green cloth.
+Detached upper-arm drapes replace the bell cuffs and rear cloak, over fitted dark
+bracers. A green, gold-bound pointed waistpiece replaces the crossed leather belts.
 Male wearers use the separate Ranger recipe. Review with
 `--women --family Warrior,Mage,orc --outfit sylvan-duelist`; add `--jump` and
 `--capture-every 0.5` for motion captures.
@@ -923,6 +944,10 @@ Male wearers use the separate Ranger recipe. Review with
 The reusable `Straps::Panels` cut resolves its width and path from the bust apex,
 bust width, shoulder breadth and waist. Coverage, embroidery clipping and edge
 binding share that cut; the renderer does not branch on the outfit name.
+The detached sleeve uses one support-fitted seam and a shared cloth/trim grid;
+its long tail follows the upper-arm joint, not a separate cloth simulation.
+The pointed waist band resolves each height against actual torso support, so
+its authored front dip and width are independent of body proportions.
 
 
 For fixed-step offline wardrobe reviews, add `--review-step-hz 50` to a

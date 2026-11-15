@@ -221,6 +221,10 @@ impl ClothSurface {
             angle,
             inner,
         );
+        if let Hem::Train { extension, .. } = self.hem {
+            let rear = (-angle.cos()).max(0.0).powi(2);
+            point.z -= extension * rear * ease((t - 0.45) / 0.55);
+        }
         if self.paired {
             point.y -= self.split * angle.cos().max(0.0).powi(14) * ease((t - 0.55) / 0.45);
         }

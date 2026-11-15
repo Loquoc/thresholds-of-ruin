@@ -135,6 +135,7 @@ pub(super) struct Event {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Operation {
     Action { name: String },
+    Death {},
     Velocity { value: [f32; 3] },
     Teleport { position: [f32; 3], yaw: f32 },
     Dress { outfit: String },
@@ -437,6 +438,11 @@ impl Script {
                     action(name)?;
                     if event.tick == 0 {
                         return Err("actions start at tick 1 or later".into());
+                    }
+                }
+                Operation::Death {} => {
+                    if event.tick == 0 {
+                        return Err("death starts at tick 1 or later".into());
                     }
                 }
                 Operation::Velocity { value } => {

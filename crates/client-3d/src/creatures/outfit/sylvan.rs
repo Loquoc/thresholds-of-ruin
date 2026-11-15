@@ -12,16 +12,16 @@ pub(super) fn duelist(wearer: &Look) -> Outfit {
     Outfit {
         tunic: green,
         bodice: Bodice {
-            straps: Straps::Panels { width: 0.5 },
+            straps: Straps::Panels { width: 0.85 },
             edge: gold,
             pattern: Pattern::Brocade {
                 thread: gold,
-                motif: Motif::Knot,
+                motif: Motif::Leaf,
             },
             ..Bodice::PLAIN
         },
         arms: Arms::Styled(Sleeve {
-            color: green,
+            color: dark,
             cut: SleeveCut::Draped,
             puff: false,
             puff_lining: None,
@@ -36,7 +36,8 @@ pub(super) fn duelist(wearer: &Look) -> Outfit {
             buckles: true,
             cuffed: true,
         }),
-        belt: true,
+        belt: false,
+        cuffs: Some(dark),
         trimmings: Trimmings {
             earrings: Some(Earrings::GemDrops {
                 metal: gold,
@@ -46,25 +47,64 @@ pub(super) fn duelist(wearer: &Look) -> Outfit {
                 metal: gold,
                 gem: gold,
             }),
-            waist: Some(Waist::CrossedBelts(dark)),
+            waist: Some(Waist::Pointed {
+                color: green * 0.7,
+                edge: gold,
+            }),
             ..Trimmings::NONE
         },
         skirt: Some(Skirt {
             color: green,
-            length: 0.80,
+            length: 0.86,
             fullness: 1.05,
             split: 0.18,
             cutaway: true,
-            center_panel: Some(0.16),
+            center_panel: Some(0.12),
+            hem: Hem::Points {
+                count: 4,
+                depth: 0.28,
+            },
             waistline: Some(0.04),
             trim: Some(gold),
             pattern: Pattern::Brocade {
                 thread: gold,
-                motif: Motif::Scroll,
+                motif: Motif::Leaf,
             },
             ..Skirt::PLAIN
         }),
-        cloak: Some(Cloak::new(green, green * 0.8)),
+        cloak: None,
         ..Outfit::base(wearer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn forest_recipe_composes_panels_detached_drapes_and_pointed_waist() {
+        let wearer = Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        );
+        let outfit = duelist(&wearer);
+        assert!(matches!(outfit.bodice.straps, Straps::Panels { width } if width >= 0.8));
+        assert!(matches!(
+            outfit.trimmings.waist,
+            Some(Waist::Pointed { .. })
+        ));
+        assert!(
+            outfit.cloak.is_none(),
+            "arm drapes carry silhouette instead of a redundant cloak"
+        );
+        assert!(
+            !outfit.belt,
+            "no generic buckle over the pointed centerpiece"
+        );
+        assert!(outfit.cuffs.is_some());
+        assert!(matches!(outfit.skirt.unwrap().hem, Hem::Points { .. }));
     }
 }

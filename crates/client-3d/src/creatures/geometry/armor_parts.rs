@@ -250,21 +250,7 @@ pub(super) fn emit(
             // Upper rows lie over the rows below, each tip pointing down and
             // lifting slightly off the backing.
             for (row, site) in lattice(plate, opening, low, high + 0.012, 0.036 * b, 0.046 * b) {
-                let down = (Vec3::NEG_Y * 0.94 + site.normal * 0.34).normalize();
-                p.metal.extrude(
-                    &[
-                        Vec2::new(-0.025, 0.016),
-                        Vec2::new(0.025, 0.016),
-                        Vec2::new(0.023, -0.016),
-                        Vec2::new(0.0, -0.040),
-                        Vec2::new(-0.023, -0.016),
-                    ],
-                    site.at + site.normal * (0.004 + 0.0012 * row as f32),
-                    site.around,
-                    down,
-                    0.003,
-                    STEEL * (0.86 + 0.08 * ((row % 3) as f32)),
-                );
+                emit_scale(&mut p.metal, &site, row);
             }
         }
         Item::SplintMail => {
@@ -365,6 +351,26 @@ pub(super) fn emit(
     }
 }
 
+fn emit_scale(builder: &mut Builder, site: &Site, row: usize) {
+    // The outline uses negative Y for its hanging tip. Its positive-Y
+    // frame must therefore point up and into the support, not down and out.
+    let up = (Vec3::Y * 0.94 - site.normal * 0.34).normalize();
+    builder.extrude(
+        &[
+            Vec2::new(-0.025, 0.016),
+            Vec2::new(0.025, 0.016),
+            Vec2::new(0.023, -0.016),
+            Vec2::new(0.0, -0.040),
+            Vec2::new(-0.023, -0.016),
+        ],
+        site.at + site.normal * (0.004 + 0.0012 * row as f32),
+        site.around,
+        up,
+        0.003,
+        STEEL * (0.86 + 0.08 * ((row % 3) as f32)),
+    );
+}
+
 /// Shoulder caps for armours that leave the sleeves free; plated arms bring
 /// their own steel pauldrons, and mail shirts have none.
 pub(super) fn shoulder_finish(item: super::super::outfit::BodyItem) -> Option<PauldronFinish> {
@@ -442,6 +448,54 @@ mod tests {
                 ..default()
             }),
         ))
+    }
+
+    #[test]
+    fn scale_tips_point_down_and_lift_away_from_their_support() {
+        for normal in [Vec3::Z, Vec3::NEG_Z, Vec3::X, Vec3::NEG_X] {
+            let site = Site {
+                at: Vec3::new(0.1, 0.3, -0.2),
+                normal,
+                around: Vec3::Y.cross(normal),
+            };
+            for row in [0, 5] {
+                let mut builder = Builder::default();
+                emit_scale(&mut builder, &site, row);
+                let vertices: Vec<_> = builder.surface_triangles().flatten().collect();
+                let origin = site.at + normal * (0.004 + 0.0012 * row as f32);
+                // The authored narrow point is farther from the origin than
+                // the face-center fan vertex; both have zero lateral offset.
+                let tip = vertices
+                    .iter()
+                    .copied()
+                    .filter(|p| (*p - origin).dot(site.around).abs() < 1e-5)
+                    .max_by(|a, b| {
+                        a.distance_squared(origin)
+                            .total_cmp(&b.distance_squared(origin))
+                    })
+                    .expect("narrow tip");
+                let roots: Vec<_> = vertices
+                    .iter()
+                    .copied()
+                    .filter(|p| (*p - origin).dot(site.around).abs() > 0.0249)
+                    .collect();
+                assert!(!roots.is_empty(), "broad attached edge");
+                let root = roots.iter().copied().sum::<Vec3>() / roots.len() as f32;
+                assert!(
+                    tip.y < root.y - 0.04,
+                    "scale tip points upward: {normal:?}, {tip:?}/{root:?}"
+                );
+                assert!(
+                    (tip - root).dot(normal) > 0.01,
+                    "scale tip sinks into support"
+                );
+                assert_eq!(
+                    builder.surface_triangles().count(),
+                    20,
+                    "retain closed five-sided plate"
+                );
+            }
+        }
     }
 
     #[test]

@@ -46,7 +46,7 @@ fn every_styled_cut_preserves_base_material_scale_and_precedence() {
         (SleeveCut::Puff, false, false),
         (SleeveCut::Bell, true, true),
         (SleeveCut::Gauntlet, true, true),
-        (SleeveCut::Draped, true, true),
+        (SleeveCut::Draped, true, false),
         (SleeveCut::OffShoulder, false, false),
         (SleeveCut::Short, false, false),
     ] {
@@ -371,12 +371,9 @@ fn preplan_forearm(p: &mut Parts, body: HumanoidBody, l: &Look, outfit: &Outfit,
         organic_forearm(m, b, arm_len, body.profile.muscle, fore_bare, fore_color);
     }
     let cuff = outfit.cuffs;
-    if let Some(styled) = styled.filter(|styled| {
-        matches!(
-            styled.cut,
-            SleeveCut::Bell | SleeveCut::Gauntlet | SleeveCut::Draped
-        )
-    }) {
+    if let Some(styled) =
+        styled.filter(|styled| matches!(styled.cut, SleeveCut::Bell | SleeveCut::Gauntlet))
+    {
         // A bell flares from the elbow; a gauntlet's drape is sheer.
         let flare = styled.flare.unwrap_or(styled.color);
         let builder = if styled.cut == SleeveCut::Gauntlet {

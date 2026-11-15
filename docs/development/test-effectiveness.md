@@ -332,3 +332,15 @@ fail-closed unregistered-owner check (four failing planner methods, one ownershi
 registration root cause). The same two assertions now live under the existing
 reviewed `test_process_harness.ActionCompletion` owner. Planner selection and
 coverage gates are unchanged; no tests were dropped.
+
+## Scale-mail tip frame, 13 November 2026
+
+`creatures::geometry::armor_parts::tests::scale_tips_point_down_and_lift_away_from_their_support`
+exposed one production geometry defect: the scale outline stores its tip at
+negative local Y, but its local positive-Y frame pointed downward and outward.
+The resulting tips pointed upward and inward. The retained first-red regression
+failed on the upward tip before the frame correction; it checks four cardinal
+support normals, two row offsets and the closed five-sided plate topology.
+This is one root cause and one distinct failing method, not eight defects.
+The correction keeps the existing shared surface lattice and plate dimensions;
+it does not change armor fit, layers, motion or cloth simulation.

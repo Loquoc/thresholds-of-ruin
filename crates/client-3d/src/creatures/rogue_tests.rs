@@ -4735,10 +4735,21 @@ fn witch_hat_loose_hair_cache_is_separate_from_bare_and_veiled_in_both_orders() 
 
 #[test]
 fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
+    assert_native_claw_attachment(CreatureModel::Yeti, &[J::HandL, J::HandR]);
+}
+
+#[test]
+fn bare_toe_claws_are_attached_to_the_emitted_foot() {
+    for model in [CreatureModel::Troll, CreatureModel::Yeti] {
+        assert_native_claw_attachment(model, &[J::FootL, J::FootR]);
+    }
+}
+
+fn assert_native_claw_attachment(model: CreatureModel, joints: &[J]) {
     use bevy::math::Affine3A;
     use bevy::render::mesh::VertexAttributeValues;
 
-    // Work on emitted triangles, including nested/scaled hand mesh children.
+    // Work on emitted triangles, including nested/scaled extremity mesh children.
     // Do not use the production surface query or its root placement recipe.
     fn collect(
         world: &World,
@@ -4747,7 +4758,7 @@ fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
         frame: Affine3A,
         bone: Vec3,
         claws: &mut Vec<[Vec3; 3]>,
-        hand: &mut Vec<[Vec3; 3]>,
+        support: &mut Vec<[Vec3; 3]>,
     ) {
         let frame = frame
             * world
@@ -4784,15 +4795,15 @@ fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
                     if face.iter().all(|i| is_bone(*i)) {
                         claws.push(triangle);
                     } else {
-                        assert!(face.iter().all(|i| !is_bone(*i)), "mixed hand/claw face");
-                        hand.push(triangle);
+                        assert!(face.iter().all(|i| !is_bone(*i)), "mixed support/claw face");
+                        support.push(triangle);
                     }
                 }
             }
         }
         if let Some(children) = world.get::<Children>(entity) {
             for child in children.iter() {
-                collect(world, meshes, child, frame, bone, claws, hand);
+                collect(world, meshes, child, frame, bone, claws, support);
             }
         }
     }
@@ -4828,7 +4839,7 @@ fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
     for woman in [false, true] {
         for build in 0..3 {
             let look = Look::with_choice(
-                CreatureModel::Yeti,
+                model,
                 42,
                 Some(Variant {
                     woman,
@@ -4837,10 +4848,9 @@ fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
                 }),
             );
             let (world, rig, _, meshes) = spawn_one(&look);
-            // Both sexes and all builds retain the native Yeti closed-hand recipe.
-            for joint in [J::HandL, J::HandR] {
+            for &joint in joints {
                 let mut claws = Vec::new();
-                let mut hand = Vec::new();
+                let mut support = Vec::new();
                 collect(
                     &world,
                     &meshes,
@@ -4848,9 +4858,9 @@ fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
                     Affine3A::IDENTITY,
                     bone,
                     &mut claws,
-                    &mut hand,
+                    &mut support,
                 );
-                assert!(!hand.is_empty(), "positive emitted hand witness");
+                assert!(!support.is_empty(), "positive emitted support witness");
                 assert!(!claws.is_empty(), "positive emitted claw witness");
 
                 // Weld duplicate face vertices geometrically, not by mesh index:
@@ -4880,12 +4890,42 @@ fn yeti_hand_claws_are_attached_to_the_emitted_hand() {
                 assert_eq!(
                     components.len(),
                     3,
-                    "three separate claws: {woman}/{build}/{joint:?}"
+                    "three separate claws: {model:?}/{woman}/{build}/{joint:?}"
                 );
                 for (index, component) in components.iter().enumerate() {
-                    assert!(component.iter().any(|i| hand.iter().any(|surface|
+                    assert!(component.iter().any(|i| support.iter().any(|surface|
                         intersects(claws[*i], *surface))),
-                        "claw {index} must intersect the actual hand surface: {woman}/{build}/{joint:?}");
+                        "claw {index} must intersect the actual support surface: {model:?}/{woman}/{build}/{joint:?}");
+                    if matches!(joint, J::FootL | J::FootR) {
+                        // Attachment alone admits claws buried in a foot or only
+                        // crossing its sole. Each toe claw must emerge in front
+                        // of the emitted foot silhouette, independently of the
+                        // production ray query and its proposed root locations.
+                        let toe_front = support
+                            .iter()
+                            .flatten()
+                            .map(|v| v.z)
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        let tip = component
+                            .iter()
+                            .flat_map(|i| claws[*i])
+                            .map(|v| v.z)
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        assert!(tip > toe_front + 0.002,
+                            "claw {index} must emerge beyond toe front: tip={tip}, front={toe_front}, {model:?}/{woman}/{build}/{joint:?}");
+                        let sole = support
+                            .iter()
+                            .flatten()
+                            .map(|v| v.y)
+                            .fold(f32::INFINITY, f32::min);
+                        let lowest_claw = component
+                            .iter()
+                            .flat_map(|i| claws[*i])
+                            .map(|v| v.y)
+                            .fold(f32::INFINITY, f32::min);
+                        assert!(lowest_claw >= sole - 0.001,
+                            "claw must not extend below the emitted sole: {model:?}/{woman}/{build}/{joint:?}");
+                    }
                 }
             }
         }
@@ -5195,6 +5235,83 @@ fn sandal_bands_follow_actual_calf_and_leg_armor() {
                         );
                         assert!(minimum >= -0.0005 && maximum <= 0.025,
                             "band must clear and follow actual support, gap {minimum}..{maximum}: {model:?}/{woman}/{build}/{plate}/{joint:?}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn removing_native_trimmings_removes_calf_bindings() {
+    let leather = LEATHER * 0.8;
+    let c = Color::srgb(leather.x, leather.y, leather.z).to_linear();
+    let leather_tag = Vec3::new(c.red, c.green, c.blue).normalize();
+    for model in [CreatureModel::Nymph, CreatureModel::Troll] {
+        let mut look = Look::with_choice(model, 42, Some(Variant::default()));
+        let mut recipe = outfit::Outfit::native(&look);
+        recipe.trimmings = outfit::Trimmings::NONE;
+        look.outfit = Some(recipe);
+        let (world, rig, _, meshes) = spawn_one(&look);
+        for joint in [J::ShinL, J::ShinR] {
+            let calf = joint_surface_samples_in(&world, &rig, &meshes, joint, false);
+            assert!(calf.len() > 100, "calf remains present without trimmings");
+            assert!(
+                !calf
+                    .iter()
+                    .any(|(_, c)| c.normalize().distance(leather_tag) < 0.001),
+                "removing outfit trimmings must remove leather calf bindings: {model:?}/{joint:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn calf_bindings_transfer_recolor_and_respect_footwear() {
+    let color = Vec3::new(0.03, 0.08, 0.7);
+    let c = Color::srgb(color.x, color.y, color.z).to_linear();
+    let tag = Vec3::new(c.red, c.green, c.blue).normalize();
+    for woman in [false, true] {
+        for bare_leg in [false, true] {
+            for covered in [false, true] {
+                let mut look = Look::with_choice(
+                    CreatureModel::Human,
+                    42,
+                    Some(Variant { woman, ..default() }),
+                );
+                let mut recipe = outfit::Outfit::native(&look);
+                recipe.trimmings = outfit::Trimmings::NONE;
+                recipe.trimmings.calf_bindings = Some(color);
+                recipe.legs = if bare_leg {
+                    outfit::Legs::Bare(outfit::Pigment::Skin(1.0))
+                } else {
+                    outfit::Legs::Fitted(outfit::Pigment::Skin(1.0))
+                };
+                if !covered {
+                    recipe.feet = outfit::Feet::Bare(outfit::Pigment::Skin(1.0));
+                }
+                look.outfit = Some(recipe);
+                let (world, rig, _, meshes) = spawn_one(&look);
+                for joint in [J::ShinL, J::ShinR] {
+                    let calf = joint_surface_samples_in(&world, &rig, &meshes, joint, false);
+                    assert!(calf.len() > 100, "positive supporting calf");
+                    let bands: Vec<_> = calf
+                        .iter()
+                        .filter(|(_, c)| c.normalize().distance(tag) < 0.001)
+                        .collect();
+                    if covered {
+                        assert!(bands.is_empty(), "boots own the calf coverage");
+                    } else {
+                        assert!(
+                            bands.len() >= 200,
+                            "explicit bindings transfer to human calf and retain their own pigment"
+                        );
+                        for height in [-0.3_f32, -0.36] {
+                            assert!(
+                                bands.iter().any(|(p, _)| (p.y - height).abs() < 0.011),
+                                "both binding stations retained"
+                            );
+                        }
                     }
                 }
             }

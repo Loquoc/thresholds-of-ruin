@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [
+    1200,
+    1000
+  ],
+  "actors": [
+    {
+      "id": "royal-bride",
+      "model": "Human",
+      "seed": 42,
+      "body": {
+        "woman": true,
+        "build": 1,
+        "hair": 0,
+        "bust_lean": 1
+      },
+      "outfit": "royal-bride",
+      "equipment": [],
+      "position": [
+        -0.55,
+        0,
+        0
+      ],
+      "yaw": 0
+    },
+    {
+      "id": "royal-groom",
+      "model": "Human",
+      "seed": 42,
+      "body": {
+        "woman": false,
+        "build": 1,
+        "hair": 0,
+        "bust_lean": 1
+      },
+      "outfit": "royal-groom",
+      "equipment": [],
+      "position": [
+        0.55,
+        0,
+        0
+      ],
+      "yaw": 0
+    }
+  ],
+  "cameras": [
+    {
+      "id": "front",
+      "position": [
+        1.8,
+        1.4,
+        4.5
+      ],
+      "target": [
+        0,
+        0.95,
+        0
+      ],
+      "fov_degrees": 36
+    },
+    {
+      "id": "rear",
+      "position": [
+        -1.8,
+        1.4,
+        -4.5
+      ],
+      "target": [
+        0,
+        0.95,
+        0
+      ],
+      "fov_degrees": 36
+    }
+  ],
+  "events": [],
+  "captures": [
+    {
+      "tick": 2,
+      "name": "royal-wedding-front",
+      "camera": "front"
+    },
+    {
+      "tick": 2,
+      "name": "royal-wedding-rear",
+      "camera": "rear"
+    }
+  ]
+}

@@ -1622,9 +1622,25 @@ fn grounded_pad(b: &mut Builder, depth: f32, extent: Vec2, color: Vec3) {
 
 /// A row of dorsal spines or frills from `from` to `to`, shortening at both ends.
 fn spines(b: &mut Builder, from: Vec3, to: Vec3, count: u32, height: f32, color: Vec3) {
+    supported_spines(b, from, to, count, height, color, &Some);
+}
+
+/// Keep one spine shape recipe while letting its owning surface resolve seats.
+#[allow(clippy::too_many_arguments)]
+fn supported_spines(
+    b: &mut Builder,
+    from: Vec3,
+    to: Vec3,
+    count: u32,
+    height: f32,
+    color: Vec3,
+    seat: &impl Fn(Vec3) -> Option<Vec3>,
+) {
     for k in 0..count {
         let t = (k as f32 + 0.5) / count as f32;
-        let root = from.lerp(to, t);
+        let Some(root) = seat(from.lerp(to, t)) else {
+            continue;
+        };
         let h = height * (0.4 + 0.6 * (t * PI).sin());
         let back = (from - to).normalize_or(Vec3::NEG_Z);
         b.tube_framed(
@@ -2146,13 +2162,7 @@ fn reptile_skull(p: &mut Parts, l: &Look, length: f32) -> Sculpt {
         &|at, normal| scaled(skin, belly, at, normal),
     );
     for side in [-1.0f32, 1.0] {
-        p.matte.blob(
-            Vec3::new(side * 0.025, 0.06, 0.27 * length),
-            Vec3::new(0.008, 0.006, 0.006),
-            0,
-            0.0,
-            DARK,
-        );
+        reptile_nostril(&mut p.matte, side, length, &skull);
         // Teeth along the upper jaw.
         for k in 0..4 {
             let z = 0.08 + k as f32 * 0.045 * length;
@@ -2169,6 +2179,13 @@ fn reptile_skull(p: &mut Parts, l: &Look, length: f32) -> Sculpt {
     }
     animal_eyes(p, frames, 0.019, Vec3::new(0.95, 0.7, 0.12), skin, None);
     skull
+}
+
+// Each nostril is a separate small skull detail, not an eye or tooth.
+fn reptile_nostril(b: &mut Builder, side: f32, length: f32, skull: &Sculpt) {
+    // The muzzle length selects the site; the shared skull supplies its height.
+    let mount = skull.onto(Vec3::new(side * 0.025, 0.2, 0.27 * length), Vec3::NEG_Y);
+    b.blob(mount, Vec3::new(0.008, 0.006, 0.006), 0, 0.0, DARK);
 }
 
 fn dragon_head(p: &mut Parts, l: &Look) {
@@ -2460,6 +2477,26 @@ fn beast_jaw(p: &mut Parts, l: &Look) {
     }
 }
 
+fn crested_tail_path(style: Style) -> [Vec3; 5] {
+    if style == Style::Jabberwock {
+        [
+            Vec3::ZERO,
+            Vec3::new(0.0, -0.18, -0.35),
+            Vec3::new(0.06, -0.32, -0.72),
+            Vec3::new(0.15, -0.30, -1.10),
+            Vec3::new(0.23, -0.18, -1.30),
+        ]
+    } else {
+        [
+            Vec3::ZERO,
+            Vec3::new(0.0, -0.1, -0.35),
+            Vec3::new(0.0, -0.2, -0.7),
+            Vec3::new(0.06, -0.14, -1.0),
+            Vec3::new(0.12, -0.04, -1.2),
+        ]
+    }
+}
+
 fn beast_tail(p: &mut Parts, l: &Look) {
     match l.style {
         Style::Griffin => {
@@ -2492,25 +2529,10 @@ fn beast_tail(p: &mut Parts, l: &Look) {
             );
         }
         Style::Dragon | Style::Jabberwock => {
-            let path = if l.style == Style::Jabberwock {
-                [
-                    Vec3::ZERO,
-                    Vec3::new(0.0, -0.18, -0.35),
-                    Vec3::new(0.06, -0.32, -0.72),
-                    Vec3::new(0.15, -0.30, -1.10),
-                    Vec3::new(0.23, -0.18, -1.30),
-                ]
-            } else {
-                [
-                    Vec3::ZERO,
-                    Vec3::new(0.0, -0.1, -0.35),
-                    Vec3::new(0.0, -0.2, -0.7),
-                    Vec3::new(0.06, -0.14, -1.0),
-                    Vec3::new(0.12, -0.04, -1.2),
-                ]
-            };
+            let path = crested_tail_path(l.style);
             let (skin, belly) = (l.skin, l.cloth);
-            p.matte.tube(
+            let mut support = p.matte.empty_like();
+            support.tube(
                 &path,
                 &[
                     Vec2::splat(0.14),
@@ -2527,16 +2549,24 @@ fn beast_tail(p: &mut Parts, l: &Look) {
             } else {
                 l.cloth * 0.9
             };
+            let mut crest_mesh = p.matte.empty_like();
             for pair in path.windows(2) {
-                spines(
-                    &mut p.matte,
+                supported_spines(
+                    &mut crest_mesh,
                     pair[0] + Vec3::Y * 0.1,
                     pair[1] + Vec3::Y * 0.06,
                     3,
                     0.08,
                     crest,
+                    &|at| {
+                        support
+                            .outer_surface(at - Vec3::Y, Vec3::Y)
+                            .map(|hit| hit - Vec3::Y * 0.002)
+                    },
                 );
             }
+            p.matte.absorb(support);
+            p.matte.absorb(crest_mesh);
             if l.style == Style::Dragon {
                 // A spade at the tip.
                 p.matte.extrude(
@@ -2855,6 +2885,129 @@ fn trap_lobe(p: &mut Parts, l: &Look, up: f32) {
 #[cfg(test)]
 mod limb_parts_tests {
     use super::*;
+
+    #[test]
+    fn crested_tail_spines_overlap_their_own_tapered_skin() {
+        for model in [CreatureModel::Dragon, CreatureModel::Jabberwock] {
+            let look = Look::of(model, 42);
+            let path = crested_tail_path(look.style);
+            let mut support = Builder::default();
+            support.tube(
+                &path,
+                &[0.14, 0.11, 0.075, 0.04, 0.008].map(Vec2::splat),
+                12,
+                &|_, _, _| Vec3::ONE,
+            );
+            let skin_count = support.surface_triangles().count();
+            let mut parts = Parts::default();
+            beast_tail(&mut parts, &look);
+            let mut one = Builder::default();
+            spines(&mut one, Vec3::ZERO, Vec3::NEG_Z, 1, 0.08, Vec3::ONE);
+            let spine_count = one.surface_triangles().count();
+            let faces: Vec<_> = parts
+                .matte
+                .surface_triangles()
+                .skip(skin_count)
+                .take(spine_count * 12)
+                .collect();
+            assert_eq!(faces.len(), spine_count * 12);
+            for (index, spine) in faces.chunks_exact(spine_count).enumerate() {
+                let mut minimum = f32::INFINITY;
+                let mut maximum = f32::NEG_INFINITY;
+                for at in spine.iter().flatten() {
+                    let origin = Vec3::new(at.x, -1.0, at.z);
+                    if let Some(hit) = support.outer_surface(origin, Vec3::Y) {
+                        minimum = minimum.min(at.y - hit.y);
+                        maximum = maximum.max(at.y - hit.y);
+                    }
+                }
+                assert!(
+                    maximum > 0.02,
+                    "{model:?} spine {index} must remain visibly exposed: {maximum}"
+                );
+                assert!(
+                    minimum <= 0.001,
+                    "{model:?} spine {index} floats above actual tail: {minimum}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tail_crest_support_ignores_unrelated_meshes() {
+        for model in [CreatureModel::Dragon, CreatureModel::Jabberwock] {
+            let look = Look::of(model, 42);
+            let mut clean = Parts::default();
+            beast_tail(&mut clean, &look);
+            let mut composed = Parts::default();
+            composed
+                .matte
+                .blob(Vec3::new(0.0, 0.8, -0.6), Vec3::ONE, 2, 0.0, Vec3::X);
+            let prefix = composed.matte.surface_triangles().count();
+            beast_tail(&mut composed, &look);
+            composed
+                .matte
+                .assert_same_recipe_after(prefix, &clean.matte);
+        }
+    }
+
+    #[test]
+    fn unchanged_spine_seats_preserve_the_original_shape_recipe() {
+        let from = Vec3::new(0.1, 0.2, -0.3);
+        let to = Vec3::new(-0.2, -0.1, -0.8);
+        for count in [1, 3, 7] {
+            let mut actual = Builder::default();
+            spines(&mut actual, from, to, count, 0.08, Vec3::X);
+            let mut original = Builder::default();
+            for k in 0..count {
+                let t = (k as f32 + 0.5) / count as f32;
+                let root = from.lerp(to, t);
+                let h = 0.08 * (0.4 + 0.6 * (t * PI).sin());
+                let back = (from - to).normalize_or(Vec3::NEG_Z);
+                original.tube_framed(
+                    &[
+                        root,
+                        root + Vec3::Y * h * 0.6 - back * h * 0.15,
+                        root + Vec3::Y * h - back * h * 0.45,
+                    ],
+                    &[
+                        Vec2::new(h * 0.42, 0.012),
+                        Vec2::new(h * 0.25, 0.008),
+                        Vec2::splat(0.002),
+                    ],
+                    6,
+                    &|_, _, t| Vec3::X * (1.0 - 0.2 * t),
+                    Some(back),
+                );
+            }
+            actual.assert_same_recipe(&original);
+        }
+    }
+
+    #[test]
+    fn reptile_nostrils_touch_the_actual_snout_and_remain_visible() {
+        for model in [CreatureModel::Dragon, CreatureModel::Jabberwock] {
+            let look = Look::of(model, 42);
+            let length = ReptileHead::resolve(look.style).muzzle;
+            let skull = reptile_skull(&mut Parts::default(), &look, length);
+            for side in [-1.0, 1.0] {
+                let mut nose = Builder::default();
+                reptile_nostril(&mut nose, side, length, &skull);
+                let gaps: Vec<_> = nose
+                    .surface_triangles()
+                    .flatten()
+                    .map(|p| skull.distance(p))
+                    .collect();
+                let minimum = gaps.iter().copied().fold(f32::INFINITY, f32::min);
+                let maximum = gaps.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                assert!(
+                    minimum < 0.001,
+                    "{model:?} nostril {side} floats {minimum} above actual snout"
+                );
+                assert!(maximum > 0.001, "{model:?} nostril {side} is buried");
+            }
+        }
+    }
 
     fn vertices(parts: Parts) -> Vec<Vec3> {
         let mut materials = Assets::<StandardMaterial>::default();

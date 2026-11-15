@@ -88,12 +88,9 @@ impl Plan {
             Surface::Sleeve(outfit.forearm(look.skin))
         };
         let mut bracelet_support = BraceletSupport::ForearmAndCuff;
-        let cuff = if let Some(s) = styled.filter(|s| {
-            matches!(
-                s.cut,
-                SleeveCut::Bell | SleeveCut::Gauntlet | SleeveCut::Draped
-            )
-        }) {
+        let cuff = if let Some(s) =
+            styled.filter(|s| matches!(s.cut, SleeveCut::Bell | SleeveCut::Gauntlet))
+        {
             let color = s.flare.unwrap_or(s.color);
             Some(Cuff::AuthoredBell {
                 color,
