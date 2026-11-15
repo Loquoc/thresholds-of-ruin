@@ -201,6 +201,9 @@ class LedgerFormat(unittest.TestCase):
     def test_strikes_comparison_can_be_recorded_by_actual_cli(self):
         self.assert_comparison_cli_round_trip("strikes", "s3-q2-a2-r16-tail", "ordered_strikes")
 
+    def test_ranged_loot_comparison_can_be_recorded_by_actual_cli(self):
+        self.assert_comparison_cli_round_trip("ranged-loot", "payload-d4-i16", "ranged_loot")
+
     def test_active_mobs_comparison_can_be_recorded_by_actual_cli(self):
         self.assert_comparison_cli_round_trip("active-mobs", "r20-ai100-s8", "active_mobs")
 
