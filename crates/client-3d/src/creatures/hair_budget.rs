@@ -48,8 +48,19 @@ pub(crate) fn choose(waiting: &[Waiting], free: usize) -> Vec<usize> {
     let mut order: Vec<usize> = (0..waiting.len())
         .filter(|&i| waiting[i].wait > 0.0)
         .collect();
-    order.sort_by(|&a, &b| waiting[b].priority().total_cmp(&waiting[a].priority()));
-    order.truncate(free);
+    // Select only the dispatchable prefix before sorting it. An explicit input
+    // ordinal tie-break preserves the old stable priority order across partitioning.
+    let compare = |&a: &usize, &b: &usize| {
+        waiting[b]
+            .priority()
+            .total_cmp(&waiting[a].priority())
+            .then(a.cmp(&b))
+    };
+    if free < order.len() {
+        order.select_nth_unstable_by(free, compare);
+        order.truncate(free);
+    }
+    order.sort_unstable_by(compare);
     order
 }
 
@@ -99,6 +110,33 @@ mod tests {
         ];
         assert_eq!(choose(&jobs, 2), vec![0, 2]);
         assert_eq!(choose(&jobs, usize::MAX), vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn partial_selection_matches_stable_full_sort_at_budget_boundaries() {
+        let mut jobs = vec![
+            waiting(0.2, 0.0),
+            waiting(0.4, NEAR), // Equal priority through a different distance.
+            waiting(0.0, 0.0),
+            waiting(-0.0, 0.0),
+            waiting(f32::NAN, 0.0),
+            waiting(1.0, f32::INFINITY),
+            waiting(1.0, f32::NAN),
+            waiting(f32::INFINITY, 1.0),
+        ];
+        jobs.extend((0..120).map(|i| waiting((i % 7) as f32 * 0.1, (i % 3) as f32)));
+        for count in [0, 1, 8, 128] {
+            let jobs = &jobs[..count];
+            let mut reference: Vec<_> = (0..count).filter(|&i| jobs[i].wait > 0.0).collect();
+            reference.sort_by(|&a, &b| jobs[b].priority().total_cmp(&jobs[a].priority()));
+            for free in [0, 1, 4, count.saturating_sub(1), count, usize::MAX] {
+                assert_eq!(
+                    choose(jobs, free),
+                    reference[..free.min(reference.len())],
+                    "count={count}, free={free}"
+                );
+            }
+        }
     }
 
     #[test]
