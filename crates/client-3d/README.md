@@ -76,6 +76,34 @@ presented milestone images. `startup_splash` JSON diagnostics identify those
 software presentations separately from the game's GPU screenshot evidence.
 Offline reviews and model-workload benchmarks retain their existing startup.
 
+### Standalone menu
+
+`--menu` plays without a separate server process, as the Android app does:
+
+```
+cargo run --release --manifest-path crates/client-3d/Cargo.toml -- --menu
+```
+
+The game window opens on a title screen, then a menu. **New game** lists the
+scenario packages in `--scenario-root DIR` (default `scenarios/`, test fixtures
+excluded) and takes a seed from the on-screen digit pad, the keyboard or
+**Random**. **Load game** lists the saves in `--save-root DIR`, newest first,
+with their scenario, seed and when they were last played. Starting either hosts
+the game inside the client through `tor_server::in_process`, over the same loopback
+WebSocket a separate server would use, and shows each loading step by name
+until the first scene has been drawn. Escape (or the Android back key) with
+nothing open, or the HUD's **Menu** button, offers **Save and return to menu**,
+**Save and quit** or **Keep playing**; saving is shown until the connection's
+durable save and the server's flush have both finished. Returning to the menu
+removes everything the game created, so the next game starts as the first did.
+
+Each save sits in its own directory with a `launch.json` naming its scenario
+directory, scenario id and seed. A save made elsewhere without that record is
+listed but cannot be loaded from the menu. `--touch-controls` adds on-screen
+buttons for turning, zooming, stairs, doors and picking up; Android always has
+them. `--menu` cannot be combined with `--connect`, `--save`, `--seed` or the
+offline modes.
+
 With no `--connect`, the client starts a private `tor-server` (default scenario
 `scenarios/rogue-exploration`) with a fresh save under `.local/client-3d/saves/`
 and stops it on exit. Other options:

@@ -12,18 +12,39 @@ crate's `unsafe_code = "forbid"` lint rejects.
 
 ## What works
 
-- The offline review modes, such as `--bestiary`.
-- Live play against a server reached over the network, with `--connect`.
-- One-finger touch: a touch moves the pointer and holds the left mouse button,
-  so the interface buttons and tap-to-move work.
+- **Standalone play.** The app is the whole game: it hosts the server inside
+  its own process (`tor_server::in_process`) and needs no other device. It opens on
+  a title screen and then the [standalone menu](../README.md#standalone-menu):
+  choose a scenario and a seed (digit pad or **Random**) for a new game, or
+  load a save. Loading names each step until the first scene is drawn, and
+  saving is shown until it is durable.
+- **Leaving a game.** The back key, Escape or the HUD's **Menu** button offers
+  **Save and return to menu**, **Save and quit** or **Keep playing**. Quitting
+  ends the app's process, so the next launch starts fresh: the window library
+  cannot open a second event loop in a process Android kept.
+- **Saving without quitting.** Android may stop a backgrounded app without
+  warning, and the app does not receive a reliable suspend notice on the Fire
+  tablet, so the private server writes play within about two seconds instead
+  of its usual half minute. A game force-stopped a few seconds after its last
+  move reloads at that move.
+- **Touch controls.** On-screen buttons turn the camera, zoom, use stairs, open
+  doors and pick up. One finger moves the pointer and holds the left mouse
+  button, so the interface buttons and tap-to-move work.
+- The offline review modes, such as `--bestiary`, and live play against a
+  server on another machine with `--connect`, both through `args.txt`.
+
+Every shipped scenario package except the test fixtures is built into the app.
+On each start it installs any package not yet present into its private storage
+as `files/scenarios/<package>-<content hash>/`; earlier copies stay, because
+saves made with them still read them. Saves go to `files/saves/`, one directory
+per game with a `launch.json` naming its scenario and seed.
 
 ## What does not
 
-- No private server: the client cannot start `tor-server` on the device, so
-  `--connect` and `TOR_SERVER_TOKEN` are required for live play.
-- No on-screen replacements for keyboard-only actions, and no multi-touch.
-- The first launch shows a black screen for about half a minute while shaders
-  compile.
+- No multi-touch; the camera turns and zooms only through its buttons.
+- The first launch freezes on the title screen for about half a minute while
+  shaders compile. The title says so, but cannot animate during the freeze.
+- Saves stay on the device; there is no import or export.
 - Each touch logs one "could not set cursor position" error from the window
   library, which has no pointer to move on Android.
 
@@ -73,10 +94,12 @@ dev profile. Install the resulting package with `adb install -r`.
 
 ## Run
 
-Android has no command line or environment for an app, so the client reads both
-from `args.txt` in its private files directory: whitespace-separated arguments,
-where a word of the form `TOR_NAME=value` sets an environment variable instead.
-Without the file it runs `--bestiary`. Write it through `adb`:
+Tap the app's icon to play. Android has no command line or environment for an
+app, so for anything else the client reads both from `args.txt` in its private
+files directory: whitespace-separated arguments, where a word of the form
+`TOR_NAME=value` sets an environment variable instead. Arguments in the file
+replace standalone play; a file holding only `TOR_` settings keeps it. Write it
+through `adb`, and delete it to return to the menu:
 
 ```sh
 adb shell "run-as org.example.torprobe sh -c 'echo \"--bestiary\" > files/args.txt'"

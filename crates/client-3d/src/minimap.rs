@@ -24,6 +24,13 @@ pub(crate) struct MiniMap {
     drawn: Option<(u64, f32)>,
 }
 
+impl MiniMap {
+    /// Redraws for the next game.
+    pub(crate) fn forget(&mut self) {
+        self.drawn = None;
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct MiniMapFrame;
 

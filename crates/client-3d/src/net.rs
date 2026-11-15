@@ -140,6 +140,15 @@ impl Network {
         batch
     }
 
+    /// No game yet: the menu holds this until one starts, and it reports
+    /// nothing, not even a lost connection.
+    pub fn idle() -> Self {
+        let (mut network, _, _) = Self::channels();
+        network.closed = true;
+        network.fatal_reported = true;
+        network
+    }
+
     pub fn start(address: SocketAddr, token: String, actor: ActorId, observe: bool) -> Self {
         let (mut network, rx, tx) = Self::channels();
         network.worker = Some(std::thread::spawn(move || {
