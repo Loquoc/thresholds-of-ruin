@@ -1305,7 +1305,37 @@ fn unknown_never_device_empty_launch_and_empty_charge_keep_identity_private() {
                 let known = game.actors[&view.actor].recognized_abilities.clone();
                 game.record_observation_knowledge(view).unwrap();
                 assert_eq!(game.actors[&view.actor].recognized_abilities, known);
-                assert!(view.combat.as_ref().unwrap().events.is_empty());
+                let expected = if charges == 0 {
+                    vec![]
+                } else {
+                    // A charged visible launch has a physical receipt even when it
+                    // reaches no creature. Its appearance is not ability knowledge.
+                    let (x, y) = match view.actor {
+                        ActorId(1) => (0, 0),
+                        ActorId(2) => (-2, 0),
+                        ActorId(3) => (0, -1),
+                        _ => unreachable!(),
+                    };
+                    vec![crate::combat::DisclosedCombatEvent::Effect {
+                        caster: Some(ActorId(1)),
+                        caster_reference: Some(crate::perception::ActorReferenceKind::Creature),
+                        ability: None,
+                        tick: 100,
+                        timing: crate::combat::EffectTiming::Instant,
+                        appearance: crate::combat::EffectAppearance::Bolt,
+                        object: None,
+                        visual: crate::rules::EffectVisual::Neutral,
+                        style: None,
+                        delivery: crate::combat::EffectDelivery::Ray,
+                        cue: crate::combat::EffectCue::Neutral,
+                        segments: vec![vec![
+                            Position { x, y, z: 0 },
+                            Position { x, y: y - 1, z: 0 },
+                        ]],
+                    }]
+                };
+                assert_eq!(view.combat.as_ref().unwrap().events, expected,
+                    "empty charge stays silent; empty launch discloses only visible neutral geometry");
             }
             assert_eq!(*game, roundtrip(game));
         }
