@@ -42,6 +42,14 @@ pub(crate) struct Map {
     fit: Option<raster::Fit>,
     route_generation: u64,
 }
+
+impl Map {
+    /// Redraws for the next game.
+    pub(crate) fn forget(&mut self) {
+        self.serial = None;
+        self.fit = None;
+    }
+}
 fn active(screen: Option<&Screen>) -> bool {
     matches!(
         screen,

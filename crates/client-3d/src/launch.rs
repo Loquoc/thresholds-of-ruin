@@ -75,7 +75,7 @@ pub struct Server {
     pub save: PathBuf,
 }
 
-fn reserve_save(root: &Path, stamp: &str) -> Result<PathBuf, Error> {
+pub(crate) fn reserve_save(root: &Path, stamp: &str) -> Result<PathBuf, Error> {
     std::fs::create_dir_all(root)?;
     for suffix in 0..10_000 {
         let dir = root.join(format!("game-{stamp}-{suffix}"));

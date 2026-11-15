@@ -1,11 +1,9 @@
-use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
-use tor_server::{
-    serve, Account, Engine, OutboundLimits, SavePolicy, Scenario, Service, Simulation,
-};
+use tor_server::in_process::{accounts, check_token};
+use tor_server::{serve, Engine, OutboundLimits, SavePolicy, Scenario, Service, Simulation};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -97,17 +95,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let token = std::env::var("TOR_SERVER_TOKEN")
         .map_err(|_| "Set TOR_SERVER_TOKEN before starting the server")?;
-    if token.trim().len() < 16 || token.len() > 1024 || token.chars().any(char::is_control) {
-        return Err("TOR_SERVER_TOKEN must contain 16–1024 non-control characters".into());
-    }
+    check_token("TOR_SERVER_TOKEN", &token)?;
     let spectator_token = match std::env::var("TOR_SPECTATOR_TOKEN") {
         Ok(value) => {
-            if value.trim().len() < 16 || value.len() > 1024 || value.chars().any(char::is_control)
-            {
-                return Err(
-                    "TOR_SPECTATOR_TOKEN must contain 16-1024 non-control characters".into(),
-                );
-            }
+            check_token("TOR_SPECTATOR_TOKEN", &value)?;
             if value == token {
                 return Err("Player and spectator tokens must differ".into());
             }
@@ -121,9 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !wizard {
                 return Err("TOR_WIZARD_TOKEN requires --wizard".into());
             }
-            if value.trim().len() < 16
-                || value.len() > 1024
-                || value.chars().any(char::is_control)
+            if check_token("TOR_WIZARD_TOKEN", &value).is_err()
                 || value == token
                 || spectator_token.as_ref() == Some(&value)
             {
@@ -191,29 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if wizard {
         engine.enable_wizard()?;
     }
-    let account = Account {
-        role: tor_protocol::AccessRole::Player,
-        user: "local".into(),
-        token,
-        actors: engine.actors().into_iter().collect::<BTreeSet<_>>(),
-    };
-    let mut accounts = vec![account];
-    if let Some(token) = spectator_token {
-        accounts.push(Account {
-            role: tor_protocol::AccessRole::Spectator,
-            user: "spectator".into(),
-            token,
-            actors: accounts[0].actors.clone(),
-        });
-    }
-    if let Some(token) = wizard_token {
-        accounts.push(Account {
-            role: tor_protocol::AccessRole::Wizard,
-            user: "wizard".into(),
-            token,
-            actors: accounts[0].actors.clone(),
-        });
-    }
+    let accounts = accounts(&engine, token, spectator_token, wizard_token);
     tor_server::process_diagnostics::startup("simulation.begin");
     let mut service = Service::with_outbound_limits(engine, outbound)?;
     if let Some(ms) = save_reply_ms {

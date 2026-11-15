@@ -118,17 +118,22 @@ pub(crate) struct Splash {
 }
 
 impl Splash {
+    /// No splash window: Android cannot start a second process for one, and
+    /// the standalone menu draws its own title in the game window.
+    pub(crate) fn inert() -> Self {
+        Self {
+            child: Mutex::new(None),
+            input: Mutex::new(None),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            progress: Progress::default(),
+            handoff: Handoff::default(),
+            finished: false,
+        }
+    }
+
     pub(crate) fn start(captures: Option<&Path>) -> Result<Self, Error> {
-        // Android cannot start a second process for the splash window.
         if cfg!(target_os = "android") {
-            return Ok(Self {
-                child: Mutex::new(None),
-                input: Mutex::new(None),
-                cancelled: Arc::new(AtomicBool::new(false)),
-                progress: Progress::default(),
-                handoff: Handoff::default(),
-                finished: false,
-            });
+            return Ok(Self::inert());
         }
         let mut command = Command::new(std::env::current_exe()?);
         command
@@ -253,6 +258,16 @@ impl Drop for Splash {
 
 #[derive(Resource, Clone, Default)]
 pub(crate) struct Presented(Arc<AtomicU64>);
+impl Presented {
+    /// Frames the renderer has finished so far.
+    pub(crate) fn count(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+    #[cfg(test)]
+    pub(crate) fn record(&self) {
+        self.0.fetch_add(1, Ordering::Release);
+    }
+}
 pub(crate) struct PresentationPlugin;
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {

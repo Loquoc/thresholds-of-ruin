@@ -581,6 +581,7 @@ pub fn keys(
     mut panel: ResMut<Panel>,
     mut exit: EventWriter<AppExit>,
     picker: Option<Res<crate::pile_picker::PilePicker>>,
+    session: Option<ResMut<crate::session::Session>>,
 ) {
     panel.keyboard_captured = picker.is_some_and(|p| p.captures());
     if panel.keyboard_captured {
@@ -667,6 +668,9 @@ pub fn keys(
             game.status = "You stop aiming.".into();
         } else if panel.open {
             panel.open = false;
+        } else if let Some(mut session) = session {
+            // Standalone play asks before saving and leaving.
+            session.ask_to_leave();
         } else {
             exit.write(AppExit::Success);
         }
