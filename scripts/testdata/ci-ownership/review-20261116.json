@@ -1,0 +1,26 @@
+{
+  "review": "2026-11-16 model diagnostic owner source review",
+  "production_reads_this_catalog": false,
+  "owners": [
+    {
+      "owner": "test_model_equipment_report.EquipmentValidation",
+      "resource": "tooling",
+      "assertion_review": "Synthetic equipment rows; exact recipe identity, legacy rejection, invalid measurements, reordered/missing/unknown fields and count consistency. No native execution.",
+      "witness_methods": [
+        "test_accepts_complete_equipment_without_requiring_nymph_hair",
+        "test_rejects_changed_identity_or_invalid_measurement",
+        "test_rejects_missing_reordered_unknown_and_inconsistent_counts"
+      ]
+    },
+    {
+      "owner": "test_model_targeted_report.TargetedValidation",
+      "resource": "tooling",
+      "assertion_review": "Synthetic contact rows; exact identity and motion, inactive hair rejection and missing/reordered/unknown field rejection. No native execution.",
+      "witness_methods": [
+        "test_accepts_complete_bounded_recipe",
+        "test_rejects_identity_motion_and_inactive_pose",
+        "test_rejects_missing_reordered_and_unknown_fields"
+      ]
+    }
+  ]
+}

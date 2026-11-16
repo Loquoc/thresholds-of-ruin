@@ -599,3 +599,28 @@ from a binary also containing unrelated, unqualified belt-motion tests; those
 belt edits are excluded. No production source or geometry threshold changed.
 Belt-motion and actual skirt/cloak contacts remain unresolved, and this focused
 pass does not qualify the full suite or a rebuilt exact publication tree.
+
+### PR #16 inventory and crossing-cord feedback
+
+Current-head Linux debug Python CI exposed one integration omission in four
+planner test methods: both newly added diagnostic validator classes were absent
+from the explicit reviewed-owner registry, so complete-inventory planning
+correctly escalated to full even for unrelated tooling changes. Independent
+source/assertion/resource review classified the six synthetic methods as tooling.
+Only their exact classes were registered. Added complete-inventory regressions
+for reporter/shared-import selection on both platforms and unknown-class
+rejection; verification-control changes still require full CI.
+
+The corrected waist fixture separated ordinary belt coverage from actual
+crossing cords. Unique-pigment equivalence and actual emitted-face tests exposed
+cord penetration hidden by the former wrong accessory selection. The bounded
+repair increases stations from 16 to 31 and center clearance from 6 to 8 mm,
+keeping the 5 mm radius, three bands and bow. Frozen original geometry remains
+an independent negative control; dense sampling across 72 combinations passed
+with minimum 1.259 mm clearance, plus actual animated ownership and bow guards.
+This sampling is not a proof of the entire continuous surface. Local evidence
+covers ten focused owners/diagnostics, not a green full suite. Skirt and cloak
+contact failures remain unresolved. The repair changes geometry and costs more:
+isolated optimized-dev cord construction rose 94.6% faceted and 38.7% smooth;
+software mesh projections are not native-render, full-costume or release/FPS
+qualification. Those limits are not waived by normal CI.
