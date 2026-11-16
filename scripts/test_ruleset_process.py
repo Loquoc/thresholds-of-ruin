@@ -56,13 +56,13 @@ class RulesetProcesses(ProcessTestCase):
             'import = "../general.toml"\n',
             'import = "interactions-v35"\n',
             'import = "interactions-v60"\n',
-            'import = "interactions-v61"\n[[overrides]]\nop="set"\n'
+            'import = "interactions-v65"\n[[overrides]]\nop="set"\n'
             'path=["talents","brace_for_impact","id"]\nvalue="renamed"\n',
-            'import = "interactions-v61"\n[[overrides]]\nop="set"\n'
+            'import = "interactions-v65"\n[[overrides]]\nop="set"\n'
             'path=["resources","mana","missing"]\nvalue=1\n',
-            'import = "interactions-v61"\n[[overrides]]\nop="remove"\n'
+            'import = "interactions-v65"\n[[overrides]]\nop="remove"\n'
             'path=["abilities","spark_lance_fire"]\n',
-            'import = "interactions-v61"\n[[overrides]]\nop="set"\n'
+            'import = "interactions-v65"\n[[overrides]]\nop="set"\n'
             'path=["constants","base_defense"]\nvalue=12\n[[overrides]]\nop="set"\n'
             'path=["constants","base_defense"]\nvalue=13\n',
         ]:

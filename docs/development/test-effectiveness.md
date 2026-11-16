@@ -624,3 +624,48 @@ contact failures remain unresolved. The repair changes geometry and costs more:
 isolated optimized-dev cord construction rose 94.6% faceted and 38.7% smooth;
 software mesh projections are not native-render, full-costume or release/FPS
 qualification. Those limits are not waived by normal CI.
+### Split ranged-kit purpose loop (2026-11-16)
+
+Production-roster diagnostics at the local rules63 checkpoint exposed one shared
+eligibility/movement defect: a disclosed idle bystander blocking the remembered
+first step to a compatible counterpart made an underfoot bow or ammunition pile
+ineligible. A sidestep made the pair useful again and drew the seeker home, where
+eligibility disappeared. Both Hobgoblin and Centaur repeated this loop with either
+half underfoot; unobstructed controls acquired their normal secondary kit.
+
+The correction retains existing loot choices as the first pass. Only its failure
+allows bounded ranged-pair recovery, with pairing and movement consuming the same
+completed disclosed approach cache. Unit boundaries cover unknown counterparts,
+occupied/disclosed cells, frames, permissions, exposure, shared-budget exhaustion,
+destination deduplication and order. Real-process regressions independently require
+the initial pickup, both finite acquisitions, secondary equipment, no oscillation,
+an unchanged idle bystander and restart persistence. Deliberate regression
+first-red executions are not additional naturally detected test failures.
+
+Short actual-roster tactical probes also found meaningful existing distinctions:
+Dragon withheld an intercepted flight while Medusa's gaze remained usable, and
+Rattlesnake/Vampire selected their native effects. Those observations did not
+justify changing their tactical policies. Neither the kit correction nor these
+bounded probes establish complete obstacle-aware pathfinding, globally optimal
+combat, new interests for every creature, or whole-scenario completion.
+### Production medicine collection versus use (2026-11-16)
+
+Local rules 64 roster diagnostics exposed a collection/use boundary mismatch:
+known Rogue healing and extra-healing potions were supported by item-care use,
+but ground pickup and the carried reserve recognized only simpler pure-healing
+specifications. Synthetic fixed-healing pickup tests did not cover the production
+per-hit-die healing plus condition-removal definitions. Full-health Hobgoblin,
+Yeti, Troll and Vampire fixtures consequently ignored known medicine; unknown,
+already-carried and care-disabled controls behaved as authored.
+
+A separate reserve classifier connects collection to the supported production
+medicine without broadening legacy immediate-Drink priority or changing use
+thresholds. The ordinary-discovery unit witness executes an unknown Drink through
+admission and scheduling, verifies consumption and actor-private learned identity,
+then tests replacement pickup. Real-process witnesses deliberately seed prior
+actor knowledge, require one finite pickup with the remainder preserved, no
+healthy drinking, unchanged bystander knowledge and restart inventory. Unknown
+medicine and care-disabled Emu remain negative controls. Seeded process knowledge
+is not evidence that autonomous creatures learn by experimentation; scenario AI
+cannot be taken over through ordinary client control. Deliberate first-red
+regressions remain separate from naturally failing test counts.

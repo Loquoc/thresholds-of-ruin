@@ -121,6 +121,13 @@ find concealed bodies. Known finite devices are fallback sources only when their
 identity and a positive charge fact make them usable; query or birth possession
 does not identify them.
 
+Fresh ray, device, launcher and equipped-throw choices decline a bearing when
+a disclosed nonhostile body cell intercepts its prefix before the target in a
+fully disclosed ordinary local chart. This includes non-anchor body cells and
+arbitrary cell bearings. The conservative guard does not predict hidden bodies,
+post-target hits or reflections; ambiguous folded charts retain prior behavior.
+Already prepared work retains its existing continuation policy.
+
 Healing care recognizes a narrow safe plan: positive possible healing, with only
 healing effects in the relevant branches, not any ability whose name resembles
 healing. Finite stock and supply selection remain ordinary [item rules](items.md).
@@ -186,6 +193,19 @@ its stable tie-breaks. See [item tactics](../../crates/simulation/src/ai_items.r
 These bounds are selection policies/capacity limits, not guarantees that every
 eligible item deep in inventory will be found or that a chosen request will still
 be valid at execution. Exact item ownership, holds and contact remain authoritative.
+
+### Known medicine reserve
+
+Collection recognizes a known restorative reserve separately from deciding to
+consume it. Alongside legacy pure healing, a positive per-hit-die healing potion
+may include removal of authored harmful conditions. Unknown identities, mixed
+harm, unsupported effects, beneficial-condition removal and cure-only items do
+not establish this healing reserve. The same classification governs ground
+pickup and whether carried medicine already fills the one-dose reserve.
+
+An uninjured care-capable actor may collect one known dose for later without
+drinking it. Existing consumption thresholds and useful-effect checks remain
+unchanged; collection grants no knowledge and adds no care or loot permission.
 
 ### Known consumable and scroll care
 
@@ -317,3 +337,33 @@ Source/test witnesses are static evidence here, not newly executed results.
 | Defense predicate | [ai_defense](../../crates/simulation/src/ai_defense.rs), [shared condition safety](../../crates/simulation/src/ai_effect_safety.rs) |
 | Known-item care, remembered facts and paid replay | [item-care tests](../../crates/simulation/src/ai_item_use_tests.rs); includes live Rogue effect/condition subsets, not a whole-scenario playthrough |
 | Candidate execution/fallback | [actions](../../crates/simulation/src/actions.rs), [intention ownership](../../crates/simulation/src/intention.rs) |
+
+### Disclosed bystanders and gold pursuit
+
+Existing directly reachable gold choices keep their prior ordering. If none is
+usable and a disclosed creature blocks the first remembered step, a gold seeker
+may choose a disclosed legal first step with a clear remembered suffix instead
+of falling back immediately to exploration. Alternatives use movement-time cost,
+exclude the origin and disclosed occupied creature cells, and share a 512-node
+search budget across gold targets. Incomplete comparisons decline the new
+alternative. This is not hidden-occupancy pathfinding or a guarantee of future
+clearance; each ordinary move rechecks current conditions. Authored Wait, exposure
+and condition restrictions remain. Greedy acquisition and subsequent Search reuse
+one positive or negative gold decision. Other loot policies are unchanged.
+
+### Recovering a disclosed ranged kit
+
+Existing useful-loot choices retain priority and ordering. Only when that pass
+finds no action may an exploring actor with both equipment and loot permission
+recover a known launcher/payload pair around a disclosed creature blocking its
+first remembered step. Pair eligibility and the chosen pickup or movement share
+one completed approach cache. This prevents a split pair from alternately drawing
+an actor home and becoming ineligible again there.
+
+New detours use legal disclosed first steps and remembered suffixes avoiding the
+origin and disclosed occupied creature cells. Destinations share a 512-node
+expansion budget; an incomplete comparison discards all newly inferred detours.
+The existing known-family pairing, finite ammunition reserve, anatomy, exposure
+and action restrictions still apply. This does not add interests to creatures
+without the relevant permissions, change care or ordinary equipment priorities,
+or promise that future steps remain clear.

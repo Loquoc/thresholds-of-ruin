@@ -12,47 +12,160 @@ impl Game {
         profile: &crate::ai::AiProfile,
         route: &mut impl FnMut(Location) -> Option<Vec<TravelStep>>,
     ) -> Option<Action> {
+        self.choose_known_gold_bounded(actor, view, profile, route, &mut 512)
+    }
+
+    // Preserve existing direct choices. Only a disclosed bystander blocking the
+    // first remembered step licenses this bounded, knowledge-only alternative.
+    pub(crate) fn choose_known_gold_bounded(
+        &self,
+        actor: ActorId,
+        view: &Observation,
+        profile: &crate::ai::AiProfile,
+        route: &mut impl FnMut(Location) -> Option<Vec<TravelStep>>,
+        remaining: &mut usize,
+    ) -> Option<Action> {
         if !profile.gold {
             return None;
         }
-        view.ground_items
+        let occupied: std::collections::BTreeSet<_> = view
+            .visible_actors
+            .iter()
+            .filter(|row| {
+                row.id != actor && row.disclosure == crate::perception::ActorDisclosure::Creature
+            })
+            .map(|row| row.location)
+            .collect();
+        let mut blocked_targets = Vec::new();
+        let mut direct = Vec::new();
+        for item in view
+            .ground_items
             .iter()
             .filter(|item| item.known_currency == Some(crate::CurrencyKind::Gold))
-            .filter(|item| !self.exposed_to_visible_hostile(actor, item.location, view))
-            .filter_map(|item| {
-                if profile.idle == crate::behavior::IdleBehavior::Wait
-                    && item.location != view.location
-                {
-                    return None;
+        {
+            if self.exposed_to_visible_hostile(actor, item.location, view)
+                || (profile.idle == crate::behavior::IdleBehavior::Wait
+                    && item.location != view.location)
+            {
+                continue;
+            }
+            let path = if item.location == view.location {
+                Vec::new()
+            } else {
+                let Some(path) = route(item.location) else {
+                    continue;
+                };
+                path
+            };
+            let action = if let Some(step) = path.first() {
+                let Some((at, _)) = self.actor_translation(actor, step.direction) else {
+                    if occupied.contains(&step.destination) {
+                        blocked_targets.push((item.id, item.location));
+                    }
+                    continue;
+                };
+                if self.exposed_to_visible_hostile(actor, at, view) {
+                    continue;
                 }
-                let path = if item.location == view.location {
-                    vec![]
-                } else {
-                    route(item.location)?
+                Action::Move(step.direction)
+            } else {
+                Action::Take {
+                    item: item.id,
+                    quantity: Some(item.quantity),
+                }
+            };
+            if !self.condition_blocks_action(actor, &action) {
+                direct.push((path.len(), item.id, action));
+            }
+        }
+        if let Some((_, _, action)) = direct.into_iter().min_by_key(|(n, id, _)| (*n, *id)) {
+            return Some(action);
+        }
+        if blocked_targets.is_empty() {
+            return None;
+        }
+        // Actor-owned movement durations are known; no future-world simulation.
+        let owner = self.actors.get(&actor)?;
+        let disclosed: std::collections::BTreeSet<_> = view
+            .visible_cells
+            .iter()
+            .filter(|cell| !cell.wall)
+            .map(|cell| (cell.location, cell.frame))
+            .collect();
+        let mut alternatives = Vec::new();
+        for (rank, direction) in tor_world::Direction::HORIZONTAL
+            .into_iter()
+            .chain([tor_world::Direction::Up, tor_world::Direction::Down])
+            .enumerate()
+        {
+            if self.condition_blocks_action(actor, &Action::Move(direction)) {
+                continue;
+            }
+            let Some((at, frame)) = self.actor_translation(actor, direction) else {
+                continue;
+            };
+            if at == view.location
+                || !disclosed.contains(&(at, frame))
+                || occupied.contains(&at)
+                || self.exposed_to_visible_hostile(actor, at, view)
+            {
+                continue;
+            }
+            let Ok(cost) = owner.movement_duration(direction) else {
+                continue;
+            };
+            alternatives.push((rank, direction, at, frame, u128::from(cost)));
+        }
+        // All gold targets share this budget. None from route_bounded means
+        // incomplete comparison: discard ALL new candidates, never early-best.
+        blocked_targets.sort();
+        let mut best: Option<(u128, ItemId, usize, tor_world::Direction)> = None;
+        for (item, target) in blocked_targets {
+            for &(rank, direction, at, frame, first_cost) in &alternatives {
+                let Ok(mut search) = self.route_search_from(actor, at, frame) else {
+                    continue;
                 };
-                let action = if let Some(step) = path.first() {
-                    let (at, _) = self.actor_translation(actor, step.direction)?;
-                    if self.exposed_to_visible_hostile(actor, at, view) {
-                        return None;
-                    }
-                    Action::Move(step.direction)
-                } else {
-                    Action::Take {
-                        item: item.id,
-                        quantity: Some(item.quantity),
-                    }
+                let suffix = match search.route_bounded(target, remaining) {
+                    Ok(Some(path)) => path,
+                    Ok(None) => return None,
+                    Err(_) => continue,
                 };
-                (!self.condition_blocks_action(actor, &action)).then_some((
-                    path.len(),
-                    item.id,
-                    action,
-                ))
-            })
-            .min_by_key(|(distance, id, _)| (*distance, *id))
-            .map(|(_, _, action)| action)
+                if suffix.iter().any(|step| {
+                    step.destination == view.location || occupied.contains(&step.destination)
+                }) {
+                    continue;
+                }
+                let Some(cost) = suffix.iter().try_fold(first_cost, |total, step| {
+                    total.checked_add(u128::from(owner.movement_duration(step.direction).ok()?))
+                }) else {
+                    continue;
+                };
+                if best
+                    .as_ref()
+                    .is_none_or(|old| (cost, item, rank) < (old.0, old.1, old.2))
+                {
+                    best = Some((cost, item, rank, direction));
+                }
+            }
+        }
+        best.map(|(_, _, _, direction)| Action::Move(direction))
+    }
+    pub(crate) fn choose_nearby_loot(
+        &self,
+        actor: ActorId,
+        view: &Observation,
+        profile: &crate::ai::AiProfile,
+        sight: &[tor_world::SightCell],
+        route: &mut impl FnMut(Location) -> Option<Vec<TravelStep>>,
+    ) -> Option<Action> {
+        // Existing item priorities, direct routes and non-ranged care are the
+        // compatibility fast path. Only otherwise-idle ranged pair acquisition
+        // may recover a disclosed blocked approach.
+        self.choose_nearby_loot_direct(actor, view, profile, sight, route)
+            .or_else(|| self.choose_ranged_loot_detour(actor, view, profile, route, &mut 512))
     }
 
-    pub(crate) fn choose_nearby_loot(
+    fn choose_nearby_loot_direct(
         &self,
         actor: ActorId,
         view: &Observation,
@@ -67,7 +180,7 @@ impl Game {
         let has_healing = view
             .inventory
             .iter()
-            .any(|item| self.known_healing(actor, item.id));
+            .any(|item| self.known_healing_reserve(actor, item.id));
         let supplies = if profile.care
             && view
                 .ground_items
@@ -92,7 +205,8 @@ impl Game {
                 }
                 let useful_gear =
                     profile.equipment && self.gear_destination(actor, item.id).is_some();
-                let healing = profile.care && !has_healing && self.known_healing(actor, item.id);
+                let healing =
+                    profile.care && !has_healing && self.known_healing_reserve(actor, item.id);
                 let food = wants_food && self.known_food(actor, item.id);
                 let supply = profile
                     .care
