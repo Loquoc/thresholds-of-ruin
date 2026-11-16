@@ -10,6 +10,46 @@ fn positive(amount: &AmountExpr) -> bool {
     }
 }
 impl Game {
+    /// Reserve one known restorative, even before it is useful to consume.
+    /// Preserve legacy pure-healing eligibility; extend only to known healing
+    /// with conservative cures, never arbitrary beneficial or harmful mixtures.
+    pub(crate) fn known_healing_reserve(&self, actor: ActorId, item: crate::ItemId) -> bool {
+        if self.known_healing(actor, item) {
+            return true;
+        }
+        let Some(owner) = self.actors.get(&actor) else {
+            return false;
+        };
+        let Some(item) = self.items.get(&item) else {
+            return false;
+        };
+        if item.spec.concealed && !owner.knowledge.contains(&item.spec.identity) {
+            return false;
+        }
+        let Some(consumable) = &item.spec.consumable else {
+            return false;
+        };
+        let Some(creature) = self.creature(actor) else {
+            return false;
+        };
+        let rules = creature.build().ruleset();
+        let mut heals = false;
+        for effect in &consumable.effects {
+            match effect {
+                Effect::Heal { amount } if positive(amount) => heals = true,
+                Effect::HealPerHitDie { sides, bonus, .. } if *sides > 0 && *bonus >= 0 => {
+                    heals = true;
+                }
+                Effect::RemoveCondition { condition }
+                    if rules.condition(condition).is_some_and(|definition| {
+                        condition_safety(definition) == ConditionSafety::Harmful
+                    }) => {}
+                _ => return false,
+            }
+        }
+        heals
+    }
+
     fn useful_safe_item_effects(
         &self,
         actor: ActorId,

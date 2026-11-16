@@ -3053,3 +3053,77 @@ fn self_device_source_shape_rejects_actor_ability_only_operands() {
         );
     }
 }
+
+fn add_disclosed_neutral_interceptor(game: &mut Game) -> ActorId {
+    let location = tor_world::Location {
+        position: tor_world::Position { x: 2, y: 1, z: 0 },
+        ..game.actors[&ActorId(1)].location
+    };
+    let build = game.creature(ActorId(2)).unwrap().build().clone();
+    let blocker = game
+        .spawn_actor(location, std::num::NonZeroU64::new(100).unwrap())
+        .unwrap();
+    game.configure_creature(
+        blocker,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.neutral-interceptor".parse().unwrap(),
+            name: "Neutral interceptor".into(),
+            faction: "neutral".into(),
+        },
+        build,
+    )
+    .unwrap();
+    let view = game.observe(ActorId(1)).unwrap();
+    for id in [ActorId(2), blocker] {
+        assert!(view
+            .visible_actors
+            .iter()
+            .any(|row| row.id == id
+                && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    }
+    blocker
+}
+
+#[test]
+fn fresh_known_device_ai_avoids_disclosed_neutral_interceptor() {
+    let mut game = fixture();
+    let item = device(&mut game, 10, 5);
+    let scroll = identify_scroll(&mut game, 11, ItemClass::Tool, 1);
+    let choice = execute(&mut game, Action::Read { item: scroll });
+    execute(
+        &mut game,
+        Action::Identify {
+            choice,
+            item: Some(item),
+        },
+    );
+    game.configure_ai(ActorId(1), crate::ai::AiProfile::general())
+        .unwrap();
+    let last_seen = game.actor_clock(ActorId(1));
+    game.actors
+        .get_mut(&ActorId(1))
+        .unwrap()
+        .behavior
+        .engagement = Some(crate::behavior::Engagement {
+        reference: crate::perception::ActorReferenceKind::Creature,
+        target: ActorId(2),
+        location: at(3),
+        last_seen,
+    });
+    assert_eq!(
+        game.choose_ai(ActorId(1)).unwrap().action,
+        Action::Zap {
+            item,
+            aim: crate::DeviceAim::Direction {
+                direction: StepDirection::East
+            },
+        }
+    );
+    add_disclosed_neutral_interceptor(&mut game);
+    let before = game.clone();
+    assert!(!matches!(
+        game.choose_ai(ActorId(1)).unwrap().action,
+        Action::Zap { .. }
+    ));
+    assert_eq!(game, before);
+}

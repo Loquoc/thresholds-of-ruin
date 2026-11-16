@@ -156,11 +156,11 @@ impl Game {
         }) {
             return None;
         }
-        let direction = disclosed_flight_aim(
+        let direction = self.ai_disclosed_flight_aim(
+            actor,
             target,
             sight,
             view,
-            owner.body.eye,
             u16::try_from(range.long_feet / crate::weapon_profiles::PROJECTILE_STEP_FEET).ok()?,
         )?;
         Some(Action::UseAbility {

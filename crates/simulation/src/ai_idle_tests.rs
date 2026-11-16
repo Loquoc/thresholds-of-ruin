@@ -1026,3 +1026,305 @@ fn generic_ai_selects_a_homogeneous_weapon_stack_and_equips_one_through_ordinary
         .thrown_payload
         .is_none());
 }
+
+fn disclosed_gold_bystander_fixture() -> (Game, ActorId) {
+    let mut game = fixture(AiProfile {
+        gold: true,
+        ..AiProfile::default()
+    });
+    let blocker = game
+        .spawn_actor(at(1, 3, 1), std::num::NonZeroU64::new(100).unwrap())
+        .unwrap();
+    let build = game.creature(ActorId(2)).unwrap().build().clone();
+    game.configure_creature(
+        blocker,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.bystander".parse().unwrap(),
+            name: "Bystander".into(),
+            faction: "neutral".into(),
+        },
+        build,
+    )
+    .unwrap();
+    let mut coin = ItemSpec::ordinary("item.test.detour-gold".parse().unwrap(), "gold coin".into());
+    coin.class = crate::ItemClass::Coin;
+    coin.stackable = true;
+    coin.currency = Some(crate::CurrencyKind::Gold);
+    game.place_item_stack(99, at(1, 4, 1), None, 25, coin)
+        .unwrap();
+    game.refresh_navigation();
+    (game, blocker)
+}
+
+#[test]
+fn known_gold_pursuit_keeps_its_purpose_around_a_disclosed_bystander() {
+    let (game, blocker) = disclosed_gold_bystander_fixture();
+    let view = game.observe(ActorId(2)).unwrap();
+    assert!(view
+        .visible_actors
+        .iter()
+        .any(|row| row.id == blocker
+            && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    assert!(view.ground_items.iter().any(
+        |item| item.id == ItemId(99) && item.known_currency == Some(crate::CurrencyKind::Gold)
+    ));
+    let mut route = game.route_search(ActorId(2)).unwrap();
+    assert_eq!(
+        route.route(at(1, 4, 1)).unwrap()[0].destination,
+        at(1, 3, 1)
+    );
+    assert!(game
+        .actor_translation(ActorId(2), Direction::East)
+        .is_none());
+    assert_eq!(
+        game.actor_translation(ActorId(2), Direction::NorthEast)
+            .unwrap()
+            .0,
+        at(1, 3, 0)
+    );
+    let before = game.clone();
+    let choice = game.choose_known_gold(
+        ActorId(2),
+        &view,
+        &game.combat.ai[&ActorId(2)].profile,
+        &mut |target| route.route(target).ok(),
+    );
+    assert_eq!(choice, Some(Action::Move(Direction::NorthEast)));
+    assert_eq!(game, before);
+}
+
+fn bounded_gold_choice(
+    game: &Game,
+    view: &crate::Observation,
+    budget: &mut usize,
+) -> Option<Action> {
+    let mut routes = game.route_search(ActorId(2)).unwrap();
+    game.choose_known_gold_bounded(
+        ActorId(2),
+        view,
+        &game.combat.ai[&ActorId(2)].profile,
+        &mut |target| routes.route(target).ok(),
+        budget,
+    )
+}
+
+#[test]
+fn gold_detour_requires_disclosed_blockage_and_disclosed_first_steps() {
+    let (game, blocker) = disclosed_gold_bystander_fixture();
+    let view = game.observe(ActorId(2)).unwrap();
+    let before = game.clone();
+    assert_eq!(
+        game.choose_ai(ActorId(2)).unwrap().action,
+        Action::Move(Direction::NorthEast)
+    );
+    let mut hidden = view.clone();
+    hidden.visible_actors.retain(|row| row.id != blocker);
+    assert_eq!(bounded_gold_choice(&game, &hidden, &mut 512), None);
+    let mut undisclosed = view.clone();
+    crate::observation::observation_cells_mut(&mut undisclosed.visible_cells)
+        .retain(|cell| cell.location == view.location || cell.location == at(1, 4, 1));
+    assert_eq!(bounded_gold_choice(&game, &undisclosed, &mut 512), None);
+    let mut wrong_frame = view.clone();
+    for cell in crate::observation::observation_cells_mut(&mut wrong_frame.visible_cells) {
+        cell.frame = (cell.frame + 1) % 24;
+    }
+    assert_eq!(bounded_gold_choice(&game, &wrong_frame, &mut 512), None);
+    assert_eq!(game, before);
+}
+
+#[test]
+fn gold_detour_budget_is_shared_and_incomplete_comparisons_never_choose_early_best() {
+    let (mut game, _) = disclosed_gold_bystander_fixture();
+    let view = game.observe(ActorId(2)).unwrap();
+    let mut remaining = 512;
+    let expected = Some(Action::Move(Direction::NorthEast));
+    assert_eq!(bounded_gold_choice(&game, &view, &mut remaining), expected);
+    let used = 512 - remaining;
+    assert!(used > 1 && used < 256);
+    let mut exact = used;
+    assert_eq!(bounded_gold_choice(&game, &view, &mut exact), expected);
+    assert_eq!(exact, 0);
+    assert_eq!(bounded_gold_choice(&game, &view, &mut (used - 1)), None);
+    assert_eq!(bounded_gold_choice(&game, &view, &mut 0), None);
+    let mut coin = ItemSpec::ordinary(
+        "item.test.second-detour-gold".parse().unwrap(),
+        "other gold".into(),
+    );
+    coin.class = crate::ItemClass::Coin;
+    coin.stackable = true;
+    coin.currency = Some(crate::CurrencyKind::Gold);
+    game.place_item_stack(100, at(1, 4, 1), None, 7, coin)
+        .unwrap();
+    let view = game.observe(ActorId(2)).unwrap();
+    assert_eq!(
+        view.ground_items
+            .iter()
+            .filter(|item| item.known_currency == Some(crate::CurrencyKind::Gold))
+            .count(),
+        2
+    );
+    let before = game.clone();
+    let mut partial = used + 1;
+    assert_eq!(bounded_gold_choice(&game, &view, &mut partial), None);
+    assert_eq!(partial, 0);
+    assert_eq!(bounded_gold_choice(&game, &view, &mut (used * 2)), expected);
+    let mut reordered = view.clone();
+    reordered.ground_items.reverse();
+    reordered.visible_actors.reverse();
+    assert_eq!(bounded_gold_choice(&game, &reordered, &mut 512), expected);
+    assert_eq!(game, before);
+}
+
+#[test]
+fn gold_detours_preserve_direct_choices_and_decline_known_occupied_suffixes() {
+    let (mut game, blocker) = disclosed_gold_bystander_fixture();
+    game.teleport(blocker, at(1, 0, 0)).unwrap();
+    game.refresh_navigation();
+    let view = game.observe(ActorId(2)).unwrap();
+    let mut budget = 0;
+    assert_eq!(
+        bounded_gold_choice(&game, &view, &mut budget),
+        Some(Action::Move(Direction::East))
+    );
+    assert_eq!(budget, 0);
+    game.teleport(blocker, at(1, 3, 1)).unwrap();
+    let target_blocker = game
+        .spawn_actor(at(1, 4, 1), std::num::NonZeroU64::new(100).unwrap())
+        .unwrap();
+    game.configure_creature(
+        target_blocker,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.goal-bystander".parse().unwrap(),
+            name: "Goal bystander".into(),
+            faction: "neutral".into(),
+        },
+        game.creature(blocker).unwrap().build().clone(),
+    )
+    .unwrap();
+    game.refresh_navigation();
+    let view = game.observe(ActorId(2)).unwrap();
+    assert!(view
+        .visible_actors
+        .iter()
+        .any(|row| row.id == target_blocker
+            && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    assert_eq!(bounded_gold_choice(&game, &view, &mut 512), None);
+    game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.idle = IdleBehavior::Wait;
+    assert_eq!(bounded_gold_choice(&game, &view, &mut 512), None);
+}
+
+fn greedy_disclosed_gold_bystander_fixture(goal_occupied: bool) -> Game {
+    // Disposition is authored BEFORE compilation, not patched into private
+    // derived state or asserted through a profile that cannot own disposition.
+    let hero = crate::test_creatures::species();
+    let mut greedy = crate::test_creatures::species();
+    greedy.behavior.disposition = crate::behavior::Disposition::Greedy;
+    let mut game = super::tests::configured_game(hero, greedy, crate::test_creatures::ruleset());
+    game.teleport(ActorId(1), at(2, 4, 2)).unwrap();
+    game.set_region_light(RegionId(2), false).unwrap();
+    game.configure_ai(
+        ActorId(2),
+        AiProfile {
+            gold: true,
+            ..AiProfile::default()
+        },
+    )
+    .unwrap();
+    for location in std::iter::once(at(1, 3, 1)).chain(goal_occupied.then_some(at(1, 4, 1))) {
+        let build = game.creature(ActorId(2)).unwrap().build().clone();
+        let blocker = game
+            .spawn_actor(location, std::num::NonZeroU64::new(100).unwrap())
+            .unwrap();
+        game.configure_creature(
+            blocker,
+            crate::CreatureIdentity {
+                corpse_identity: "item.corpse.test.gold-bystander".parse().unwrap(),
+                name: "Bystander".into(),
+                faction: "neutral".into(),
+            },
+            build,
+        )
+        .unwrap();
+    }
+    let mut coin = ItemSpec::ordinary("item.test.detour-gold".parse().unwrap(), "gold coin".into());
+    coin.class = crate::ItemClass::Coin;
+    coin.stackable = true;
+    coin.currency = Some(crate::CurrencyKind::Gold);
+    game.place_item_stack(99, at(1, 4, 1), None, 25, coin)
+        .unwrap();
+    game.refresh_navigation();
+    assert_eq!(
+        game.actors[&ActorId(2)]
+            .behavior_policy()
+            .unwrap()
+            .disposition,
+        crate::behavior::Disposition::Greedy
+    );
+    game
+}
+
+#[test]
+fn greedy_gold_acquisition_and_search_share_positive_and_negative_detour_work() {
+    for goal_occupied in [false, true] {
+        let game = greedy_disclosed_gold_bystander_fixture(goal_occupied);
+        let view = game.observe(ActorId(2)).unwrap();
+        assert!(!game.exposed_to_visible_hostile(ActorId(2), view.location, &view));
+        assert!(view
+            .visible_actors
+            .iter()
+            .any(|row| row.location == at(1, 3, 1)
+                && row.disclosure == crate::perception::ActorDisclosure::Creature));
+        if goal_occupied {
+            assert!(view
+                .visible_actors
+                .iter()
+                .any(|row| row.location == at(1, 4, 1)
+                    && row.disclosure == crate::perception::ActorDisclosure::Creature));
+        }
+        let before = game.clone();
+        let count = crate::diagnostics::work_counts().route_searches;
+        let standalone = bounded_gold_choice(&game, &view, &mut 512);
+        let once = crate::diagnostics::work_counts().route_searches - count;
+        assert!(
+            once > 1,
+            "must include direct-route search plus detour searches"
+        );
+        assert_eq!(
+            standalone,
+            (!goal_occupied).then_some(Action::Move(Direction::NorthEast))
+        );
+        for _ in 0..2 {
+            let count = crate::diagnostics::work_counts().route_searches;
+            let decision = game.choose_ai(ActorId(2)).unwrap();
+            assert_eq!(
+                crate::diagnostics::work_counts().route_searches - count,
+                once,
+                "Greedy acquisition and Search must reuse even a negative result"
+            );
+            if let Some(expected) = &standalone {
+                assert_eq!(&decision.action, expected);
+            }
+            assert_eq!(
+                game, before,
+                "previews do not commit behavior RNG, visits, or time"
+            );
+        }
+    }
+}
+
+#[test]
+fn wait_gold_policy_rejects_an_otherwise_valid_disclosed_detour() {
+    let (mut game, _) = disclosed_gold_bystander_fixture();
+    let view = game.observe(ActorId(2)).unwrap();
+    assert_eq!(
+        bounded_gold_choice(&game, &view, &mut 512),
+        Some(Action::Move(Direction::NorthEast))
+    );
+    game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.idle = IdleBehavior::Wait;
+    let before = game.clone();
+    let mut budget = 512;
+    assert_eq!(bounded_gold_choice(&game, &view, &mut budget), None);
+    assert_eq!(budget, 512, "Wait never enters speculative detour search");
+    assert_eq!(game.choose_ai(ActorId(2)).unwrap().action, Action::Wait);
+    assert_eq!(game, before);
+}

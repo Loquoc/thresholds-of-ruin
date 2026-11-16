@@ -17,16 +17,16 @@ fixture, never a replacement or an independent rate sample.
 The route arm named `production` is the explicit, frozen preactivation E/S source
 snapshot at `8d09063840c51aa4189b146c287829102856b279`, with an explicitly recorded
 adaptation for the current scenario format. Its ordinary population remains two
-emus and two snakes. The current source-only fixture is baseline v34, retaining
+emus and two snakes. The current source-only fixture is baseline v38, retaining
 exact package inputs and its current bundled-rule source hash. Its latest
-transition changes only the bundled import from historical rules identity 60 to
-`interactions-v61`. The identity covers ranged positioning and distance-unbounded
-known-loot AI; shared behavior changes may change route outcomes. Historical v33
+transition changes only the bundled import from historical rules identity 64 to
+`interactions-v65`. The identity covers conservative known-medicine pickup and
+reserve recognition, without changing consumption policy or disclosing unknown effects; shared behavior changes may change route outcomes. Historical v37 retains bounded known ranged-kit recovery; v36 retains bounded known-gold pursuit detours; v35 retains fresh ranged-choice interception avoidance; v34 retains ranged positioning and distance-unbounded known-loot AI; v33
 retains the targeting/effect-presentation transition; v32 retains seeded
 exploration tie-breaking. These adaptations add no current production loot to
 the frozen baseline.
-The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v33/source.json)
-and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v34/format-transition.json)
+The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v37/source.json)
+and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v38/format-transition.json)
 retain the exact old/new identities and hashes; their historical proof is not
 rewritten. The dependency digest attests to actual bundled source bytes, not a
 compiler certificate. No body-package enrollment, two-HD player kit, treasure-room stages, darts,

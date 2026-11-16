@@ -5079,3 +5079,502 @@ fn homogeneous_melee_equip_frozen_slot_change_cannot_extract_a_reserved_unit() {
     assert_eq!(game.equipment(actor).unwrap()[&EquipmentSlotId(0)], other);
     assert_eq!(game.items[&source].quantity, 3);
 }
+
+fn add_disclosed_neutral_interceptor(game: &mut Game) -> ActorId {
+    let location = tor_world::Location {
+        position: tor_world::Position { x: 2, y: 1, z: 0 },
+        ..game.actors[&ActorId(1)].location
+    };
+    let build = game.creature(ActorId(2)).unwrap().build().clone();
+    let blocker = game
+        .spawn_actor(location, std::num::NonZeroU64::new(100).unwrap())
+        .unwrap();
+    game.configure_creature(
+        blocker,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.neutral-interceptor".parse().unwrap(),
+            name: "Neutral interceptor".into(),
+            faction: "neutral".into(),
+        },
+        build,
+    )
+    .unwrap();
+    let view = game.observe(ActorId(1)).unwrap();
+    for id in [ActorId(2), blocker] {
+        assert!(view
+            .visible_actors
+            .iter()
+            .any(|row| row.id == id
+                && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    }
+    blocker
+}
+
+#[test]
+fn fresh_launcher_ai_avoids_disclosed_neutral_interceptor() {
+    let (mut game, ability, selection, _, _) = ai_projectile_fixture();
+    assert!(matches!(
+        selection,
+        ProjectileDeliverySelection::Launch { .. }
+    ));
+    assert_eq!(
+        game.choose_ai(ActorId(1)).unwrap().action,
+        crate::Action::UseAbility {
+            id: ability.clone(),
+            invocation: AbilityInvocation::directional_projectile(StepDirection::East, selection),
+            supplies: Default::default(),
+        }
+    );
+    add_disclosed_neutral_interceptor(&mut game);
+    let before = game.clone();
+    assert!(!matches!(game.choose_ai(ActorId(1)).unwrap().action,
+        crate::Action::UseAbility { id, .. } if id == ability));
+    assert_eq!(game, before);
+}
+
+#[test]
+fn fresh_equipped_throw_ai_avoids_disclosed_neutral_interceptor() {
+    let (mut game, _, _) = paid_throw_fixture(false);
+    let target = tor_world::Location {
+        position: tor_world::Position { x: 4, y: 1, z: 0 },
+        ..game.actors[&ActorId(2)].location
+    };
+    game.teleport(ActorId(2), target).unwrap();
+    game.configure_ai(ActorId(1), crate::ai::AiProfile::general())
+        .unwrap();
+    let last_seen = game.actor_clock(ActorId(1));
+    game.actors
+        .get_mut(&ActorId(1))
+        .unwrap()
+        .behavior
+        .engagement = Some(crate::behavior::Engagement {
+        reference: crate::perception::ActorReferenceKind::Creature,
+        target: ActorId(2),
+        location: target,
+        last_seen,
+    });
+    game.refresh_navigation();
+    let crate::Action::UseAbility {
+        id: ability,
+        invocation,
+        ..
+    } = game.choose_ai(ActorId(1)).unwrap().action
+    else {
+        panic!("fixture must select fresh throw");
+    };
+    assert!(matches!(
+        invocation.aim,
+        AbilityAim::DirectionalProjectile {
+            direction: StepDirection::East,
+            delivery: ProjectileDeliverySelection::Throw { .. },
+        }
+    ));
+    add_disclosed_neutral_interceptor(&mut game);
+    let before = game.clone();
+    assert!(!matches!(game.choose_ai(ActorId(1)).unwrap().action,
+        crate::Action::UseAbility { id, .. } if id == ability));
+    assert_eq!(game, before);
+}
+
+fn blocked_ranged_pair_fixture(launcher_home: bool) -> (Game, ItemId, ItemId, ActorId) {
+    let (mut game, _, _, launcher, ammo) =
+        projectile_launch_fixture_with(|def| def.ai.priority = 100);
+    let actor = ActorId(1);
+    let region = tor_world::RegionId(901);
+    game.world
+        .add_chamber(tor_world::Region {
+            id: region,
+            name: "disclosed ranged pair detour".into(),
+            bounds: tor_world::Extent::new(8, 3, 2).unwrap(),
+        })
+        .unwrap();
+    let origin = tor_world::Location {
+        region,
+        position: tor_world::Position { x: 1, y: 1, z: 0 },
+    };
+    game.teleport(actor, origin).unwrap();
+    clear_ranged_fixture_equipment(&mut game);
+    let target = tor_world::Location {
+        position: tor_world::Position {
+            x: 4,
+            ..origin.position
+        },
+        ..origin
+    };
+    for (id, home) in [(launcher, launcher_home), (ammo, !launcher_home)] {
+        game.items
+            .edit(id, |item| {
+                item.location = crate::ItemLocation::Ground(if home { origin } else { target })
+            })
+            .unwrap();
+    }
+    let blocker = game
+        .spawn_actor(
+            tor_world::Location {
+                position: tor_world::Position {
+                    x: 2,
+                    ..origin.position
+                },
+                ..origin
+            },
+            std::num::NonZeroU64::new(100).unwrap(),
+        )
+        .unwrap();
+    let build = game.creature(actor).unwrap().build().clone();
+    game.configure_creature(
+        blocker,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.kit-bystander".parse().unwrap(),
+            name: "Kit bystander".into(),
+            faction: "neutral".into(),
+        },
+        build,
+    )
+    .unwrap();
+    game.refresh_navigation();
+    let view = game.observe(actor).unwrap();
+    for item in [launcher, ammo] {
+        assert!(view
+            .ground_items
+            .iter()
+            .any(|row| row.id == item && row.identified));
+    }
+    assert!(view
+        .visible_actors
+        .iter()
+        .any(|row| row.id == blocker
+            && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    let path = game.route_search(actor).unwrap().route(target).unwrap();
+    assert_eq!(path[0].destination, game.actors[&blocker].location);
+    assert!(game.actor_translation(actor, path[0].direction).is_none());
+    assert!(game
+        .actor_translation(actor, tor_world::Direction::NorthEast)
+        .is_some());
+    (game, launcher, ammo, blocker)
+}
+
+fn routed_ranged_loot_choice(game: &Game) -> Option<crate::Action> {
+    let actor = ActorId(1);
+    let view = game.observe(actor).unwrap();
+    let mut search = game.route_search(actor).unwrap();
+    game.choose_nearby_loot(
+        actor,
+        &view,
+        &crate::ai::AiProfile::general(),
+        &[],
+        &mut |at| search.route(at).ok(),
+    )
+}
+
+#[test]
+fn ranged_loot_keeps_underfoot_half_of_a_pair_with_disclosed_remote_detour() {
+    for launcher_home in [false, true] {
+        let (game, launcher, ammo, _) = blocked_ranged_pair_fixture(launcher_home);
+        let before = game.clone();
+        assert_eq!(
+            routed_ranged_loot_choice(&game),
+            Some(crate::Action::Take {
+                item: if launcher_home { launcher } else { ammo },
+                quantity: Some(if launcher_home { 1 } else { 2 }),
+            }),
+            "launcher_home={launcher_home}"
+        );
+        assert_eq!(game, before);
+    }
+}
+
+#[test]
+fn ranged_loot_reuses_remote_detour_after_collecting_the_underfoot_half() {
+    for launcher_home in [false, true] {
+        let (mut game, launcher, ammo, _) = blocked_ranged_pair_fixture(launcher_home);
+        let actor = ActorId(1);
+        let home = if launcher_home { launcher } else { ammo };
+        game.items
+            .edit(home, |item| {
+                item.location = crate::ItemLocation::Carried(actor)
+            })
+            .unwrap();
+        let before = game.clone();
+        let choice = routed_ranged_loot_choice(&game);
+        let Some(crate::Action::Move(direction)) = choice else {
+            panic!("partner must retain its approach: {choice:?}");
+        };
+        let (at, _) = game.actor_translation(actor, direction).unwrap();
+        assert_eq!(at.position.x, 2);
+        assert_ne!(at.position.y, 1, "must not request blocked original route");
+        assert_eq!(game, before);
+        // Move the diagnostic anchor to the chosen disclosed first step. This
+        // is not a paid-movement claim; the process regression owns committed play.
+        game.teleport(actor, at).unwrap();
+        game.refresh_navigation();
+        let Some(crate::Action::Move(next)) = routed_ranged_loot_choice(&game) else {
+            panic!("continue toward remote half");
+        };
+        assert_ne!(
+            game.actor_translation(actor, next).unwrap().0.position.x,
+            1,
+            "do not return to the original underfoot half after collecting it"
+        );
+    }
+}
+
+fn ranged_detour_with_budget(
+    game: &Game,
+    view: &crate::Observation,
+    profile: &crate::ai::AiProfile,
+    remaining: &mut usize,
+) -> Option<crate::Action> {
+    let mut route = game.route_search(ActorId(1)).unwrap();
+    game.choose_ranged_loot_detour(
+        ActorId(1),
+        view,
+        profile,
+        &mut |at| route.route(at).ok(),
+        remaining,
+    )
+}
+
+#[test]
+fn ranged_pair_detour_requires_disclosed_obstruction_and_respects_policy() {
+    let (game, _, ammo, blocker) = blocked_ranged_pair_fixture(false);
+    let view = game.observe(ActorId(1)).unwrap();
+    let profile = crate::ai::AiProfile::general();
+    let expected = Some(crate::Action::Take {
+        item: ammo,
+        quantity: Some(2),
+    });
+    let before = game.clone();
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut 512),
+        expected
+    );
+    let mut hidden = view.clone();
+    hidden.visible_actors.retain(|row| row.id != blocker);
+    assert_eq!(
+        ranged_detour_with_budget(&game, &hidden, &profile, &mut 512),
+        None
+    );
+    let mut contact = view.clone();
+    for row in contact
+        .visible_actors
+        .iter_mut()
+        .filter(|row| row.id == blocker)
+    {
+        row.disclosure = crate::perception::ActorDisclosure::AnonymousContact;
+    }
+    assert_eq!(
+        ranged_detour_with_budget(&game, &contact, &profile, &mut 512),
+        None
+    );
+    let mut undisclosed = view.clone();
+    crate::observation::observation_cells_mut(&mut undisclosed.visible_cells)
+        .retain(|cell| cell.location == view.location);
+    assert_eq!(
+        ranged_detour_with_budget(&game, &undisclosed, &profile, &mut 512),
+        None
+    );
+    let mut wrong_frame = view.clone();
+    for cell in crate::observation::observation_cells_mut(&mut wrong_frame.visible_cells) {
+        cell.frame = (cell.frame + 1) % 24;
+    }
+    assert_eq!(
+        ranged_detour_with_budget(&game, &wrong_frame, &profile, &mut 512),
+        None
+    );
+    for disabled in 0..3 {
+        let mut policy = profile.clone();
+        match disabled {
+            0 => policy.idle = crate::behavior::IdleBehavior::Wait,
+            1 => policy.equipment = false,
+            _ => policy.loot = false,
+        }
+        let mut budget = 512;
+        assert_eq!(
+            ranged_detour_with_budget(&game, &view, &policy, &mut budget),
+            None
+        );
+        assert_eq!(budget, 512);
+    }
+    assert_eq!(game, before);
+}
+
+#[test]
+fn ranged_pair_detour_shares_budget_and_caches_each_destination_once() {
+    let (mut game, launcher, ammo, _) = blocked_ranged_pair_fixture(true);
+    let profile = crate::ai::AiProfile::general();
+    let view = game.observe(ActorId(1)).unwrap();
+    let expected = Some(crate::Action::Take {
+        item: launcher,
+        quantity: Some(1),
+    });
+    let mut remaining = 512;
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut remaining),
+        expected
+    );
+    let used = 512 - remaining;
+    assert!(used > 1 && used < 256);
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut (used - 1)),
+        None
+    );
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut 0),
+        None
+    );
+    let crate::ItemLocation::Ground(remote) = game.items[&ammo].location else {
+        unreachable!()
+    };
+    let payload = (*game.items[&ammo].spec).clone();
+    let duplicate = game
+        .spawn_item_stack(remote, None, 3, payload.clone())
+        .unwrap();
+    let view = game.observe(ActorId(1)).unwrap();
+    assert!(view.ground_items.iter().any(|row| row.id == duplicate));
+    assert_eq!(
+        view.ground_items
+            .iter()
+            .filter(|row| row.location == remote)
+            .count(),
+        2
+    );
+    let mut exact = used;
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut exact),
+        expected
+    );
+    assert_eq!(
+        exact, 0,
+        "co-located candidates share one completed approach"
+    );
+    let second = tor_world::Location {
+        position: tor_world::Position {
+            x: 5,
+            ..remote.position
+        },
+        ..remote
+    };
+    game.spawn_item_stack(second, None, 3, payload).unwrap();
+    game.refresh_navigation();
+    let view = game.observe(ActorId(1)).unwrap();
+    let before = game.clone();
+    let mut incomplete = used + 1;
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut incomplete),
+        None,
+        "a complete first target does not license a pair after a later query exhausts"
+    );
+    assert_eq!(incomplete, 0);
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut 512),
+        expected
+    );
+    let mut reversed = view.clone();
+    reversed.ground_items.reverse();
+    reversed.visible_actors.reverse();
+    assert_eq!(
+        ranged_detour_with_budget(&game, &reversed, &profile, &mut 512),
+        expected
+    );
+    assert_eq!(game, before);
+}
+
+#[test]
+fn ranged_pair_detour_does_not_invent_knowledge_or_ignore_exposure() {
+    let (game, launcher, ammo, blocker) = blocked_ranged_pair_fixture(true);
+    let profile = crate::ai::AiProfile::general();
+    let view = game.observe(ActorId(1)).unwrap();
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut 512),
+        Some(crate::Action::Take {
+            item: launcher,
+            quantity: Some(1)
+        })
+    );
+    let mut unknown = game.clone();
+    unknown
+        .items
+        .edit(ammo, |item| {
+            let mut spec = (*item.spec).clone();
+            spec.identity = "item.test.unknown-detour-ammunition".parse().unwrap();
+            spec.concealed = true;
+            spec.appearance = "unknown projectile".into();
+            *item.spec = spec;
+        })
+        .unwrap();
+    let view = unknown.observe(ActorId(1)).unwrap();
+    assert!(view
+        .ground_items
+        .iter()
+        .any(|row| row.id == ammo && !row.identified));
+    assert_eq!(
+        ranged_detour_with_budget(&unknown, &view, &profile, &mut 512),
+        None
+    );
+    let mut exposed = game.clone();
+    let engagement = crate::behavior::Engagement {
+        reference: crate::perception::ActorReferenceKind::Creature,
+        target: blocker,
+        location: exposed.actors[&blocker].location,
+        last_seen: exposed.actor_clock(ActorId(1)),
+    };
+    exposed
+        .actors
+        .get_mut(&ActorId(1))
+        .unwrap()
+        .behavior
+        .engagement = Some(engagement);
+    let view = exposed.observe(ActorId(1)).unwrap();
+    let (near, _) = exposed
+        .actor_translation(ActorId(1), tor_world::Direction::NorthEast)
+        .unwrap();
+    assert!(exposed.exposed_to_visible_hostile(ActorId(1), near, &view));
+    assert_eq!(
+        ranged_detour_with_budget(&exposed, &view, &profile, &mut 512),
+        None
+    );
+}
+
+#[test]
+fn ranged_pair_detour_declines_a_disclosed_occupied_remote_goal() {
+    let (mut game, launcher, ammo, _) = blocked_ranged_pair_fixture(true);
+    let profile = crate::ai::AiProfile::general();
+    let view = game.observe(ActorId(1)).unwrap();
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut 512),
+        Some(crate::Action::Take {
+            item: launcher,
+            quantity: Some(1)
+        })
+    );
+    let crate::ItemLocation::Ground(remote) = game.items[&ammo].location else {
+        unreachable!()
+    };
+    let blocker = game
+        .spawn_actor(remote, std::num::NonZeroU64::new(100).unwrap())
+        .unwrap();
+    let build = game.creature(ActorId(1)).unwrap().build().clone();
+    game.configure_creature(
+        blocker,
+        crate::CreatureIdentity {
+            corpse_identity: "item.corpse.test.remote-kit-bystander".parse().unwrap(),
+            name: "Remote kit bystander".into(),
+            faction: "neutral".into(),
+        },
+        build,
+    )
+    .unwrap();
+    game.refresh_navigation();
+    let view = game.observe(ActorId(1)).unwrap();
+    assert!(view
+        .visible_actors
+        .iter()
+        .any(|row| row.id == blocker
+            && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    let before = game.clone();
+    assert_eq!(
+        ranged_detour_with_budget(&game, &view, &profile, &mut 512),
+        None
+    );
+    assert_eq!(game, before);
+}

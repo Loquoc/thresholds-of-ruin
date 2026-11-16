@@ -73,7 +73,7 @@ pub use tor_simulation::EdibleSpec;
 use tor_simulation::Game;
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
-pub const RULESET: &str = "interactions-v61";
+pub const RULESET: &str = "interactions-v65";
 const VALIDATOR: &str = "tor-scenario-51";
 /// The manifest and the validator's files are bounded to this.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
@@ -5417,7 +5417,7 @@ mod tests {
         let original = read_package(&root).unwrap();
         original.check_identity().unwrap();
         assert_eq!(original.certificate.validator, "tor-scenario-51");
-        assert_eq!(original.certificate.ruleset, "interactions-v61");
+        assert_eq!(original.certificate.ruleset, "interactions-v65");
         let current_artifact = artifact::relative_root(&original);
         for (boundary, identity) in [
             ("validator", "tor-scenario-27"),
@@ -7263,7 +7263,7 @@ mod tests {
 
     #[test]
     fn shared_rules_import_accepts_validated_scenario_override() {
-        let source = r#"import = "interactions-v61"
+        let source = r#"import = "interactions-v65"
 [[overrides]]
 op = "set"
 path = ["constants", "base_defense"]

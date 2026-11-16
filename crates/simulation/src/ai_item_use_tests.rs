@@ -488,6 +488,245 @@ fn authored_care_fixture(name: &str, scroll: bool) -> Game {
     game
 }
 
+// A unit-only external input boundary. No direct knowledge mutation or paid
+// completion shortcut; ordinary scheduler work earns the consumption/discovery.
+fn perform_care_test_action(game: &mut Game, action: Action) {
+    let ai = game.combat.ai.remove(&OWNER).unwrap();
+    for _ in 0..32 {
+        if game.next_actor() == Some(OWNER) {
+            break;
+        }
+        game.act(game.next_actor().unwrap(), Action::Wait).unwrap();
+    }
+    assert_eq!(game.next_actor(), Some(OWNER));
+    game.admit_intention(OWNER, action, crate::IntentionOrigin::Human)
+        .unwrap();
+    game.execute_next_intention().unwrap().outcome.unwrap();
+    for _ in 0..32 {
+        if game.preparation(OWNER).is_none() {
+            break;
+        }
+        game.act(game.next_actor().unwrap(), Action::Wait).unwrap();
+    }
+    assert!(game.preparation(OWNER).is_none());
+    game.combat.ai.insert(OWNER, ai);
+}
+
+fn reserve_choice(game: &Game, care: bool) -> Option<Action> {
+    let view = game.observe(OWNER).unwrap();
+    assert!(!game.exposed_to_visible_hostile(OWNER, view.location, &view));
+    let mut profile = AiProfile::general();
+    profile.care = care;
+    game.choose_nearby_loot(OWNER, &view, &profile, &[], &mut |_| {
+        panic!("underfoot reserve needs no route")
+    })
+}
+
+#[test]
+fn authored_healing_discovered_by_drinking_is_reserved_from_ground() {
+    for name in ["rogue.healing", "rogue.extra_healing"] {
+        let mut game = authored_care_fixture(name, false);
+        let spec = (*game.items[&ITEM].spec).clone();
+        let identity = spec.identity.clone();
+        let mut peer_at = game.actors[&ActorId(1)].location;
+        peer_at.position.x = 4;
+        game.teleport(ActorId(1), peer_at).unwrap();
+        assert!(!game.actors[&OWNER].knowledge.contains(&identity));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(&identity));
+        perform_care_test_action(&mut game, Action::Drink { item: ITEM });
+        assert!(!game.items.contains_key(&ITEM));
+        assert!(game.actors[&OWNER].knowledge.contains(&identity));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(&identity));
+        let at = game.actors[&OWNER].location;
+        let replacement = ItemId(42);
+        game.place_item_stack(replacement.0, at, None, 3, spec)
+            .unwrap();
+        let view = game.observe(OWNER).unwrap();
+        assert!(!game.exposed_to_visible_hostile(OWNER, at, &view));
+        let before = game.clone();
+        assert_eq!(
+            game.choose_nearby_loot(OWNER, &view, &AiProfile::general(), &[], &mut |_| panic!(
+                "underfoot reserve needs no route"
+            ),),
+            Some(Action::Take {
+                item: replacement,
+                quantity: Some(1)
+            }),
+            "ordinary discovery should make {name} eligible as one finite reserve"
+        );
+        assert_eq!(game, before);
+        perform_care_test_action(
+            &mut game,
+            Action::Take {
+                item: replacement,
+                quantity: Some(1),
+            },
+        );
+        let view = game.observe(OWNER).unwrap();
+        assert_eq!(view.inventory.len(), 1);
+        assert_eq!(view.inventory[0].quantity, 1);
+        assert_eq!(game.items[&replacement].quantity, 2);
+        assert_eq!(reserve_choice(&game, true), None);
+        let (hp, maximum) = game.health(OWNER).unwrap();
+        assert_eq!(hp, maximum, "reserve fixture remains at full health");
+        assert!(!matches!(
+            game.choose_ai(OWNER).unwrap().action,
+            Action::Drink { .. }
+        ));
+        assert!(!game.actors[&ActorId(1)].knowledge.contains(&identity));
+    }
+}
+
+#[test]
+fn healing_reserve_rejects_unknown_foreign_and_unsafe_mixtures() {
+    let mut game = authored_care_fixture("rogue.healing", false);
+    assert!(!game.known_healing_reserve(OWNER, ITEM));
+    game.identify_item(ActorId(1), ITEM).unwrap();
+    assert!(!game.known_healing_reserve(OWNER, ITEM));
+    game.identify_item(OWNER, ITEM).unwrap();
+    assert!(game.known_healing_reserve(OWNER, ITEM));
+    let before = game.clone();
+    assert!(game.known_healing_reserve(OWNER, ITEM));
+    assert_eq!(game, before);
+    for kind in 0..4 {
+        let mut altered = game.clone();
+        altered
+            .items
+            .edit(ITEM, |item| {
+                let effects = &mut item.spec.consumable.as_mut().unwrap().effects;
+                match kind {
+                    0 => effects.push(Effect::LoseMaximumHealth {
+                        amount: crate::rules::AmountExpr::Fixed { amount: 1 },
+                    }),
+                    1 => effects.retain(|effect| matches!(effect, Effect::RemoveCondition { .. })),
+                    2 => effects.push(Effect::RemoveCondition {
+                        condition: ConditionId::new("unknown_reserve_condition").unwrap(),
+                    }),
+                    _ => effects.clear(),
+                }
+            })
+            .unwrap();
+        assert!(
+            !altered.known_healing_reserve(OWNER, ITEM),
+            "variant {kind}"
+        );
+    }
+    for (sides, bonus) in [(0, 0), (4, -1)] {
+        let mut nonpositive = game.clone();
+        nonpositive
+            .items
+            .edit(ITEM, |item| {
+                for effect in &mut item.spec.consumable.as_mut().unwrap().effects {
+                    if let Effect::HealPerHitDie {
+                        sides: old_sides,
+                        bonus: old_bonus,
+                        ..
+                    } = effect
+                    {
+                        *old_sides = sides;
+                        *old_bonus = bonus;
+                    }
+                }
+            })
+            .unwrap();
+        assert!(!nonpositive.known_healing_reserve(OWNER, ITEM));
+    }
+    let mut legacy = game.clone();
+    legacy
+        .items
+        .edit(ITEM, |item| {
+            item.spec.consumable.as_mut().unwrap().effects = vec![Effect::Heal {
+                amount: crate::rules::AmountExpr::Rolled {
+                    dice: crate::rules::DiceExpr {
+                        count: 1,
+                        sides: 4,
+                        bonus: -1,
+                    },
+                },
+            }];
+        })
+        .unwrap();
+    assert!(crate::dice::DicePool::new(1, 4, -1).unwrap().maximum() > 0);
+    assert!(legacy.known_healing(OWNER, ITEM));
+    assert!(
+        legacy.known_healing_reserve(OWNER, ITEM),
+        "legacy acceptance is unchanged"
+    );
+    let mut beneficial = fixture(false);
+    beneficial.identify_item(OWNER, ITEM).unwrap();
+    beneficial
+        .items
+        .edit(ITEM, |item| {
+            item.spec.consumable.as_mut().unwrap().effects = vec![
+                Effect::Heal {
+                    amount: crate::rules::AmountExpr::Fixed { amount: 1 },
+                },
+                Effect::RemoveCondition {
+                    condition: ConditionId::new("care_fixture_guard").unwrap(),
+                },
+            ];
+        })
+        .unwrap();
+    assert!(!beneficial.known_healing_reserve(OWNER, ITEM));
+}
+
+#[test]
+fn healing_reserve_is_shared_across_production_and_legacy_types_and_respects_care() {
+    for carried_kind in 0..3 {
+        let mut game = authored_care_fixture("rogue.healing", false);
+        game.identify_item(OWNER, ITEM).unwrap();
+        let mut peer_at = game.actors[&ActorId(1)].location;
+        peer_at.position.x = 4;
+        game.teleport(ActorId(1), peer_at).unwrap();
+        let production = (*game.items[&ITEM].spec).clone();
+        let mut legacy = ItemSpec::ordinary(
+            "item.test.legacy-reserve".parse().unwrap(),
+            "legacy reserve".into(),
+        );
+        legacy.class = ItemClass::Potion;
+        legacy.stackable = true;
+        legacy.consumable = Some(crate::ConsumableSpec {
+            descriptors: vec![],
+            discovery: crate::ItemDiscovery::Never,
+            effects: vec![Effect::Heal {
+                amount: crate::rules::AmountExpr::Fixed { amount: 1 },
+            }],
+        });
+        let ground = match carried_kind {
+            0 => legacy,
+            1 => {
+                game.items.edit(ITEM, |item| *item.spec = legacy).unwrap();
+                production
+            }
+            _ => (*authored_care_fixture("rogue.extra_healing", false).items[&ITEM].spec).clone(),
+        };
+        let at = game.actors[&OWNER].location;
+        let replacement = ItemId(42);
+        game.place_item_stack(replacement.0, at, None, 3, ground)
+            .unwrap();
+        game.identify_item(OWNER, replacement).unwrap();
+        assert!(game.known_healing_reserve(OWNER, ITEM));
+        assert!(game.known_healing_reserve(OWNER, replacement));
+        // Positive pickup without carried reserve establishes the suppression
+        // is not an unknown item, blocked route, or unrelated policy failure.
+        let mut without_carried = game.clone();
+        perform_care_test_action(&mut without_carried, Action::Drink { item: ITEM });
+        assert_eq!(
+            reserve_choice(&without_carried, true),
+            Some(Action::Take {
+                item: replacement,
+                quantity: Some(1),
+            })
+        );
+        assert_eq!(reserve_choice(&without_carried, false), None);
+        assert_eq!(
+            reserve_choice(&game, true),
+            None,
+            "carried kind {carried_kind}"
+        );
+    }
+}
+
 #[test]
 fn authored_rogue_healing_and_extra_healing_cure_without_identity_cheats() {
     for name in ["rogue.healing", "rogue.extra_healing"] {

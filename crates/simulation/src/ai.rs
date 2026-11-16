@@ -170,6 +170,8 @@ impl AiAbilityChoice {
         }
     }
 }
+#[path = "ai_flight_safety.rs"]
+mod flight_safety;
 #[path = "ai_projectiles.rs"]
 mod projectiles;
 
@@ -323,6 +325,8 @@ impl Game {
         }
         let mut search = self.route_search(id).ok();
         let mut route = |destination| search.as_mut()?.route(destination).ok();
+        // Greedy acquisition and Search share one positive/negative gold choice.
+        let mut gold_choice: Option<Option<Action>> = None;
         let candidate = view
             .visible_actors
             .iter()
@@ -359,8 +363,10 @@ impl Game {
                 crate::behavior::Disposition::Mean => true,
                 crate::behavior::Disposition::Greedy => {
                     self.exposed_to_visible_hostile(id, view.location, view)
-                        || self
-                            .choose_known_gold(id, view, &ai.profile, &mut route)
+                        || gold_choice
+                            .get_or_insert_with(|| {
+                                self.choose_known_gold(id, view, &ai.profile, &mut route)
+                            })
                             .is_none()
                 }
             };
@@ -609,7 +615,10 @@ impl Game {
             {
                 return Some(AiDecision::action(action, ai, behavior));
             }
-            if let Some(action) = self.choose_known_gold(id, view, &ai.profile, &mut route) {
+            let gold = gold_choice
+                .take()
+                .unwrap_or_else(|| self.choose_known_gold(id, view, &ai.profile, &mut route));
+            if let Some(action) = gold {
                 return Some(AiDecision::action(action, ai, behavior));
             }
         }
@@ -1201,13 +1210,9 @@ impl Game {
                 let crate::rules::Reach::Sight { range } = definition.reach else {
                     continue;
                 };
-                let Some(direction) = disclosed_flight_aim(
-                    target,
-                    sight,
-                    view,
-                    self.actors.get(&actor)?.body.eye,
-                    range,
-                ) else {
+                let Some(direction) =
+                    self.ai_disclosed_flight_aim(actor, target, sight, view, range)
+                else {
                     continue;
                 };
                 direction.ray_invocation()
@@ -1261,13 +1266,8 @@ impl Game {
             let crate::rules::Reach::Sight { range } = definition.reach else {
                 continue;
             };
-            let Some(direction) = disclosed_flight_aim(
-                target,
-                sight,
-                view,
-                self.actors.get(&actor)?.body.eye,
-                range,
-            ) else {
+            let Some(direction) = self.ai_disclosed_flight_aim(actor, target, sight, view, range)
+            else {
                 continue;
             };
             candidates.push((definition.ai.priority, disclosed.id, direction));

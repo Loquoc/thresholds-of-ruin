@@ -274,7 +274,7 @@ impl Game {
         profile: &crate::ai::AiProfile,
         route: &mut impl FnMut(tor_world::Location) -> Option<Vec<crate::TravelStep>>,
     ) -> BTreeMap<ItemId, u64> {
-        let mut result = BTreeMap::new();
+        let result = BTreeMap::new();
         if !profile.equipment
             || !profile.loot
             || view.inventory.len() > INVENTORY_BOUND
@@ -310,7 +310,18 @@ impl Game {
             })
             .map(|row| row.id)
             .collect();
-        let Some(choice) = self.known_launcher_choice(actor, view, &ground) else {
+        self.ranged_pair_quantities(actor, view, &ground)
+    }
+
+    // One pairing/reserve authority for ordinary and recovered approaches.
+    fn ranged_pair_quantities(
+        &self,
+        actor: ActorId,
+        view: &Observation,
+        ground: &[ItemId],
+    ) -> BTreeMap<ItemId, u64> {
+        let mut result = BTreeMap::new();
+        let Some(choice) = self.known_launcher_choice(actor, view, ground) else {
             return result;
         };
         if ground.contains(&choice.item) {
@@ -327,12 +338,168 @@ impl Game {
             .fold(0_u64, |sum, row| sum.saturating_add(row.quantity));
         let deficit = SHOT_RESERVE.saturating_sub(carried);
         if deficit > 0 {
-            for item in ground {
+            for &item in ground {
                 if self.known_payload_family(actor, item) == Some(&choice.family) {
                     result.insert(item, deficit);
                 }
             }
         }
         result
+    }
+    /// Reconsider only known ranged pairs after the ordinary item chooser found
+    /// no action. Eligibility and execution share the same completed approach
+    /// facts, so an underfoot half does not disappear when its partner requires
+    /// a disclosed detour. Nothing here predicts undisclosed body occupancy.
+    pub(crate) fn choose_ranged_loot_detour(
+        &self,
+        actor: ActorId,
+        view: &Observation,
+        profile: &crate::ai::AiProfile,
+        route: &mut impl FnMut(tor_world::Location) -> Option<Vec<crate::TravelStep>>,
+        remaining: &mut usize,
+    ) -> Option<Action> {
+        if view.ground_items.is_empty()
+            || !profile.equipment
+            || !profile.loot
+            || profile.idle == crate::behavior::IdleBehavior::Wait
+            || view.inventory.len() > INVENTORY_BOUND
+            || self.acquisition_launch_ability(actor).is_none()
+        {
+            return None;
+        }
+        let ground: Vec<_> = view
+            .ground_items
+            .iter()
+            .take(INVENTORY_BOUND)
+            .filter(|row| row.identified)
+            .filter(|row| {
+                self.known_launcher_family(actor, row.id).is_some()
+                    || self.known_payload_family(actor, row.id).is_some()
+            })
+            .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
+            .collect();
+        let occupied: std::collections::BTreeSet<_> = view
+            .visible_actors
+            .iter()
+            .filter(|row| {
+                row.id != actor && row.disclosure == crate::perception::ActorDisclosure::Creature
+            })
+            .map(|row| row.location)
+            .collect();
+        let destinations: std::collections::BTreeSet<_> =
+            ground.iter().map(|row| row.location).collect();
+        // (hop count, first direction). None direction means underfoot Take.
+        let mut approaches = BTreeMap::new();
+        let mut blocked = Vec::new();
+        for destination in destinations {
+            if destination == view.location {
+                approaches.insert(destination, (0, None));
+                continue;
+            }
+            let Some(path) = route(destination) else {
+                continue;
+            };
+            let Some(step) = path.first() else {
+                continue;
+            };
+            match self.actor_translation(actor, step.direction) {
+                Some((at, _)) if !self.exposed_to_visible_hostile(actor, at, view) => {
+                    approaches.insert(destination, (path.len(), Some(step.direction)));
+                }
+                None if occupied.contains(&step.destination) => blocked.push(destination),
+                _ => {}
+            }
+        }
+        if blocked.is_empty() {
+            return None;
+        }
+        let owner = self.actors.get(&actor)?;
+        let disclosed: std::collections::BTreeSet<_> = view
+            .visible_cells
+            .iter()
+            .filter(|cell| !cell.wall)
+            .map(|cell| (cell.location, cell.frame))
+            .collect();
+        let mut alternatives = Vec::new();
+        for (rank, direction) in tor_world::Direction::HORIZONTAL
+            .into_iter()
+            .chain([tor_world::Direction::Up, tor_world::Direction::Down])
+            .enumerate()
+        {
+            if self.condition_blocks_action(actor, &Action::Move(direction)) {
+                continue;
+            }
+            let Some((at, frame)) = self.actor_translation(actor, direction) else {
+                continue;
+            };
+            if at == view.location
+                || !disclosed.contains(&(at, frame))
+                || occupied.contains(&at)
+                || self.exposed_to_visible_hostile(actor, at, view)
+            {
+                continue;
+            }
+            let Ok(cost) = owner.movement_duration(direction) else {
+                continue;
+            };
+            alternatives.push((rank, direction, at, frame, u128::from(cost)));
+        }
+        for target in blocked {
+            let mut best = None;
+            for &(rank, direction, at, frame, first_cost) in &alternatives {
+                let Ok(mut search) = self.route_search_from(actor, at, frame) else {
+                    continue;
+                };
+                let suffix = match search.route_bounded(target, remaining) {
+                    Ok(Some(path)) => path,
+                    // Never let an early partial comparison license a pair.
+                    Ok(None) => return None,
+                    Err(_) => continue,
+                };
+                if suffix.iter().any(|step| {
+                    step.destination == view.location || occupied.contains(&step.destination)
+                }) {
+                    continue;
+                }
+                let Some(cost) = suffix.iter().try_fold(first_cost, |total, step| {
+                    total.checked_add(u128::from(owner.movement_duration(step.direction).ok()?))
+                }) else {
+                    continue;
+                };
+                if best
+                    .as_ref()
+                    .is_none_or(|old: &(u128, usize, usize, tor_world::Direction)| {
+                        (cost, rank) < (old.0, old.1)
+                    })
+                {
+                    best = Some((cost, rank, suffix.len() + 1, direction));
+                }
+            }
+            if let Some((_, _, hops, direction)) = best {
+                approaches.insert(target, (hops, Some(direction)));
+            }
+        }
+        let eligible: Vec<_> = ground
+            .iter()
+            .filter(|row| approaches.contains_key(&row.location))
+            .map(|row| row.id)
+            .collect();
+        let quantities = self.ranged_pair_quantities(actor, view, &eligible);
+        ground
+            .into_iter()
+            .filter_map(|row| {
+                let quantity = quantities.get(&row.id)?.min(&row.quantity);
+                let &(hops, direction) = approaches.get(&row.location)?;
+                let action = direction.map_or(
+                    Action::Take {
+                        item: row.id,
+                        quantity: Some(*quantity),
+                    },
+                    Action::Move,
+                );
+                (!self.condition_blocks_action(actor, &action)).then_some((hops, row.id, action))
+            })
+            .min_by_key(|(hops, id, _)| (*hops, *id))
+            .map(|(_, _, action)| action)
     }
 }
