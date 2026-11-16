@@ -568,3 +568,21 @@ probes, composition/belt selection, moving skirt contact and pile input. Retain
 their assertions and investigate production, fixture and driver ownership before
 changing them. Passing bitwise geometry oracles cannot replace interaction and
 actual-motion coverage. No known failure is waived by this comparison.
+
+### Four stale model/input expectations corrected
+
+Three stale-contract causes affected four methods: two centaur cuff witnesses
+sampled beyond the padded glove's actual wrist-plus-0.075 lip; the Sylvan
+composition witness required a cloak for the deliberately uncloaked female
+recipe; and the pile guard witness rejected the legitimate active device-cell
+aim command. The corrected tests retain angular/body sweeps and clearance limits,
+assert both female and male cloak contracts, and require exactly the intended
+`ZapCell` command while preserving no-command guards for blocked input.
+
+All four focused methods passed in the native candidate containing these test
+corrections. Two additional proposed test corrections were not included: moving
+the crossing-belt fixture exposed inadequate clearance, and correcting draped
+sleeve ownership exposed another unexpected-metal composition. Those failures,
+actual moving-skirt crossings and cloak/mantle contacts remain unresolved. The
+four passes do not establish a green full suite. Production geometry, gameplay,
+fixtures and thresholds were unchanged by this correction checkpoint.

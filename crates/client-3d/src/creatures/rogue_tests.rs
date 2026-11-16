@@ -3960,7 +3960,9 @@ fn sylvan_duelist_generates_finite_layers_and_keeps_mage_identity() {
             let look = base.clone().dressed(Wardrobe::SylvanDuelist);
             let (_, rig, _, meshes) = spawn_one(&look);
             assert!(rig.joint(J::HandR).is_some());
-            assert!(!rig.cloaks.is_empty());
+            // The female recipe uses detached arm drapes, not a cloak.
+            // Male preview requests deliberately resolve to the cloaked Ranger.
+            assert_eq!(rig.cloaks.is_empty(), woman);
             assert_eq!(look.style, base.style);
             assert_eq!(look.clone().dressed(Wardrobe::Native).key, base.key);
             assert!(meshes.len() > 5);

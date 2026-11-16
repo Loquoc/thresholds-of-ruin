@@ -937,7 +937,14 @@ mod waist_belt_tests {
                     organic_forearm(&mut p.matte, arms.width, 1.0, arms.muscle, true, Vec3::ONE);
                     centaur_forearm_band(&mut p.satin, arms.width, arms.muscle);
                     let mut samples = Vec::new();
-                    for y in [-0.245, -0.225, -0.205] {
+                    // Padded gloves deliberately stop at wrist + 0.075; probe
+                    // their actual overlap, not the absent old gauntlet length.
+                    let heights = if gloves == equipment_gloves::GloveAppearance::Padded {
+                        [-0.245, -0.235, -0.230]
+                    } else {
+                        [-0.245, -0.225, -0.205]
+                    };
+                    for y in heights {
                         for i in 0..24 {
                             let a = (i as f32 + 0.37) * TAU / 24.0;
                             let out = Vec3::new(a.sin(), 0.0, a.cos());
@@ -992,7 +999,7 @@ mod waist_belt_tests {
                     let mut samples = Vec::new();
                     let lip = match gloves {
                         equipment_gloves::GloveAppearance::Old => 0.105,
-                        equipment_gloves::GloveAppearance::Padded => 0.110,
+                        equipment_gloves::GloveAppearance::Padded => 0.075,
                         equipment_gloves::GloveAppearance::Riding => 0.120,
                         equipment_gloves::GloveAppearance::Fencing => 0.140,
                     };
