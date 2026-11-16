@@ -33,8 +33,23 @@ fn parts(smooth: bool) -> Parts {
     p
 }
 
-// Frozen pre-reconstruction cord recipe; its surface remains the contact oracle.
+// Independent current contract: same three heights and 5mm cord radius,
+// with bounded sampling/clearance. The old recipe remains below as a red witness.
 fn cords(p: &mut Parts, body: HumanoidBody, support: &crate::sdf::Sculpt, count: usize) {
+    for k in 0..count {
+        let y = 0.1 + 0.035 * k as f32;
+        let path: Vec<_> = (0..=31)
+            .map(|j| {
+                let a = j as f32 / 31.0 * TAU;
+                waist_parts::point(body, support, y + 0.03 * (a * 2.0).sin(), a, 0.008)
+            })
+            .collect();
+        tube(&mut p.metal, &path, &vec![(0.005, 0.005); path.len()], GILT);
+    }
+}
+
+// Frozen original cord recipe retained as a penetration-regression witness.
+fn legacy_cords(p: &mut Parts, body: HumanoidBody, support: &crate::sdf::Sculpt, count: usize) {
     for k in 0..count {
         let y = 0.1 + 0.035 * k as f32;
         let path: Vec<_> = (0..=16)
@@ -47,12 +62,12 @@ fn cords(p: &mut Parts, body: HumanoidBody, support: &crate::sdf::Sculpt, count:
     }
 }
 
-// Frozen upper-cord recipe: the knot clears the separate belt below it.
+// Independent current upper-cord recipe: the knot clears the separate belt below it.
 fn anchor_cord(p: &mut Parts, body: HumanoidBody, support: &crate::sdf::Sculpt) {
-    let path: Vec<_> = (0..=16)
+    let path: Vec<_> = (0..=31)
         .map(|j| {
-            let a = j as f32 / 16.0 * TAU;
-            waist_parts::point(body, support, 0.17 + 0.03 * (a * 2.0).sin(), a, 0.006)
+            let a = j as f32 / 31.0 * TAU;
+            waist_parts::point(body, support, 0.17 + 0.03 * (a * 2.0).sin(), a, 0.008)
         })
         .collect();
     tube(&mut p.metal, &path, &vec![(0.005, 0.005); path.len()], GILT);
@@ -425,4 +440,319 @@ fn crossed_bow_pattern_oracle_rejects_flattened_thickness() {
         .map(|tri| tri.map(|point| point.with_z(0.2)))
         .collect();
     assert!(!preserves_pattern_and_depth(&flattened, &original));
+}
+
+/// Diagnostic: distinguish support-fitted control knots from emitted tube
+/// surfaces. This intentionally reports deficits without redefining clearance.
+#[test]
+#[ignore = "manual crossing-cord clearance attribution"]
+fn crossing_cord_clearance_attribution() {
+    for model in [
+        CreatureModel::Human,
+        CreatureModel::Mage,
+        CreatureModel::Nymph,
+    ] {
+        let look = Look::with_choice(
+            model,
+            9,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        )
+        .dressed(Wardrobe::Goddess);
+        let body = HumanoidBody::resolve(&look);
+        let figure = biped::Figure::resolve(body, &look);
+        let support = &figure.waist_support;
+        for smooth in [false, true] {
+            for k in 0..3 {
+                let y = 0.1 + 0.035 * k as f32;
+                let path: Vec<_> = (0..=16)
+                    .map(|j| {
+                        let a = j as f32 / 16.0 * TAU;
+                        waist_parts::point(body, support, y + 0.03 * (a * 2.0).sin(), a, 0.006)
+                    })
+                    .collect();
+                let knot_min = path
+                    .iter()
+                    .map(|p| support.distance(*p - body.torso))
+                    .fold(f32::INFINITY, f32::min);
+                let mut p = parts(smooth);
+                tube(&mut p.metal, &path, &vec![(0.005, 0.005); path.len()], GILT);
+                let triangles: Vec<_> = p.metal.surface_triangles().collect();
+                let mut worst = (f32::INFINITY, Vec3::ZERO, 0usize);
+                let mut vertex_min = f32::INFINITY;
+                for (index, tri) in triangles.iter().enumerate() {
+                    for at in *tri {
+                        vertex_min = vertex_min.min(support.distance(at - body.torso));
+                    }
+                    for at in [
+                        tri[0],
+                        tri[1],
+                        tri[2],
+                        (tri[0] + tri[1]) * 0.5,
+                        (tri[1] + tri[2]) * 0.5,
+                        (tri[2] + tri[0]) * 0.5,
+                        (tri[0] + tri[1] + tri[2]) / 3.0,
+                    ] {
+                        let gap = support.distance(at - body.torso);
+                        if gap < worst.0 {
+                            worst = (gap, at, index);
+                        }
+                    }
+                }
+                println!("cord model={model:?} smooth={smooth} k={k} knot_min={knot_min} vertex_min={vertex_min} sampled_min={} at={:?} tri={:?}",worst.0,worst.1,triangles[worst.2]);
+                assert!(knot_min >= 0.00599, "control knot fit changed");
+            }
+        }
+    }
+}
+
+#[test]
+fn crossing_cord_identification_pigment_preserves_exact_geometry() {
+    for model in [
+        CreatureModel::Human,
+        CreatureModel::Mage,
+        CreatureModel::Nymph,
+    ] {
+        let (body, support) = fixture_in(model, true, 0, Wardrobe::Goddess);
+        for smooth in [false, true] {
+            let mut original = parts(smooth);
+            let mut tagged = parts(smooth);
+            waist(&mut original, Waist::Crossed(GILT), body, &support);
+            waist(
+                &mut tagged,
+                Waist::Crossed(Vec3::new(0.83, 0.07, 0.61)),
+                body,
+                &support,
+            );
+            let original: Vec<_> = original.metal.surface_triangles().collect();
+            let tagged: Vec<_> = tagged.metal.surface_triangles().collect();
+            assert!(original.len() > 100);
+            assert_eq!(original, tagged, "identification must not change geometry");
+        }
+    }
+}
+
+/// Fixed-budget alternatives; no production recipe or expected geometry changes.
+#[test]
+#[ignore = "manual bounded crossing-cord recipe sweep"]
+fn crossing_cord_bounded_recipe_sweep() {
+    for stations in [16usize, 24, 31, 32, 48, 64] {
+        for clearance in [0.006, 0.0065, 0.007, 0.0075, 0.008] {
+            let started = std::time::Instant::now();
+            let mut worst = (f32::INFINITY, String::new());
+            let mut faces = 0usize;
+            let mut cases = 0usize;
+            for model in [
+                CreatureModel::Human,
+                CreatureModel::Mage,
+                CreatureModel::Nymph,
+            ] {
+                for build in 0..3 {
+                    for (wardrobe, woman) in [
+                        (Wardrobe::Cleric, false),
+                        (Wardrobe::Cleric, true),
+                        (Wardrobe::Goddess, true),
+                    ] {
+                        let (body, support) = fixture_in(model, woman, build, wardrobe);
+                        for smooth in [false, true] {
+                            for k in 0..3 {
+                                let y = 0.1 + 0.035 * k as f32;
+                                let path: Vec<_> = (0..=stations)
+                                    .map(|j| {
+                                        let a = j as f32 / stations as f32 * TAU;
+                                        waist_parts::point(
+                                            body,
+                                            &support,
+                                            y + 0.03 * (a * 2.0).sin(),
+                                            a,
+                                            clearance,
+                                        )
+                                    })
+                                    .collect();
+                                let mut p = parts(smooth);
+                                tube(&mut p.metal, &path, &vec![(0.005, 0.005); path.len()], GILT);
+                                let faces_before = faces;
+                                for tri in p.metal.surface_triangles() {
+                                    faces += 1;
+                                    for at in [
+                                        tri[0],
+                                        tri[1],
+                                        tri[2],
+                                        (tri[0] + tri[1]) * 0.5,
+                                        (tri[1] + tri[2]) * 0.5,
+                                        (tri[2] + tri[0]) * 0.5,
+                                        (tri[0] + tri[1] + tri[2]) / 3.0,
+                                    ] {
+                                        let gap = support.distance(at - body.torso);
+                                        assert!(gap.is_finite(), "nonfinite candidate surface gap");
+                                        if gap < worst.0 {
+                                            worst=(gap,format!("{model:?}/{wardrobe:?}/woman={woman}/build={build}/smooth={smooth}/cord={k}"));
+                                        }
+                                    }
+                                }
+                                assert!(faces > faces_before, "candidate must emit actual faces");
+                                cases += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            assert_eq!(cases, 162);
+            assert!(worst.0.is_finite());
+            println!("sweep stations={stations} clearance={clearance} min={} case={} faces={faces} elapsed_ms={}",worst.0,worst.1,started.elapsed().as_millis());
+        }
+    }
+}
+
+#[test]
+fn crossing_cord_actual_faces_clear_support_and_legacy_recipe_exposes_sag() {
+    let mut minimum = f32::INFINITY;
+    let mut legacy_minimum = f32::INFINITY;
+    let mut combinations = 0;
+    for model in [
+        CreatureModel::Human,
+        CreatureModel::Mage,
+        CreatureModel::Orc,
+        CreatureModel::Nymph,
+    ] {
+        for build in 0..3 {
+            for (wardrobe, woman) in [
+                (Wardrobe::Cleric, false),
+                (Wardrobe::Cleric, true),
+                (Wardrobe::Goddess, true),
+            ] {
+                let (body, support) = fixture_in(model, woman, build, wardrobe);
+                for smooth in [false, true] {
+                    let mut expected = parts(smooth);
+                    cords(&mut expected, body, &support, 3);
+                    let prefix = expected.metal.surface_triangles().count();
+                    assert!(prefix > 100);
+                    let mut actual = parts(smooth);
+                    waist(&mut actual, Waist::Crossed(GILT), body, &support);
+                    // Independently fixed heights, winding, radius and recipe;
+                    // unrelated changes cannot pass merely by moving outwards.
+                    actual.metal.assert_preserves_recipe_prefix(&expected.metal);
+                    let triangles: Vec<_> = actual.metal.surface_triangles().take(prefix).collect();
+                    for tri in triangles {
+                        for i in 0..=8 {
+                            for j in 0..=8 - i {
+                                let at = tri[0]
+                                    + (tri[1] - tri[0]) * (i as f32 / 8.0)
+                                    + (tri[2] - tri[0]) * (j as f32 / 8.0);
+                                let gap = support.distance(at - body.torso);
+                                assert!(gap.is_finite());
+                                minimum = minimum.min(gap);
+                                assert!(gap>=0.001,"actual cord face enters clearance: {model:?}/{wardrobe:?}/woman={woman}/build={build}/smooth={smooth} at={at:?} gap={gap}");
+                            }
+                        }
+                    }
+                    let mut legacy = parts(smooth);
+                    legacy_cords(&mut legacy, body, &support, 3);
+                    for tri in legacy.metal.surface_triangles() {
+                        for at in [
+                            tri[0],
+                            tri[1],
+                            tri[2],
+                            (tri[0] + tri[1]) * 0.5,
+                            (tri[1] + tri[2]) * 0.5,
+                            (tri[2] + tri[0]) * 0.5,
+                            (tri[0] + tri[1] + tri[2]) / 3.0,
+                        ] {
+                            legacy_minimum = legacy_minimum.min(support.distance(at - body.torso));
+                        }
+                    }
+                    combinations += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(combinations, 72);
+    assert!(
+        legacy_minimum < 0.0,
+        "frozen original recipe must expose its genuine penetration"
+    );
+    println!(
+        "cord actualface combinations={combinations} min={minimum} legacy_min={legacy_minimum}"
+    );
+}
+
+#[test]
+#[ignore = "manual isolated cord construction comparison, not frame performance"]
+fn crossing_cord_construction_comparison() {
+    let (body, support) = fixture_in(CreatureModel::Human, true, 1, Wardrobe::Goddess);
+    for smooth in [false, true] {
+        for round in 0..6 {
+            for candidate in if round % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            } {
+                let start = std::time::Instant::now();
+                for _ in 0..100 {
+                    let mut p = parts(smooth);
+                    if candidate {
+                        cords(&mut p, body, &support, 3);
+                    } else {
+                        legacy_cords(&mut p, body, &support, 3);
+                    }
+                    std::hint::black_box(p);
+                }
+                let micros = start.elapsed().as_micros();
+                let mut p = parts(smooth);
+                if candidate {
+                    cords(&mut p, body, &support, 3);
+                } else {
+                    legacy_cords(&mut p, body, &support, 3);
+                }
+                println!("construction smooth={smooth} round={round} candidate={candidate} total100_us={micros} faces={}",p.metal.surface_triangles().count());
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "manual exact mesh export for before/after contact visualization"]
+fn crossing_cord_visual_mesh_export() {
+    let (body, support) = fixture_in(CreatureModel::Human, false, 2, Wardrobe::Cleric);
+    let mut torso = Parts::default();
+    support.mesh(
+        &mut torso.matte,
+        Vec3::new(-0.4, -0.4, -0.4),
+        Vec3::new(0.4, 0.3, 0.4),
+        0.008,
+        &|_, _| Vec3::splat(0.5),
+    );
+    let body_triangles: Vec<_> = torso
+        .matte
+        .surface_triangles()
+        .map(|tri| tri.map(|p| (p + body.torso).to_array()))
+        .collect();
+    let mut cases = Vec::new();
+    for smooth in [false, true] {
+        let mut legacy = parts(smooth);
+        legacy_cords(&mut legacy, body, &support, 3);
+        let mut candidate = parts(smooth);
+        cords(&mut candidate, body, &support, 3);
+        let old: Vec<_> = legacy
+            .metal
+            .surface_triangles()
+            .map(|tri| tri.map(|p| p.to_array()))
+            .collect();
+        let new: Vec<_> = candidate
+            .metal
+            .surface_triangles()
+            .map(|tri| tri.map(|p| p.to_array()))
+            .collect();
+        cases.push(serde_json::json!({"smooth":smooth,"legacy":old,"candidate":new}));
+    }
+    let path = ".local/noncloak-review/cord-visual.json";
+    std::fs::create_dir_all(".local/noncloak-review").unwrap();
+    std::fs::write(
+        path,
+        serde_json::to_vec(&serde_json::json!({"body":body_triangles,"cases":cases})).unwrap(),
+    )
+    .unwrap();
+    println!("exported exact recipe triangles: {path}");
 }

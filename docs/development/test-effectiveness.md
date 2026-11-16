@@ -555,3 +555,72 @@ strict ledger validator remain unchanged. A new actual-CLI round-trip witness
 failed before the correction and now checks the independent canonical name,
 written counts/percentiles, raw hash, validation and duplicate rejection. This
 is a performance-report integration fix, not a gameplay, fixture or timing change.
+
+## Model consolidation on the November 15 main
+
+A broad client-3D library run exposed 15 failing methods after focused model
+geometry tests passed. Each failure was rerun individually on the changed source
+and unmodified main `5b9299c4`; all 15 reproduced with matching panic details.
+This isolates observed failures from the refactor but does not make the full
+suite green or rule out untested regressions. The baseline full suite was not
+rerun. The unresolved groups are bounded cloak/mantle contact, centaur cuff
+probes, composition/belt selection, moving skirt contact and pile input. Retain
+their assertions and investigate production, fixture and driver ownership before
+changing them. Passing bitwise geometry oracles cannot replace interaction and
+actual-motion coverage. No known failure is waived by this comparison.
+
+### Four stale model/input expectations corrected
+
+Three stale-contract causes affected four methods: two centaur cuff witnesses
+sampled beyond the padded glove's actual wrist-plus-0.075 lip; the Sylvan
+composition witness required a cloak for the deliberately uncloaked female
+recipe; and the pile guard witness rejected the legitimate active device-cell
+aim command. The corrected tests retain angular/body sweeps and clearance limits,
+assert both female and male cloak contracts, and require exactly the intended
+`ZapCell` command while preserving no-command guards for blocked input.
+
+All four focused methods passed in the native candidate containing these test
+corrections. Two additional proposed test corrections were not included: moving
+the crossing-belt fixture exposed inadequate clearance, and correcting draped
+sleeve ownership exposed another unexpected-metal composition. Those failures,
+actual moving-skirt crossings and cloak/mantle contacts remain unresolved. The
+four passes do not establish a green full suite. Production geometry, gameplay,
+fixtures and thresholds were unchanged by this correction checkpoint.
+
+### Composition arm-metal ownership corrected
+
+One stale composition predicate omitted metal that existing cloth/regalia emitters
+own: detached drape boundaries and attachment rings, Bishop cuff edge tubes, and
+regalia epaulettes. The equality assertion now names those owners alongside plate
+and armlets, rather than allowing unexpected metal unconditionally. The full
+focused-and-seeded composition method passed locally through the previously
+failing Sylvan and RoyalBride cases. Evidence is reused only for that contract
+from a binary also containing unrelated, unqualified belt-motion tests; those
+belt edits are excluded. No production source or geometry threshold changed.
+Belt-motion and actual skirt/cloak contacts remain unresolved, and this focused
+pass does not qualify the full suite or a rebuilt exact publication tree.
+
+### PR #16 inventory and crossing-cord feedback
+
+Current-head Linux debug Python CI exposed one integration omission in four
+planner test methods: both newly added diagnostic validator classes were absent
+from the explicit reviewed-owner registry, so complete-inventory planning
+correctly escalated to full even for unrelated tooling changes. Independent
+source/assertion/resource review classified the six synthetic methods as tooling.
+Only their exact classes were registered. Added complete-inventory regressions
+for reporter/shared-import selection on both platforms and unknown-class
+rejection; verification-control changes still require full CI.
+
+The corrected waist fixture separated ordinary belt coverage from actual
+crossing cords. Unique-pigment equivalence and actual emitted-face tests exposed
+cord penetration hidden by the former wrong accessory selection. The bounded
+repair increases stations from 16 to 31 and center clearance from 6 to 8 mm,
+keeping the 5 mm radius, three bands and bow. Frozen original geometry remains
+an independent negative control; dense sampling across 72 combinations passed
+with minimum 1.259 mm clearance, plus actual animated ownership and bow guards.
+This sampling is not a proof of the entire continuous surface. Local evidence
+covers ten focused owners/diagnostics, not a green full suite. Skirt and cloak
+contact failures remain unresolved. The repair changes geometry and costs more:
+isolated optimized-dev cord construction rose 94.6% faceted and 38.7% smooth;
+software mesh projections are not native-render, full-costume or release/FPS
+qualification. Those limits are not waived by normal CI.

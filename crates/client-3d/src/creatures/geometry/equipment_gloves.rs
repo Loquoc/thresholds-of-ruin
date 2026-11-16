@@ -1,6 +1,7 @@
 //! Hand-local glove recipes and separate hollow forearm cuffs. Appearance is
 //! cosmetic: these shapes do not encode protection or magical identification.
 use super::*;
+mod recipe;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum GloveAppearance {
@@ -28,12 +29,7 @@ impl GloveAppearance {
     }
 
     pub(crate) const fn color(self) -> Vec3 {
-        match self {
-            Self::Old => Vec3::new(0.37, 0.23, 0.12),
-            Self::Padded => Vec3::new(0.23, 0.29, 0.39),
-            Self::Riding => Vec3::new(0.30, 0.16, 0.075),
-            Self::Fencing => Vec3::new(0.075, 0.075, 0.095),
-        }
+        recipe::resolve(self).color
     }
 }
 
@@ -202,13 +198,7 @@ pub(in crate::creatures) fn emit_hand(
 }
 
 fn cuff_profile(appearance: GloveAppearance) -> [(f32, f32); 3] {
-    match appearance {
-        GloveAppearance::Old => [(0.0, 0.045), (0.035, 0.044), (0.105, 0.064)],
-        // Padded gloves end near the wrist rather than becoming a tall gauntlet.
-        GloveAppearance::Padded => [(0.0, 0.047), (0.025, 0.048), (0.075, 0.058)],
-        GloveAppearance::Riding => [(0.0, 0.043), (0.035, 0.042), (0.120, 0.063)],
-        GloveAppearance::Fencing => [(0.0, 0.042), (0.030, 0.043), (0.140, 0.072)],
-    }
+    recipe::resolve(appearance).cuff.profile
 }
 
 /// A support-relative opening transition. The anchor and everything below it
@@ -232,16 +222,11 @@ impl LayeredOpening {
 }
 
 fn opening_policy(appearance: GloveAppearance, build: f32) -> LayeredOpening {
-    let profile = cuff_profile(appearance);
+    let cuff = recipe::resolve(appearance).cuff;
     LayeredOpening {
-        anchor: profile[1].0,
-        lip: profile[2].0,
-        ease: match appearance {
-            GloveAppearance::Old => 0.001,
-            GloveAppearance::Padded => 0.003,
-            GloveAppearance::Riding => 0.0,
-            GloveAppearance::Fencing => 0.0035,
-        } * build,
+        anchor: cuff.profile[1].0,
+        lip: cuff.profile[2].0,
+        ease: cuff.opening_ease * build,
     }
 }
 

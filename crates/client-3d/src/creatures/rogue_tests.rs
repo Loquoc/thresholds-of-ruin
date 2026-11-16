@@ -1523,9 +1523,13 @@ fn check_generated_composition(case: composition_cases::Case) {
             "equipped breastplate must have rendered torso geometry"
         );
     }
-    // Metal on the arm is plate, or jewellery worn round it.
+    // Metal on the arm is plate, jewellery, sleeve trim or regalia.
     let plated = outfit.arms == outfit::Arms::Plate;
-    let jewelled = outfit.trimmings.armlets.is_some();
+    // Detached drape boundaries, Bishop cuff edges and regalia epaulettes
+    // are metal even when the underlying sleeve is cloth.
+    let jewelled = outfit.trimmings.armlets.is_some()
+        || matches!(outfit.arms, outfit::Arms::Styled(s) if matches!(s.cut, outfit::SleeveCut::Draped | outfit::SleeveCut::Bishop))
+        || outfit.regalia.is_some();
     assert_eq!(
         steel_on(J::ArmL),
         plated || jewelled,
@@ -3960,7 +3964,9 @@ fn sylvan_duelist_generates_finite_layers_and_keeps_mage_identity() {
             let look = base.clone().dressed(Wardrobe::SylvanDuelist);
             let (_, rig, _, meshes) = spawn_one(&look);
             assert!(rig.joint(J::HandR).is_some());
-            assert!(!rig.cloaks.is_empty());
+            // The female recipe uses detached arm drapes, not a cloak.
+            // Male preview requests deliberately resolve to the cloaked Ranger.
+            assert_eq!(rig.cloaks.is_empty(), woman);
             assert_eq!(look.style, base.style);
             assert_eq!(look.clone().dressed(Wardrobe::Native).key, base.key);
             assert!(meshes.len() > 5);
@@ -3981,7 +3987,16 @@ fn sylvan_duelist_generates_finite_layers_and_keeps_mage_identity() {
 }
 
 #[test]
-fn crossed_belts_follow_their_fitted_torso_through_a_jump() {
+fn fitted_belts_follow_their_torso_through_a_jump() {
+    check_fitted_waist_motion(false);
+}
+
+#[test]
+fn crossing_cords_preserve_their_authored_clearance_through_a_jump() {
+    check_fitted_waist_motion(true);
+}
+
+fn check_fitted_waist_motion(cords: bool) {
     use bevy::render::mesh::VertexAttributeValues;
     for model in [
         CreatureModel::Human,
@@ -3989,16 +4004,38 @@ fn crossed_belts_follow_their_fitted_torso_through_a_jump() {
         CreatureModel::Nymph,
     ] {
         for woman in [true] {
-            let look = Look::with_choice(model, 9, Some(Variant { woman, ..default() }))
-                .dressed(Wardrobe::SylvanDuelist);
+            let mut look = Look::with_choice(model, 9, Some(Variant { woman, ..default() }))
+                .dressed(if cords {
+                    Wardrobe::Goddess
+                } else {
+                    Wardrobe::Adventurer
+                });
+            let marker = Vec3::new(0.83, 0.07, 0.61);
+            let mut recipe = outfit::Outfit::worn(&look);
+            if cords {
+                assert!(matches!(
+                    recipe.trimmings.waist,
+                    Some(outfit::Waist::Crossed(_))
+                ));
+                // Tag only this accessory; Goddess also uses gold for bodice
+                // edges. Pigment changes no cord/bow geometry or attachment.
+                recipe.trimmings.waist = Some(outfit::Waist::Crossed(marker));
+                look.outfit = Some(recipe);
+                look.refresh_clothing_key();
+            } else {
+                assert!(recipe.belt, "fixture retains ordinary fitted belt");
+            }
             let body = anatomy::HumanoidBody::resolve(&look);
             let support = geometry::torso_shape(body, None, false);
             let (mut app, root) = animate_look(look, 1, |_| Vec3::ZERO);
             let rig = app.world().get::<Rig>(root).unwrap();
             let hips = rig.joint(J::Hips).unwrap();
             let torso = rig.joint(J::Torso).unwrap();
-            let leather = Vec3::new(0.10, 0.075, 0.065);
-            let color = Color::srgb(leather.x, leather.y, leather.z).to_linear();
+            // Distinct authored contracts: ordinary belt stands 4mm off its
+            // support; crossing cords keep 5mm radius with additional
+            // centerline margin for interpolated and faceted spans.
+            let pigment = if cords { marker } else { LEATHER * 0.8 };
+            let color = Color::srgb(pigment.x, pigment.y, pigment.z).to_linear();
             let target = Vec3::new(color.red, color.green, color.blue);
             let mut samples = Vec::new();
             for joint in [hips, torso] {
@@ -4036,7 +4073,8 @@ fn crossed_belts_follow_their_fitted_torso_through_a_jump() {
                             };
                         if hip_point.x.abs() < 0.02
                             && hip_point.z > 0.0
-                            && (0.075..=0.105).contains(&hip_point.y)
+                            && (if cords { 0.075..=0.105 } else { 0.045..=0.095 })
+                                .contains(&hip_point.y)
                             && Vec3::new(color[0], color[1], color[2]).distance(target) < 1e-5
                         {
                             samples.push((joint, point));
@@ -4046,6 +4084,12 @@ fn crossed_belts_follow_their_fitted_torso_through_a_jump() {
             }
             assert!(samples.len() > 20, "exercise actual emitted belt vertices");
             app.world_mut().get_mut::<Anim>(root).unwrap().action = Some((Move::Jump, 0.0));
+            let initial_torso = app
+                .world()
+                .get::<Transform>(torso)
+                .unwrap()
+                .compute_affine();
+            let mut moved = false;
             for frame in 0..70 {
                 app.update();
                 let transform = app
@@ -4053,6 +4097,7 @@ fn crossed_belts_follow_their_fitted_torso_through_a_jump() {
                     .get::<Transform>(torso)
                     .unwrap()
                     .compute_affine();
+                moved |= transform != initial_torso;
                 for &(joint, point) in &samples {
                     let torso_point = if joint == torso {
                         point
@@ -4061,11 +4106,12 @@ fn crossed_belts_follow_their_fitted_torso_through_a_jump() {
                     };
                     let gap = support.distance(torso_point / anatomy::HIP_SCALE);
                     assert!(
-                        (0.003..0.025).contains(&gap),
-                        "frame={frame}: fitted belt loses clearance from moving torso, gap={gap}"
+                        (if cords { 0.001..0.025 } else { 0.003..0.025 }).contains(&gap),
+                        "model={model:?} cords={cords} frame={frame} joint={joint:?} point={point:?} torso_point={torso_point:?}: fitted waist loses clearance from moving torso, gap={gap}"
                     );
                 }
             }
+            assert!(moved, "jump must exercise a changing torso transform");
         }
     }
 }

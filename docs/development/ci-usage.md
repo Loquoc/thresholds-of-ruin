@@ -114,3 +114,17 @@ remains the existing 75-minute Windows release Rust owner. This is bounded
 headroom for ordinary project acceptance, not permission for extra diagnostics.
 The maintainer explicitly approved these two timeout changes and the matching
 CI review hash update on November 15.
+
+## November 16 diagnostic-validator ownership review
+
+The two new model report validator test classes are ordinary pure-Python
+repository correctness tests, not hosted model generation or performance work.
+Reviewed their assertions, reporter imports and shared validator: synthetic rows
+only, with no native process, rendering, benchmark, network or artifact producer.
+Explicit class registration repairs complete-inventory planner failures while
+preserving unknown-owner escalation and full verification for control changes.
+No workflow commands, runners, external dependencies/destinations, permissions,
+triggers, caches, retention or budgets change. Updated only the reviewed
+`ci_test_contracts.py` hash after this source review. The cord correctness tests
+exercise bounded geometry/animation contracts; exploratory timing, geometry
+exports and parameter sweeps remain ignored/local, not new hosted workloads.

@@ -1,5 +1,10 @@
 //! Study-authored footwear, fitted to the same last and shin as native outfits.
 use super::*;
+mod calf_grid;
+mod recipe;
+#[cfg(test)]
+mod recipe_oracle;
+use calf_grid::{column_angle, row_fraction, CalfGrid, AXIAL_INTERVALS, ROWS, SIDES};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum FootwearAppearance {
@@ -53,33 +58,15 @@ impl FootwearAppearance {
     }
 
     pub fn heeled(self) -> bool {
-        matches!(self, Self::RidingBoots | Self::Jackboots)
+        recipe::resolve(self).heeled
     }
 
     pub fn color(self) -> Vec3 {
-        use FootwearAppearance::*;
-        match self {
-            WalkingShoes => Vec3::new(0.39, 0.23, 0.12),
-            HardShoes => Vec3::new(0.25, 0.20, 0.15),
-            Jackboots => Vec3::new(0.16, 0.13, 0.11),
-            CombatBoots => Vec3::new(0.23, 0.17, 0.12),
-            JungleBoots => Vec3::new(0.33, 0.32, 0.17),
-            HikingBoots => Vec3::new(0.42, 0.29, 0.16),
-            MudBoots => Vec3::new(0.20, 0.22, 0.19),
-            BuckledBoots => Vec3::new(0.40, 0.22, 0.10),
-            RidingBoots => Vec3::new(0.12, 0.13, 0.14),
-            SnowBoots => Vec3::new(0.37, 0.27, 0.18),
-        }
+        recipe::resolve(self).color
     }
 
     pub fn trim(self) -> Vec3 {
-        match self {
-            Self::HardShoes => Vec3::new(0.64, 0.68, 0.72),
-            Self::HikingBoots => Vec3::new(0.62, 0.09, 0.06),
-            Self::SnowBoots => Vec3::new(0.85, 0.79, 0.63),
-            Self::BuckledBoots => Vec3::new(0.70, 0.49, 0.20),
-            _ => Vec3::new(0.52, 0.39, 0.22),
-        }
+        recipe::resolve(self).trim
     }
 }
 
@@ -90,32 +77,19 @@ pub(super) fn fit_shape(
     mut shape: BootShape,
     build: f32,
 ) -> BootShape {
-    use FootwearAppearance::*;
-    let fraction = match appearance {
-        WalkingShoes => 0.07,
-        HardShoes => 0.28,
-        Jackboots | RidingBoots => 0.86,
-        CombatBoots | JungleBoots => 0.55,
-        HikingBoots => 0.39,
-        MudBoots => 0.78,
-        BuckledBoots => 0.61,
-        SnowBoots => 0.58,
-    };
+    let recipe = recipe::resolve(appearance);
+    let fraction = recipe.coverage;
     // The knee is the origin, even when the incoming native boot was ankle high.
     shape.top = shape.bottom * (1.0 - fraction);
     let original_top = shape.radius_top;
     shape.radius_top = shape.radius_bottom + (original_top - shape.radius_bottom) * fraction;
-    if appearance == SnowBoots {
+    if recipe.snow_cuff {
         shape.radius_top *= 1.12;
     }
     shape.cuff_radius = shape.radius_top + 0.002;
-    shape.cuff_thickness = if appearance == SnowBoots {
-        0.018
-    } else {
-        0.008
-    };
+    shape.cuff_thickness = if recipe.snow_cuff { 0.018 } else { 0.008 };
     shape.sample_radius_top = shape.radius_top + shape.cuff_thickness + 0.004;
-    if appearance == SnowBoots {
+    if recipe.snow_cuff {
         let contact_length = shape.top - shape.bottom;
         fit_snow_cuff_contact(&mut shape, build, contact_length);
     }
@@ -173,7 +147,7 @@ pub(super) struct FittedShin {
     shape: BootShape,
     appearance: FootwearAppearance,
     build: f32,
-    riding: Option<Box<[[f32; 48]; 49]>>,
+    riding: Option<Box<CalfGrid>>,
 }
 
 impl FittedShin {
@@ -195,7 +169,7 @@ pub(super) fn fit_shin(
 ) -> FittedShin {
     let mut shape = fit_shape(appearance, shape, build);
     let radii = calf_support_grid(shape, shin, trousered, build);
-    let required: [f32; 49] = std::array::from_fn(|row| {
+    let required: [f32; ROWS] = std::array::from_fn(|row| {
         radii[row]
             .iter()
             .map(|radius| (radius + 0.006 * build) / (PI / 12.0).cos())
@@ -206,7 +180,7 @@ pub(super) fn fit_shin(
     // This preserves an ankle taper instead of inflating the entire boot to
     // the largest calf cross-section.
     for (row, radius) in required.iter().enumerate().skip(1) {
-        let t = row as f32 / 48.0;
+        let t = row_fraction(row);
         shape.radius_top = shape
             .radius_top
             .max((radius - shape.radius_bottom * (1.0 - t)) / t);
@@ -219,10 +193,9 @@ pub(super) fn fit_shin(
         fit_snow_cuff_contact(&mut shape, build, contact_length);
     }
     let riding = if appearance == FootwearAppearance::RidingBoots {
-        Some(Box::new(std::array::from_fn(|row| {
-            std::array::from_fn(|column| {
-                ((radii[row][column] + 0.006 * build) / (PI / 48.0).cos()).max(shape.radius_bottom)
-            })
+        Some(Box::new(CalfGrid::from_fn(|row, column| {
+            ((radii[row][column] + 0.006 * build) / (PI / SIDES as f32).cos())
+                .max(shape.radius_bottom)
         })))
     } else {
         None
@@ -238,22 +211,17 @@ pub(super) fn fit_shin(
 /// Raw directional support, before each item's polygon compensation or
 /// ankle floor. Coverage is already resolved by fit_shape. Keep rear calf
 /// fullness rather than reducing it to a circular proxy for rendered leather.
-fn calf_support_grid(
-    shape: BootShape,
-    shin: LimbShape,
-    trousered: bool,
-    build: f32,
-) -> [[f32; 48]; 49] {
+fn calf_support_grid(shape: BootShape, shin: LimbShape, trousered: bool, build: f32) -> CalfGrid {
     #[cfg(test)]
     SHIN_SAMPLES.with(|count| count.set(count.get() + 1));
     let support = shin_support(shin, trousered, build);
     let (low, high) = shin.mesh_bounds(0.05 * build + 0.02);
     let outside = low.abs().max(high.abs()).xz().length() + 0.05;
-    std::array::from_fn(|row| {
-        let t = row as f32 / 48.0;
+    CalfGrid::from_rows(|row| {
+        let t = row_fraction(row);
         let origin = Vec3::Y * (shape.bottom + (shape.top - shape.bottom) * t);
         std::array::from_fn(|column| {
-            let angle = column as f32 * TAU / 48.0;
+            let angle = column_angle(column);
             let direction = Vec3::new(angle.sin(), 0.0, angle.cos());
             let mut low = 0.0;
             let mut high = outside;
@@ -293,33 +261,22 @@ pub(super) fn emit_fitted_shaft(
         .as_deref()
         .expect("riding fit retains its directional support");
     let y = |t: f32| shape.bottom + (shape.top - shape.bottom) * t;
-    let radius = |t: f32, angle: f32| {
-        let row = t.clamp(0.0, 1.0) * 48.0;
-        let i = (row.floor() as usize).min(47);
-        let u = row - i as f32;
-        let column = angle.rem_euclid(TAU) / TAU * 48.0;
-        let j = (column.floor() as usize).min(47);
-        let v = column - j as f32;
-        let next = (j + 1) % 48;
-        let a = radii[i][j] + (radii[i][next] - radii[i][j]) * v;
-        let b = radii[i + 1][j] + (radii[i + 1][next] - radii[i + 1][j]) * v;
-        a + (b - a) * u
-    };
+    let radius = |t, angle| radii.radius(t, angle);
     let point = |row: usize, column: usize| {
-        let angle = column as f32 * TAU / 48.0;
+        let angle = column_angle(column);
         Vec3::new(
             angle.sin() * radii[row][column],
-            y(row as f32 / 48.0),
+            y(row_fraction(row)),
             angle.cos() * radii[row][column],
         )
     };
     // Closed shared rings give a continuous silhouette; smoothing affects
     // shading only, never the fitted supporting surface.
     p.satin.smooth = true;
-    for row in 0..48 {
-        let inside = Vec3::Y * y((row as f32 + 0.5) / 48.0);
-        for column in 0..48 {
-            let next = (column + 1) % 48;
+    for row in 0..AXIAL_INTERVALS {
+        let inside = Vec3::Y * y((row as f32 + 0.5) / AXIAL_INTERVALS as f32);
+        for column in 0..SIDES {
+            let next = (column + 1) % SIDES;
             p.satin.quad_out(
                 [
                     point(row, column),
@@ -332,12 +289,12 @@ pub(super) fn emit_fitted_shaft(
             );
         }
     }
-    for row in [0, 48] {
-        let center = Vec3::Y * y(row as f32 / 48.0);
+    for row in [0, AXIAL_INTERVALS] {
+        let center = Vec3::Y * y(row_fraction(row));
         let inside = center + Vec3::Y * if row == 0 { 0.01 } else { -0.01 };
-        for column in 0..48 {
+        for column in 0..SIDES {
             p.satin.tri_out(
-                [center, point(row, column), point(row, (column + 1) % 48)],
+                [center, point(row, column), point(row, (column + 1) % SIDES)],
                 inside,
                 color,
             );
@@ -357,8 +314,8 @@ pub(super) fn emit_fitted_shaft(
     // End inside the dipped rear lip, rather than extending the seam toward
     // the higher, undipped shaft edge and leaving a visible protruding stem.
     let seam_end = shape.top - 0.025;
-    let mut seam: Vec<_> = (2..47)
-        .map(|row| row as f32 / 48.0)
+    let mut seam: Vec<_> = (2..AXIAL_INTERVALS - 1)
+        .map(row_fraction)
         .filter(|&t| y(t) < seam_end)
         .map(|t| Vec3::new(0.0, y(t), -radius(t, PI)))
         .collect();
@@ -370,9 +327,9 @@ pub(super) fn emit_fitted_shaft(
         &vec![(0.003, 0.003); seam.len()],
         color * 1.2,
     );
-    let ankle: Vec<_> = (0..=48)
+    let ankle: Vec<_> = (0..=SIDES)
         .map(|column| {
-            let angle = column as f32 * TAU / 48.0;
+            let angle = column_angle(column);
             let r = radius(0.13, angle);
             Vec3::new(angle.sin() * r, y(0.13), angle.cos() * r)
         })
@@ -647,11 +604,7 @@ pub(super) fn emit_foot(
     if appearance == WalkingShoes {
         walking_upper(p, last, color);
     }
-    let laced = matches!(
-        appearance,
-        CombatBoots | JungleBoots | HikingBoots | SnowBoots
-    );
-    if laced {
+    if recipe::resolve(appearance).lacing.is_some() {
         // Sample the authored vamp, rather than suspending flat laces above it.
         for k in 0..4 {
             let t = k as f32 / 4.0;
@@ -806,19 +759,12 @@ pub(super) fn emit_shaft(
             }
         }
         CombatBoots | JungleBoots | HikingBoots | SnowBoots => {
-            let count = match appearance {
-                HikingBoots => 5,
-                SnowBoots => 6,
-                _ => 8,
-            };
-            // Jungle boots have a broad, thin canvas gusset rather than the
-            // combat boot's thick leather tongue. Keep that construction
-            // visible in geometry even when both materials share a pigment.
-            let (tongue_width, tongue_depth) = if appearance == JungleBoots {
-                (0.66, 0.003)
-            } else {
-                (0.50, 0.006)
-            };
+            let lacing = recipe::resolve(appearance)
+                .lacing
+                .expect("laced footwear recipe");
+            let count = lacing.rows;
+            let tongue_width = lacing.tongue.width();
+            let tongue_depth = lacing.tongue.depth();
             p.matte.cuboid(
                 Vec3::new(0.0, y(0.5), radius(0.5)),
                 Vec3::new(
@@ -827,11 +773,7 @@ pub(super) fn emit_shaft(
                     tongue_depth,
                 ),
                 Quat::IDENTITY,
-                if appearance == JungleBoots {
-                    trim * 0.62
-                } else {
-                    color * 0.75
-                },
+                lacing.tongue.color(color, trim),
             );
             // Each crossing joins two real, consecutive eyelet rows. The
             // former short X marks ended in the facing between eyelets.
@@ -849,17 +791,7 @@ pub(super) fn emit_shaft(
                     }
                 }
             }
-            band(
-                p,
-                shape,
-                0.98,
-                if appearance == HikingBoots {
-                    0.012
-                } else {
-                    0.005
-                },
-                color * 0.6,
-            );
+            band(p, shape, 0.98, lacing.top_band, color * 0.6);
             if appearance == JungleBoots {
                 for t in [0.13, 0.24] {
                     p.metal.torus(
@@ -1139,7 +1071,7 @@ mod tests {
                             );
                             if let Some(grid) = fit.riding.as_deref() {
                                 assert_eq!(
-                                    *grid,
+                                    *grid.rows(),
                                     legacy_riding_profile(
                                         expected, body.shin, trousered, body.build
                                     )

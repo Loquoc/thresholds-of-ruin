@@ -36,6 +36,42 @@ class PlanTests(unittest.TestCase):
                     self.assertEqual(metadata[identity], {
                         'process': row['resource'] == 'application', 'graphical': False})
 
+    def test_model_diagnostic_owners_preserve_tooling_and_fail_closed_boundaries(self):
+        import ci_test_contracts as contracts
+        import model_performance_report
+        catalog = json.loads((plan.ROOT / 'scripts/testdata/ci-ownership/review-20261116.json').read_text())
+        inventory, metadata = plan.discover_inventory()
+        self.assertEqual(len(catalog['owners']), 2)
+        for row in catalog['owners']:
+            module, owner = row['owner'].split('.')
+            identities = {row['owner'] + '.' + method for method in row['witness_methods']}
+            self.assertEqual(len(identities), 3)
+            self.assertEqual({i for i in inventory if i.startswith(row['owner'] + '.')}, identities)
+            self.assertEqual(row['resource'], 'tooling')
+            self.assertTrue(row['assertion_review'])
+            self.assertIn(owner, contracts.REVIEWED_OWNERS[module])
+            for identity in identities:
+                self.assertEqual(metadata[identity], {'process': False, 'graphical': False})
+            for path in ('scripts/' + module + '.py',
+                         'scripts/' + module.removeprefix('test_') + '.py'):
+                selected = contracts.select([path], inventory, root=plan.ROOT, test_metadata=metadata)
+                self.assertFalse(selected['full_required'], selected['reasons'])
+                self.assertFalse(selected['requires_apps'])
+                for lane in ('linux_debug', 'windows_debug'):
+                    self.assertTrue(identities <= set(selected[lane]), (path, lane))
+            # Shared validator reaches broader literal CLI edges. Preserve
+            # fail-closed full coverage until those edges receive their own review.
+            shared = contracts.select(['scripts/' + model_performance_report.__name__ + '.py'],
+                                      inventory, root=plan.ROOT, test_metadata=metadata)
+            self.assertTrue(shared['full_required'])
+            self.assertIn('cannot resolve Python source dependencies', shared['reasons'])
+            unknown = module + '.UnreviewedBoundary.test_requires_review'
+            selected = contracts.select(['scripts/' + module + '.py'], inventory + [unknown],
+                                        root=plan.ROOT, test_metadata={**metadata, unknown: {
+                                            'process': False, 'graphical': False}})
+            self.assertTrue(selected['full_required'])
+            self.assertIn('unreviewed owner: ' + module + '.UnreviewedBoundary', selected['reasons'])
+
     def test_complete_inventory_supports_tooling_without_application_builds(self):
         import rogue_species_tuning
         import test_model_performance_report

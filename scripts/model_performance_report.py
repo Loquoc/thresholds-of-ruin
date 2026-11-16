@@ -13,8 +13,8 @@ FRAME_TIMINGS = ("pose_update_ms", *PHASES, *HAIR_PHASES)
 TIMINGS = ("cold_spawn_ms", "warm_spawn_ms", *FRAME_TIMINGS)
 
 
-def validate(rows):
-    expected = [(case, sample) for case in CASES for sample in range(3)]
+def validate(rows, *, cases=CASES, active_hair_cases=("nymph-princess-cloak",)):
+    expected = [(case, sample) for case in cases for sample in range(3)]
     if [(r.get("case"), r.get("sample")) for r in rows] != expected:
         raise ValueError("Missing, duplicated or reordered model samples")
     counts = {}
@@ -39,7 +39,7 @@ def validate(rows):
                 raise ValueError("Motion phases exceed their enclosing update")
             if sum(row[key][frame] for key in HAIR_PHASES) > row["hair_fit_ms"][frame] + 0.000001:
                 raise ValueError("Hair subphases exceed their enclosing hair update")
-        if row["case"] == "nymph-princess-cloak" and any(sum(row[key]) <= 0 for key in HAIR_PHASES):
+        if row["case"] in active_hair_cases and any(sum(row[key]) <= 0 for key in HAIR_PHASES):
             raise ValueError("Missing active hair-stage timing")
         if any(type(row[k]) is not int or row[k] < 0 for k in COUNTS):
             raise ValueError("Invalid model counts")

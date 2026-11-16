@@ -1146,7 +1146,7 @@ mod pile_tests {
         );
     }
     #[test]
-    fn ui_pointer_and_missing_disclosure_do_not_open_pile_or_send_commands() {
+    fn pile_click_guards_and_cell_aim_preserve_their_distinct_commands() {
         for mode in 0..4 {
             let obscured = mode == 0;
             let mut view = fixture();
@@ -1185,9 +1185,15 @@ mod pile_tests {
                 .world()
                 .resource::<crate::pile_picker::PilePicker>()
                 .open());
-            assert!(sent.try_recv().is_err());
             if mode == 2 {
-                assert!(app.world().resource::<Game>().aiming.is_some());
+                // An active cell aim takes precedence over pile selection.
+                // It must send the intended aim, never fetch an arbitrary stack.
+                assert!(matches!(sent.try_recv().unwrap().command,
+                    Cmd::ZapCell(item, [0, 0, 0]) if item == ItemTarget::from_digest([0; 32])));
+                assert!(sent.try_recv().is_err());
+                assert!(app.world().resource::<Game>().aiming.is_none());
+            } else {
+                assert!(sent.try_recv().is_err());
             }
         }
     }
