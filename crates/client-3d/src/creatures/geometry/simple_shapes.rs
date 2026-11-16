@@ -161,6 +161,18 @@ pub(super) fn hair_tufts(
 
 /// A smooth tube of one colour through `path` with elliptical `radii`.
 pub(super) fn tube(b: &mut Builder, path: &[Vec3], radii: &[(f32, f32)], color: Vec3) {
+    // Most authored limbs, digits and feather ridges have short paths. Keep
+    // this representation-only conversion bounded on the stack; long paths
+    // retain the existing heap conversion without changing sampling policy.
+    const INLINE_RADII: usize = 32;
+    if radii.len() <= INLINE_RADII {
+        let mut converted = [Vec2::ZERO; INLINE_RADII];
+        for (out, &(x, z)) in converted.iter_mut().zip(radii) {
+            *out = Vec2::new(x, z);
+        }
+        b.tube(path, &converted[..radii.len()], 10, &|_, _, _| color);
+        return;
+    }
     let radii: Vec<Vec2> = radii.iter().map(|(x, z)| Vec2::new(*x, *z)).collect();
     b.tube(path, &radii, 10, &|_, _, _| color);
 }
@@ -607,6 +619,96 @@ mod hand_root_tests {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tube_radii_tests {
+    use super::*;
+    fn original_tube(b: &mut Builder, path: &[Vec3], radii: &[(f32, f32)], color: Vec3) {
+        let radii: Vec<Vec2> = radii.iter().map(|(x, z)| Vec2::new(*x, *z)).collect();
+        b.tube(path, &radii, 10, &|_, _, _| color);
+    }
+
+    fn fixture(n: usize) -> (Vec<Vec3>, Vec<(f32, f32)>) {
+        let path = (0..n)
+            .map(|i| {
+                Vec3::new(
+                    (i as f32 * 0.2).sin() * 0.02,
+                    i as f32 * 0.03,
+                    (i as f32 * 0.15).cos() * 0.01,
+                )
+            })
+            .collect();
+        let radii = (0..n)
+            .map(|i| {
+                let r = if i + 1 == n {
+                    0.0
+                } else {
+                    0.015 + i as f32 * 0.0001
+                };
+                (r, r * 0.7)
+            })
+            .collect();
+        (path, radii)
+    }
+    #[test]
+    fn inline_and_heap_conversions_preserve_tube_recipe() {
+        for n in [0, 1, 2, 4, 17, 31, 32, 33, 64] {
+            let (path, radii) = fixture(n);
+            for smooth in [false, true] {
+                for sides_mul in [1, 2] {
+                    let mut actual = Builder::default();
+                    actual.smooth = smooth;
+                    actual.sides_mul = sides_mul;
+                    let mut expected = Builder::default();
+                    expected.smooth = smooth;
+                    expected.sides_mul = sides_mul;
+                    tube(&mut actual, &path, &radii, Vec3::new(0.2, 0.3, 0.4));
+                    original_tube(&mut expected, &path, &radii, Vec3::new(0.2, 0.3, 0.4));
+                    actual.assert_same_recipe(&expected);
+                    let bits = |b: &Builder| {
+                        b.surface_triangles()
+                            .flatten()
+                            .map(|p| p.to_array().map(f32::to_bits))
+                            .collect::<Vec<_>>()
+                    };
+                    assert_eq!(bits(&actual), bits(&expected));
+                }
+            }
+        }
+    }
+    #[test]
+    #[ignore = "manual tube recipe construction benchmark, not final mesh or GPU timing"]
+    fn measure_inline_radius_conversion() {
+        use std::{hint::black_box, time::Instant};
+        for n in [4, 17, 33] {
+            let (path, radii) = fixture(n);
+            type Emit = fn(&mut Builder, &[Vec3], &[(f32, f32)], Vec3);
+            let measure = |emit: Emit| {
+                let start = Instant::now();
+                for _ in 0..200 {
+                    let mut b = Builder::default();
+                    emit(
+                        black_box(&mut b),
+                        black_box(&path),
+                        black_box(&radii),
+                        Vec3::ONE,
+                    );
+                    black_box(b);
+                }
+                start.elapsed().as_nanos()
+            };
+            for round in 0..10 {
+                let (old, new) = if round % 2 == 0 {
+                    (measure(original_tube), measure(tube))
+                } else {
+                    let new = measure(tube);
+                    (measure(original_tube), new)
+                };
+                println!("tube n={n} round={round} original_ns={old} resolved_ns={new}");
             }
         }
     }

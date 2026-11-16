@@ -1,6 +1,15 @@
 //! Interchangeable head-local equipment. Authored silhouettes are fitted to
 //! the uncovered cranium; callers apply the resolved head frame, never world offsets.
 use super::*;
+mod feathers;
+mod shell;
+#[cfg(test)]
+use feathers::{
+    cream_covert_path, emit_feather_vane, feather_fraction, feather_section, plume_path,
+    FEATHER_STATIONS,
+};
+use feathers::{cream_coverts, plume_feather, FeatherStyle};
+use shell::{rim, ring_point, CrownRecipe};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HeadwearKind {
@@ -70,134 +79,20 @@ const BRASS: Vec3 = Vec3::new(0.76, 0.56, 0.25);
 const LEATHER: Vec3 = Vec3::new(0.39, 0.22, 0.10);
 const RED: Vec3 = Vec3::new(0.66, 0.09, 0.06);
 
-fn ring_point(angle: f32, y: f32, radius: f32) -> Vec3 {
-    Vec3::new(angle.sin() * radius, y, angle.cos() * radius * 1.04 - 0.012)
-}
-
-fn rim(b: &mut Builder, y: f32, radius: f32, width: f32, color: Vec3) {
-    // This is a closed ellipse, not an open tube with two coincident caps.
-    // Periodic frames share the exact seam positions and normals, avoiding the
-    // visible front notch caused by mismatched endpoint tangents and cap disks.
-    const AROUND: usize = 64;
-    const SIDES: usize = 12;
-    let vertex = |i: usize, j: usize| {
-        let a = (i % AROUND) as f32 * TAU / AROUND as f32;
-        let cross = (j % SIDES) as f32 * TAU / SIDES as f32;
-        let outward = Vec3::new(a.sin() * 1.04, 0.0, a.cos()).normalize();
-        let normal = outward * cross.cos() + Vec3::Y * cross.sin();
-        (ring_point(a, y, radius) + normal * width, normal)
-    };
-    for i in 0..AROUND {
-        for j in 0..SIDES {
-            let q = [
-                vertex(i, j),
-                vertex(i + 1, j),
-                vertex(i + 1, j + 1),
-                vertex(i, j + 1),
-            ];
-            for ids in [[0, 1, 2], [0, 2, 3]] {
-                b.tri_smooth(ids.map(|k| q[k].0), ids.map(|k| q[k].1), [color; 3]);
-            }
-        }
-    }
-}
-
-/// Open-bottom, lined crown: no solid sphere occupies the wearer's forehead.
-/// Alternating triangular planes deliberately expose crystal's faceting.
-fn crown(
-    b: &mut Builder,
-    profile: &[(f32, f32)],
-    facets: usize,
-    color: Vec3,
-    crystal: bool,
-    dent: bool,
-) {
-    let point = |row: usize, column: usize, inner: bool| {
-        let (y, radius) = profile[row];
-        let a = column as f32 * TAU / facets as f32;
-        let damage = if dent && row > 0 {
-            0.018 * ((a - 0.8).cos().max(0.0)).powi(12)
-        } else {
-            0.0
-        };
-        ring_point(
-            a,
-            y - damage * 0.5,
-            radius - damage - if inner { 0.006 } else { 0.0 },
-        )
-    };
-    for row in 0..profile.len() - 1 {
-        for col in 0..facets {
-            for inner in [false, true] {
-                if crystal && inner {
-                    continue;
-                }
-                let q = [
-                    point(row, col, inner),
-                    point(row, col + 1, inner),
-                    point(row + 1, col + 1, inner),
-                    point(row + 1, col, inner),
-                ];
-                let middle = (q[0] + q[2]) * 0.5;
-                let reference = if inner {
-                    middle + Vec3::new(middle.x, 0.0, middle.z + 0.012)
-                } else {
-                    Vec3::new(0.0, middle.y, -0.012)
-                };
-                let pigment = color
-                    * if inner {
-                        0.68
-                    } else if crystal {
-                        0.75 + ((col * 3 + row) % 5) as f32 * 0.09
-                    } else {
-                        1.0
-                    };
-                b.quad_out(q, reference, pigment);
-            }
-        }
-    }
-    for col in 0..facets {
-        b.quad_out(
-            [
-                point(0, col, false),
-                point(0, col, true),
-                point(0, col + 1, true),
-                point(0, col + 1, false),
-            ],
-            Vec3::Y * (BROW + 0.02),
-            color,
-        );
-        let row = profile.len() - 1;
-        let center = Vec3::new(0.0, profile[row].0, -0.012);
-        b.tri_out(
-            [point(row, col, false), point(row, col + 1, false), center],
-            center - Vec3::Y,
-            color,
-        );
-        if !crystal {
-            b.tri_out(
-                [point(row, col, true), center, point(row, col + 1, true)],
-                center + Vec3::Y,
-                color * 0.68,
-            );
-        }
-    }
-}
-
 fn dome(p: &mut Parts, color: Vec3, pointed: bool) {
-    crown(
-        &mut p.metal,
-        &[
+    CrownRecipe {
+        profile: &[
             (BROW, 0.145),
             (0.29, 0.14),
             (0.335, 0.108),
             (if pointed { 0.405 } else { 0.365 }, 0.012),
         ],
-        24,
+        facets: 24,
         color,
-        false,
-        false,
-    );
+        faceted: false,
+        dented: false,
+    }
+    .emit(&mut p.metal);
     rim(&mut p.metal, BROW, 0.146, 0.008, color * 1.25);
 }
 
@@ -548,14 +443,14 @@ fn conical_hat(p: &mut Parts) {
 }
 
 fn pot(p: &mut Parts) {
-    crown(
-        &mut p.metal,
-        &[(BROW, 0.157), (0.32, 0.148), (0.378, 0.142), (0.388, 0.012)],
-        16,
-        IRON * 0.8,
-        false,
-        true,
-    );
+    CrownRecipe {
+        profile: &[(BROW, 0.157), (0.32, 0.148), (0.378, 0.142), (0.388, 0.012)],
+        facets: 16,
+        color: IRON * 0.8,
+        faceted: false,
+        dented: true,
+    }
+    .emit(&mut p.metal);
     rim(&mut p.metal, BROW, 0.16, 0.009, IRON * 1.35);
     for side in [-1.0, 1.0] {
         tube(
@@ -663,146 +558,6 @@ fn crystal(p: &mut Parts) {
     rim(&mut p.satin, BROW, 0.15, 0.0025, ice);
 }
 
-fn plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
-    // Different lengths and asymmetric arches prevent adjacent feather tips
-    // from joining into the straight edge of a rigid folding fan.
-    let stagger = (lane * 5.7 + layer * 2.3).sin();
-    let arch = 0.17 + layer * 0.035 - 0.05 * lane.abs() + stagger * 0.018;
-    (0..=16)
-        .map(|i| {
-            let t = i as f32 / 16.0;
-            if white {
-                // Short cream feathers curl outward over the mount, rather
-                // than reproducing the red plume as a tall pale folding fan.
-                // Leave headroom for outer-lane vane width, which tilts upward
-                // by about 0.02 above its centerline near the shoulder.
-                let angle = lane * 1.30;
-                let radius = 0.015 + 0.155 * (t * PI * 0.5).sin();
-                return Vec3::new(
-                    angle.sin() * radius,
-                    0.375 + (0.08 + stagger * 0.008) * (t * PI * 0.85).sin() - 0.075 * t,
-                    angle.cos() * radius + 0.045 * (1.0 - t),
-                );
-            }
-            // Outer/foreground feathers bend early; the central rear sweep
-            // bends later. Height variation alone left all broad vanes folded
-            // at the same station, creating the straight cut-paper fan edge.
-            let bend = t.powf(0.75 + 0.90 * (1.0 - lane.abs()) + 0.20 * (layer - 1.0));
-            Vec3::new(
-                lane * (0.02 + 0.105 * (bend * PI * 0.65).sin() + 0.05 * bend.powi(3))
-                    + stagger * 0.015 * t * t,
-                0.365 + arch * (bend * PI * 0.95).sin() - t * t * (0.035 + lane.abs() * 0.025),
-                0.025 - t * (0.235 + layer * 0.035 + stagger * 0.028),
-            )
-        })
-        .collect()
-}
-
-// Explicit vanes keep a visible center ridge and pointed, asymmetric barbs.
-// A flattened tube rotates its frame around the bend and reads as folded ribbon.
-fn feather_section(path: &[Vec3], i: usize, lane: f32, white: bool) -> [Vec3; 3] {
-    let t = i as f32 / (path.len() - 1) as f32;
-    let tangent = (path[(i + 1).min(path.len() - 1)] - path[i.saturating_sub(1)]).normalize();
-    let across = (Vec3::X - tangent * tangent.x).normalize();
-    // Fan the outer red vanes in three dimensions instead of aligning every
-    // width with X. The smooth roll vanishes at root and tip, retaining the
-    // mount and pointed silhouette while exposing actual area from the side.
-    let across = if white {
-        across
-    } else {
-        Quat::from_axis_angle(tangent, 0.50 * lane * (PI * t).sin()) * across
-    };
-    // The cream fan curls forward, while the red plume trails backward.
-    // Reverse the red frame so its ridge rises on the exposed upper side
-    // instead of carving a trough below the vane's shoulder centerline.
-    let normal = tangent.cross(across).normalize() * if white { 1.0 } else { -1.0 };
-    let width = (PI * t.powf(0.72)).sin().max(0.0) * if white { 0.022 } else { 0.029 };
-    let left = width * if i % 4 == 1 { 0.72 } else { 1.0 };
-    let right = width * if i % 4 == 3 { 0.74 } else { 0.94 };
-    let lean = lane * 0.002 * (PI * t).sin();
-    [
-        path[i] - across * left.max(0.0002),
-        path[i] + normal * (width * 0.13 + 0.0005) + across * lean,
-        path[i] + across * right.max(0.0002),
-    ]
-}
-
-fn plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
-    let mut path = plume_path(lane, layer, white);
-    // Cluster roots around the mount rather than gathering every vane into
-    // one fan apex. Cream feathers sit as shorter overlapping shoulder tufts.
-    for (i, point) in path.iter_mut().enumerate() {
-        let t = i as f32 / 16.0;
-        point.x += (layer - 1.0) * 0.009 * (1.0 - t);
-        point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
-    }
-    emit_feather_vane(b, &path, lane, layer, white);
-}
-
-fn emit_feather_vane(b: &mut Builder, path: &[Vec3], lane: f32, layer: f32, white: bool) {
-    let pigment = (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
-    for i in 0..path.len() - 1 {
-        let a = feather_section(path, i, lane, white);
-        let z = feather_section(path, i + 1, lane, white);
-        let normal = (a[2] - a[0]).cross(z[1] - a[1]).normalize();
-        for half in 0..2 {
-            let q = [a[half], z[half], z[half + 1], a[half + 1]];
-            let center = (q[0] + q[2]) * 0.5;
-            b.quad_out(
-                q,
-                center - normal,
-                pigment * if half == 0 { 0.92 } else { 1.06 },
-            );
-            // A separate back surface makes each vane visible from behind.
-            b.quad_out(
-                q.map(|v| v - normal * 0.0006),
-                center + normal,
-                pigment * 0.78,
-            );
-        }
-    }
-    let ridge: Vec<_> = (0..path.len())
-        .map(|i| feather_section(path, i, lane, white)[1])
-        .collect();
-    let radii: Vec<_> = (0..path.len())
-        .map(|i| {
-            let r = 0.0012 * (1.0 - i as f32 / (path.len() - 1) as f32) + 0.0002;
-            (r, r)
-        })
-        .collect();
-    tube(b, &ridge, &radii, pigment * 0.72);
-}
-
-// Short overlapping coverts hide the exposed roots between the long cream
-// feathers. Their staggered curved tips stop above the outer collar's points.
-fn cream_covert_path(lane: f32) -> Vec<Vec3> {
-    let root = Vec3::new(lane * 0.012, 0.368, 0.055);
-    let shoulder = Vec3::new(lane * 0.045, 0.418, 0.090);
-    let bend = Vec3::new(lane * 0.095, 0.411, 0.125 - lane.abs() * 0.035);
-    let tip = Vec3::new(
-        lane * 0.120,
-        0.363 + 0.006 * (lane * 7.0).cos(),
-        0.145 - lane.abs() * 0.055,
-    );
-    (0..=16)
-        .map(|i| {
-            let t = i as f32 / 16.0;
-            let u = 1.0 - t;
-            root * u.powi(3)
-                + shoulder * (3.0 * u * u * t)
-                + bend * (3.0 * u * t * t)
-                + tip * t.powi(3)
-        })
-        .collect()
-}
-
-fn cream_coverts(b: &mut Builder) {
-    for i in 0..9 {
-        let lane = i as f32 / 4.0 - 1.0;
-        emit_feather_vane(b, &cream_covert_path(lane), lane, 0.25, true);
-    }
-}
-
 fn plume(p: &mut Parts) {
     dome(p, IRON, false);
     guards(p, IRON, BRASS);
@@ -814,12 +569,17 @@ fn plume(p: &mut Parts) {
                 &mut p.matte,
                 feather as f32 / 4.0 - 1.0,
                 layer as f32,
-                false,
+                FeatherStyle::TrailingRed,
             );
         }
     }
     for feather in 0..7 {
-        plume_feather(&mut p.matte, feather as f32 / 3.0 - 1.0, 0.7, true);
+        plume_feather(
+            &mut p.matte,
+            feather as f32 / 3.0 - 1.0,
+            0.7,
+            FeatherStyle::CurledCream,
+        );
     }
     cream_coverts(&mut p.matte);
     p.metal.blob(
@@ -1202,6 +962,377 @@ pub(super) fn emit(p: &mut Parts, kind: HeadwearKind) {
 
 #[cfg(test)]
 mod tests {
+    fn test_feather_style(white: bool) -> FeatherStyle {
+        if white {
+            FeatherStyle::CurledCream
+        } else {
+            FeatherStyle::TrailingRed
+        }
+    }
+
+    fn allocated_plume_path(lane: f32, layer: f32, white: bool) -> Vec<Vec3> {
+        // Different lengths and asymmetric arches prevent adjacent feather tips
+        // from joining into the straight edge of a rigid folding fan.
+        let stagger = (lane * 5.7 + layer * 2.3).sin();
+        let arch = 0.17 + layer * 0.035 - 0.05 * lane.abs() + stagger * 0.018;
+        (0..=16)
+            .map(|i| {
+                let t = i as f32 / 16.0;
+                if white {
+                    // Short cream feathers curl outward over the mount, rather
+                    // than reproducing the red allocated_plume as a tall pale folding fan.
+                    // Leave headroom for outer-lane vane width, which tilts upward
+                    // by about 0.02 above its centerline near the shoulder.
+                    let angle = lane * 1.30;
+                    let radius = 0.015 + 0.155 * (t * PI * 0.5).sin();
+                    return Vec3::new(
+                        angle.sin() * radius,
+                        0.375 + (0.08 + stagger * 0.008) * (t * PI * 0.85).sin() - 0.075 * t,
+                        angle.cos() * radius + 0.045 * (1.0 - t),
+                    );
+                }
+                // Outer/foreground feathers bend early; the central rear sweep
+                // bends later. Height variation alone left all broad vanes folded
+                // at the same station, creating the straight cut-paper fan edge.
+                let bend = t.powf(0.75 + 0.90 * (1.0 - lane.abs()) + 0.20 * (layer - 1.0));
+                Vec3::new(
+                    lane * (0.02 + 0.105 * (bend * PI * 0.65).sin() + 0.05 * bend.powi(3))
+                        + stagger * 0.015 * t * t,
+                    0.365 + arch * (bend * PI * 0.95).sin() - t * t * (0.035 + lane.abs() * 0.025),
+                    0.025 - t * (0.235 + layer * 0.035 + stagger * 0.028),
+                )
+            })
+            .collect()
+    }
+
+    // Explicit vanes keep a visible center ridge and pointed, asymmetric barbs.
+    // A flattened tube rotates its frame around the bend and reads as folded ribbon.
+    fn allocated_feather_section(path: &[Vec3], i: usize, lane: f32, white: bool) -> [Vec3; 3] {
+        let t = i as f32 / (path.len() - 1) as f32;
+        let tangent = (path[(i + 1).min(path.len() - 1)] - path[i.saturating_sub(1)]).normalize();
+        let across = (Vec3::X - tangent * tangent.x).normalize();
+        // Fan the outer red vanes in three dimensions instead of aligning every
+        // width with X. The smooth roll vanishes at root and tip, retaining the
+        // mount and pointed silhouette while exposing actual area from the side.
+        let across = if white {
+            across
+        } else {
+            Quat::from_axis_angle(tangent, 0.50 * lane * (PI * t).sin()) * across
+        };
+        // The cream fan curls forward, while the red allocated_plume trails backward.
+        // Reverse the red frame so its ridge rises on the exposed upper side
+        // instead of carving a trough below the vane's shoulder centerline.
+        let normal = tangent.cross(across).normalize() * if white { 1.0 } else { -1.0 };
+        let width = (PI * t.powf(0.72)).sin().max(0.0) * if white { 0.022 } else { 0.029 };
+        let left = width * if i % 4 == 1 { 0.72 } else { 1.0 };
+        let right = width * if i % 4 == 3 { 0.74 } else { 0.94 };
+        let lean = lane * 0.002 * (PI * t).sin();
+        [
+            path[i] - across * left.max(0.0002),
+            path[i] + normal * (width * 0.13 + 0.0005) + across * lean,
+            path[i] + across * right.max(0.0002),
+        ]
+    }
+
+    fn allocated_plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
+        let mut path = allocated_plume_path(lane, layer, white);
+        // Cluster roots around the mount rather than gathering every vane into
+        // one fan apex. Cream feathers sit as shorter overlapping shoulder tufts.
+        for (i, point) in path.iter_mut().enumerate() {
+            let t = i as f32 / 16.0;
+            point.x += (layer - 1.0) * 0.009 * (1.0 - t);
+            point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
+        }
+        allocated_emit_feather_vane(b, &path, lane, layer, white);
+    }
+
+    fn allocated_emit_feather_vane(
+        b: &mut Builder,
+        path: &[Vec3],
+        lane: f32,
+        layer: f32,
+        white: bool,
+    ) {
+        let pigment =
+            (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
+        // Adjacent panels and the ridge own the same section coordinates. Resolve
+        // each station once, retaining only the current pair and the ridge points.
+        let mut a = allocated_feather_section(path, 0, lane, white);
+        let mut ridge = Vec::with_capacity(path.len());
+        ridge.push(a[1]);
+        for i in 0..path.len() - 1 {
+            let z = allocated_feather_section(path, i + 1, lane, white);
+            let normal = (a[2] - a[0]).cross(z[1] - a[1]).normalize();
+            for half in 0..2 {
+                let q = [a[half], z[half], z[half + 1], a[half + 1]];
+                let center = (q[0] + q[2]) * 0.5;
+                b.quad_out(
+                    q,
+                    center - normal,
+                    pigment * if half == 0 { 0.92 } else { 1.06 },
+                );
+                // A separate back surface makes each vane visible from behind.
+                b.quad_out(
+                    q.map(|v| v - normal * 0.0006),
+                    center + normal,
+                    pigment * 0.78,
+                );
+            }
+            ridge.push(z[1]);
+            a = z;
+        }
+        let radii: Vec<_> = (0..path.len())
+            .map(|i| {
+                let r = 0.0012 * (1.0 - i as f32 / (path.len() - 1) as f32) + 0.0002;
+                (r, r)
+            })
+            .collect();
+        tube(b, &ridge, &radii, pigment * 0.72);
+    }
+
+    // Short overlapping coverts hide the exposed roots between the long cream
+    // feathers. Their staggered curved tips stop above the outer collar's points.
+    fn allocated_cream_covert_path(lane: f32) -> Vec<Vec3> {
+        let root = Vec3::new(lane * 0.012, 0.368, 0.055);
+        let shoulder = Vec3::new(lane * 0.045, 0.418, 0.090);
+        let bend = Vec3::new(lane * 0.095, 0.411, 0.125 - lane.abs() * 0.035);
+        let tip = Vec3::new(
+            lane * 0.120,
+            0.363 + 0.006 * (lane * 7.0).cos(),
+            0.145 - lane.abs() * 0.055,
+        );
+        (0..=16)
+            .map(|i| {
+                let t = i as f32 / 16.0;
+                let u = 1.0 - t;
+                root * u.powi(3)
+                    + shoulder * (3.0 * u * u * t)
+                    + bend * (3.0 * u * t * t)
+                    + tip * t.powi(3)
+            })
+            .collect()
+    }
+
+    fn allocated_cream_coverts(b: &mut Builder) {
+        for i in 0..9 {
+            let lane = i as f32 / 4.0 - 1.0;
+            allocated_emit_feather_vane(b, &allocated_cream_covert_path(lane), lane, 0.25, true);
+        }
+    }
+
+    fn allocated_plume(p: &mut Parts) {
+        dome(p, IRON, false);
+        guards(p, IRON, BRASS);
+        // Three overlapping broad layers make a supported red-and-white allocated_plume,
+        // arching over the crown and sweeping down behind it, not upright quills.
+        for layer in 0..3 {
+            for feather in 0..9 {
+                allocated_plume_feather(
+                    &mut p.matte,
+                    feather as f32 / 4.0 - 1.0,
+                    layer as f32,
+                    false,
+                );
+            }
+        }
+        for feather in 0..7 {
+            allocated_plume_feather(&mut p.matte, feather as f32 / 3.0 - 1.0, 0.7, true);
+        }
+        allocated_cream_coverts(&mut p.matte);
+        p.metal.blob(
+            Vec3::new(0.0, 0.36, 0.015),
+            Vec3::new(0.026, 0.025, 0.026),
+            2,
+            0.0,
+            BRASS,
+        );
+    }
+
+    fn original_crown(
+        b: &mut Builder,
+        profile: &[(f32, f32)],
+        facets: usize,
+        color: Vec3,
+        crystal: bool,
+        dent: bool,
+    ) {
+        let point = |row: usize, column: usize, inner: bool| {
+            let (y, radius) = profile[row];
+            let a = column as f32 * TAU / facets as f32;
+            let damage = if dent && row > 0 {
+                0.018 * ((a - 0.8).cos().max(0.0)).powi(12)
+            } else {
+                0.0
+            };
+            ring_point(
+                a,
+                y - damage * 0.5,
+                radius - damage - if inner { 0.006 } else { 0.0 },
+            )
+        };
+        for row in 0..profile.len() - 1 {
+            for col in 0..facets {
+                for inner in [false, true] {
+                    if crystal && inner {
+                        continue;
+                    }
+                    let q = [
+                        point(row, col, inner),
+                        point(row, col + 1, inner),
+                        point(row + 1, col + 1, inner),
+                        point(row + 1, col, inner),
+                    ];
+                    let middle = (q[0] + q[2]) * 0.5;
+                    let reference = if inner {
+                        middle + Vec3::new(middle.x, 0.0, middle.z + 0.012)
+                    } else {
+                        Vec3::new(0.0, middle.y, -0.012)
+                    };
+                    let pigment = color
+                        * if inner {
+                            0.68
+                        } else if crystal {
+                            0.75 + ((col * 3 + row) % 5) as f32 * 0.09
+                        } else {
+                            1.0
+                        };
+                    b.quad_out(q, reference, pigment);
+                }
+            }
+        }
+        for col in 0..facets {
+            b.quad_out(
+                [
+                    point(0, col, false),
+                    point(0, col, true),
+                    point(0, col + 1, true),
+                    point(0, col + 1, false),
+                ],
+                Vec3::Y * (BROW + 0.02),
+                color,
+            );
+            let row = profile.len() - 1;
+            let center = Vec3::new(0.0, profile[row].0, -0.012);
+            b.tri_out(
+                [point(row, col, false), point(row, col + 1, false), center],
+                center - Vec3::Y,
+                color,
+            );
+            if !crystal {
+                b.tri_out(
+                    [point(row, col, true), center, point(row, col + 1, true)],
+                    center + Vec3::Y,
+                    color * 0.68,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn crown_recipe_preserves_original_emission() {
+        for profile in [
+            vec![(BROW, 0.145), (0.29, 0.14), (0.335, 0.108), (0.365, 0.012)],
+            vec![(BROW, 0.145), (0.29, 0.14), (0.335, 0.108), (0.405, 0.012)],
+            vec![(BROW, 0.157), (0.32, 0.148), (0.378, 0.142), (0.388, 0.012)],
+        ] {
+            for facets in [16, 24] {
+                for color in [IRON, BRASS, IRON * 0.8] {
+                    for faceted in [false, true] {
+                        for dented in [false, true] {
+                            let mut actual = Builder::default();
+                            let mut expected = Builder::default();
+                            CrownRecipe {
+                                profile: &profile,
+                                facets,
+                                color,
+                                faceted,
+                                dented,
+                            }
+                            .emit(&mut actual);
+                            original_crown(&mut expected, &profile, facets, color, faceted, dented);
+                            assert_builder_exact(&actual, &expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn original_rim(b: &mut Builder, y: f32, radius: f32, width: f32, color: Vec3) {
+        // This is a closed ellipse, not an open tube with two coincident caps.
+        // Periodic frames share the exact seam positions and normals, avoiding the
+        // visible front notch caused by mismatched endpoint tangents and cap disks.
+        const AROUND: usize = 64;
+        const SIDES: usize = 12;
+        let vertex = |i: usize, j: usize| {
+            let a = (i % AROUND) as f32 * TAU / AROUND as f32;
+            let cross = (j % SIDES) as f32 * TAU / SIDES as f32;
+            let outward = Vec3::new(a.sin() * 1.04, 0.0, a.cos()).normalize();
+            let normal = outward * cross.cos() + Vec3::Y * cross.sin();
+            (ring_point(a, y, radius) + normal * width, normal)
+        };
+        for i in 0..AROUND {
+            for j in 0..SIDES {
+                let q = [
+                    vertex(i, j),
+                    vertex(i + 1, j),
+                    vertex(i + 1, j + 1),
+                    vertex(i, j + 1),
+                ];
+                for ids in [[0, 1, 2], [0, 2, 3]] {
+                    b.tri_smooth(ids.map(|k| q[k].0), ids.map(|k| q[k].1), [color; 3]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shared_rim_vertices_preserve_periodic_recipe() {
+        for y in [0.0, BROW, 0.36] {
+            for radius in [0.08, 0.14, 0.21] {
+                for width in [0.001, 0.006, 0.018] {
+                    for color in [IRON, BRASS, LEATHER] {
+                        let mut actual = Builder::default();
+                        let mut expected = Builder::default();
+                        rim(&mut actual, y, radius, width, color);
+                        original_rim(&mut expected, y, radius, width, color);
+                        assert_builder_exact(&actual, &expected);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual rim construction benchmark, not GPU or whole-character timing"]
+    fn measure_shared_rim_vertices() {
+        use std::{hint::black_box, time::Instant};
+        let measure = |emit: fn(&mut Builder, f32, f32, f32, Vec3)| {
+            let start = Instant::now();
+            for _ in 0..1000 {
+                let mut b = Builder::default();
+                emit(
+                    black_box(&mut b),
+                    black_box(BROW),
+                    black_box(0.14),
+                    black_box(0.006),
+                    black_box(BRASS),
+                );
+                black_box(b);
+            }
+            start.elapsed().as_nanos()
+        };
+        for round in 0..10 {
+            let (old, new) = if round % 2 == 0 {
+                (measure(original_rim), measure(rim))
+            } else {
+                let new = measure(rim);
+                (measure(original_rim), new)
+            };
+            println!("rim round={round} original_ns={old} resolved_ns={new}");
+        }
+    }
+
     use super::*;
 
     fn bounds(p: &Parts) -> (Vec3, Vec3) {
@@ -1215,6 +1346,206 @@ mod tests {
             )
     }
 
+    fn original_emit_feather_vane(
+        b: &mut Builder,
+        path: &[Vec3],
+        lane: f32,
+        layer: f32,
+        white: bool,
+    ) {
+        let pigment =
+            (if white { CREAM } else { RED }) * (0.90 + 0.10 * (lane * 7.0 + layer).cos());
+        for i in 0..path.len() - 1 {
+            let a = feather_section(path, i, lane, test_feather_style(white));
+            let z = feather_section(path, i + 1, lane, test_feather_style(white));
+            let normal = (a[2] - a[0]).cross(z[1] - a[1]).normalize();
+            for half in 0..2 {
+                let q = [a[half], z[half], z[half + 1], a[half + 1]];
+                let center = (q[0] + q[2]) * 0.5;
+                b.quad_out(
+                    q,
+                    center - normal,
+                    pigment * if half == 0 { 0.92 } else { 1.06 },
+                );
+                // A separate back surface makes each vane visible from behind.
+                b.quad_out(
+                    q.map(|v| v - normal * 0.0006),
+                    center + normal,
+                    pigment * 0.78,
+                );
+            }
+        }
+        let ridge: Vec<_> = (0..path.len())
+            .map(|i| feather_section(path, i, lane, test_feather_style(white))[1])
+            .collect();
+        let radii: Vec<_> = (0..path.len())
+            .map(|i| {
+                let r = 0.0012 * (1.0 - i as f32 / (path.len() - 1) as f32) + 0.0002;
+                (r, r)
+            })
+            .collect();
+        tube(b, &ridge, &radii, pigment * 0.72);
+    }
+
+    fn original_plume_feather(b: &mut Builder, lane: f32, layer: f32, white: bool) {
+        let mut path = allocated_plume_path(lane, layer, white);
+        // Cluster roots around the mount rather than gathering every vane into
+        // one fan apex. Cream feathers sit as shorter overlapping shoulder tufts.
+        for (i, point) in path.iter_mut().enumerate() {
+            let t = i as f32 / 16.0;
+            point.x += (layer - 1.0) * 0.009 * (1.0 - t);
+            point.z += (lane * 9.0 + layer).sin() * 0.012 * (1.0 - t);
+        }
+        original_emit_feather_vane(b, &path, lane, layer, white);
+    }
+
+    fn original_cream_coverts(b: &mut Builder) {
+        for i in 0..9 {
+            let lane = i as f32 / 4.0 - 1.0;
+            original_emit_feather_vane(b, &allocated_cream_covert_path(lane), lane, 0.25, true);
+        }
+    }
+
+    fn original_plume(p: &mut Parts) {
+        dome(p, IRON, false);
+        guards(p, IRON, BRASS);
+        // Three overlapping broad layers make a supported red-and-white plume,
+        // arching over the crown and sweeping down behind it, not upright quills.
+        for layer in 0..3 {
+            for feather in 0..9 {
+                original_plume_feather(
+                    &mut p.matte,
+                    feather as f32 / 4.0 - 1.0,
+                    layer as f32,
+                    false,
+                );
+            }
+        }
+        for feather in 0..7 {
+            original_plume_feather(&mut p.matte, feather as f32 / 3.0 - 1.0, 0.7, true);
+        }
+        original_cream_coverts(&mut p.matte);
+        p.metal.blob(
+            Vec3::new(0.0, 0.36, 0.015),
+            Vec3::new(0.026, 0.025, 0.026),
+            2,
+            0.0,
+            BRASS,
+        );
+    }
+
+    #[test]
+    fn fixed_feather_topology_matches_allocated_paths_and_plume() {
+        assert_eq!(FEATHER_STATIONS, 17);
+        for i in 0..FEATHER_STATIONS {
+            assert_eq!(feather_fraction(i).to_bits(), (i as f32 / 16.0).to_bits());
+        }
+        let bits = |v: &[Vec3]| {
+            v.iter()
+                .map(|p| p.to_array().map(f32::to_bits))
+                .collect::<Vec<_>>()
+        };
+        for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            assert_eq!(
+                bits(&cream_covert_path(lane)),
+                bits(&allocated_cream_covert_path(lane))
+            );
+            for layer in [0.0, 0.25, 0.7, 1.0, 2.0] {
+                for white in [false, true] {
+                    assert_eq!(
+                        bits(&plume_path(lane, layer, test_feather_style(white))),
+                        bits(&allocated_plume_path(lane, layer, white))
+                    );
+                }
+            }
+        }
+        let mut actual = Parts::default();
+        let mut expected = Parts::default();
+        plume(&mut actual);
+        allocated_plume(&mut expected);
+        assert_builder_exact(&actual.matte, &expected.matte);
+        assert_builder_exact(&actual.satin, &expected.satin);
+        assert_builder_exact(&actual.metal, &expected.metal);
+    }
+    #[test]
+    #[ignore = "manual complete-plume construction benchmark, not GPU or whole-character timing"]
+    fn measure_fixed_feather_topology() {
+        use std::{hint::black_box, time::Instant};
+        let measure = |emit: fn(&mut Parts)| {
+            let start = Instant::now();
+            for _ in 0..200 {
+                let mut parts = Parts::default();
+                emit(black_box(&mut parts));
+                black_box(parts);
+            }
+            start.elapsed().as_nanos()
+        };
+        for round in 0..10 {
+            let (old, new) = if round % 2 == 0 {
+                (measure(allocated_plume), measure(plume))
+            } else {
+                let new = measure(plume);
+                (measure(allocated_plume), new)
+            };
+            println!("plume round={round} original_ns={old} resolved_ns={new}");
+        }
+    }
+    fn assert_builder_exact(actual: &Builder, expected: &Builder) {
+        actual.assert_same_recipe(expected);
+        let bits = |b: &Builder| {
+            b.surface_triangles()
+                .flatten()
+                .map(|p| p.to_array().map(f32::to_bits))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(bits(actual), bits(expected));
+    }
+
+    #[test]
+    fn shared_feather_sections_preserve_complete_plume_recipe() {
+        let mut actual = Parts::default();
+        let mut expected = Parts::default();
+        plume(&mut actual);
+        original_plume(&mut expected);
+        assert_builder_exact(&actual.matte, &expected.matte);
+        assert_builder_exact(&actual.satin, &expected.satin);
+        assert_builder_exact(&actual.metal, &expected.metal);
+        for white in [false, true] {
+            for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+                for layer in [0.0, 0.25, 0.7, 1.0, 2.0] {
+                    let mut actual = Builder::default();
+                    let mut expected = Builder::default();
+                    plume_feather(&mut actual, lane, layer, test_feather_style(white));
+                    original_plume_feather(&mut expected, lane, layer, white);
+                    assert_builder_exact(&actual, &expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual complete-plume construction benchmark, not GPU or whole-character timing"]
+    fn measure_shared_feather_sections() {
+        use std::{hint::black_box, time::Instant};
+        let measure = |emit: fn(&mut Parts)| {
+            let start = Instant::now();
+            for _ in 0..200 {
+                let mut parts = Parts::default();
+                emit(black_box(&mut parts));
+                black_box(parts);
+            }
+            start.elapsed().as_nanos()
+        };
+        for round in 0..10 {
+            let (old, new) = if round % 2 == 0 {
+                (measure(original_plume), measure(plume))
+            } else {
+                let new = measure(plume);
+                (measure(original_plume), new)
+            };
+            println!("plume round={round} original_ns={old} resolved_ns={new}");
+        }
+    }
     #[test]
     fn fitted_crowns_seat_on_the_actual_brow_without_a_hair_sized_gap() {
         for kind in HeadwearKind::ALL {
@@ -1871,11 +2202,11 @@ mod tests {
                 "covert curves down after its shoulder"
             );
             assert!(
-                path[16].y > plume_path(lane, 0.7, true)[16].y + 0.015,
+                path[16].y > plume_path(lane, 0.7, FeatherStyle::CurledCream)[16].y + 0.015,
                 "shorter overlapping tier must not duplicate long pointed tips"
             );
             for i in 0..path.len() {
-                for point in feather_section(&path, i, lane, true) {
+                for point in feather_section(&path, i, lane, FeatherStyle::CurledCream) {
                     let origin = Vec3::new(0.0, point.y, -0.012);
                     let ray = (point - origin).normalize();
                     if let Some(shell) = helmet.metal.outer_surface(origin, ray) {
@@ -1894,7 +2225,7 @@ mod tests {
         let mut cream = Builder::default();
         let mut red = Builder::default();
         for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
-            let path = plume_path(lane, 0.7, true);
+            let path = plume_path(lane, 0.7, FeatherStyle::CurledCream);
             let peak = path.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
             let tip = *path.last().unwrap();
             assert!(
@@ -1909,8 +2240,8 @@ mod tests {
                 tip.x.hypot(tip.z) > 0.16,
                 "drooping tips spread outside the crown"
             );
-            plume_feather(&mut cream, lane, 0.7, true);
-            plume_feather(&mut red, lane, 2.0, false);
+            plume_feather(&mut cream, lane, 0.7, FeatherStyle::CurledCream);
+            plume_feather(&mut red, lane, 2.0, FeatherStyle::TrailingRed);
         }
         let (lo, hi) = cream.bounds();
         assert!(
@@ -1940,7 +2271,7 @@ mod tests {
         let mut helmet = Parts::default();
         dome(&mut helmet, IRON, false);
         for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
-            for point in plume_path(lane, 0.7, true) {
+            for point in plume_path(lane, 0.7, FeatherStyle::CurledCream) {
                 let origin = Vec3::new(0.0, point.y, -0.012);
                 let ray = (point - origin).normalize();
                 if let Some(shell) = helmet.metal.outer_surface(origin, ray) {
@@ -1956,15 +2287,15 @@ mod tests {
     #[test]
     fn feather_vanes_have_pointed_tips_asymmetric_barbs_and_a_raised_ridge() {
         for white in [false, true] {
-            let path = plume_path(0.5, 1.0, white);
+            let path = plume_path(0.5, 1.0, test_feather_style(white));
             let width = |i| {
-                let q = feather_section(&path, i, 0.5, white);
+                let q = feather_section(&path, i, 0.5, test_feather_style(white));
                 q[0].distance(q[2])
             };
             assert!(width(5) > 0.03, "feather has a substantial vane");
             assert!(width(16) < width(5) * 0.03, "tip must narrow to a point");
             assert!(width(14) < width(5) * 0.5, "last quarter tapers");
-            let q = feather_section(&path, 5, 0.5, white);
+            let q = feather_section(&path, 5, 0.5, test_feather_style(white));
             assert!(
                 path[5].distance(q[0]) < path[5].distance(q[2]) * 0.85,
                 "barb breaks must not be symmetric ribbon notches"
@@ -1978,7 +2309,7 @@ mod tests {
                 (q[1] - path[5]).y
             );
             let mut b = Builder::default();
-            plume_feather(&mut b, 0.5, 1.0, white);
+            plume_feather(&mut b, 0.5, 1.0, test_feather_style(white));
             let (lo, hi) = b.bounds();
             assert!(lo.is_finite() && hi.is_finite());
             // Actual emitted surfaces, viewed from either side of the plume.
@@ -2063,7 +2394,7 @@ mod tests {
         dome(&mut helmet, IRON, false);
         for layer in [0.0, 1.0, 2.0] {
             for lane in [-1.0, -0.5, 0.0, 0.5, 1.0] {
-                let path = plume_path(lane, layer, false);
+                let path = plume_path(lane, layer, FeatherStyle::TrailingRed);
                 let peak = path
                     .iter()
                     .enumerate()
@@ -2072,10 +2403,10 @@ mod tests {
                     .0;
                 peak_stations.push(peak);
                 let mut feather = Builder::default();
-                plume_feather(&mut feather, lane, layer, false);
+                plume_feather(&mut feather, lane, layer, FeatherStyle::TrailingRed);
                 // Probe the emitted vane at its curved shoulder, including the
                 // root offset applied during emission, not just its centerline.
-                let mut emitted_path = path.clone();
+                let mut emitted_path = path;
                 for (i, point) in emitted_path.iter_mut().enumerate() {
                     let t = i as f32 / 16.0;
                     point.x += (layer - 1.0) * 0.009 * (1.0 - t);
@@ -2088,7 +2419,8 @@ mod tests {
                 assert!(surface.y >= at.y - 0.002 && surface.y < at.y + 0.035, "vane shoulder layer={layer} lane={lane} peak={peak} center={at:?} surface={surface:?}");
                 // Full vane crown clearance at the new early/late bends.
                 for i in 2..emitted_path.len() {
-                    for point in feather_section(&emitted_path, i, lane, false) {
+                    for point in feather_section(&emitted_path, i, lane, FeatherStyle::TrailingRed)
+                    {
                         let origin = Vec3::new(0.0, point.y, -0.012);
                         let ray = (point - origin).normalize();
                         if let Some(shell) = helmet.metal.outer_surface(origin, ray) {
@@ -2103,7 +2435,7 @@ mod tests {
             "red vanes must not share one aligned fold station"
         );
         for side in [-1.0, 1.0] {
-            let path = plume_path(side, 2.0, false);
+            let path = plume_path(side, 2.0, FeatherStyle::TrailingRed);
             assert!(
                 side * (path[16].x - path[12].x) > 0.01,
                 "outer final thirds turn sideways instead of hanging as parallel strips"
@@ -2116,12 +2448,10 @@ mod tests {
     fn outer_red_vanes_present_surface_area_in_side_views() {
         // Independent straight backward shoulder fixture: parallel X vanes
         // otherwise disappear edge-on even when their center ridge is raised.
-        let path: Vec<_> = (0..=16)
-            .map(|i| Vec3::new(0.0, 0.50, -0.30 * i as f32 / 16.0))
-            .collect();
+        let path: [_; 17] = std::array::from_fn(|i| Vec3::new(0.0, 0.50, -0.30 * i as f32 / 16.0));
         for lane in [-1.0, 1.0] {
             let mut vane = Builder::default();
-            emit_feather_vane(&mut vane, &path, lane, 1.0, false);
+            emit_feather_vane(&mut vane, &path, lane, 1.0, FeatherStyle::TrailingRed);
             for side in [-1.0, 1.0] {
                 assert!(
                     vane.outer_surface(Vec3::new(-0.2, 0.50 + side * 0.008, -0.15), Vec3::X)
@@ -2154,7 +2484,8 @@ mod tests {
 
     #[test]
     fn plume_feathers_have_staggered_arches_and_individual_swept_tips() {
-        let paths = [-1.0, -0.5, 0.0, 0.5, 1.0].map(|lane| plume_path(lane, 2.0, false));
+        let paths = [-1.0, -0.5, 0.0, 0.5, 1.0]
+            .map(|lane| plume_path(lane, 2.0, FeatherStyle::TrailingRed));
         let peaks = paths
             .each_ref()
             .map(|path| path.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max));

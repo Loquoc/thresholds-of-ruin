@@ -231,23 +231,7 @@ pub(super) fn emit(
         ShirtAppearance::HawaiianShirt => {
             let color = kind.color(body.woman);
             // Buttons run only below the shirt's open collar.
-            let neckline = NecklineCut::resolve(
-                if body.woman {
-                    Neckline::Plunge {
-                        depth: 0.65,
-                        width: 0.16,
-                        wrap: false,
-                    }
-                } else {
-                    Neckline::Plunge {
-                        depth: 0.15,
-                        width: 0.12,
-                        wrap: false,
-                    }
-                },
-                body,
-            )
-            .unwrap();
+            let neckline = NecklineCut::resolve(kind.neckline(body.woman), body).unwrap();
             let sh = body.shoulders * body.build;
             // Broad, turned camp-collar leaves, with a darker fold line and a
             // lighter underside. Keep their tips beside the opening rather

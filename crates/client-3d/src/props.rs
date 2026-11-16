@@ -637,6 +637,9 @@ impl PropLibrary {
             return entry.model.clone();
         }
         let started = profile_builds().then(std::time::Instant::now);
+        if started.is_some() {
+            eprintln!("3d_model_build_begin key={key:?}");
+        }
         let parts = build();
         let parts_ms = started.map(|time| time.elapsed().as_secs_f64() * 1000.0);
         let model = parts.finish(meshes, &self.materials);

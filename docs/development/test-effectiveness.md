@@ -555,3 +555,16 @@ strict ledger validator remain unchanged. A new actual-CLI round-trip witness
 failed before the correction and now checks the independent canonical name,
 written counts/percentiles, raw hash, validation and duplicate rejection. This
 is a performance-report integration fix, not a gameplay, fixture or timing change.
+
+## Model consolidation on the November 15 main
+
+A broad client-3D library run exposed 15 failing methods after focused model
+geometry tests passed. Each failure was rerun individually on the changed source
+and unmodified main `5b9299c4`; all 15 reproduced with matching panic details.
+This isolates observed failures from the refactor but does not make the full
+suite green or rule out untested regressions. The baseline full suite was not
+rerun. The unresolved groups are bounded cloak/mantle contact, centaur cuff
+probes, composition/belt selection, moving skirt contact and pile input. Retain
+their assertions and investigate production, fixture and driver ownership before
+changing them. Passing bitwise geometry oracles cannot replace interaction and
+actual-motion coverage. No known failure is waived by this comparison.

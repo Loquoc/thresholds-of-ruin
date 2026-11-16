@@ -578,6 +578,32 @@ totals. Ordinary rendering does not enable these timers or retain profile histor
 Both compared revisions must contain the same versioned workload and validator;
 a missing baseline producer is not permission to compare different workloads.
 
+### Local targeted model diagnostics
+
+The existing `model_bench` workload remains unchanged. Two separate examples
+make narrower authoring and construction investigations reproducible:
+
+- `model_bench_targeted`, validated by `scripts/model_targeted_report.py`, uses
+  explicit build and motion recipes rather than changing the legacy matrix.
+- `model_bench_equipment`, validated by `scripts/model_equipment_report.py`,
+  measures complete human compositions with helmet, gloves or footwear. Each
+  recipe emits three samples of cold/warm construction and pose updates.
+- `model_profile_equipment` instruments the equipment workload for attribution.
+  Profiling markers bound cached component builds and SDF stages; these timings
+  are diagnostic and must not be mixed with uninstrumented comparisons.
+
+These are local CPU diagnostics, not hosted benchmark jobs, GPU/frame-time
+measurements or isolated accessory rankings (the underlying bodies differ).
+Keep counts and recipe identities identical across comparisons. Current model
+parameter modules centralize footwear, glove, crown, feather and shirt-neckline
+settings without adding a player-facing customization interface.
+
+Lazy SDF uniform-cell classification preserves the original `> 0` / `<= 0`
+predicate, including signed zero and NaN behavior. Local optimized-development
+paired equipment samples suggested lower cold construction cost; this is not a
+release, Android, GPU or representative-world performance claim. Warm timings
+were inconclusive. No rendering or collision tolerance is reduced.
+
 A case is either a `latency_bench` case name (`--cycles` sets its cycle count,
 default five) or `WORKLOAD[:GROUP]` for `active-mobs`, `combat`, `physics`, `items`,
 `client`, `places`, or `models`. The `latency_bench` region streaming cases, `stream-r16-memory`,

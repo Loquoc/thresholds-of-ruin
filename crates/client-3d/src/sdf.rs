@@ -12,6 +12,20 @@ use crate::props::Builder;
 use bevy::prelude::*;
 pub(crate) use contact_field::ContactField;
 
+// Reject uniform cells before materializing their eight corner distances.
+// NaN must remain non-uniform, exactly as all(> 0) || all(<= 0).
+#[inline]
+fn uniform_cell(mut value: impl FnMut(usize) -> f32) -> bool {
+    let first = value(0);
+    if first > 0.0 {
+        (1..8).all(|i| value(i) > 0.0)
+    } else if first <= 0.0 {
+        (1..8).all(|i| value(i) <= 0.0)
+    } else {
+        false
+    }
+}
+
 /// One primitive of a sculpt.
 #[derive(Clone, Copy)]
 pub enum Shape {
@@ -554,6 +568,17 @@ impl Sculpt {
         }
         let mut grid_vertex = vec![usize::MAX; cells.0 * cells.1 * cells.2];
         let mut vertex: Vec<SurfaceVertex> = Vec::new();
+        // Profiling-only substage clocks. They do not alter sampling, painting
+        // order or geometry, and their overhead belongs to instrumented runs.
+        let mut surface_cost = [std::time::Duration::ZERO; 7];
+        let checkpoint = |clock: &mut Option<std::time::Instant>,
+                          cost: &mut std::time::Duration| {
+            if let Some(previous) = clock {
+                let now = std::time::Instant::now();
+                *cost += now.duration_since(*previous);
+                *previous = now;
+            }
+        };
         const CORNERS: [(usize, usize, usize); 8] = [
             (0, 0, 0),
             (1, 0, 0),
@@ -578,13 +603,21 @@ impl Sculpt {
             (2, 6),
             (3, 7),
         ];
+        // One continuous optional clock partitions scanning and active-cell work.
+        // Empty cells do not read the clock; their scan intervals accumulate
+        // at the next active cell (or once at loop end).
+        let mut surface_clock = profile_started.map(|_| std::time::Instant::now());
         for k in 0..cells.2 {
             for j in 0..cells.1 {
                 for i in 0..cells.0 {
-                    let d = CORNERS.map(|(a, b2, c)| field[index(i + a, j + b2, k + c)]);
-                    if d.iter().all(|v| *v > 0.0) || d.iter().all(|v| *v <= 0.0) {
+                    if uniform_cell(|corner| {
+                        let (a, b2, c) = CORNERS[corner];
+                        field[index(i + a, j + b2, k + c)]
+                    }) {
                         continue;
                     }
+                    let d = CORNERS.map(|(a, b2, c)| field[index(i + a, j + b2, k + c)]);
+                    checkpoint(&mut surface_clock, &mut surface_cost[5]);
                     let mut sum = Vec3::ZERO;
                     let mut n = 0.0;
                     for (a, c) in EDGES {
@@ -597,6 +630,7 @@ impl Sculpt {
                         }
                     }
                     let position = sum / n;
+                    checkpoint(&mut surface_clock, &mut surface_cost[0]);
                     let (bi, bj, bk) = (i / SURFACE_BLOCK, j / SURFACE_BLOCK, k / SURFACE_BLOCK);
                     let steps = near[(bk * surface_blocks.1 + bj) * surface_blocks.0 + bi]
                         .get_or_insert_with(|| {
@@ -622,9 +656,13 @@ impl Sculpt {
                     } else {
                         position
                     };
+                    checkpoint(&mut surface_clock, &mut surface_cost[1]);
                     let normal = self.normal(position, &steps.0);
+                    checkpoint(&mut surface_clock, &mut surface_cost[2]);
                     let pigment = paint(position, normal);
+                    checkpoint(&mut surface_clock, &mut surface_cost[3]);
                     let shade = self.occlusion(position, normal, &steps.1);
+                    checkpoint(&mut surface_clock, &mut surface_cost[4]);
                     grid_vertex[cell(i, j, k)] = vertex.len();
                     vertex.push(SurfaceVertex {
                         position,
@@ -632,11 +670,17 @@ impl Sculpt {
                         pigment,
                         shade,
                     });
+                    checkpoint(&mut surface_clock, &mut surface_cost[6]);
                 }
             }
         }
+        checkpoint(&mut surface_clock, &mut surface_cost[5]);
         // Includes crossing extraction, normals, pigment and sculpt occlusion.
         let surface_done = profile_started.map(|time| time.elapsed());
+        if profile_started.is_some() {
+            let ms = surface_cost.map(|time| time.as_secs_f64() * 1000.0);
+            eprintln!("3d_sdf_surface vertices={} crossing_ms={:.3} nearby_projection_ms={:.3} normal_ms={:.3} paint_ms={:.3} occlusion_ms={:.3} scan_ms={:.3} append_ms={:.3} cells={}", vertex.len(), ms[0], ms[1], ms[2], ms[3], ms[4], ms[5], ms[6], cells.0 * cells.1 * cells.2);
+        }
         // A quad across every grid edge that crosses the surface, joining the
         // four cells around it.
         let mut faces = Vec::new();
@@ -875,6 +919,27 @@ impl Sculpt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lazy_uniform_classification_matches_original_for_all_sign_classes() {
+        // Every combination of positive, negative, zero and unordered corners.
+        // A second pass uses infinities, negative zero and a distinct NaN payload.
+        for values in [
+            [1.0, -1.0, 0.0, f32::NAN],
+            [
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                -0.0,
+                f32::from_bits(0xffc0_0123),
+            ],
+        ] {
+            for bits in 0u32..65_536 {
+                let d: [f32; 8] = std::array::from_fn(|i| values[((bits >> (2 * i)) & 3) as usize]);
+                let expected = d.iter().all(|v| *v > 0.0) || d.iter().all(|v| *v <= 0.0);
+                assert_eq!(uniform_cell(|i| d[i]), expected, "{d:?}");
+            }
+        }
+    }
 
     #[test]
     fn rounded_ring_fields_preserve_extents_and_conservative_bounds() {
