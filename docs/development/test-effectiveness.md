@@ -586,3 +586,16 @@ sleeve ownership exposed another unexpected-metal composition. Those failures,
 actual moving-skirt crossings and cloak/mantle contacts remain unresolved. The
 four passes do not establish a green full suite. Production geometry, gameplay,
 fixtures and thresholds were unchanged by this correction checkpoint.
+
+### Composition arm-metal ownership corrected
+
+One stale composition predicate omitted metal that existing cloth/regalia emitters
+own: detached drape boundaries and attachment rings, Bishop cuff edge tubes, and
+regalia epaulettes. The equality assertion now names those owners alongside plate
+and armlets, rather than allowing unexpected metal unconditionally. The full
+focused-and-seeded composition method passed locally through the previously
+failing Sylvan and RoyalBride cases. Evidence is reused only for that contract
+from a binary also containing unrelated, unqualified belt-motion tests; those
+belt edits are excluded. No production source or geometry threshold changed.
+Belt-motion and actual skirt/cloak contacts remain unresolved, and this focused
+pass does not qualify the full suite or a rebuilt exact publication tree.

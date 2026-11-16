@@ -1523,9 +1523,13 @@ fn check_generated_composition(case: composition_cases::Case) {
             "equipped breastplate must have rendered torso geometry"
         );
     }
-    // Metal on the arm is plate, or jewellery worn round it.
+    // Metal on the arm is plate, jewellery, sleeve trim or regalia.
     let plated = outfit.arms == outfit::Arms::Plate;
-    let jewelled = outfit.trimmings.armlets.is_some();
+    // Detached drape boundaries, Bishop cuff edges and regalia epaulettes
+    // are metal even when the underlying sleeve is cloth.
+    let jewelled = outfit.trimmings.armlets.is_some()
+        || matches!(outfit.arms, outfit::Arms::Styled(s) if matches!(s.cut, outfit::SleeveCut::Draped | outfit::SleeveCut::Bishop))
+        || outfit.regalia.is_some();
     assert_eq!(
         steel_on(J::ArmL),
         plated || jewelled,
