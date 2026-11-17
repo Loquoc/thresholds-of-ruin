@@ -24,6 +24,20 @@ def state(cells, *, actors=(), hostiles=(), abilities=(), inventory=(), ground=(
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_bot_extension_uses_test_profile_with_downloaded_binaries(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from test_rogue_bot_process import RogueBotProcess
+
+        fixture = SimpleNamespace(bin=Path("downloaded/bin"), directory=Path("test-output"))
+        for profile, cargo_profile in (("debug", "dev"), ("release", "release")):
+            with self.subTest(profile=profile), patch.dict("os.environ", {"TOR_TEST_PROFILE": profile}, clear=True):
+                with patch("subprocess.run") as build, patch("shutil.copyfile"):
+                    RogueBotProcess.install_bot_extension(fixture)
+                command = build.call_args.args[0]
+                self.assertEqual(command[command.index("--profile") + 1], cargo_profile)
+
     def test_objective_uses_disclosed_identity_and_rejects_a_lookalike(self):
         target = {"id": "relic", "name": "Copper seal", "identity": "item.misc.copper-seal",
                   "identified": True, "quantity": "1"}
@@ -287,6 +301,47 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(session.actions, [{"type": "move", "direction": "up"}])
         self.assertEqual(json.loads(trace.getvalue())["events_since_previous_action"], [event])
         self.assertEqual(report["events_since_previous_action"], [])
+
+    def test_runner_defers_failed_projectile_until_time_advances(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from rogue_o_matic import run
+
+        class ProjectilePolicy(Policy):
+            def choose(self, data, *, projectile_choices=None, chart=None):
+                if projectile_choices is not None:
+                    return {"type": "wait"}, "throw_projectile"
+                return {"type": "wait"}, "advance_after_failed_projectile"
+
+        class Session:
+            tick = 100
+            actions = 0
+
+            def observe(self):
+                picture = state([cell("here")])
+                picture["observation"]["tick"] = str(self.tick)
+                payload = {"state": picture, "cursor": self.actions,
+                           "readiness": {"admission": True},
+                           "finished_intentions": [{"intention": "shot", "phase": "failed"}]}
+                return type("Observation", (), {"data": lambda _: payload})()
+
+            def projectile_choices(self, *args):
+                raise AssertionError("The fixture policy does not need an actual query")
+
+            def act(self, action, observation):
+                self.actions += 1
+                if self.actions > 1:
+                    self.tick += 100
+                return {"status": "confirmed", "receipt": {"intention": "shot", "phase": "queued"}}
+
+        session = Session()
+        with redirect_stdout(StringIO()) as output:
+            self.assertEqual(run(session, ProjectilePolicy(), budget=3), "action_budget")
+        import json
+        rows = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([row["reason"] for row in rows],
+                         ["throw_projectile", "advance_after_failed_projectile", "throw_projectile"])
+        self.assertEqual(rows[1]["previous_intention_phase"], "failed")
 
     def test_explores_a_disclosed_diagonal_frontier_in_one_move(self):
         room = [cell("here"), cell("west", -1), cell("north"), cell("frontier", -1)]

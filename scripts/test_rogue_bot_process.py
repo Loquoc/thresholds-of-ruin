@@ -15,7 +15,7 @@ class RogueBotProcess(ProcessTestCase):
     def install_bot_extension(self):
         build = os.environ.get("TOR_TEST_BOT_EXTENSION_DIR")
         if build is None:
-            profile = self.bin.name
+            profile = os.environ.get("TOR_TEST_PROFILE", "debug")
             target = self.bin.parent / "bot-python"
             command = ["cargo", "build", "--locked", "-p", "tor-client-bot", "--features", "python",
                        "--target-dir", str(target), "--profile", "dev" if profile == "debug" else profile]
@@ -70,7 +70,7 @@ class RogueBotProcess(ProcessTestCase):
                   for event in turn["events_since_previous_action"]]
         self.assertTrue(any(event["type"] == "ability" for event in events), events)
 
-    def test_bot_gets_past_the_failed_throw_in_bundled_seed_47(self):
+    def test_bot_does_not_repeat_projectiles_at_a_stalled_tick_in_bundled_seed_47(self):
         self.install_bot_extension()
         output = self.directory / "cohort"
         result = subprocess.run(
@@ -86,11 +86,11 @@ class RogueBotProcess(ProcessTestCase):
         self.assertGreater(report["tick"], 2920, report)
         trace = (output / "seed-47" / "turns.jsonl").read_text(encoding="utf-8")
         turns = [json.loads(line) for line in trace.splitlines()]
-        throws = [row for row in turns if row.get("tick") == 2920 and row.get("reason") == "throw_projectile"]
-        self.assertEqual(len(throws), 1)
-        self.assertEqual(throws[0]["result"]["status"], "confirmed")
-        next_turn = turns[turns.index(throws[0]) + 1]
-        self.assertEqual(next_turn["previous_intention_phase"], "failed")
+        shots = [row for row in turns if row.get("reason") in {"throw_projectile", "launch_projectile"}
+                 and row["result"]["status"] == "confirmed"]
+        self.assertTrue(shots, turns)
+        ticks = [row["tick"] for row in shots]
+        self.assertEqual(len(ticks), len(set(ticks)), shots)
 
     def test_bot_reports_navigation_when_a_room_has_no_disclosed_exit(self):
         from discovery_package import write_package
