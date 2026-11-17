@@ -37,8 +37,8 @@ broader performance and scaling work is finished.
 ### CH-020: Dense ground-launcher eligibility cost needs representative profiling
 
 - **Category/status:** performance; bounded measurement question, not a confirmed
-  gameplay defect or an optimization proposal. Confidence is high in the local
-  workload counts and low in their relevance to ordinary dungeon frequency.
+  gameplay defect. Duplicate known-baseline scoring is now removed; remaining
+  candidate cost and ordinary dungeon frequency remain open measurement questions.
 - **Inspected baseline:** local comparison on 2026-11-15 between `fbbdfb1d`
   (pre-distance-cap-removal policy plus identical diagnostic scaffold) and
   `1b5bf52b` (local item-pursuit experiment). These are experimental revisions,
@@ -68,9 +68,26 @@ broader performance and scaling work is finished.
   cold-topology result or whole-game performance claim. Action and choice-purity
   assertions passed. Ranged pairing limits do not bound all generic gear or
   topology work. No gameplay-distance limit or speculative optimization follows.
-- **Smallest next step:** first establish realistic item-density/type distributions
-  and measure the eligibility/projection phases separately with equivalent inputs.
-  Only then decide whether a narrowly scoped optimization is worthwhile.
+- **Narrow optimization:** a local release comparison against `fe107efd` on
+  2026-11-16 reused one lazy, actor-bound known-loadout baseline per ordinary
+  eligibility scan. Each candidate still performs its own projection and equip
+  admission; ranged acceptance and final ranking are unchanged. The unchanged
+  workload's unmatched-launcher cases reduced Game clones from 4/64/512 to
+  3/33/257 for 1/16/128 items. Four balanced pairs, 80 samples per case, measured
+  dense complete-decision p50 reductions of about 12–19%; 16-item cases improved
+  about 20–22%. Payload and Gold controls retained zero clones. These are local
+  results, not an accepted performance-ledger artifact or a heap-byte claim.
+  Scale assertions cover independent eligibility/ranking work and unchanged
+  choices; fresh-loadout comparisons cover stronger/equal/weaker candidates in
+  both orders and unchanged private state. A separate 100-AI stress workload
+  disables equipment/loot, and ordinary-action controls contain no AI; their
+  variable tails do not establish a whole-game speedup. Their deterministic
+  work/activity and strict restart checks remain equal. Real-roster process
+  traces also retain identical accepted actions, ticks, events and outcomes.
+- **Smallest next step:** establish realistic item-density/type distributions
+  before targeting the remaining candidate projections. Measure complete choices
+  and their constituent work without replacing independent equip admission or
+  weakening the remembered-information boundary.
 - **Acceptance witnesses for any later change:** compare identical workloads and
   source identities; retain useful, incompatible and secondary-slot candidates,
   known/unknown/cursed-item controls, candidate-order and exact-action equivalence,

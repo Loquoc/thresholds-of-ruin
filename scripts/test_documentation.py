@@ -48,6 +48,7 @@ WORKLOAD_IDENTIFIERS = {
     "rogue-earned-baseline-v36",
     "rogue-earned-baseline-v37",
     "rogue-earned-baseline-v38",
+    "rogue-earned-baseline-v39",
     "tor-arena-run-v6",
     "performance-v1",
     "performance-v2",

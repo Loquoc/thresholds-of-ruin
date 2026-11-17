@@ -6,7 +6,9 @@ The pulse fixture overrides only cadence probability to 1/1; production 1/3
 selection and protected sleep/Xeroc boundaries remain simulation-test owners.
 """
 import copy
+from contextlib import closing
 import shutil
+import sqlite3
 import subprocess
 import tomllib
 import unittest
@@ -118,6 +120,133 @@ class LivingDungeonAwarenessProcesses(ProcessTestCase):
         contacts = watcher["awareness"]["contacts"]
         self.assertTrue(any(row["subject"] == 1 and not row["detected"] for row in contacts))
         return alert
+
+    def test_reached_location_alert_completes_before_expiry_and_survives_reopen(self):
+        package = self.package()
+        path = package / "scenario.toml"
+        manifest = tomllib.loads(path.read_text(encoding="utf-8"))
+        catalog = tomllib.loads((ROOT / "scenarios/rogue-exploration/catalog/creatures.toml").read_text(encoding="utf-8"))
+        # Production Hobgoblin species/policy, with the existing deterministic
+        # hidden-player fixture. This is not a generated full-roster birth test.
+        manifest["creatures"]["species"]["figure"] = copy.deepcopy(catalog["creatures"]["species"]["rogue.hobgoblin"])
+        policy = manifest["creatures"]["species"]["figure"]["behavior"]
+        manifest["ai_profiles"]["watcher"] = {
+            key: policy.get(key, False) for key in
+            ("idle", "doors", "care", "equipment", "loot", "gold", "flee_percent")
+        }
+        path.write_text(toml_source(manifest), encoding="utf-8")
+        region_path = package / "regions/1.toml"
+        region = tomllib.loads(region_path.read_text(encoding="utf-8"))
+        region["actors"][0]["at"] = [4, 3, 0]
+        region_path.write_text(toml_source(region), encoding="utf-8")
+        validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+                                   capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+        server = self.server("--checkpoint-interval", 1, scenario=package, seed=42)
+        player, initial = self.client()
+        hp = view(initial)["combat"]["hp"]
+        page = self.item(initial, "scroll of aggravate monster")
+        current = self.execute(player, {"type": "read", "item": page["id"]})
+        alerted = checkpoint(self, player)
+        receipt = self.assert_anonymous_alert(alerted)
+        destination = receipt["location"]
+        self.assertEqual(destination["position"], {"x": 2, "y": 3, "z": 0})
+        self.assertEqual(self.item(current, "scroll of aggravate monster")["quantity"], "1")
+        # Reopen while the PC still occupies the sampled point, before the
+        # investigator can arrive. This timing does not depend on its speed.
+        pending = checkpoint(self, player)
+        self.assertEqual(pending["actors"]["2"]["awareness"]["alert"], receipt)
+        self.assertNotEqual(pending["actors"]["2"]["location"], destination,
+                            "first reopen must preserve an unfinished investigation")
+        player.stop()
+        server.stop(save=False)
+        package.rename(self.directory / "retained-investigation-source")
+        server = self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        player, current = self.client()
+        self.assertEqual(checkpoint(self, player), pending)
+        # Vacate the sampled point without losing ordinary worn-Stealth
+        # protection. No privileged teleport or actor knowledge edit is used.
+        current = self.execute(player, {"type": "move", "direction": "north"})
+        arrived = None
+        for _ in range(12):
+            saved = checkpoint(self, player)
+            self.assertIsNone(saved["actors"]["2"]["behavior"]["engagement"])
+            self.assertEqual(view(current)["combat"]["hp"], hp)
+            if saved["actors"]["2"]["location"] == destination:
+                arrived = saved
+                break
+            current = self.execute(player, {"type": "wait"})
+        self.assertIsNotNone(arrived, "Mean Explore investigator must reach the ordinary location cue")
+        self.assertLess(arrived["tick"], receipt["expires"], "completion is not timer expiry")
+        self.assertIsNone(arrived["actors"]["2"]["awareness"]["alert"],
+                          "reaching the cue must retire it before Explore can leave and be pulled back")
+        player.stop()
+        server.stop(save=False)
+        server = self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        player, current = self.client()
+        self.assertEqual(checkpoint(self, player), arrived)
+        departed = None
+        for _ in range(4):
+            current = self.execute(player, {"type": "wait"})
+            saved = checkpoint(self, player)
+            self.assertIsNone(saved["actors"]["2"]["awareness"]["alert"])
+            self.assertIsNone(saved["actors"]["2"]["behavior"]["engagement"])
+            if saved["actors"]["2"]["location"] != destination:
+                departed = saved
+                break
+        self.assertIsNotNone(departed, "completed investigation must release ordinary exploration")
+        self.assertLess(departed["tick"], receipt["expires"])
+        for _ in range(2):
+            current = self.execute(player, {"type": "move", "direction": "north"})
+        fresh_point = checkpoint(self, player)["actors"]["1"]["location"]
+        page = self.item(current, "scroll of aggravate monster")
+        current = self.execute(player, {"type": "read", "item": page["id"]})
+        fresh = self.assert_anonymous_alert(checkpoint(self, player))
+        self.assertEqual(fresh["location"], fresh_point)
+        self.assertNotEqual(fresh["location"], destination)
+        self.assertGreater(fresh["expires"], receipt["expires"])
+        self.assertEqual(view(current)["combat"]["hp"], hp)
+        current = self.execute(player, {"type": "move", "direction": "east"})
+        reached_fresh = None
+        for _ in range(12):
+            saved = checkpoint(self, player)
+            self.assertIsNone(saved["actors"]["2"]["behavior"]["engagement"])
+            self.assertEqual(view(current)["combat"]["hp"], hp)
+            if saved["actors"]["2"]["location"] == fresh_point:
+                reached_fresh = saved
+                break
+            current = self.execute(player, {"type": "wait"})
+        self.assertIsNotNone(reached_fresh, "a new cue must remain eligible after completion/restart")
+        self.assertLess(reached_fresh["tick"], fresh["expires"])
+        self.assertIsNone(reached_fresh["actors"]["2"]["awareness"]["alert"])
+
+        expected_observation = view(self.snapshot(player))
+        player.stop()
+        server.stop(save=False)
+        # Select the existing full-journal replay path in this test-owned save.
+        # read_rows requires all positive rows through a checkpoint to live in
+        # history, and all rows to live in journal when no checkpoint exists.
+        # Move the original frames verbatim; never rewrite accepted actions.
+        with closing(sqlite3.connect(self.save)) as database:
+            with database:
+                frames = database.execute(
+                    "SELECT sequence,frame FROM journal UNION ALL "
+                    "SELECT sequence,frame FROM history ORDER BY sequence"
+                ).fetchall()
+                self.assertGreater(database.execute("SELECT count(*) FROM history").fetchone()[0], 0)
+                self.assertEqual(database.execute("SELECT count(*) FROM checkpoint").fetchone()[0], 1)
+                database.execute("INSERT INTO journal(sequence,frame) SELECT sequence,frame FROM history")
+                database.execute("DELETE FROM history")
+                database.execute("DELETE FROM checkpoint")
+                self.assertEqual(database.execute(
+                    "SELECT sequence,frame FROM journal ORDER BY sequence"
+                ).fetchall(), frames, "full replay must preserve every original frame byte")
+                self.assertEqual(database.execute("SELECT count(*) FROM history").fetchone()[0], 0)
+                self.assertEqual(database.execute("SELECT count(*) FROM checkpoint").fetchone()[0], 0)
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        player, replayed = self.client()
+        self.assertEqual(view(replayed), expected_observation,
+                         "source-free full-journal replay must reproduce the completed investigation")
 
     def test_worn_stealth_periodic_snapshot_alert_and_paid_scroll_survive_reopen(self):
         package = self.package()

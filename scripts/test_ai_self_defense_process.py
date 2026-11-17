@@ -8,6 +8,11 @@ from process_harness import ProcessTestCase, WIZARD_TOKEN, creature_package, res
 
 
 class AiSelfDefenseProcesses(ProcessTestCase):
+    def launch(self, name, *args, **kwargs):
+        # This owner verifies backend behavior, never presentation or input.
+        self.assertIn(name, ("tor-server", "tor-client-headless"))
+        return super().launch(name, *args, **kwargs)
+
     def package(self, name):
         package = creature_package(self, name, hostile=True,
                                    abilities=("probe_defense",),
@@ -50,10 +55,10 @@ class AiSelfDefenseProcesses(ProcessTestCase):
     def test_autonomous_defense_uses_paid_self_condition_and_keeps_it_across_restart(self):
         package = self.package("paid-self-defense")
         server = self.server("--checkpoint-interval", 1, scenario=package, wizard=True)
-        wizard, _ = self.text_client(WIZARD_TOKEN, observe=True)
+        wizard, _ = self.client(WIZARD_TOKEN, observe=True)
         observer, initial = self.client(WIZARD_TOKEN, observe=True, actor=2)
         stamina = resource(initial, "stamina")["balance"]
-        self.assertNotIn("Server error", wizard.command("wizard arena step 2"))
+        self.assertIsNone(self.command(wizard, {"type": "wizard", "command": "arena step 2"})["error"])
         prepared = self.frame(observer, lambda frame: frame.get("state") is not None
                               and resource(frame, "stamina")["reserved"] == 1)
         self.assertEqual(resource(prepared, "stamina")["balance"], stamina - 1)
@@ -65,8 +70,8 @@ class AiSelfDefenseProcesses(ProcessTestCase):
         self.server("--checkpoint-interval", 1, scenario=package, wizard=True)
         observer, restored = self.client(WIZARD_TOKEN, observe=True, actor=2)
         self.assertEqual(resource(restored, "stamina"), resource(prepared, "stamina"))
-        wizard, _ = self.text_client(WIZARD_TOKEN, observe=True)
-        self.assertNotIn("Server error", wizard.command("wizard arena resume"))
+        wizard, _ = self.client(WIZARD_TOKEN, observe=True)
+        self.assertIsNone(self.command(wizard, {"type": "wizard", "command": "arena resume"})["error"])
         finished = self.frame(observer, lambda frame: frame.get("state") is not None
                              and int(frame["state"]["observation"]["tick"]) == 300)
         self.assertEqual(resource(finished, "stamina")["reserved"], 0)
