@@ -435,7 +435,7 @@ Objects:
   pick one of the offered items, or decline.
 - Discovered traps lie on the floor as plates with a glowing seam: amber while
   their family is unknown, then coloured and fitted with the mechanism they
-  spring. The mini-map marks them orange. Clicking a reachable unknown trap
+  spring. The overlay map marks them orange. Clicking a reachable unknown trap
   studies it; known traps are never offered as a travel destination.
 - When something holds the character, the pack lists each hold by its holder
   (or as unseen) with Escape.
@@ -476,9 +476,10 @@ Objects:
   character has acquired. A number key opens one; Page Up and Page Down page
   it; Tab returns to the list. The connection fetches and checks every page,
   and browsing never takes game time.
-- M or the Map dock button opens a combined map and journal. The large north-up
+- M or the menu's Map entry opens a combined map and journal. The large north-up
   map fits the disclosed current-level terrain: bright cells are visible, dim
-  cells remembered, and dark areas unexplored. The exploration mini-map remains.
+  cells remembered, and dark areas unexplored. N separately shows or hides the
+  see-through overlay map over the world.
   Places, History, Write note and Report tabs share this screen; Page Up / Down and the
   mouse wheel scroll the journal. Narrow windows stack the two panes.
   Click a known tile or use Up/Down to select a destination; Enter or the
@@ -522,22 +523,34 @@ latest 40 history entries.
 
 ## Live interface
 
-The live interface uses dark stone panels, brass borders and a persistent bottom
-dock. A red health globe shows only the server's disclosed health, with the exact
-value printed over it; unavailable health reads `— / —`. Other resource pools,
-conditions, attributes and objectives retain the shared authoritative status rows.
-The top badge distinguishes Ready, Waiting, Working, Observing, Fallen and
-Disconnected. The four most recent messages sit above the dock.
+The game window opens at 1440×900, or smaller on a monitor that cannot fit
+it with a taskbar and title bar, at the top of the primary monitor so no part
+of the interface starts below the screen's edge.
 
-The dock opens Inventory, Character (the existing advancement pages), Map, Places
-and Journal (retained history). Wait submits the existing wait action only when
-the controlled actor can act. Inventory-specific bindings are listed under
-[Controls](#controls). Framed UI consumes
-pointer input, including the spaces between buttons, so interacting with the dock
-does not also move or attack in the world. The north-up map sits at the top right.
-Opening inventory eases the camera toward the clear area beside it, keeping the
-player visible; closing it returns the usual framing. This neither moves the
-actor nor consumes a turn. The message panel stays hidden until there is a message.
+The live interface keeps most of the window for the world. A compact framed
+corner at the bottom left holds a red health globe, which shows only the
+server's disclosed health with the exact value printed over it (unavailable
+health reads `— / —`), beside the shared authoritative status rows for other
+resource pools, conditions, attributes and objectives. The top badge
+distinguishes Ready, Waiting, Working, Observing, Fallen and Disconnected; the
+current prompt (status, F8 resume, F9 cancel, items to take here) sits beneath
+it only while there is one.
+
+New messages appear at the top left, up to the four most recent, and fade after
+about six seconds; a new message brings them back. Fading only hides them: the
+Journal keeps the retained history. The message strip does not block world
+clicks.
+
+The bottom-centre Menu button unfolds the actions: Inventory, Equipment,
+Character (the existing advancement pages), Map, Places, Journal (retained
+history), Screenshot and Wait, each labelled with its key. Choosing an entry
+folds the menu again, except Wait, which may be pressed repeatedly. Wait
+submits the existing wait action only when the controlled actor can act.
+Inventory-specific bindings are listed under [Controls](#controls). Framed UI
+consumes pointer input, including the spaces between menu entries, so using the
+menu does not also move or attack in the world. Opening inventory eases the
+camera toward the clear area beside it, keeping the player visible; closing it
+returns the usual framing. This neither moves the actor nor consumes a turn.
 
 Inventory selections follow disclosed item identities and are cleared when an
 item disappears, becomes unreachable, is hidden by the filter, or the observation
@@ -854,9 +867,13 @@ richer resource presentation and pause/accessibility settings remain unfinished.
   knee-high stub across the view, so the near row of every room (stairs,
   items, creatures) stays visible; taller rock nearer the character dissolves
   in a dithered circle as before.
-- Mini-map: a north-up circle in the lower right of the character's level:
-  seen and (dimmer) remembered floor and walls, doors, stairs up and down,
-  items, creatures (hostile in red) and a wedge for the camera's heading.
+- Overlay map: N shows or hides a see-through map of the character's level
+  centred on the screen, turning with the camera so the camera's heading is
+  always up (an N marker on the rim points north). It shows seen and (dimmer)
+  remembered floor and walls, doors, stairs up and down, items, creatures
+  (hostile in red) and a wedge for the camera's heading. It starts hidden,
+  does not block clicks on the world, and is covered while the inventory or a
+  full screen is open without forgetting the choice.
 
 ## Not done
 

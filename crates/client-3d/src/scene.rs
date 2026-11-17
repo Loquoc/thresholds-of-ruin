@@ -156,6 +156,7 @@ pub(super) fn receive(
                         }
                         // Bevy's default font has no middle dot.
                         game.log.push_back(line.replace('\u{b7}', "|"));
+                        game.log_received += 1;
                     }
                     while game.log.len() > 200 {
                         game.log.pop_front();
