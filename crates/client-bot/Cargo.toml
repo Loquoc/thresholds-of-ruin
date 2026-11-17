@@ -13,7 +13,7 @@ workspace = true
 tor-client-common.workspace = true
 tor-protocol.workspace = true
 tokio.workspace = true
-pyo3 = { version = "0.28", features = ["abi3-py310"], optional = true }
+pyo3 = { version = "0.29", features = ["abi3-py310"], optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 

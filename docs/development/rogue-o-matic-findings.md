@@ -460,7 +460,7 @@ The runner can defer projectiles based on the reported Failed phase,
 while still using the same-tick check when the phase is unavailable.
 
 The bot worktree was brought forward from `b28c8e90` to
-`e10b9a23`, where bundled Rogue imports `interactions-v65`.
+`e10b9a23`, using the bundled Rogue rules at that commit.
 Its scenario manifest is unchanged. Cohort summaries now record
 the hashes of the server binary, rules source, and validation
 certificate so this change is visible in future comparisons.
