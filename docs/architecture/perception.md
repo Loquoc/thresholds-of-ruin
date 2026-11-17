@@ -144,6 +144,14 @@ a provocation for ordinary preparation when the actor is capable; it never
 manufactures another initially-ready attack. A still-ready frozen actor cannot
 release its attack or acquire a free queued attack from touch.
 
+Starting a touch-owned attack may establish ordinary personal engagement with a
+currently disclosed hostile toucher, when memory is positive and there is no
+live existing engagement. This is not a second free attack: the initial strike
+pays recovery and later attacks use ordinary preparation. Physical contact alone
+does not license hidden tracking; friendly touch gains no new ongoing aggression.
+Fresh deferred touch decisions carry the same proposed engagement as work
+admission, so installing the AI behavior draft cannot discard it.
+
 Successful recognition invalidates identity/event and sensed-hostile recovery
 witnesses; failed receipts do not. The derived guised-owner index keeps
 guise-only discovery active without scanning all actors on every no-cue

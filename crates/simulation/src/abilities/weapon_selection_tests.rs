@@ -5578,3 +5578,84 @@ fn ranged_pair_detour_declines_a_disclosed_occupied_remote_goal() {
     );
     assert_eq!(game, before);
 }
+
+// Append to abilities::weapon_selection_tests. Existing source/capture fixtures
+// remain authoritative; only the disclosed encounter geometry changes.
+#[test]
+fn fresh_launcher_ai_recovers_disclosed_upper_target_cell_without_numeric_capture() {
+    let (mut game, ability, selection, _, _) = ai_projectile_fixture();
+    assert!(matches!(
+        selection,
+        ProjectileDeliverySelection::Launch { .. }
+    ));
+    let blocker = add_disclosed_neutral_interceptor(&mut game);
+    let region = tor_world::RegionId(902);
+    game.add_region(tor_world::Region {
+        id: region,
+        name: "Disclosed launcher alternate body cell".into(),
+        bounds: tor_world::Extent::new(9, 3, 3).unwrap(),
+    })
+    .unwrap();
+    game.set_region_light(region, true).unwrap();
+    let at = |x, z| tor_world::Location {
+        region,
+        position: tor_world::Position { x, y: 1, z },
+    };
+    for (actor, x) in [(ActorId(1), 1), (ActorId(2), 5), (blocker, 4)] {
+        game.teleport(actor, at(x, 0)).unwrap();
+    }
+    game.refresh_navigation();
+    let view = game.observe(ActorId(1)).unwrap();
+    for (id, location) in [(ActorId(2), at(5, 0)), (blocker, at(4, 0))] {
+        assert!(view.visible_actors.iter().any(|row| row.id == id
+            && row.location == location
+            && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    }
+    // A single target cell is definitely intercepted. This positive guard
+    // witness is established before introducing the safe alternate endpoint.
+    assert!(!matches!(game.choose_ai(ActorId(1)).unwrap().action,
+        crate::Action::UseAbility { id, .. } if id == ability));
+    let mut body = (*game.actors[&ActorId(2)].body).clone();
+    body.cells = vec![[0, 0, 0], [0, 0, 1]];
+    body.eye = [0, 0, 1];
+    game.set_body(ActorId(2), body).unwrap();
+    let view = game.observe(ActorId(1)).unwrap();
+    assert!(view.visible_actors.iter().any(|row| row.id == ActorId(2)
+        && row.location == at(5, 1)
+        && row.disclosure == crate::perception::ActorDisclosure::Creature));
+    let mut trajectory = tor_world::RayTrajectory::new([4, 0, 1]).unwrap();
+    let mut offset = [0; 3];
+    let mut path = Vec::new();
+    for _ in 0..4 {
+        let step = trajectory.advance();
+        for axis in 0..3 {
+            offset[axis] += step[axis];
+        }
+        path.push(offset);
+    }
+    assert_eq!(path, vec![[1, 0, 0], [2, 0, 1], [3, 0, 1], [4, 0, 1]]);
+    let invocation = AbilityInvocation::cell_projectile([4, 0, 1], selection);
+    assert!(
+        game.ability_plan_with_supplies(ActorId(1), &ability, invocation, Default::default())
+            .is_ok(),
+        "ordinary launcher admission accepts the alternate"
+    );
+    let before = game.clone();
+    let choice = game.choose_ai(ActorId(1)).unwrap();
+    assert_eq!(
+        choice.action,
+        crate::Action::UseAbility {
+            id: ability,
+            invocation,
+            supplies: Default::default(),
+        }
+    );
+    assert!(
+        choice.plan.is_none(),
+        "fresh numeric capture remains an execution step"
+    );
+    assert_eq!(
+        game, before,
+        "aim selection cannot spend ammunition or draw combat RNG"
+    );
+}

@@ -56,13 +56,13 @@ class RulesetProcesses(ProcessTestCase):
             'import = "../general.toml"\n',
             'import = "interactions-v35"\n',
             'import = "interactions-v60"\n',
-            'import = "interactions-v66"\n[[overrides]]\nop="set"\n'
+            'import = "interactions-v71"\n[[overrides]]\nop="set"\n'
             'path=["talents","brace_for_impact","id"]\nvalue="renamed"\n',
-            'import = "interactions-v66"\n[[overrides]]\nop="set"\n'
+            'import = "interactions-v71"\n[[overrides]]\nop="set"\n'
             'path=["resources","mana","missing"]\nvalue=1\n',
-            'import = "interactions-v66"\n[[overrides]]\nop="remove"\n'
+            'import = "interactions-v71"\n[[overrides]]\nop="remove"\n'
             'path=["abilities","spark_lance_fire"]\n',
-            'import = "interactions-v66"\n[[overrides]]\nop="set"\n'
+            'import = "interactions-v71"\n[[overrides]]\nop="set"\n'
             'path=["constants","base_defense"]\nvalue=12\n[[overrides]]\nop="set"\n'
             'path=["constants","base_defense"]\nvalue=13\n',
         ]:
@@ -219,6 +219,7 @@ melee = { skill = "heavy_weaponry", bonus = 0, wind_up = 60, recovery = 40, stri
         from arena_matrix import toml_source
         from process_harness import WIZARD_TOKEN, creature_package
         package = creature_package(self, "tagged-weapon", abilities=("fixture_sweep", "untagged_sweep"),
+                                   idle_behavior="wait", memory_ticks=0,
                                    ability_aliases={"fixture_sweep": ("basic_melee", "Fixture sweep"),
                                                     "untagged_sweep": ("basic_melee", "Untagged sweep")})
         path = package / "rules.toml"

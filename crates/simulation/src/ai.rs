@@ -104,6 +104,20 @@ pub(crate) struct Ai {
     pub profile: AiProfile,
     pub state: State,
     pub visits: crate::navigation_map::RegionMap<Location, u64>,
+    /// A remembered idle destination, never a stored path or hidden-world claim.
+    pub exploration_destination: Option<Location>,
+}
+
+fn read_exploration_destination<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Location>, D::Error> {
+    struct Destination(Location);
+    impl<'de> Deserialize<'de> for Destination {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            crate::public_plan::read_location(d).map(Self)
+        }
+    }
+    Option::<Destination>::deserialize(d).map(|value| value.map(|value| value.0))
 }
 
 impl<'de> Deserialize<'de> for Ai {
@@ -114,12 +128,15 @@ impl<'de> Deserialize<'de> for Ai {
             profile: AiProfile,
             state: State,
             visits: crate::navigation_map::RegionMap<Location, u64>,
+            #[serde(deserialize_with = "read_exploration_destination")]
+            exploration_destination: Option<Location>,
         }
         let fields: Fields = crate::bounded::named_map(d)?;
         Ok(Self {
             profile: fields.profile,
             state: fields.state,
             visits: fields.visits,
+            exploration_destination: fields.exploration_destination,
         })
     }
 }
@@ -178,6 +195,8 @@ mod encounter;
 
 #[path = "ai_decision_stages.rs"]
 mod decision_stages;
+#[path = "ai_exploration.rs"]
+mod exploration;
 #[path = "ai_flight_safety.rs"]
 mod flight_safety;
 #[path = "ai_projectiles.rs"]
@@ -272,6 +291,9 @@ impl Game {
             return Err(GameError::UnknownActor);
         }
         if let Some(ai) = self.combat.ai.get_mut(&actor) {
+            if profile.idle == crate::behavior::IdleBehavior::Wait {
+                ai.exploration_destination = None;
+            }
             ai.profile = profile;
         } else {
             self.combat.ai.insert(
@@ -280,6 +302,7 @@ impl Game {
                     profile,
                     state: State::Search,
                     visits: Default::default(),
+                    exploration_destination: None,
                 },
             );
         }
@@ -323,6 +346,13 @@ impl Game {
                     {
                         if let Ok(plan) = self.compile_touch_strike_plan(id, &ability, toucher) {
                             if self.ai_plan_resources_available(&plan) {
+                                // Commit installs this draft after starting the work;
+                                // keep the same touch-owned continuation in both paths.
+                                if let Some(engagement) =
+                                    self.touch_continuation(&plan, false).ok()?
+                                {
+                                    behavior.engagement = Some(engagement);
+                                }
                                 return Some(AiDecision::ability(plan, ai, behavior));
                             }
                         }
@@ -387,6 +417,11 @@ impl Game {
                     if draw % u64::from(chance.denominator) < u64::from(chance.numerator) {
                         let choice =
                             crate::dice::random_word(&mut behavior.rng) as usize % candidates.len();
+                        // A random deviation replaces an idle interest rather
+                        // than forcing the next ordinary move to undo it. This
+                        // is only a draft: admission/cancellation cannot clear
+                        // the authoritative goal before successful execution.
+                        ai.exploration_destination = None;
                         return Some(AiDecision::action(
                             Action::Move(candidates[choice]),
                             ai,
@@ -473,9 +508,14 @@ impl Game {
                 ));
             }
         }
-        if let Some(action) =
-            self.choose_exploration(id, &mut ai, &mut behavior, retained.is_some(), view)
-        {
+        if let Some(action) = self.choose_exploration(
+            id,
+            &mut ai,
+            &mut behavior,
+            retained.is_some(),
+            view,
+            search.as_mut(),
+        ) {
             return Some(AiDecision::action(action, ai, behavior));
         }
         Some(AiDecision::action(Action::Wait, ai, behavior))
@@ -1302,7 +1342,7 @@ mod tests {
     use crate::{combat::DamageType, test_creatures};
     use std::{collections::BTreeSet, num::NonZeroU64};
     use tor_world::{Position, RegionId};
-    fn at(region: u64, x: i32, y: i32) -> Location {
+    pub(super) fn at(region: u64, x: i32, y: i32) -> Location {
         Location {
             region: RegionId(region),
             position: Position { x, y, z: 0 },
@@ -1339,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn explore_unique_least_visited_neighbor_and_idle_wait_do_not_draw() {
+    fn explore_local_fallback_unique_neighbor_and_idle_wait_do_not_draw() {
         let mut game = fixture();
         game.configure_run(
             ActorId(1),
@@ -1366,9 +1406,17 @@ mod tests {
                 .insert(at, if at == preferred.0 { 0 } else { 10 });
         }
         let rng = game.actors[&ActorId(2)].behavior.rng;
-        let decision = game.choose_ai(ActorId(2)).unwrap();
-        assert_eq!(decision.action, Action::Move(preferred.1));
-        assert_eq!(decision.behavior.rng, rng);
+        let before = game.clone();
+        let view = game.observe(ActorId(2)).unwrap();
+        let mut ai = game.combat.ai[&ActorId(2)].clone();
+        let mut behavior = game.actors[&ActorId(2)].behavior.clone();
+        // This is the local fallback contract, now below the destination stage.
+        // Missing remembered routing cannot make the unique local choice random.
+        let action =
+            game.choose_exploration(ActorId(2), &mut ai, &mut behavior, false, &view, None);
+        assert_eq!(action, Some(Action::Move(preferred.1)));
+        assert_eq!(behavior.rng, rng);
+        assert_eq!(game, before);
         game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.idle =
             crate::behavior::IdleBehavior::Wait;
         let decision = game.choose_ai(ActorId(2)).unwrap();
@@ -1566,7 +1614,7 @@ mod tests {
         }
         configured_game(hero, foe, paid_probe_rules())
     }
-    fn basic(target: ActorId) -> Action {
+    pub(super) fn basic(target: ActorId) -> Action {
         Action::UseAbility {
             id: crate::content_ids::AbilityId::new("basic_melee").unwrap(),
             invocation: crate::abilities::AbilityInvocation::actor_target(target),
@@ -3286,3 +3334,11 @@ mod ray_tests;
 #[cfg(test)]
 #[path = "ai_item_use_tests.rs"]
 mod item_use_tests;
+
+#[cfg(test)]
+#[path = "ai_exploration_tests.rs"]
+mod exploration_tests;
+
+#[cfg(test)]
+#[path = "ai_stationary_tests.rs"]
+mod stationary_tests;

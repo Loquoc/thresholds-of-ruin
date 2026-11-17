@@ -53,6 +53,12 @@ impl Game {
             })
             .min_by_key(|other| {
                 (
+                    // Rooted creatures cannot rank foes by pursuit distance:
+                    // every off-cell route is unavailable. Prefer disclosed
+                    // contact before the existing route/identity tie-breaks.
+                    !has_retained
+                        && actor.locomotion().stationary
+                        && !self.attack_available_in_scene(id, other.id, &snapshot.sight),
                     route(other.location).map_or(usize::MAX, |r| r.len()),
                     other.id,
                 )

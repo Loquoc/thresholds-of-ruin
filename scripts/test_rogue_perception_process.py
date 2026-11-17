@@ -6,7 +6,12 @@ geometry/control. The explicitly synthetic living witness has durable Health,
 low defenses and an explicit basic-melee check bonus with harmless-sized damage. These are mechanism
 witnesses, not actual starter-kit survival, autonomous AI or balance evidence.
 
-All five fresh encounters use seed 42, without retries or seed search. Assertions
+The separate tuned-Xeroc autonomous witness below keeps its real starter kit and
+checks touch-owned continuation through pending source-free restart. Separate
+autonomous Medusa cases distinguish tuned Rogue claw attacks from exploration
+gaze/cooldown behavior, including opaque separation and source-free reopen.
+
+All five original fresh encounters use seed 42, without retries or seed search. Assertions
 use client-visible state and ordinary commands, never wizard edits or checkpoint
 target lookup. The three X encounters separately exercise Take, Search and the
 first outgoing attack; a revealed incarnation cannot legitimately rearm itself.
@@ -120,6 +125,227 @@ def other_actors(frame):
 
 
 class RoguePerceptionProcesses(ProcessTestCase):
+    def test_tuned_xeroc_continues_hostile_touch_after_recovery_and_reopen(self):
+        self.tuned_xeroc_continuation(checkpoint_interval=1)
+
+    def test_tuned_xeroc_hostile_touch_journal_replays_without_source(self):
+        self.tuned_xeroc_continuation(checkpoint_interval=4096)
+
+    def tuned_xeroc_continuation(self, *, checkpoint_interval):
+        from contextlib import closing
+        import sqlite3
+        from process_harness import ROOT, headless_fight_completion
+        from rogue_roster_package import unrelated_fallback
+        self.work_budget = ProcessWorkBudget(requests=128, actor_ticks=2000,
+                                             transcript_bytes=32 * 1024 * 1024)
+        production = ROOT / "scenarios/rogue"
+        source = encounter_sources(production=production)
+        manifest = {key: copy.deepcopy(source["manifest"][key]) for key in
+                    ("format","version","ruleset","modules","factions","ai_profiles","themes","assets")}
+        character = copy.deepcopy(source["manifest"]["characters"][0])
+        character["anchor"] = "1/start"
+        manifest.update(id="tuned-xeroc-touch",default_character=1,characters=[character])
+        region = {"id":1,"name":"Tuned Xeroc touch continuity","size":[7,5,3],"chamber":True,
+                  "gravity":[0,0,-1],"anchors":{"start":[2,2,0]},
+                  "actors":[{"id":3,"at":[3,2,0],"archetype":"rogue.xeroc",
+                             "controller":"ai","ai":"rogue_hostile"}]}
+        package = self.directory / "tuned-xeroc"
+        (package/"regions").mkdir(parents=True)
+        (package/"catalog").mkdir()
+        for module in manifest["modules"]:
+            shutil.copy2(production/module,package/module)
+        shutil.copy2(production/"rules.toml",package/"rules.toml")
+        (package/"scenario.toml").write_text(toml_source(manifest),encoding="utf-8")
+        (package/"regions/1.toml").write_text(toml_source(region),encoding="utf-8")
+        validated = subprocess.run([self.bin/("tor-scenario"+self.suffix),"validate",package],
+                                   capture_output=True,text=True,timeout=30)
+        self.assertEqual(validated.returncode,0,validated.stdout+validated.stderr)
+        server = self.server("--checkpoint-interval",checkpoint_interval,scenario=package,seed=42)
+        player, initial = self.client(actor=1)
+        self.assertFalse(initial["state"]["wizard_game"])
+        self.assertEqual(u64(combat(initial)["hp"]),18)
+        # This actual starter already recognizes the disguise. That private fact
+        # is not an instruction for the wearer to attack. Never invent a Take ID.
+        self.assertTrue(any(r["name"] == "xeroc" and r["position"] == {"x":1,"y":0,"z":0}
+                            for r in observation(initial)["visible_actors"]))
+        self.assertEqual(observation(initial)["ground_items"],[])
+        def completed(action):
+            frame = self.act(player,action)
+            self.assertIsNone(frame["error"])
+            if not headless_fight_completion(frame):
+                frame = self.frame(player,headless_fight_completion)
+            self.assertFalse(combat(frame)["dead"])
+            return frame
+        for expected_tick in (100,200):
+            peaceful = completed({"type":"wait"})
+            self.assertEqual(u64(observation(peaceful)["tick"]),expected_tick)
+            self.assertEqual(u64(combat(peaceful)["hp"]),18)
+        before_contact = checkpoint(self,player) if checkpoint_interval == 1 else None
+        if before_contact is not None:
+            self.assertIsNotNone(before_contact["actors"]["3"]["guise"]["appearance"])
+            self.assertIsNone(before_contact["actors"]["3"]["behavior"]["engagement"])
+        touched = completed({"type":"move","direction":"east"})
+        self.assertEqual(u64(observation(touched)["tick"]),300)
+        self.assertEqual(u64(combat(touched)["hp"]),18,"fixed first touch strike misses")
+        pending = checkpoint(self,player) if checkpoint_interval == 1 else None
+        if pending is not None:
+            predator = pending["actors"]["3"]
+            self.assertEqual(predator["readied_ambush"]["state"],"spent")
+            self.assertIsNone(predator["guise"]["appearance"])
+            self.assertEqual(predator["behavior"]["engagement"]["target"],1)
+            self.assertEqual(predator["pending"]["started"],284)
+            self.assertEqual(predator["pending"]["plan"]["ability"],"basic_melee")
+            self.assertEqual(predator["pending"]["plan"]["invocation"]["aim"],
+                             {"kind":"actor_target","target":1})
+            for actor in ("1","3"):
+                self.assertEqual(pending["actors"][actor]["location"],before_contact["actors"][actor]["location"])
+            self.assertGreater(predator["pending"]["remaining"],0,"ordinary fresh preparation, not free credit")
+        before = self.snapshot(player)
+        self.flush_save()
+        if checkpoint_interval != 1:
+            with closing(sqlite3.connect(self.save)) as db:
+                checkpoint_row = db.execute("SELECT sequence FROM checkpoint").fetchone()
+                # Before the first periodic checkpoint, replay starts from the
+                # original archive at sequence zero rather than a checkpoint row.
+                sequence = checkpoint_row[0] if checkpoint_row is not None else 0
+                self.assertGreater(db.execute("SELECT count(*) FROM journal WHERE sequence > ?",(sequence,)).fetchone()[0],0,
+                                   "restore must replay accepted touch work, not only load a latest checkpoint")
+        player.stop(save=False)
+        server.stop(save=False)
+        package.rename(self.directory/"retired-xeroc-source")
+        server = self.server("--checkpoint-interval",checkpoint_interval,scenario=unrelated_fallback(self),seed=None)
+        player, reopened = self.client(actor=1)
+        self.assertDisclosedStateEqual(reopened["state"],before["state"])
+        self.assertEqual(reopened["history"],before["history"])
+        if pending is not None:
+            self.assertEqual(checkpoint(self,player),pending)
+        after = completed({"type":"wait"})
+        self.assertEqual(u64(observation(after)["tick"]),400)
+        # The baseline retaliation control included a player attack and thus
+        # consumed different combat rolls. Require a real resolved hit here,
+        # not its unrelated exact damage amount.
+        self.assertGreater(u64(combat(after)["hp"]),0)
+        self.assertLess(u64(combat(after)["hp"]),18)
+        self.flush_save()
+        with closing(sqlite3.connect(self.save)) as db:
+            rows = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 UNION ALL "
+                              "SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _,frame in rows]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        (self.directory/"xeroc-continuation-journal.json").write_text(json.dumps(entries,indent=2),encoding="utf-8")
+        starts = [entry for entry in entries if entry.get("actor") == 3
+                  and entry["content"]["type"] == "intention_started"]
+        self.assertEqual([(entry["tick"],entry["content"]["action"]["type"]) for entry in starts],
+                         [(0,"wait"),(100,"wait"),(284,"use_ability")])
+        attack = starts[-1]["content"]
+        self.assertEqual(attack["action"],{"type":"use_ability","id":"basic_melee",
+            "invocation":{"aim":{"kind":"actor_target","target":1},"weapon":{"kind":"default"}},
+            "supplies":{"kind":"carried"}})
+        self.assertTrue(any(end == {"actor":3,"intention":attack["intention"],"kind":"resolved"}
+                            for entry in entries for end in entry["intention_ends"]))
+        player.stop(save=False)
+        server.stop(save=False)
+
+    def test_tuned_medusa_uses_authored_claws_after_source_free_reopen(self):
+        self.autonomous_medusa("rogue", blocked=False)
+
+    def test_exploration_medusa_gaze_cooldown_survives_source_free_reopen(self):
+        self.autonomous_medusa("rogue-exploration", blocked=False)
+
+    def test_exploration_medusa_does_not_gaze_through_opaque_partition(self):
+        self.autonomous_medusa("rogue-exploration", blocked=True)
+
+    def autonomous_medusa(self, variant, *, blocked):
+        """Unchanged authored kits, fixed three Waits, no authored target commands."""
+        from contextlib import closing
+        import sqlite3
+        from process_harness import ROOT, headless_fight_completion
+        from rogue_roster_package import unrelated_fallback
+        self.work_budget = ProcessWorkBudget(requests=128, actor_ticks=1000,
+                                             transcript_bytes=32 * 1024 * 1024)
+        production = ROOT / "scenarios" / variant
+        source = encounter_sources(production=production)
+        manifest = {key: copy.deepcopy(source["manifest"][key]) for key in
+                    ("format", "version", "ruleset", "modules", "factions", "ai_profiles", "themes", "assets")}
+        character = copy.deepcopy(source["manifest"]["characters"][0])
+        character["anchor"] = "1/start"
+        manifest.update(id="autonomous-medusa", default_character=1, characters=[character])
+        region = {"id": 1, "name": "Authored Medusa continuity", "size": [9, 5, 3],
+                  "chamber": True, "gravity": [0, 0, -1], "anchors": {"start": [2, 2, 0]},
+                  "actors": [{"id": 3, "at": [5, 2, 0], "archetype": "rogue.medusa",
+                              "controller": "ai", "ai": "rogue_hostile"}]}
+        if blocked:
+            region["walls"] = [[4, y, z] for y in range(5) for z in range(3)]
+        package = self.directory / "medusa-source"
+        (package / "regions").mkdir(parents=True)
+        (package / "catalog").mkdir()
+        for module in manifest["modules"]:
+            shutil.copy2(production / module, package / module)
+        shutil.copy2(production / "rules.toml", package / "rules.toml")
+        (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8")
+        (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8")
+        validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
+                                   capture_output=True, text=True, timeout=30)
+        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+        server = self.server("--checkpoint-interval", 1, scenario=package, seed=42)
+        player, initial = self.client(actor=1)
+        self.assertFalse(initial["state"]["wizard_game"])
+        self.assertEqual(any(row["name"] == "medusa" for row in observation(initial)["visible_actors"]),
+                         not blocked)
+
+        def wait_to(expected):
+            frame = self.act(player, {"type": "wait"})
+            self.assertIsNone(frame["error"])
+            if not headless_fight_completion(frame):
+                frame = self.frame(player, headless_fight_completion)
+            self.assertFalse(combat(frame)["dead"])
+            self.assertEqual(tick(frame), expected)
+            return frame
+
+        wait_to(100)
+        saved = checkpoint(self, player)
+        cooldowns = actor_creature(saved, 3)["cooldowns"]
+        gaze_cooldowns = [row for row in cooldowns if row["ability"] == GAZE]
+        if variant == "rogue-exploration" and not blocked:
+            self.assertEqual(len(gaze_cooldowns), 1)
+            self.assertGreater(gaze_cooldowns[0]["remaining"], 0)
+        else:
+            self.assertEqual(gaze_cooldowns, [])
+        before = self.snapshot(player)
+        player.stop(save=False)
+        server.stop(save=False)
+        package.rename(self.directory / "retired-medusa-source")
+        server = self.server("--checkpoint-interval", 1, scenario=unrelated_fallback(self), seed=None)
+        player, reopened = self.client(actor=1)
+        self.assertDisclosedStateEqual(reopened["state"], before["state"])
+        self.assertEqual(reopened["history"], before["history"])
+        self.assertEqual(checkpoint(self, player), saved)
+        wait_to(200)
+        final = wait_to(300)
+        if blocked:
+            self.assertFalse(any(row["name"] == "medusa" for row in observation(final)["visible_actors"]))
+        self.flush_save()
+        with closing(sqlite3.connect(self.save)) as db:
+            rows = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 UNION ALL "
+                              "SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _, frame in rows]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        (self.directory / "medusa-journal.json").write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        starts = [(entry["tick"], entry["content"]["action"]) for entry in entries
+                  if entry.get("actor") == 3 and entry["content"]["type"] == "intention_started"]
+        self.assertTrue(starts, "autonomous control must actually run")
+        if blocked:
+            self.assertTrue(all(action["type"] in ("move", "wait") for _, action in starts))
+        elif variant == "rogue":
+            self.assertEqual([(at, action["type"], action.get("id")) for at, action in starts],
+                             [(0, "move", None), (100, "move", None), (200, "use_ability", "basic_melee")])
+        else:
+            self.assertEqual([(at, action["type"], action.get("id")) for at, action in starts],
+                             [(0, "use_ability", GAZE), (200, "move", None)])
+            self.assertEqual(starts[0][1]["invocation"]["aim"], {"kind": "actor_target", "target": 1})
+        player.stop(save=False)
+        server.stop(save=False)
+
     def setUp(self):
         super().setUp()
         # One non-resetting diagnostic budget across M, P and all three X arms.

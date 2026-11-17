@@ -1804,6 +1804,85 @@ mod tests {
         game
     }
 
+    #[test]
+    fn exploration_destination_capture_is_independent_of_visits_and_snapshot_mutation() {
+        let mut game = pooled_ai_fixture();
+        let actor = ActorId(2);
+        let goal = game.actors[&ActorId(3)].location;
+        game.navigation.remove(&actor);
+        let mut shared = SharedState::default();
+        let before = game.checkpoint(&mut shared);
+        let original = game.clone();
+        game.combat
+            .ai
+            .get_mut(&actor)
+            .unwrap()
+            .exploration_destination = Some(goal);
+        let after = game.checkpoint(&mut shared);
+        assert_ne!(before.combat.ai[&actor], after.combat.ai[&actor]);
+        assert_capture_sequence_round_trip(
+            &[before, after],
+            &shared,
+            &[original.clone(), game.clone()],
+        );
+        // A single-root restore binds only the pool for that root.
+        let mut shared = SharedState::default();
+        let snapshot = game.checkpoint(&mut shared);
+        let mut restored =
+            Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+        assert_eq!(
+            restored.combat.ai[&actor].exploration_destination,
+            Some(goal)
+        );
+        restored
+            .combat
+            .ai
+            .get_mut(&actor)
+            .unwrap()
+            .exploration_destination = None;
+        assert_eq!(game.combat.ai[&actor].exploration_destination, Some(goal));
+        assert_eq!(original.combat.ai[&actor].exploration_destination, None);
+        assert_eq!(
+            restored.combat.ai[&actor].visits,
+            game.combat.ai[&actor].visits
+        );
+    }
+
+    #[test]
+    fn checkpoint_rejects_exploration_destination_outside_known_world_bounds() {
+        for goal in [
+            Location {
+                region: RegionId(999),
+                position: Position { x: 1, y: 1, z: 0 },
+            },
+            Location {
+                region: RegionId(1),
+                position: Position {
+                    x: i32::MAX,
+                    y: 1,
+                    z: 0,
+                },
+            },
+        ] {
+            let mut game = pooled_ai_fixture();
+            let mut shared = SharedState::default();
+            let good = game.checkpoint(&mut shared);
+            assert!(Game::restore_checkpoint(good, &shared, game.content().clone()).is_ok());
+            game.combat
+                .ai
+                .get_mut(&ActorId(2))
+                .unwrap()
+                .exploration_destination = Some(goal);
+            // Do not retain unused good-root records in this one-root pool.
+            let mut shared = SharedState::default();
+            let snapshot = game.checkpoint(&mut shared);
+            assert!(matches!(
+                Game::restore_checkpoint(snapshot, &shared, game.content().clone()),
+                Err(PersistError::RunState)
+            ));
+        }
+    }
+
     fn assert_capture_sequence_round_trip(
         snapshots: &[Snapshot],
         shared: &SharedState,

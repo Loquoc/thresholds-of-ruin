@@ -1,50 +1,164 @@
-//! Conservative avoidance of disclosed nonhostile interception before a target.
-//! Not a prediction of hidden collisions, downstream hits or reflections.
+//! Conservative avoidance of disclosed nonhostiles and walls before a target.
+//! Alternatives require a complete canonical disclosed prefix, not merely an
+//! absence of a veto. No hidden collisions, downstream hits or reflections.
 use super::*;
 use crate::abilities::FlightAim;
 use crate::perception::ActorDisclosure;
 use std::collections::{BTreeMap, BTreeSet};
 
-impl Game {
-    pub(super) fn ai_disclosed_flight_aim(
-        &self,
-        actor: ActorId,
-        target: ActorId,
-        sight: &[tor_world::SightCell],
-        view: &crate::Observation,
-        range: u16,
-    ) -> Option<FlightAim> {
-        let origin = self.actors.get(&actor)?;
-        let aim = disclosed_flight_aim(target, sight, view, origin.body.eye, range)?;
-        (!self.disclosed_nonhostile_interception(actor, target, aim, sight, view, range))
-            .then_some(aim)
+const ALTERNATE_TARGET_CELLS: usize = 16;
+
+/// Only a canonical, monotone primary prefix can produce a definite veto.
+/// This inclusive box is a negative bound, not a proof that a flight is clear.
+pub(super) fn within_canonical_primary_box(
+    origin: Location,
+    target: Location,
+    location: Location,
+) -> bool {
+    origin.region == target.region
+        && location.region == origin.region
+        && [
+            (origin.position.x, target.position.x, location.position.x),
+            (origin.position.y, target.position.y, location.position.y),
+            (origin.position.z, target.position.z, location.position.z),
+        ]
+        .into_iter()
+        .all(|(a, b, value)| (a.min(b)..=a.max(b)).contains(&value))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrefixEvidence {
+    Unknown,
+    Clear,
+    Intercepted,
+    Obstructed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DisclosedFlightCell {
+    location: Location,
+    wall: bool,
+}
+
+struct DisclosedFlightChart {
+    origin: Location,
+    orientation: u8,
+    nonhostile: BTreeSet<Location>,
+    occurrences: BTreeMap<[i32; 3], Option<DisclosedFlightCell>>,
+    offsets: BTreeMap<Location, BTreeSet<[i32; 3]>>,
+}
+
+impl DisclosedFlightChart {
+    fn target_offset(&self, target: Location) -> Option<[i32; 3]> {
+        if target.region != self.origin.region {
+            return None;
+        }
+        let offset = tor_world::rotate_vector(
+            tor_world::inverse_rotation(self.orientation),
+            [
+                i64::from(target.position.x) - i64::from(self.origin.position.x),
+                i64::from(target.position.y) - i64::from(self.origin.position.y),
+                i64::from(target.position.z) - i64::from(self.origin.position.z),
+            ],
+        );
+        Some([
+            i32::try_from(offset[0]).ok()?,
+            i32::try_from(offset[1]).ok()?,
+            i32::try_from(offset[2]).ok()?,
+        ])
     }
 
-    pub(super) fn disclosed_nonhostile_interception(
+    fn assess(&self, target: Location, aim: FlightAim, range: u16) -> PrefixEvidence {
+        let Some(target_offset) = self.target_offset(target) else {
+            return PrefixEvidence::Unknown;
+        };
+        let distance = target_offset
+            .iter()
+            .map(|n| n.unsigned_abs())
+            .max()
+            .unwrap_or(0);
+        if distance < 2 || distance > u32::from(range) {
+            return PrefixEvidence::Unknown;
+        }
+        match aim {
+            FlightAim::Cell { offset } if offset != target_offset => {
+                return PrefixEvidence::Unknown
+            }
+            FlightAim::Direction { .. }
+                if target_offset
+                    .iter()
+                    .zip(aim.vector())
+                    .any(|(v, d)| i64::from(*v) != i64::from(d) * i64::from(distance)) =>
+            {
+                return PrefixEvidence::Unknown
+            }
+            _ => {}
+        }
+        if self
+            .offsets
+            .get(&target)
+            .is_some_and(|offsets| offsets.iter().any(|at| *at != target_offset))
+        {
+            return PrefixEvidence::Unknown;
+        }
+        let Some(mut trajectory) = tor_world::RayTrajectory::new(aim.vector()) else {
+            return PrefixEvidence::Unknown;
+        };
+        let mut at = [0_i32; 3];
+        let mut intercepted = false;
+        let mut obstructed = false;
+        for step in 1..=distance {
+            let delta = trajectory.advance();
+            for axis in 0..3 {
+                let Some(next) = at[axis].checked_add(delta[axis]) else {
+                    return PrefixEvidence::Unknown;
+                };
+                at[axis] = next;
+            }
+            let Some(Some(cell)) = self.occurrences.get(&at) else {
+                return PrefixEvidence::Unknown;
+            };
+            // A target reported inside a wall is conflicting evidence, not a
+            // useful obstruction. Never stop at an earlier veto: the entire
+            // nominal prefix must remain canonical and disclosed.
+            if step == distance && cell.wall {
+                return PrefixEvidence::Unknown;
+            }
+            if step < distance {
+                obstructed |= cell.wall;
+                intercepted |= self.nonhostile.contains(&cell.location);
+            }
+        }
+        if at != target_offset {
+            PrefixEvidence::Unknown
+        } else if obstructed {
+            PrefixEvidence::Obstructed
+        } else if intercepted {
+            PrefixEvidence::Intercepted
+        } else {
+            PrefixEvidence::Clear
+        }
+    }
+}
+
+impl Game {
+    fn disclosed_flight_chart(
         &self,
         actor: ActorId,
         target: ActorId,
-        aim: FlightAim,
         sight: &[tor_world::SightCell],
         view: &crate::Observation,
-        range: u16,
-    ) -> bool {
-        let Some(origin) = self.actors.get(&actor) else {
-            return false;
-        };
-        // Keep exactly the target row used by disclosed_flight_aim. ActorView
-        // has rows for disclosed body cells, not a private shape/anchor query.
-        let Some(target_row) = view
+    ) -> Option<DisclosedFlightChart> {
+        let origin = self.actors.get(&actor)?;
+        // Alias evidence is needed only for this target's disclosed body cells;
+        // the occurrence chart below still includes every disclosed prefix cell.
+        let target_locations: BTreeSet<_> = view
             .visible_actors
             .iter()
-            .find(|row| row.id == target && row.disclosure == ActorDisclosure::Creature)
-        else {
-            return false;
-        };
-        if target_row.location.region != origin.location.region {
-            return false;
-        }
-        let nonhostile: BTreeSet<_> = view
+            .filter(|row| row.id == target && row.disclosure == ActorDisclosure::Creature)
+            .map(|row| row.location)
+            .collect();
+        let nonhostile = view
             .visible_actors
             .iter()
             .filter(|row| {
@@ -55,64 +169,21 @@ impl Game {
             })
             .map(|row| row.location)
             .collect();
-        if nonhostile.is_empty() {
-            return false;
-        }
-        let offset = tor_world::rotate_vector(
-            tor_world::inverse_rotation(origin.orientation),
-            [
-                i64::from(target_row.location.position.x) - i64::from(origin.location.position.x),
-                i64::from(target_row.location.position.y) - i64::from(origin.location.position.y),
-                i64::from(target_row.location.position.z) - i64::from(origin.location.position.z),
-            ],
-        );
-        let Ok(target_offset) = offset
-            .into_iter()
-            .map(i32::try_from)
-            .collect::<Result<Vec<_>, _>>()
-        else {
-            return false;
-        };
-        let target_offset = [target_offset[0], target_offset[1], target_offset[2]];
-        let distance = target_offset
-            .iter()
-            .map(|value| value.unsigned_abs())
-            .max()
-            .unwrap_or(0);
-        if distance < 2 || distance > u32::from(range) {
-            return false;
-        }
-        // A Direction bearing has unit length, not the target distance.
-        // Verify the selected bearing's endpoint in the canonical local chart.
-        match aim {
-            FlightAim::Cell { offset } if offset != target_offset => return false,
-            FlightAim::Direction { .. }
-                if target_offset
-                    .iter()
-                    .zip(aim.vector())
-                    .any(|(value, direction)| {
-                        i64::from(*value) != i64::from(direction) * i64::from(distance)
-                    }) =>
-            {
-                return false
-            }
-            _ => {}
-        }
-        // Build disclosure lookup once. A projected wall (e.g. a concealed
-        // door) is authoritative; raw physical wall state must not override it.
-        let disclosed: BTreeMap<_, bool> =
+        let disclosed: BTreeMap<_, Option<bool>> =
             view.visible_cells
                 .iter()
                 .fold(BTreeMap::new(), |mut map, cell| {
                     map.entry((cell.location, cell.frame))
-                        .and_modify(|wall| *wall |= cell.wall)
-                        .or_insert(cell.wall);
+                        .and_modify(|wall| {
+                            if *wall != Some(cell.wall) {
+                                *wall = None;
+                            }
+                        })
+                        .or_insert(Some(cell.wall));
                     map
                 });
-        // None means a disclosed but unsupported/ambiguous occurrence at this
-        // offset. Do not discard those entries: a later valid duplicate must
-        // never overwrite their ambiguity.
-        let mut occurrences: BTreeMap<[i32; 3], Option<Location>> = BTreeMap::new();
+        let mut occurrences = BTreeMap::new();
+        let mut offsets: BTreeMap<Location, BTreeSet<[i32; 3]>> = BTreeMap::new();
         for cell in sight.iter().filter(|cell| cell.physical) {
             let Some(&shown_wall) = disclosed.get(&(cell.location, cell.rotation)) else {
                 continue;
@@ -127,16 +198,15 @@ impl Game {
                 continue;
             };
             let body_offset = [x, y, z];
-            // Direction aim forgets distance. A shorter portal alias could have
-            // supplied the chosen aim even when a farther canonical row exists.
-            // Conservatively decline the new veto for aliased target rows.
-            if cell.location == target_row.location && body_offset != target_offset {
-                return false;
+            if target_locations.contains(&cell.location) {
+                offsets
+                    .entry(cell.location)
+                    .or_default()
+                    .insert(body_offset);
             }
             let delta = tor_world::rotate_vector(origin.orientation, body_offset.map(i64::from));
             let canonical = cell.rotation == origin.orientation
                 && cell.location.region == origin.location.region
-                && !shown_wall
                 && [
                     i64::from(cell.location.position.x),
                     i64::from(cell.location.position.y),
@@ -146,7 +216,12 @@ impl Game {
                     i64::from(origin.location.position.y) + delta[1],
                     i64::from(origin.location.position.z) + delta[2],
                 ];
-            let witness = canonical.then_some(cell.location);
+            let witness = shown_wall
+                .filter(|_| canonical)
+                .map(|wall| DisclosedFlightCell {
+                    location: cell.location,
+                    wall,
+                });
             occurrences
                 .entry(body_offset)
                 .and_modify(|prior| {
@@ -156,26 +231,128 @@ impl Game {
                 })
                 .or_insert(witness);
         }
-        let Some(mut trajectory) = tor_world::RayTrajectory::new(aim.vector()) else {
-            return false;
-        };
-        let mut at = [0_i32; 3];
-        let mut intercepted = false;
-        for step in 1..=distance {
-            let delta = trajectory.advance();
-            for axis in 0..3 {
-                let Some(next) = at[axis].checked_add(delta[axis]) else {
-                    return false;
-                };
-                at[axis] = next;
-            }
-            let Some(Some(location)) = occurrences.get(&at) else {
-                return false;
+        Some(DisclosedFlightChart {
+            origin: origin.location,
+            orientation: origin.orientation,
+            nonhostile,
+            occurrences,
+            offsets,
+        })
+    }
+
+    pub(super) fn ai_disclosed_flight_aim(
+        &self,
+        actor: ActorId,
+        target: ActorId,
+        sight: &[tor_world::SightCell],
+        view: &crate::Observation,
+        range: u16,
+    ) -> Option<FlightAim> {
+        let origin = self.actors.get(&actor)?;
+        // Keep the legacy first-row geometry and no-aim behavior unchanged.
+        let aim = disclosed_flight_aim(target, sight, view, origin.body.eye, range)?;
+        let primary = view
+            .visible_actors
+            .iter()
+            .find(|row| row.id == target && row.disclosure == ActorDisclosure::Creature)?
+            .location;
+        // Only disclosed bodies or walls inside this primary's canonical box
+        // can produce a definite veto. Check every body row, not just anchors
+        // or row-relative portal coordinates. Ambiguous/folded prefixes retain
+        // the original aim; this negative bound does not certify safety.
+        if !view.visible_actors.iter().any(|row| {
+            row.id != actor
+                && row.id != target
+                && row.disclosure == ActorDisclosure::Creature
+                && !self.perceived_hostile(actor, row.id, row.disclosure)
+                && within_canonical_primary_box(origin.location, primary, row.location)
+        }) && !view.visible_cells.iter().any(|cell| {
+            cell.wall && within_canonical_primary_box(origin.location, primary, cell.location)
+        }) {
+            return Some(aim);
+        }
+        let chart = self.disclosed_flight_chart(actor, target, sight, view)?;
+        if !matches!(
+            chart.assess(primary, aim, range),
+            PrefixEvidence::Intercepted | PrefixEvidence::Obstructed
+        ) {
+            return Some(aim);
+        }
+        // Only a definite old-path veto permits a new choice. Unique disclosed
+        // locations have canonical order, independent of duplicate body rows.
+        let alternatives: BTreeSet<_> = view
+            .visible_actors
+            .iter()
+            .filter(|row| {
+                row.id == target
+                    && row.disclosure == ActorDisclosure::Creature
+                    && row.location != primary
+            })
+            .map(|row| row.location)
+            .collect();
+        for location in alternatives.into_iter().take(ALTERNATE_TARGET_CELLS) {
+            let Some(offset) = chart.target_offset(location) else {
+                continue;
             };
-            if step < distance && nonhostile.contains(location) {
-                intercepted = true;
+            let distance = offset.iter().map(|n| n.unsigned_abs()).max().unwrap_or(0);
+            let alternative = if distance > 0
+                && offset
+                    .iter()
+                    .all(|n| *n == 0 || n.unsigned_abs() == distance)
+            {
+                let Some(direction) = Direction::from_delta(offset.map(|n| i64::from(n.signum())))
+                else {
+                    continue;
+                };
+                let Ok(direction) = crate::abilities::StepDirection::try_from(direction) else {
+                    continue;
+                };
+                FlightAim::from(direction)
+            } else {
+                FlightAim::Cell { offset }
+            };
+            if chart.assess(location, alternative, range) == PrefixEvidence::Clear {
+                return Some(alternative);
             }
         }
-        at == target_offset && intercepted
+        None
+    }
+
+    // Compatibility predicate retained for focused primary-veto regression tests.
+    #[cfg(test)]
+    pub(super) fn disclosed_nonhostile_interception(
+        &self,
+        actor: ActorId,
+        target: ActorId,
+        aim: FlightAim,
+        sight: &[tor_world::SightCell],
+        view: &crate::Observation,
+        range: u16,
+    ) -> bool {
+        let Some(primary) = view
+            .visible_actors
+            .iter()
+            .find(|row| row.id == target && row.disclosure == ActorDisclosure::Creature)
+        else {
+            return false;
+        };
+        let Some(origin) = self.actors.get(&actor) else {
+            return false;
+        };
+        if primary.location.region != origin.location.region {
+            return false;
+        }
+        if !view.visible_actors.iter().any(|row| {
+            row.id != actor
+                && row.id != target
+                && row.disclosure == ActorDisclosure::Creature
+                && !self.perceived_hostile(actor, row.id, row.disclosure)
+        }) {
+            return false;
+        }
+        let Some(chart) = self.disclosed_flight_chart(actor, target, sight, view) else {
+            return false;
+        };
+        chart.assess(primary.location, aim, range) == PrefixEvidence::Intercepted
     }
 }
