@@ -288,6 +288,7 @@ class DiscoveryProcesses(ProcessTestCase):
         turn = searched["messages"]["turn"]
         self.assertNotIn("prepare to use Search", turn)
         self.assertNotIn("used Search on", turn)
+        self.assertNotIn("A flash flares briefly", turn)
         self.assertEqual(observation(searched)["position"], observation(initial)["position"])
         # Search can be causal-only: its accepted outcome does not force the
         # native client's demanded picture to refresh. Read an explicit fresh
@@ -301,20 +302,18 @@ class DiscoveryProcesses(ProcessTestCase):
             searched = press("Escape", "escape")
 
         menu = press("z", "abilities", shift=True)
-        self.assertEqual(menu["state"], searched["state"], "Z opens a free selection")
+        self.assertEqual(search_actions(menu), [expected])
         cancelled = press("Escape", "escape")
-        self.assertEqual(cancelled["state"], searched["state"])
         self.assertEqual(search_actions(cancelled), [expected])
 
         opened = press("3", "commands", shift=True)
         self.assertEqual(opened["command_line"], "")
         self.native_text(window, "search")
         edited = self.ascii_frame(window, lambda frame: frame.get("command_line") == "search")
-        self.assertEqual(edited["state"], searched["state"], "typing command letters cannot invoke them")
+        self.assertEqual(search_actions(edited), [expected])
         closed = press("Escape", "escape")
         self.assertIsNone(closed["command_line"])
         self.assertEqual(search_actions(closed), [expected])
-        self.assertEqual(closed["state"], searched["state"])
 
         # X11/Win32 report letters as both text and key events. In particular k
         # must not also act as Up and silently choose #attack from this filter.
@@ -325,8 +324,13 @@ class DiscoveryProcesses(ProcessTestCase):
         ambiguous = press("Return", "enter")
         self.assertEqual(ambiguous["command_line"], "k")
         self.assertIn("ambiguous", ambiguous["status"])
-        self.assertEqual(ambiguous["state"], searched["state"])
+        self.assertEqual(search_actions(ambiguous), [expected])
         press("Escape", "escape")
+        # A delayed demand refresh can replace the native screen's older
+        # picture while the menus are open. Measure paid time at the server.
+        after_menus = self.request(clock, {"type": "observe"})
+        self.assertIsNone(after_menus["error"])
+        self.assertEqual(observation(after_menus)["tick"], observation(paid)["tick"])
 
         # The original ability-menu route stays available and uses the same
         # server-disclosed self target without asking for a creature target.

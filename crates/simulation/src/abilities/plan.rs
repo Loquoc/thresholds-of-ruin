@@ -14,6 +14,7 @@ pub enum RuleError {
     UnknownAbility,
     Dead,
     OutOfReach,
+    MeleeOutOfReach,
     Unfunded,
     CoolingDown,
     InvalidDefinition,
