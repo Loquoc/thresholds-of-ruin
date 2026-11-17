@@ -135,3 +135,8 @@ The verifier now selects `test_rogue_bot_process` for changes to
 `tor-client-bot`. The process tests use a local Python extension and a
 loopback server. The maintainer reviewed this selection change. It adds
 no workflow triggers, runner types, network destinations, or uploads.
+
+The maintainer also reviewed three planner registrations in
+`scripts/ci_test_contracts.py`. The bot session tests exercise a real local
+application. The policy and cohort summary suites use Python fixtures.
+The registrations preserve the existing discovery and fallback rules.
