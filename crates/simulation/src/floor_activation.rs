@@ -1292,12 +1292,26 @@ impl Game {
     pub fn execute_next_intention_for_host(
         &mut self,
     ) -> Option<CandidateStep<crate::IntentionExecution>> {
+        self.execute_next_intention_for_host_with_stair_fallback(true)
+    }
+
+    /// Replay a recorded failure with the original occupied-stair behavior.
+    pub fn replay_failed_intention_for_host(
+        &mut self,
+    ) -> Option<CandidateStep<crate::IntentionExecution>> {
+        self.execute_next_intention_for_host_with_stair_fallback(false)
+    }
+
+    fn execute_next_intention_for_host_with_stair_fallback(
+        &mut self,
+        allow_stair_fallback: bool,
+    ) -> Option<CandidateStep<crate::IntentionExecution>> {
         if self.region_transition_pending() || self.host_region_continuation {
             return None;
         }
         self.light_settled_witness = self.light_optical_witness();
         self.host_region_continuation = true;
-        let result = self.execute_next_intention();
+        let result = self.execute_next_intention_with_stair_fallback(allow_stair_fallback);
         self.host_region_continuation = false;
         self.light_settled_witness = None;
         result.map(|value| self.candidate_step(value))

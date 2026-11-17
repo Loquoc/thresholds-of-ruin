@@ -26,7 +26,7 @@ def observed_meal_complete(frame, item, initial_reserve):
 
 
 def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
-            meal_amount=None, spare_meal=False, peer=False, concealed=False,
+            meal_amount=None, spare_meal=False, peer=False, concealed=False, ground_meal=False,
             recovery_policies=None, name="nutrition-fixture"):
     package = test.directory / name
     shutil.copytree(ROOT / "scenarios/two-room", package)
@@ -78,6 +78,8 @@ def prepare(test, *, initial=8, maximum=12, unit_ticks=100, consume_turns=1,
                                  "controller": "external", "creature": creature})
     region["items"] = [{"id": 10, "at": [1, 1, 0], "carried_by": 1, "archetype": "meal", "quantity": 2},
                        {"id": 11, "at": [1, 1, 0], "carried_by": 1, "archetype": "stone_food"}]
+    if ground_meal:
+        del region["items"][0]["carried_by"]
     if spare_meal:
         region["items"].append({"id": 12, "at": [1, 1, 0], "carried_by": 1,
                                 "archetype": "meal", "quantity": 3})

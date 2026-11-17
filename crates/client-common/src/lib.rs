@@ -56,7 +56,7 @@ pub mod surfaces;
 pub use connection::{Connection, ConnectionError};
 pub use palette::{observation_assets, AssetTable, Palette};
 pub use pending_request::{ConfirmedReply, PendingRequest, RequestCompletion};
-pub use state::{ClientSessionState, ClientState, RememberedCell};
+pub use state::{ClientSessionState, ClientState, CombatUpdate, RememberedCell};
 
 use tor_protocol::{ActorId, StreamCursor};
 

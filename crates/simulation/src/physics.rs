@@ -607,6 +607,86 @@ impl Game {
         self.actor_translation_with_stairs(id, direction, true)
     }
 
+    pub(crate) fn abstract_stair_destination(
+        &self,
+        id: ActorId,
+        direction: Direction,
+    ) -> Option<(Location, u8)> {
+        let actor = self.actors.get(&id)?;
+        let local = direction.rotated(actor.orientation);
+        if actor.locomotion().stationary
+            || !self.world.is_stair(actor.location, local)
+            || !self.can_use_abstract_stairs(id)
+        {
+            return None;
+        }
+        let (landing, rotation) = self.reach(actor.location, local)?;
+        Some((landing, compose_rotation(actor.orientation, rotation)))
+    }
+
+    pub(crate) fn occupied_stair_landings(
+        &self,
+        id: ActorId,
+        landing: Location,
+        frame: u8,
+    ) -> Vec<(Location, u8)> {
+        let body = &self.actors[&id].body;
+        let Some(cells) = self.body_cells(landing, frame, body) else {
+            return Vec::new();
+        };
+        if self.is_ai(id)
+            || cells.iter().any(|(at, _)| !self.world.walkable(*at))
+            || !cells.iter().any(|(at, _)| {
+                self.actors
+                    .at(&self.world, *at)
+                    .keys()
+                    .any(|other| *other != id && self.actors[other].alive())
+            })
+        {
+            return Vec::new();
+        }
+
+        // Walk outward by cardinal distance on the landing's floor. An occupied
+        // tile can be inspected for its neighbors, but never chosen as a landing.
+        let mut seen = BTreeSet::from([(landing, frame)]);
+        let mut layer = vec![(landing, frame)];
+        while !layer.is_empty() {
+            let mut next = Vec::new();
+            for (at, orientation) in layer {
+                for direction in [
+                    Direction::North,
+                    Direction::East,
+                    Direction::South,
+                    Direction::West,
+                ] {
+                    if self.world.is_stair(at, direction) {
+                        continue;
+                    }
+                    let Some((to, rotation)) = self.reach(at, direction) else {
+                        continue;
+                    };
+                    let place = (to, compose_rotation(orientation, rotation));
+                    if self.world.walkable(to) && seen.insert(place) {
+                        next.push(place);
+                    }
+                }
+            }
+            let mut locations = BTreeSet::new();
+            let open: Vec<_> = next
+                .iter()
+                .copied()
+                .filter(|&(to, orientation)| {
+                    self.stable_landing(id, to, orientation, body) && locations.insert(to)
+                })
+                .collect();
+            if !open.is_empty() {
+                return open;
+            }
+            layer = next;
+        }
+        Vec::new()
+    }
+
     /// Confused samples are physical geometry, never an implicit stair choice.
     pub(crate) fn actor_physical_translation(
         &self,

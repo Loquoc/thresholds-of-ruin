@@ -1,0 +1,25 @@
+[package]
+name = "tor-client-bot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tor-client-common.workspace = true
+tor-protocol.workspace = true
+tokio.workspace = true
+pyo3 = { version = "0.28", features = ["abi3-py310"], optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[lib]
+name = "tor_client_bot"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+python = ["dep:pyo3", "dep:serde", "dep:serde_json"]

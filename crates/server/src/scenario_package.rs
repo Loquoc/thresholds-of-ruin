@@ -6881,12 +6881,50 @@ mod tests {
     }
 
     #[test]
-    fn paired_stair_occupied_arrival_is_atomic() {
+    fn paired_stair_chooses_among_nearest_open_landings() {
+        let actor = tor_simulation::ActorId(1);
+        let anchor = loc(3, [3, 3, 0]);
+        let nearest = [loc(3, [2, 3, 0]), loc(3, [3, 4, 0])];
+        let mut selected = std::collections::BTreeSet::new();
+        for seed in 0..16 {
+            let mut game = stairs_package().build(seed, false).unwrap();
+            game.teleport(actor, loc(3, [1, 1, 0])).unwrap();
+            let blocker = game
+                .spawn_actor(anchor, NonZeroU64::new(100).unwrap())
+                .unwrap();
+            for wall in [[3, 2, 0], [4, 3, 0]] {
+                game.set_wall(loc(3, wall), true).unwrap();
+            }
+            let mut replay = game.clone();
+            let action = tor_simulation::Action::Move(Direction::Down);
+            let outcome = game.act(actor, action.clone()).unwrap();
+            assert_eq!(replay.act(actor, action).unwrap(), outcome);
+            assert_eq!(game, replay);
+            let landed = game.observe(actor).unwrap().location;
+            assert!(nearest.contains(&landed), "{landed:?}");
+            assert_eq!(
+                outcome.kind,
+                tor_simulation::OutcomeKind::Moved {
+                    from: loc(3, [1, 1, 0]),
+                    to: landed,
+                },
+            );
+            assert_eq!(game.observe(blocker).unwrap().location, anchor);
+            selected.insert(landed);
+        }
+        assert_eq!(selected.len(), nearest.len());
+    }
+
+    #[test]
+    fn paired_stair_with_no_open_landing_rejects_atomically() {
         let mut game = stairs_package().build(42, false).unwrap();
         let actor = tor_simulation::ActorId(1);
         game.teleport(actor, loc(3, [1, 1, 0])).unwrap();
         game.spawn_actor(loc(3, [3, 3, 0]), NonZeroU64::new(100).unwrap())
             .unwrap();
+        for wall in [[2, 3, 0], [3, 2, 0], [4, 3, 0], [3, 4, 0]] {
+            game.set_wall(loc(3, wall), true).unwrap();
+        }
         let before = game.clone();
         assert!(game
             .act(actor, tor_simulation::Action::Move(Direction::Down))

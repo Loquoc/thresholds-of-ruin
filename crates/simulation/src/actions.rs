@@ -18,6 +18,7 @@ struct PreparedAction {
     new_orientation: u8,
     ordinary_movement: Option<tor_world::Direction>,
     requested_destination: Option<(tor_world::Location, u8)>,
+    stair_landings: Vec<(tor_world::Location, u8)>,
     touches: Vec<ActorId>,
     ready_at: u64,
     plan: Option<crate::abilities::Plan>,
@@ -29,6 +30,7 @@ struct PreparedAction {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ActionEntry {
     Fresh,
+    ReplayFailed,
     ResumePreparation,
 }
 
@@ -81,7 +83,7 @@ impl Game {
         action: Action,
         intention: Option<crate::IntentionId>,
     ) -> Result<ActionOutcome, GameError> {
-        self.act_with_context(id, action, intention, None)
+        self.act_with_context(id, action, intention, None, true)
     }
 
     pub(crate) fn act_with_context(
@@ -90,8 +92,14 @@ impl Game {
         action: Action,
         intention: Option<crate::IntentionId>,
         movement_context: Option<crate::MovementContext>,
+        allow_stair_fallback: bool,
     ) -> Result<ActionOutcome, GameError> {
-        self.act_at_entry(id, action, intention, movement_context, ActionEntry::Fresh)
+        let entry = if allow_stair_fallback {
+            ActionEntry::Fresh
+        } else {
+            ActionEntry::ReplayFailed
+        };
+        self.act_at_entry(id, action, intention, movement_context, entry)
     }
 
     pub(crate) fn resume_preparation_with_intention(
@@ -323,6 +331,7 @@ impl Game {
         let id = prepared.actor;
         candidate.begin_action_boundary(id)?;
         candidate.redirect_confused_movement(&mut prepared);
+        candidate.select_stair_landing(&mut prepared);
         candidate.on_action_committed()?;
         if let Some(binding) = &prepared.human_operands {
             candidate.validate_human_operands(id, prepared.plan.as_ref(), binding)?;
@@ -343,6 +352,21 @@ impl Game {
         candidate.seal_participant_events()?;
         *self = candidate;
         Ok(outcome)
+    }
+
+    fn select_stair_landing(&mut self, prepared: &mut PreparedAction) {
+        let choices = &prepared.stair_landings;
+        if !choices.is_empty() {
+            let index = if choices.len() == 1 {
+                0
+            } else {
+                crate::dice::uniform_below(&mut self.rules_rng, choices.len() as u64) as usize
+            };
+            let (to, orientation) = choices[index];
+            let from = self.actors[&prepared.actor].location;
+            prepared.kind = OutcomeKind::Moved { from, to };
+            prepared.new_orientation = orientation;
+        }
     }
 
     /// The original action and its admitted movement context have already been
@@ -442,6 +466,7 @@ impl Game {
             .ready_at
             .checked_add(debt)
             .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?;
+        self.select_stair_landing(&mut prepared);
         self.on_action_committed()?;
         self.apply_action_effect(&prepared)?;
         self.sync_actor_lifecycle(actor)?;
@@ -597,6 +622,7 @@ impl Game {
         let mut transfer = None;
         let mut touches = Vec::new();
         let mut requested_destination = struggling.then_some((actor.location, actor.orientation));
+        let mut stair_landings = Vec::new();
         let (kind, duration) = match action.clone() {
             Action::ExamineTrap { trap } => {
                 let location = self
@@ -782,7 +808,18 @@ impl Game {
                 0,
             ),
             Action::Move(direction) => {
-                if let Some((to, orientation)) = self.actor_translation(id, direction) {
+                let mut destination = self.actor_translation(id, direction);
+                if let Some((landing, orientation)) = (destination.is_none()
+                    && entry != ActionEntry::ReplayFailed)
+                    .then(|| self.abstract_stair_destination(id, direction))
+                    .flatten()
+                {
+                    stair_landings = self.occupied_stair_landings(id, landing, orientation);
+                    if !stair_landings.is_empty() {
+                        destination = Some((landing, orientation));
+                    }
+                }
+                if let Some((to, orientation)) = destination {
                     requested_destination = Some((to, orientation));
                     (
                         OutcomeKind::Moved {
@@ -840,11 +877,7 @@ impl Game {
         let at_tick = self.tick;
         let new_orientation = match action {
             Action::Move(_) if !matches!(kind, OutcomeKind::Moved { .. }) => actor.orientation,
-            Action::Move(direction) => {
-                self.actor_translation(id, direction)
-                    .ok_or(GameError::Blocked)?
-                    .1
-            }
+            Action::Move(_) => requested_destination.ok_or(GameError::Blocked)?.1,
             _ => actor.orientation,
         };
         let ready_at = at_tick
@@ -869,6 +902,7 @@ impl Game {
             transfer,
             ordinary_movement,
             requested_destination,
+            stair_landings,
             touches,
         })
     }

@@ -11,6 +11,7 @@ rather than treating a historical plan as current behavior.
 | --- | --- |
 | Start playing | [Repository README](../README.md), then [text](play/text.md) or [ASCII](play/ascii.md) |
 | Play the Rogue starter slice | [Rogue presets and launch](play/rogue.md), [encounters and survival](play/rogue-mechanics.md) |
+| Build a Python gameplay bot | [Bot client and Rogue-O-Matic](reference/bot-client.md) |
 | Try the optional 3D prototype | [3D client guide](../crates/client-3d/README.md) |
 | Spend points, learn expertise or respec | [Player advancement](play/advancement.md), [progression](reference/progression.md) |
 | Understand the current game and limitations | [Gameplay](play/gameplay.md), [current status](status.md) |

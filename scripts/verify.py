@@ -103,6 +103,7 @@ LOCAL_EXTENDED = (
     "test_wandering_population_process.WanderingPopulationProcesses.test_scheduler_restart_cap_and_paid_created_births_then_blocked_consumption",
 )
 CLIENT_BINARIES = {
+    "tor-client-bot": ("tor-client-bot", "tor_client_bot"),
     "tor-client-ascii": ("tor-client-ascii", ".window(", ".ascii_frame(", ".key(", ".native_keys("),
     "tor-client-text": ("tor-client-text", ".text_client(", ".adventure("),
     "tor-client-headless": ("tor-client-headless", ".server(", ".client(", ".wizard(", "save_at"),
