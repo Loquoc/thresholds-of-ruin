@@ -354,8 +354,18 @@ def binaries():
 
 def creature_package(test, name, *, hostile=False,
                      abilities=("fixture_stamina_strike", "fixture_mana_bolt", "fixture_focus_fear"),
-                     ability_aliases=None, extra_abilities=(), target_x=2, controlled_target=False):
-    """Construct a generic transport fixture with explicit grants and geometry."""
+                     ability_aliases=None, extra_abilities=(), target_x=2, controlled_target=False, idle_behavior="explore",
+                     memory_ticks=1000):
+    """Construct a transport fixture; fixed-contact probes may opt into idle Wait.
+
+    This is the shared human species policy, not external target control.
+    Default Explore, contact memory and the autonomous scheduler remain unchanged.
+    Nonreactive practice targets may explicitly set memory_ticks=0.
+    """
+    if idle_behavior not in ("explore", "wait"):
+        raise ValueError("Creature fixture idle behavior must be explore or wait")
+    if type(memory_ticks) is not int or not 0 <= memory_ticks <= 1_000_000:
+        raise ValueError("Creature fixture memory ticks must be a bounded nonnegative integer")
     package = test.directory / name
     shutil.copytree(ROOT / "scenarios/two-room", package)
     from arena_matrix import toml_source
@@ -387,7 +397,7 @@ def creature_package(test, name, *, hostile=False,
         '{ scope = "always", op = { kind = "add", stat = { kind = "health" }, value = 200 } }',
     ])
     source += ('\nai_profiles = { practice = { care = true, equipment = true, loot = true, flee_percent = 0 } }\n'
-               '[creatures.species.human]\nbehavior = { disposition = "mean", idle = "explore", memory_ticks = 1000 }\nkind = "humanoid"\n'
+               '[creatures.species.human]\nbehavior = { disposition = "mean", idle = "' + idle_behavior + '", memory_ticks = ' + str(memory_ticks) + ' }\nkind = "humanoid"\n'
                'attributes = { strength = 2, speed = 1, intellect = 2, '
                'willpower = 2, awareness = 1, presence = 1 }\n'
                'melee = { skill = "heavy_weaponry", bonus = 0, wind_up = 60, recovery = 40, strikes = [{ offset = 0, check = { actor = "user", skill = { kind = "selected_weapon" }, against = { kind = "defense", defense = "physical" } }, on_success = [{ kind = "damage", damage = { kind = "components", components = [{ category = "impact", amount = { kind = "rolled", dice = { count = 1, sides = 6, bonus = 0 } } }] } }], on_failure = [], descriptors = [], riders = [] }] }\n'

@@ -1007,3 +1007,27 @@ count. This replaces an accidental player-only build-timing assumption, not a
 runtime behavior change or a relaxed upper bound. Isolated warm-cache and
 cold-cache failures of the old assertion, and the causal NPC trace, are retained
 as diagnostic evidence. No rules, archive or protocol identity change is needed.
+
+
+## Fixed-contact process fixtures own their idle policy
+
+Five creature inspection, rules-provenance and Text/native ability process
+methods accidentally depended on an autonomous practice target remaining in
+melee reach while its authored policy said Explore. Retained process frames
+showed the target moving from adjacent to nonadjacent before paid contact
+resolved; the equipped-weapon narration explicitly reported lost reach. This
+was a stale fixture assumption after the exploration change, not a failed
+weapon or damage calculation. Idle Wait alone exposed a second assumption:
+subsequent retaliation polluted the single-outcome diagnostic and interrupted
+the three-ability UI tape.
+
+These fixed-contact witnesses now explicitly author Wait with zero engagement
+memory, keeping the ordinary AI controller and scheduler. The shared helper's
+default Explore and positive memory remain unchanged, as do autonomous combat
+witnesses. A helper contract compares all other fixture inputs byte-for-byte or
+structurally. Existing damage, provenance, preparation, payment, one-outcome and
+restart assertions remain intact. The separate mixed-protection defender owns
+its matching policy explicitly. This bounded practice setup is not universal
+reaction suppression: awareness and authored fear/control effects still run.
+Native presentation retains its actual-window test and required hosted check;
+a headless replay is not a substitute for that boundary.

@@ -219,6 +219,7 @@ melee = { skill = "heavy_weaponry", bonus = 0, wind_up = 60, recovery = 40, stri
         from arena_matrix import toml_source
         from process_harness import WIZARD_TOKEN, creature_package
         package = creature_package(self, "tagged-weapon", abilities=("fixture_sweep", "untagged_sweep"),
+                                   idle_behavior="wait", memory_ticks=0,
                                    ability_aliases={"fixture_sweep": ("basic_melee", "Fixture sweep"),
                                                     "untagged_sweep": ("basic_melee", "Untagged sweep")})
         path = package / "rules.toml"
