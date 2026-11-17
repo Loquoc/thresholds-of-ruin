@@ -28,6 +28,9 @@ REVIEWED_OWNERS = {
     'test_creature_wizard_ordering': ('OwnedHitDieWizardOrdering',),
     'test_equipment_performance_report': ('EquipmentReport',),
     'test_model_performance_report': ('ModelReport',),
+    # Synthetic diagnostic rows only; source/assertion review dated 2026-11-16.
+    'test_model_equipment_report': ('EquipmentValidation',),
+    'test_model_targeted_report': ('TargetedValidation',),
     'test_process_fixture_identities': ('ProcessFixtureIdentities',),
     'test_retention_measure': ('RetentionMeasurement',),
     'test_rogue_acceptance': ('Acceptance',),

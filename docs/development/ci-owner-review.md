@@ -111,3 +111,20 @@ coverage; this review does not waive those checks. CI cost-accounting scripts
 remain verification controls, not ordinary tooling examples. Likewise the dirty
 migration checkout has control changes and untracked source: these local probes
 demonstrate future supported scopes, not narrow qualification for this import.
+
+## November 16 model diagnostic owners
+
+Source/assertion review registered only
+`test_model_equipment_report.EquipmentValidation` and
+`test_model_targeted_report.TargetedValidation` (three methods each) as tooling.
+Both use nine synthetic rows and in-memory validator calls. Their positive
+recipes and negative identity/type/order/count/measurement mutations never
+build applications, execute native diagnostics, render, access a network, or
+measure performance. The targeted validator also rejects inactive hair evidence;
+the equipment validator remains distinct from the legacy report contract.
+The [review catalog](../../scripts/testdata/ci-ownership/review-20261116.json)
+records exact witnesses. Planner tests verify both platform selections through
+direct tests and each reporter, plus unknown-class fail-closed behavior.
+A shared-validator change retains full coverage because broader literal CLI edges
+remain unreviewed; this patch does not silently register those edges. Verification controls still require full CI; registering
+these owners does not narrow this PR's final-head assurance.

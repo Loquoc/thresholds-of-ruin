@@ -452,7 +452,8 @@ fn present(connection: &Connection, message: &ServerMessage) -> Result<(), Error
         | ServerMessage::Palette { .. }
         | ServerMessage::Waiting { .. }
         | ServerMessage::MapPage { .. }
-        | ServerMessage::ChartPage { .. } => {}
+        | ServerMessage::ChartPage { .. }
+        | ServerMessage::Discoveries { .. } => {}
         ServerMessage::Error { code, message, .. } => {
             println!("Server error {code:?}: {}", safe(message))
         }

@@ -20,12 +20,16 @@ def self_ally_package(test):
     ability["reach"] = {"kind": "self_or_ally", "range": {"kind": "touch"}}
     ability["timing"] = {"source": {"kind": "fixed", "prepare": 100, "recover": 100}}
     ability["ai"]["hostile"] = False
+    ability["interaction"] = "non_hostile"
     ability["strikes"] = {"kind": "authored", "strikes": [{"offset": 0,
         "on_success": [{"kind": "heal", "amount": {"kind": "fixed", "amount": 1}}],
         "on_failure": [], "descriptors": [], "riders": []}]}
     path.write_text(toml_source(rules), encoding="utf-8", newline="\n")
     path = package / "scenario.toml"
     manifest = tomllib.loads(path.read_text(encoding="utf-8"))
+    # Target-selection acceptance needs an ordinary stationary ally, not a roaming
+    # exploration agent whose position changes between menu choices.
+    manifest["ai_profiles"]["practice"]["idle"] = "wait"
     manifest["factions"] = {"neutral": [], "outsider": []}
     path.write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     path = package / "regions/1.toml"

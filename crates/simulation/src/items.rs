@@ -812,6 +812,13 @@ impl Game {
     }
 
     /// Scenario/privileged operation; knowledge outlives all instances of an item.
+    /// True when this actor has learned the canonical identity of an item type.
+    pub fn knows_item_identity(&self, actor: ActorId, identity: &crate::ItemIdentity) -> bool {
+        self.actors
+            .get(&actor)
+            .is_some_and(|owner| owner.knowledge.contains(identity))
+    }
+
     pub fn learn_identity(
         &mut self,
         actor: ActorId,
@@ -1204,6 +1211,20 @@ mod tests {
             .place_item_stack(100, relocation_at(1, 1), owner, 1, spec)
             .unwrap();
         (game, item)
+    }
+
+    #[test]
+    fn learned_identity_is_owned_by_the_observing_actor() {
+        let first = ActorId(10);
+        let (mut game, _) = relocation_fixture(Some(first));
+        let second = game
+            .spawn_actor(relocation_at(2, 2), NonZeroU64::new(100).unwrap())
+            .unwrap();
+        let identity = "item.scroll.identify-wand".parse().unwrap();
+        assert!(!game.knows_item_identity(first, &identity));
+        game.learn_identity(first, &identity).unwrap();
+        assert!(game.knows_item_identity(first, &identity));
+        assert!(!game.knows_item_identity(second, &identity));
     }
 
     #[test]

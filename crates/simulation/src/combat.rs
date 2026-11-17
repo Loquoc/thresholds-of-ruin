@@ -317,6 +317,16 @@ pub enum EffectAppearance {
     StatusIndicator,
 }
 
+/// Internal frozen cosmetic source. Never adapted to the public wire wholesale.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectObjectOrigin {
+    pub(crate) subject: crate::ItemId,
+    pub(crate) ordinary: crate::appearance_catalog::ObjectPresentation,
+    #[serde(deserialize_with = "crate::event_history::read_effect_object_observers")]
+    pub(crate) observers: std::collections::BTreeMap<ActorId, Option<u64>>,
+}
+
 /// Authoritative traversed geometry. Segments never bridge a topology discontinuity.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -330,6 +340,8 @@ pub struct SpatialEffect {
     pub tick: u64,
     pub timing: EffectTiming,
     pub appearance: EffectAppearance,
+    #[serde(deserialize_with = "crate::bounded::required_option")]
+    pub object_origin: Option<EffectObjectOrigin>,
     pub delivery: EffectDelivery,
     pub cue: EffectCue,
     #[serde(deserialize_with = "crate::event_history::read_effect_segments")]
@@ -347,6 +359,9 @@ pub enum DisclosedCombatEvent {
         tick: u64,
         timing: EffectTiming,
         appearance: EffectAppearance,
+        object: Option<crate::appearance_catalog::ObjectPresentation>,
+        visual: crate::rules::EffectVisual,
+        style: Option<String>,
         delivery: EffectDelivery,
         cue: EffectCue,
         segments: Vec<Vec<tor_world::Position>>,

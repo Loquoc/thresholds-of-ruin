@@ -265,6 +265,8 @@ pub(super) fn compose(l: &Look) -> Outfit {
         covered_by_helm,
     });
     Outfit {
+        veil: None,
+        regalia: None,
         head,
         tunic,
         bodice: Bodice {
@@ -353,6 +355,7 @@ pub(super) fn compose(l: &Look) -> Outfit {
         // The caster sash is the waistband, not a second layer over leather.
         belt: style != Style::Caster,
         trimmings: Trimmings {
+            calf_bindings: matches!(style, Style::Troll | Style::Nymph).then_some(LEATHER * 0.8),
             earrings: match (style, fem) {
                 (Style::Nymph, true) => Some(Earrings::Drops { metal: l.trim }),
                 (Style::Medusa, true) => Some(Earrings::Hoops { metal: l.trim }),

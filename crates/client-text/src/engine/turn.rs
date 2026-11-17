@@ -726,6 +726,7 @@ fn step(goal: &Goal, scene: &Scene, acted: bool, approached: bool) -> Step {
             let current = match action {
                 Action::Zap { item, aim } => match aim {
                     tor_protocol::DeviceAim::Direction { direction } => tor_client_common::items::zap_action(view, *item, *direction),
+                    tor_protocol::DeviceAim::Cell { offset } => tor_client_common::items::zap_cell_action(view, *item, *offset),
                     tor_protocol::DeviceAim::SelfTarget {} => tor_client_common::items::item_action(view, *item, tor_client_common::items::ItemOperation::Zap),
                 },
                 Action::Identify { choice, item } => tor_client_common::items::identification_action(view, *item).and_then(|current| {
@@ -887,6 +888,16 @@ fn object(goal: &Goal, scene: &Scene) -> String {
                 },
             ..
         } => Some(direction_name(*direction).to_owned()),
+        Goal::UseAbility {
+            invocation:
+                tor_protocol::AbilityInvocation {
+                    aim:
+                        tor_protocol::AbilityAim::CellRay { offset }
+                        | tor_protocol::AbilityAim::CellProjectile { offset, .. },
+                    ..
+                },
+            ..
+        } => Some(format!("cell {}, {}, {}", offset[0], offset[1], offset[2])),
         Goal::Approach { target } => named(*target),
         Goal::Visit { name, .. } => Some(name.clone()),
         Goal::Go { direction, .. } | Goal::Step { direction } => {

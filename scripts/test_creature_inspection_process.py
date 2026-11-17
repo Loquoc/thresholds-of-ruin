@@ -862,6 +862,11 @@ class CreatureInspectionProcesses(ProcessTestCase):
                 self.save = self.directory / ("natural-roll-" + str(seed) + ".db")
                 manifest = package / "scenario.toml"
                 source = manifest.read_text(encoding="utf-8")
+                # Isolate the attack-total oracle from unrelated exploration.
+                # Keep an ordinary autonomous target with authored idle waiting.
+                self.assertEqual(source.count("practice = { care = true"), 1)
+                source = source.replace("practice = { care = true",
+                                        'practice = { idle = "wait", care = true')
                 attack = natural_attack_source([{"category": "impact", "amount": {"kind": "fixed", "amount": 1}}], bonus=bonus)
                 source = "\n".join(attack if line.startswith("melee = ") else line
                                     for line in source.splitlines()) + "\n"

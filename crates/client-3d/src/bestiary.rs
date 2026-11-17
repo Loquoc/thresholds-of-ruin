@@ -366,6 +366,10 @@ pub fn run(diagnostics: Diagnostics) {
     )
     .add_systems(Last, crate::props::maintain_cache);
     load_internal_asset!(app, crate::cave::SHADER, "cave.wgsl", Shader::from_wgsl);
+    #[cfg(target_os = "android")]
+    app.add_plugins(crate::render_profile::plugin(
+        crate::render_profile::RenderProfile::from_environment().expect("render profile"),
+    ));
     app.run();
 }
 
@@ -572,6 +576,8 @@ fn setup(
                 player: Vec4::new(0.0, 0.0, 0.0, 100.0),
                 ..default()
             },
+            lattice: None,
+            sums: None,
         },
     });
     for chunk in cave.update(solids, open.clone(), open, blocked) {

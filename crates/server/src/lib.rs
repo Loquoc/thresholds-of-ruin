@@ -39,6 +39,7 @@ mod engine;
 pub mod generation_recipe;
 pub mod generator;
 mod history_index;
+pub mod in_process;
 mod map_memory;
 pub use map_memory::PreparedMapProjection;
 mod outbound;

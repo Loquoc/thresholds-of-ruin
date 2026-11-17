@@ -17,6 +17,7 @@ fn label(name: &str, fallback: &str) -> String {
 pub enum Topic {
     /// The observer's own action, as its history event records it.
     Own(Event),
+    WorkChanged,
     /// Another actor came into sight.
     Noticed(ActorTarget),
     /// Another actor left sight.
@@ -25,6 +26,8 @@ pub enum Topic {
     Door,
     /// A newly disclosed entrance, trap presence, or trap family.
     Discovery,
+    DoorDiscovered,
+    TrapDiscovered(Option<TrapFamily>),
     /// Involuntary motion or a collision.
     Motion,
     /// The observer finished timed item work.
@@ -196,17 +199,106 @@ pub fn observation_lines(
 ) -> Vec<Line> {
     let lines = outcome_lines(&OutcomeFacts::capture(before, after, event));
     #[cfg(test)]
-    assert_eq!(lines, observation_lines_legacy(before, after, event));
+    {
+        let mut legacy = lines.clone();
+        for line in &mut legacy {
+            if matches!(line.topic, Topic::DoorDiscovered | Topic::TrapDiscovered(_)) {
+                line.topic = Topic::Discovery;
+            }
+        }
+        assert_eq!(legacy, observation_lines_legacy(before, after, event));
+    }
     lines
 }
 
 /// Render ordered disclosed outcomes independently of visual refresh cadence.
 pub fn outcome_lines(outcomes: &OutcomeFacts) -> Vec<Line> {
-    outcomes
-        .facts
+    let facts = &outcomes.facts;
+    let replaced = facts.iter().find(|fact| {
+        matches!(
+            fact,
+            OutcomeFact::OwnWorkChanged {
+                change: OutcomeWorkChange::Replaced { .. },
+                ..
+            }
+        )
+    });
+    facts
         .iter()
-        .filter_map(|fact| outcome_line(outcomes, fact))
+        .filter_map(|fact| match (fact, replaced) {
+            (
+                OutcomeFact::OwnAction { event, name, .. },
+                Some(OutcomeFact::OwnWorkChanged { work, .. }),
+            ) => {
+                let action = match event {
+                    Event::ItemStarted { action } => {
+                        ItemWorkKind::from_action(action).map(|(kind, _)| {
+                            work_phrase(&OutcomeWork::Item {
+                                work: kind,
+                                name: name.as_ref().map(|name| name.text.clone()),
+                            })
+                        })
+                    }
+                    Event::AbilityStarted { ability, .. } => {
+                        Some(format!("using {}", label(&ability.name, "an ability")))
+                    }
+                    _ => None,
+                };
+                action.map_or_else(
+                    || outcome_line(outcomes, fact),
+                    |action| {
+                        Some(Line::new(
+                            Topic::WorkChanged,
+                            format!("You abandon {} and begin {action}.", work_phrase(work)),
+                        ))
+                    },
+                )
+            }
+            (
+                OutcomeFact::OwnWorkChanged {
+                    change: OutcomeWorkChange::Replaced { .. },
+                    ..
+                },
+                _,
+            ) if facts.iter().any(|fact| {
+                matches!(
+                    fact,
+                    OutcomeFact::OwnAction {
+                        event: Event::AbilityStarted { .. } | Event::ItemStarted { .. },
+                        ..
+                    }
+                )
+            }) =>
+            {
+                None
+            }
+            _ => outcome_line(outcomes, fact),
+        })
         .collect()
+}
+
+fn work_phrase(work: &OutcomeWork) -> String {
+    match work {
+        OutcomeWork::Attack => "your attack".into(),
+        OutcomeWork::Ability { name } => format!("using {}", label(name, "an ability")),
+        OutcomeWork::Action => "your action".into(),
+        OutcomeWork::Item { work, name } => {
+            let verb = match work {
+                ItemWorkKind::Equip => "equipping",
+                ItemWorkKind::Unequip => "removing",
+                ItemWorkKind::Drink => "drinking",
+                ItemWorkKind::Eat => "eating",
+                ItemWorkKind::Read => "reading",
+                ItemWorkKind::Ignite => "lighting",
+                ItemWorkKind::Extinguish => "extinguishing",
+                ItemWorkKind::Zap => "zapping",
+            };
+            format!(
+                "{verb} the {}",
+                label(name.as_deref().unwrap_or(""), "item")
+            )
+        }
+    }
 }
 
 /// Render one disclosed fact without coupling callers to a parallel line list.
@@ -220,18 +312,29 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
     };
     let mut line = match fact {
         OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => return None,
+        OutcomeFact::OwnWorkChanged { work, change, .. } => {
+            let subject = work_phrase(work);
+            let text = match change {
+                OutcomeWorkChange::Paused => format!("You pause {subject}."),
+                OutcomeWorkChange::Cancelled | OutcomeWorkChange::Replaced { .. } => {
+                    format!("You abandon {subject}.")
+                }
+                OutcomeWorkChange::Failed => format!("You cannot complete {subject}."),
+            };
+            Line::new(Topic::WorkChanged, text)
+        }
         OutcomeFact::OwnAction { event, name, .. } => Line::new(
             Topic::Own(event.clone()),
             action_with_name(event, name.as_ref()),
         ),
         OutcomeFact::TrapDiscovered { family } => Line::new(
-            Topic::Discovery,
+            Topic::TrapDiscovered(*family),
             family.map_or_else(
                 || "You notice a trap.".into(),
                 |family| format!("You recognize a {}.", family.name()),
             ),
         ),
-        OutcomeFact::DoorDiscovered => Line::new(Topic::Discovery, "You notice a door."),
+        OutcomeFact::DoorDiscovered => Line::new(Topic::DoorDiscovered, "You notice a door."),
         OutcomeFact::Displaced => Line::new(Topic::Motion, "You move involuntarily."),
         OutcomeFact::Impacted => Line::new(Topic::Motion, "You collide with an obstruction."),
         OutcomeFact::Noticed { actor, name, .. } => {
@@ -421,7 +524,7 @@ fn combat_event_with_names(
     match event {
         CombatEventView::Effect {
             caster,
-            appearance,
+            presentation,
             delivery,
             cue,
             segments,
@@ -430,7 +533,7 @@ fn combat_event_with_names(
             *caster,
             observer,
             actor_name,
-            *appearance,
+            presentation,
             *delivery,
             *cue,
             segments,
@@ -2143,25 +2246,24 @@ fn effect_description(
     caster: Option<ActorTarget>,
     observer: ActorTarget,
     actor_name: &impl Fn(ActorTarget) -> String,
-    appearance: EffectAppearance,
+    presentation: &tor_protocol::EffectPresentation,
     delivery: EffectDelivery,
-    cue: EffectCue,
+    _cue: EffectCue,
     segments: &[Vec<Position>],
 ) -> String {
-    let material = if cue == EffectCue::Status {
-        // A semantic status cue does not tell us which condition changed.
-        ""
-    } else {
-        effect_cue_label(cue)
-    };
-    let kind = effect_appearance_label(appearance);
+    let appearance = presentation.form;
+    let material = effect_visual_label(presentation.visual);
+    let kind = presentation.object.as_ref().map_or_else(
+        || effect_appearance_label(appearance),
+        |object| object.name.as_str(),
+    );
     let path = matches!(delivery, EffectDelivery::Ray | EffectDelivery::Projectile);
     let subject = match caster.filter(|_| path) {
         Some(id) if id == observer => format!("Your {material}{kind}"),
         Some(id) => format!("The {}'s {material}{kind}", actor_name(id)),
         None => format!(
             "{} {material}{kind}",
-            if cue == EffectCue::Lightning {
+            if kind.starts_with(['a', 'e', 'i', 'o', 'u']) && material.is_empty() {
                 "An"
             } else {
                 "A"
@@ -2218,6 +2320,17 @@ fn effect_description(
 }
 
 /// Client wording for a server-authored presentation form, independent of delivery.
+pub fn effect_visual_label(visual: tor_protocol::EffectVisual) -> &'static str {
+    match visual {
+        tor_protocol::EffectVisual::Neutral => "",
+        tor_protocol::EffectVisual::Flame => "fiery ",
+        tor_protocol::EffectVisual::Frost => "frosty ",
+        tor_protocol::EffectVisual::Sparks => "sparking ",
+        tor_protocol::EffectVisual::Vapor => "misty ",
+        tor_protocol::EffectVisual::Radiance => "radiant ",
+    }
+}
+
 pub fn effect_appearance_label(appearance: EffectAppearance) -> &'static str {
     match appearance {
         EffectAppearance::Bolt => "bolt",
@@ -2254,7 +2367,7 @@ mod authoritative_effect_tests {
             tick: 12,
             anchors: vec![],
             timing: EffectTiming::Instant,
-            appearance: EffectAppearance::Bolt,
+            presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
             delivery: EffectDelivery::Ray,
             cue: EffectCue::Neutral,
             segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
@@ -2269,9 +2382,13 @@ mod authoritative_effect_tests {
             tick: 12,
             anchors: vec![],
             timing: EffectTiming::Instant,
-            appearance: EffectAppearance::Cloud,
+            presentation: tor_protocol::EffectPresentation {
+                visual: tor_protocol::EffectVisual::Flame,
+                ..tor_protocol::EffectPresentation::neutral(EffectAppearance::Cloud)
+            },
             delivery: EffectDelivery::Area,
-            cue: EffectCue::Fire,
+            // Appearance is authored independently of the mechanical cue.
+            cue: EffectCue::Neutral,
             segments: vec![vec![Position { x: 2, y: 3, z: 0 }]],
         };
         assert_eq!(
@@ -2300,7 +2417,15 @@ mod authoritative_effect_tests {
             caster,
             ActorTarget::from_digest([1; 32]),
             &|_| "dragon".into(),
-            appearance,
+            &tor_protocol::EffectPresentation {
+                visual: match cue {
+                    EffectCue::Fire => tor_protocol::EffectVisual::Flame,
+                    EffectCue::Cold => tor_protocol::EffectVisual::Frost,
+                    EffectCue::Lightning => tor_protocol::EffectVisual::Sparks,
+                    _ => tor_protocol::EffectVisual::Neutral,
+                },
+                ..tor_protocol::EffectPresentation::neutral(appearance)
+            },
             delivery,
             cue,
             &segments,
@@ -2341,7 +2466,7 @@ mod authoritative_effect_tests {
                 None,
                 &[&[0, 1], &[0, -1]]
             ),
-            "An electrical bolt streaks through separate visible stretches."
+            "A sparking bolt streaks through separate visible stretches."
         );
         // Isolated disclosed points are not evidence of a visible flight.
         assert_eq!(
@@ -2371,7 +2496,8 @@ mod authoritative_effect_tests {
     }
 
     #[test]
-    fn target_and_area_cues_do_not_guess_condition_recipient_or_full_shape() {
+    fn target_and_area_cues_do_not_invent_appearance_recipient_or_full_shape() {
+        // Healing/poison cues are not evidence of an authored visible style.
         assert_eq!(
             narrate(
                 EffectAppearance::Flash,
@@ -2390,7 +2516,7 @@ mod authoritative_effect_tests {
                 None,
                 &[&[1]]
             ),
-            "A healing halo shines briefly."
+            "A halo shines briefly."
         );
         assert_eq!(
             narrate(
@@ -2400,7 +2526,7 @@ mod authoritative_effect_tests {
                 None,
                 &[&[1, 2], &[5]]
             ),
-            "A poisonous cloud briefly appears across an area."
+            "A cloud briefly appears across an area."
         );
         assert_eq!(
             narrate(
@@ -2429,7 +2555,7 @@ mod authoritative_effect_tests {
                 tick: 12,
                 anchors: vec![],
                 timing: EffectTiming::Instant,
-                appearance: EffectAppearance::Bolt,
+                presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
                 delivery: EffectDelivery::Ray,
                 cue: EffectCue::Fire,
                 segments: vec![vec![
@@ -2454,7 +2580,8 @@ mod authoritative_effect_tests {
             assert_eq!(
                 text,
                 vec![
-                    "Your fiery bolt streaks through view.",
+                    // A Fire cue cannot override explicitly neutral presentation.
+                    "Your bolt streaks through view.",
                     &format!("You used Magic Bolt on {ending}")
                 ]
             );

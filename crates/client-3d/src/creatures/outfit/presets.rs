@@ -71,6 +71,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             // Each wearer's own tunic: a laced split V or a deep wrap.
             let wrapped = l.v.pattern % 2 == 1;
             Outfit {
+                veil: None,
+                regalia: None,
                 head: Headwear::Bare,
                 tunic,
                 bodice: Bodice {
@@ -118,6 +120,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
         Wardrobe::Ranger => {
             let tunic = Vec3::new(0.27, 0.4, 0.24);
             Outfit {
+                veil: None,
+                regalia: None,
                 head: Headwear::HoodDown(Vec3::new(0.2, 0.28, 0.17)),
                 tunic,
                 bodice: Bodice {
@@ -195,6 +199,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             }
         }
         Wardrobe::Knight => Outfit {
+            veil: None,
+            regalia: None,
             head: Headwear::Helm,
             tunic: l.cloth,
             // Her cuirass is the fantasy low-cut plate: one shell with
@@ -246,6 +252,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
         Wardrobe::Courtier => {
             let gown = l.cloth * 0.9 + Vec3::new(0.05, 0.0, 0.06);
             Outfit {
+                veil: None,
+                regalia: None,
                 head: Headwear::Bare,
                 tunic: gown,
                 bodice: Bodice {
@@ -292,6 +300,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
         Wardrobe::Leotard => {
             let knit = l.cloth * 0.8 + Vec3::new(0.08, 0.02, 0.1);
             Outfit {
+                veil: None,
+                regalia: None,
                 head: Headwear::Bare,
                 tunic: knit,
                 bodice: Bodice {
@@ -333,6 +343,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             // A bright print, the sarong a shade deeper than the top.
             let print = l.cloth * 0.6 + Vec3::new(0.3, 0.14, 0.06);
             Outfit {
+                veil: None,
+                regalia: None,
                 head: Headwear::Bare,
                 tunic: print,
                 bodice: Bodice {
@@ -374,6 +386,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             let chemise = CREAM * 0.95;
             let skirt = Vec3::new(0.46, 0.14, 0.12);
             Outfit {
+                veil: None,
+                regalia: None,
                 head: Headwear::Bare,
                 tunic: chemise,
                 bodice: Bodice {
@@ -808,6 +822,8 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
             }
         }
         Wardrobe::RoyalPrincess => royal::princess(l),
+        Wardrobe::RoyalBride => royal::bride(l),
+        Wardrobe::RoyalGroom => royal::groom(l),
         Wardrobe::SylvanDuelist => sylvan::duelist(l),
         Wardrobe::Pirate => {
             let red = Vec3::new(0.6, 0.08, 0.1);

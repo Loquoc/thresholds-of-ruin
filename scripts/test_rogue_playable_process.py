@@ -192,7 +192,24 @@ def assert_walkthrough_history_anchor(test, frame, saved, *, require_visible_end
     # history is not the player's public endpoint or a navigation oracle.
     test.assertEqual([identity for identity in durable_ids if identity in public_set], public_ids)
     if require_visible_endpoint:
-        test.assertEqual(saved["anchor"]["entry_id"], public_ids[-1])
+        # The paid player Wait is the public endpoint, not necessarily the
+        # world's durable tail: unseen autonomous actors can settle after it.
+        endpoint = frame["history"][-1]
+        test.assertEqual(endpoint["content"]["action"], {"type": "wait"})
+        test.assertEqual(endpoint["content"]["event"], {"type": "waited"})
+        test.assertLess(int(endpoint["tick"]), int(observation(frame)["tick"]))
+        index = durable_ids.index(endpoint["id"])
+        durable_endpoint = saved["records"][index]["entry"]
+        test.assertEqual(str(durable_endpoint["actor"]), endpoint["actor"])
+        test.assertEqual(durable_endpoint["content"]["action"], {"type": "wait"})
+        test.assertEqual(durable_endpoint["content"]["event"], {"type": "waited"})
+        for record in saved["records"][index + 1:]:
+            entry = record["entry"]
+            test.assertNotEqual(str(entry["actor"]), endpoint["actor"])
+            test.assertIn(entry["audience"], ("private", "actor"))
+            test.assertEqual(entry["author"], {"component": "scheduler", "type": "backend"})
+            test.assertIn(entry["content"]["type"],
+                          ("autonomous_intention_admitted", "intention_started"))
 
 
 def seal_walkthrough_transport(budget, client, manifest_path, *, closed_processes=()):
@@ -610,13 +627,30 @@ class WalkthroughTransportTests(unittest.TestCase):
         saved = {"anchor": {"branch": "same", "tick": 300, "entry_id": "visible-two"},
                  "records": [{"entry": {"id": key}} for key in
                              ["earlier", "visible-one", "hidden-middle", "visible-two"]]}
+        endpoint = {"actor": "1", "tick": "200", "content": {
+            "action": {"type": "wait"}, "event": {"type": "waited"}}}
+        frame["history"][-1].update(endpoint)
+        saved["records"][-1]["entry"].update(deepcopy(endpoint))
         assert_walkthrough_history_anchor(self, frame, saved, require_visible_endpoint=True)
         hidden_tail = deepcopy(saved)
-        hidden_tail["records"].append({"entry": {"id": "hidden-later"}})
+        hidden_tail["records"].append({"entry": {"id": "hidden-later", "actor": 2,
+            "audience": "actor", "author": {"component": "scheduler", "type": "backend"},
+            "content": {"type": "intention_started"}}})
         hidden_tail["anchor"]["entry_id"] = "hidden-later"
         assert_walkthrough_history_anchor(self, frame, hidden_tail)
-        with self.assertRaises(AssertionError):
-            assert_walkthrough_history_anchor(self, frame, hidden_tail, require_visible_endpoint=True)
+        assert_walkthrough_history_anchor(self, frame, hidden_tail, require_visible_endpoint=True)
+        for change in ({"actor": 1}, {"audience": "public"},
+                       {"author": {"type": "human"}}, {"content": {"type": "intention_admitted"}}):
+            malformed = deepcopy(hidden_tail)
+            malformed["records"][-1]["entry"].update(change)
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                assert_walkthrough_history_anchor(self, frame, malformed, require_visible_endpoint=True)
+        for change in ({"tick": "300"}, {"content": {
+                "action": {"type": "move", "direction": "east"}, "event": {"type": "waited"}}}):
+            malformed = deepcopy(frame)
+            malformed["history"][-1].update(change)
+            with self.subTest(endpoint=change), self.assertRaises(AssertionError):
+                assert_walkthrough_history_anchor(self, malformed, hidden_tail, require_visible_endpoint=True)
         for history in ([{"id": "missing"}], list(reversed(frame["history"])),
                         [frame["history"][0]] * 2):
             with self.subTest(history=history), self.assertRaises(AssertionError):

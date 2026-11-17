@@ -20,16 +20,19 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **70**, save format **69**, scenario format **37**,
-ruleset **`interactions-v58`**, scenario validator **`tor-scenario-50`**.
+**Current formats:** protocol **72**, save format **70**, scenario format **37**,
+ruleset **`interactions-v66`**, scenario validator **`tor-scenario-51`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
-change with a deterministic rules correction. Current private
+change with a deterministic rules correction. The current AI identity also covers
+completion of anonymous location-alert investigations on committed arrival. This
+clears the existing alert rather than adding actor identification or persistent
+state. See [AI](reference/ai.md). Current private
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.
 
-Independent compiled inputs are RulesInput **26**, ContentPackage **34** and
+Independent compiled inputs are RulesInput **27**, ContentPackage **34** and
 RegionInput **10**. Physical TORB/TORJ/TORR framing is **6**, TORC **1**; rooms **2**,
 grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 **`tor-arena-run-v6`**. Other guides link here instead of duplicating version lists.
@@ -54,7 +57,7 @@ grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 | Equipment and magic | Explicit primary attack socket, grip capacity, armor/corrosion, curses/enchantment, identification, thrown/projectile/ray attacks, control effects, sensing/mapping and finite portable lights | [Items](reference/items.md), [equipment](reference/equipment.md), [magic](reference/magic-items.md), [effect details](reference/consumable-effects.md) |
 | Forms | Baleful Polymorph, retained personal progression, compatible carried gear, cancellation and pending return | [Polymorph](reference/polymorph.md) |
 | Diagnostics | Privileged inspection/setup/rewind, exact bounded pages, shared-kernel arenas, matrices and search | [Wizard](development/wizard.md), [arena](development/arena.md) |
-| Optional 3D | Independent procedural client with responsive startup, asynchronous model stand-ins, inventory/equipment/portrait, advancement preview/confirmation and combined map/journal; separately qualified from the core workspace | [3D guide](../crates/client-3d/README.md), [art continuation](plans/3d-art-continuation.md) |
+| Optional 3D | Independent procedural client with responsive startup, asynchronous model stand-ins, inventory/equipment/portrait, advancement preview/confirmation and combined map/journal; render profiles for hardware of different strength; a standalone menu that hosts the server in-process, with scenario, seed and save selection; an experimental Android build that plays on the device alone; separately qualified from the core workspace | [3D guide](../crates/client-3d/README.md), [art continuation](plans/3d-art-continuation.md) |
 
 Gameplay submissions bind to attachment input authority, not picture revision.
 Changed control/origin/operands can invalidate input; a redraw cannot restore it.

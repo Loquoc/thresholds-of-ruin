@@ -369,7 +369,8 @@ fn inventory_displays_only_disclosed_exact_instance_charges_and_modal_renders() 
         canvas.pixels, normal,
         "paid identification is visibly modal"
     );
-    assert!(tor_client_ascii::HELP
+    assert!(tor_client_ascii::HelpPage::CombatAndItems
+        .rows()
         .iter()
         .any(|row| row.contains("F6") && row.contains("F12")));
 }

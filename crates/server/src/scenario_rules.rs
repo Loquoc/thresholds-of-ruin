@@ -361,6 +361,8 @@ mod tests {
             (
                 format!("/abilities/{index}"),
                 vec![
+                    "effect_visual",
+                    "effect_style",
                     "cancellable",
                     "interaction",
                     "id",
@@ -378,6 +380,8 @@ mod tests {
                     "ai",
                 ],
                 vec![
+                    "effect_visual",
+                    "effect_style",
                     "cancellable",
                     "invocation",
                     "outgoing_edge_policy",
@@ -419,7 +423,7 @@ mod tests {
             for field in &fields {
                 assert!(object.contains_key(*field), "{path}/{field}");
                 if optional.contains(field) {
-                    if *field == "cancellable" {
+                    if matches!(*field, "cancellable" | "effect_visual" | "effect_style") {
                         let mut missing = source.clone();
                         missing
                             .pointer_mut(&path)
@@ -431,8 +435,13 @@ mod tests {
                             serde_json::from_value::<authoring::Document>(missing).unwrap();
                         let canonical = serde_json::to_value(decoded.0).unwrap();
                         assert_eq!(
-                            canonical.pointer(&format!("{path}/cancellable")),
-                            Some(&json!(false))
+                            canonical.pointer(&format!("{path}/{field}")),
+                            Some(&match *field {
+                                "cancellable" => json!(false),
+                                "effect_visual" => json!("neutral"),
+                                "effect_style" => serde_json::Value::Null,
+                                _ => unreachable!(),
+                            })
                         );
                     }
                     continue;

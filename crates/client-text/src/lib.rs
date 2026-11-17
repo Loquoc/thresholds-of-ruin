@@ -180,7 +180,20 @@ pub fn magic_input(line: &str, state: &StateView) -> Option<Result<Input, String
         } else {
             None
         };
-        let (noun, direction) = if let Some(noun) = explicit_self {
+        let cell_clause = if verb == "zap" && !full_noun {
+            rest.rsplit_once(" cell ")
+        } else {
+            None
+        };
+        let cell_offset = cell_clause
+            .map(|(_, coordinates)| {
+                tor_client_common::abilities::parse_cell_aim(&format!("cell {coordinates}"))
+                    .expect("explicit cell prefix")
+            })
+            .transpose()?;
+        let (noun, direction) = if let Some((noun, _)) = cell_clause {
+            (noun.trim_end_matches(" at"), None)
+        } else if let Some(noun) = explicit_self {
             (noun, None)
         } else if verb == "zap" && !full_noun {
             match rest
@@ -230,6 +243,11 @@ pub fn magic_input(line: &str, state: &StateView) -> Option<Result<Input, String
                 ));
             }
         };
+        if let Some(offset) = cell_offset {
+            return Ok(Input::Command(Command::Act {
+                action: tor_client_common::items::zap_cell_action(view, item, offset)?,
+            }));
+        }
         let action = match direction {
             Some(direction) => tor_client_common::items::zap_action(view, item, direction)?,
             None if explicit_self.is_some() => {
@@ -289,6 +307,19 @@ pub fn parse(line: &str, state: &StateView) -> Result<Input, String> {
             ability.target_kind,
             AbilityTargetKind::SelfStep | AbilityTargetKind::DirectionalRay
         ) {
+            if ability.target_kind == AbilityTargetKind::DirectionalRay {
+                if let Some(offset) = tor_client_common::abilities::parse_cell_aim(noun) {
+                    return action(tor_client_common::abilities::invocation_action(
+                        &state.observation,
+                        &ability.id,
+                        tor_protocol::AbilityInvocation {
+                            aim: tor_protocol::AbilityAim::CellRay { offset: offset? },
+                            weapon,
+                        },
+                        supplies,
+                    )?);
+                }
+            }
             let direction = crate::parser::lexicon::parse_direction(&noun.to_ascii_lowercase())
                 .ok_or("Choose a direction for that ability.")?;
             return action(tor_client_common::abilities::invocation_action(

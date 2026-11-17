@@ -29,7 +29,7 @@ class RogueUtilityWandsProcesses(ProcessTestCase):
         current = self.snapshot(target)
         assert_persistent(self, current, "haste", "invisibility")
         # The ready frame is a client projection. Retain the actual server
-        # response from this request, after source-free reopen and Text checks.
+        # response from this request, after source-free reopen.
         responses = [json.loads(line).get("message") for line in target.transcript[start:]
                      if line.startswith("{")]
         snapshots = [message for message in responses if message and message["type"] == "snapshot"]
@@ -88,6 +88,18 @@ class RogueUtilityWandsProcesses(ProcessTestCase):
         text.stop(save=False)
 
     def test_persistent_first_contact_utility_state_displays_in_text_and_reopens_without_source(self):
+        boundaries = 0
+        for _ in self.persistent_utility_reopen_boundaries():
+            self.text_stats()
+            boundaries += 1
+        self.assertEqual(boundaries, 2)
+
+    def test_persistent_first_contact_utility_state_reopens_without_source_headless(self):
+        self.assertEqual(list(self.persistent_utility_reopen_boundaries()), ["before", "restored"])
+
+    def persistent_utility_reopen_boundaries(self):
+        # Shared server contract. Only the separate Text test renders these
+        # boundaries; the recorder never launches a presentation client.
         package = self.package()
         server = self.server("--checkpoint-interval", 1, scenario=package, character=1, seed=42)
         player, initial = self.client(actor=1, omit_memory=True)
@@ -105,7 +117,7 @@ class RogueUtilityWandsProcesses(ProcessTestCase):
         self.capture_anonymous_feedback(target, anonymous_start, recipient)
         assert_persistent(self, target_before, "haste", "invisibility")
         assert_invisibility(self, before, target_before, rear_before, ids["invisibility"])
-        self.text_stats()
+        yield "before"
         self.assertIsNone(self.request(player, {"type": "save"})["error"])
         for client in clients:
             client.stop(save=False)
@@ -121,7 +133,7 @@ class RogueUtilityWandsProcesses(ProcessTestCase):
         self.assertEqual(observation(target_after)["combat"]["own_stats"]["conditions"],
                          observation(target_before)["combat"]["own_stats"]["conditions"])
         self.assertFalse(restored["state"]["wizard_game"])
-        self.text_stats()
+        yield "restored"
         self.capture_persistent_snapshot(target)
 
 

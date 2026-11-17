@@ -1399,6 +1399,8 @@ impl Game {
         outcome.state.awareness.reconcile_alert(
             outcome.state.behavior_policy().map(|p| p.memory_ticks),
             self.actor_clock(outcome.id),
+            before.location,
+            outcome.state.location,
         )?;
         outcome
             .state

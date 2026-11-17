@@ -285,7 +285,7 @@ pub(super) fn capture(
         "hud": game.as_ref().map(|game| serde_json::json!({
             "readiness": crate::hud::readiness(game),
             "health": game.view.as_ref().and_then(|view| view.hp),
-            "menu_open": hud_buttons.iter().any(|(action, _, _, visible)| *action != crate::hud::Action::Menu && visible.get()),
+            "menu_open": hud_buttons.iter().any(|(action, _, _, visible)| !matches!(action, crate::hud::Action::Menu | crate::hud::Action::Press(_) | crate::hud::Action::Zoom(_)) && visible.get()),
             "buttons": hud_buttons.iter().map(|(action, node, transform, visible)| {
                 let center = transform.translation();
                 let size = window.single().map_or(Vec2::ONE, |w| Vec2::new(w.physical_width() as f32, w.physical_height() as f32));

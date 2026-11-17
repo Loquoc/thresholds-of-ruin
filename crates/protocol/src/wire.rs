@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 70;
+pub const PROTOCOL_VERSION: u32 = 72;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -82,6 +82,7 @@ impl AccessRole {
                     | Request::Palette
                     | Request::Map { .. }
                     | Request::Chart { .. }
+                    | Request::Discoveries
                     | Request::History { .. }
                     | Request::HistoryBranch { .. }
                     | Request::ReadAttachment { .. }
@@ -260,7 +261,13 @@ pub enum DeviceActivation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DeviceAim {
-    Direction { direction: Direction },
+    Direction {
+        direction: Direction,
+    },
+    Cell {
+        #[serde(deserialize_with = "read_cell_offset")]
+        offset: [i32; 3],
+    },
     SelfTarget {},
 }
 impl<'de> Deserialize<'de> for DeviceAim {
@@ -272,11 +279,16 @@ impl<'de> Deserialize<'de> for DeviceAim {
                 #[serde(deserialize_with = "read_direction_token")]
                 direction: Direction,
             },
+            Cell {
+                #[serde(deserialize_with = "read_cell_offset")]
+                offset: [i32; 3],
+            },
             SelfTarget {},
         }
         Ok(match crate::bounded::named_map(d)? {
             Fields::Direction { direction } => Self::Direction { direction },
             Fields::SelfTarget {} => Self::SelfTarget {},
+            Fields::Cell { offset } => Self::Cell { offset },
         })
     }
 }
@@ -1350,7 +1362,7 @@ pub struct PublicEffectView {
     #[serde(with = "crate::integers::optional_unsigned")]
     pub expires_at: Option<u64>,
     pub delivery: EffectDelivery,
-    pub appearance: EffectAppearance,
+    pub presentation: crate::EffectPresentation,
     pub cue: EffectCue,
     #[serde(deserialize_with = "read_effect_positions")]
     pub segments: Vec<Vec<Position>>,
@@ -1363,7 +1375,8 @@ impl PublicEffectView {
         valid_effect_key(&self.id)
             && self.observed_since <= tick
             && self.expires_at.is_none_or(|deadline| deadline > tick)
-            && self.appearance != EffectAppearance::StatusIndicator
+            && self.presentation.form != EffectAppearance::StatusIndicator
+            && self.presentation.validate().is_ok()
             && valid_effect_geometry(self.delivery, &self.segments, &self.anchors)
             && self
                 .segments
@@ -1429,7 +1442,7 @@ pub enum CombatEventView {
         #[serde(with = "crate::integers::unsigned")]
         tick: u64,
         timing: EffectTiming,
-        appearance: EffectAppearance,
+        presentation: crate::EffectPresentation,
         #[serde(
             deserialize_with = "crate::bounded::bounded::<_, EffectAnchor, MAX_EFFECT_POINTS>"
         )]
@@ -1516,6 +1529,12 @@ fn read_effect_positions<'de, D: serde::Deserializer<'de>>(
 }
 
 impl CombatEventView {
+    pub fn effect_presentation(&self) -> Option<&crate::EffectPresentation> {
+        match self {
+            Self::Effect { presentation, .. } => Some(presentation),
+            _ => None,
+        }
+    }
     pub(crate) fn valid_effect(&self, now: u64) -> bool {
         match self {
             Self::Effect {
@@ -1529,6 +1548,9 @@ impl CombatEventView {
                 ..
             } => {
                 valid_effect_geometry(*delivery, segments, anchors)
+                    && self
+                        .effect_presentation()
+                        .is_none_or(|p| p.validate().is_ok())
                     && *tick <= now
                     && ability.as_ref().is_none_or(|a| a.valid())
                     && (ability.is_none() || caster.is_some())
@@ -2079,6 +2101,8 @@ pub enum Request {
     Chart {
         query: crate::chart_pages::ChartQuery,
     },
+    /// Read-only appearance mappings learned by the attached actor.
+    Discoveries,
     /// The whole current palette, as after attaching.
     Palette,
     Command {
@@ -2312,6 +2336,12 @@ pub enum ServerMessage {
         request_id: String,
         page: Box<crate::chart_pages::ChartPage>,
     },
+    Discoveries {
+        context: ReplyContext,
+        request_id: String,
+        #[serde(deserialize_with = "read_item_discoveries")]
+        rows: Vec<ItemDiscoveryView>,
+    },
     #[serde(deserialize_with = "crate::creature_catalog::read_reply")]
     CreatureCatalog {
         context: ReplyContext,
@@ -2387,6 +2417,21 @@ pub enum ServerMessage {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemDiscoveryView {
+    pub appearance: String,
+    pub name: String,
+}
+
+pub const MAX_ITEM_DISCOVERIES: usize = 4096;
+
+fn read_item_discoveries<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<ItemDiscoveryView>, D::Error> {
+    crate::bounded::bounded::<D, ItemDiscoveryView, MAX_ITEM_DISCOVERIES>(d)
+}
+
 impl ServerMessage {
     pub fn reply_context(&self) -> Option<&ReplyContext> {
         match self {
@@ -2396,6 +2441,7 @@ impl ServerMessage {
             | Self::AbilityWeaponPreview { context, .. }
             | Self::MapPage { context, .. }
             | Self::ChartPage { context, .. }
+            | Self::Discoveries { context, .. }
             | Self::CreatureCatalog { context, .. }
             | Self::AdvancementPage { context, .. }
             | Self::Ack { context, .. }
@@ -2561,6 +2607,18 @@ impl AbilityInvocation {
             weapon: WeaponSelection::Default,
         }
     }
+    pub fn cell_ray(offset: [i32; 3]) -> Self {
+        Self {
+            aim: AbilityAim::CellRay { offset },
+            weapon: WeaponSelection::Default,
+        }
+    }
+    pub fn cell_projectile(offset: [i32; 3], delivery: crate::ProjectileDeliverySelection) -> Self {
+        Self {
+            aim: AbilityAim::CellProjectile { offset, delivery },
+            weapon: WeaponSelection::Default,
+        }
+    }
     pub fn directional_ray(direction: Direction) -> Self {
         Self {
             aim: AbilityAim::DirectionalRay { direction },
@@ -2582,8 +2640,10 @@ impl<'de> Deserialize<'de> for AbilityInvocation {
             weapon: WeaponSelection,
         }
         let Fields { aim, weapon } = crate::bounded::named_map(deserializer)?;
-        if matches!(aim, AbilityAim::DirectionalProjectile { .. })
-            && weapon != WeaponSelection::Default
+        if matches!(
+            aim,
+            AbilityAim::DirectionalProjectile { .. } | AbilityAim::CellProjectile { .. }
+        ) && weapon != WeaponSelection::Default
         {
             return Err(serde::de::Error::custom(
                 "projectile delivery is the sole weapon selector",
@@ -2630,6 +2690,15 @@ pub enum AbilityAim {
     SelfStep {
         direction: Direction,
     },
+    CellRay {
+        #[serde(deserialize_with = "read_cell_offset")]
+        offset: [i32; 3],
+    },
+    CellProjectile {
+        #[serde(deserialize_with = "read_cell_offset")]
+        offset: [i32; 3],
+        delivery: crate::ProjectileDeliverySelection,
+    },
     DirectionalRay {
         direction: Direction,
     },
@@ -2658,6 +2727,15 @@ impl<'de> Deserialize<'de> for AbilityAim {
                 #[serde(deserialize_with = "direction_token")]
                 direction: Direction,
             },
+            CellRay {
+                #[serde(deserialize_with = "read_cell_offset")]
+                offset: [i32; 3],
+            },
+            CellProjectile {
+                #[serde(deserialize_with = "read_cell_offset")]
+                offset: [i32; 3],
+                delivery: crate::ProjectileDeliverySelection,
+            },
             DirectionalRay {
                 #[serde(deserialize_with = "direction_token")]
                 direction: Direction,
@@ -2672,6 +2750,10 @@ impl<'de> Deserialize<'de> for AbilityAim {
             Fields::ActorTarget { target } => Self::ActorTarget { target },
             Fields::SelfStep { direction } => Self::SelfStep { direction },
             Fields::DirectionalRay { direction } => Self::DirectionalRay { direction },
+            Fields::CellRay { offset } => Self::CellRay { offset },
+            Fields::CellProjectile { offset, delivery } => {
+                Self::CellProjectile { offset, delivery }
+            }
             Fields::DirectionalProjectile {
                 direction,
                 delivery,
@@ -2707,6 +2789,41 @@ mod snapshot_capability_tests {
 
 #[cfg(test)]
 mod spatial_effect_wire_tests {
+    #[test]
+    fn appearance_description_is_strict_cosmetic_and_bounded() {
+        use crate::EffectPresentation;
+        let valid = serde_json::json!({
+            "form": "missile", "visual": "neutral", "style": "weapon.flight",
+            "object": {"name": "arrow", "asset": "weapon.arrow",
+                       "kind": {"kind": "item", "class": "weapon"}}
+        });
+        let descriptor: EffectPresentation = serde_json::from_value(valid.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&descriptor).unwrap(), valid);
+        for field in ["form", "visual", "style", "object"] {
+            let mut missing = valid.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<EffectPresentation>(missing).is_err());
+        }
+        for style in ["", "../secret", "https://asset.invalid", "Upper", "a..b"] {
+            let mut invalid = valid.clone();
+            invalid["style"] = style.into();
+            assert!(serde_json::from_value::<EffectPresentation>(invalid).is_err());
+        }
+        let mut invalid = valid.clone();
+        invalid["style"] = "x".repeat(81).into();
+        assert!(serde_json::from_value::<EffectPresentation>(invalid).is_err());
+        let mut invalid = valid.clone();
+        invalid["object"]["charges"] = 7.into();
+        assert!(serde_json::from_value::<EffectPresentation>(invalid).is_err());
+        let mut invalid = valid.clone();
+        invalid["form"] = "cloud".into();
+        assert!(serde_json::from_value::<EffectPresentation>(invalid).is_err());
+        let mut generic = valid;
+        generic["object"] = serde_json::Value::Null;
+        generic["style"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<EffectPresentation>(generic).is_ok());
+    }
+
     use super::*;
     #[test]
     fn authoritative_effect_round_trips_without_world_coordinates() {
@@ -2715,7 +2832,7 @@ mod spatial_effect_wire_tests {
             ability: None,
             tick: 9_007_199_254_740_993,
             timing: EffectTiming::Instant,
-            appearance: EffectAppearance::Bolt,
+            presentation: crate::EffectPresentation::neutral(EffectAppearance::Bolt),
             anchors: vec![EffectAnchor {
                 key: "a".repeat(40),
                 position: Position { x: 0, y: 1, z: 0 },
@@ -2730,7 +2847,7 @@ mod spatial_effect_wire_tests {
         let value = serde_json::to_value(&event).unwrap();
         assert_eq!(value["tick"], "9007199254740993");
         assert_eq!(value["timing"], "instant");
-        assert_eq!(value["appearance"], "bolt");
+        assert_eq!(value["presentation"]["form"], "bolt");
         assert_eq!(
             serde_json::from_value::<CombatEventView>(value.clone()).unwrap(),
             event
@@ -2742,7 +2859,7 @@ mod spatial_effect_wire_tests {
             "ability",
             "tick",
             "timing",
-            "appearance",
+            "presentation",
             "anchors",
             "segments",
         ] {
@@ -2782,7 +2899,7 @@ mod spatial_effect_wire_tests {
             ability: None,
             tick: 1,
             timing: EffectTiming::Instant,
-            appearance: EffectAppearance::Bolt,
+            presentation: crate::EffectPresentation::neutral(EffectAppearance::Bolt),
             delivery,
             cue: EffectCue::Neutral,
             anchors: vec![EffectAnchor {
@@ -2802,4 +2919,14 @@ mod spatial_effect_wire_tests {
         }
         assert!(make(EffectDelivery::Area, vec![at(0), at(9)]).valid_effect(1));
     }
+}
+
+fn read_cell_offset<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[i32; 3], D::Error> {
+    let offset = <[i32; 3] as Deserialize>::deserialize(d)?;
+    if offset == [0, 0, 0] {
+        return Err(serde::de::Error::custom(
+            "cell aim must have a nonzero offset",
+        ));
+    }
+    Ok(offset)
 }

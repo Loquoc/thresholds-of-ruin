@@ -25,8 +25,9 @@ fn loft<const N: usize>(rings: &[[Vec3; N]]) -> Vec<[Vec3; 3]> {
     faces
 }
 
-fn components(last: BootLast) -> [Vec<[Vec3; 3]>; 3] {
-    let sections = last.sections();
+/// The same authored upper serves emission and attachment-height queries.
+/// Do not construct outsole/heel geometry when only the upper is requested.
+fn upper_rings(sections: &[crate::creatures::anatomy::BootSection; 7]) -> [[Vec3; 9]; 7] {
     // Counterclockwise D-shaped sections, with a flat buried base and rounded vamp.
     const UPPER: [(f32, f32); 9] = [
         (-1.0, 0.0),
@@ -39,9 +40,18 @@ fn components(last: BootLast) -> [Vec<[Vec3; 3]>; 3] {
         (-0.78, 0.70),
         (-1.0, 0.18),
     ];
-    let upper = sections.map(|s| {
+    sections.map(|s| {
         UPPER.map(|(x, y)| Vec3::new(x * s.width * 0.94, s.top - 0.003 + y * s.height, s.z))
-    });
+    })
+}
+
+fn upper_faces(sections: &[crate::creatures::anatomy::BootSection; 7]) -> Vec<[Vec3; 3]> {
+    loft(&upper_rings(sections))
+}
+
+fn components(last: BootLast) -> [Vec<[Vec3; 3]>; 3] {
+    let sections = last.sections();
+    let upper = upper_faces(&sections);
     // A bevel distinguishes the welt edge from the flat supporting outsole.
     let sole = sections.map(|s| {
         [
@@ -75,15 +85,23 @@ fn components(last: BootLast) -> [Vec<[Vec3; 3]>; 3] {
     } else {
         Vec::new()
     };
-    [loft(&upper), loft(&sole), heel]
+    [upper, loft(&sole), heel]
 }
 
 /// Highest actual shoe-upper point in the ankle frame. Adjacent calf bands
 /// use this attachment limit rather than guessing clearance from ankle alone.
 pub(super) fn shoe_upper_top(last: BootLast) -> f32 {
-    components(last)[0]
+    let rings = upper_rings(&last.sections());
+    // Loft triangles only repeat these vertices and add the two cap centers.
+    // Include the centers using the identical arithmetic as loft, rather than
+    // assuming their rounded heights cannot exceed a vertex. No triangles or
+    // heap allocation are needed for an attachment-height query.
+    let centers = [rings[0], rings[rings.len() - 1]]
+        .map(|ring| ring.iter().copied().sum::<Vec3>() / ring.len() as f32);
+    rings
         .iter()
         .flatten()
+        .chain(centers.iter())
         .map(|p| p.y)
         .fold(f32::NEG_INFINITY, f32::max)
 }
@@ -402,6 +420,144 @@ impl NativeShaft {
 
 #[cfg(test)]
 mod tests {
+    fn original_components(last: BootLast) -> [Vec<[Vec3; 3]>; 3] {
+        let sections = last.sections();
+        // Counterclockwise D-shaped sections, with a flat buried base and rounded vamp.
+        const UPPER: [(f32, f32); 9] = [
+            (-1.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 0.18),
+            (0.78, 0.70),
+            (0.35, 0.96),
+            (0.0, 1.0),
+            (-0.35, 0.96),
+            (-0.78, 0.70),
+            (-1.0, 0.18),
+        ];
+        let upper = sections.map(|s| {
+            UPPER.map(|(x, y)| Vec3::new(x * s.width * 0.94, s.top - 0.003 + y * s.height, s.z))
+        });
+        // A bevel distinguishes the welt edge from the flat supporting outsole.
+        let sole = sections.map(|s| {
+            [
+                Vec3::new(-s.width, s.top, s.z),
+                Vec3::new(-s.width, s.bottom + 0.004, s.z),
+                Vec3::new(-s.width * 0.82, s.bottom, s.z),
+                Vec3::new(s.width * 0.82, s.bottom, s.z),
+                Vec3::new(s.width, s.bottom + 0.004, s.z),
+                Vec3::new(s.width, s.top, s.z),
+            ]
+        });
+        let heel = if last.heeled {
+            let b = last.build;
+            const CORNERS: [(f32, f32); 8] = [
+                (-0.7, -1.0),
+                (0.7, -1.0),
+                (1.0, -0.7),
+                (1.0, 0.7),
+                (0.7, 1.0),
+                (-0.7, 1.0),
+                (-1.0, 0.7),
+                (-1.0, -0.7),
+            ];
+            // Loft toward +Y: use XZ rings with reversed winding for an upward cap.
+            let rings = [
+                (BootLast::FLOOR, 0.022 * b, 0.020 * b),
+                (-0.036, 0.034 * b, 0.026 * b),
+            ]
+            .map(|(y, w, d)| CORNERS.map(|(x, z)| Vec3::new(x * w, y, -0.035 * b - z * d)));
+            loft(&rings)
+        } else {
+            Vec::new()
+        };
+        [loft(&upper), loft(&sole), heel]
+    }
+
+    #[test]
+    fn upper_only_query_preserves_component_and_height_bits() {
+        for build in [0.75, 0.9, 1.0, 1.1, 1.25, 1.5] {
+            for heeled in [false, true] {
+                let last = BootLast { build, heeled };
+                let expected = original_components(last);
+                let actual = components(last);
+                for (got, wanted) in actual.iter().zip(expected.iter()) {
+                    assert_eq!(got.len(), wanted.len());
+                    for (a, b) in got.iter().flatten().zip(wanted.iter().flatten()) {
+                        assert_eq!(
+                            a.to_array().map(f32::to_bits),
+                            b.to_array().map(f32::to_bits)
+                        );
+                    }
+                }
+                let upper = upper_faces(&last.sections());
+                assert_eq!(upper.len(), 126);
+                assert_eq!(expected[1].len(), 84);
+                assert_eq!(expected[2].len(), if heeled { 32 } else { 0 });
+                let wanted = expected[0]
+                    .iter()
+                    .flatten()
+                    .map(|p| p.y)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                assert_eq!(shoe_upper_top(last).to_bits(), wanted.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn allocation_free_height_matches_loft_across_build_range() {
+        for step in 0..=400 {
+            for heeled in [false, true] {
+                let last = BootLast {
+                    build: 0.5 + step as f32 / 200.0,
+                    heeled,
+                };
+                let expected = original_components(last)[0]
+                    .iter()
+                    .flatten()
+                    .map(|p| p.y)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                assert_eq!(shoe_upper_top(last).to_bits(), expected.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual CPU microbenchmark; not a whole-model or GPU benchmark"]
+    fn measure_upper_height_query() {
+        use std::{hint::black_box, time::Instant};
+        fn allocated(last: BootLast) -> f32 {
+            upper_faces(&last.sections())
+                .iter()
+                .flatten()
+                .map(|p| p.y)
+                .fold(f32::NEG_INFINITY, f32::max)
+        }
+        let cases: Vec<_> = (0..=40)
+            .flat_map(|i| {
+                [false, true].map(|heeled| BootLast {
+                    build: 0.5 + i as f32 / 20.0,
+                    heeled,
+                })
+            })
+            .collect();
+        let measure = |query: fn(BootLast) -> f32| {
+            let start = Instant::now();
+            for i in 0..100_000 {
+                black_box(query(black_box(cases[i % cases.len()])));
+            }
+            start.elapsed().as_nanos()
+        };
+        for round in 0..10 {
+            let (old, new) = if round % 2 == 0 {
+                (measure(allocated), measure(shoe_upper_top))
+            } else {
+                let new = measure(shoe_upper_top);
+                (measure(allocated), new)
+            };
+            println!("upper-height round={round} allocated_ns={old} rings_ns={new}");
+        }
+    }
+
     use super::*;
     use std::collections::BTreeMap;
 

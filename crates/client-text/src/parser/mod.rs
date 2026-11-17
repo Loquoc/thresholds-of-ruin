@@ -130,6 +130,16 @@ pub fn match_disclosed_sentence(
                     after: suffix.clone(),
                 });
             }
+            if ability.target_kind == tor_protocol::AbilityTargetKind::DirectionalRay {
+                if let Some(offset) = tor_client_common::abilities::parse_cell_aim(noun) {
+                    return Ok(ParsedCommand::Ability {
+                        id: ability.id.clone(),
+                        selection: grammar::AbilitySelection::CellRay { offset: offset? },
+                        supplies: supplies.map(str::to_owned),
+                        weapon: weapon.map(str::to_owned),
+                    });
+                }
+            }
             let direction = lexicon::parse_direction(&noun.to_ascii_lowercase())
                 .ok_or("Choose a direction for that ability.")?;
             return Ok(ParsedCommand::Ability {

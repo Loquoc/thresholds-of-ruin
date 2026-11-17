@@ -607,3 +607,31 @@ Older timing summaries remain in the
 and [place-knowledge evidence](https://github.com/KCall360/thresholds-of-ruin/blob/docs-history-2026-09/docs/place-knowledge-findings.md).
 They are historical workload measurements; consult
 [performance methodology](../development/performance.md) for current comparisons.
+
+### Public effect presentation
+
+Instant combat effects and observed sustained effects carry the same cosmetic
+`presentation` description: `form`, explicitly authored `visual`, a nullable
+bounded `style` key, and a nullable public `object` appearance. Style keys are
+lowercase dotted identifiers, not paths, URLs, scripts, model commands, or
+mechanical ability identifiers. Authors must treat them as public information.
+The material category is authored independently of damage and resistance cues;
+clients must not infer a flame appearance from otherwise undisclosed mechanics.
+
+A flying object's description contains its observer-safe name, class and optional
+asset key, not an item ID, statistics, charges, or true unidentified identity.
+The server freezes the physical appearance and each observer's hallucination
+phase at release, so consumption or stack splitting cannot turn a later lookup
+into a different projectile. Visible flight can be disclosed without identifying
+its source. Source/ability identity and hidden path cells retain their own
+visibility checks. A stationary Wait that resolves a delayed release still binds
+observer receipts before publishing its outcome.
+
+Clients interpret the description within their capabilities: Text narrates the
+visible travel without enumerating every cell; ASCII resolves admitted object
+glyphs and otherwise uses a generic projectile; 3D selects admitted object models
+or a generic form/material recipe. Unknown styles and missing assets must remain
+safe generic presentations, not guesses from names or private gameplay state.
+Outcome-only effects participate in palette discovery even when the last map
+picture is unchanged. Authoritative observed geometry and sustained lifetimes
+remain separate from cosmetic interpolation, mesh detail, and playback styling.

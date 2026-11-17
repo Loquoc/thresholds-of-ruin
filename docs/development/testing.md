@@ -1498,13 +1498,74 @@ required on the final commit before merging.
 
 ### Formats and fixtures
 
+Every protocol (wire) or save/archive version update must add a corresponding
+new versioned golden fixture to the repository in the same change as the version
+update. This is required for every such version increment, including when the
+only serialized difference is the version field. Record
+`crates/protocol/tests/fixtures/wire-v<version>.json` for each wire version and
+`crates/server/fixtures/saved-scenarios-v<archive-version>-<ruleset>.json`
+for each save/archive version using the real recorder or current storage writer
+described below. Saved-scenario metadata embeds the rules identity, so a rules-only
+identity change also requires a newly generated golden under that archive/rules
+pair; it does not require an artificial archive-format increment. Published
+archive-only and archive/rules fixture files remain untouched. The existing
+archive 70 / historical rules identity 60 pair explicitly retains its original
+archive-only filename; this exact-pair naming exception is not a fallback
+for another rules identity or archive version.
+Review and commit the generated fixture, then run the ordinary comparisons with
+recording disabled. A locally generated, uncommitted fixture is not sufficient;
+neither is reusing, renaming, relabeling or rewriting a published older fixture.
+Historical fixtures remain byte-for-byte unchanged. These requirements concern
+serialized-contract versions, not dependency package versions. Independently
+versioned fixture schemas retain their own versioning rules below.
+
 Polymorph's current wire book also requires a genuine known `direction_or_self`
 affordance and a paid `baleful_polymorph` diagnostic with only `target` and
 `changed`, not merely an older snapshot/diagnostic message kind. The recorder
-reuses the ordinary Text self-Zap/source-free-reopen case for its exact request
+uses the ordinary headless self-Zap/source-free-reopen case for its exact request
 and snapshot, plus one minimal authored self-ability diagnostic case. Selected
 form IDs and body/advancement ledgers are not wire sample material. Both process
 cases and their cleanup must succeed before either sample is published.
+
+The physical dagger/arrow and persistent utility-condition wire samples use
+headless production-process owners, not presentation clients:
+`ProjectileProcesses.test_headless_projectile_payment_recovery_and_source_free_restart`
+and
+`RogueUtilityWandsProcesses.test_persistent_first_contact_utility_state_reopens_without_source_headless`.
+They preserve actual admitted actions, payment, source-free reopening, raw server
+messages and complete cleanup. The independent Text/native projectile tests
+still own menus, preview/confirmation and narration. The utility Text test still
+checks persistent status rendering at both pre-save and reopened boundaries.
+A headless recording does not count as either client's acceptance coverage.
+
+Polymorph and Detection/Mapping recording likewise use dedicated headless
+process owners. Polymorph records a genuine paid self-Zap and replays the exact
+captured client request after source deletion, retaining privacy, charge and
+identity assertions. Detection retains paid positive/empty attempts, full paged
+history and source-free spectator reconstruction. Their original Text acceptance
+methods remain unchanged and own command translation and chart rendering;
+headless success is not credited as Text UI verification.
+
+The remaining Amulet escape, self-device, weak Drain refusal, hallucination,
+torch and discovery fixture sources also have explicit headless owners. They
+retain actual production admission, time/resource changes, observer-visible
+state, raw server envelopes and applicable source-free reopening. Original
+Text acceptance methods remain separate: prompt selection, prose, chart or
+status formatting and native input are client contracts, not fixture-generation
+prerequisites. Recording must not launch Text or ASCII merely to drive a server
+state transition. Qualify those client assertions separately in their own tests.
+
+The `zz.work_replacement` wire sample is recorded by
+`AsciiMessageProcesses.test_headless_drink_replacement_records_authoritative_work_facts`
+through the actual server and headless client. It owns the paused-attack/replacement
+intention identities, potion consumption and tick payment, and the unchanged raw
+`own_work_changed` Outcome. The recorder waits for the complete test and cleanup.
+The separate unchanged
+`AsciiMessageProcesses.test_drinking_replaces_a_suspended_attack_in_one_message`
+owns native menu input and exactly one combined narration line without a duplicate
+interruption message. It remains graphical and runs in normal CI. A successful
+wire recording does not qualify that native UI test; unavailable local display
+coverage must still be reported separately, never as a headless UI pass.
 
 When the protocol version changes, rerun `python scripts/record_wire_samples.py`
 to record `crates/protocol/tests/fixtures/wire-v<version>.json` and review its
@@ -1527,7 +1588,9 @@ fixtures loading. `scripts/test_documentation.py` checks that the versions state
 in the docs match the code.
 
 Saved scenario metadata has a golden fixture produced by the current storage
-writer. After an accepted save-schema change, set `TOR_RECORD_SCENARIO_FIXTURES`
+writer, selected by both archive version and supported rules identity with no
+historical fallback. After an accepted save-schema or rules-identity change, set
+`TOR_RECORD_SCENARIO_FIXTURES`
 to the new fixture's absolute path and run
 `cargo test -p tor-server --lib current_writer_matches_golden_scenario_fixture`.
 Review the generated diff, unset the variable, and rerun the ordinary schema

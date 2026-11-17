@@ -77,7 +77,31 @@ impl Messages {
         status: Option<&tor_protocol::OutcomeStatusFacts>,
         underfoot: Option<&tor_protocol::OutcomeUnderfoot>,
     ) {
+        let bear_trap_triggered = lines.iter().any(|line| {
+            matches!(&line.topic, Topic::Combat(tor_protocol::CombatEventView::Condition { condition })
+                if condition.id == "rogue.bear_trap")
+        });
         for line in lines {
+            match &line.topic {
+                Topic::Own(Event::AbilityStarted { ability, .. })
+                | Topic::Combat(tor_protocol::CombatEventView::Ability { ability, .. })
+                    if ability.id == "rogue.search" =>
+                {
+                    continue
+                }
+                Topic::TrapDiscovered(Some(tor_protocol::TrapFamily::BearTrap))
+                    if bear_trap_triggered =>
+                {
+                    continue
+                }
+                Topic::Combat(tor_protocol::CombatEventView::Condition { condition })
+                    if condition.id == "rogue.bear_trap" =>
+                {
+                    self.push("A bear trap snaps shut on your leg.");
+                    continue;
+                }
+                _ => {}
+            }
             match &line.basic_attack {
                 Some(BasicAttack::Preparing) => continue,
                 Some(BasicAttack::Resolved {
@@ -169,9 +193,12 @@ impl Messages {
             match &line.topic {
                 Topic::Own(Event::Moved { .. }) => self.here(view),
                 Topic::Own(Event::Waited) => {}
-                Topic::Own(_) | Topic::Door | Topic::Discovery | Topic::Motion => {
-                    self.push(&line.text)
-                }
+                Topic::Own(_)
+                | Topic::Door
+                | Topic::Discovery
+                | Topic::DoorDiscovered
+                | Topic::TrapDiscovered(_)
+                | Topic::Motion => self.push(&line.text),
                 Topic::Finished => self.finish(&line.text),
                 Topic::Noticed(actor) => {
                     let returning = self
@@ -183,7 +210,7 @@ impl Messages {
                     }
                 }
                 Topic::LostSight(_) | Topic::Pacing => {}
-                Topic::Combat(_) | Topic::PublicPlan => self.push(&line.text),
+                Topic::Combat(_) | Topic::PublicPlan | Topic::WorkChanged => self.push(&line.text),
                 Topic::Status => {
                     if let Some(combat) = view.combat.as_ref() {
                         if combat.victory {
@@ -222,7 +249,7 @@ impl Messages {
         self.turn
             .retain(|(sentence, _)| match parts(sentence, "You begin to ") {
                 Some((verb, began)) if verbing.starts_with(verb.trim_end_matches('e')) => {
-                    if began != name {
+                    if began != name && began != "item" {
                         learned = Some(began);
                     }
                     false

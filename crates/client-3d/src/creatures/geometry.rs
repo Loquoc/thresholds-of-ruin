@@ -1,3 +1,4 @@
+mod arm_drape;
 use super::anatomy::{
     storybook_part, BootLast, BootShape, Bust, HumanoidBody, LimbShape, ReptileHead,
 };
@@ -29,6 +30,7 @@ mod surface;
 use surface::closed_surface_step;
 mod armor_parts;
 mod beast_parts;
+mod bishop_sleeve;
 mod boot_parts;
 #[cfg(test)]
 mod boot_tests;
@@ -76,7 +78,9 @@ mod sleeve_parts;
 mod test_support;
 #[cfg(test)]
 mod tricorn_tests;
+mod veil;
 mod waist_parts;
+mod wedding_groom;
 #[cfg(test)]
 mod witch_hat_tests;
 pub(in crate::creatures) use face::*;

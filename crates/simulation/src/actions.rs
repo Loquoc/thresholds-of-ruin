@@ -247,6 +247,7 @@ impl Game {
                 if matches!(
                     invocation.aim,
                     crate::abilities::AbilityAim::DirectionalProjectile { .. }
+                        | crate::abilities::AbilityAim::CellProjectile { .. }
                 ) {
                     // This is the one request already selected from disclosed
                     // structure. Never probe another unknown item after refusal.

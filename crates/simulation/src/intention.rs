@@ -909,10 +909,10 @@ impl Game {
                                     {
                                         return false;
                                     }
-                                    if matches!(invocation.aim, crate::abilities::AbilityAim::DirectionalRay { .. }) {
-                                        return matches!(definition.reach, crate::rules::Reach::Sight { .. } | crate::rules::Reach::UntilObstruction);
+                                    if matches!(invocation.aim, crate::abilities::AbilityAim::DirectionalRay { .. } | crate::abilities::AbilityAim::CellRay { .. }) {
+                                        return invocation.valid() && matches!(definition.reach, crate::rules::Reach::Sight { .. } | crate::rules::Reach::UntilObstruction);
                                     }
-                                    if matches!(invocation.aim, crate::abilities::AbilityAim::DirectionalProjectile { .. }) {
+                                    if matches!(invocation.aim, crate::abilities::AbilityAim::DirectionalProjectile { .. } | crate::abilities::AbilityAim::CellProjectile { .. }) {
                                         return invocation.valid() && matches!(definition.reach, crate::rules::Reach::Projectile);
                                     }
                                     let target = invocation.target(*actor);
@@ -2268,6 +2268,8 @@ mod tests {
         let ability = crate::content_ids::AbilityId::new("self_mend").unwrap();
         let mut document = game.content.rules.document().clone();
         document.abilities.push(AbilityDef {
+            effect_visual: crate::rules::EffectVisual::Neutral,
+            effect_style: None,
             cancellable: false,
             interaction: crate::rules::Interaction::NonHostile,
             invocation: Default::default(),

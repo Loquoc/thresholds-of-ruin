@@ -449,6 +449,26 @@ class LinuxDebugShardWorkflow(unittest.TestCase):
         self.assertIn('--profile debug --directory .local/shard-coverage/linux-debug', gate)
         self.assertIn('--origin-attempt "${{ steps.linux_cohort.outputs.origin_attempt }}"', gate)
 
+    def test_only_unsharded_linux_release_gets_bounded_setup_and_verifier_headroom(self):
+        profiles = workflow_job('profiles')
+        expression = re.search(r'^    timeout-minutes: (.+)$', profiles, re.M)[1]
+        step = workflow_step('Verify complete profile partition')
+        verify_expression = re.search(r'^        timeout-minutes: (.+)$', step, re.M)[1]
+        prefix = ("matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && "
+                  "matrix.partition == 'python' && ")
+        self.assertTrue(expression.startswith('${{ ' + prefix + '60 || '))
+        self.assertTrue(verify_expression.startswith('${{ ' + prefix + '55 || '))
+        # Existing Windows Rust and other Python budgets are unchanged.
+        for value, windows in ((expression, 75), (verify_expression, 70)):
+            self.assertIn("matrix.os == 'windows-latest' && matrix.profile == 'release' && "
+                          f"matrix.partition == 'rust' && {windows} || ", value)
+            self.assertTrue(value.endswith("matrix.partition == 'python' && 40 || 60 }}"))
+        self.assertIn('python scripts/verify.py full --ci-profile ${{ matrix.profile }} '
+                      '--ci-partition ${{ matrix.partition }}', step)
+        self.assertIn('Require fresh complete partition execution', profiles)
+        self.assertNotIn('--skip', step)
+        self.assertNotIn('--waive', step)
+
 
 if __name__ == '__main__':
     unittest.main()

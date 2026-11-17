@@ -83,3 +83,48 @@ and listed CI entry points. It does not inspect transitive execution or enforce
 network access. Review the full diff, including changed tests and build hooks,
 even if the checker passes. During migration, Actions remains disabled and
 publication requires the maintainer's authorization.
+
+## November 14 dependency refresh
+
+The maintainer explicitly approved Ruff 0.17.3 to 0.17.4 and SQLAlchemy 2.1.6
+to 2.1.8, including refreshed review hashes after the sampler consistency fix.
+These patch updates retain the existing lint and bounded arena-test purposes,
+package registries, runner types, permissions, triggers and artifact retention.
+SQLAlchemy remains wheel-only and hash-pinned. Its strict sampler allowlist is
+updated together with rejection tests for the superseded environment and history;
+no compatibility fallback or test gate is relaxed. The two requirements hashes
+record these reviewed inputs. Hosted CI still qualifies the final PR head.
+
+## November 15 Linux release verification budget
+
+PR #11 run 43697031043 exhausted the 40-minute Ubuntu release Python job
+limit twice without a failed test: 659 and 681 of the same 770 selected tests
+completed successfully. Build time was 332 and 329 seconds. The ordinary
+room-topology acceptance witness completed in 1,552 and 1,557 seconds. The
+same complete inventory passed in 2,088 seconds including build in run
+43686561081, leaving too little runner-variance headroom at the former limit.
+
+The maintainer-approved correction limits this single unsharded Ubuntu release Python job
+to 60 minutes and its verifier step to 55 minutes, reserving time for setup and
+evidence upload. Other job limits, all test-level action/time/output budgets,
+selection, two test workers, receipt completeness, and required gates stay
+unchanged. No jobs, triggers, permissions, network destinations, artifact
+retention, display tests, or workload are added. The longest configured job
+remains the existing 75-minute Windows release Rust owner. This is bounded
+headroom for ordinary project acceptance, not permission for extra diagnostics.
+The maintainer explicitly approved these two timeout changes and the matching
+CI review hash update on November 15.
+
+## November 16 diagnostic-validator ownership review
+
+The two new model report validator test classes are ordinary pure-Python
+repository correctness tests, not hosted model generation or performance work.
+Reviewed their assertions, reporter imports and shared validator: synthetic rows
+only, with no native process, rendering, benchmark, network or artifact producer.
+Explicit class registration repairs complete-inventory planner failures while
+preserving unknown-owner escalation and full verification for control changes.
+No workflow commands, runners, external dependencies/destinations, permissions,
+triggers, caches, retention or budgets change. Updated only the reviewed
+`ci_test_contracts.py` hash after this source review. The cord correctness tests
+exercise bounded geometry/animation contracts; exploratory timing, geometry
+exports and parameter sweeps remain ignored/local, not new hosted workloads.

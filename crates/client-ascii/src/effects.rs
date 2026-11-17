@@ -4,9 +4,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     time::Duration,
 };
-use tor_protocol::{
-    CombatEventView, EffectAppearance, EffectCue, EffectDelivery, Observation, Position,
-};
+use tor_protocol::{CombatEventView, EffectAppearance, EffectDelivery, Observation, Position};
 
 const MAX_ANIMATIONS: usize = 64;
 const STEP_MS: u64 = 60;
@@ -23,6 +21,7 @@ struct Animation {
     segments: Vec<Vec<Point>>,
     trail: bool,
     color: u32,
+    object: Option<tor_protocol::ObjectPresentation>,
     elapsed: Duration,
     duration_ms: u64,
     steps: usize,
@@ -49,14 +48,14 @@ impl EffectAnimations {
         let CombatEventView::Effect {
             anchors,
             delivery,
-            appearance,
-            cue,
+            presentation,
             segments,
             ..
         } = event
         else {
             return;
         };
+        let appearance = &presentation.form;
         if *appearance == EffectAppearance::StatusIndicator || *delivery == EffectDelivery::Area {
             return;
         }
@@ -109,7 +108,8 @@ impl EffectAnimations {
         self.active.push_back(Animation {
             segments: paths,
             trail: *delivery == EffectDelivery::Ray,
-            color: color(*cue),
+            color: visual_color(presentation.visual),
+            object: presentation.object.clone(),
             elapsed: Duration::ZERO,
             duration_ms: STEP_MS.saturating_mul(steps as u64).min(MAX_DURATION_MS),
             steps,
@@ -126,6 +126,13 @@ impl EffectAnimations {
         was_active
     }
     pub fn glyphs(&self, observation: &Observation) -> Vec<EffectGlyph> {
+        self.glyphs_with_palette(observation, &tor_client_common::Palette::default())
+    }
+    pub fn glyphs_with_palette(
+        &self,
+        observation: &Observation,
+        palette: &tor_client_common::Palette,
+    ) -> Vec<EffectGlyph> {
         // Cell identity, not old coordinates, anchors effects across observer movement.
         // No remembered or now-hidden cell may receive a transient glyph.
         // A physical cell may have multiple portal images. Do not choose one
@@ -167,7 +174,15 @@ impl EffectAnimations {
                                         })
                                         .map_or('*', |p| direction(*position, p))
                                 } else {
-                                    point.glyph
+                                    a.object
+                                        .as_ref()
+                                        .and_then(|object| {
+                                            tor_client_common::presentation::resolve(
+                                                palette,
+                                                object.asset.as_deref(),
+                                            )
+                                        })
+                                        .map_or(point.glyph, |entry| entry.ascii.glyph)
                                 },
                                 color: a.color,
                             });
@@ -193,15 +208,14 @@ fn direction(a: Position, b: Position) -> char {
         _ => '/',
     }
 }
-fn color(cue: EffectCue) -> u32 {
-    match cue {
-        EffectCue::Fire => 0xff8b38,
-        EffectCue::Cold => 0x8ae9ff,
-        EffectCue::Lightning => 0xffed71,
-        EffectCue::Poison => 0x91d966,
-        EffectCue::Healing => 0x6ee4b8,
-        EffectCue::Status => 0xd69aff,
-        EffectCue::Physical => 0xe1dfca,
-        EffectCue::Neutral => 0xe7e7ff,
+fn visual_color(visual: tor_protocol::EffectVisual) -> u32 {
+    use tor_protocol::EffectVisual;
+    match visual {
+        EffectVisual::Flame => 0xff8b38,
+        EffectVisual::Frost => 0x8ae9ff,
+        EffectVisual::Sparks => 0xffed71,
+        EffectVisual::Vapor => 0xaacccc,
+        EffectVisual::Radiance => 0xffefbb,
+        EffectVisual::Neutral => 0xe7e7ff,
     }
 }

@@ -637,6 +637,30 @@ fn apply(
     if run.phase != Phase::Apply {
         return;
     }
+    for effect in run
+        .script
+        .effects
+        .iter()
+        .filter(|effect| effect.tick == run.tick)
+    {
+        // Never connect separated disclosures or infer a source/target from a model.
+        let segments: Vec<Vec<Vec3>> = effect
+            .segments
+            .iter()
+            .map(|segment| segment.iter().copied().map(Vec3::from_array).collect())
+            .collect();
+        creatures::stage_authoritative(
+            &mut commands,
+            &mut library,
+            &mut meshes,
+            tor_protocol::EffectTiming::Instant,
+            &effect.presentation,
+            effect.object_model(),
+            effect.delivery,
+            tor_protocol::EffectCue::Neutral,
+            &segments,
+        );
+    }
     for (entity, mut actor, mut anim, mut transform, rig) in &mut actors {
         let mut rebuild = false;
         for event in run.script.events.iter().filter(|e| e.tick == run.tick) {
@@ -647,7 +671,7 @@ fn apply(
             rebuild |= apply_operation(spec, velocity, &mut anim, &mut transform, &event.operation);
             if matches!(
                 event.operation,
-                Operation::Action { .. } | Operation::Teleport { .. }
+                Operation::Action { .. } | Operation::Death {} | Operation::Teleport { .. }
             ) {
                 commands.entity(entity).insert(creatures::PoseRefresh);
             }
@@ -681,6 +705,11 @@ fn apply_operation(
             } else {
                 anim.action = None;
             }
+        }
+        Operation::Death {} => {
+            *velocity = Vec3::ZERO;
+            anim.action = None;
+            anim.dead = Some(0.0);
         }
         Operation::Velocity { value } => *velocity = Vec3::from_array(*value),
         Operation::Teleport { position, yaw } => {

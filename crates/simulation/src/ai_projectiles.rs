@@ -2,8 +2,8 @@
 //! an execution step and must never choose a different unknown weapon for AI.
 use super::*;
 use crate::abilities::{
-    AbilityInvocation, CapturedWeaponProfile, ProjectileChoice, ProjectileChoiceQuery,
-    ProjectileDeliverySelection, ThrownSourceSelection,
+    CapturedWeaponProfile, ProjectileChoice, ProjectileChoiceQuery, ProjectileDeliverySelection,
+    ThrownSourceSelection,
 };
 use crate::content_ids::AbilityId;
 use crate::projectile_profiles::ProjectileDeliveryKind;
@@ -156,16 +156,16 @@ impl Game {
         }) {
             return None;
         }
-        let direction = disclosed_ray_direction(
+        let direction = self.ai_disclosed_flight_aim(
+            actor,
             target,
             sight,
             view,
-            owner.body.eye,
             u16::try_from(range.long_feet / crate::weapon_profiles::PROJECTILE_STEP_FEET).ok()?,
         )?;
         Some(Action::UseAbility {
             id: ability.clone(),
-            invocation: AbilityInvocation::directional_projectile(direction, delivery),
+            invocation: direction.projectile_invocation(delivery),
             supplies: Default::default(),
         })
     }

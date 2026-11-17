@@ -126,6 +126,206 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertFalse(zapped["state"]["wizard_game"])
 
     @non_graphical
+    def test_headless_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger(self):
+        package = polymorph.prepare(self)
+        server = self.server("--checkpoint-interval", 1, scenario=package)
+        probe, initial = self.client(observe=True)
+
+        def owner_through_relay():
+            relay = polymorph.PolymorphRetryRelay(self.address)
+            self.addCleanup(relay.close)
+            upstream, self.address = self.address, relay.address
+            try:
+                owner, _ = self.client()
+            finally:
+                self.address = upstream
+            return owner, relay
+
+        def private_projection(frame):
+            public = json.dumps(frame)
+            for secret in (polymorph.BASE, polymorph.FORM, "body_build", "personal_seed_offset",
+                           "purchase_highwater", "health_root"):
+                self.assertNotIn(secret, public)
+
+        owner, relay = owner_through_relay()
+        for ground in observation(initial)["ground_items"]:
+            self.assertIsNone(self.act(owner, {"type": "take", "item": ground["item"]["id"], "quantity": None})["error"])
+            self.advance(owner, [])
+        carried = self.snapshot(probe)
+        wand, = items(carried, "wand")
+        scroll, = items(carried, "scroll")
+        self.assertFalse(wand["identified"])
+        before_read = checkpoint(self, probe)
+        self.assertIsNone(self.act(owner, {"type": "read", "item": scroll["id"]})["error"])
+        pending = self.advance(owner, [])
+        after_read = checkpoint(self, probe)
+        read_ticks = after_read["tick"] - before_read["tick"]
+        self.assertGreater(read_ticks, 0)
+        choice = interactions(pending)["identification"]
+        self.assertEqual(choice["classes"], ["wand"])
+        self.assertEqual(choice["items"], [wand["id"]])
+        self.assertIsNone(self.act(owner, {"type": "identify", "choice": choice["choice"], "item": wand["id"]})["error"])
+        self.advance(owner, [])
+        known = self.snapshot(probe)
+        self.assertTrue(items(known, "wand")[0]["identified"])
+        self.assertEqual(charges(known, wand["id"]), 3)
+        affordance = next(row for row in interactions(known)["inventory"] if row["item"] == wand["id"])
+        self.assertEqual(affordance["device_activation"], "direction_or_self")
+        raw = [json.loads(line).get("message") for line in probe.transcript if line.startswith("{")]
+        affordance_sample = next(row for row in reversed(raw) if row and row["type"] == "snapshot")
+        self.assertEqual(affordance_sample["snapshot"]["state"], known["state"])
+        before = checkpoint(self, probe)
+        born = actor_creature(before)
+        self.assertEqual(born["build"]["body_build"]["active"]["id"], polymorph.BASE)
+        self.assertEqual(len(born["build"]["hd"]), 2)
+        self.assertEqual(len(polymorph.personal(born)), 1)
+        self.assertIsNone(self.act(owner, {"type": "zap", "item": wand["id"],
+                                           "aim": {"kind": "self_target"}})["error"])
+        self.assertTrue(relay.captured.wait(15), "real headless self-Zap must be captured")
+        changed = self.advance(probe, [])
+        saved = checkpoint(self, probe)
+        transformed = actor_creature(saved)
+        self.assertEqual(saved["tick"] - before["tick"], read_ticks)
+        self.assertEqual(charges(changed, wand["id"]), 2)
+        self.assertEqual(saved["items"]["30"]["charges"], 2)
+        self.assertEqual(transformed["build"]["body_build"]["active"]["id"], polymorph.FORM)
+        self.assertEqual(transformed["build"]["body_build"]["base"]["id"], polymorph.BASE)
+        self.assertEqual(len(transformed["build"]["hd"]), 3)
+        self.assertEqual(polymorph.personal(transformed), polymorph.personal(born))
+        self.assertEqual(transformed["earned_progress"], born["earned_progress"])
+        self.assertEqual(transformed["injury"], born["injury"])
+        self.assertEqual(transformed["build"]["starting_skills"], born["build"]["starting_skills"])
+        attributes = observation(changed)["combat"]["own_stats"]["attributes"]
+        self.assertEqual(attributes["strength"], 3)
+        for attribute in ("intellect", "willpower", "awareness", "presence"):
+            self.assertEqual(attributes[attribute], 0)
+        self.assertFalse(changed["state"]["wizard_game"])
+        private_projection(changed)
+        original_frame, original_id = relay.saved_frame, relay.request_id
+        self.assertFalse(relay.errors)
+        owner.stop(save=False)
+        probe.stop(save=False)
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.assertFalse(package.exists())
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        probe, restored = self.client(observe=True)
+        self.assertEqual(checkpoint(self, probe), saved)
+        self.assertEqual(charges(restored, wand["id"]), 2)
+        private_projection(restored)
+        owner, reopened_relay = owner_through_relay()
+        receipt = reopened_relay.retry(original_frame, original_id)
+        self.assertEqual(receipt["phase"], "resolved")
+        self.assertEqual(checkpoint(self, probe), saved, "exact retry cannot pay, draw or transform twice")
+        spectator, watched = self.client(SPECTATOR_TOKEN, observe=True)
+        private_projection(watched)
+        self.assertFalse(reopened_relay.errors)
+        self.polymorph_samples = {"affordance": affordance_sample, "request": relay.saved_message}
+
+    @non_graphical
+    def test_headless_detection_history_empty_retention_source_free_spectator(self):
+        package = detection.prepare(self, mapping=True)
+        server = self.server("--checkpoint-interval", 1, scenario=package)
+        owner, initial, relay = self.detection_client()
+        peer, _ = self.client(actor=2)
+        ids = detection.initial_doses(self, initial)
+        ground = {row["item"]["class"]: row["item"]["id"] for row in observation(initial)["ground_items"]}
+        positive = {}
+        for kind in ("food", "magic"):
+            frame = self.detection_use(owner, peer, ids[kind])
+            self.assertTrue(hallucination_item(frame, ids[kind])["identified"])
+            if kind == "food":
+                self.assertEqual((hallucination_item(frame, ids[kind])["class"],
+                                  hallucination_item(frame, ids[kind])["name"]),
+                                 ("scroll", "scroll of food detection"))
+            self.assertEqual(detection.summary(frame, kind)["mode"], "historical")
+            _, requested, pages = self.detection_pages(owner, kind)
+            self.assertEqual(len(detection.rows(pages)), 1)
+            positive[kind] = detection.historical_payload(pages)
+            if kind == "magic":
+                original_query, original_page = relay.pair(requested, self.detection_last_request)
+        before_mapping = self.snapshot(owner)
+        ordinary_memory = self.detection_memory(owner, before_mapping)
+        scroll, = [row for row in items(before_mapping, "scroll") if row["quantity"] == "2"]
+        self.assertFalse(scroll["identified"])
+        self.assertIsNone(self.act(owner, {"type": "read", "item": scroll["id"]})["error"])
+        mapped = self.advance(owner, [peer])
+        self.assertEqual(int(observation(mapped)["tick"]) - int(observation(before_mapping)["tick"]), 100)
+        remaining = hallucination_item(mapped, scroll["id"])
+        self.assertEqual((remaining["quantity"], remaining["name"], remaining["identified"]),
+                         ("1", "scroll of magic mapping", True))
+        self.assertEqual(self.detection_memory(owner, mapped), ordinary_memory,
+                         "paid Mapping does not acquire ordinary map cells or action keys")
+        _, mapping_requested, mapping_pages = self.detection_pages(owner, "mapping")
+        self.assertGreaterEqual(len(mapping_pages), 3, "Mapping must cross real wire page boundaries")
+        mapping_rows = detection.rows(mapping_pages)
+        self.assertEqual(len(mapping_rows), 1024, "32x32x8 room: eight heights of four wall faces, no floor/ceiling")
+        self.assertTrue(all(row["mark"]["fact"]["kind"] == "wall_face"
+                            and row["mark"]["fact"]["normal"][2] == 0 for row in mapping_rows))
+        self.assertTrue(any(int(row["position"][0]) > 20 for row in mapping_rows),
+                        "chart genuinely includes remote walls not ordinarily observed")
+        positive["mapping"] = detection.historical_payload(mapping_pages)
+        mapping_exchange = relay.stream(mapping_requested, self.detection_last_request)
+        for item in (ground["food"], ground["wand"]):
+            self.assertIsNone(self.act(owner, {"type": "take", "item": item, "quantity": None})["error"])
+            self.advance(owner, [peer])
+        self.assertIsNone(self.act(owner, {"type": "move", "direction": "east"})["error"])
+        self.advance(owner, [peer])
+        for kind in ("food", "magic"):
+            frame = self.detection_use(owner, peer, ids[kind])
+            status = detection.summary(frame, kind)
+            self.assertEqual((status["mode"], status["status"]), ("historical", "available"))
+            self.assertEqual(status["latest_attempt"], {"attempted_at": observation(frame)["tick"], "status": "empty"})
+            _, _, pages = self.detection_pages(owner, kind)
+            self.assertEqual(detection.historical_payload(pages), positive[kind],
+                             "empty attempts and owner movement retain the complete acquired positive")
+        saved = detection.raw_checkpoint(self, owner)
+        pool = saved["shared"]["chart_history"]
+        current = pool["owners"][saved["game"]["chart_history"]]
+        binding, = [row for row in current if str(row["actor"]) == "1"]
+        for kind in ("food", "magic"):
+            slot = binding["slots"][kind]
+            self.assertIsNotNone(slot["latest"])
+            self.assertEqual(slot["attempt"]["status"], {"kind": "empty"})
+            self.assertEqual(pool["roots"][slot["latest"]]["kind"], kind)
+        mapped_slot = binding["slots"]["mapping"]
+        self.assertIsNotNone(mapped_slot["latest"])
+        self.assertEqual(mapped_slot["attempt"]["status"], {"kind": "positive"})
+        self.assertEqual(pool["roots"][mapped_slot["latest"]]["kind"], "mapping")
+        self.assertTrue(all(point["mapping"] is not None
+                            for point in pool["roots"][mapped_slot["latest"]]["points"]))
+        payload = detection.checkpoint_payload(self)
+        self.assertEqual(detection.raw_checkpoint(self, owner), saved)
+        owner.stop(save=False)
+        peer.stop(save=False)
+        relay.close()
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.assertFalse(package.exists())
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        spectator, restored, replay = self.detection_client(SPECTATOR_TOKEN, observe=True)
+        self.assertEqual(spectator is owner, False)
+        self.assertEqual(detection.raw_checkpoint(self), saved)
+        self.assertEqual(restored["role"], "spectator")
+        self.assertFalse(restored["has_control"])
+        for kind in ("food", "magic", "mapping"):
+            _, requested, pages = self.detection_pages(spectator, kind)
+            self.assertEqual(detection.historical_payload(pages), positive[kind])
+            if kind == "magic":
+                restored_query, restored_page = replay.pair(requested, self.detection_last_request)
+            if kind == "mapping":
+                restored_mapping_exchange = replay.stream(requested, self.detection_last_request)
+        self.assertEqual(detection.raw_checkpoint(self), saved)
+        self.assertFalse(self.snapshot(spectator)["state"]["wizard_game"])
+        # Published by recorder only after this case AND all cleanup succeeds.
+        # Payload bytes are the real production writer's source-free book, not
+        # hand-authored save DTOs or a copied previous-epoch artifact.
+        self.detection_samples = {"query": original_query, "page": original_page,
+            "restored_query": restored_query, "restored_page": restored_page,
+            "mapping": mapping_exchange, "restored_mapping": restored_mapping_exchange,
+            "checkpoint_payload": payload}
+
+    @non_graphical
     def test_text_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger(self):
         package = polymorph.prepare(self)
         server = self.server("--checkpoint-interval", 1, scenario=package)
@@ -252,8 +452,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertNotIn('"type":"combat_diagnostics"', "".join(owner.transcript).replace(" ", ""))
         self.polymorph_diagnostic_sample = sample
 
-    @non_graphical
-    def test_text_cursed_armor_enchantment_and_source_free_reopen(self):
+    def armor_package(self):
         package = self.package()
         path = package / "scenario.toml"
         manifest = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -282,6 +481,27 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                    capture_output=True, text=True, encoding="utf-8", timeout=30)
         self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+        return package
+
+    def test_native_inventory_explains_known_armor_protection(self):
+        self.server(scenario=self.armor_package())
+        text, _ = self.adventure()
+        self.send(text, "read indigo page")
+        text.until(lambda line: "choose an item to identify" in line.lower())
+        probe, initial = self.client(observe=True)
+        worn = next(row["item"] for row in interactions(initial)["inventory"] if row["equipped_slot"] == 1)
+        self.send(text, "identify #" + worn)
+        text.until(lambda line: "you identify the ring mail" in line.lower())
+        text.stop()
+        window, _ = self.window()
+        inventory = self.key(window, "inventory")
+        worn = next(row for row in inventory["inventory_rows"] if "(being worn)" in row)
+        self.assertIn("Impact damage -1, Keen damage -1", worn)
+        self.assertNotIn("Scope:", worn)
+
+    @non_graphical
+    def test_text_cursed_armor_enchantment_and_source_free_reopen(self):
+        package = self.armor_package()
         server = self.server("--checkpoint-interval", 1, scenario=package)
         probe, initial = self.client(observe=True)
         text, _ = self.adventure()
@@ -543,6 +763,64 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(observation(reopened)["combat"]["own_stats"]["attributes"]["strength"], 3)
         self.assertEqual(checkpoint(self, probe), saved, "reopening the native UI cannot pay twice")
 
+    def test_native_discoveries_retains_consumed_scroll_appearance(self):
+        package = self.package()
+        server = self.server(scenario=package)
+        owner, initial = self.client()
+        scroll = next(row["item"] for row in observation(initial)["ground_items"]
+                      if row["item"]["class"] == "scroll")
+        self.assertIsNone(self.act(owner, {"type": "take", "item": scroll["id"], "quantity": None})["error"])
+        frame = self.advance(owner, ())
+        for _ in range(3):
+            carried, = items(frame, "scroll")
+            self.assertIsNone(self.act(owner, {"type": "read", "item": carried["id"]})["error"])
+            choice = interactions(self.advance(owner, ()))["identification"]
+            self.assertIsNone(self.act(owner, {"type": "identify", "choice": choice["choice"],
+                                               "item": None})["error"])
+            frame = self.advance(owner, ())
+        self.assertEqual(items(frame, "scroll"), [])
+        self.assertIsNone(self.request(owner, {"type": "save"})["error"])
+        owner.stop()
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.server(seed=None)
+        window, before = self.window()
+        self.key(window, "commands")
+        window.write(json.dumps({"type": "text", "text": "discoveries"}))
+        self.ascii_frame(window, lambda f: f.get("command_line") == "discoveries")
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        page = self.ascii_frame(window, lambda f: f.get("discovery_rows") is not None and not f["busy"])
+        self.assertIn(f'{scroll["name"]} -> scroll of identify wand', page.get("discovery_rows") or [])
+        self.assertEqual(page["state"], before["state"])
+        self.key(window, "escape")
+        self.key(window, "commands")
+        window.write(json.dumps({"type": "text", "text": "discoveries"}))
+        self.ascii_frame(window, lambda f: f.get("command_line") == "discoveries")
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        reopened = self.ascii_frame(window, lambda f: f.get("discovery_rows") is not None and not f["busy"])
+        self.assertEqual(reopened["discovery_rows"], page["discovery_rows"])
+        self.assertEqual(reopened["discovery_rows"], [f'{scroll["name"]} -> scroll of identify wand'])
+
+    def test_native_identify_scroll_explains_empty_choice(self):
+        self.server(scenario=self.package())
+        owner, initial = self.client()
+        scroll = next(row["item"] for row in observation(initial)["ground_items"]
+                      if row["item"]["class"] == "scroll")
+        self.assertIsNone(self.act(owner, {"type": "take", "item": scroll["id"], "quantity": None})["error"])
+        self.advance(owner, ())
+        self.assertIsNone(self.request(owner, {"type": "release_control"})["error"])
+        window = self.launch("tor-client-ascii", ["--connect", self.address, "--automation"])
+        self.ascii_frame(window, lambda frame: frame["has_control"] and not frame["busy"])
+        self.key(window, "read")
+        window.write(json.dumps({"type": "key", "key": "enter"}))
+        choice = self.ascii_frame(window, lambda frame: frame.get("identification") is not None)
+        self.assertEqual(choice["identification"]["classes"], ["wand"])
+        self.assertEqual(choice["identification_rows"], [])
+        self.assertEqual(choice.get("identification_empty_message"),
+                         "No wands in your pack can be identified.")
+        self.assertNotIn("It was an item.", choice["messages"]["turn"])
+        self.key(window, "escape")
+
     def test_native_paid_choice_reopens_and_direction_cancel_keeps_exact_charges(self):
         package = self.package()
         server = self.server("--checkpoint-interval", 1, scenario=package)
@@ -660,6 +938,253 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(len(items(completed, "wand")), 2)
         self.assertFalse(completed["state"]["wizard_game"])
 
+
+    def recorded_action(self, owner, action):
+        self.assertIsNone(self.act(owner, action)["error"])
+        return self.advance(owner, [])
+
+    @non_graphical
+    def test_headless_nothing_direction_and_identified_self(self):
+        package = prepare_self_device(self)
+        self.server("--checkpoint-interval", 1, scenario=package)
+        probe, initial = self.client()
+        for ground in observation(initial)["ground_items"]:
+            self.recorded_action(probe, {"type": "take", "item": ground["item"]["id"], "quantity": None})
+        carried = self.snapshot(probe)
+        first, second = items(carried, "wand")
+        scroll, = items(carried, "scroll")
+        self.assertTrue(all(not row["identified"] for row in items(carried, "wand")))
+        modes = {row["item"]: row["device_activation"] for row in interactions(carried)["inventory"]}
+        self.assertEqual(modes[first["id"]], "direction")
+        self.assertEqual(modes[second["id"]], "direction")
+        before = checkpoint(self, probe)
+        self.assertEqual(before["actors"]["1"]["turn_ticks"], 100)
+        self.assertEqual(sorted(before["items"][str(i)]["charges"] for i in (30, 31)), [3, 3])
+        self.recorded_action(probe, {"type": "zap", "item": first["id"], "aim": {"kind": "direction", "direction": "east"}})
+        spent = self.snapshot(probe)
+        after = checkpoint(self, probe)
+        self.assertEqual(int(observation(spent)["tick"]), int(observation(carried)["tick"]) + 100)
+        self.assertEqual(sorted(after["items"][str(i)]["charges"] for i in (30, 31)), [2, 3])
+        self.assertEqual(after["rules_rng"], before["rules_rng"])
+        self.assertEqual(observation(spent)["combat"]["own_stats"]["conditions"],
+                         observation(carried)["combat"]["own_stats"]["conditions"])
+        self.assertTrue(all(not row["identified"] for row in items(spent, "wand")))
+        self.assertIsNone(charges(spent, first["id"]))
+        self.recorded_action(probe, {"type": "read", "item": scroll["id"]})
+        self.assertIsNotNone(interactions(self.snapshot(probe))["identification"])
+        choice = interactions(self.snapshot(probe))["identification"]
+        self.recorded_action(probe, {"type": "identify", "choice": choice["choice"], "item": first["id"]})
+        learned = self.snapshot(probe)
+        self.assertEqual(charges(learned, first["id"]), 2)
+        self.assertIsNone(charges(learned, second["id"]))
+        self.assertTrue(all(row["identified"] for row in items(learned, "wand")))
+        modes = {row["item"]: row["device_activation"] for row in interactions(learned)["inventory"]}
+        self.assertEqual(modes[first["id"]], "self_target")
+        self.assertEqual(modes[second["id"]], "self_target")
+        spectator, followed = self.client(SPECTATOR_TOKEN, observe=True)
+        followed_modes = {row["item"]: row["device_activation"] for row in interactions(followed)["inventory"]}
+        self.assertEqual(followed_modes, modes)
+        known_before = checkpoint(self, probe)
+        self.assertEqual(known_before["actors"]["1"]["turn_ticks"], 100)
+        self.recorded_action(probe, {"type": "zap", "item": first["id"], "aim": {"kind": "self_target"}})
+        final = self.snapshot(probe)
+        self.assertEqual(int(observation(final)["tick"]), int(observation(learned)["tick"]) + 100)
+        self.assertEqual(charges(final, first["id"]), 1)
+        self.assertIsNone(charges(final, second["id"]))
+        self.assertFalse(final["state"]["wizard_game"])
+        messages = [json.loads(line).get("message") for line in probe.transcript if line.startswith("{")]
+        self.self_device_sample = next(message for message in reversed(messages)
+                                      if message and message["type"] == "snapshot")
+
+    @non_graphical
+    def test_headless_drain_weak_attempt_spends_time_not_charge_or_identity(self):
+        package = prepare_imported_drain(self, weak=True)
+        self.server("--checkpoint-interval", 1, scenario=package)
+        probe, initial = self.client()
+        self.collect(probe, initial)
+        before = self.snapshot(probe)
+        self.assertEqual(len(items(before, "wand")), 2)
+        self.assertEqual(len(items(before, "scroll")), 1)
+        self.assertEqual(observation(before)["ground_items"], [])
+        wand = items(before, "wand")[0]
+        self.assertEqual(int(observation(before)["combat"]["hp"]), 1)
+        self.assertEqual(int(observation(before)["combat"]["max_hp"]), 1)
+        self.assertEqual(observation(before)["combat"]["own_stats"]["attributes"]["speed"], 0)
+        saved = checkpoint(self, probe)
+        self.assertEqual(saved["actors"]["1"]["turn_ticks"], 100)
+        self.assertTrue(all(3 <= saved["items"][key]["charges"] <= 7 for key in ("30", "31")))
+        for attempt in range(2):
+            self.recorded_action(probe, {"type": "zap", "item": wand["id"],
+                                         "aim": {"kind": "direction", "direction": "east"}})
+            after = self.snapshot(probe)
+            after_saved = checkpoint(self, probe)
+            self.assertEqual(int(observation(after)["tick"]), int(observation(before)["tick"]) + 100 * (attempt + 1))
+            self.assertEqual(int(observation(after)["combat"]["hp"]), 1)
+            self.assertEqual(after_saved["rules_rng"], saved["rules_rng"])
+            for key in ("30", "31"):
+                self.assertEqual(after_saved["items"][key]["charges"], saved["items"][key]["charges"])
+            self.assertTrue(all(not item["identified"] for item in items(after, "wand")))
+            self.assertTrue(all(row["device_activation"] == "direction" for row in interactions(after)["inventory"] if row["zappable"]))
+            self.assertIsNone(charges(after, wand["id"]))
+            self.assertFalse(after["state"]["wizard_game"])
+        messages = [json.loads(line).get("message") for line in probe.transcript if line.startswith("{")]
+        self.drain_refusal_sample = next(message for message in reversed(messages)
+            if message and message["type"] == "snapshot"
+            and message["snapshot"]["state"]["observation"]["interactions"]["refused"])
+
+    @non_graphical
+    def test_headless_hallucination_visual_cadence_and_source_free_reopen(self):
+        package = prepare_imported_hallucination(self)
+        server = self.server("--checkpoint-interval", 1, scenario=package)
+        probe, initial = self.client(actor=1)
+        peer, _ = self.client(actor=2)
+        ids = hallucination_initial_items(self, initial)
+        initial_ground = observation(initial)["ground_items"][0]["item"]["id"]
+        initial_actor = next(row["id"] for row in observation(initial)["visible_actors"]
+                             if row["name"] == "actual visible peer")
+        pending = self.act(probe, {"type": "drink", "item": ids["hallucination"]})
+        # Fresh saves do not have a checkpoint before the first durable record.
+        # Admission captures paid work at tick zero; the external peer still
+        # prevents its tick-100 effect, so this is a genuine pre-draw baseline.
+        self.assertIsNone(pending["error"])
+        self.assertEqual(observation(pending)["tick"], "0")
+        self.assertIsNone(hallucination_condition(pending, "rogue.hallucinating"))
+        self.assertTrue(pending["intentions"], "the first paid dose must be admitted")
+        before = checkpoint(self, probe)
+        self.assertEqual(before["tick"], 0)
+        self.assertIsNone(before["actors"]["1"]["hallucination"])
+        first = self.advance(probe, [peer])
+        self.assertEqual(observation(first)["tick"], "100")
+        assert_hallucination_sample(self, observation(first), 0)
+        self.assertEqual(hallucination_item(first, ids["hallucination"])["quantity"], "5")
+        self.assertEqual(hallucination_item(first, ids["hallucination"])["name"], "potion of hallucination")
+        self.assertTrue(hallucination_item(first, ids["hallucination"])["identified"])
+        self.assertEqual(observation(first)["ground_items"][0]["item"]["id"], initial_ground)
+        self.assertEqual({row["id"] for row in observation(first)["visible_actors"]
+                          if row["id"] != observation(first)["self_target"]}, {initial_actor})
+        saved_first = checkpoint(self, probe)
+        self.assertNotEqual(saved_first["rules_rng"], before["rules_rng"])
+        clock = saved_first["actors"]["1"]["hallucination"]
+        self.assertEqual((clock["phase"], clock["period"], clock["remaining_to_shift"]), (0, 100, 100))
+        for _ in range(3):
+            self.assertDisclosedStateEqual(self.snapshot(probe)["state"], first["state"])
+            self.assertEqual(checkpoint(self, probe), saved_first)
+        first = self.snapshot(probe)
+        self.hallucination_samples = {"visual": self.hallucination_snapshot_sample(probe, first)}
+        self.assertIsNone(self.act(probe, {"type": "drink", "item": ids["hallucination"]})["error"])
+        second = self.advance(probe, [peer])
+        self.assertEqual(observation(second)["tick"], "200")
+        assert_hallucination_sample(self, observation(second), 1)
+        extension = hallucination_deadline(second, "rogue.hallucinating") - hallucination_deadline(first, "rogue.hallucinating")
+        self.assertIn(extension, range(80800, 89201, 100))
+        saved = checkpoint(self, probe)
+        next_clock = saved["actors"]["1"]["hallucination"]
+        self.assertEqual(next_clock["generation"], clock["generation"])
+        self.assertEqual((next_clock["phase"], next_clock["period"], next_clock["remaining_to_shift"]), (1, 100, 100))
+        self.assertNotEqual(saved["rules_rng"], saved_first["rules_rng"])
+        second = self.snapshot(probe)
+        self.hallucination_samples["extended"] = self.hallucination_snapshot_sample(probe, second)
+        remembered = self.hallucination_memory(probe, second)
+        probe.stop(save=False)
+        peer.stop(save=False)
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        probe, restored = self.client(actor=1)
+        self.assertEqual(checkpoint(self, probe), saved, "source-free reopen keeps real cadence and RNG")
+        assert_hallucination_sample(self, observation(restored), 1)
+        self.assertEqual(self.hallucination_memory(probe, restored), remembered)
+        peer, _ = self.client(actor=2)
+        self.assertIsNone(self.act(probe, {"type": "drink", "item": ids["extra"]})["error"])
+        cured = self.advance(probe, [peer])
+        self.assertIsNone(hallucination_condition(cured, "rogue.hallucinating"))
+        self.assertIsNone(checkpoint(self, probe)["actors"]["1"]["hallucination"])
+        self.assertIsNone(observation(cured)["ground_items"][0]["presentation"])
+        self.assertEqual(observation(cured)["ground_items"][0]["item"]["name"], "gold coin")
+        self.assertTrue(any(row["name"] == "actual visible peer" for row in observation(cured)["visible_actors"]))
+        cured = self.snapshot(probe)
+        self.hallucination_samples["cured"] = self.hallucination_snapshot_sample(probe, cured)
+        self.assertFalse(cured["state"]["wizard_game"])
+
+    @non_graphical
+    def test_headless_torch_control_fuel_drop_and_source_free_reopen(self):
+        package = prepare_imported_torch(self)
+        server = self.server("--checkpoint-interval", 1, scenario=package)
+        probe, initial = self.client()
+        self.collect(probe, initial)
+        carried = self.snapshot(probe)
+        torch, = observation(carried)["inventory"]
+        target = torch["id"]
+        self.assertEqual(torch["class"], "tool")
+        self.assertEqual(torch["name"], "torch")
+        self.assertEqual(observation(carried)["combat"]["own_stats"]["attributes"]["speed"], 0)
+        def light(frame):
+            return next(row for row in interactions(frame)["inventory"] if row["item"] == target)["portable_light"]
+        def ticks(frame):
+            return int(observation(frame)["tick"])
+        def lit_cell(frame):
+            return any(cell["position"] == {"x": 3, "y": 0, "z": 0} and cell["lit"]
+                       for cell in observation(frame)["visible_cells"])
+        self.assertEqual(light(carried), {"remaining": "100000", "lit": False,
+                                         "ignitable": False, "extinguishable": False})
+        self.assertFalse(lit_cell(carried))
+        self.assertEqual(checkpoint(self, probe)["actors"]["1"]["turn_ticks"], 100)
+        refused = self.act(probe, {"type": "ignite", "item": target})
+        self.assertIsNotNone(refused["error"])
+        self.assertEqual(ticks(self.snapshot(probe)), ticks(carried))
+        self.recorded_action(probe, {"type": "equip", "item": target, "slot": 5})
+        held = self.snapshot(probe)
+        self.assertFalse(light(held)["lit"], "equipping never auto-ignites")
+        self.assertTrue(light(held)["ignitable"])
+        self.assertFalse(lit_cell(held))
+        self.recorded_action(probe, {"type": "ignite", "item": target})
+        burning = self.snapshot(probe)
+        self.assertEqual(ticks(burning), ticks(held) + 100)
+        self.assertTrue(light(burning)["lit"])
+        self.assertEqual(int(light(burning)["remaining"]), 100000)
+        self.assertTrue(lit_cell(burning))
+        def snapshot_message():
+            messages = [json.loads(line).get("message") for line in probe.transcript if line.startswith("{")]
+            return next(message for message in reversed(messages) if message and message["type"] == "snapshot")
+        lit_sample = snapshot_message()
+        self.recorded_action(probe, {"type": "wait"})
+        elapsed = self.snapshot(probe)
+        self.assertEqual(ticks(elapsed), ticks(burning) + 100)
+        self.assertEqual(int(light(elapsed)["remaining"]), 99900)
+        self.recorded_action(probe, {"type": "extinguish", "item": target})
+        off = self.snapshot(probe)
+        self.assertEqual(ticks(off), ticks(elapsed) + 100)
+        self.assertFalse(light(off)["lit"])
+        self.assertEqual(int(light(off)["remaining"]), 99800)
+        self.assertFalse(lit_cell(off))
+        self.torch_samples = {"lit": lit_sample, "off": snapshot_message()}
+        self.recorded_action(probe, {"type": "ignite", "item": target})
+        relit = self.snapshot(probe)
+        self.recorded_action(probe, {"type": "unequip", "item": target})
+        stowed = self.snapshot(probe)
+        self.assertFalse(light(stowed)["lit"])
+        self.assertFalse(light(stowed)["ignitable"])
+        self.assertEqual(int(light(stowed)["remaining"]),
+                         int(light(relit)["remaining"]) - (ticks(stowed) - ticks(relit)))
+        self.recorded_action(probe, {"type": "equip", "item": target, "slot": 5})
+        self.recorded_action(probe, {"type": "ignite", "item": target})
+        before_drop = self.snapshot(probe)
+        self.recorded_action(probe, {"type": "drop", "item": target})
+        dropped = self.snapshot(probe)
+        self.assertEqual(observation(dropped)["inventory"], [])
+        self.assertTrue(lit_cell(dropped), "dropped flame remains a ground light source")
+        saved = checkpoint(self, probe)
+        self.assertTrue(saved["items"]["30"]["fuel"]["lit"])
+        self.assertEqual(int(saved["items"]["30"]["fuel"]["remaining"]),
+                         int(light(before_drop)["remaining"]) - (ticks(dropped) - ticks(before_drop)))
+        self.assertFalse(dropped["state"]["wizard_game"])
+        probe.stop(save=False)
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", seed=None)
+        reopened, restored = self.client()
+        self.assertEqual(checkpoint(self, reopened), saved)
+        self.assertTrue(lit_cell(restored))
 
     @non_graphical
     def test_text_nothing_unknown_direction_and_identified_self_skip(self):

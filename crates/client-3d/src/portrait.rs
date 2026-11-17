@@ -59,6 +59,12 @@ impl Portrait {
     pub(crate) fn parts(&self) -> usize {
         self.layers.len()
     }
+    /// Lets go of the last game's figure; the image is reused.
+    pub(crate) fn forget(&mut self) {
+        self.owner = None;
+        self.active = false;
+        self.layers.clear();
+    }
 }
 
 fn wanted(game: &Game, panel: &Panel) -> bool {

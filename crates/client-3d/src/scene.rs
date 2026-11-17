@@ -29,7 +29,9 @@ fn reconcile_public_effects(
 ) {
     let visible: HashSet<_> = effects
         .iter()
-        .filter(|effect| effect.appearance != tor_protocol::EffectAppearance::StatusIndicator)
+        .filter(|effect| {
+            effect.presentation.form != tor_protocol::EffectAppearance::StatusIndicator
+        })
         .map(|effect| effect.id.as_str())
         .collect();
     game.public_effects.retain(|id, body| {
@@ -68,8 +70,8 @@ fn reconcile_public_effects(
             commands,
             library,
             meshes,
-            effect.appearance,
-            effect.cue,
+            effect.presentation.form,
+            effect.presentation.visual,
             &points,
         );
         game.public_effects.insert(
@@ -832,7 +834,8 @@ pub(super) fn react(
         match happening {
             Happening::Effect {
                 timing,
-                appearance,
+                presentation,
+                object_model,
                 delivery,
                 cue,
                 segments,
@@ -852,7 +855,8 @@ pub(super) fn react(
                     &mut library,
                     &mut meshes,
                     timing,
-                    appearance,
+                    &presentation,
+                    object_model,
                     delivery,
                     cue,
                     &points,

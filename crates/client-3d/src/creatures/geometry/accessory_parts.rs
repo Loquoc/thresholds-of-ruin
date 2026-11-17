@@ -332,29 +332,25 @@ pub(super) fn waist(p: &mut Parts, waist: Waist, body: HumanoidBody, support: &c
                 }
             }
         }
-        Waist::CrossedBelts(color) => {
-            for (tilt, gap) in [(-0.04, 0.008), (0.04, 0.013)] {
-                waist_parts::slanted_band(
-                    &mut p.matte,
-                    body,
-                    support,
-                    Vec2::new(0.075, 0.105),
-                    Vec2::new(tilt, gap),
-                    color,
-                );
-            }
+        Waist::Pointed { color, edge } => {
+            waist_parts::pointed_band(p, body, support, Vec2::new(0.10, 0.065), 0.025, color, edge);
         }
         Waist::Crossed(color) => {
             // Cords crossing round the waist above the hips, tied in front
             // with a bow and two hanging ends.
+            // Fit the emitted tube, not merely its control knots. Sixteen
+            // stations at 6mm allowed interpolated/faceted spans to cut into
+            // the wearer. 31 stations retain the inline 32-radius path; 8mm
+            // centers reserve chord/spline clearance around the same 5mm cord.
+            const STATIONS: usize = 31;
             let first_height = 0.1;
             let mut knot = None;
             for k in 0..3 {
                 let y = first_height + 0.035 * k as f32;
-                let path: Vec<Vec3> = (0..=16)
+                let path: Vec<Vec3> = (0..=STATIONS)
                     .map(|j| {
-                        let a = (j as f32 / 16.0) * TAU;
-                        at(a, y + 0.03 * (a * 2.0).sin(), 0.006)
+                        let a = (j as f32 / STATIONS as f32) * TAU;
+                        at(a, y + 0.03 * (a * 2.0).sin(), 0.008)
                     })
                     .collect();
                 let mut cord = p.metal.empty_like();
@@ -1223,6 +1219,8 @@ mod armlet_attachment_tests {
                 side,
                 body.build,
                 body.arm_length,
+                body.profile.muscle,
+                Vec3::X,
             ),
             3 => biped_pauldron(&mut p, side, body, PauldronFinish::STEEL),
             _ => unreachable!(),

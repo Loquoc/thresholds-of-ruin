@@ -18,6 +18,7 @@ mod generated_regions;
 mod generation_groups;
 mod geometry;
 mod history;
+mod host;
 mod invariants;
 mod items;
 mod materials;

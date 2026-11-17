@@ -274,7 +274,7 @@ impl Game {
         profile: &crate::ai::AiProfile,
         route: &mut impl FnMut(tor_world::Location) -> Option<Vec<crate::TravelStep>>,
     ) -> BTreeMap<ItemId, u64> {
-        let mut result = BTreeMap::new();
+        let result = BTreeMap::new();
         if !profile.equipment
             || !profile.loot
             || view.inventory.len() > INVENTORY_BOUND
@@ -282,35 +282,46 @@ impl Game {
         {
             return result;
         }
-        let ground: Vec<_> =
-            view.ground_items
-                .iter()
-                .take(INVENTORY_BOUND)
-                .filter(|row| row.identified)
-                .filter(|row| {
-                    self.known_launcher_family(actor, row.id).is_some()
-                        || self.known_payload_family(actor, row.id).is_some()
-                })
-                .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
-                .filter(|row| {
-                    if row.location == view.location {
-                        return true;
-                    }
-                    if profile.idle == crate::behavior::IdleBehavior::Wait {
-                        return false;
-                    }
-                    route(row.location).is_some_and(|path| {
-                        path.len() <= 3
-                            && path.first().is_some_and(|step| {
-                                self.actor_translation(actor, step.direction).is_some_and(
-                                    |(at, _)| !self.exposed_to_visible_hostile(actor, at, view),
-                                )
+        let ground: Vec<_> = view
+            .ground_items
+            .iter()
+            .take(INVENTORY_BOUND)
+            .filter(|row| row.identified)
+            .filter(|row| {
+                self.known_launcher_family(actor, row.id).is_some()
+                    || self.known_payload_family(actor, row.id).is_some()
+            })
+            .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
+            .filter(|row| {
+                if row.location == view.location {
+                    return true;
+                }
+                if profile.idle == crate::behavior::IdleBehavior::Wait {
+                    return false;
+                }
+                route(row.location).is_some_and(|path| {
+                    path.first().is_some_and(|step| {
+                        self.actor_translation(actor, step.direction)
+                            .is_some_and(|(at, _)| {
+                                !self.exposed_to_visible_hostile(actor, at, view)
                             })
                     })
                 })
-                .map(|row| row.id)
-                .collect();
-        let Some(choice) = self.known_launcher_choice(actor, view, &ground) else {
+            })
+            .map(|row| row.id)
+            .collect();
+        self.ranged_pair_quantities(actor, view, &ground)
+    }
+
+    // One pairing/reserve authority for ordinary and recovered approaches.
+    fn ranged_pair_quantities(
+        &self,
+        actor: ActorId,
+        view: &Observation,
+        ground: &[ItemId],
+    ) -> BTreeMap<ItemId, u64> {
+        let mut result = BTreeMap::new();
+        let Some(choice) = self.known_launcher_choice(actor, view, ground) else {
             return result;
         };
         if ground.contains(&choice.item) {
@@ -327,12 +338,103 @@ impl Game {
             .fold(0_u64, |sum, row| sum.saturating_add(row.quantity));
         let deficit = SHOT_RESERVE.saturating_sub(carried);
         if deficit > 0 {
-            for item in ground {
+            for &item in ground {
                 if self.known_payload_family(actor, item) == Some(&choice.family) {
                     result.insert(item, deficit);
                 }
             }
         }
         result
+    }
+    /// Reconsider only known ranged pairs after the ordinary item chooser found
+    /// no action. Eligibility and execution share the same completed approach
+    /// facts, so an underfoot half does not disappear when its partner requires
+    /// a disclosed detour. Nothing here predicts undisclosed body occupancy.
+    pub(crate) fn choose_ranged_loot_detour(
+        &self,
+        actor: ActorId,
+        view: &Observation,
+        profile: &crate::ai::AiProfile,
+        route: &mut impl FnMut(tor_world::Location) -> Option<Vec<crate::TravelStep>>,
+        remaining: &mut usize,
+    ) -> Option<Action> {
+        if view.ground_items.is_empty()
+            || !profile.equipment
+            || !profile.loot
+            || profile.idle == crate::behavior::IdleBehavior::Wait
+            || view.inventory.len() > INVENTORY_BOUND
+            || self.acquisition_launch_ability(actor).is_none()
+        {
+            return None;
+        }
+        let ground: Vec<_> = view
+            .ground_items
+            .iter()
+            .take(INVENTORY_BOUND)
+            .filter(|row| row.identified)
+            .filter(|row| {
+                self.known_launcher_family(actor, row.id).is_some()
+                    || self.known_payload_family(actor, row.id).is_some()
+            })
+            .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
+            .collect();
+        let occupied = crate::ai_approach::disclosed_bodies(actor, view);
+        let destinations: std::collections::BTreeSet<_> =
+            ground.iter().map(|row| row.location).collect();
+        // (hop count, first direction). None direction means underfoot Take.
+        let mut approaches = BTreeMap::new();
+        let mut blocked = Vec::new();
+        for destination in destinations {
+            if destination == view.location {
+                approaches.insert(destination, (0, None));
+                continue;
+            }
+            let Some(path) = route(destination) else {
+                continue;
+            };
+            let Some(step) = path.first() else {
+                continue;
+            };
+            match self.actor_translation(actor, step.direction) {
+                Some((at, _)) if !self.exposed_to_visible_hostile(actor, at, view) => {
+                    approaches.insert(destination, (path.len(), Some(step.direction)));
+                }
+                None if occupied.contains(&step.destination) => blocked.push(destination),
+                _ => {}
+            }
+        }
+        if blocked.is_empty() {
+            return None;
+        }
+        let planner = crate::ai_approach::KnownApproachPlanner::new(self, actor, view, &occupied)?;
+        for target in blocked {
+            // Exhaustion invalidates the entire pair comparison, not just this
+            // destination. Direct and fallback eligibility retain one cache.
+            if let Some(approach) = planner.best_detour(target, remaining).ok()? {
+                approaches.insert(target, (approach.hops, Some(approach.direction)));
+            }
+        }
+        let eligible: Vec<_> = ground
+            .iter()
+            .filter(|row| approaches.contains_key(&row.location))
+            .map(|row| row.id)
+            .collect();
+        let quantities = self.ranged_pair_quantities(actor, view, &eligible);
+        ground
+            .into_iter()
+            .filter_map(|row| {
+                let quantity = quantities.get(&row.id)?.min(&row.quantity);
+                let &(hops, direction) = approaches.get(&row.location)?;
+                let action = direction.map_or(
+                    Action::Take {
+                        item: row.id,
+                        quantity: Some(*quantity),
+                    },
+                    Action::Move,
+                );
+                (!self.condition_blocks_action(actor, &action)).then_some((hops, row.id, action))
+            })
+            .min_by_key(|(hops, id, _)| (*hops, *id))
+            .map(|(_, _, action)| action)
     }
 }

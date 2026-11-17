@@ -153,16 +153,19 @@ impl AiDecision {
     }
 }
 
-enum AiAbilityChoice {
+/// A stage proposes either an ordinary request or already-evaluated operands.
+/// Converting the winner attaches the single copied AI/behavior draft; neither
+/// branch executes work or commits state during choice.
+enum AiChoice {
     Frozen(crate::abilities::Plan),
     Request(Action),
 }
-impl From<crate::abilities::Plan> for AiAbilityChoice {
+impl From<crate::abilities::Plan> for AiChoice {
     fn from(plan: crate::abilities::Plan) -> Self {
         Self::Frozen(plan)
     }
 }
-impl AiAbilityChoice {
+impl AiChoice {
     fn decision(self, ai: Ai, behavior: crate::behavior::Behavior) -> AiDecision {
         match self {
             Self::Frozen(plan) => AiDecision::ability(plan, ai, behavior),
@@ -170,6 +173,13 @@ impl AiAbilityChoice {
         }
     }
 }
+#[path = "ai_encounter.rs"]
+mod encounter;
+
+#[path = "ai_decision_stages.rs"]
+mod decision_stages;
+#[path = "ai_flight_safety.rs"]
+mod flight_safety;
 #[path = "ai_projectiles.rs"]
 mod projectiles;
 
@@ -323,86 +333,26 @@ impl Game {
         }
         let mut search = self.route_search(id).ok();
         let mut route = |destination| search.as_mut()?.route(destination).ok();
-        let candidate = view
-            .visible_actors
-            .iter()
-            .filter(|other| {
-                other.id != id
-                    && self.awareness_allows_target(id, other.id)
-                    && self.perceived_hostile(id, other.id, other.disclosure)
-            })
-            .min_by_key(|other| {
-                (
-                    route(other.location).map_or(usize::MAX, |r| r.len()),
-                    other.id,
-                )
-            });
-        // Retained work resumes its frozen operands; it does not acquire a new
-        // enemy, refresh memory or reroll a sensory cue.
-        if retained.is_none() && self.condition_allows_voluntary_input(id) {
-            if let Some(engagement) = behavior.engagement.as_mut() {
-                if let Some(visible) = view.visible_actors.iter().find(|other| {
-                    other.id == engagement.target
-                        && self.awareness_allows_target(id, other.id)
-                        && other.disclosure.reference() == Some(engagement.reference)
-                }) {
-                    engagement.location = visible.location;
-                    engagement.last_seen = self.actor_clock(id);
-                } else if view.location == engagement.location {
-                    behavior.engagement = None;
-                }
-            }
-            // A greedy species pursues known Gold it can safely collect and
-            // acquires a visible hostile only when there is none.
-            let acquires = match policy.disposition {
-                crate::behavior::Disposition::Passive => false,
-                crate::behavior::Disposition::Mean => true,
-                crate::behavior::Disposition::Greedy => {
-                    self.exposed_to_visible_hostile(id, view.location, view)
-                        || self
-                            .choose_known_gold(id, view, &ai.profile, &mut route)
-                            .is_none()
-                }
-            };
-            if behavior.engagement.is_none() && policy.memory_ticks > 0 && acquires {
-                if let Some(visible) = candidate {
-                    {
-                        behavior.engagement = Some(crate::behavior::Engagement {
-                            target: visible.id,
-                            reference: visible.disclosure.reference().expect("disclosed foe"),
-                            location: visible.location,
-                            last_seen: self.actor_clock(id),
-                        });
-                    }
-                }
-            }
-        }
-        let target = behavior.engagement.and_then(|entry| {
-            view.visible_actors.iter().find(|other| {
-                other.id == entry.target
-                    && self.awareness_allows_target(id, other.id)
-                    && other.disclosure.reference() == Some(entry.reference)
-            })
-        });
-        let forced_flee = self.forced_flee_location(id);
-        let alert = actor.awareness.alert_at(self.actor_clock(id));
-        let threat = forced_flee
-            .or_else(|| {
-                behavior
-                    .engagement
-                    .map(|entry| entry.location)
-                    .or_else(|| retained.and(candidate).map(|other| other.location))
-            })
-            .or(alert);
-        let (hp, max) = self.health(id)?;
-        let frightened = forced_flee.is_some()
-            || (self.scenario_capabilities().low_health_flight
-                && low_health(hp, max, ai.profile.flee_percent));
-        ai.state = TRANSITIONS
-            .iter()
-            .find(|(low, known, _)| *low == frightened && *known == threat.is_some())
-            .unwrap()
-            .2;
+        // Greedy acquisition and Search share one positive/negative gold choice.
+        let mut gold_choice = decision_stages::GoldChoiceCache::default();
+        let encounter = self.refresh_ai_encounter(
+            encounter::EncounterInputs {
+                actor: id,
+                policy,
+                has_retained: retained.is_some(),
+                snapshot: &snapshot,
+            },
+            &mut ai,
+            &mut behavior,
+            &mut route,
+            &mut gold_choice,
+        )?;
+        let encounter::EncounterFacts {
+            sensed_target,
+            threat,
+            alert,
+            health: (hp, max),
+        } = encounter;
         // A suspended prefix cannot be replaced by new healing, gear or attacks.
         // Only a chosen ordinary retreat can abandon it, paying the whole tail.
         if ai.state != State::Flee {
@@ -410,52 +360,10 @@ impl Game {
                 return Some(AiDecision::ability(preparation.plan.clone(), ai, behavior));
             }
         }
-        // Use a known restorative before fleeing or attacking. Unknown potions
-        // and mixed sequences with harm never qualify as safe healing.
-        if ai.profile.care && retained.is_none() && low_health(hp, max, 50) {
-            if let Some(item) = view
-                .inventory
-                .iter()
-                .find(|item| self.known_healing(id, item.id))
-            {
-                return Some(AiDecision::action(
-                    Action::Drink { item: item.id },
-                    ai,
-                    behavior,
-                ));
-            }
-            if let Some(plan) = self.choose_ai_healing(id, &snapshot.sight, view) {
-                return Some(AiDecision::ability(plan, ai, behavior));
-            }
-        }
-        if ai.profile.care && retained.is_none() {
-            let visible_threat = view
-                .visible_actors
-                .iter()
-                .find(|other| self.perceived_hostile(id, other.id, other.disclosure))
-                .map(|other| other.id);
-            if let Some(plan) = self.choose_ai_item_care(id, view, visible_threat) {
-                return Some(AiDecision::ability(plan, ai, behavior));
-            }
-        }
-        if ai.profile.care
-            && retained.is_none()
-            && ai.state == State::Search
-            && !self.exposed_to_visible_hostile(id, view.location, view)
-            && crate::ai_items::required_nutrition(view)
-                .is_some_and(|hunger| hunger != crate::nutrition::Hunger::Nourished)
+        if let Some(choice) =
+            self.choose_fresh_care(id, &ai, retained.is_some(), (hp, max), &snapshot)
         {
-            if let Some(item) = view
-                .inventory
-                .iter()
-                .find(|item| self.known_food(id, item.id))
-            {
-                return Some(AiDecision::action(
-                    Action::Eat { item: item.id },
-                    ai,
-                    behavior,
-                ));
-            }
+            return Some(choice.decision(ai, behavior));
         }
         // Care and retained work take precedence. Random movement uses only
         // disclosed legal candidates and the copied actor-owned decision RNG.
@@ -514,61 +422,15 @@ impl Game {
         if let Some(preparation) = committed {
             return Some(AiDecision::ability(preparation.plan.clone(), ai, behavior));
         }
-        // Only a presently sensed threat warrants proactive self-defense.
-        // Healing, an admissible escape and paid strike prefixes retain priority.
-        if let Some(threat) = target {
-            if let Some(plan) = self.choose_ai_defense(id, threat.id, &snapshot.sight, view) {
-                return Some(AiDecision::ability(plan, ai, behavior));
-            }
-        }
-        if let Some(crate::behavior::Engagement {
-            target,
-            reference,
-            location: at,
-            ..
-        }) = behavior.engagement
-        {
-            // Remembered positions support pursuit, but only a currently
-            // disclosed target can prompt a paid technique.
-            if ai.state != State::Flee
-                && view.visible_actors.iter().any(|actor| {
-                    actor.id == target
-                        && self.awareness_allows_target(id, target)
-                        && actor.disclosure.reference() == Some(reference)
-                })
-            {
-                if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, false)
-                {
-                    return Some(ability.decision(ai, behavior));
-                }
-            }
-            if ai.state == State::Flee
-                && view.visible_actors.iter().any(|actor| {
-                    actor.id == target
-                        && self.awareness_allows_target(id, target)
-                        && actor.disclosure.reference() == Some(reference)
-                })
-            {
-                if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, true)
-                {
-                    return Some(ability.decision(ai, behavior));
-                }
-            }
-            if ai.state != State::Flee {
-                if let Some(step) = route(at).and_then(|r| r.first().copied()) {
-                    if self.actor_translation(id, step.direction).is_some() {
-                        return Some(AiDecision::action(
-                            Action::Move(step.direction),
-                            ai,
-                            behavior,
-                        ));
-                    }
-                }
-                behavior.engagement = None;
-                ai.state = State::Search;
-            }
+        if let Some(choice) = self.choose_ai_engagement(
+            id,
+            &mut ai,
+            &mut behavior,
+            &snapshot,
+            &mut route,
+            sensed_target,
+        ) {
+            return Some(choice.decision(ai, behavior));
         }
         // An anonymous cue licenses investigation only, never a target attack.
         if ai.state != State::Flee && behavior.engagement.is_none() {
@@ -585,28 +447,10 @@ impl Game {
             }
             ai.state = State::Search;
         }
-        if ai.state == State::Search && !self.exposed_to_visible_hostile(id, view.location, view) {
-            if let Some(action) = ai
-                .profile
-                .equipment
-                .then(|| self.choose_gear(id, view))
-                .flatten()
-            {
-                return Some(AiDecision::action(action, ai, behavior));
-            }
-            if let Some(action) = ai
-                .profile
-                .loot
-                .then(|| {
-                    self.choose_nearby_loot(id, view, &ai.profile, &snapshot.sight, &mut route)
-                })
-                .flatten()
-            {
-                return Some(AiDecision::action(action, ai, behavior));
-            }
-            if let Some(action) = self.choose_known_gold(id, view, &ai.profile, &mut route) {
-                return Some(AiDecision::action(action, ai, behavior));
-            }
+        if let Some(action) =
+            self.choose_safe_acquisition(id, &ai, &snapshot, &mut route, &mut gold_choice)
+        {
+            return Some(AiDecision::action(action, ai, behavior));
         }
         if ai.state == State::Search
             && ai.profile.doors
@@ -629,45 +473,10 @@ impl Game {
                 ));
             }
         }
-        if ai.state == State::Search
-            && ai.profile.idle == crate::behavior::IdleBehavior::Explore
-            && self.condition_allows_voluntary_input(id)
+        if let Some(action) =
+            self.choose_exploration(id, &mut ai, &mut behavior, retained.is_some(), view)
         {
-            let can_move = !self.condition_blocks_action(id, &Action::Move(Direction::North));
-            if retained.is_none() && can_move {
-                let count = ai
-                    .visits
-                    .get(&view.location)
-                    .copied()
-                    .unwrap_or(0)
-                    .saturating_add(1);
-                crate::diagnostics::ai_visit_entries_copied(
-                    ai.visits.copy_on_write_entries(view.location.region),
-                );
-                ai.visits.insert(view.location, count);
-            }
-            if !can_move {
-                return Some(AiDecision::action(Action::Wait, ai, behavior));
-            }
-            let mut candidates = Vec::new();
-            for direction in Direction::HORIZONTAL
-                .into_iter()
-                .chain([Direction::Up, Direction::Down])
-            {
-                if let Some((at, _)) = self.actor_translation(id, direction) {
-                    if view
-                        .visible_cells
-                        .iter()
-                        .any(|c| c.location == at && !c.wall)
-                    {
-                        candidates.push((*ai.visits.get(&at).unwrap_or(&0), at, direction));
-                    }
-                }
-            }
-            candidates.sort_by_key(|(visits, at, _)| (*visits, *at));
-            if let Some((_, _, direction)) = candidates.first() {
-                return Some(AiDecision::action(Action::Move(*direction), ai, behavior));
-            }
+            return Some(AiDecision::action(action, ai, behavior));
         }
         Some(AiDecision::action(Action::Wait, ai, behavior))
     }
@@ -729,7 +538,8 @@ impl Game {
             }
             None => return None,
         };
-        Direction::HORIZONTAL
+        let mut plateau = Vec::new();
+        let direct = Direction::HORIZONTAL
             .into_iter()
             .chain([Direction::Up, Direction::Down])
             .filter_map(|direction| {
@@ -761,10 +571,277 @@ impl Game {
                     // this decision has no known current route to compare.
                     return None;
                 };
+                if distance == current {
+                    plateau.push((direction, at, orientation));
+                }
                 (distance > current).then_some((distance, direction))
             })
             .max_by_key(|(distance, _)| *distance)
-            .map(|(_, direction)| direction)
+            .map(|(_, direction)| direction);
+        if direct.is_some()
+            || current_route.is_none()
+            || actor_state.body.cells != [[0, 0, 0]]
+            || !local_chart()
+        {
+            return direct;
+        }
+        // Anchor routing cannot certify a larger footprint's second-step fit.
+        // Only single-cell, two-step local witnesses; no state or assumed future
+        // occupancy. Execution rechecks the first step and the next decision
+        // re-evaluates the threat. Unknown or exhausted searches are not escape.
+        let mut remaining = 512;
+        let mut distances = std::collections::BTreeMap::new();
+        let ordinary_step =
+            |from: Location, to: Location, orientation: u8, direction: Direction| {
+                let (x, y, z) = direction.rotated(actor_state.orientation).delta();
+                to.region == view.location.region
+                    && orientation == actor_state.orientation
+                    && displacement(from, to) == [i64::from(x), i64::from(y), i64::from(z)]
+            };
+        for (first, at, orientation) in plateau {
+            if !ordinary_step(view.location, at, orientation, first) {
+                continue;
+            }
+            let Ok(search) = self.route_search_from(actor, at, orientation) else {
+                continue;
+            };
+            for (second, end, end_orientation) in search.remembered_steps() {
+                if !ordinary_step(at, end, end_orientation, second) {
+                    continue;
+                }
+                let distance = *distances.entry(end).or_insert_with(|| {
+                    self.route_search_from(actor, end, end_orientation)
+                        .ok()?
+                        .route_bounded(threat, &mut remaining)
+                        .ok()??
+                        .len()
+                        .try_into()
+                        .ok()
+                });
+                if distance.is_some_and(|distance: u128| distance > current) {
+                    return Some(first);
+                }
+            }
+        }
+        None
+    }
+
+    // Experimental conservative local positioning. Ordinary attack planning
+    // proves own funding/cooldowns; the movement policy reads only disclosed cells.
+    fn ai_ranged_reposition(
+        &self,
+        actor: ActorId,
+        target: ActorId,
+        sight: &[tor_world::SightCell],
+        scene: &[tor_world::SightCell],
+        view: &crate::Observation,
+    ) -> Option<Direction> {
+        let creature = self.creature(actor)?;
+        // Ordinary melee-only actors never pay for a second attack-plan search.
+        if !creature.derived().abilities.iter().any(|ability| {
+            creature
+                .build()
+                .ruleset()
+                .ability(ability)
+                .is_some_and(|definition| {
+                    definition.ai.hostile
+                        && definition.ai.range_preference
+                            == crate::rules::RangePreference::OutsideMelee
+                        && definition.invocation == crate::abilities::InvocationKind::ActorTarget
+                        && matches!(definition.reach, crate::rules::Reach::Sight { .. })
+                })
+        }) {
+            return None;
+        }
+        if self.condition_blocks_action(actor, &Action::Move(Direction::North))
+            || !self.attack_available_in_scene(actor, target, sight)
+        {
+            return None;
+        }
+        let AiChoice::Frozen(plan) =
+            self.choose_ai_ability(actor, target, sight, view, false, true)?
+        else {
+            return None;
+        };
+        let crate::Work::UseAbility { id, invocation, .. } = plan.work() else {
+            return None;
+        };
+        if !matches!(
+            invocation.aim,
+            crate::abilities::AbilityAim::ActorTarget { .. }
+        ) {
+            return None;
+        }
+        let definition = creature.build().ruleset().ability(&id)?;
+        if definition.ai.range_preference != crate::rules::RangePreference::OutsideMelee {
+            return None;
+        }
+        let crate::rules::Reach::Sight { range } = plan.as_ability()?.reach else {
+            return None;
+        };
+        let origin = self.actors.get(&actor)?;
+        // This small policy supports only upright columns. Own morphology is
+        // known; unsupported forms keep the ordinary attack policy unchanged.
+        if origin.body.eye[0] != 0
+            || origin.body.eye[1] != 0
+            || origin.body.eye[2] < 0
+            || origin
+                .body
+                .cells
+                .iter()
+                .any(|cell| cell[0] != 0 || cell[1] != 0 || cell[2] < 0)
+            || tor_world::rotate_vector(origin.orientation, [0, 0, 1]) != [0, 0, 1]
+            || u32::try_from(origin.body.eye[2]).ok()? > u32::from(range)
+        {
+            return None;
+        }
+        // The narrow ground policy understands downward/absent current gravity.
+        // It does not inspect undisclosed gravity fields at hypothetical locations.
+        if !origin.locomotion().hovers()
+            && self
+                .world
+                .gravity(view.location)
+                .is_some_and(|g| g[0] != 0 || g[1] != 0 || g[2] >= 0)
+        {
+            return None;
+        }
+        let target = view
+            .visible_actors
+            .iter()
+            .find(|other| other.id == target)?
+            .location;
+        if target.region != view.location.region || target.position.z != view.location.position.z {
+            return None;
+        }
+        let distance = |a: Location, b: Location| {
+            a.position
+                .x
+                .abs_diff(b.position.x)
+                .max(a.position.y.abs_diff(b.position.y))
+        };
+        // Scene offsets are body-relative; the attack sight above is eye-relative.
+        // Do not mix unwrapped coordinates with a disclosed folded chart.
+        if scene
+            .iter()
+            .filter(|cell| cell.physical && cell.location.region == view.location.region)
+            .any(|cell| {
+                cell.rotation != origin.orientation
+                    || [
+                        i64::from(cell.location.position.x) - i64::from(view.location.position.x),
+                        i64::from(cell.location.position.y) - i64::from(view.location.position.y),
+                        i64::from(cell.location.position.z) - i64::from(view.location.position.z),
+                    ] != tor_world::rotate_vector(
+                        origin.orientation,
+                        [
+                            i64::from(cell.offset.x),
+                            i64::from(cell.offset.y),
+                            i64::from(cell.offset.z),
+                        ],
+                    )
+            })
+        {
+            return None;
+        }
+        Direction::HORIZONTAL.into_iter().find(|direction| {
+            let Some((at, orientation)) = self.actor_translation(actor, *direction) else {
+                return false;
+            };
+            if at.region != target.region
+                || at.position.z != target.position.z
+                || orientation != origin.orientation
+                || distance(at, target) != 2
+                || distance(at, target) > u32::from(range)
+            {
+                return false;
+            }
+            // An ordinary legal step may fall. Require presently disclosed solid
+            // ground, rather than predicting support using hidden destination state.
+            if !origin.locomotion().hovers() {
+                let Some(z) = at.position.z.checked_sub(1) else {
+                    return false;
+                };
+                let below = Location {
+                    region: at.region,
+                    position: tor_world::Position { z, ..at.position },
+                };
+                let support_offset = tor_world::rotate_vector(
+                    tor_world::inverse_rotation(origin.orientation),
+                    [
+                        i64::from(below.position.x) - i64::from(view.location.position.x),
+                        i64::from(below.position.y) - i64::from(view.location.position.y),
+                        i64::from(below.position.z) - i64::from(view.location.position.z),
+                    ],
+                );
+                // A location disclosed through a different occurrence is not
+                // proof of footing at this step. Use only the current chart,
+                // never a hidden topology query or hypothetical awareness.
+                if !scene.iter().any(|cell| {
+                    cell.physical
+                        && cell.wall
+                        && cell.location == below
+                        && cell.rotation == origin.orientation
+                        && [
+                            i64::from(cell.offset.x),
+                            i64::from(cell.offset.y),
+                            i64::from(cell.offset.z),
+                        ] == support_offset
+                }) || !view
+                    .visible_cells
+                    .iter()
+                    .any(|cell| cell.location == below && cell.wall)
+                {
+                    return false;
+                }
+            }
+            let Some(eye_z) = at.position.z.checked_add(origin.body.eye[2]) else {
+                return false;
+            };
+            // Every destination body cell must already be disclosed. ActorView
+            // has one row per disclosed hostile body cell, not just an anchor.
+            if origin.body.cells.iter().any(|cell| {
+                let Some(z) = at.position.z.checked_add(cell[2]) else {
+                    return true;
+                };
+                !view.visible_cells.iter().any(|visible| {
+                    visible.location
+                        == Location {
+                            region: at.region,
+                            position: tor_world::Position { z, ..at.position },
+                        }
+                        && !visible.wall
+                })
+            }) {
+                return false;
+            }
+            if view
+                .visible_actors
+                .iter()
+                .filter(|other| self.perceived_hostile(actor, other.id, other.disclosure))
+                .any(|other| {
+                    other.location.region != at.region || distance(at, other.location) <= 1
+                })
+            {
+                return false;
+            }
+            // A completely disclosed clear rectangle is deliberately stricter
+            // than sight-line prediction; unseen cells cannot justify a move.
+            (at.position.x.min(target.position.x)..=at.position.x.max(target.position.x)).all(|x| {
+                (at.position.y.min(target.position.y)..=at.position.y.max(target.position.y)).all(
+                    |y| {
+                        (at.position.z..=eye_z).all(|z| {
+                            view.visible_cells.iter().any(|cell| {
+                                cell.location
+                                    == Location {
+                                        region: at.region,
+                                        position: tor_world::Position { x, y, z },
+                                    }
+                                    && !cell.wall
+                            })
+                        })
+                    },
+                )
+            })
+        })
     }
 
     /// Default combat policy uses personal capabilities and resources, never
@@ -777,7 +854,8 @@ impl Game {
         sight: &[tor_world::SightCell],
         view: &crate::Observation,
         basic_only: bool,
-    ) -> Option<AiAbilityChoice> {
+        consider_reposition: bool,
+    ) -> Option<AiChoice> {
         use crate::rules::RangePreference;
         let creature = self.creature(actor)?;
         let costs = creature.costs();
@@ -823,6 +901,36 @@ impl Game {
                                 )
                             }) == Some(*direction)
                         }),
+                        crate::abilities::AbilityAim::CellRay { offset } => {
+                            let crate::rules::Reach::Sight { range } = definition.reach else {
+                                return None;
+                            };
+                            disclosed_flight_aim(
+                                target,
+                                sight,
+                                view,
+                                self.actors.get(&actor)?.body.eye,
+                                range,
+                            ) == Some(crate::abilities::FlightAim::Cell { offset: *offset })
+                        }
+                        crate::abilities::AbilityAim::CellProjectile { offset, .. } => {
+                            preparation.plan.as_projectile().is_some_and(|plan| {
+                                u16::try_from(
+                                    plan.range.long_feet
+                                        / crate::weapon_profiles::PROJECTILE_STEP_FEET,
+                                )
+                                .ok()
+                                .and_then(|range| {
+                                    disclosed_flight_aim(
+                                        target,
+                                        sight,
+                                        view,
+                                        self.actors.get(&actor)?.body.eye,
+                                        range,
+                                    )
+                                }) == Some(crate::abilities::FlightAim::Cell { offset: *offset })
+                            })
+                        }
                         _ => false,
                     };
                     if selected && self.preparation_still_available(preparation, Some(sight)) {
@@ -848,7 +956,10 @@ impl Game {
             .collect();
         candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
         for (_, id, hints, cost) in candidates {
-            if hints.range_preference == RangePreference::OutsideMelee && in_melee {
+            if hints.range_preference == RangePreference::OutsideMelee
+                && in_melee
+                && !consider_reposition
+            {
                 continue;
             }
             if let Some(cost) = cost {
@@ -869,7 +980,7 @@ impl Game {
                 if let Some(action) =
                     self.choose_ai_projectile_request(actor, target, sight, view, id)
                 {
-                    return Some(AiAbilityChoice::Request(action));
+                    return Some(AiChoice::Request(action));
                 }
                 continue;
             }
@@ -877,16 +988,12 @@ impl Game {
                 let crate::rules::Reach::Sight { range } = definition.reach else {
                     continue;
                 };
-                let Some(direction) = disclosed_ray_direction(
-                    target,
-                    sight,
-                    view,
-                    self.actors.get(&actor)?.body.eye,
-                    range,
-                ) else {
+                let Some(direction) =
+                    self.ai_disclosed_flight_aim(actor, target, sight, view, range)
+                else {
                     continue;
                 };
-                crate::abilities::AbilityInvocation::directional_ray(direction)
+                direction.ray_invocation()
             } else {
                 crate::abilities::AbilityInvocation::actor_target(target)
             };
@@ -937,13 +1044,8 @@ impl Game {
             let crate::rules::Reach::Sight { range } = definition.reach else {
                 continue;
             };
-            let Some(direction) = disclosed_ray_direction(
-                target,
-                sight,
-                view,
-                self.actors.get(&actor)?.body.eye,
-                range,
-            ) else {
+            let Some(direction) = self.ai_disclosed_flight_aim(actor, target, sight, view, range)
+            else {
                 continue;
             };
             candidates.push((definition.ai.priority, disclosed.id, direction));
@@ -952,7 +1054,7 @@ impl Game {
         for (_, item, direction) in candidates {
             let work = crate::Work::Zap {
                 item,
-                aim: crate::DeviceAim::Direction { direction },
+                aim: direction.device(),
             };
             if let Some(pending) = self.preparation(actor).filter(|pending| {
                 !pending.active
@@ -1122,6 +1224,35 @@ impl Game {
 
 /// Choose solely from disclosed physical occurrences. Neither first-hit bodies,
 /// terrain collision, hidden defenses nor a ray trace participates in this choice.
+fn disclosed_flight_aim(
+    target: ActorId,
+    sight: &[tor_world::SightCell],
+    view: &crate::Observation,
+    eye: [i32; 3],
+    range: u16,
+) -> Option<crate::abilities::FlightAim> {
+    if let Some(direction) = disclosed_ray_direction(target, sight, view, eye, range) {
+        return Some(direction.into());
+    }
+    let target = view.visible_actors.iter().find(|other| {
+        other.id == target && other.disclosure == crate::perception::ActorDisclosure::Creature
+    })?;
+    sight
+        .iter()
+        .filter(|cell| cell.physical && !cell.wall && cell.location == target.location)
+        .filter_map(|cell| {
+            let offset = [
+                cell.offset.x.checked_add(eye[0])?,
+                cell.offset.y.checked_add(eye[1])?,
+                cell.offset.z.checked_add(eye[2])?,
+            ];
+            let distance = offset.iter().map(|n| n.unsigned_abs()).max()?;
+            (distance > 0 && distance <= u32::from(range)).then_some((distance, offset))
+        })
+        .min()
+        .map(|(_, offset)| crate::abilities::FlightAim::Cell { offset })
+}
+
 fn disclosed_ray_direction(
     target: ActorId,
     sight: &[tor_world::SightCell],
@@ -1177,6 +1308,109 @@ mod tests {
             position: Position { x, y, z: 0 },
         }
     }
+    #[test]
+    fn explore_equal_neighbors_use_actor_rng_without_mutating_preview() {
+        let mut game = fixture();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let mut choices = BTreeSet::new();
+        for seed in 0..26 {
+            game.actors.get_mut(&ActorId(2)).unwrap().behavior.rng = seed;
+            let before = game.clone();
+            let decision = game.choose_ai(ActorId(2)).unwrap();
+            assert!(matches!(decision.action, Action::Move(_)));
+            assert_eq!(decision.action, game.choose_ai(ActorId(2)).unwrap().action);
+            assert_eq!(game, before, "preview must not commit RNG or visit history");
+            assert_ne!(
+                decision.behavior.rng,
+                before.actors[&ActorId(2)].behavior.rng
+            );
+            choices.insert(format!("{:?}", decision.action));
+        }
+        assert!(
+            choices.len() >= 3,
+            "equally good neighbors must not all resolve by coordinate: {choices:?}"
+        );
+    }
+
+    #[test]
+    fn explore_unique_least_visited_neighbor_and_idle_wait_do_not_draw() {
+        let mut game = fixture();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let candidates: Vec<_> = Direction::HORIZONTAL
+            .into_iter()
+            .filter_map(|direction| {
+                game.actor_translation(ActorId(2), direction)
+                    .map(|(at, _)| (at, direction))
+            })
+            .collect();
+        assert!(candidates.len() > 2);
+        let preferred = candidates[1];
+        for (at, _) in candidates {
+            game.combat
+                .ai
+                .get_mut(&ActorId(2))
+                .unwrap()
+                .visits
+                .insert(at, if at == preferred.0 { 0 } else { 10 });
+        }
+        let rng = game.actors[&ActorId(2)].behavior.rng;
+        let decision = game.choose_ai(ActorId(2)).unwrap();
+        assert_eq!(decision.action, Action::Move(preferred.1));
+        assert_eq!(decision.behavior.rng, rng);
+        game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.idle =
+            crate::behavior::IdleBehavior::Wait;
+        let decision = game.choose_ai(ActorId(2)).unwrap();
+        assert_eq!(decision.action, Action::Wait);
+        assert_eq!(decision.behavior.rng, rng);
+    }
+
+    #[test]
+    fn explore_rng_commits_with_execution_and_survives_checkpoint() {
+        let mut game = fixture();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        game.act(ActorId(1), Action::Wait).unwrap();
+        let chosen = game.choose_ai(ActorId(2)).unwrap();
+        let rng = game.actors[&ActorId(2)].behavior.rng;
+        game.admit_ai_intention(ActorId(2)).unwrap();
+        assert_eq!(game.actors[&ActorId(2)].behavior.rng, rng);
+        let mut shared = crate::checkpoint::SharedState::default();
+        let snapshot =
+            serde_json::from_value(serde_json::to_value(game.checkpoint(&mut shared)).unwrap())
+                .unwrap();
+        let shared = serde_json::from_value(serde_json::to_value(shared).unwrap()).unwrap();
+        let mut restored =
+            Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+        for candidate in [&mut game, &mut restored] {
+            let execution = candidate.execute_next_intention().unwrap();
+            assert_eq!(execution.action, Some(chosen.action.clone()));
+            execution.outcome.unwrap();
+            assert_eq!(
+                candidate.actors[&ActorId(2)].behavior.rng,
+                chosen.behavior.rng
+            );
+            assert_eq!(candidate.combat.ai[&ActorId(2)].visits, chosen.ai.visits);
+        }
+        assert_eq!(game, restored);
+    }
+
     #[test]
     fn invalid_ai_profile_and_missing_creature_have_distinct_errors() {
         let mut game = fixture();
@@ -1395,6 +1629,500 @@ mod tests {
         assert_eq!(game, before);
     }
 
+    fn ranged_specialist_fixture(magical: bool) -> Game {
+        ranged_specialist_fixture_with_modifiers(magical, Vec::new())
+    }
+    fn ranged_specialist_fixture_with_modifiers(
+        magical: bool,
+        modifiers: Vec<crate::rules::Modifier>,
+    ) -> Game {
+        use crate::{
+            content_ids::{AbilityId, FlagId},
+            rules::{Modifier, ModifierOp, Scope},
+        };
+        let mut foe = test_creatures::species();
+        for op in [
+            ModifierOp::GrantAbility {
+                ability: AbilityId::new("fixture_mana_ray").unwrap(),
+            },
+            ModifierOp::Flag {
+                flag: FlagId::new("magical").unwrap(),
+            },
+        ] {
+            if magical || matches!(op, ModifierOp::GrantAbility { .. }) {
+                foe.modifiers.push(Modifier {
+                    cancellable: false,
+                    scope: Scope::Always,
+                    op,
+                });
+            }
+        }
+        foe.modifiers.extend(modifiers);
+        configured_game(test_creatures::species(), foe, paid_probe_rules())
+    }
+
+    #[test]
+    fn funded_ranged_specialist_repositions_before_basic_melee() {
+        let game = ranged_specialist_fixture(true);
+        let before = game.clone();
+        let decision = game.choose_ai(ActorId(2)).unwrap();
+        assert!(
+            matches!(decision.action, Action::Move(_)),
+            "funded ranged specialist should seek shooting space, got {:?}",
+            decision.action
+        );
+        assert_eq!(game, before, "preview remains pure");
+    }
+
+    #[test]
+    fn ranged_positioning_supports_upright_eye_height() {
+        let mut game = ranged_specialist_fixture(true);
+        game.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 0, 1]],
+                eye: [0, 0, 1],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            game.choose_ai(ActorId(2)).unwrap().action,
+            Action::Move(_)
+        ));
+    }
+
+    #[test]
+    fn ranged_positioning_rejects_negative_eye_without_disclosure() {
+        let mut game = ranged_specialist_fixture(true);
+        for actor in [ActorId(1), ActorId(2)] {
+            let mut location = game.actors[&actor].location;
+            location.position.z = 1;
+            game.teleport(actor, location).unwrap();
+        }
+        game.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 0, -1]],
+                eye: [0, 0, -1],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        let mut view = snapshot.view.clone();
+        assert!(view
+            .visible_actors
+            .iter()
+            .any(|other| other.id == ActorId(1)));
+        view.visible_cells = tor_world::Shared::new(Vec::new());
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_rejects_wide_or_pitched_own_bodies() {
+        let mut wide = ranged_specialist_fixture(true);
+        wide.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 1, 0]],
+                eye: [0, 0, 0],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        assert!(!matches!(
+            wide.choose_ai(ActorId(2)).unwrap().action,
+            Action::Move(_)
+        ));
+        let mut pitched = ranged_specialist_fixture(true);
+        pitched
+            .set_body(
+                ActorId(2),
+                crate::BodySpec {
+                    cells: vec![[0, 0, 0], [0, 0, 1]],
+                    eye: [0, 0, 1],
+                    mass: 80,
+                },
+            )
+            .unwrap();
+        let rotation = (0..24)
+            .find(|r| tor_world::rotate_vector(*r, [0, 0, 1]) == [1, 0, 0])
+            .unwrap();
+        pitched.actors.get_mut(&ActorId(2)).unwrap().orientation = rotation;
+        pitched.refresh_navigation();
+        assert!(!matches!(
+            pitched.choose_ai(ActorId(2)).unwrap().action,
+            Action::Move(_)
+        ));
+    }
+
+    #[test]
+    fn ranged_positioning_requires_disclosed_destination_and_corridor() {
+        let game = ranged_specialist_fixture(true);
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        let mut view = snapshot.view.clone();
+        view.visible_cells = tor_world::Shared::new(Vec::new());
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_requires_upper_body_disclosure() {
+        let mut game = ranged_specialist_fixture(true);
+        game.set_body(
+            ActorId(2),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [0, 0, 1]],
+                eye: [0, 0, 0],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        let mut view = snapshot.view.clone();
+        // Keep the entire ground-level corridor and support, omit only upper
+        // destination body cells. Eye height zero keeps them outside the corridor.
+        view.visible_cells = tor_world::Shared::new(
+            view.visible_cells
+                .iter()
+                .filter(|cell| !(cell.location.position.x == 3 && cell.location.position.z == 1))
+                .cloned()
+                .collect(),
+        );
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_requires_intermediate_corridor_disclosure() {
+        let game = ranged_specialist_fixture(true);
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        let mut view = snapshot.view.clone();
+        // Preserve every destination cell and ground support. Each candidate's
+        // rectangle crosses x=2, between the target x=1 and destination x=3.
+        view.visible_cells = tor_world::Shared::new(
+            view.visible_cells
+                .iter()
+                .filter(|cell| !(cell.location.position.x == 2 && cell.location.position.z == 0))
+                .cloned()
+                .collect(),
+        );
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_requires_support_occurrence_not_location_alias() {
+        let game = ranged_specialist_fixture(true);
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(game
+            .ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            )
+            .is_some());
+        // Projection-boundary witness: location-only public rows remain, but
+        // candidate footing is no longer disclosed at its physical offset.
+        // This is not claimed to construct a real-world portal failure.
+        let scene: Vec<_> = snapshot
+            .scene
+            .iter()
+            .filter(|cell| {
+                !(cell.location.region == RegionId(1)
+                    && cell.location.position.x == 3
+                    && cell.location.position.z == -1)
+            })
+            .copied()
+            .collect();
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &scene,
+                &snapshot.view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_footing_is_yaw_equivariant() {
+        for orientation in (0..24).filter(|r| tor_world::rotate_vector(*r, [0, 0, 1]) == [0, 0, 1])
+        {
+            let mut game = ranged_specialist_fixture(true);
+            game.actors.get_mut(&ActorId(2)).unwrap().orientation = orientation;
+            game.refresh_navigation();
+            assert!(
+                matches!(game.choose_ai(ActorId(2)).unwrap().action, Action::Move(_)),
+                "upright yaw {orientation} must retain disclosed footing"
+            );
+        }
+    }
+
+    #[test]
+    fn ranged_positioning_rejects_non_downward_current_gravity() {
+        for gravity in [[0, 0, 1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]] {
+            let mut game = ranged_specialist_fixture(true);
+            game.world.set_gravity(RegionId(1), gravity).unwrap();
+            let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+            assert_eq!(
+                game.ai_ranged_reposition(
+                    ActorId(2),
+                    ActorId(1),
+                    &snapshot.sight,
+                    &snapshot.scene,
+                    &snapshot.view
+                ),
+                None,
+                "unsupported current gravity {gravity:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ranged_positioning_physical_downward_portal_boundary() {
+        for rotation in (0..24).filter(|r| tor_world::rotate_vector(*r, [0, 0, 1]) == [0, 0, 1]) {
+            let mut game = ranged_specialist_fixture(true);
+            game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
+            let source = at(1, 3, 1);
+            let destination = at(2, 1, 1);
+            game.connect_portal_area(
+                tor_world::Passage {
+                    from: source,
+                    direction: Direction::Down,
+                    to: destination,
+                },
+                rotation,
+                1,
+                1,
+            )
+            .unwrap();
+            let below = Location {
+                position: Position {
+                    z: -1,
+                    ..source.position
+                },
+                ..source
+            };
+            assert!(game.world.is_wall(below));
+            assert_eq!(
+                game.world.physics_neighbor(source, Direction::Down),
+                Some((destination, rotation))
+            );
+            let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+            let cross_region = snapshot.scene.iter().any(|cell| {
+                cell.physical && cell.offset.z < 0 && cell.location.region != source.region
+            });
+            let disclosed_coordinate_support = snapshot
+                .view
+                .visible_cells
+                .iter()
+                .any(|cell| cell.location == below && cell.wall);
+            assert!(
+                cross_region || !disclosed_coordinate_support,
+                "real snapshot must disclose the crossing or withhold coordinate-only support"
+            );
+            assert_ne!(
+                game.ai_ranged_reposition(
+                    ActorId(2),
+                    ActorId(1),
+                    &snapshot.sight,
+                    &snapshot.scene,
+                    &snapshot.view
+                ),
+                Some(Direction::East)
+            );
+        }
+    }
+
+    #[test]
+    fn ranged_positioning_avoids_every_disclosed_hostile_body_cell() {
+        let mut game = ranged_specialist_fixture(true);
+        game.set_body(
+            ActorId(1),
+            crate::BodySpec {
+                cells: vec![[0, 0, 0], [1, -1, 0]],
+                eye: [0, 0, 0],
+                mass: 80,
+            },
+        )
+        .unwrap();
+        let view = game.observe(ActorId(2)).unwrap();
+        assert_eq!(
+            view.visible_actors
+                .iter()
+                .filter(|row| row.id == ActorId(1))
+                .count(),
+            2
+        );
+        let Action::Move(direction) = game.choose_ai(ActorId(2)).unwrap().action else {
+            panic!("expected disclosed safe alternative");
+        };
+        let (at, _) = game.actor_translation(ActorId(2), direction).unwrap();
+        assert!(view
+            .visible_actors
+            .iter()
+            .filter(|row| row.id == ActorId(1))
+            .all(|row| at
+                .position
+                .x
+                .abs_diff(row.location.position.x)
+                .max(at.position.y.abs_diff(row.location.position.y))
+                > 1));
+    }
+
+    #[test]
+    fn ranged_positioning_effective_range_guard() {
+        use crate::rules::{AbilityStat, Modifier, ModifierOp, Scope, Stat};
+        let game = ranged_specialist_fixture_with_modifiers(
+            true,
+            vec![Modifier {
+                cancellable: false,
+                scope: Scope::Always,
+                op: ModifierOp::Add {
+                    stat: Stat::Ability {
+                        ability: crate::content_ids::AbilityId::new("fixture_mana_ray").unwrap(),
+                        stat: AbilityStat::Range,
+                    },
+                    value: -5,
+                },
+            }],
+        );
+        assert_eq!(
+            game.creature(ActorId(2))
+                .unwrap()
+                .derived()
+                .ability_reach(&crate::content_ids::AbilityId::new("fixture_mana_ray").unwrap())
+                .unwrap(),
+            crate::rules::Reach::Sight { range: 1 }
+        );
+        assert_eq!(
+            game.choose_ai(ActorId(2)).unwrap().action,
+            basic(ActorId(1))
+        );
+    }
+
+    #[test]
+    fn ranged_positioning_ledge_guard() {
+        let mut game = ranged_specialist_fixture(true);
+        game.world.set_gravity(RegionId(1), [0, 0, -1]).unwrap();
+        for y in 0..3 {
+            game.set_wall(
+                Location {
+                    region: RegionId(1),
+                    position: Position { x: 3, y, z: -1 },
+                },
+                false,
+            )
+            .unwrap();
+        }
+        let snapshot = game.decision_snapshot(ActorId(2)).unwrap();
+        assert!(
+            game.actor_translation(ActorId(2), Direction::East)
+                .is_some(),
+            "a legal step is not proof of support"
+        );
+        assert_eq!(
+            game.ai_ranged_reposition(
+                ActorId(2),
+                ActorId(1),
+                &snapshot.sight,
+                &snapshot.scene,
+                &snapshot.view
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn unfunded_ranged_specialist_does_not_reposition() {
+        let game = ranged_specialist_fixture(false);
+        assert_eq!(
+            game.choose_ai(ActorId(2)).unwrap().action,
+            basic(ActorId(1))
+        );
+    }
+
+    #[test]
+    fn ranged_specialist_uses_created_space_for_a_shot() {
+        let mut game = ranged_specialist_fixture(true);
+        let Action::Move(direction) = game.choose_ai(ActorId(2)).unwrap().action else {
+            panic!("expected reposition")
+        };
+        let (at, _) = game.actor_translation(ActorId(2), direction).unwrap();
+        game.act(ActorId(1), Action::Wait).unwrap();
+        game.act(ActorId(2), Action::Move(direction)).unwrap();
+        assert_eq!(game.actors[&ActorId(2)].location, at);
+        assert!(
+            matches!(game.choose_ai(ActorId(2)).unwrap().action, Action::UseAbility { id, .. } if id.as_str() == "fixture_mana_ray")
+        );
+    }
+
     #[test]
     fn paid_choices_preserve_mana_for_ranged_combat() {
         let mut unfunded = paid_fixture(false, false);
@@ -1535,7 +2263,7 @@ mod tests {
     }
 
     #[test]
-    fn loot_range_and_safe_first_step_are_checked_on_remembered_routes() {
+    fn loot_pursues_distant_remembered_routes_but_preserves_safe_first_step() {
         use tor_world::{Extent, Region, World};
         let mut world = World::new(vec![], vec![]).unwrap();
         world
@@ -1596,7 +2324,7 @@ mod tests {
             game.choose_nearby_loot(actor, &view, &AiProfile::general(), &[], &mut |at| search
                 .route(at)
                 .ok()),
-            None
+            Some(Action::Move(Direction::East))
         );
     }
 
@@ -2373,6 +3101,87 @@ mod tests {
             matches!(idle_choice.action, Action::UseAbility { ref id, invocation: crate::abilities::AbilityInvocation { aim: crate::abilities::AbilityAim::ActorTarget { target }, .. }, .. } if id.as_str() == "read_the_rhythm" && target == hero)
         );
     }
+    #[test]
+    fn declined_erratic_draw_reaches_engagement_and_commits_once_after_restore() {
+        use crate::locomotion::{LocomotionValue, MovementChance};
+        use crate::rules::{Modifier, ModifierOp, Scope};
+        let mut foe = test_creatures::species();
+        foe.modifiers.push(Modifier {
+            cancellable: false,
+            scope: Scope::Always,
+            op: ModifierOp::Locomotion {
+                value: LocomotionValue::Erratic {
+                    chance: Some(MovementChance {
+                        numerator: 1,
+                        denominator: 2,
+                    }),
+                },
+            },
+        });
+        let mut game = configured_game(test_creatures::species(), foe, paid_probe_rules());
+        let actor = ActorId(2);
+        game.configure_ai(
+            actor,
+            AiProfile {
+                idle: crate::behavior::IdleBehavior::Wait,
+                flee_percent: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        game.configure_run(
+            ActorId(1),
+            BTreeSet::from([ActorId(1)]),
+            None,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        game.act(ActorId(1), Action::Wait).unwrap();
+        let clock = game.actor_clock(actor);
+        {
+            let behavior = &mut game.actors.get_mut(&actor).unwrap().behavior;
+            behavior.rng = 0;
+            behavior.engagement = Some(crate::behavior::Engagement {
+                reference: crate::perception::ActorReferenceKind::Creature,
+                target: ActorId(1),
+                location: at(1, 1, 1),
+                last_seen: clock,
+            });
+        }
+        let mut expected_rng = 0;
+        assert_eq!(
+            crate::dice::random_word(&mut expected_rng) % 2,
+            1,
+            "pinned seed declines erratic movement"
+        );
+        let original = game.clone();
+        let chosen = game.choose_ai(actor).unwrap();
+        assert!(matches!(chosen.action, Action::UseAbility { .. }));
+        assert!(chosen.plan.is_some());
+        assert_eq!(
+            chosen.behavior.rng, expected_rng,
+            "declining consumes exactly the chance draw, not a direction draw"
+        );
+        assert_eq!(game.choose_ai(actor).unwrap().behavior.rng, expected_rng);
+        assert_eq!(game, original, "preview keeps private RNG unchanged");
+        game.admit_ai_intention(actor).unwrap();
+        assert_eq!(game.actors[&actor].behavior.rng, 0);
+        let mut shared = crate::checkpoint::SharedState::default();
+        let checkpoint =
+            serde_json::from_value(serde_json::to_value(game.checkpoint(&mut shared)).unwrap())
+                .unwrap();
+        let shared = serde_json::from_value(serde_json::to_value(shared).unwrap()).unwrap();
+        let mut restored =
+            Game::restore_checkpoint(checkpoint, &shared, game.content().clone()).unwrap();
+        for candidate in [&mut game, &mut restored] {
+            let execution = candidate.execute_next_intention().unwrap();
+            assert_eq!(execution.action, Some(chosen.action.clone()));
+            execution.outcome.unwrap();
+            assert_eq!(candidate.actors[&actor].behavior.rng, expected_rng);
+        }
+        assert_eq!(game, restored);
+    }
+
     #[test]
     fn erratic_move_can_replace_a_fresh_adjacent_attack_but_preview_does_not_draw() {
         use crate::locomotion::{LocomotionValue, MovementChance};

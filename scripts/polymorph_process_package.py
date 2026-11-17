@@ -85,7 +85,7 @@ def personal(creature):
 
 
 class PolymorphRetryRelay(StreamRelay):
-    """Capture the actual Text self-Zap bytes; replay them unchanged after load."""
+    """Capture actual self-Zap client bytes; replay them unchanged after load."""
     def __init__(self, upstream):
         self.send_lock = threading.Lock()
         self.captured = threading.Event()

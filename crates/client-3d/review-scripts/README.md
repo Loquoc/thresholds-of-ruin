@@ -265,3 +265,24 @@ Optional capture-only fields:
 Ground items, labels, picker, custom floor colors and dungeon fixtures are rejected by live showcase
 scripts rather than silently ignored. Change only the desired presentation field
 when comparing captures; keep camera, viewport, placements and lighting matched.
+
+## Authoritative effect appearance review
+
+`effects-appearance.json` is a capture-only presentation fixture for flame/frost
+rays, admitted arrow/dagger appearances and a ray with a gap between disclosed
+segments. It renders through the ordinary native authoritative-effect staging
+function, not an alternative art implementation. Capture ticks are deterministic
+at 50 Hz. The final frame checks that instantaneous art has expired without an
+invented impact.
+
+The optional `effects` track contains ordered `tick`, `delivery`, `presentation`,
+`admitted_assets` and `segments` entries. `presentation` is the public protocol
+appearance descriptor. The palette list is explicit: an object name alone never
+selects a mesh, and an unadmitted asset keeps the generic fallback. Coordinates
+are already-disclosed world points; separated segments remain separated. The
+track is bounded and rejected by live playback. It is not a game action or a way
+to discover undisclosed entities.
+
+These captures qualify local appearance and playback only. They do not prove
+server visibility admission, transport ordering, sustained-effect lifecycle,
+Windows rendering or hosted CI; use their separate contract tests for those.

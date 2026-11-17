@@ -17,8 +17,9 @@ const LOG_HOLD: f32 = 6.0;
 const LOG_FADE: f32 = 1.0;
 const LOG_BACKDROP: f32 = 0.5;
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Action {
+    /// Unfolds or folds the action menu.
     Menu,
     Inventory,
     Equipment,
@@ -28,6 +29,76 @@ pub(crate) enum Action {
     Journal,
     Screenshot,
     Wait,
+    /// Standalone play: ask to save and leave for the title menu.
+    Leave,
+    /// A touch stand-in for a key: pressed for one frame, as the key would be.
+    Press(KeyCode),
+    /// Moves the camera nearer (negative) or farther, as the wheel does.
+    Zoom(f32),
+}
+
+/// On-screen buttons for actions otherwise only on the keyboard or wheel.
+const TOUCH: [(Action, &str); 8] = [
+    (
+        Action::Press(KeyCode::KeyQ),
+        "Turn
+left",
+    ),
+    (
+        Action::Press(KeyCode::KeyE),
+        "Turn
+right",
+    ),
+    (
+        Action::Zoom(-2.5),
+        "Zoom
+in",
+    ),
+    (
+        Action::Zoom(2.5),
+        "Zoom
+out",
+    ),
+    (
+        Action::Press(KeyCode::KeyR),
+        "Stairs
+up",
+    ),
+    (
+        Action::Press(KeyCode::KeyF),
+        "Stairs
+down",
+    ),
+    (
+        Action::Press(KeyCode::KeyX),
+        "Open
+door",
+    ),
+    (
+        Action::Press(KeyCode::KeyG),
+        "Pick
+up",
+    ),
+];
+
+/// Shows the touch buttons; present on Android or with --touch-controls.
+#[derive(Resource, Default)]
+pub(crate) struct TouchControls {
+    pending: Vec<KeyCode>,
+    held: Vec<KeyCode>,
+}
+
+/// Presses the keys touch buttons asked for after the frame's real input is
+/// read, and releases them a frame later, so every key reader sees one press.
+pub(crate) fn touch_keys(mut touch: ResMut<TouchControls>, mut keys: ResMut<ButtonInput<KeyCode>>) {
+    let touch = &mut *touch;
+    for code in touch.held.drain(..) {
+        keys.release(code);
+    }
+    for code in std::mem::take(&mut touch.pending) {
+        keys.press(code);
+        touch.held.push(code);
+    }
 }
 
 const ACTIONS: [(Action, &str, &str); 8] = [
@@ -78,6 +149,13 @@ pub(crate) struct LogFade {
 pub(crate) struct HealthOrb {
     image: Handle<Image>,
     shown: Option<(u64, u64)>,
+}
+
+impl HealthOrb {
+    /// Repaints the globe for the next game, even when its health is unknown.
+    pub(crate) fn forget(&mut self) {
+        self.shown = Some((u64::MAX, 0));
+    }
 }
 
 pub(crate) fn readiness(game: &Game) -> &'static str {
@@ -145,7 +223,7 @@ fn orb_pixels(health: Option<(u64, u64)>) -> Vec<u8> {
     bytes
 }
 
-fn action_button(action: Action, label: String) -> impl Bundle {
+fn action_button(action: Action, label: impl Into<String>) -> impl Bundle {
     (
         Button,
         action,
@@ -154,15 +232,24 @@ fn action_button(action: Action, label: String) -> impl Bundle {
         Node {
             padding: UiRect::axes(Val::Px(12.0), Val::Px(5.0)),
             border: UiRect::all(Val::Px(1.0)),
-            justify_content: JustifyContent::SpaceBetween,
-            column_gap: Val::Px(14.0),
+            justify_content: JustifyContent::Center,
             ..default()
         },
-        children![(Text::new(label), chrome::text(16.0, chrome::INK))],
+        children![(
+            Text::new(label),
+            chrome::text(16.0, chrome::INK),
+            TextLayout::new_with_justify(JustifyText::Center),
+        )],
     )
 }
 
-pub(crate) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+pub(crate) fn setup(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    session: Option<Res<crate::session::Session>>,
+    touch: Option<Res<TouchControls>>,
+) {
+    let (standalone, touch) = (session.is_some(), touch.is_some());
     let image = images.add(Image::new(
         Extent3d {
             width: ORB_SIZE as u32,
@@ -334,10 +421,33 @@ pub(crate) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
                 for (action, name, key) in ACTIONS {
                     list.spawn(action_button(action, format!("{name}  [{key}]")));
                 }
+                if standalone {
+                    list.spawn(action_button(Action::Leave, "Leave  [Esc]"));
+                }
             });
+            // Touch stand-ins for keys stay one tap away rather than folded.
+            if touch {
+                root.spawn((
+                    chrome::BlockWorld,
+                    Interaction::default(),
+                    Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::Center,
+                        column_gap: Val::Px(6.0),
+                        row_gap: Val::Px(4.0),
+                        max_width: Val::Percent(60.0),
+                        ..default()
+                    },
+                ))
+                .with_children(|buttons| {
+                    for (action, label) in TOUCH {
+                        buttons.spawn(action_button(action, label));
+                    }
+                });
+            }
             root.spawn((
                 chrome::BlockWorld,
-                action_button(Action::Menu, "Menu".into()),
+                action_button(Action::Menu, "Menu"),
             ));
         });
 }
@@ -463,6 +573,7 @@ pub(crate) fn fade_log(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn buttons(
     net: Res<Net>,
     mut game: ResMut<Game>,
@@ -470,6 +581,9 @@ pub(crate) fn buttons(
     mut menu: ResMut<Menu>,
     mut buttons: Query<(&Interaction, &Action, &mut BackgroundColor), Changed<Interaction>>,
     mut lists: Query<&mut Visibility, With<MenuList>>,
+    mut touch: Option<ResMut<TouchControls>>,
+    mut rig: Option<ResMut<crate::CameraRig>>,
+    mut session: Option<ResMut<crate::session::Session>>,
 ) {
     for (interaction, action, mut color) in &mut buttons {
         color.0 = if *interaction == Interaction::None {
@@ -480,10 +594,11 @@ pub(crate) fn buttons(
         if *interaction != Interaction::Pressed {
             continue;
         }
-        // Choosing an action folds the menu away; Wait may be pressed repeatedly.
+        // Choosing an action folds the menu away; Wait may be pressed
+        // repeatedly, and touch stand-ins for keys leave it as it is.
         match action {
             Action::Menu => menu.open = !menu.open,
-            Action::Wait => {}
+            Action::Wait | Action::Press(_) | Action::Zoom(_) => {}
             _ => menu.open = false,
         }
         match action {
@@ -528,6 +643,21 @@ pub(crate) fn buttons(
                 game.send(&net, Cmd::Wait);
             }
             Action::Wait => {}
+            Action::Leave => {
+                if let Some(session) = session.as_mut() {
+                    session.ask_to_leave();
+                }
+            }
+            Action::Press(code) => {
+                if let Some(touch) = touch.as_mut() {
+                    touch.pending.push(*code);
+                }
+            }
+            Action::Zoom(step) => {
+                if let Some(rig) = rig.as_mut() {
+                    rig.distance = (rig.distance + step).clamp(4.0, 32.0);
+                }
+            }
         }
     }
     for mut visibility in &mut lists {
@@ -662,6 +792,62 @@ mod tests {
         ));
         app.update();
         assert!(open(&app));
+        // A touch stand-in for a key leaves the menu as it is.
+        app.insert_resource(TouchControls::default());
+        app.world_mut().spawn((
+            Action::Press(KeyCode::KeyQ),
+            Interaction::Pressed,
+            BackgroundColor(chrome::BUTTON),
+        ));
+        app.update();
+        assert!(open(&app));
+        assert_eq!(
+            app.world().resource::<TouchControls>().pending,
+            [KeyCode::KeyQ]
+        );
+    }
+
+    #[test]
+    fn standalone_leave_folds_into_the_menu_while_touch_keys_stay_one_tap_away() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<Game>()
+            .init_resource::<Time>()
+            .insert_resource(crate::session::Session::new(
+                std::path::PathBuf::from("missing-scenarios"),
+                std::path::PathBuf::from("missing-saves"),
+            ))
+            .insert_resource(TouchControls::default())
+            .add_systems(Startup, setup);
+        app.update();
+        let list = app
+            .world_mut()
+            .query_filtered::<Entity, With<MenuList>>()
+            .single(app.world())
+            .unwrap();
+        let actions = app
+            .world_mut()
+            .query::<(&Action, &ChildOf)>()
+            .iter(app.world())
+            .map(|(action, parent)| (*action, parent.parent()))
+            .collect::<Vec<_>>();
+        let leave = actions
+            .iter()
+            .find(|(action, _)| *action == Action::Leave)
+            .expect("standalone play offers leaving");
+        assert_eq!(leave.1, list, "leaving waits inside the folded menu");
+        let touch = actions
+            .iter()
+            .filter(|(action, _)| matches!(action, Action::Press(_) | Action::Zoom(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(touch.len(), TOUCH.len());
+        let row = touch[0].1;
+        assert_ne!(row, list, "touch keys are not folded away");
+        assert!(touch.iter().all(|(_, parent)| *parent == row));
+        assert!(
+            app.world().get::<chrome::BlockWorld>(row).is_some(),
+            "gaps between touch keys must not click into the world"
+        );
     }
 
     #[test]
@@ -674,7 +860,7 @@ mod tests {
             .iter(app.world())
             .map(|(action, parent)| (*action, parent.parent()))
             .collect::<Vec<_>>();
-        actions.sort_by_key(|(action, _)| *action as u8);
+        actions.sort_by_key(|(action, _)| *action != Action::Menu);
         let list = app
             .world_mut()
             .query_filtered::<Entity, With<MenuList>>()

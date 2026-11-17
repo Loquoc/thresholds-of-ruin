@@ -660,7 +660,7 @@ struct PopulationBand {
     depth: source::PopulationDepth,
     #[serde(
         serialize_with = "mapped::serialize",
-        deserialize_with = "bounded_stored::<_, source::PopulationChoice, 64>"
+        deserialize_with = "bounded_stored::<_, source::PopulationChoice, { tor_simulation::floor_activation::MAX_ITEM_CHOICES }>"
     )]
     choices: Vec<source::PopulationChoice>,
 }
@@ -3676,6 +3676,9 @@ impl AdvancementPolicy {
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "tor_simulation::rules::AbilityDef", deny_unknown_fields)]
 struct AbilityDefinition {
+    effect_visual: tor_simulation::rules::EffectVisual,
+    #[serde(deserialize_with = "tor_simulation::rules::read_effect_style")]
+    effect_style: Option<String>,
     cancellable: bool,
     #[serde(with = "mapped")]
     interaction: tor_simulation::rules::Interaction,
@@ -4463,7 +4466,7 @@ struct RulesInput {
     #[serde(with = "mapped")]
     document: tor_simulation::rules::RulesetDocument,
 }
-const RULES_INPUT_FORMAT: u32 = 26;
+const RULES_INPUT_FORMAT: u32 = 27;
 pub(crate) fn encode_rules_document(
     document: &tor_simulation::rules::RulesetDocument,
 ) -> Result<String, crate::Failure> {
@@ -5076,14 +5079,14 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (69, 37, "interactions-v58", 26, 10, 34, "tor-arena-run-v6")
+            (70, 37, "interactions-v66", 27, 10, 34, "tor-arena-run-v6")
         );
     }
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 70);
-        assert_eq!(super::RULES_INPUT_FORMAT, 26);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 72);
+        assert_eq!(super::RULES_INPUT_FORMAT, 27);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently
         // of their physical framing, which remains unchanged.
@@ -6160,13 +6163,49 @@ mod tests {
         assert!(decode_content_package(&serde_json::to_vec(&bad).unwrap()).is_err());
     }
 
+    fn scenario_fixture_name(archive_version: u32, ruleset: &str) -> String {
+        match (archive_version, ruleset) {
+            // This exact published pair predates rules-aware filenames. It is
+            // a name mapping, not fallback to an older fixture or save reader.
+            (70, "interactions-v60") => "saved-scenarios-v70.json".into(),
+            _ => format!("saved-scenarios-v{archive_version}-{ruleset}.json"),
+        }
+    }
+
+    #[test]
+    fn scenario_golden_identity_tracks_archive_and_rules_independently() {
+        assert_eq!(
+            scenario_fixture_name(70, "interactions-v60"),
+            "saved-scenarios-v70.json",
+            "the exact published pair keeps its original filename"
+        );
+        assert_eq!(
+            scenario_fixture_name(70, "interactions-v59"),
+            "saved-scenarios-v70-interactions-v59.json",
+            "a different rules identity never reuses the legacy file"
+        );
+        assert_eq!(
+            scenario_fixture_name(69, "interactions-v60"),
+            "saved-scenarios-v69-interactions-v60.json",
+            "a different archive never reuses archive-only naming"
+        );
+        assert_eq!(
+            scenario_fixture_name(71, "fixture.future-rules"),
+            "saved-scenarios-v71-fixture.future-rules.json"
+        );
+    }
+
     fn current_scenarios() -> BTreeMap<String, Value> {
-        // Captured from the current writer. Only machine-specific package
-        // directories are normalized to null; this is not an old-save reader.
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "fixtures/saved-scenarios-v{}.json",
-            crate::engine::ARCHIVE_VERSION
-        ));
+        // Certificates embed rules identity even when the physical archive
+        // format is unchanged. Keep every published archive/rules golden intact.
+        // Only machine-specific package directories are normalized to null;
+        // this is not an old-save reader and has no historical fallback.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(scenario_fixture_name(
+                crate::engine::ARCHIVE_VERSION,
+                crate::scenario_package::RULESET,
+            ));
         let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
             panic!(
                 "{}: {error}; record the current writer with TOR_RECORD_SCENARIO_FIXTURES",
@@ -8244,7 +8283,15 @@ mod population_boundary_tests {
                 "{field}"
             );
             let mut bad = good.clone();
-            bad[field][0]["choices"] = json!(vec![good[field][0]["choices"][0].clone(); 65]);
+            let max_choices = if field == "item_bands" {
+                tor_simulation::floor_activation::MAX_ITEM_CHOICES
+            } else {
+                64
+            };
+            let choice = good[field][0]["choices"][0].clone();
+            bad[field][0]["choices"] = json!(vec![choice.clone(); max_choices]);
+            assert!(serde_json::from_value::<Owned<source::PopulationStage>>(bad.clone()).is_ok());
+            bad[field][0]["choices"] = json!(vec![choice; max_choices + 1]);
             assert!(
                 serde_json::from_value::<Owned<source::PopulationStage>>(bad).is_err(),
                 "{field}"
@@ -8261,8 +8308,11 @@ mod population_boundary_tests {
         .unwrap();
         let good = serde_json::to_value(Borrowed(&stage)).unwrap();
         let mut bad = good.clone();
-        bad["bands"][0]["choices"] =
-            Value::Array(vec![json!({"archetype":"marker","weight":1}); 65]);
+        bad["bands"][0]["choices"] = Value::Array(vec![
+            json!({"archetype":"marker","weight":1});
+            tor_simulation::floor_activation::MAX_ITEM_CHOICES
+                + 1
+        ]);
         assert!(serde_json::from_value::<Owned<source::PopulationStage>>(bad).is_err());
         let mut bad = good.clone();
         bad["bands"] = Value::Array(vec![good["bands"][0].clone(); 33]);

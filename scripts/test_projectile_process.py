@@ -4,6 +4,7 @@ Default test_*_process discovery registers all methods. The graphical class
 places the native keyboard witness in CI's exclusive native lane; only the Text
 methods is explicitly non-graphical. No production test API or save mutation.
 """
+import copy
 import json
 import shutil
 import sqlite3
@@ -22,6 +23,29 @@ def view(frame):
 
 def item(frame, name):
     return next(row for row in view(frame)["inventory"] if row["name"] == name)
+
+
+def physical_missile_sample(messages, name):
+    """Select an untouched wire Outcome and require its exact cosmetic payload."""
+    if name not in ('dagger', 'arrow'):
+        raise ValueError('This production witness owns only dagger and arrow')
+    expected = {'form': 'missile', 'visual': 'neutral', 'style': None,
+                'object': {'name': name, 'asset': 'item.weapon.' + name,
+                           'kind': {'kind': 'item', 'class': 'weapon'}}}
+    samples = []
+    for message in messages:
+        body = message.get('update', {}).get('body', {})
+        if message.get('type') != 'update' or body.get('type') != 'outcome':
+            continue
+        for fact in body['facts']['facts']:
+            event = fact.get('event', {})
+            if fact['kind'] == 'combat' and event.get('type') == 'effect' and event.get('delivery') == 'projectile':
+                if event.get('presentation') != expected or event.get('cue') != 'physical':
+                    raise AssertionError('Physical flight must carry the exact public object, not a generic dart or launcher')
+                samples.append(message)
+    if not samples:
+        raise AssertionError('No actual physical projectile Outcome captured')
+    return copy.deepcopy(samples[-1])
 
 
 def preview_lines(preview):
@@ -151,6 +175,107 @@ class ProjectileProcesses(ProcessTestCase):
         return preview
 
     @non_graphical
+    def test_headless_projectile_payment_recovery_and_source_free_restart(self):
+        self.setup_encounter()
+        self.replies = []
+        relay = StreamRelay(self.address, on_server_message=self.replies.append)
+        self.addCleanup(relay.close)
+        upstream, self.address = self.address, relay.address
+        try:
+            owner, _ = self.client()
+        finally:
+            self.address = upstream
+
+        def query(command, reply_kind):
+            current = self.request(owner, {"type": "snapshot"})
+            start = len(self.replies)
+            result = self.request(owner, {"type": "command", "context": current["input_context"],
+                "branch": current["branch"], "command": {
+                    **command, "expected_revision": current["state"]["revision"]}})
+            self.assertIsNone(result["error"])
+            return self.reply(reply_kind, start)
+
+        def choices(ability, phase):
+            return query({"type": "projectile_choices", "query": {
+                "ability": ability, "phase": phase, "offset": 0}}, "projectile_choices")["page"]["choices"]
+
+        def fire(ability, delivery, name):
+            invocation = {"aim": {"kind": "directional_projectile", "direction": "east", "delivery": delivery},
+                          "weapon": {"kind": "default"}}
+            before = self.snapshot()
+            terms = query({"type": "preview_ability_weapon", "ability": ability,
+                           "invocation": invocation, "supplies": {"kind": "carried"}},
+                          "ability_weapon_preview")["preview"]
+            self.assertEqual(terms["invocation"], invocation)
+            self.assertEqual(terms["phase"], "fresh")
+            self.assertDisclosedStateEqual(self.snapshot()["state"], before["state"])
+            start = len(self.replies)
+            admitted = self.act(owner, {"type": "use_ability", "id": ability,
+                                       "invocation": invocation, "supplies": {"kind": "carried"}})
+            self.assertIsNone(admitted["error"])
+            started = self.snapshot()
+            focus = terms["cost"]["focus"] if terms["cost"] else None
+            if focus:
+                self.assertEqual(resource(started, "focus")["balance"],
+                                 resource(before, "focus")["balance"] - focus["start"])
+                self.assertEqual(resource(started, "focus")["reserved"], focus["resolution"])
+            after = self.settle()
+            self.assertGreater(int(view(after)["tick"]), int(view(before)["tick"]))
+            self.request(owner, {"type": "snapshot"})
+            sample = physical_missile_sample(self.replies[start:], name)
+            self.assertEqual(len(self.admissions(ability)), 1)
+            if ability == "rogue.throw":
+                self.assertIsNotNone(focus)
+                self.assertGreater(focus["start"] + focus["resolution"], 0)
+                self.assertLess(int(view(after)["tick"]), 300)
+                self.assertEqual(resource(after, "focus")["balance"],
+                                 resource(before, "focus")["balance"] - focus["start"] - focus["resolution"])
+                self.assertEqual(resource(after, "focus")["reserved"], 0)
+            return after, sample
+
+        self.assertEqual(choices("rogue.throw", {"kind": "sources"}), [])
+        for command in ("overview", "purchase 2 advancement expertise rogue.knife", "confirm"):
+            self.assertIsNone(self.command(owner, {"type": "advancement", "command": command})["error"])
+        learned = self.settle()
+        dagger = item(learned, "dagger")["id"]
+        source, = choices("rogue.throw", {"kind": "sources"})
+        self.assertEqual(source, {"kind": "throw", "source": {"kind": "equipped", "item": dagger, "socket": 10}})
+        thrown, dagger_sample = fire("rogue.throw", source, "dagger")
+        self.assertFalse(any(row["id"] == dagger for row in view(thrown)["inventory"]))
+        self.assertEqual(next(row for row in view(thrown)["ground_items"]
+                              if row["item"]["id"] == dagger)["item"]["quantity"], "1")
+        self.assertLess(int(view(self.request(self.target, {"type": "snapshot"}))["combat"]["hp"]), self.target_health)
+        bow = item(thrown, "shortbow")["id"]
+        self.assertIsNone(self.act(owner, {"type": "equip", "item": bow, "slot": 0})["error"])
+        equipped = self.settle()
+        arrow = item(equipped, "arrow")["id"]
+        launcher_choice, = choices("rogue.launch", {"kind": "sources"})
+        launcher = launcher_choice["launcher"]
+        self.assertEqual(launcher["item"], bow)
+        self.assertEqual(choices("rogue.launch", {"kind": "ammunition", "launcher": launcher}),
+                         [{"kind": "ammunition", "item": arrow}])
+        launched, arrow_sample = fire("rogue.launch", {
+            "kind": "launch", "launcher": launcher, "ammunition": arrow}, "arrow")
+        self.assertEqual(item(launched, "arrow")["quantity"], "5")
+        self.assertEqual(item(launched, "shortbow")["id"], bow)
+        self.assertFalse(any(row["item"]["name"] == "arrow" for row in view(launched)["ground_items"]))
+        self.assertIsNone(self.command(self.target, {"type": "act", "action": {"type": "move", "direction": "north"}})["error"])
+        for action in ({"type": "wait"}, {"type": "move", "direction": "east"},
+                       {"type": "take", "item": dagger, "quantity": None}):
+            self.assertIsNone(self.act(owner, action)["error"])
+            final = self.settle()
+        self.assertEqual(item(final, "dagger")["quantity"], "1")
+        self.flush_save()
+        owner.stop(); self.probe.stop(); self.target.stop(); self.game.stop()
+        shutil.rmtree(self.package)
+        self.server(scenario=unrelated_fallback(self), seed=None)
+        _, restored = self.client()
+        self.assertDisclosedStateEqual(restored["state"], final["state"])
+        self.assertEqual(restored["history"], final["history"])
+        self.assertEqual(restored["intentions"], [])
+        self.physical_projectile_samples = {"dagger": dagger_sample, "arrow": arrow_sample}
+
+    @non_graphical
     def test_text_expertise_throw_launch_payment_recovery_and_source_free_restart(self):
         initial = self.setup_encounter()
         text, _ = self.capture_client()
@@ -168,12 +293,15 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertEqual(self.admissions("rogue.throw"), [])
         terms = self.text_throw_preview(text)
         before_focus = resource(learned, "focus")["balance"]
+        throw_start = len(self.replies)
         self.assertNotIn("Server error", text.command("yes"))
         started = self.snapshot()
         focus = terms["cost"]["focus"]
         self.assertEqual(resource(started, "focus")["balance"], before_focus - focus["start"])
         self.assertEqual(resource(started, "focus")["reserved"], focus["resolution"])
         thrown = self.settle()
+        self.assertNotIn("Server error", text.command("sync"))
+        dagger_sample = physical_missile_sample(self.replies[throw_start:], 'dagger')
         # Both start and settlement occur before the production 300-tick Focus
         # recovery period, from the initial full pool (the purchase costs 0 ticks).
         self.assertLess(int(view(thrown)["tick"]), 300)
@@ -214,8 +342,11 @@ class ProjectileProcesses(ProcessTestCase):
         self.assert_preview(text.command("east"), self.reply("ability_weapon_preview", start),
                             "rogue.launch", {"kind": "launch", "launcher": launcher, "ammunition": arrow})
         self.assertDisclosedStateEqual(self.snapshot()["state"], equipped["state"])
+        launch_start = len(self.replies)
         self.assertNotIn("Server error", text.command("yes"))
         launched = self.settle()
+        self.assertNotIn("Server error", text.command("sync"))
+        arrow_sample = physical_missile_sample(self.replies[launch_start:], 'arrow')
         final = launched
         self.assertEqual(item(final, "arrow")["quantity"], "5")
         self.assertEqual(item(final, "shortbow")["id"], bow)
@@ -243,6 +374,7 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertDisclosedStateEqual(restored["state"], final["state"])
         self.assertEqual(restored["history"], final["history"])
         self.assertEqual(restored["intentions"], [])
+        self.physical_projectile_samples = {'dagger': dagger_sample, 'arrow': arrow_sample}
 
     @non_graphical
     def test_adventure_projectile_menu_and_exact_preview_gate(self):
@@ -298,9 +430,11 @@ class ProjectileProcesses(ProcessTestCase):
                 press("Down", "down")
             sources = press("Return", "enter")
             self.assertIn("dagger", "\n".join(sources["projectile_rows"]))
-            press("Return", "enter")
+            aiming = press("Return", "enter")
+            self.assertEqual(aiming.get("projectile_prompt"), "Throw the dagger. Choose a direction.")
             start = len(self.replies)
             preview = press("Right", "right")
+            self.assertEqual(preview.get("projectile_prompt"), "Throw the dagger east? Enter confirms. Esc cancels.")
             server = self.reply("ability_weapon_preview", start)
             self.assertEqual(preview["weapon_preview"]["preview"], server["preview"])
             for line in preview_lines(server["preview"]):
@@ -346,9 +480,11 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertEqual(page["choices"], [{"kind": "ammunition", "item": item(initial, "arrow")["id"]}])
         self.assertEqual(ammunition["projectile_selection"]["page"], page)
         self.assertEqual(ammunition["projectile_rows"], ["> arrow"])
-        press("Return", "enter")
+        aiming = press("Return", "enter")
+        self.assertEqual(aiming.get("projectile_prompt"), "Fire an arrow with the shortbow. Choose a direction.")
         start = len(self.replies)
         preview = press("Right", "right")
+        self.assertEqual(preview.get("projectile_prompt"), "Fire an arrow with the shortbow east? Enter confirms. Esc cancels.")
         server = self.reply("ability_weapon_preview", start)
         self.assertEqual(preview["weapon_preview"]["preview"], server["preview"])
         for line in preview_lines(server["preview"]):

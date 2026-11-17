@@ -14,6 +14,10 @@
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing},
     forward_io::{VertexOutput, FragmentOutput},
+    mesh_view_bindings as view_bindings,
+    clustered_forward as clustering,
+    shadows,
+    pbr_types::PbrInput,
 }
 #endif
 
@@ -30,6 +34,19 @@ struct CaveParams {
 }
 
 @group(2) @binding(100) var<uniform> cave: CaveParams;
+// The render profile's two rock switches travel in `cave.light`: `y` above a
+// half reads surface noise from the baked textures below instead of hashing it
+// for every pixel, and `z` above a half lights the rock as a matte surface.
+//
+// Lattice values of `hash`, one texel per cell, repeating every 32 cells.
+@group(2) @binding(101) var cave_lattice: texture_3d<f32>;
+@group(2) @binding(102) var cave_noise_sampler: sampler;
+// r: four octaves of noise repeating every 16 units; gba: its slope / 3.
+@group(2) @binding(103) var cave_sums: texture_3d<f32>;
+
+fn baked_noise() -> bool {
+    return cave.light.y > 0.5;
+}
 
 fn hash(p: vec3<f32>) -> f32 {
     var q = fract(p * 0.3183099 + vec3<f32>(0.71, 0.113, 0.419));
@@ -41,6 +58,10 @@ fn vnoise(p: vec3<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
     let u = f * f * (3.0 - 2.0 * f);
+    if (baked_noise()) {
+        // One filtered read between lattice texels equals the eight-corner mix.
+        return textureSampleLevel(cave_lattice, cave_noise_sampler, (i + u + vec3(0.5)) / 32.0, 0.0).r;
+    }
     return mix(
         mix(mix(hash(i + vec3(0.0, 0.0, 0.0)), hash(i + vec3(1.0, 0.0, 0.0)), u.x),
             mix(hash(i + vec3(0.0, 1.0, 0.0)), hash(i + vec3(1.0, 1.0, 0.0)), u.x), u.y),
@@ -50,6 +71,9 @@ fn vnoise(p: vec3<f32>) -> f32 {
 }
 
 fn fbm(p: vec3<f32>) -> f32 {
+    if (baked_noise()) {
+        return textureSampleLevel(cave_sums, cave_noise_sampler, p / 16.0, 0.0).r;
+    }
     var sum = 0.0;
     var amp = 0.5;
     var q = p;
@@ -137,6 +161,46 @@ fn fragment(
 }
 #endif
 #else
+// Ambient, clustered point lights and directional lights on a matte surface,
+// for GPUs that cannot afford the full model: no highlights, and shadows only
+// from directional lights that cast them.
+fn diffuse_lighting(in: PbrInput) -> vec4<f32> {
+    let N = in.N;
+    let P = in.world_position.xyz;
+    var light = view_bindings::lights.ambient_color.rgb;
+    let view_z = dot(vec4<f32>(
+        view_bindings::view.view_from_world[0].z,
+        view_bindings::view.view_from_world[1].z,
+        view_bindings::view.view_from_world[2].z,
+        view_bindings::view.view_from_world[3].z
+    ), in.world_position);
+    let cluster = clustering::fragment_cluster_index(in.frag_coord.xy, view_z, in.is_orthographic);
+    var ranges = clustering::unpack_clusterable_object_index_ranges(cluster);
+    for (var i: u32 = ranges.first_point_light_index_offset;
+            i < ranges.first_spot_light_index_offset;
+            i = i + 1u) {
+        let id = clustering::get_clusterable_object_id(i);
+        let to_light = view_bindings::clusterable_objects.data[id].position_radius.xyz - P;
+        let colour = view_bindings::clusterable_objects.data[id].color_inverse_square_range;
+        let distance_square = max(dot(to_light, to_light), 0.0001);
+        let factor = distance_square * colour.w;
+        let smooth_factor = saturate(1.0 - factor * factor);
+        let facing = saturate(dot(N, to_light * inverseSqrt(distance_square)));
+        light += colour.rgb * (smooth_factor * smooth_factor / distance_square * facing * 0.318309886);
+    }
+    let suns = view_bindings::lights.n_directional_lights;
+    for (var i: u32 = 0u; i < suns; i = i + 1u) {
+        var facing = saturate(dot(N, view_bindings::lights.directional_lights[i].direction_to_light.xyz));
+        // Bit 1 marks a directional light whose shadows are enabled.
+        if ((view_bindings::lights.directional_lights[i].flags & 1u) != 0u) {
+            facing *= shadows::fetch_directional_shadow(i, in.world_position, in.world_normal, view_z);
+        }
+        light += view_bindings::lights.directional_lights[i].color.rgb * (facing * 0.318309886);
+    }
+    let lit = in.material.base_color.rgb * light + in.material.emissive.rgb;
+    return vec4(lit * view_bindings::view.exposure, 1.0);
+}
+
 @fragment
 fn fragment(
     in: VertexOutput,
@@ -204,17 +268,28 @@ fn fragment(
     pbr_input.material.emissive = vec4((glow * shade + room) * (1.0 - cut_top) * lit, 1.0);
 
     // Bump the facets with fine grain so torchlight rakes across the rock.
-    let e = 0.03;
-    let h0 = fbm(wp * 4.0);
-    let grad = vec3(fbm((wp + vec3(e, 0.0, 0.0)) * 4.0) - h0,
+    var grad = vec3(0.0);
+    if (baked_noise()) {
+        // The baked slope is per unit of noise; the grain is four times finer.
+        let slope = textureSampleLevel(cave_sums, cave_noise_sampler, wp * 0.25, 0.0).gba;
+        grad = (slope * 2.0 - 1.0) * 12.0;
+    } else {
+        let e = 0.03;
+        let h0 = fbm(wp * 4.0);
+        grad = vec3(fbm((wp + vec3(e, 0.0, 0.0)) * 4.0) - h0,
                     fbm((wp + vec3(0.0, e, 0.0)) * 4.0) - h0,
                     fbm((wp + vec3(0.0, 0.0, e)) * 4.0) - h0) / e;
+    }
     let tangent_grad = grad - pbr_input.N * dot(grad, pbr_input.N);
     pbr_input.N = normalize(pbr_input.N - tangent_grad * mix(0.05, 0.03, floor_w));
 
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
     var out: FragmentOutput;
-    out.color = apply_pbr_lighting(pbr_input);
+    if (cave.light.z > 0.5) {
+        out.color = diffuse_lighting(pbr_input);
+    } else {
+        out.color = apply_pbr_lighting(pbr_input);
+    }
     // Dark body awareness and memory remain readable without accepting light
     // from the artistic fill or an adjacent decorative point light.
     out.color = mix(vec4(vec3(0.018, 0.022, 0.035) * shade, 1.0), out.color, lit);

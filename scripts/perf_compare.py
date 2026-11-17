@@ -80,6 +80,10 @@ class Workload:
 
 
 WORKLOADS = {
+    "ranged-loot": Workload("ranged_loot", "tor-simulation", "ranged_loot_bench", "scripts/ranged_loot_performance_report.py",
+                     group=lambda row: f"{row['mode']}-d{row['distance']}-i{row['items']}", keys=("mode", "distance", "items", "sample", "version", "seed")),
+    "loot": Workload("loot", "tor-simulation", "loot_bench", "scripts/loot_performance_report.py",
+                     group=lambda row: f"w{row['width']}-d{row['distance']}-i{row['items']}", keys=("width", "distance", "items", "sample", "version", "seed")),
     "equipment": Workload("equipment", "tor-simulation", "equipment_bench", "scripts/equipment_performance_report.py",
                           group=lambda row: f"i{row['items']}", keys=("items", "sample", "version", "seed")),
     "models": Workload("models", "tor-client-3d", "model_bench", "scripts/model_performance_report.py",

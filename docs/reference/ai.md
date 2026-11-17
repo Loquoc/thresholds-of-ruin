@@ -53,6 +53,18 @@ needs the current disclosed reference to match the engagement, not merely the sa
 private actor ID. Arrival at a remembered location can support investigation
 without authorizing an attack against an undisclosed occupant.
 
+A location-only alert completes when a committed actor transition starts or ends
+at its sampled point. Arrival, authorized relocation, or a committed transition
+at an already reached point retires that receipt; subsequent exploration is not
+pulled back by the same cue. This is physical visit completion, not a search
+contest or proof that the area is safe. Seeing the point, failing to reach it,
+or observing the source elsewhere does not complete it. A later sensory event
+can install a fresh cue. Pure previews and unpublished/rejected transitions do
+not consume alerts. Existing actor-active expiry and frozen-clock shifting still
+bound unreached cues. Completion uses the existing saved alert field, not a new
+goal schema; rules 66 distinguishes the changed autonomous behavior.
+
+
 ## State classification
 
 After the early intact-guise ambush branch, the decision is labeled Search, Attack
@@ -95,13 +107,17 @@ because they might appear tactically better to an observer with hidden knowledge
 | 8 | Flee | Select a legal disclosed retreat using the current heuristic. Without a committed prefix, a qualifying step ability may implement it; otherwise ordinary Move owns abandonment/debt |
 | 9 | Resume committed paused prefix when no retreat chosen | Do not replace it with new gear/healing/attacks or repeat its first strike |
 | 10 | Proactive self-defense | Requires a current sensed engaged target and a narrowly recognized useful self-condition plan |
-| 11 | Engaged attack | Current matching visible target; normal hostile ability choice outside Flee, basic attacks only when cornered in Flee |
+| 11 | Engaged attack | Current matching visible target; supported ranged positioning before hostile ability choice outside Flee, basic attacks only when cornered in Flee |
 | 12 | Remembered pursuit | Outside Flee, first legal route step toward last seen; unusable pursuit clears engagement and returns to Search |
 | 13 | Anonymous-alert investigation | Outside Flee and without engagement, route to licensed alert location; do not invent a target attack |
 | 14 | Safe Search items | Equipment improvement, then useful nearby loot, then known Gold; each has policy and visible-hostile gates |
 | 15 | Doors | Search plus door permission and voluntary input: first disclosed reachable closed door |
-| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits then stable location order |
+| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits, breaking equal-best ties with the copied actor-owned RNG |
 | 17 | Fallback | Wait through ordinary action execution |
+
+Stable location ordering defines the candidate list, not a preferred compass direction.
+Only a tie draws randomness; a unique best neighbor and an idle Wait do not.
+This removes shared coordinate bias without introducing persistent goals or a planner.
 
 An idle Wait profile forbids roaming and detours, not retaliation or every useful
 underfoot action. Tool permissions remain independent. One decision does not
@@ -117,6 +133,13 @@ find concealed bodies. Known finite devices are fallback sources only when their
 identity and a positive charge fact make them usable; query or birth possession
 does not identify them.
 
+Fresh ray, device, launcher and equipped-throw choices decline a bearing when
+a disclosed nonhostile body cell intercepts its prefix before the target in a
+fully disclosed ordinary local chart. This includes non-anchor body cells and
+arbitrary cell bearings. The conservative guard does not predict hidden bodies,
+post-target hits or reflections; ambiguous folded charts retain prior behavior.
+Already prepared work retains its existing continuation policy.
+
 Healing care recognizes a narrow safe plan: positive possible healing, with only
 healing effects in the relevant branches, not any ability whose name resembles
 healing. Finite stock and supply selection remain ordinary [item rules](items.md).
@@ -129,16 +152,56 @@ make the action unsafe. The current threat and effect eligibility are rechecked;
 this is not a general utility search or optimal buff planner. The exact predicate
 is owned by [ai_defense.rs](../../crates/simulation/src/ai_defense.rs).
 
+## Conservative ranged positioning
+
+Outside Flee, an engaged actor with a currently disclosed target may make one
+legal step out of adjacent melee before attacking. This is capability-driven,
+not keyed to a monster name: ordinary planning must admit an affordable,
+currently usable actor-targeted sight-range ability whose authored preference
+is outside melee. Unfunded or melee-only actors keep the ordinary attack policy.
+
+The local guard supports upright column bodies and ordinary frame-preserving
+movement. Destination body cells, the clear corridor and required solid footing
+must already be disclosed in the appropriate local occurrence; a location alias
+through a portal is not proof of support. It rejects unsupported orientation or
+gravity, unknown support, and positions adjacent to any disclosed hostile body
+cell, and preserves the admitted ability's effective range. Unsupported cases
+fall back to the ordinary policy rather than reading hidden topology. The actor
+replans next turn; this is not general kiting, a route planner or guaranteed safety.
+
+## Limited two-step retreat
+
+A strictly farther legal retreat retains priority. If none exists, a single-cell
+actor with a local remembered chart may take an equal-distance first step when a
+remembered second step leads farther from the licensed threat. This fallback
+shares a budget of 512 newly expanded route nodes. Exhaustion is unknown, not
+proof of escape; ordinary direct-retreat searches retain their existing behavior.
+
+Both steps must preserve the local frame and ordinary displacement. Larger bodies,
+folded or rotated transitions and unknown links are not certified by this fallback.
+It chooses only the first action and replans afterward; stale memory or changed
+occupancy can invalidate the opportunity. This is not a general planner,
+multi-threat danger assessment, or guarantee of safety.
+
 ## Item decisions and bounded search
 
 Known equipment is compared using disclosed usable alternatives and ordinary
-capacity/removal rules. Useful inventory pickup reserves finite need: appropriate
+capacity/removal rules. Each ordinary eligibility scan lazily shares one
+actor-known baseline score, including an unavailable baseline, while independently
+projecting every candidate and checking its equip admission. This scratch state
+is bound to the immutable actor/world and is never serialized. Ranged acceptance
+and final nondominated ranking remain separate policies.
+
+Useful inventory pickup reserves finite need: appropriate
 gear, one healing reserve and supplies for one payable safe healing use. Food
 reserve depends on required nutrition. Gold interest is separately authored; it
 does not grant theft or teach hidden magical effects.
 
-The item policy uses bounded remembered-route detours (up to three steps), not a
-whole hidden-floor loot oracle. Projectile-source search scans at most 128
+Useful disclosed items and authored gold interest have no fixed gameplay
+distance cutoff. Pursuit still requires a known reachable route, a safe goal and
+first step, and the existing higher-priority needs; it is not a hidden-floor loot
+oracle. Route search is finite over remembered topology, not a fixed CPU budget.
+Projectile-source search scans at most 128
 inventory rows and considers bounded launcher choices; no unbounded inventory
 scan is implied by a generic projectile ability. Selection is deterministic at
 its stable tie-breaks. See [item tactics](../../crates/simulation/src/ai_items.rs),
@@ -148,6 +211,19 @@ its stable tie-breaks. See [item tactics](../../crates/simulation/src/ai_items.r
 These bounds are selection policies/capacity limits, not guarantees that every
 eligible item deep in inventory will be found or that a chosen request will still
 be valid at execution. Exact item ownership, holds and contact remain authoritative.
+
+### Known medicine reserve
+
+Collection recognizes a known restorative reserve separately from deciding to
+consume it. Alongside legacy pure healing, a positive per-hit-die healing potion
+may include removal of authored harmful conditions. Unknown identities, mixed
+harm, unsupported effects, beneficial-condition removal and cure-only items do
+not establish this healing reserve. The same classification governs ground
+pickup and whether carried medicine already fills the one-dose reserve.
+
+An uninjured care-capable actor may collect one known dose for later without
+drinking it. Existing consumption thresholds and useful-effect checks remain
+unchanged; collection grants no knowledge and adds no care or loot permission.
 
 ### Known consumable and scroll care
 
@@ -279,3 +355,119 @@ Source/test witnesses are static evidence here, not newly executed results.
 | Defense predicate | [ai_defense](../../crates/simulation/src/ai_defense.rs), [shared condition safety](../../crates/simulation/src/ai_effect_safety.rs) |
 | Known-item care, remembered facts and paid replay | [item-care tests](../../crates/simulation/src/ai_item_use_tests.rs); includes live Rogue effect/condition subsets, not a whole-scenario playthrough |
 | Candidate execution/fallback | [actions](../../crates/simulation/src/actions.rs), [intention ownership](../../crates/simulation/src/intention.rs) |
+
+### Disclosed bystanders and gold pursuit
+
+Existing directly reachable gold choices keep their prior ordering. If none is
+usable and a disclosed creature blocks the first remembered step, a gold seeker
+may choose a disclosed legal first step with a clear remembered suffix instead
+of falling back immediately to exploration. Alternatives use movement-time cost,
+exclude the origin and disclosed occupied creature cells, and share a 512-node
+search budget across gold targets. Incomplete comparisons decline the new
+alternative. This is not hidden-occupancy pathfinding or a guarantee of future
+clearance; each ordinary move rechecks current conditions. Authored Wait, exposure
+and condition restrictions remain. Greedy acquisition and subsequent Search reuse
+one positive or negative gold decision. Other loot policies are unchanged.
+
+### Recovering a disclosed ranged kit
+
+Existing useful-loot choices retain priority and ordering. Only when that pass
+finds no action may an exploring actor with both equipment and loot permission
+recover a known launcher/payload pair around a disclosed creature blocking its
+first remembered step. Pair eligibility and the chosen pickup or movement share
+one completed approach cache. This prevents a split pair from alternately drawing
+an actor home and becoming ineligible again there.
+
+New detours use legal disclosed first steps and remembered suffixes avoiding the
+origin and disclosed occupied creature cells. Destinations share a 512-node
+expansion budget; an incomplete comparison discards all newly inferred detours.
+The existing known-family pairing, finite ammunition reserve, anatomy, exposure
+and action restrictions still apply. This does not add interests to creatures
+without the relevant permissions, change care or ordinary equipment priorities,
+or promise that future steps remain clear.
+
+### Extension boundaries and decision-local state
+
+The coordinator in `ai.rs` remains an explicit first-applicable priority pipeline,
+not a global utility contest or dynamically registered behavior tree. Its order
+is the table above. Contiguous fresh-care, safe-acquisition and exploration stages
+live in [decision stages](../../crates/simulation/src/ai_decision_stages.rs).
+[Encounter stages](../../crates/simulation/src/ai_encounter.rs) own engagement
+refresh and combat proposals. The coordinator visibly places retained-work
+resumption, care, erratic movement, retreat and committed-prefix fallback before
+engagement proposals, and anonymous investigation afterward. Encounter facts
+retain sensed-target identity separately from remembered threats and alerts;
+refresh updates only the copied drafts before care, in the established order.
+
+The decision-local context is deliberately small and existing: one immutable
+`DecisionSnapshot` (observation, sight and scene), actor-owned remembered route
+search, a named positive-or-negative `GoldChoiceCache`, and one copied AI/behavior draft.
+Read-only predicates may use the acting body's capabilities and present legality;
+they must not inspect an opponent's private inventory or undisclosed future
+occupancy. New stage helpers receive only the context they need, not a new
+unrestricted knowledge store. Nothing adds serialized memory or another rules
+representation.
+
+A stage proposes an ordinary action or a frozen evaluated plan. It does not
+execute, consume resources, draw world randomness or commit memory. The winning
+proposal attaches the existing draft to `AiDecision`; ordinary execution owns
+validation and commitment. Exploration may update draft visits and its copied
+actor-owned RNG, in the existing order. A stage that declines must preserve any
+intentional draft effects already specified by its contract. Do not re-evaluate
+an earlier predicate merely because a later stage needs its result: cached
+negative gold decisions are as important as positive ones.
+
+To add an interest or tactic, first choose its explicit priority and eligibility
+policy, then implement its bounded decision in the relevant stage. Keep desire,
+quantity and known-item interpretation separate from navigation and execution.
+Reserve recognition and immediate consumption remain different predicates. Add
+policy-level precedence, knowledge, budget and pure-choice tests plus ordinary
+execution/replay coverage. New behavior needs its own rules-identity review;
+structural extraction alone does not authorize changed priorities or RNG draws.
+
+[Known equipment evaluation](../../crates/simulation/src/ai_equipment.rs) owns
+remembered estimates, private loadout projection and score comparison. Acquisition
+policy stays in `ai_items.rs` and ranged-item selection. Ordinary and ranged
+comparisons share matching-socket order, known replacement eligibility and the
+reset → carried-unit proposal → ordinary Equip admission → derived-fold mechanism.
+They do not share acceptance: ordinary upgrades require strict dominance; ranged
+policy may accept equality and its explicitly preferred attack trade-off, with
+its own resource check. Candidate rejection remains distinct from a missing item
+that aborts the ranged comparison. Each candidate revalidates admission; only the
+immutable ordinary baseline score is cached within its actor-bound scan.
+
+### Shared approach mechanism, separate acquisition policies
+
+Gold and ranged-kit recovery share the knowledge-only
+[approach planner](../../crates/simulation/src/ai_approach.rs). It enumerates legal
+first steps in the existing horizontal/up/down order and compares remembered
+suffixes by checked movement cost, then direction rank. It distinguishes an
+exhausted comparison from a completed search with no safe approach. Exhaustion
+invalidates the caller's entire fallback, including earlier successful targets.
+
+Target ordering and budgets remain policy-owned: gold visits sorted item IDs,
+including co-located items, and ranks `(cost, item, direction rank)`. Ranged kits
+visit sorted unique destinations, reuse their completed approaches for pairing,
+and rank pickups by `(hops, item)`. The planner deliberately does not deduplicate
+or cache targets, unify direct-route handling, or reorder the AI coordinator.
+This extraction does not change rules identity or actor behavior.
+
+The gold idle tests retain exact-budget, repeated-destination, ordering,
+disclosure/frame, direct-route and occupied-suffix witnesses. Ranged
+[weapon-selection tests](../../crates/simulation/src/abilities/weapon_selection_tests.rs)
+retain destination-cache, incomplete-budget, knowledge, exposure, policy and
+occupied-goal witnesses. The ordinary
+[AI process tests](../../scripts/test_ai_interactions_process.py) retain paid
+multi-actor collection and restart coverage. These tests remain policy-level
+contracts rather than depending on the helper's internal representation.
+
+
+For example, an additional known equipment interest belongs in safe acquisition:
+its item policy decides usefulness and finite quantity from actor-owned knowledge;
+its approach mechanism determines only how a disclosed eligible target can be
+reached. It must retain the stage's equipment/loot/gold ordering unless a behavior
+change is explicitly intended, return a proposal rather than move the actor,
+and decline a bounded comparison completely on exhaustion. Tests should include
+an unknown item, a disclosed bystander, two equal-ranked targets, and an earlier
+care or committed-work choice that must still win. This is an extension recipe,
+not an implemented new interest.

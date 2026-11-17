@@ -148,6 +148,15 @@ does not prevent observation; press F3 once that client releases control. The
 server address must be a numeric loopback socket address (IPv4 or IPv6).
 Automatic server launch and packaged builds are not available; see [status](../status.md).
 
+`?` opens the Play help page. Use Left and Right to browse Combat and items,
+Map symbols, and History and reports. Press Esc or `?` to close help.
+
+When throwing or firing, choose the source, then aim with the map visible.
+A direction key retains directional aim; clicking a currently visible map cell
+selects that exact offset. Rays and device zaps also accept a visible-cell click
+while their aim prompt is open. Remembered cells are not valid shot targets.
+The prompt names the item, direction or cell, and confirmation keys.
+
 The default letter layout follows the [NetHack 5.0 command keys](https://nethack.org/v500/Guidebook.html)
 (the core item and movement keys also match [NetHack 3.6.7](https://nethack.org/v367/Guidebook.html)).
 **Case matters:** `z` uses a device, whereas `Z` opens abilities. This is a key
@@ -198,7 +207,9 @@ Keep trying until the trap releases, then move away.
 
 For an extended command, press `#`, type its name without the leading `#`, and
 press Enter. `#attack` retains the visible-target attack picker. `#charts` opens
-read-only detection charts. `#equip` and `#remove` retain the general equipment
+read-only detection charts. `#discoveries` lists item appearances your character
+has identified, even after the last matching item is used. Use Up and Down to
+scroll. Esc closes the list. `#equip` and `#remove` retain the general equipment
 menus, including tools; the letter shortcuts above filter by item class.
 `#ignite` and `#extinguish` keep the explicit portable-light choices.
 `#slower` and `#faster` adjust journey presentation speed (`--pace <ms>` sets the

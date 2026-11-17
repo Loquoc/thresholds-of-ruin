@@ -82,6 +82,10 @@ impl<'de> Deserialize<'de> for Ability {
         #[serde(deny_unknown_fields)]
         struct Fields {
             #[serde(default)]
+            effect_visual: EffectVisual,
+            #[serde(default, deserialize_with = "read_effect_style")]
+            effect_style: Option<String>,
+            #[serde(default)]
             cancellable: bool,
             interaction: Interaction,
             id: AbilityId,
@@ -108,6 +112,8 @@ impl<'de> Deserialize<'de> for Ability {
         }
         let fields: Fields = crate::creature_authoring::named_map(deserializer)?;
         Ok(Self(AbilityDef {
+            effect_visual: fields.effect_visual,
+            effect_style: fields.effect_style,
             cancellable: fields.cancellable,
             interaction: fields.interaction,
             id: fields.id,
@@ -528,5 +534,45 @@ mod cancellation_metadata_tests {
         );
         malformed::<Modifier>(modifier.clone());
         malformed::<crate::creature_authoring::Modifier>(modifier);
+    }
+    #[test]
+    fn rogue_effect_visuals_compile_on_abilities_not_same_named_talents() {
+        for name in ["rogue", "rogue-exploration"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scenarios")
+                .join(name);
+            let package = crate::scenario_package::read_package(&path).unwrap();
+            let rules = package.rules().unwrap();
+            for (id, visual, style) in [
+                ("rogue.freezing_touch", EffectVisual::Frost, "contact.frost"),
+                ("rogue.breath_weapon", EffectVisual::Flame, "breath.fire"),
+                ("rogue.wand_fire", EffectVisual::Flame, "magic.ray.fire"),
+                ("rogue.wand_cold", EffectVisual::Frost, "magic.ray.cold"),
+                (
+                    "rogue.wand_lightning",
+                    EffectVisual::Sparks,
+                    "magic.ray.lightning",
+                ),
+                (
+                    "rogue.wand_light",
+                    EffectVisual::Radiance,
+                    "magic.room-light",
+                ),
+                (
+                    "rogue.wand_magic_missile",
+                    EffectVisual::Radiance,
+                    "magic.missile",
+                ),
+            ] {
+                let ability = rules
+                    .document()
+                    .abilities
+                    .iter()
+                    .find(|ability| ability.id.as_str() == id)
+                    .unwrap();
+                assert_eq!(ability.effect_visual, visual, "{name}/{id}");
+                assert_eq!(ability.effect_style.as_deref(), Some(style), "{name}/{id}");
+            }
+        }
     }
 }

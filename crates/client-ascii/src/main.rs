@@ -410,6 +410,15 @@ fn window_loop(
                             }
                         }
                         Event::CreatureInspection(report) => app.show_inspection(&report)?,
+                        Event::Discoveries(rows) => {
+                            app.discovery_scroll = 0;
+                            app.discovery_rows = Some(
+                                rows.into_iter()
+                                    .map(|row| format!("{} -> {}", row.appearance, row.name))
+                                    .collect(),
+                            );
+                            app.status.clear();
+                        }
                         Event::CreatureCatalog(page) => app.show_creature_catalog(&page)?,
                         Event::ProjectileChoicesSent(id) => {
                             if let Err(error) = app.bind_projectile_request(&id) {
@@ -805,17 +814,18 @@ fn window_loop(
                 "narration":state.map(|s|s.narration())});
             let screen_report = serde_json::json!({
                 "messages":{"shown":app.messages.shown(app.role!=tor_protocol::AccessRole::Spectator),"more":app.messages.more(),"turn":app.messages.text(),"log":app.messages.log().collect::<Vec<_>>()},
-                "screen":{"pickup":!app.pickup.is_empty(),"inventory":app.inventory_open,"charts":app.charts_open,"help":app.help_open,"stats":app.stats_open,"stats_scroll":app.stats_scroll,"message_log":app.message_log,"look_cursor":app.look_cursor,"running":app.running},
+                "screen":{"pickup":!app.pickup.is_empty(),"inventory":app.inventory_open,"charts":app.charts_open,"help":app.help_page.is_some(),"help_page":app.help_page.map(|page| page.title()),"stats":app.stats_open,"stats_scroll":app.stats_scroll,"message_log":app.message_log,"look_cursor":app.look_cursor,"running":app.running},
                 "inventory_rows":if app.inventory_open { state.map(|s|tor_client_ascii::inventory_entries(&app,&s.state().observation).iter().take(26).map(|entry|entry.long()).collect::<Vec<_>>()) } else { None },
+                "discovery_rows":app.discovery_rows,
                 "chart_rows":if app.charts_open { Some(app.chart_lines()) } else { None },
                 "stats_rows":if app.stats_open { Some(app.stats_rows()) } else { None },
                 "advancement_open":app.advancement_open,"advancement_rows":app.advancement_rows(),"advancement_command":app.advancement_command,
                 "ability_choices":app.ability_choices,"selected_ability":app.selected_ability,
                 "item_rows":app.item_rows(),"zap_item":app.zap_item(),
-                "identification":app.identification_choice(),"identification_rows":app.identification_rows(),
+                "identification":app.identification_choice(),"identification_rows":app.identification_rows(),"identification_empty_message":app.identification_empty_message(),
                 "hold_choices":app.hold_choice_offers(),"hold_rows":app.hold_rows(),
                 "supply_selection":app.supply_selection,"supply_rows":app.supply_rows(),
-                "weapon_preview":app.weapon_confirmation,"weapon_preview_rows":app.weapon_preview_rows(),
+                "projectile_prompt":app.projectile_prompt(),"weapon_preview":app.weapon_confirmation,"weapon_preview_rows":app.weapon_preview_rows(),
                 "projectile_selection":app.projectile_selection,"projectile_rows":app.projectile_rows(),
                 "selected_weapon":app.selected_weapon,"weapon_selection":app.weapon_selection,"weapon_rows":app.weapon_rows(),
                 "status_lines":state.map(|s|tor_client_ascii::status_lines(&app,s)),

@@ -231,6 +231,13 @@ fn projectile_invocations_keep_exact_typed_delivery_and_all_ten_directions() {
         json!({"kind":"throw","source":{"kind":"carried","item":item,"socket":63}}),
         json!({"kind":"launch","launcher":{"item":item,"socket":0},"ammunition":ammunition}),
     ] {
+        let value = json!({"aim":{"kind":"cell_projectile","offset":[4,-2,1],"delivery":delivery},"weapon":{"kind":"default"}});
+        let invocation: tor_protocol::AbilityInvocation =
+            serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(invocation).unwrap(), value);
+        let mut invalid = value;
+        invalid["weapon"] = json!({"kind":"equipped","item":item,"socket":0});
+        assert!(serde_json::from_value::<tor_protocol::AbilityInvocation>(invalid).is_err());
         for direction in [
             "north",
             "east",
@@ -342,4 +349,33 @@ fn projectile_invocations_reject_ambiguous_delivery_direction_and_outer_weapon()
                 .is_err()
         );
     }
+}
+
+#[test]
+fn cell_aim_has_exact_bounded_relative_coordinates_and_no_hidden_identity() {
+    let value = json!({"kind":"cell_ray","offset":[4,-2,1]});
+    let aim: tor_protocol::AbilityAim = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(
+        aim,
+        tor_protocol::AbilityAim::CellRay { offset: [4, -2, 1] }
+    );
+    assert_eq!(serde_json::to_value(aim).unwrap(), value);
+    let device: tor_protocol::DeviceAim =
+        serde_json::from_value(json!({"kind":"cell","offset":[2,3,-1]})).unwrap();
+    assert_eq!(device, tor_protocol::DeviceAim::Cell { offset: [2, 3, -1] });
+    for bad in [
+        json!({"kind":"cell_ray"}),
+        json!({"kind":"cell_ray","offset":[0,0,0]}),
+        json!({"kind":"cell_ray","offset":[1,2]}),
+        json!({"kind":"cell_ray","offset":[1,2,3,4]}),
+        json!({"kind":"cell_ray","offset":[2147483648i64,2,3]}),
+        json!({"kind":"cell_ray","offset":[1,2,3],"target":7}),
+        json!({"kind":"cell_ray","offset":[1,2,3],"region":4}),
+    ] {
+        assert!(serde_json::from_value::<tor_protocol::AbilityAim>(bad).is_err());
+    }
+    assert!(serde_json::from_str::<tor_protocol::AbilityAim>(
+        r#"{"kind":"cell_ray","offset":[1,2,3],"offset":[3,2,1]}"#
+    )
+    .is_err());
 }

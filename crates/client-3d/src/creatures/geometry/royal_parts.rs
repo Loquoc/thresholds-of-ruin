@@ -86,39 +86,65 @@ pub(super) fn center_panel(
 
 pub(super) fn sleeve_swag(
     b: &mut Builder,
+    side: f32,
     build: f32,
     arm_len: f32,
-    color: Vec3,
-    trim: Option<Vec3>,
+    muscle: f32,
+    sleeve: crate::creatures::outfit::Sleeve,
 ) {
+    let color = sleeve.color;
+    let support = upper_arm_form(side, build, arm_len, muscle, 0.94);
     let point = |t: f32, a: f32| {
         let fullness = (PI * t).sin() * 0.021;
         let radius = (0.057 + fullness + 0.003 * (a * 5.0).cos() * t) * build;
-        Vec3::new(
-            a.sin() * radius,
-            -(0.055 + t * (0.065 + 0.025 * a.cos().abs())) * arm_len,
-            a.cos() * radius,
+        let center = Vec3::Y * (-(0.055 + t * (0.065 + 0.025 * a.cos().abs())) * arm_len);
+        let outward = Vec3::new(a.sin(), 0.0, a.cos());
+        // Reserve the trim's 3 mm radius plus a small chord margin. The
+        // authored free drape remains unchanged wherever it already clears.
+        let fitted = surface_ray_hit(
+            &support,
+            center,
+            outward,
+            0.003 + 0.003 * build,
+            0.3 * build,
         )
+        .map_or(radius, |at| (at - center).dot(outward).max(radius));
+        center + outward * fitted
     };
+    // Cloth and both gathered rims share these stations; fitting is performed
+    // once, before any emitted ornament could become its own support.
+    let rings: Vec<Vec<Vec3>> = (0..=6)
+        .map(|row| {
+            (0..=32)
+                .map(|k| point(row as f32 / 6.0, k as f32 * TAU / 32.0))
+                .collect()
+        })
+        .collect();
     for row in 0..6 {
         for k in 0..32 {
-            let t0 = row as f32 / 6.0;
-            let t1 = (row + 1) as f32 / 6.0;
             let a0 = k as f32 * TAU / 32.0;
-            let a1 = (k + 1) as f32 * TAU / 32.0;
-            let q = [point(t0, a0), point(t0, a1), point(t1, a1), point(t1, a0)];
+            let q = [
+                rings[row][k],
+                rings[row][k + 1],
+                rings[row + 1][k + 1],
+                rings[row + 1][k],
+            ];
             b.quad_out(q, Vec3::Y * q[0].y, color);
-            b.quad_out(
-                q,
-                Vec3::new(a0.sin() * 2.0, q[0].y, a0.cos() * 2.0),
-                color * 0.75,
-            );
+            // Sheer material already draws both sides. Coincident reverse
+            // faces would blend the same sheet twice and expose triangle seams.
+            if !sleeve.sheer {
+                b.quad_out(
+                    q,
+                    Vec3::new(a0.sin() * 2.0, q[0].y, a0.cos() * 2.0),
+                    color * 0.75,
+                );
+            }
         }
     }
-    if let Some(trim) = trim {
-        for t in [0.0, 1.0] {
-            let path: Vec<_> = (0..=32).map(|k| point(t, k as f32 * TAU / 32.0)).collect();
-            tube(b, &path, &vec![(0.003, 0.003); path.len()], trim);
+    if let Some(trim) = sleeve.flare {
+        for row in [0, 6] {
+            let path = &rings[row];
+            tube(b, path, &vec![(0.003, 0.003); path.len()], trim);
         }
     }
 }
@@ -179,4 +205,127 @@ pub(super) fn boning_path(
             (Vec2::new(x, y), 0.003)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod swag_tests {
+    use super::*;
+
+    #[test]
+    fn sheer_sleeve_surface_is_not_emitted_twice_for_its_double_sided_material() {
+        let mut parts = Parts::default();
+        let sleeve = crate::creatures::outfit::Sleeve {
+            color: Vec3::ONE,
+            cut: SleeveCut::OffShoulder,
+            puff: false,
+            puff_lining: None,
+            sheer: true,
+            flare: None,
+        };
+        styled_sleeve_top(&mut parts, sleeve, 1.0, 1.0, 1.0, 1.0, Vec3::X);
+        let mut faces = std::collections::BTreeSet::new();
+        for triangle in parts.sheer.surface_triangles() {
+            let mut key = triangle.map(|p| p.to_array().map(f32::to_bits));
+            key.sort();
+            assert!(
+                faces.insert(key),
+                "coincident reverse face blends the same fabric twice"
+            );
+        }
+        assert_eq!(faces.len(), 6 * 32 * 2, "complete single cloth sheet");
+        let mut opaque = Parts::default();
+        styled_sleeve_top(
+            &mut opaque,
+            crate::creatures::outfit::Sleeve {
+                sheer: false,
+                ..sleeve
+            },
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            Vec3::X,
+        );
+        let opaque_triangles: Vec<_> = opaque.matte.surface_triangles().collect();
+        assert_eq!(
+            opaque_triangles.len(),
+            faces.len() * 2,
+            "opaque fabric retains both colored faces"
+        );
+        let opaque_coverage: std::collections::BTreeSet<_> = opaque_triangles
+            .into_iter()
+            .map(|triangle| {
+                let mut key = triangle.map(|p| p.to_array().map(f32::to_bits));
+                key.sort();
+                key
+            })
+            .collect();
+        assert_eq!(
+            faces, opaque_coverage,
+            "material does not change cloth coverage"
+        );
+    }
+
+    #[test]
+    fn gathered_sleeve_top_clears_actual_shoulder_profiles() {
+        for build in 0..3 {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                42,
+                Some(Variant {
+                    woman: true,
+                    build,
+                    ..default()
+                }),
+            );
+            let body = HumanoidBody::resolve(&look);
+            for side in [-1.0, 1.0] {
+                let support =
+                    upper_arm_form(side, body.build, body.arm_length, body.profile.muscle, 0.94);
+                let mut mesh = Builder::default();
+                sleeve_swag(
+                    &mut mesh,
+                    side,
+                    body.build,
+                    body.arm_length,
+                    body.profile.muscle,
+                    crate::creatures::outfit::Sleeve {
+                        color: Vec3::ONE,
+                        cut: SleeveCut::OffShoulder,
+                        puff: false,
+                        puff_lining: None,
+                        sheer: false,
+                        flare: None,
+                    },
+                );
+                let points: Vec<_> = mesh
+                    .surface_triangles()
+                    .flatten()
+                    .filter(|p| (p.y + 0.055 * body.arm_length).abs() < 1e-5)
+                    .collect();
+                assert!(points.len() >= 32, "complete gathered rim");
+                for triangle in mesh.surface_triangles() {
+                    for i in 0..3 {
+                        let a = triangle[i];
+                        let b = triangle[(i + 1) % 3];
+                        if (a.y + 0.055 * body.arm_length).abs() < 1e-5
+                            && (b.y + 0.055 * body.arm_length).abs() < 1e-5
+                        {
+                            assert!(
+                                support.distance(a.lerp(b, 0.5)) > 0.003,
+                                "rim chord must reserve the complete trim radius"
+                            );
+                        }
+                    }
+                }
+                for p in points {
+                    assert!(
+                        support.distance(p) > 0.002 * body.build,
+                        "{build}/{side}: top rim buried by {}",
+                        support.distance(p)
+                    );
+                }
+            }
+        }
+    }
 }

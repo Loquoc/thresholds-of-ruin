@@ -967,3 +967,68 @@ fn projectile_observation_equipment_control_and_ability_changes_clear_selection_
         }
     }
 }
+
+#[test]
+fn ray_cell_click_preserves_exact_offset_and_cancellation() {
+    let mut app = app();
+    let mut snapshot = app.state.as_ref().unwrap().reset_snapshot().unwrap();
+    let view = &mut std::sync::Arc::make_mut(&mut snapshot.state).observation;
+    let ability = &mut view
+        .combat
+        .as_mut()
+        .unwrap()
+        .own_stats
+        .as_mut()
+        .unwrap()
+        .abilities[0];
+    ability.target_kind = AbilityTargetKind::DirectionalRay;
+    ability.reach = AbilityReach::Sight { range: 6 };
+    ability.supply_costs.clear();
+    ability.cooldown_remaining = 0;
+    view.visible_cells.push(CellView {
+        object_presentation: None,
+        lit: true,
+        door: None,
+        trap: None,
+        material: String::new(),
+        key: "cell-4-2".into(),
+        stairs_up: false,
+        stairs_down: false,
+        position: Position { x: 4, y: -2, z: 0 },
+        wall: false,
+        place_hint: false,
+        asset: None,
+    });
+    app.set_state(ClientState::from_snapshot(snapshot).unwrap());
+    app.ready();
+    app.messages.skip();
+    app.input(Input::Key {
+        key: Key::Abilities,
+    });
+    app.input(Input::Key { key: Key::Enter });
+    app.input(Input::Key { key: Key::Escape });
+    assert!(app.selected_ability.is_none());
+    app.input(Input::Key {
+        key: Key::Abilities,
+    });
+    app.input(Input::Key { key: Key::Enter });
+    let effect = app.input(Input::Click {
+        x: 33 + (31 + 4) * 18 + 9,
+        y: 92 + (16 - 2) * 18 + 9,
+    });
+    assert!(matches!(
+        super::request(effect),
+        Some(Request::Command {
+            command: Command::Act {
+                action: Action::UseAbility {
+                    invocation: AbilityInvocation {
+                        aim: AbilityAim::CellRay { offset: [4, -2, 0] },
+                        ..
+                    },
+                    ..
+                }
+            },
+            ..
+        })
+    ));
+}

@@ -77,6 +77,14 @@ def recording_case(failure=None):
 
 
 class CompleteRecordingContracts(unittest.TestCase):
+    def test_work_replacement_recorder_owns_server_facts_not_native_ui(self):
+        from test_ascii_messages_process import AsciiMessageProcesses
+        case = record_wire_samples.work_replacement_recording_case()
+        self.assertEqual(case._testMethodName, "test_headless_drink_replacement_records_authoritative_work_facts")
+        self.assertFalse(is_graphical_test(case))
+        native = AsciiMessageProcesses("test_drinking_replaces_a_suspended_attack_in_one_message")
+        self.assertTrue(is_graphical_test(native))
+
     def test_sharded_manifest_failure_preserves_existing_parts_and_removes_new_parts(self):
         before = {"protocol": 69, "client": [{"text": "before"}], "server": [{"id": 1}]}
         after = {"protocol": 69, "client": [{"text": "after"}], "server": [{"id": 1}]}
@@ -149,7 +157,7 @@ class CompleteRecordingContracts(unittest.TestCase):
 
     def test_polymorph_factories_reuse_two_actual_non_graphical_boundaries(self):
         for factory, method in ((record_wire_samples.polymorph_recording_case,
-                "test_text_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger"),
+                "test_headless_paid_self_polymorph_reopens_and_retries_without_source_or_private_ledger"),
                 (record_wire_samples.polymorph_diagnostic_recording_case,
                  "test_polymorph_self_ability_privileged_capture_has_changed_only_effect")):
             case = factory()
@@ -214,6 +222,81 @@ class CompleteRecordingContracts(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises((AssertionError, ValueError)):
                 record(first, second)
 
+    def test_physical_recording_requires_exact_dagger_and_arrow_cosmetics(self):
+        from test_projectile_process import ProjectileProcesses
+        case = record_wire_samples.physical_projectile_recording_case()
+        self.assertIsInstance(case, ProjectileProcesses)
+        self.assertEqual(case._testMethodName,
+                         'test_headless_projectile_payment_recovery_and_source_free_restart')
+        self.assertFalse(is_graphical_test(case))
+        def sample(name):
+            return {'type': 'update', 'update': {'body': {'type': 'outcome', 'facts': {'facts': [
+                {'kind': 'combat', 'event': {'type': 'effect', 'delivery': 'projectile', 'cue': 'physical',
+                 'presentation': {'form': 'missile', 'visual': 'neutral', 'style': None,
+                    'object': {'name': name, 'asset': 'item.weapon.' + name,
+                               'kind': {'kind': 'item', 'class': 'weapon'}}}}}]}}}}
+        good = {name: sample(name) for name in ('dagger', 'arrow')}
+        exported = {}
+        with patch('record_wire_samples.run_recording_case', return_value=good) as capture:
+            record_wire_samples.Recorder().record_physical_projectiles(exported)
+        self.assertEqual(capture.call_args.args[1], 'physical_projectile_samples')
+        self.assertEqual(exported, {'zz.projectile.' + name: value for name, value in good.items()})
+        self.assertIsNot(exported['zz.projectile.arrow'], good['arrow'])
+        for defect in ('generic', 'launcher', 'capability', 'missing'):
+            bad = copy.deepcopy(good)
+            obj = bad['arrow']['update']['body']['facts']['facts'][0]['event']['presentation']['object']
+            if defect == 'generic':
+                obj['asset'] = None
+            elif defect == 'launcher':
+                obj['name'], obj['asset'] = 'shortbow', 'item.weapon.shortbow'
+            elif defect == 'capability':
+                obj['id'] = 'private-item-handle'
+            else:
+                bad.pop('dagger')
+            target = {'existing': 'preserved'}
+            with self.subTest(defect=defect), patch('record_wire_samples.run_recording_case', return_value=bad):
+                with self.assertRaises(AssertionError):
+                    record_wire_samples.Recorder().record_physical_projectiles(target)
+            self.assertEqual(target, {'existing': 'preserved'})
+
+    def test_cell_ray_recorder_reuses_the_actual_path_and_reopen_owner(self):
+        from test_rogue_corrosion_ray_process import RogueCorrosionRayProcesses
+        case = record_wire_samples.cell_ray_recording_case()
+        self.assertIsInstance(case, RogueCorrosionRayProcesses)
+        self.assertEqual(case._testMethodName,
+                         "test_production_dragon_accepts_off_axis_cell_and_emits_actual_path")
+        raw = {"type": "update", "update": {"body": {"type": "outcome", "facts": {"facts": []}}}}
+        samples = {}
+        with patch("record_wire_samples.run_recording_case", return_value=raw) as capture:
+            record_wire_samples.Recorder().record_cell_ray(samples)
+        self.assertEqual(capture.call_args.args[1], "cell_ray_sample")
+        self.assertEqual(samples["zz.cell_ray"], raw)
+        self.assertIsNot(samples["zz.cell_ray"], raw)
+
+    def test_cell_schema_examples_cover_device_ray_and_all_projectile_sources(self):
+        actions = [entry["request"]["command"]["action"] for entry in record_wire_samples.CLIENT
+                   if entry["type"] == "request" and entry["request"]["type"] == "command"
+                   and entry["request"]["command"]["type"] == "act"]
+        devices = [a for a in actions if a["type"] == "zap" and a["aim"]["kind"] == "cell"]
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0]["aim"]["offset"], [4, 2, 1])
+        rays = [a for a in actions if a["type"] == "use_ability"
+                and a["invocation"]["aim"]["kind"] == "cell_ray"]
+        self.assertEqual(len(rays), 1)
+        projectiles = [a for a in actions if a["type"] == "use_ability"
+                       and a["invocation"]["aim"]["kind"] == "cell_projectile"]
+        self.assertEqual(len(projectiles), 3)
+        sources = set()
+        for action in [*rays, *projectiles]:
+            self.assertEqual(action["invocation"]["aim"]["offset"], [4, 2, 1])
+            self.assertEqual(action["invocation"]["weapon"], {"kind": "default"})
+        for action in projectiles:
+            delivery = action["invocation"]["aim"]["delivery"]
+            sources.add((delivery["kind"], delivery.get("source", {}).get("kind")))
+            if delivery["kind"] == "launch":
+                self.assertNotEqual(delivery["launcher"]["item"], delivery["ammunition"])
+        self.assertEqual(sources, {("throw", "equipped"), ("throw", "carried"), ("launch", None)})
+
     def test_preview_request_fixture_echoes_a_complete_public_action(self):
         commands = [entry["request"]["command"] for entry in record_wire_samples.CLIENT
                     if entry["type"] == "request" and entry["request"]["type"] == "command"]
@@ -271,7 +354,7 @@ class CompleteRecordingContracts(unittest.TestCase):
     def test_amulet_factory_selects_only_the_existing_non_graphical_acceptance_case(self):
         case = record_wire_samples.amulet_recording_case()
         self.assertEqual(case.id(), "test_amulet_process.AmuletProcesses."
-                         "test_unique_identity_revisits_source_free_restore_and_text_surface_escape")
+                         "test_unique_identity_revisits_source_free_restore_and_headless_surface_escape")
         self.assertFalse(is_graphical_test(case))
 
     def test_scare_factory_reuses_existing_non_graphical_paid_pickup_case(self):
@@ -314,6 +397,8 @@ class CompleteRecordingContracts(unittest.TestCase):
         case = record_wire_samples.amulet_recording_case()
         expected = {
             "test_unique_identity_revisits_source_free_restore_and_text_surface_escape":
+                (384, 40000, 64 * 1024 * 1024, 240),
+            "test_unique_identity_revisits_source_free_restore_and_headless_surface_escape":
                 (384, 40000, 64 * 1024 * 1024, 240),
             "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
                 (256, 25000, 48 * 1024 * 1024, 180),
@@ -506,7 +591,7 @@ class DetectionRecordingContracts(unittest.TestCase):
     def test_factory_selects_real_source_free_paid_history_case(self):
         case = record_wire_samples.detection_recording_case()
         self.assertEqual(case.id(), "test_magic_items_process.MagicItemProcesses."
-                         "test_imported_detection_history_empty_retention_source_free_spectator")
+                         "test_headless_detection_history_empty_retention_source_free_spectator")
         self.assertFalse(is_graphical_test(case))
 
     def test_raw_queries_pages_and_writer_payload_publish_only_after_cleanup(self):
@@ -612,6 +697,8 @@ class DetectionRecordingContracts(unittest.TestCase):
             self.assertEqual(target.read_bytes(), decoded)
             self.assertEqual(Path(str(target) + ".torc").read_bytes(), raw)
             provenance = json.loads(Path(str(target) + ".provenance.json").read_bytes())
+            self.assertEqual(provenance["producer"],
+                             "MagicItemProcesses.test_headless_detection_history_empty_retention_source_free_spectator")
             self.assertEqual(provenance["raw_sha256"], hashlib.sha256(raw).hexdigest())
             self.assertEqual(provenance["decoded_sha256"], hashlib.sha256(decoded).hexdigest())
             self.assertEqual((provenance["raw_bytes"], provenance["decoded_bytes"]), (len(raw), len(decoded)))
@@ -693,10 +780,10 @@ class PersistentConditionRecordingContracts(unittest.TestCase):
         self.assertIsNot(samples["zz.anonymous_utility"], case.anonymous_ability_sample)
         self.assertIsNot(samples["zz.condition_persistent"], case.persistent_condition_sample)
 
-    def test_factory_reuses_only_the_existing_non_graphical_utility_acceptance_case(self):
+    def test_factory_uses_headless_utility_contract_not_text_acceptance(self):
         case = record_wire_samples.utility_wands_recording_case()
         self.assertEqual(case.id(), "test_rogue_utility_wands_process.RogueUtilityWandsProcesses."
-                         "test_persistent_first_contact_utility_state_displays_in_text_and_reopens_without_source")
+                         "test_persistent_first_contact_utility_state_reopens_without_source_headless")
         self.assertFalse(is_graphical_test(case))
 
     def test_failure_skip_and_incomplete_capture_cannot_add_a_persistent_sample(self):
@@ -999,7 +1086,7 @@ class DiscoveryRecordingContracts(unittest.TestCase):
     def test_discovery_factory_reuses_non_graphical_source_free_checkpoint_acceptance(self):
         case = record_wire_samples.discovery_recording_case()
         self.assertEqual(case.id(), "test_discovery_process.DiscoveryProcesses."
-                         "test_text_examination_and_secret_open_survive_source_free_checkpoint")
+                         "test_headless_examination_and_secret_open_survive_source_free_checkpoint")
         self.assertFalse(is_graphical_test(case))
 
     def test_discovery_adapter_retains_exact_artifacts_only_after_cleanup(self):
@@ -1046,7 +1133,7 @@ class SelfDeviceRecordingContracts(unittest.TestCase):
     def test_factory_selects_existing_non_graphical_actual_text_case(self):
         case = record_wire_samples.self_device_recording_case()
         self.assertEqual(case.id(), "test_magic_items_process.MagicItemProcesses."
-                         "test_text_nothing_unknown_direction_and_identified_self_skip")
+                         "test_headless_nothing_direction_and_identified_self")
         self.assertFalse(is_graphical_test(case))
 
     def test_self_device_snapshot_is_preserved_only_after_cleanup(self):
@@ -1085,7 +1172,7 @@ class DrainRefusalRecordingContracts(unittest.TestCase):
     def test_factory_selects_existing_non_graphical_actual_text_case(self):
         case = record_wire_samples.drain_refusal_recording_case()
         self.assertEqual(case.id(), "test_magic_items_process.MagicItemProcesses."
-                         "test_imported_drain_weak_text_attempt_spends_time_not_charge_or_identity")
+                         "test_headless_drain_weak_attempt_spends_time_not_charge_or_identity")
         self.assertFalse(is_graphical_test(case))
 
     def test_drain_refusal_snapshot_is_preserved_only_after_cleanup(self):
@@ -1176,7 +1263,7 @@ class TorchRecordingContracts(unittest.TestCase):
     def test_factory_selects_non_graphical_actual_adventure_source_free_case(self):
         case = record_wire_samples.torch_recording_case()
         self.assertEqual(case.id(), "test_magic_items_process.MagicItemProcesses."
-                         "test_imported_torch_text_explicit_control_fuel_drop_and_source_free_reopen")
+                         "test_headless_torch_control_fuel_drop_and_source_free_reopen")
         self.assertFalse(is_graphical_test(case))
         actions = [row["request"]["command"]["action"] for row in record_wire_samples.CLIENT
                    if row["type"] == "request" and row["request"]["type"] == "command"
@@ -1337,7 +1424,7 @@ class HallucinationRecordingContracts(unittest.TestCase):
     def test_factory_selects_actual_non_graphical_text_cadence_source_free_case(self):
         case = record_wire_samples.hallucination_recording_case()
         self.assertEqual(case.id(), "test_magic_items_process.MagicItemProcesses."
-                         "test_imported_hallucination_text_visual_cadence_and_source_free_reopen")
+                         "test_headless_hallucination_visual_cadence_and_source_free_reopen")
         self.assertFalse(is_graphical_test(case))
 
     def test_three_raw_snapshots_publish_only_after_all_lifecycle_hooks(self):

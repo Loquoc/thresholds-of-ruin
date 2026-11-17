@@ -2,10 +2,13 @@
 use super::{PlannedEffect, RayPlan};
 use crate::combat::{EffectCue, EffectDelivery, SourceAbilityDisclosure, SpatialEffect};
 use crate::{Game, GameError};
-use tor_world::{Direction, Location};
+#[cfg(test)]
+use tor_world::Direction;
+use tor_world::Location;
 
 /// Never draw an ordinary straight segment across a physical join. Repeated
 /// bounce cells remain ordered; region and rotated/nonlocal edges break the strip.
+#[cfg(test)]
 pub(super) fn push_step(
     segments: &mut Vec<Vec<Location>>,
     from: Location,
@@ -14,6 +17,18 @@ pub(super) fn push_step(
     rotation: u8,
 ) {
     let (dx, dy, dz) = direction.delta();
+    push_vector_step(segments, from, to, [dx, dy, dz], rotation);
+}
+
+/// Record an actual raster step, including three-axis projectile bearings.
+/// The server's topology, not a client's interpolation, determines strip breaks.
+pub(super) fn push_vector_step(
+    segments: &mut Vec<Vec<Location>>,
+    from: Location,
+    to: Location,
+    [dx, dy, dz]: [i32; 3],
+    rotation: u8,
+) {
     let ordinary = from.region == to.region
         && rotation == 0
         && i64::from(to.position.x) - i64::from(from.position.x) == i64::from(dx)
@@ -86,6 +101,7 @@ impl Game {
                 delivery: EffectDelivery::Ray,
                 timing: crate::combat::EffectTiming::Instant,
                 appearance: crate::combat::EffectAppearance::Bolt,
+                object_origin: None,
                 cue: planned_cue(&ray.effects),
                 segments,
             },
@@ -150,6 +166,7 @@ impl Game {
                 delivery: EffectDelivery::Target,
                 timing: crate::combat::EffectTiming::Instant,
                 appearance: crate::combat::EffectAppearance::Flash,
+                object_origin: None,
                 cue,
                 segments: vec![vec![location]],
             },
@@ -162,6 +179,25 @@ impl Game {
 mod tests {
     use super::*;
     use tor_world::{Position, RegionId};
+    #[test]
+    fn three_axis_segments_keep_real_cells_and_split_nonlocal_edges() {
+        let at = |x, y, z| Location {
+            region: RegionId(1),
+            position: Position { x, y, z },
+        };
+        let mut segments = vec![vec![at(0, 0, 0)]];
+        push_vector_step(&mut segments, at(0, 0, 0), at(1, -1, 1), [1, -1, 1], 0);
+        push_vector_step(&mut segments, at(1, -1, 1), at(2, -1, 2), [1, 0, 1], 0);
+        push_vector_step(&mut segments, at(2, -1, 2), at(6, 0, 0), [1, 1, 1], 0);
+        assert_eq!(
+            segments,
+            vec![
+                vec![at(0, 0, 0), at(1, -1, 1), at(2, -1, 2)],
+                vec![at(6, 0, 0)]
+            ]
+        );
+    }
+
     #[test]
     fn path_breaks_at_physical_joins_instead_of_drawing_an_invented_bridge() {
         let at = |r, x| Location {

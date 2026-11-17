@@ -131,9 +131,12 @@ jobs:
     env:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_INCREMENTAL: "0"
+    # Unsharded Linux release Python twice exhausted the 40-minute job with
+    # every completed test passing (681/770 on retry). Keep all test budgets
+    # and receipt checks, with bounded setup/evidence headroom for the full suite.
     # Windows release Rust completed a 59.1-minute verifier at the former job
     # cutoff. Keep bounded compile/test variance and setup/evidence headroom.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.profile == 'release' && matrix.partition == 'rust' && 75 || matrix.partition == 'python' && 40 || 60 }}
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.partition == 'python' && 60 || matrix.os == 'windows-latest' && matrix.profile == 'release' && matrix.partition == 'rust' && 75 || matrix.partition == 'python' && 40 || 60 }}
     strategy:
       fail-fast: false
       matrix:
@@ -219,7 +222,7 @@ jobs:
       - name: Verify complete profile partition
         id: verification
         if: success() && !cancelled()
-        timeout-minutes: ${{ matrix.os == 'windows-latest' && matrix.profile == 'release' && matrix.partition == 'rust' && 70 || matrix.partition == 'python' && 40 || 60 }}
+        timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && matrix.profile == 'release' && matrix.partition == 'python' && 55 || matrix.os == 'windows-latest' && matrix.profile == 'release' && matrix.partition == 'rust' && 70 || matrix.partition == 'python' && 40 || 60 }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

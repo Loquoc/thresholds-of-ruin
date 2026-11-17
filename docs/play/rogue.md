@@ -24,9 +24,10 @@ source choices and respec are refused. Bind Wounds is not granted, and the dead
 leave no corpses, though what they carried still drops. Load it with
 `--scenario scenarios/rogue`.
 
-Floors follow Rogue's item generation: nine chances at 36% for an item, drawn
-by Rogue's category and type weights, arrows and darts in groups of 8 to 15, and
-a treasure room on about one floor in twenty. If three new floors in a row
+Ordinary item placement uses nine attempts at 36%, with Rogue's category and
+type weights. Arrows and darts come in groups of 8 to 15. About one floor in
+twenty has a treasure room that draws from the same weighted item table.
+If three new floors in a row
 produced no food, the next new floor places a ration. Natural healing
 follows Rogue's level-based rate, and healing does not cost food. Monster
 Health, accuracy, defense and damage are tuned so each species' fights resemble

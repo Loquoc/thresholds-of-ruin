@@ -76,6 +76,34 @@ presented milestone images. `startup_splash` JSON diagnostics identify those
 software presentations separately from the game's GPU screenshot evidence.
 Offline reviews and model-workload benchmarks retain their existing startup.
 
+### Standalone menu
+
+`--menu` plays without a separate server process, as the Android app does:
+
+```
+cargo run --release --manifest-path crates/client-3d/Cargo.toml -- --menu
+```
+
+The game window opens on a title screen, then a menu. **New game** lists the
+scenario packages in `--scenario-root DIR` (default `scenarios/`, test fixtures
+excluded) and takes a seed from the on-screen digit pad, the keyboard or
+**Random**. **Load game** lists the saves in `--save-root DIR`, newest first,
+with their scenario, seed and when they were last played. Starting either hosts
+the game inside the client through `tor_server::in_process`, over the same loopback
+WebSocket a separate server would use, and shows each loading step by name
+until the first scene has been drawn. Escape (or the Android back key) with
+nothing open, or the **Leave** entry in the HUD's folded menu, offers **Save and return to menu**,
+**Save and quit** or **Keep playing**; saving is shown until the connection's
+durable save and the server's flush have both finished. Returning to the menu
+removes everything the game created, so the next game starts as the first did.
+
+Each save sits in its own directory with a `launch.json` naming its scenario
+directory, scenario id and seed. A save made elsewhere without that record is
+listed but cannot be loaded from the menu. `--touch-controls` adds on-screen
+buttons for turning, zooming, stairs, doors and picking up, in a row above the
+Menu button that stays unfolded; Android always has them. `--menu` cannot be combined with `--connect`, `--save`, `--seed` or the
+offline modes.
+
 With no `--connect`, the client starts a private `tor-server` (default scenario
 `scenarios/rogue-exploration`) with a fresh save under `.local/client-3d/saves/`
 and stops it on exit. Other options:
@@ -125,7 +153,7 @@ and stops it on exit. Other options:
   (90 for profiles); `--capture-every SECS` adds timed motion frames to the
   line-up captures. `--outfit NAME` dresses humanoids from the wardrobe:
   `commoner`, `ranger`, `knight`, `courtier`, `leotard`, `sarong`, `tavern`,
-  `queen`, `pharaoh`, `goddess`, `juliet`, `jungle`, `genie`, `princess`, `royal-princess`, `sylvan-duelist`,
+  `queen`, `pharaoh`, `goddess`, `juliet`, `jungle`, `genie`, `princess`, `royal-princess`, `royal-bride`, `royal-groom`, `sylvan-duelist`,
   `pirate`, `maiden` and `witch`. Character-study recipes add `elven-ranger`,
   `rogue`, `paladin`, `barbarian`, `valkyrie`, `cleric`, `druid`, `bard`,
   `vampire-noble`, `necromancer` and `desert`. `adventurer` is the Rogue armor
@@ -251,6 +279,47 @@ reports include the number of captures in flight at submission. A readback that
 does not finish by the existing quit deadline still produces a failure. Capture
 intervals and `--quit-after` use elapsed real time, so animation-clock clamping
 does not stretch these timers on a slow renderer.
+
+## Render profiles
+
+A render profile sets how much the client spends drawing each frame. It is
+chosen once at start-up, and there is no player-facing choice yet: this is the
+machinery for one.
+
+| Profile | Used by | What it does |
+| --- | --- | --- |
+| `full` | Desktop, by default | Every effect, drawn exactly as before profiles existed |
+| `low` | The [experimental Android client](android/README.md) | Half-size picture that shrinks further under load, baked rock noise, matte rock lighting, no ambient occlusion, bloom or shadows, serial scheduling, paced cloak fitting |
+
+Developers can pick a profile and override single settings with
+`TOR_RENDER_PROFILE`, a comma-separated list such as `low,scale=0.67,shadows=on`.
+An unknown name, setting or value stops the client with an error.
+
+| Setting | Values | Effect |
+| --- | --- | --- |
+| `scale` | 0.25 to 1 | Fraction of the screen's width and height that is drawn. Applied on Android only so far |
+| `adaptive` | `on`, `off` | Lower the scale by up to a fifth while frames miss thirty a second, and restore it afterwards |
+| `noise` | `hashed`, `baked` | Compute the rock's surface noise for every pixel, or read it from two textures baked at start-up |
+| `lighting` | `full`, `diffuse` | Light the rock with the engine's full model, or as a matte surface without highlights |
+| `occlusion`, `bloom`, `antialiasing`, `shadows` | `on`, `off` | Keep or drop each effect |
+| `scheduling` | `parallel`, `serial` | Spread the engine's systems over worker threads, or run them in turn on one thread for the game and one for rendering |
+| `cloaks` | 0 or more | 0 fits every cloak every frame; otherwise one wearer is fitted every that many frames, wearers taking turns |
+| `pin` | `on`, `off` | Keep the game and render threads on the fastest cores, where the host supports it |
+
+`TOR_RENDER_REPORT=5` logs a `render-report` line every five seconds with the
+frame rate, mean and slowest frame, time spent in the game's own update, the
+current scale and how much is on screen.
+
+Two settings were measured on a desktop GPU and deliberately left out of `full`:
+
+- `noise=baked` shortened the typical frame by about a quarter in an ordinary
+  room, but it changes the rock: wall strata are smoother and floor cracks run
+  straighter. It stays opt-in until the baked pattern matches.
+- `scheduling=serial` made no measurable difference with one creature or with
+  a hundred. On the Android tablet it roughly doubled the frame rate.
+
+Offline review modes and scripted captures always draw with `full` on desktop,
+so reference images do not depend on the environment.
 
 ## Missing models
 
@@ -903,6 +972,25 @@ swags, lavender lining, two thigh openings around a central panel, and a jeweled
 crown. On male figures it selects the courtier outfit. For the female review use
 `--women --family Warrior,orc,nymph --outfit royal-princess`.
 
+`royal-bride` and `royal-groom` add the paired wedding reference recipes.
+The bride combines an ivory sweetheart corset, detached gathered sheer sleeves,
+lilac skirt layers, a front opening and rear train, sapphire jewelry and a long
+bordered veil. Male browsing substitutes the groom; exact bride requests reject
+that substitution. The groom has a navy coat, exposed lion cuirass, epaulettes,
+crossed waist belts, a sheathed ceremonial sword and an embroidered lined cloak.
+Run [the royal wedding review](review-scripts/royal-wedding.json) through the
+scene-script renderer for front and back views. A scripted
+`{"type":"death"}` event (tick 1 or later) starts the real fall animation,
+stops translation and cancels the current action without rebuilding clothing;
+subsequent captures can inspect fall and settled-corpse composition.
+
+The wedding pieces use the same body-fitted torso and limb supports as existing
+outfits. Veils and regalia are separate optional recipe slots; an equipment helm
+removes the veil, and replacement body armor removes regalia. Gathered sleeves
+emit one sheer surface per arm joint. The veil is a neutral, torso-anchored drape,
+not a cloth simulation: head-turn attachment and floor contact remain limitations.
+These local outfits do not add new server inventory items.
+
 Gathered sleeve puffs can expose a contrasting lining between raised fabric strips.
 The Bard uses red strips over cream lining on both body cuts, with female bell
 sleeves and the separate male short-sleeve cut. Plain puffs remain available.
@@ -932,7 +1020,9 @@ Caster belts continue to share the dedicated robe attachment.
 
 `sylvan-duelist` adds the green-and-gold forest outfit alongside both princess
 presets. Female wearers have two embroidered shoulder-to-waist panels, an open
-center and torso sides, dark trousers, tall boots and hanging green cloth.
+center and torso sides, dark trousers, tall boots and leaf-pointed green cloth.
+Detached upper-arm drapes replace the bell cuffs and rear cloak, over fitted dark
+bracers. A green, gold-bound pointed waistpiece replaces the crossed leather belts.
 Male wearers use the separate Ranger recipe. Review with
 `--women --family Warrior,Mage,orc --outfit sylvan-duelist`; add `--jump` and
 `--capture-every 0.5` for motion captures.
@@ -940,6 +1030,10 @@ Male wearers use the separate Ranger recipe. Review with
 The reusable `Straps::Panels` cut resolves its width and path from the bust apex,
 bust width, shoulder breadth and waist. Coverage, embroidery clipping and edge
 binding share that cut; the renderer does not branch on the outfit name.
+The detached sleeve uses one support-fitted seam and a shared cloth/trim grid;
+its long tail follows the upper-arm joint, not a separate cloth simulation.
+The pointed waist band resolves each height against actual torso support, so
+its authored front dip and width are independent of body proportions.
 
 
 For fixed-step offline wardrobe reviews, add `--review-step-hz 50` to a

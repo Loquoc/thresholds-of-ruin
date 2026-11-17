@@ -40,6 +40,13 @@ impl MiniMap {
     }
 }
 
+impl MiniMap {
+    /// Redraws for the next game.
+    pub(crate) fn forget(&mut self) {
+        self.drawn = None;
+    }
+}
+
 #[derive(Component)]
 pub(crate) struct MiniMapFrame;
 

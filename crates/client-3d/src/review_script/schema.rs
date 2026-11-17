@@ -25,10 +25,37 @@ pub(super) struct Script {
     pub cameras: Vec<CameraSpec>,
     pub events: Vec<Event>,
     #[serde(default)]
+    pub effects: Vec<EffectCapture>,
+    #[serde(default)]
     pub captures: Vec<Capture>,
 }
 fn default_floor() -> [f32; 3] {
     [0.2, 0.21, 0.23]
+}
+/// Explicit, already-disclosed geometry for local visual review only.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EffectCapture {
+    pub tick: u32,
+    pub delivery: tor_protocol::EffectDelivery,
+    pub presentation: tor_protocol::EffectPresentation,
+    pub admitted_assets: Vec<String>,
+    pub segments: Vec<Vec<[f32; 3]>>,
+}
+impl EffectCapture {
+    pub fn object_model(&self) -> Option<tor_client_3d_model::ItemModel> {
+        let mut palette = tor_client_common::Palette::default();
+        palette.apply(&tor_protocol::PaletteUpdate {
+            revision: 1,
+            body: tor_protocol::PaletteBody::Full {
+                assets: self.admitted_assets.iter().cloned().collect(),
+            },
+        });
+        self.presentation
+            .object
+            .as_ref()
+            .and_then(|object| tor_client_3d_model::effect_object_model(&palette, object))
+    }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -135,6 +162,7 @@ pub(super) struct Event {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Operation {
     Action { name: String },
+    Death {},
     Velocity { value: [f32; 3] },
     Teleport { position: [f32; 3], yaw: f32 },
     Dress { outfit: String },
@@ -277,6 +305,9 @@ impl Script {
         Ok(result)
     }
     fn validate(&self, timeline: Timeline) -> Result<(), String> {
+        if timeline == Timeline::Live && !self.effects.is_empty() {
+            return Err("effect track is capture-only".into());
+        }
         if timeline == Timeline::Live && self.floor_color != default_floor() {
             return Err("custom floor color is capture-only".into());
         }
@@ -296,6 +327,7 @@ impl Script {
             || self.cameras.is_empty()
             || self.cameras.len() > 16
             || self.events.len() > 4096
+            || self.effects.len() > 128
             || (timeline == Timeline::Capture && self.captures.is_empty())
             || self.captures.len() > 256
         {
@@ -417,6 +449,27 @@ impl Script {
             }
             Timeline::Live => self.hz * 600,
         };
+        let mut previous_effect_tick = 0;
+        for effect in &self.effects {
+            effect.presentation.validate()?;
+            if effect.tick < previous_effect_tick
+                || effect.tick > end
+                || effect.admitted_assets.len() > 64
+                || effect
+                    .admitted_assets
+                    .iter()
+                    .any(|asset| !review_asset(asset))
+                || effect.segments.is_empty()
+                || effect.segments.len() > 64
+                || effect.segments.iter().any(|segment| {
+                    segment.is_empty() || segment.iter().any(|point| !vector(*point))
+                })
+                || effect.segments.iter().map(Vec::len).sum::<usize>() > 256
+            {
+                return Err("invalid effect capture geometry, palette or tick".into());
+            }
+            previous_effect_tick = effect.tick;
+        }
         let mut resolved = self.actors.clone();
         let mut previous = 0;
         for event in &self.events {
@@ -437,6 +490,11 @@ impl Script {
                     action(name)?;
                     if event.tick == 0 {
                         return Err("actions start at tick 1 or later".into());
+                    }
+                }
+                Operation::Death {} => {
+                    if event.tick == 0 {
+                        return Err("death starts at tick 1 or later".into());
                     }
                 }
                 Operation::Velocity { value } => {

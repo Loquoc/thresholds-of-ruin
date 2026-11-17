@@ -1,6 +1,9 @@
 """Knowledge-limited item decisions through actual autonomous server execution."""
 from scalar_wire import u64
 import shutil
+import json
+import sqlite3
+from contextlib import closing
 import subprocess
 import tomllib
 import unittest
@@ -58,6 +61,236 @@ class AiInteractionProcesses(ProcessTestCase):
         if not completed(current):
             current = self.frame(player, completed)
         return current
+
+    def test_gold_seeker_detours_around_a_disclosed_idle_bystander(self):
+        package = roster_package(self, "hobgoblin", autonomous=True)
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        # Real production recipes and policies; only encounter geometry/control
+        # and a disclosed gold pile differ. The player never enters their sight.
+        region.update(size=[11, 5, 2], anchors={"start": [9, 2, 0]},
+            walls=[[8, y, z] for y in range(5) for z in range(2)],
+            actors=[
+                {"id": 3, "at": [1, 2, 0], "archetype": "rogue.leprechaun", "controller": "ai", "ai": "rogue_hostile"},
+                {"id": 4, "at": [2, 2, 0], "archetype": "rogue.ice_monster", "controller": "ai", "ai": "rogue_hostile"}],
+            items=[{"id": 1001, "at": [6, 2, 0], "archetype": "rogue.gold", "quantity": 25}])
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        self.validate_item_package(package)
+        server = self.server("--checkpoint-interval", 4096, scenario=package, wizard=True, seed=46)
+        observer, initial = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        view = initial["state"]["observation"]
+        self.assertTrue(any(row["name"] == "ice monster" for row in view["visible_actors"]))
+        self.assertFalse(any(row["name"] == "Warrior" for row in view["visible_actors"]))
+        self.assertTrue(any(row["item"]["name"] == "gold coin" for row in view["ground_items"]))
+        observer.stop()
+        player, _ = self.client()
+        for _ in range(10):
+            self.completed_idle_wait(player)
+        observer, final = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        self.assertEqual([(row["name"], row["quantity"]) for row in final["state"]["observation"]["inventory"]], [("gold coin", "25")])
+        observer.stop()
+        player.stop()
+        self.flush_save()
+        # Read accepted journal evidence only after the save barrier, never to
+        # steer a player. Ignore non-record metadata frames explicitly.
+        with closing(sqlite3.connect(self.save)) as db:
+            frames = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 "
+                "UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _, frame in frames]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        seeker = [entry for entry in entries if entry["actor"] == 3 and "event" in entry["content"]]
+        first = seeker[0]["content"]["event"]
+        self.assertEqual(first["type"], "moved")
+        self.assertEqual(first["to"]["x"], 2)
+        self.assertIn(first["to"]["y"], (1, 3))
+        taken = next(entry for entry in seeker if entry["content"]["event"]["type"] == "taken")
+        # Five steps: two 142-tick diagonals and three 100-tick cardinals.
+        self.assertEqual(taken["tick"], 584)
+        self.assertEqual(taken["content"]["action"], {"type": "take", "item": 1001, "quantity": 25})
+        ice = [entry for entry in entries if entry["actor"] == 4 and "event" in entry["content"]]
+        self.assertTrue(ice)
+        self.assertTrue(all(entry["content"]["event"]["type"] == "waited" for entry in ice))
+
+        server.stop()
+        self.server("--checkpoint-interval", 4096, scenario=package, wizard=True, seed=None)
+        restored, reopened = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        self.assertEqual([(row["name"], row["quantity"]) for row in reopened["state"]["observation"]["inventory"]], [("gold coin", "25")])
+        restored.stop()
+
+    def test_hobgoblin_reserves_known_production_healing_without_drinking(self):
+        self.production_medicine_reserve("hobgoblin", "healing", known=True, expected=1)
+
+    def test_yeti_reserves_known_production_extra_healing_without_equipment_policy(self):
+        self.production_medicine_reserve("yeti", "extra_healing", known=True, expected=1)
+
+    def test_hobgoblin_does_not_invent_unknown_medicine_knowledge(self):
+        self.production_medicine_reserve("hobgoblin", "healing", known=False, expected=0)
+
+    def test_emu_does_not_gain_a_medicine_interest_from_knowledge(self):
+        self.production_medicine_reserve("emu", "healing", known=True, expected=0)
+
+    def production_medicine_reserve(self, species, potion, *, known, expected):
+        package = roster_package(self, species, autonomous=True)
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        actor = {"id": 3, "at": [2, 2, 0], "archetype": "rogue." + species,
+                 "controller": "ai", "ai": "rogue_hostile"}
+        # Explicit actor-owned prior knowledge is the fixture input. This is
+        # not a claim that scenario AI discovered the potion autonomously.
+        if known:
+            actor["known_identities"] = ["item.potion." + potion.replace("_", "-")]
+        region.update(size=[11, 5, 2], anchors={"start": [9, 2, 0]},
+            walls=[[8, y, z] for y in range(5) for z in range(2)],
+            actors=[actor, {"id": 4, "at": [5, 1, 0], "archetype": "rogue.ice_monster",
+                            "controller": "ai", "ai": "rogue_hostile"}],
+            items=[{"id": 1001, "at": [2, 2, 0], "archetype": "rogue." + potion, "quantity": 3}])
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        self.validate_item_package(package)
+        server = self.server("--checkpoint-interval", 4096, scenario=package, wizard=True, seed=42)
+        observer, initial = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        view = initial["state"]["observation"]
+        self.assertEqual(view["combat"]["hp"], view["combat"]["max_hp"])
+        self.assertEqual(view["combat"]["own_stats"]["conditions"], [])
+        self.assertFalse(any(row["name"] in ("Warrior", "Mage") for row in view["visible_actors"]))
+        self.assertTrue(any(row["name"] == "ice monster" for row in view["visible_actors"]))
+        self.assertEqual(len(view["ground_items"]), 1)
+        self.assertEqual(view["ground_items"][0]["item"]["identified"], known)
+        appearance = view["ground_items"][0]["item"]["appearance"]
+        observer.stop()
+        player, _ = self.client()
+        for _ in range(16):
+            self.completed_idle_wait(player)
+        observer, final = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        view = final["state"]["observation"]
+        inventory = view["inventory"]
+        self.assertEqual(view["combat"]["hp"], view["combat"]["max_hp"])
+        observer.stop()
+        # The stationary bystander still sees the original ground pile. Its
+        # own item knowledge must not inherit the seeker's seeded knowledge.
+        bystander, ground = self.client(WIZARD_TOKEN, observe=True, actor=4)
+        piles = [row["item"] for row in ground["state"]["observation"]["ground_items"]
+                 if row["item"]["class"] == "potion"]
+        bystander.stop()
+        player.stop()
+        self.flush_save()
+        with closing(sqlite3.connect(self.save)) as db:
+            frames = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 "
+                "UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _, frame in frames]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        seeker = [row for row in entries if row["actor"] == 3 and "event" in row["content"]]
+        taken = [row for row in seeker if row["content"]["event"]["type"] == "taken"]
+        self.assertEqual(len(taken), expected, "reserve one known dose, never invent another interest")
+        if expected:
+            self.assertEqual(seeker[0]["tick"], 0)
+            self.assertEqual(seeker[0]["content"]["action"], {"type": "take", "item": 1001, "quantity": 1})
+            self.assertEqual([(row["name"], row["quantity"]) for row in inventory],
+                             [("potion of " + potion.replace("_", " "), "1")])
+            self.assertEqual([row["appearance"] for row in inventory], [appearance])
+        else:
+            self.assertEqual(inventory, [])
+        self.assertTrue(all(row["content"]["event"]["type"] in ("taken", "moved", "waited") for row in seeker),
+                        "full-health medicine is retained, not repeatedly drunk")
+        self.assertEqual([(row["quantity"], row["identified"]) for row in piles], [(str(3 - expected), False)])
+        self.assertEqual([row["appearance"] for row in piles], [appearance],
+                         "appearance does not become identity or leak another actor's knowledge")
+        ice = [row for row in entries if row["actor"] == 4 and "event" in row["content"]]
+        self.assertTrue(ice)
+        self.assertTrue(all(row["content"]["event"]["type"] == "waited" for row in ice))
+        server.stop()
+        self.server("--checkpoint-interval", 4096, scenario=package, wizard=True, seed=None)
+        restored, reopened = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        self.assertEqual([(row["name"], row["quantity"]) for row in reopened["state"]["observation"]["inventory"]],
+                         [(row["name"], row["quantity"]) for row in inventory])
+        restored.stop()
+
+    def test_hobgoblin_recovers_split_kit_with_bow_underfoot(self):
+        self.split_kit_around_idle_bystander("hobgoblin", bow_home=True)
+
+    def test_centaur_recovers_split_kit_with_ammo_underfoot(self):
+        self.split_kit_around_idle_bystander("centaur", bow_home=False)
+
+    def test_orc_finishes_split_kit_then_competing_gold(self):
+        self.split_kit_around_idle_bystander("orc", bow_home=True, competing_gold=True)
+
+    def split_kit_around_idle_bystander(self, species, *, bow_home, competing_gold=False):
+        # The roster helper's retained encounter list predates Orc enrollment;
+        # its copied catalog still supplies the exact production Orc below.
+        package = roster_package(self, "hobgoblin" if species == "orc" else species,
+                                 autonomous=True, height=2)
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        # Production body, recipe, knowledge, item interests and priorities.
+        # Only placement changes: a visible idle actor separates a known pair.
+        region.update(size=[11, 5, 2], anchors={"start": [9, 2, 0]},
+            walls=[[8, y, z] for y in range(5) for z in range(2)],
+            actors=[
+                {"id": 3, "at": [1, 2, 0], "archetype": "rogue." + species, "controller": "ai", "ai": "rogue_hostile"},
+                {"id": 4, "at": [2, 2, 0], "archetype": "rogue.ice_monster", "controller": "ai", "ai": "rogue_hostile"}],
+            items=[
+                {"id": 1001, "at": [1, 2, 0] if bow_home else [6, 2, 0], "archetype": "rogue.shortbow"},
+                {"id": 1002, "at": [6, 2, 0] if bow_home else [1, 2, 0], "archetype": "rogue.arrow", "quantity": 20}])
+        if competing_gold:
+            region["items"].append({"id": 1003, "at": [1, 3, 0], "archetype": "rogue.gold", "quantity": 25})
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        self.validate_item_package(package)
+        server = self.server("--checkpoint-interval", 4096, scenario=package, wizard=True, seed=46)
+        observer, initial = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        view = initial["state"]["observation"]
+        self.assertTrue(any(row["name"] == "ice monster" for row in view["visible_actors"]))
+        self.assertFalse(any(row["name"] in ("Warrior", "Mage") for row in view["visible_actors"]))
+        expected_items = {"shortbow", "arrow"} | ({"gold coin"} if competing_gold else set())
+        self.assertEqual({row["item"]["name"] for row in view["ground_items"]}, expected_items)
+        observer.stop()
+        player, _ = self.client()
+        for _ in range(24):
+            self.completed_idle_wait(player)
+        observer, final = self.client(WIZARD_TOKEN, observe=True, actor=3)
+
+        def stock(view):
+            bows = [row for row in view["inventory"] if row["name"] == "shortbow"]
+            slots = {row["item"]: row["equipped_slot"] for row in view["interactions"]["inventory"]}
+            arrows = sum(u64(row["quantity"]) for row in view["inventory"] if row["name"] == "arrow")
+            return len(bows), slots.get(bows[0]["id"]) if bows else None, arrows
+
+        def gold(view):
+            return sum(u64(row["quantity"]) for row in view["inventory"] if row["name"] == "gold coin")
+
+        final_stock = stock(final["state"]["observation"])
+        final_gold = gold(final["state"]["observation"])
+        observer.stop()
+        player.stop()
+        self.flush_save()
+        # Accepted execution, not offered actions or diagnostic steering.
+        with closing(sqlite3.connect(self.save)) as db:
+            frames = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 "
+                "UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _, frame in frames]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        seeker = [row for row in entries if row["actor"] == 3 and "event" in row["content"]]
+        self.assertEqual(seeker[0]["content"]["action"],
+            {"type": "take", "item": 1001 if bow_home else 1002, "quantity": 1 if bow_home else 6})
+        self.assertEqual(seeker[0]["tick"], 0)
+        self.assertEqual(final_stock, (1, 10, 6))
+        taken = [row for row in seeker if row["content"]["event"]["type"] == "taken"]
+        self.assertEqual(len(taken), 3 if competing_gold else 2, "one pickup per goal, no collection loop")
+        self.assertEqual({row["content"]["action"]["item"] for row in taken},
+                         {1001, 1002} | ({1003} if competing_gold else set()))
+        self.assertEqual(final_gold, 25 if competing_gold else 0)
+        equips = [row for row in seeker if row["content"].get("action", {}).get("type") == "equip"]
+        self.assertEqual(len(equips), 1, "no repeated equipment oscillation")
+        self.assertEqual(equips[0]["content"]["action"], {"type": "equip", "item": 1001, "slot": 10})
+        self.assertTrue(all(row["content"]["event"]["type"] in ("moved", "taken", "item_started", "waited")
+                            for row in seeker), "no failed or combat execution in the idle fixture")
+        ice = [row for row in entries if row["actor"] == 4 and "event" in row["content"]]
+        self.assertTrue(ice)
+        self.assertTrue(all(row["content"]["event"]["type"] == "waited" for row in ice))
+        server.stop()
+        self.server("--checkpoint-interval", 4096, scenario=package, wizard=True, seed=None)
+        restored, reopened = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        self.assertEqual(stock(reopened["state"]["observation"]), (1, 10, 6))
+        self.assertEqual(gold(reopened["state"]["observation"]), 25 if competing_gold else 0)
+        restored.stop()
 
     def test_authored_hobgoblin_acquires_secondary_bow_and_bounded_reserve(self):
         package = roster_package(self, "hobgoblin", autonomous=True)

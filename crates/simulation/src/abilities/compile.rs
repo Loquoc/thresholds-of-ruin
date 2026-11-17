@@ -528,6 +528,35 @@ impl Game {
                 .capture_projectile_plan(actor, ability, direction, delivery)
                 .map(|plan| Plan::Projectile(tor_world::Shared::new(plan)));
         }
+        match invocation.aim {
+            super::AbilityAim::CellRay { offset } => {
+                if invocation.weapon != super::WeaponSelection::Default {
+                    return Err(invalid());
+                }
+                return self.compile_ray_plan(
+                    actor,
+                    ability,
+                    super::FlightAim::Cell { offset },
+                    supplies,
+                );
+            }
+            super::AbilityAim::CellProjectile { offset, delivery } => {
+                if invocation.weapon != super::WeaponSelection::Default
+                    || supplies != crate::supplies::SupplySelection::Carried
+                {
+                    return Err(invalid());
+                }
+                return self
+                    .capture_projectile_plan(
+                        actor,
+                        ability,
+                        super::FlightAim::Cell { offset },
+                        delivery,
+                    )
+                    .map(|plan| Plan::Projectile(tor_world::Shared::new(plan)));
+            }
+            _ => {}
+        }
         let target = invocation.target(actor);
         let caster = self.creature(actor).ok_or(GameError::UnknownActor)?;
         // The original reference domain is an admission operand, not a hint.

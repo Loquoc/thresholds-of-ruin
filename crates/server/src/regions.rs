@@ -259,6 +259,14 @@ impl Regions {
     pub(crate) fn named_birth_floors(&self) -> Option<(u64, u64)> {
         self.index.named_birth_floors(&self.package)
     }
+    pub(crate) fn item_discoveries(
+        &self,
+        game: &tor_simulation::Game,
+        actor: tor_simulation::ActorId,
+    ) -> Vec<(String, String)> {
+        self.index.item_discoveries(game, actor)
+    }
+
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.index.creature_archetypes()
     }

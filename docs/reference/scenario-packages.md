@@ -480,13 +480,11 @@ queries and NPC entry do not activate it; first protagonist entry, rollback,
 source-free recovery and revisits keep the ordinary once-only policy.
 
 The [inert treasure stage example](../../scenarios/rogue-exploration/examples/treasure-stage.toml)
-is not imported by the bundled Rogue package. Its independent 2–9 item / 4–11 actor
-requests and illustrative Hobgoblin/Orc bands remain authoring examples, not the
-live policy. The example's actual-process fixture composes that fragment with a
-copied production catalog and forces chance/counts only for deterministic acceptance.
-The playable package authors its own smaller treasure stage described below.
+is a standalone authoring example with illustrative Hobgoblin and Orc bands.
+Its actual-process fixture composes the fragment with a copied production catalog
+and sets the chance and counts to make the outcome deterministic.
 
-The selected Rogue magic-item catalog appends finite potion, scroll and device
+The Rogue Exploration magic-item catalog appends finite potion, scroll and device
 stages after the original actor, bandage, ration, restore-Strength and room-Gold
 stages. Each of these three magic-item stages makes one item-placement attempt per
 first entered floor; failed placement is recorded, and revisits never refill it.
@@ -495,43 +493,21 @@ probability table. Existing carried-supply pools and their source policies are u
 
 #### Live Rogue content policy
 
-The live package preserves every pre-existing stage's identity, version, relative
-order, counts and weights, then appends the following stages from depth 1 onward:
-
-| Stage | Provisional policy |
+| Stage | Policy |
 | --- | --- |
-| `rogue.expanded_stock` | `kind = "items"`, `count = [0, 1]`, quantity 1, equal weight 1 for each of the 17 choices below |
-| `rogue.treasure_room` | `kind = "room_cluster"`, chance 1/20, independent `item_count = [2, 4]` and `actor_count = [1, 3]`, quantity 1, effective actor birth depth = floor depth + 1 |
+| `rogue.items` | Nine attempts, each with a 36% chance to draw from the 79 weighted choices in `scenarios/rogue/scenario.toml` |
+| `rogue.food_drought` | An additional ration or fruit when the floor sequence has gone too long without food |
+| `rogue.treasure_room` | 1 in 20 floors, 2–9 item attempts from the ordinary weighted table and 4–11 actor attempts at floor depth + 1 |
 
-The supplemental choices are `rogue.haste`, `rogue.gain_strength`,
-`rogue.raise_level`, `rogue.hallucination`, `rogue.monster_detection`,
-`rogue.magic_detection`, `rogue.food_detection`, `rogue.magic_mapping`,
-`rogue.wand_nothing`, `rogue.wand_light`, `rogue.wand_drain_life`,
-`rogue.wand_cancellation`, `rogue.wand_magic_missile`, `rogue.wand_polymorph`,
-`rogue.fruit`, `rogue.dart` and `rogue.shuriken`. Quantity 1 also applies to missiles.
-
-Treasure item choices are `rogue.gold`, `rogue.healing`, `rogue.fruit`, `rogue.dart`
-and `rogue.shuriken`, each weight 1. Its authored actor bands copy the ordinary
-population's existing depth bands and weights, evaluated at effective birth depth;
-AI remains `rogue_hostile`, growth remains `racial_after` depth 26, and
-`avoid_protagonist_sight = false`. This permits visible treasure foes without
-relaxing body fit or protected-cell exclusion. The same species birth-stock rules
-apply at effective depth. Counts remain bounded by room area and placement can fail.
-
-These stages add finite stock and foes rather than replacing ordinary stages.
-They are conservative activation policy, not calibrated survival balance or exact
-Rogue treasure parity. Torches remain catalog-only; the existing Polymorph
-emu/snake/troll destination pool, kits, care, respec, nutrition, traps and rules
-are unchanged. The existing room-omission and maze mechanisms are also enabled
-with [provisional layout policy](generation.md#optional-room-omissions); their
-changed geometry can alter placements despite preserved earlier stage streams.
+Treasure actor counts and item counts are independent. Treasure actors use the
+ordinary depth bands with `rogue_hostile` AI and `racial_after` growth at depth 26.
+They may spawn in sight where body fit and protected-cell rules allow placement.
+Failed placements are recorded. Revisits and reloads preserve the outcome.
 
 #### Existing magic-item behavior
 
-Current identify scrolls target potions, scrolls, weapons or armor by category;
-weapon and armor identification are selected by the live `rogue.equipment_scrolls`
-stage. The `rogue.identify_wand` scroll in `rogue.magic_scrolls` permits either a
-ring or a wand/staff through one paid owner-only choice. See
+Identify scrolls target items by category. The `rogue.identify_wand` scroll
+permits either a ring or a wand/staff through one paid owner-only choice. See
 [identification](items.md#reading-identification-and-charged-devices).
 Sleep applies four to
 eight actor turns of forced inaction. Potion confusion lasts nineteen to twenty
@@ -893,7 +869,7 @@ The manifest’s `ruleset = "rules.toml"` names a relative TOML file inside the
 package. Ordinary scenarios import the general rules rather than copy them:
 
 ```toml
-import = "interactions-v58"
+import = "interactions-v66"
 
 [[overrides]]
 op = "set"
@@ -964,6 +940,14 @@ The actor-wide timing operation is
 Its exact value vocabulary is `normal`, `haste`, `slow`; other scopes and enum
 object/array spellings reject. [Source folding](creature-rules.md#derivation-and-sources)
 defines cancellation and rounding without modifying Speed.
+
+Ability definitions may author `effect_visual` (`neutral`, `flame`, `frost`,
+`sparks`, `vapor`, or `radiance`) and nullable `effect_style`. Omitted authoring
+fields use neutral styling; stored rules retain their explicit values. Style keys
+have at most 80 ASCII bytes and nonempty dot-separated lowercase letter/digit/
+hyphen components. These are public appearance hints, not damage categories or
+asset URLs. Put them on the ability definition, not a same-named talent or feat.
+Physical missile appearance is captured from the actual released item separately.
 
 Abilities may select `invocation = "directional_contact_ray"` for non-bouncing
 first-creature delivery. Existing bounded Sight rays retain one target-owned

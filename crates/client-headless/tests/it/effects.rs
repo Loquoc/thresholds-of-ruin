@@ -38,7 +38,7 @@ fn effect(id: u8, since: u64, expiry: Option<u64>, points: &[(i32, i32)]) -> Pub
         observed_since: since,
         expires_at: expiry,
         delivery: EffectDelivery::Area,
-        appearance: EffectAppearance::Cloud,
+        presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Cloud),
         cue: EffectCue::Poison,
         anchors: points
             .iter()
@@ -282,7 +282,7 @@ fn observed(value: &Value) -> &Value {
 async fn burst_and_cone_preserve_exact_authoritative_footprints_in_real_headless() {
     let mut client = Client::start(state(0, vec![])).await;
     let mut burst = effect(1, 1, Some(2), &[(0, -1), (-1, 0), (0, 0), (1, 0), (0, 1)]);
-    burst.appearance = EffectAppearance::Flash;
+    burst.presentation.form = EffectAppearance::Flash;
     burst.cue = EffectCue::Fire;
     let first = state(1, vec![burst]);
     let frame = client.observe(&first, None).await;
@@ -292,7 +292,7 @@ async fn burst_and_cone_preserve_exact_authoritative_footprints_in_real_headless
         {"x":0,"y":0,"z":0},{"x":1,"y":0,"z":0},{"x":0,"y":1,"z":0}]])
     );
     let mut cone = effect(2, 2, None, &[(1, 0), (2, -1), (2, 0), (2, 1)]);
-    cone.appearance = EffectAppearance::Flash;
+    cone.presentation.form = EffectAppearance::Flash;
     cone.cue = EffectCue::Cold;
     let second = state(2, vec![cone]);
     let frame = client.observe(&second, Some(&first)).await;
@@ -349,7 +349,7 @@ async fn instantaneous_area_event_is_not_a_persistent_cloud() {
         ability: Some(tor_client_common::test_support::content("fixture_fire")),
         tick: 1,
         timing: EffectTiming::Instant,
-        appearance: EffectAppearance::Flash,
+        presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Flash),
         anchors: geometry.anchors,
         delivery: EffectDelivery::Area,
         cue: EffectCue::Fire,
@@ -430,7 +430,7 @@ async fn transient_area_outcome_reaches_real_headless_once_without_sustained_sta
         ability: Some(tor_client_common::test_support::content("fixture_fire")),
         tick: 1,
         timing: EffectTiming::Instant,
-        appearance: EffectAppearance::Flash,
+        presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Flash),
         anchors: geometry.anchors,
         delivery: EffectDelivery::Area,
         cue: EffectCue::Fire,

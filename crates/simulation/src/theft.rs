@@ -615,10 +615,10 @@ impl Game {
             .filter(|_| !matches!(plan, crate::abilities::Plan::Zap { charges: 0, .. }))
         {
             let trace = self
-                .trace_first_body(
+                .trace_first_body_trajectory(
                     ray.actor,
                     ray.origin.location,
-                    tor_world::Direction::from(ray.direction).rotated(ray.origin.orientation),
+                    ray.aim.trajectory(ray.origin.orientation)?,
                     &ray.launch_footprint,
                     crate::abilities::MAX_CONTACT_STATES,
                 )

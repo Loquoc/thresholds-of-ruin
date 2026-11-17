@@ -193,6 +193,31 @@ impl Canvas {
         for (i, row) in rows.iter().enumerate() {
             self.text(24, 6 + i * 20, row, TEXT, 2, crate::messages::WIDTH);
         }
+        if let Some(prompt) = app.projectile_prompt() {
+            let row = rows.len().min(crate::messages::ROWS);
+            self.text(24, 6 + row * 20, &prompt, GOLD, 2, crate::messages::WIDTH);
+            if let Some(terms) = app
+                .weapon_confirmation
+                .as_ref()
+                .and_then(|preview| preview.terms())
+            {
+                let mut costs = Vec::new();
+                if let Some(cost) = &terms.cost {
+                    tor_client_common::combat_diagnostics::cost_lines(&mut costs, cost);
+                }
+                let timing = format!(
+                    "Aim: {} ticks. Recover: {} ticks.",
+                    terms.preparation, terms.recovery
+                );
+                let detail = if costs.is_empty() {
+                    timing
+                } else {
+                    format!("{timing} {}", costs.join(" "))
+                };
+                self.text(24, 26 + row * 20, &detail, MUTED, 1, 140);
+            }
+            return;
+        }
         // A bare acknowledgement says nothing the player needs.
         if !app.busy && !app.status.is_empty() && app.status != "Done." && !app.messages.more() {
             self.text(
@@ -246,7 +271,7 @@ impl Canvas {
             }
         }
         // Temporary glyphs overlay the freshly rebuilt map, never its memory.
-        for effect in app.effect_animations.glyphs(o) {
+        for effect in app.effect_animations.glyphs_with_palette(o, &app.palette) {
             if !map::BAND.contains(&(effect.position.z - o.position.z)) {
                 continue;
             }
@@ -535,10 +560,24 @@ impl Canvas {
                 self.text(72, 152 + i * 22, row, TEXT, 2, crate::messages::WIDTH);
             }
         }
-        if app.help_open {
-            self.screen("HELP", "ESC or ? closes");
-            for (i, line) in crate::HELP.iter().enumerate() {
-                self.text(72, 150 + i * 19, line, TEXT, 2, 66);
+        if let Some(rows) = &app.discovery_rows {
+            self.screen("DISCOVERIES", "UP/DOWN scroll   ESC closes");
+            if rows.is_empty() {
+                self.text(72, 152, "No item appearances identified yet.", TEXT, 2, 66);
+            }
+            for (i, row) in rows
+                .iter()
+                .skip(app.discovery_scroll)
+                .take(crate::DISCOVERY_ROWS)
+                .enumerate()
+            {
+                self.text(72, 152 + i * 22, row, TEXT, 2, 66);
+            }
+        }
+        if let Some(page) = app.help_page {
+            self.screen(page.title(), "LEFT / RIGHT change page    ESC or ? closes");
+            for (i, line) in page.rows().iter().enumerate() {
+                self.text(72, 150 + i * 26, line, TEXT, 2, 66);
             }
         }
         if app.stats_open {
@@ -645,14 +684,14 @@ impl Canvas {
                 self.text(72, 152 + index * 26, row, TEXT, 2, 70);
             }
         }
-        if let Some(menu) = &app.projectile_selection {
+        if let Some(menu) = app
+            .projectile_selection
+            .as_ref()
+            .filter(|menu| menu.delivery().is_none())
+        {
             self.screen(
                 &menu.title(),
-                if menu.step() == tor_client_common::projectiles::Step::Direction {
-                    "Movement keys choose direction   ESC cancels"
-                } else {
-                    "UP/DOWN selects   ENTER chooses   LEFT/RIGHT pages   ESC cancels"
-                },
+                "UP/DOWN selects   ENTER chooses   LEFT/RIGHT pages   ESC cancels",
             );
             let rows = app.projectile_rows();
             let start = app.selected.saturating_sub(12);
@@ -660,7 +699,7 @@ impl Canvas {
                 self.text(72, 152 + index * 26, row, TEXT, 2, 70);
             }
         }
-        if app.weapon_confirmation.is_some() {
+        if app.weapon_confirmation.is_some() && app.projectile_prompt().is_none() {
             self.screen(
                 "EXACT WEAPON ACTION PREVIEW",
                 "ENTER commits after reply   ESC cancels",
@@ -768,15 +807,8 @@ impl Canvas {
                 "letter or UP/DOWN + ENTER chooses   ESC aborts the paid choice",
             );
             let rows = app.identification_rows();
-            if rows.is_empty() {
-                self.text(
-                    72,
-                    156,
-                    "No items offered in this category. Esc aborts.",
-                    TEXT,
-                    2,
-                    65,
-                );
+            if let Some(message) = app.identification_empty_message() {
+                self.text(72, 156, &message, TEXT, 2, 65);
             }
             let start = app
                 .identification_selected

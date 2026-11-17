@@ -651,9 +651,47 @@ pub struct AbilityTagDef {
     pub id: AbilityTagId,
     pub name: String,
 }
+/// Public visible material, independently authored from damage mechanics.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectVisual {
+    #[default]
+    Neutral,
+    Flame,
+    Frost,
+    Sparks,
+    Vapor,
+    Radiance,
+}
+
+fn effect_style_valid(value: Option<&str>) -> bool {
+    value.is_none_or(|s| {
+        !s.is_empty()
+            && s.len() <= 80
+            && s.split('.').all(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
+    })
+}
+
+pub fn read_effect_style<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<String>, D::Error> {
+    let value = Option::<String>::deserialize(d)?;
+    if !effect_style_valid(value.as_deref()) {
+        return Err(serde::de::Error::custom("invalid public effect style"));
+    }
+    Ok(value)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AbilityDef {
+    pub effect_visual: EffectVisual,
+    pub effect_style: Option<String>,
     #[serde(default)]
     pub cancellable: bool,
     pub interaction: Interaction,
@@ -684,6 +722,10 @@ impl<'de> serde::Deserialize<'de> for AbilityDef {
         #[serde(deny_unknown_fields)]
         struct Fields {
             #[serde(default)]
+            effect_visual: EffectVisual,
+            #[serde(default, deserialize_with = "read_effect_style")]
+            effect_style: Option<String>,
+            #[serde(default)]
             cancellable: bool,
             interaction: Interaction,
             id: AbilityId,
@@ -706,6 +748,8 @@ impl<'de> serde::Deserialize<'de> for AbilityDef {
         }
         let fields: Fields = crate::bounded::named_map(deserializer)?;
         Ok(Self {
+            effect_visual: fields.effect_visual,
+            effect_style: fields.effect_style,
             cancellable: fields.cancellable,
             interaction: fields.interaction,
             invocation: fields.invocation,
@@ -2323,6 +2367,10 @@ impl Ruleset {
         )?;
         for d in &mut document.abilities {
             bound(d.spatial_shape_valid(), "ability_spatial_shape")?;
+            bound(
+                effect_style_valid(d.effect_style.as_deref()),
+                "ability_effect_style",
+            )?;
             let detects = match &d.strikes {
                 StrikeSource::Authored { strikes } => strikes
                     .iter()
@@ -4303,8 +4351,8 @@ mod tests {
         ));
         assert!(
             toml::from_str::<RulesetDocument>(&DEFAULT_RULESET_TOML.replace(
-                "id = \"interactions-v58\"",
-                "id = \"interactions-v58\"\nunknown = true"
+                "id = \"interactions-v66\"",
+                "id = \"interactions-v66\"\nunknown = true"
             ))
             .is_err()
         );
@@ -4379,6 +4427,32 @@ mod tests {
         assert!(parsed.is_ok(), "ability tag data rejected: {parsed:?}");
         assert!(Ruleset::validate(parsed.unwrap()).is_ok());
     }
+    #[test]
+    fn authored_effect_style_is_bounded_for_direct_and_decoded_rules() {
+        for invalid in [
+            "",
+            "magic..fire",
+            "https://example.com",
+            "Magic.Fire",
+            "../fire",
+        ] {
+            let mut doc = document();
+            doc.abilities[0].effect_style = Some(invalid.to_owned());
+            let encoded = serde_json::to_value(&doc).unwrap();
+            assert!(serde_json::from_value::<RulesetDocument>(encoded).is_err());
+            assert!(
+                matches!(Ruleset::validate(doc), Err(RulesetError::Bound { field })
+                if field == "ability_effect_style")
+            );
+        }
+        let mut doc = document();
+        doc.abilities[0].effect_style = Some("magic.ray.fire".into());
+        doc.abilities[0].effect_visual = EffectVisual::Flame;
+        assert!(Ruleset::validate(doc).is_ok());
+        assert!(!effect_style_valid(Some(&"a".repeat(81))));
+        assert!(effect_style_valid(None));
+    }
+
     #[test]
     fn ability_tags_reject_unknown_duplicate_and_oversized_references() {
         let tag = AbilityTagId::new("weapon_attack").unwrap();

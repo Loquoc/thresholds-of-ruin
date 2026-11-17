@@ -150,6 +150,7 @@ enum RequestReply {
     AbilityWeaponPreview(Box<tor_protocol::AbilityWeaponPreview>),
     Receipt(RequestReceipt),
     History(HistoryPage),
+    Discoveries(Vec<tor_protocol::ItemDiscoveryView>),
     Palette(PaletteUpdate),
     CreatureInspection(Box<CreatureInspectionView>),
     CreatureCatalog(Box<CreatureCatalogPage>),
@@ -175,6 +176,11 @@ impl RequestReply {
                 context,
                 request_id,
                 receipt,
+            },
+            Self::Discoveries(rows) => ServerMessage::Discoveries {
+                context,
+                request_id,
+                rows,
             },
             Self::History(page) => ServerMessage::History {
                 context,
@@ -768,6 +774,16 @@ impl Service {
             Request::Snapshot => self
                 .snapshot(id, request_id)
                 .map(|()| ProcessedRequest::Published),
+            Request::Discoveries => {
+                let rows = self.engine.item_discoveries(actor);
+                if rows.len() > tor_protocol::MAX_ITEM_DISCOVERIES {
+                    return Err(Failure::new(
+                        ErrorCode::InvalidRequest,
+                        "Too many item discoveries",
+                    ));
+                }
+                Ok(ProcessedRequest::Reply(RequestReply::Discoveries(rows)))
+            }
             Request::Palette => Ok(self
                 .prepare_palette(id, true)
                 .map(|palette| ProcessedRequest::Reply(RequestReply::Palette(palette)))
@@ -1214,7 +1230,7 @@ impl Service {
                     self.autonomous_enabled = self.engine.arena_execution_enabled();
                     // Scheduler controls change ordinary readiness, not world
                     // topology. Preserve streams, preparations and private history.
-                    self.action_update(&before_states, None)?;
+                    self.action_update(&before_states, None, None)?;
                     return Ok(ProcessedRequest::Reply(RequestReply::Receipt(
                         self.engine.request_receipt(&result),
                     )));
@@ -1352,7 +1368,7 @@ impl Service {
         result: &crate::CommandResult,
     ) -> Result<(), Failure> {
         let entry = self.engine.disclose_entry(&result.entry);
-        self.action_update(before, entry.as_ref())?;
+        self.action_update(before, entry.as_ref(), Some(result))?;
         self.intention_update(result);
         Ok(())
     }
@@ -1415,6 +1431,7 @@ impl Service {
         &mut self,
         before: &SemanticStates,
         entry: Option<&HistoryEntry>,
+        result: Option<&crate::CommandResult>,
     ) -> Result<(), Failure> {
         let recipients: Vec<_> = self
             .clients
@@ -1491,7 +1508,21 @@ impl Service {
                 before.events,
                 events,
             )
-            .and_then(|facts| {
+            .and_then(|mut facts| {
+                if let Some(result) = result {
+                    let changes = self
+                        .engine
+                        .outcome_work_changes(result, actor, &previous_facts);
+                    if !changes.is_empty() {
+                        facts.facts.retain(|fact| {
+                            !matches!(fact, OutcomeFact::Combat {
+                            event: CombatEventView::Interrupted { actor },
+                            ..
+                        } if *actor == facts.self_target)
+                        });
+                        facts.facts.extend(changes);
+                    }
+                }
                 facts.validate_at(current_facts.tick)?;
                 Ok(facts)
             });
@@ -3013,7 +3044,7 @@ mod tests {
         Arc::make_mut(before.views.get_mut(&actor).unwrap())
             .facts
             .tick += 1;
-        service.action_update(&before, None).unwrap();
+        service.action_update(&before, None, None).unwrap();
         assert!(connection.messages.try_recv().is_err());
         assert_eq!(
             service.clients[&connection.id]
@@ -5200,14 +5231,14 @@ mod tests {
         mail.send(crate::runner::Mail::Request {
             client: client.id,
             request_id: "rewind".into(),
-            request: Request::Command {
+            request: Box::new(Request::Command {
                 context: service.input_context(client.id).unwrap(),
                 branch: branch.clone(),
                 command: Command::Wizard {
                     expected_revision: revision,
                     operation: "rewind initial".into(),
                 },
-            },
+            }),
             timing: None,
         })
         .await

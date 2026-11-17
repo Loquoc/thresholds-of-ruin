@@ -277,3 +277,101 @@ mod sampling_tests {
         assert!(calls <= 400, "shared pouch shell samples repeated: {calls}");
     }
 }
+
+/// A pointed belt follows the same support at every seam sample. The authored
+/// height/dip and half-width are independent of body shape and paint palette.
+pub(super) fn pointed_band(
+    p: &mut Parts,
+    body: HumanoidBody,
+    support: &crate::sdf::Sculpt,
+    height_dip: Vec2,
+    half_width: f32,
+    color: Vec3,
+    edge: Vec3,
+) {
+    let pelvis = pelvis_shape(body);
+    let rings: Vec<Vec<Vec3>> = [-1.0, 1.0]
+        .into_iter()
+        .map(|edge| {
+            (0..=64)
+                .map(|k| {
+                    let a = k as f32 * TAU / 64.0;
+                    let y =
+                        height_dip.x - height_dip.y * a.cos().max(0.0).powi(2) + edge * half_width;
+                    surface_field_ray_hit(
+                        &|at| support.distance(at - body.torso).min(pelvis.distance(at)),
+                        Vec3::Y * y,
+                        Vec3::new(a.sin(), 0.0, a.cos()),
+                        0.010,
+                        0.7 * body.build,
+                    )
+                    .expect("pointed belt requires waist or pelvic support")
+                })
+                .collect()
+        })
+        .collect();
+    for k in 0..64 {
+        p.matte.quad_out(
+            [rings[0][k], rings[0][k + 1], rings[1][k + 1], rings[1][k]],
+            Vec3::Y * height_dip.x,
+            color,
+        );
+    }
+    for ring in rings {
+        tube(
+            &mut p.metal,
+            &ring,
+            &vec![(0.0025, 0.0025); ring.len()],
+            edge,
+        );
+    }
+}
+
+#[cfg(test)]
+mod pointed_tests {
+    use super::*;
+    #[test]
+    fn pointed_bands_keep_real_support_clearance_and_front_dip_across_bodies() {
+        for woman in [false, true] {
+            for build in 0..3 {
+                let look = Look::with_choice(
+                    CreatureModel::Human,
+                    7,
+                    Some(Variant {
+                        woman,
+                        build,
+                        ..default()
+                    }),
+                );
+                let body = HumanoidBody::resolve(&look);
+                let support = torso_shape(body, None, true);
+                let mut p = Parts::default();
+                pointed_band(
+                    &mut p,
+                    body,
+                    &support,
+                    Vec2::new(0.10, 0.065),
+                    0.025,
+                    Vec3::X,
+                    Vec3::Y,
+                );
+                let vertices: Vec<_> = p.matte.surface_triangles().flatten().collect();
+                assert!(!vertices.is_empty());
+                for at in &vertices {
+                    assert!(at.is_finite());
+                    let d = support
+                        .distance(*at - body.torso)
+                        .min(pelvis_shape(body).distance(*at));
+                    assert!((0.009..0.012).contains(&d), "actual support clearance {d}");
+                }
+                let low = vertices.iter().map(|v| v.y).fold(f32::INFINITY, f32::min);
+                let high = vertices
+                    .iter()
+                    .map(|v| v.y)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                assert!((low - 0.010).abs() < 1e-5);
+                assert!((high - 0.125).abs() < 1e-5);
+            }
+        }
+    }
+}

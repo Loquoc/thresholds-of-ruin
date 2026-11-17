@@ -29,10 +29,71 @@ resolution and evidence; avoid reopening the same root cause under a new ID.
 
 ## Active review queue
 
-The bounded findings, including the subsequently reported checkpoint-capacity
-issue, have been resolved or retained with explicit evidence and limits below.
-There is no active finding in this register. This is not a complete audit or a
-claim that broader performance and scaling work is finished.
+CH-020 retains a focused local measurement question about dense ground-gear
+eligibility. The other bounded findings have been resolved or retained with
+explicit evidence and limits below. This is not a complete audit or a claim that
+broader performance and scaling work is finished.
+
+### CH-020: Dense ground-launcher eligibility cost needs representative profiling
+
+- **Category/status:** performance; bounded measurement question, not a confirmed
+  gameplay defect. Duplicate known-baseline scoring is now removed; remaining
+  candidate cost and ordinary dungeon frequency remain open measurement questions.
+- **Inspected baseline:** local comparison on 2026-11-15 between `fbbdfb1d`
+  (pre-distance-cap-removal policy plus identical diagnostic scaffold) and
+  `1b5bf52b` (local item-pursuit experiment). These are experimental revisions,
+  not a claim about current main, hosted CI or a shipped release.
+- **Source/trigger:** [ground-item selection](../../crates/simulation/src/ai_items.rs)
+  calls `gear_destination` for items not selected by ranged acquisition.
+  Socket eligibility uses `gear_upgrade`, `gear_projection` and known-loadout
+  projections. The projection helpers clone private Games while preserving the
+  remembered-information boundary. This is separate from CH-016's corrected
+  repeated ranking-score calculation; it does not reopen that resolved defect.
+- **Evidence:** the local
+  [ranged acquisition workload](../../crates/simulation/examples/ranged_loot_bench.rs)
+  and [comparison driver](../../scripts/perf_compare.py) ran three balanced release
+  rounds, 60 valid samples per side/case and no failed runs. With 128 disclosed
+  ground launchers having distinct families and no matching ammunition, complete
+  warmed decision p50 at distances four/six was 9.200/9.387 ms on the baseline
+  and 9.452/9.442 ms on the candidate. Both sides recorded 512 Game clones per
+  decision. The source supports inspecting generic eligibility projections next;
+  the total timing and clone counter do not attribute all cost to one function.
+  The substantial dense-case cost is already present in the baseline. Differences
+  of +2.7%/+0.6% here do not establish a distance-removal regression or causal
+  speedup. Raw comparison and source manifests are retained locally, not published
+  as an accepted performance-ledger result.
+- **Limits/consequence:** this is an artificial, single-actor, warmed repeated
+  choice in an open 16-by-9 room, with all stacks colocated and disclosed. It is
+  not a representative dungeon-frequency sample, multi-actor latency measurement,
+  cold-topology result or whole-game performance claim. Action and choice-purity
+  assertions passed. Ranged pairing limits do not bound all generic gear or
+  topology work. No gameplay-distance limit or speculative optimization follows.
+- **Narrow optimization:** a local release comparison against `fe107efd` on
+  2026-11-16 reused one lazy, actor-bound known-loadout baseline per ordinary
+  eligibility scan. Each candidate still performs its own projection and equip
+  admission; ranged acceptance and final ranking are unchanged. The unchanged
+  workload's unmatched-launcher cases reduced Game clones from 4/64/512 to
+  3/33/257 for 1/16/128 items. Four balanced pairs, 80 samples per case, measured
+  dense complete-decision p50 reductions of about 12–19%; 16-item cases improved
+  about 20–22%. Payload and Gold controls retained zero clones. These are local
+  results, not an accepted performance-ledger artifact or a heap-byte claim.
+  Scale assertions cover independent eligibility/ranking work and unchanged
+  choices; fresh-loadout comparisons cover stronger/equal/weaker candidates in
+  both orders and unchanged private state. A separate 100-AI stress workload
+  disables equipment/loot, and ordinary-action controls contain no AI; their
+  variable tails do not establish a whole-game speedup. Their deterministic
+  work/activity and strict restart checks remain equal. Real-roster process
+  traces also retain identical accepted actions, ticks, events and outcomes.
+- **Smallest next step:** establish realistic item-density/type distributions
+  before targeting the remaining candidate projections. Measure complete choices
+  and their constituent work without replacing independent equip admission or
+  weakening the remembered-information boundary.
+- **Acceptance witnesses for any later change:** compare identical workloads and
+  source identities; retain useful, incompatible and secondary-slot candidates,
+  known/unknown/cursed-item controls, candidate-order and exact-action equivalence,
+  private-state/observer boundaries, purity and replay. Report complete-decision
+  timings and work counts, including small cases and tails; do not infer heap
+  savings or whole-game improvement from fewer clones alone.
 
 ## Retained or resolved findings
 
@@ -328,7 +389,7 @@ claim that broader performance and scaling work is finished.
   describes actor-private recognition with a shared roll, eligible adjacent
   touch searches and no discovery through read-only queries. Success is not
   guaranteed. No executable TOML value or gameplay rule changed.
-- **Certificate evidence:** the existing `tor-scenario-50` validator reproduced
+- **Historical certificate evidence:** the validator identified below reproduced
   the baseline certificate byte-for-byte, then validated the corrected package.
   Only authored rules and source-closure content hashes changed; effective
   rules, model, index, dependency hashes and validator identity are unchanged.
@@ -337,6 +398,10 @@ claim that broader performance and scaling work is finished.
 - **Limits:** this is certificate generation and source/semantic review, not a
   fresh gameplay regression run. Checked discovery's positive, failed-roll and
   nondisclosure witnesses remain unchanged and must pass final-head hosted CI.
+
+| Milestone | Status | Historical format change |
+| --- | --- | --- |
+| CH-006 Search comment correction | Completed historical certificate check | No format change; the recorded run used `tor-scenario-50`, not the current validator. |
 
 ### CH-010: Performance-trace parsing is not full fixture validation
 

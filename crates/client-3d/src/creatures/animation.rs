@@ -60,6 +60,43 @@ impl Pose {
     }
 }
 
+/// When cloaks are fitted against their wearers. Without this resource, or with
+/// an interval of zero, every cloak is fitted every frame. Otherwise one wearer
+/// is fitted every `interval` frames, each taking its turn, so the cost of a
+/// frame does not grow with the crowd; between fits a cloak keeps its last
+/// fitted shape on its wearer.
+#[derive(Resource, Debug, Default)]
+pub(crate) struct CloakPacing {
+    interval: u32,
+    frame: u32,
+    /// Cloak wearers posed in the previous frame.
+    wearers: u32,
+}
+
+impl CloakPacing {
+    pub(crate) fn every(interval: u32) -> Self {
+        Self {
+            interval,
+            ..default()
+        }
+    }
+
+    /// Whether the cloak wearer posed `ordinal`-th this frame is fitted now.
+    fn fits(&self, ordinal: u32) -> bool {
+        let wearers = self.wearers.max(1);
+        self.interval == 0
+            || (self.frame.is_multiple_of(self.interval)
+                // Match one ordinal, not its residue: newly added wearers must not
+                // repeat slots from the previous frame's smaller population.
+                && (self.frame / self.interval) % wearers == ordinal)
+    }
+
+    fn finish_frame(&mut self, wearers: u32) {
+        self.frame = self.frame.wrapping_add(1);
+        self.wearers = wearers;
+    }
+}
+
 /// Opt-in CPU attribution for the latest animation step; no history is retained.
 /// Phases are pose/joints, robe fitting, drapes/segments, and hair/contact fitting.
 #[derive(Resource, Default, Debug, PartialEq)]
@@ -84,6 +121,7 @@ fn record_phase(
 pub struct HairScheduling<'w, 's> {
     camera: Query<'w, 's, &'static GlobalTransform, crate::portrait::ExplorationCamera>,
     solving: Option<Res<'w, super::hair_budget::HairSolving>>,
+    cloaks: Option<ResMut<'w, CloakPacing>>,
 }
 
 /// Advance timers and pose every creature.
@@ -94,7 +132,7 @@ pub fn animate(
     mut rigs: Query<(&mut Rig, &mut Anim, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut joints: Query<&mut Transform, Without<Rig>>,
-    scheduling: HairScheduling,
+    mut scheduling: HairScheduling,
 ) {
     let background = scheduling
         .solving
@@ -119,6 +157,7 @@ pub fn animate(
     // Wearers whose hair awaits a contact solve, with their head frames and
     // distance from the camera; solved together once every pose is set.
     let mut wearers = Vec::new();
+    let mut cloaked = 0;
     for (mut rig, mut anim, root) in &mut rigs {
         // Actor roots are unparented. Their current Transform already includes
         // this Update's interpolation; GlobalTransform still describes last frame.
@@ -163,7 +202,10 @@ pub fn animate(
         if step > 0.002 && anim.action.is_none() {
             anim.target_yaw = Some(moved.x.atan2(moved.z));
         }
-        if anim.dead.is_some() {
+        // Scene death chooses a corridor-aware heading during the negative
+        // pre-roll. Consume that target before the fall, then freeze facing;
+        // zero/settled death must still discard stale locomotion targets.
+        if anim.dead.is_some_and(|phase| phase >= 0.0) {
             anim.target_yaw = None;
         }
         if let Some(goal) = anim.target_yaw {
@@ -190,6 +232,11 @@ pub fn animate(
             anim.fallen = (anim.fallen - dt / 0.8).max(0.0);
         }
         let moving = step > dt * 0.04 * rig.scale.max(0.2);
+        let fit_cloaks = rig.cloaks.is_empty()
+            || scheduling.cloaks.as_ref().is_none_or(|pacing| {
+                cloaked += 1;
+                pacing.fits(cloaked - 1)
+            });
         let hair = present_pose(
             &mut rig,
             &mut anim,
@@ -200,6 +247,7 @@ pub fn animate(
             &mut meshes,
             &mut joints,
             profile.as_deref_mut(),
+            fit_cloaks,
             if background {
                 HairWork::Defer
             } else {
@@ -210,6 +258,9 @@ pub fn animate(
             let distance = eye.map_or(0.0, |eye| eye.distance(root.translation));
             wearers.push((rig, frame, distance));
         }
+    }
+    if let Some(pacing) = scheduling.cloaks.as_deref_mut() {
+        pacing.finish_frame(cloaked);
     }
     solve_hair(wearers, dt, &mut meshes, profile.as_deref_mut());
 }
@@ -298,6 +349,7 @@ pub(crate) fn refresh_pose(
             &mut meshes,
             &mut joints,
             None,
+            true,
             HairWork::Now,
         );
         commands.entity(entity).remove::<PoseRefresh>();
@@ -315,6 +367,7 @@ fn present_pose(
     meshes: &mut Assets<Mesh>,
     joints: &mut Query<&mut Transform, Without<Rig>>,
     mut profile: Option<&mut MotionProfile>,
+    fit_cloaks: bool,
     hair_work: HairWork,
 ) -> Option<Affine3A> {
     if let Some(profile) = profile.as_deref_mut() {
@@ -369,7 +422,7 @@ fn present_pose(
     }
     record_phase(&mut profile, 1, started);
     let started = profile.as_ref().map(|_| std::time::Instant::now());
-    let needs_cloth_contacts = rig.cloaks.iter().any(|cloak| cloak.needs_contacts());
+    let needs_cloth_contacts = fit_cloaks && rig.cloaks.iter().any(|cloak| cloak.needs_contacts());
     let contacts = if rig.hair.is_some() || needs_cloth_contacts {
         super::visual_contact::posed(&rig.visual_contacts, |joint| {
             rig.joint(joint)
@@ -397,7 +450,7 @@ fn present_pose(
             }),
         ))
     });
-    for cloak in &mut rig.cloaks {
+    for cloak in rig.cloaks.iter_mut().filter(|_| fit_cloaks) {
         if cloak.needs_contacts() {
             cloak.set_contacts(contacts.clone());
             if let Some(surface) = &cloth_surface {
@@ -408,11 +461,13 @@ fn present_pose(
             }
         }
     }
-    super::cloak::place_layers(
-        &mut rig.cloaks,
-        |entity| joints.get(entity).ok().map(|transform| transform.rotation),
-        meshes,
-    );
+    if fit_cloaks {
+        super::cloak::place_layers(
+            &mut rig.cloaks,
+            |entity| joints.get(entity).ok().map(|transform| transform.rotation),
+            meshes,
+        );
+    }
     record_phase(&mut profile, 2, started);
     let started = (profile.is_some() && rig.hair.is_some()).then(std::time::Instant::now);
     let head = rig
@@ -528,7 +583,9 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     // Idle fidgets fade out as an action begins and back in after it ends,
     // rather than switching off and on in a single frame mid-gesture.
     a.rest += (settled - a.rest) * (1.0 - (-dt * 7.0).exp());
-    let calm = (1.0 - ease(s * 4.0).max(a.contacts.blend)) * a.rest;
+    // Retain the blend for revival, but living layers stop when death starts.
+    // Real deaths can retain rest = 1, unlike discovered corpse construction.
+    let calm = (1.0 - ease(s * 4.0).max(a.contacts.blend)) * a.rest * alive;
     if calm > 0.0 && !a.quiet {
         if !rogue::idle(&mut p, rig, a.time + a.seed * 3.7, a.seed, calm) {
             idle(&mut p, rig, a.time + a.seed * 3.7, a.seed, calm);
@@ -3186,6 +3243,123 @@ mod support_tests {
     use crate::creatures::rogue_tests::spawn_one;
 
     #[test]
+    fn death_preroll_consumes_intended_heading_but_falling_bodies_keep_theirs() {
+        for phase in [None, Some(-0.35), Some(0.0), Some(1.0)] {
+            let (mut world, rig, _, meshes) = spawn_one(&Look::of(CreatureModel::Human, 7));
+            let root = world
+                .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+                .unwrap()
+                .parent();
+            let mut anim = Anim::new(7, Vec3::ZERO);
+            anim.yaw = 0.0;
+            anim.dead = phase;
+            // Scene death supplies a corridor-aware heading during the negative
+            // pre-roll; a nonnegative death must discard stale walking targets.
+            anim.target_yaw = Some(FRAC_PI_2);
+            world.entity_mut(root).insert((rig, anim));
+            world.insert_resource(meshes);
+            let mut time = Time::<()>::default();
+            time.advance_by(std::time::Duration::from_secs_f32(0.05));
+            world.insert_resource(time);
+            let mut animation = Schedule::default();
+            animation.add_systems(animate);
+            animation.run(&mut world);
+            let anim = world.get::<Anim>(root).unwrap();
+            if phase.is_none_or(|d| d < 0.0) {
+                let expected = FRAC_PI_2 * (1.0 - (-0.05f32 * 12.0).exp());
+                assert!(
+                    (anim.yaw - expected).abs() < 1e-6,
+                    "pre-roll/living heading was discarded: {phase:?}, yaw={}",
+                    anim.yaw
+                );
+                assert_eq!(anim.target_yaw, Some(FRAC_PI_2));
+            } else {
+                assert_eq!(anim.yaw, 0.0);
+                assert_eq!(anim.target_yaw, None);
+            }
+            if phase == Some(-0.35) {
+                for _ in 0..8 {
+                    animation.run(&mut world);
+                }
+                let anim = world.get::<Anim>(root).unwrap();
+                assert!(anim.dead.unwrap() > 0.0);
+                assert_eq!(anim.target_yaw, None);
+                assert!(
+                    (anim.yaw - FRAC_PI_2).abs() < 0.02,
+                    "body must face the selected corridor before the fall"
+                );
+                let heading = anim.yaw;
+                for _ in 0..25 {
+                    animation.run(&mut world);
+                }
+                assert_eq!(
+                    world.get::<Anim>(root).unwrap().yaw,
+                    heading,
+                    "falling body must not keep turning"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn living_to_dead_transition_stops_idle_layers_with_retained_rest() {
+        for (model, wardrobe) in [
+            (CreatureModel::Human, Wardrobe::Commoner),
+            (CreatureModel::Human, Wardrobe::Knight),
+            (CreatureModel::Human, Wardrobe::SylvanDuelist),
+            (CreatureModel::Mage, Wardrobe::Native),
+        ] {
+            for woman in [false, true] {
+                let look = Look::with_choice(model, 7, Some(Variant { woman, ..default() }))
+                    .dressed(wardrobe);
+                let (_, rig, _, _) = spawn_one(&look);
+                for death in [0.0, 0.5, 1.0] {
+                    for gag in 0..3 {
+                        // Explicitly select an active antic and establish that it
+                        // actually moves this living fixture before testing death.
+                        let mut lively = Anim::new(7, Vec3::ZERO);
+                        lively.time = 4.0;
+                        lively.antic = Some(gag);
+                        let dancing = pose(&rig, &mut lively, 1.0, 0.0, false, false);
+                        let resting = pose(&rig, &mut lively, 0.0, 0.0, false, false);
+                        assert!(
+                            dancing.rot != resting.rot || dancing.off != resting.off,
+                            "inactive antic fixture: {model:?}/{wardrobe:?}, gag={gag}"
+                        );
+                        let mut ordinary = Anim::new(7, Vec3::ZERO);
+                        ordinary.dead = Some(death);
+                        let mut quiet = Anim::new(7, Vec3::ZERO);
+                        quiet.dead = Some(death);
+                        ordinary.antic = Some(gag);
+                        quiet.antic = Some(gag);
+                        quiet.quiet = true;
+                        let mut first = None;
+                        // Explicit refresh can publish the first pose without a
+                        // time step. Continue through an active antic interval.
+                        for frame in 0..4 {
+                            let time = 4.0 + frame as f32 / 60.0;
+                            let dt = if frame == 0 { 0.0 } else { 1.0 / 60.0 };
+                            ordinary.time = time;
+                            quiet.time = time;
+                            let actual = pose(&rig, &mut ordinary, 1.0, dt, false, false);
+                            let expected = pose(&rig, &mut quiet, 1.0, dt, false, false);
+                            assert_eq!(actual.rot, expected.rot,
+                            "living fidget leaked into transitioning {model:?}/{wardrobe:?}, woman={woman}, time={time}");
+                            assert_eq!(actual.off, expected.off);
+                            let snapshot = (actual.rot, actual.off);
+                            if let Some(first) = first {
+                                assert_eq!(snapshot, first, "fixed death phase must not idle");
+                            } else {
+                                first = Some(snapshot);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn discovered_corpses_start_without_living_fidgets_across_humanoid_outfits() {
         for (model, wardrobe) in [
             (CreatureModel::Human, Wardrobe::Commoner),
@@ -3662,6 +3836,90 @@ mod support_tests {
             assert_eq!(checked, 4, "{model:?} needs four supporting limbs");
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+}
+
+#[cfg(test)]
+mod cloak_pacing_tests {
+    use super::CloakPacing;
+
+    #[test]
+    fn an_interval_of_zero_fits_every_wearer_every_frame() {
+        let mut pacing = CloakPacing::every(0);
+        for _ in 0..5 {
+            assert!((0..4).all(|ordinal| pacing.fits(ordinal)));
+            pacing.finish_frame(4);
+        }
+    }
+
+    #[test]
+    fn new_or_growing_crowds_do_not_repeat_a_previous_slot() {
+        for previous in [0, 1, 3] {
+            let mut pacing = CloakPacing::every(1);
+            if previous != 0 {
+                pacing.finish_frame(previous);
+            }
+            let selected: Vec<_> = (0..8).filter(|&ordinal| pacing.fits(ordinal)).collect();
+            assert_eq!(selected.len(), 1, "previous {previous}: {selected:?}");
+        }
+    }
+
+    #[test]
+    fn a_crowd_returning_after_an_empty_frame_keeps_the_budget() {
+        let mut pacing = CloakPacing::every(1);
+        pacing.finish_frame(5);
+        pacing.finish_frame(0);
+        let selected: Vec<_> = (0..5).filter(|&ordinal| pacing.fits(ordinal)).collect();
+        assert_eq!(selected, vec![0]);
+    }
+
+    #[test]
+    fn crowd_changes_keep_interval_slots_and_resume_fair_turns() {
+        for interval in [2, 3] {
+            let mut pacing = CloakPacing::every(interval);
+            for wearers in [0, 8, 1, 8, 0, 5, 2, 7] {
+                let count = (0..wearers).filter(|&ordinal| pacing.fits(ordinal)).count();
+                assert!(count <= 1);
+                if !pacing.frame.is_multiple_of(interval) {
+                    assert_eq!(count, 0);
+                }
+                pacing.finish_frame(wearers);
+            }
+            let mut fitted = [0; 7];
+            for _ in 0..interval * 7 {
+                for ordinal in 0..7 {
+                    if pacing.fits(ordinal) {
+                        fitted[ordinal as usize] += 1;
+                    }
+                }
+                pacing.finish_frame(7);
+            }
+            assert_eq!(fitted, [1; 7]);
+        }
+    }
+
+    #[test]
+    fn paced_wearers_take_turns_one_per_slot() {
+        for (interval, wearers) in [(1, 1), (1, 3), (2, 1), (2, 5), (3, 4)] {
+            let mut pacing = CloakPacing::every(interval);
+            pacing.finish_frame(wearers);
+            let mut fitted = vec![0; wearers as usize];
+            let frames = interval * wearers * 3;
+            for _ in 0..frames {
+                let now: Vec<u32> = (0..wearers)
+                    .filter(|&ordinal| pacing.fits(ordinal))
+                    .collect();
+                assert!(now.len() <= 1, "at most one fit in a frame");
+                for ordinal in now {
+                    fitted[ordinal as usize] += 1;
+                }
+                pacing.finish_frame(wearers);
+            }
+            assert!(
+                fitted.iter().all(|&count| count == 3),
+                "interval {interval}, {wearers} wearers: {fitted:?}"
+            );
+        }
     }
 }
 

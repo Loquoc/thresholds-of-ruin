@@ -140,6 +140,15 @@ impl Network {
         batch
     }
 
+    /// No game yet: the menu holds this until one starts, and it reports
+    /// nothing, not even a lost connection.
+    pub fn idle() -> Self {
+        let (mut network, _, _) = Self::channels();
+        network.closed = true;
+        network.fatal_reported = true;
+        network
+    }
+
     pub fn start(address: SocketAddr, token: String, actor: ActorId, observe: bool) -> Self {
         let (mut network, rx, tx) = Self::channels();
         network.worker = Some(std::thread::spawn(move || {
@@ -220,6 +229,18 @@ fn presentation_event(connection: &Connection, message: &ServerMessage) -> Optio
                     facts,
                     &picture.visible,
                 ));
+            for event in &mut picture.events {
+                if let Happening::Effect {
+                    presentation,
+                    object_model,
+                    ..
+                } = event
+                {
+                    *object_model = presentation.object.as_ref().and_then(|object| {
+                        tor_client_3d_model::effect_object_model(&connection.palette, object)
+                    });
+                }
+            }
             Some(Event::View(Box::new(picture)))
         }
         ServerMessage::Update { .. }
@@ -231,7 +252,7 @@ fn presentation_event(connection: &Connection, message: &ServerMessage) -> Optio
         )))),
         // Dedicated chart rows are not terrain, actor models, picks or paths.
         // Ordinary chart UI remains a separate 3D task, not a map-page fallback.
-        ServerMessage::ChartPage { .. } => None,
+        ServerMessage::ChartPage { .. } | ServerMessage::Discoveries { .. } => None,
         ServerMessage::Error { message, .. } => Some(Event::Status(message.clone())),
         _ => None,
     }

@@ -118,7 +118,23 @@ pub(crate) struct Splash {
 }
 
 impl Splash {
+    /// No splash window: Android cannot start a second process for one, and
+    /// the standalone menu draws its own title in the game window.
+    pub(crate) fn inert() -> Self {
+        Self {
+            child: Mutex::new(None),
+            input: Mutex::new(None),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            progress: Progress::default(),
+            handoff: Handoff::default(),
+            finished: false,
+        }
+    }
+
     pub(crate) fn start(captures: Option<&Path>) -> Result<Self, Error> {
+        if cfg!(target_os = "android") {
+            return Ok(Self::inert());
+        }
         let mut command = Command::new(std::env::current_exe()?);
         command
             .arg("--startup-window")
@@ -242,6 +258,16 @@ impl Drop for Splash {
 
 #[derive(Resource, Clone, Default)]
 pub(crate) struct Presented(Arc<AtomicU64>);
+impl Presented {
+    /// Frames the renderer has finished so far.
+    pub(crate) fn count(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
+    #[cfg(test)]
+    pub(crate) fn record(&self) {
+        self.0.fetch_add(1, Ordering::Release);
+    }
+}
 pub(crate) struct PresentationPlugin;
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
@@ -283,7 +309,8 @@ pub(crate) fn fit_window(
     monitors: Query<&bevy::window::Monitor, With<bevy::window::PrimaryMonitor>>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
 ) {
-    if *fitted {
+    // An Android window always fills its screen.
+    if *fitted || cfg!(target_os = "android") {
         return;
     }
     let (Ok(monitor), Ok(mut window)) = (monitors.single(), windows.single_mut()) else {

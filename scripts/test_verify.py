@@ -1089,7 +1089,7 @@ class CiWorkflowContract(unittest.TestCase):
             ("ubuntu-latest", "debug", "rust", 60, 60),
             ("windows-latest", "release", "python", 40, 40),
             ("windows-latest", "debug", "python", 40, 40),
-            ("ubuntu-latest", "release", "python", 40, 40),
+            ("ubuntu-latest", "release", "python", 60, 55),
             ("ubuntu-latest", "debug", "python", 40, 40),
         ]
         for os_name, profile, partition, job_limit, stage_limit in cases:

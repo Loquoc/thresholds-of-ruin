@@ -19,17 +19,59 @@ workspace = true
 [dependencies]
 tor-client-common = { path = "../client-common" }
 tor-protocol = { path = "../protocol" }
+# The menu runs a private server in this process, so one package plays alone.
+tor-server = { path = "../server" }
 tor-client-3d-model = { path = "model" }
 tokio = { version = "1.53", features = ["macros", "rt", "net", "sync", "time"] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v4"] }
-bevy = "0.16"
+# Bevy's derive macros resolve the crate from this table only; the per-target
+# tables below choose its features.
+bevy = { version = "0.16", default-features = false }
 wgpu-types = { version = "24", default-features = false }
 softbuffer = { version = "=0.4.8", default-features = false, features = ["x11", "x11-dlopen"] }
 fontdue = { version = "=0.9.3", default-features = false, features = ["std", "simd"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+bevy = "0.16"
+
+# Experimental Android build: Bevy's defaults select GameActivity, which needs Java glue.
+# NativeActivity packages with cargo-apk alone. Audio, gamepads, glTF and scenes
+# are unused by this client and left out.
+[target.'cfg(target_os = "android")'.dependencies]
+bevy = { version = "0.16", default-features = false, features = [
+    "std",
+    "async_executor",
+    "android-native-activity",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_input_focus",
+    "bevy_log",
+    "bevy_mesh_picking_backend",
+    "bevy_pbr",
+    "bevy_picking",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_sprite_picking_backend",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_ui_picking_backend",
+    "bevy_window",
+    "bevy_winit",
+    "custom_cursor",
+    "default_font",
+    "hdr",
+    "multi_threaded",
+    "png",
+    "smaa_luts",
+    "sysinfo_plugin",
+    "tonemapping_luts",
+] }
 
 [profile.dev]
 opt-level = 3

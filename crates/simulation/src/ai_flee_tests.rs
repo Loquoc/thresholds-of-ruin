@@ -468,3 +468,241 @@ fn cornered_flee_intention_recomputes_the_same_wait_after_checkpoint() {
     }
     assert_eq!(game, restored);
 }
+
+/// The actor previously stood at the passage mouth. Remembered knowledge is
+/// acquired from real scenes, never from an omniscient hand-built edge table.
+fn plateau_game() -> (Game, ActorId, ActorId) {
+    plateau_game_reflected(false)
+}
+
+fn plateau_game_reflected(reflected: bool) -> (Game, ActorId, ActorId) {
+    let at = |x, y| plateau_at(if reflected { 7 - x } else { x }, y);
+    let (mut game, actor, threat) = Corridor::Unsplit.game(2, 0);
+    let mut world = World::new(vec![], vec![]).unwrap();
+    world
+        .add_region(Region {
+            id: RegionId(1),
+            name: "plateau".into(),
+            bounds: Extent::new(8, 9, 1).unwrap(),
+        })
+        .unwrap();
+    *game.world = world;
+    game.actors.get_mut(&threat).unwrap().location = at(3, 1);
+    game.actors.get_mut(&actor).unwrap().location = at(4, 4);
+    for x in 0..8 {
+        for y in 0..9 {
+            if x == 0 || x == 7 || y == 0 || y == 8 || (x <= 4 && y >= 5) {
+                game.set_wall(at(x, y), true).unwrap();
+            }
+        }
+    }
+    game.actors.get_mut(&threat).unwrap().location = at(3, 1);
+    game.actors.get_mut(&actor).unwrap().location = at(4, 4);
+    game.navigation.clear();
+    game.refresh_navigation();
+    game.actors.get_mut(&actor).unwrap().location = at(3, 4);
+    game.actors
+        .get_mut(&actor)
+        .unwrap()
+        .behavior
+        .engagement
+        .as_mut()
+        .unwrap()
+        .location = at(3, 1);
+    game.refresh_navigation();
+    (game, actor, threat)
+}
+
+fn plateau_at(x: i32, y: i32) -> Location {
+    Location {
+        region: RegionId(1),
+        position: Position { x, y, z: 0 },
+    }
+}
+
+#[test]
+fn fleeing_crosses_a_known_equal_distance_step_to_a_two_step_retreat() {
+    let (game, actor, _) = plateau_game();
+    let threat = plateau_at(3, 1);
+    assert_eq!(game.travel_route(actor, threat).unwrap().len(), 3);
+    assert_eq!(
+        game.actor_translation(actor, Direction::East),
+        Some((plateau_at(4, 4), 0))
+    );
+    let mut first = game.route_search_from(actor, plateau_at(4, 4), 0).unwrap();
+    assert_eq!(first.route(threat).unwrap().len(), 3);
+    assert_eq!(
+        first.route(plateau_at(5, 5)).unwrap().len(),
+        1,
+        "the second step is explicitly remembered, not merely physically possible"
+    );
+    assert_eq!(
+        game.route_search_from(actor, plateau_at(5, 5), 0)
+            .unwrap()
+            .route(threat)
+            .unwrap()
+            .len(),
+        4
+    );
+    let before = game.clone();
+    let decision = game.choose_ai(actor).unwrap();
+    assert_eq!(decision.ai.state, State::Flee);
+    assert_eq!(decision.action, Action::Move(Direction::East));
+    assert_eq!(game.choose_ai(actor).unwrap().action, decision.action);
+    assert_eq!(game, before);
+}
+
+#[test]
+fn fleeing_plateau_does_not_invent_a_missing_second_edge() {
+    let (mut game, actor, _) = plateau_game();
+    let knowledge = game.navigation.get_mut(&actor).unwrap();
+    assert!(knowledge
+        .edges
+        .contains_key(&(plateau_at(4, 4), Direction::East)));
+    knowledge.edges.remove(&(plateau_at(4, 4), Direction::East));
+    assert_eq!(knowledge.cells.get(&plateau_at(5, 5)), Some(&false));
+    let before = game.clone();
+    assert_eq!(game.choose_ai(actor).unwrap().action, Action::Wait);
+    assert_eq!(game, before);
+}
+
+#[test]
+fn retreat_bounded_search_distinguishes_exhaustion_and_can_resume() {
+    let (game, actor, _) = plateau_game();
+    let mut search = game.route_search_from(actor, plateau_at(5, 5), 0).unwrap();
+    let mut none = 0;
+    assert_eq!(search.route_bounded(plateau_at(3, 1), &mut none), Ok(None));
+    let mut one = 1;
+    assert_eq!(search.route_bounded(plateau_at(3, 1), &mut one), Ok(None));
+    assert_eq!(one, 0);
+    let mut enough = 512;
+    assert_eq!(
+        search
+            .route_bounded(plateau_at(3, 1), &mut enough)
+            .unwrap()
+            .unwrap()
+            .len(),
+        4
+    );
+    assert!(enough < 512);
+    assert_eq!(
+        search
+            .route_bounded(plateau_at(3, 1), &mut none)
+            .unwrap()
+            .unwrap()
+            .len(),
+        4,
+        "already settled destinations consume no further expansion budget"
+    );
+    assert_eq!(
+        search.route_bounded(plateau_at(0, 0), &mut enough),
+        Err(GameError::Blocked)
+    );
+}
+
+#[test]
+fn plateau_retreat_executes_after_checkpoint_and_replans_the_second_step() {
+    let (mut game, actor, threat) = plateau_game();
+    game.act(threat, Action::Wait).unwrap();
+    assert_eq!(
+        game.next_ai_action(),
+        Some((actor, Action::Move(Direction::East)))
+    );
+    let rng = game.actors[&actor].behavior.rng;
+    game.admit_ai_intention(actor).unwrap();
+    assert_eq!(game.actors[&actor].behavior.rng, rng);
+    let mut shared = crate::checkpoint::SharedState::default();
+    let snapshot =
+        serde_json::from_value(serde_json::to_value(game.checkpoint(&mut shared)).unwrap())
+            .unwrap();
+    let shared = serde_json::from_value(serde_json::to_value(shared).unwrap()).unwrap();
+    let mut restored = Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+    for candidate in [&mut game, &mut restored] {
+        let execution = candidate.execute_next_intention().unwrap();
+        assert_eq!(execution.action, Some(Action::Move(Direction::East)));
+        execution.outcome.unwrap();
+        assert_eq!(candidate.observe(actor).unwrap().location, plateau_at(4, 4));
+        assert_eq!(
+            candidate.choose_ai(actor).unwrap().action,
+            Action::Move(Direction::SouthEast)
+        );
+    }
+    assert_eq!(game, restored);
+    // No two-step reservation survived the first move. Removing the witnessed
+    // endpoint makes the next decision re-evaluate ordinary legal alternatives.
+    game.set_wall(plateau_at(5, 5), true).unwrap();
+    let action = game.choose_ai(actor).unwrap().action;
+    assert_ne!(action, Action::Move(Direction::SouthEast));
+}
+
+#[test]
+fn plateau_keeps_direct_retreat_priority() {
+    let (mut game, actor, _) = plateau_game();
+    game.set_wall(plateau_at(3, 5), false).unwrap();
+    game.refresh_navigation();
+    assert_eq!(
+        game.choose_ai(actor).unwrap().action,
+        Action::Move(Direction::South)
+    );
+}
+
+#[test]
+fn plateau_retreat_is_not_tied_to_east_world_coordinates() {
+    let (game, actor, _) = plateau_game_reflected(true);
+    assert_eq!(game.travel_route(actor, plateau_at(4, 1)).unwrap().len(), 3);
+    assert_eq!(
+        game.choose_ai(actor).unwrap().action,
+        Action::Move(Direction::West)
+    );
+}
+
+/// Absolute diagnostic cost, not a before/after benchmark or CI timing gate.
+#[test]
+#[ignore = "run explicitly in release for local cost diagnostics"]
+fn plateau_retreat_release_decision_cost() {
+    use std::{hint::black_box, time::Instant};
+    let (game, actor, _) = plateau_game();
+    let before = game.clone();
+    for _ in 0..5 {
+        black_box(game.choose_ai(actor).unwrap());
+    }
+    let mut samples = Vec::new();
+    for _ in 0..50 {
+        let start = Instant::now();
+        for _ in 0..10 {
+            assert_eq!(
+                black_box(game.choose_ai(actor).unwrap()).action,
+                Action::Move(Direction::East)
+            );
+        }
+        samples.push(start.elapsed().as_secs_f64() * 1000. / 10.);
+    }
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "plateau decision ms n={} p50={} p95={} max={}",
+        samples.len(),
+        samples[25],
+        samples[47],
+        samples[49]
+    );
+    assert_eq!(game, before);
+}
+
+#[test]
+fn plateau_does_not_treat_anchor_routes_as_large_body_clearance() {
+    let (mut game, actor, _) = plateau_game();
+    let mut body = (*game.actors[&actor].body).clone();
+    body.cells.push([-1, 0, 0]);
+    game.set_body(actor, body.clone()).unwrap();
+    assert!(game.actor_translation(actor, Direction::East).is_some());
+    assert!(!game.body_fits(actor, plateau_at(5, 5), 0, &body));
+    assert_eq!(game.choose_ai(actor).unwrap().action, Action::Wait);
+    game.set_wall(plateau_at(2, 5), false).unwrap();
+    game.set_wall(plateau_at(3, 5), false).unwrap();
+    game.refresh_navigation();
+    assert_eq!(
+        game.choose_ai(actor).unwrap().action,
+        Action::Move(Direction::South),
+        "the existing strict retreat still supports larger bodies"
+    );
+}

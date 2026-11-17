@@ -73,8 +73,8 @@ pub use tor_simulation::EdibleSpec;
 use tor_simulation::Game;
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
-pub const RULESET: &str = "interactions-v58";
-const VALIDATOR: &str = "tor-scenario-50";
+pub const RULESET: &str = "interactions-v66";
+const VALIDATOR: &str = "tor-scenario-51";
 /// The manifest and the validator's files are bounded to this.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// The package layout this version reads: `scenario.toml`, one file per
@@ -4954,6 +4954,27 @@ impl PackageIndex {
         Some((self.ceilings.0, self.ceilings.1.checked_add(kit as u64)?))
     }
 
+    pub(crate) fn item_discoveries(
+        &self,
+        game: &tor_simulation::Game,
+        actor: tor_simulation::ActorId,
+    ) -> Vec<(String, String)> {
+        let mut discoveries: Vec<_> = self
+            .definitions
+            .concealed_item_names()
+            .filter_map(|(identity, name)| {
+                if !game.knows_item_identity(actor, identity) {
+                    return None;
+                }
+                let appearance = &self.appearances.get(identity)?.name;
+                (appearance != name).then(|| (appearance.clone(), name.to_owned()))
+            })
+            .collect();
+        discoveries.sort();
+        discoveries.dedup();
+        discoveries
+    }
+
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.definitions.creature_archetypes()
     }
@@ -5395,8 +5416,8 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
         let original = read_package(&root).unwrap();
         original.check_identity().unwrap();
-        assert_eq!(original.certificate.validator, "tor-scenario-50");
-        assert_eq!(original.certificate.ruleset, "interactions-v58");
+        assert_eq!(original.certificate.validator, "tor-scenario-51");
+        assert_eq!(original.certificate.ruleset, "interactions-v66");
         let current_artifact = artifact::relative_root(&original);
         for (boundary, identity) in [
             ("validator", "tor-scenario-27"),
@@ -5412,6 +5433,8 @@ mod tests {
             ("ruleset", "interactions-v41"),
             ("ruleset", "interactions-v42"),
             ("ruleset", "interactions-v56"),
+            ("ruleset", "interactions-v58"),
+            ("ruleset", "interactions-v60"),
         ] {
             let mut package = original.clone();
             if boundary == "validator" {
@@ -5425,7 +5448,12 @@ mod tests {
             assert!(crate::storage::schema::scenario::decode_content_package(&encoded).is_err());
             assert!(package.check_identity().is_err(), "{boundary}");
         }
-        for previous in ["interactions-v35", "interactions-v56"] {
+        for previous in [
+            "interactions-v35",
+            "interactions-v56",
+            "interactions-v58",
+            "interactions-v60",
+        ] {
             assert!(
                 resolve_rules_source(&format!("import = \"{previous}\"\n"), "rules.toml").is_err()
             );
@@ -7235,7 +7263,7 @@ mod tests {
 
     #[test]
     fn shared_rules_import_accepts_validated_scenario_override() {
-        let source = r#"import = "interactions-v58"
+        let source = r#"import = "interactions-v66"
 [[overrides]]
 op = "set"
 path = ["constants", "base_defense"]

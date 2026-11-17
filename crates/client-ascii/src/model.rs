@@ -16,6 +16,7 @@ mod controls;
 pub enum Key {
     /// Open read-only detection charts.
     Charts,
+    Discoveries,
     Advancement,
     Attack,
     Abilities,
@@ -200,7 +201,9 @@ pub struct App {
     /// The look cursor, while choosing a cell to describe.
     pub look_cursor: Option<Position>,
     pub inventory_open: bool,
-    pub help_open: bool,
+    pub help_page: Option<HelpPage>,
+    pub discovery_rows: Option<Vec<String>>,
+    pub discovery_scroll: usize,
     pub stats_open: bool,
     inspection: Option<Vec<String>>,
     inspection_title: &'static str,
@@ -288,7 +291,9 @@ impl App {
             fire_auto_switch: false,
             look_cursor: None,
             inventory_open: false,
-            help_open: false,
+            help_page: None,
+            discovery_rows: None,
+            discovery_scroll: 0,
             stats_open: false,
             inspection: None,
             inspection_title: "CREATURE INSPECTION",
@@ -411,7 +416,17 @@ impl App {
             .state
             .as_mut()
             .ok_or(tor_client_common::StreamError::InconsistentState)?;
-        let struggling = self.last_move && bear_trapped(&state.state().observation);
+        let strength_loss = |observation: &Observation| {
+            observation
+                .combat
+                .as_ref()?
+                .own_stats
+                .as_ref()
+                .map(|stats| stats.restorable_losses.attributes.strength)
+        };
+        let previous_loss = strength_loss(&state.state().observation);
+        let was_bear_trapped = bear_trapped(&state.state().observation);
+        let struggling = self.last_move && was_bear_trapped;
         let old = Some((state.branch().clone(), state.state().revision));
         state.apply(update)?;
         for event in &spatial {
@@ -470,6 +485,16 @@ impl App {
                 underfoot.as_ref(),
             );
         }
+        if observed
+            && previous_loss
+                .zip(strength_loss(&state.state().observation))
+                .is_some_and(|(before, after)| after > before)
+        {
+            self.messages.push("You feel weaker.");
+        }
+        if observed && was_bear_trapped && !bear_trapped(&state.state().observation) {
+            self.messages.push("You get free of the bear trap.");
+        }
         if let Some(reason) = travel.and_then(travel_stop) {
             self.messages.push(reason);
         }
@@ -506,6 +531,7 @@ impl App {
         // Recovery cancels the transport's chart request. Return to the catalog
         // only after validation succeeds rather than leaving a loading selection
         // that has no corresponding worker query.
+        self.discovery_rows = None;
         self.charts.clear();
         self.chart_selected = 0;
         self.hold_choices.clear();
@@ -858,6 +884,7 @@ impl App {
     }
 
     pub fn disconnect(&mut self, message: String) {
+        self.discovery_rows = None;
         self.command_line = None;
         self.movement_prefix = self
             .movement_prefix
@@ -1737,6 +1764,25 @@ impl App {
             .as_ref()
     }
 
+    pub fn identification_empty_message(&self) -> Option<String> {
+        let choice = self.identification_choice()?;
+        if !choice.items.is_empty() {
+            return None;
+        }
+        let categories = choice
+            .classes
+            .iter()
+            .map(|class| match class {
+                ItemClass::Armor => "armor".into(),
+                ItemClass::Food => "food".into(),
+                ItemClass::Misc => "miscellaneous items".into(),
+                class => format!("{}s", format!("{class:?}").to_ascii_lowercase()),
+            })
+            .collect::<Vec<String>>()
+            .join(" or ");
+        Some(format!("No {categories} in your pack can be identified."))
+    }
+
     /// Exact inventory entries in the server's category-specific offer order.
     fn identification_entries(&self) -> Vec<InventoryEntry> {
         let Some(choice) = self.identification_choice() else {
@@ -1855,6 +1901,28 @@ impl App {
         if matches!(input, Input::Key { key: Key::Escape }) {
             self.zap_selection = None;
             self.status = "Never mind.".into();
+            return Effect::None;
+        }
+        if let Input::Click { x, y } = input {
+            let action = self.state.as_ref().and_then(|state| {
+                let position = crate::render::known_cell_at(state, x, y)?;
+                let item = self.zap_item()?;
+                Some(tor_client_common::items::zap_cell_action(
+                    &state.state().observation,
+                    item,
+                    [position.x, position.y, position.z],
+                ))
+            });
+            if let Some(action) = action {
+                self.zap_selection = None;
+                return match action {
+                    Ok(action) => self.act(action),
+                    Err(reason) => {
+                        self.status = reason;
+                        Effect::None
+                    }
+                };
+            }
             return Effect::None;
         }
         let Input::Key { key } = input else {
@@ -2020,6 +2088,20 @@ impl App {
             self.running = None;
             return Effect::Screenshot;
         }
+        if let Some(rows) = &self.discovery_rows {
+            match input {
+                Input::Key { key: Key::Escape } => self.discovery_rows = None,
+                Input::Key { key: Key::Up } => {
+                    self.discovery_scroll = self.discovery_scroll.saturating_sub(1)
+                }
+                Input::Key { key: Key::Down } => {
+                    self.discovery_scroll =
+                        (self.discovery_scroll + 1).min(rows.len().saturating_sub(DISCOVERY_ROWS))
+                }
+                _ => {}
+            }
+            return Effect::None;
+        }
         if self.command_line.is_some() {
             return self.command_input(input);
         }
@@ -2173,10 +2255,20 @@ impl App {
             self.status = "You stop running.".into();
             return Effect::None;
         }
-        if self.inventory_open || self.help_open {
+        if let Some(page) = self.help_page {
+            self.help_page = match input {
+                Input::Key {
+                    key: Key::Escape | Key::Help,
+                } => None,
+                Input::Key { key: Key::Right } => Some(page.next()),
+                Input::Key { key: Key::Left } => Some(page.previous()),
+                _ => Some(page),
+            };
+            return Effect::None;
+        }
+        if self.inventory_open {
             if let Input::Key { .. } = input {
                 self.inventory_open = false;
-                self.help_open = false;
             }
             return Effect::None;
         }
@@ -2279,6 +2371,28 @@ impl App {
                 AbilityTargetKind::SelfStep | AbilityTargetKind::DirectionalRay
             )
         }) {
+            if let Input::Click { x, y } = input {
+                if self
+                    .selected_ability
+                    .as_ref()
+                    .is_some_and(|ability| ability.target_kind == AbilityTargetKind::DirectionalRay)
+                {
+                    if let Some(position) = self
+                        .state
+                        .as_ref()
+                        .and_then(|state| crate::render::known_cell_at(state, x, y))
+                    {
+                        let ability = self.selected_ability.take().expect("selected ray");
+                        return self.choose_ability_invocation(
+                            ability,
+                            tor_protocol::AbilityInvocation::cell_ray([
+                                position.x, position.y, position.z,
+                            ]),
+                        );
+                    }
+                }
+                return Effect::None;
+            }
             if let Input::Key { key } = input {
                 if key == Key::Escape {
                     self.selected_ability = None;
@@ -2604,6 +2718,7 @@ impl App {
                     | Key::RecentHistory
                     | Key::Look
                     | Key::Charts
+                    | Key::Discoveries
                     | Key::Inventory
                     | Key::Stats
                     | Key::Help
@@ -2951,6 +3066,9 @@ impl App {
                 }
                 Effect::None
             }
+            Key::Discoveries if self.connected && !self.busy && self.state.is_some() => {
+                self.request(Request::Discoveries)
+            }
             Key::Charts => {
                 self.charts_open = true;
                 self.chart_selected = 0;
@@ -2976,7 +3094,7 @@ impl App {
                 Effect::None
             }
             Key::Help => {
-                self.help_open = true;
+                self.help_page = Some(HelpPage::Play);
                 Effect::None
             }
             Key::RunUp
@@ -3445,6 +3563,22 @@ impl App {
         if self.busy {
             return Effect::None;
         }
+        if menu.step() == Step::Direction {
+            if let Input::Click { x, y } = input {
+                if let Some(position) = crate::render::known_cell_at(state, x, y) {
+                    let action = menu.cell_action(state, [position.x, position.y, position.z]);
+                    self.projectile_selection = None;
+                    return match action {
+                        Ok(action) => self.act(action),
+                        Err(reason) => {
+                            self.status = reason;
+                            Effect::None
+                        }
+                    };
+                }
+                return Effect::None;
+            }
+        }
         let Input::Key { key } = input else {
             return Effect::None;
         };
@@ -3525,6 +3659,62 @@ impl App {
             "Review the exact weapon terms. Enter commits this action; Esc cancels.".into();
         Ok(())
     }
+    pub fn projectile_prompt(&self) -> Option<String> {
+        let inventory = &self.state.as_ref()?.state().observation.inventory;
+        let name = |target| {
+            inventory
+                .iter()
+                .find(|item| item.id == target)
+                .map_or("projectile", |item| item.name.as_str())
+        };
+        let action = |delivery| match delivery {
+            ProjectileDeliverySelection::Throw {
+                source:
+                    ThrownSourceSelection::Equipped { item, .. }
+                    | ThrownSourceSelection::Carried { item, .. },
+            } => format!("Throw the {}", name(item)),
+            ProjectileDeliverySelection::Launch {
+                launcher,
+                ammunition,
+            } => format!(
+                "Fire {} with the {}",
+                item_phrase(name(ammunition), 1),
+                name(launcher.item)
+            ),
+        };
+        if let Some(preview) = &self.weapon_confirmation {
+            if let Some((offset, delivery)) = preview.projectile_cell_aim() {
+                return Some(format!(
+                    "{} toward cell {}, {}, {}? {} Esc cancels.",
+                    action(delivery),
+                    offset[0],
+                    offset[1],
+                    offset[2],
+                    if preview.ready() {
+                        "Enter confirms."
+                    } else {
+                        "Checking shot."
+                    }
+                ));
+            }
+            let (direction, delivery) = preview.projectile_aim()?;
+            let action = action(delivery);
+            return Some(if preview.ready() {
+                format!(
+                    "{action} {}? Enter confirms. Esc cancels.",
+                    direction_name(direction)
+                )
+            } else {
+                format!(
+                    "{action} {}? Checking shot. Esc cancels.",
+                    direction_name(direction)
+                )
+            });
+        }
+        let delivery = self.projectile_selection.as_ref()?.delivery()?;
+        Some(format!("{}. Choose a direction.", action(delivery)))
+    }
+
     pub fn weapon_preview_rows(&self) -> Vec<String> {
         self.weapon_confirmation
             .as_ref()
@@ -3710,6 +3900,7 @@ impl App {
 
 /// Rows the history screen shows at once.
 pub const HISTORY_ROWS: usize = 22;
+pub const DISCOVERY_ROWS: usize = 20;
 pub const STATS_ROWS: usize = 24;
 pub const STATS_WIDTH: usize = 65;
 pub const ADVANCEMENT_ROWS: usize = 16;
@@ -3901,6 +4092,40 @@ impl InventoryEntry {
     }
 }
 
+fn equipment_reduction(step: &CombatTraceStep) -> Option<String> {
+    if !matches!(step.id.as_str(), "reduction" | "signed_reduction") {
+        return None;
+    }
+    let field = |id| {
+        step.fields
+            .iter()
+            .find(|field| field.id == id)
+            .map(|field| &field.value)
+    };
+    let DiagnosticValue::Signed { value } = field("amount")? else {
+        return None;
+    };
+    let DiagnosticValue::Content { value: kind } =
+        field("category").or_else(|| field("descriptor"))?
+    else {
+        return None;
+    };
+    let condition = match field("scope")? {
+        DiagnosticValue::Text { value } if value == "always" => "",
+        DiagnosticValue::Text { value } if value == "versus_source" => " from the source",
+        DiagnosticValue::Text { value } if value == "while_no_sensed_hostile" => {
+            " when no enemies are sensed"
+        }
+        _ => return None,
+    };
+    let change = if *value < 0 { '+' } else { '-' };
+    Some(format!(
+        "{} damage {change}{}{condition}",
+        kind.name,
+        value.unsigned_abs()
+    ))
+}
+
 /// Everything carried, lettered and in disclosed order.
 pub fn inventory_entries(app: &App, o: &Observation) -> Vec<InventoryEntry> {
     o.inventory
@@ -3927,7 +4152,13 @@ pub fn inventory_entries(app: &App, o: &Observation) -> Vec<InventoryEntry> {
                         ));
                     }
                     for modifier in &known.modifiers {
-                        parts.extend(tor_client_common::combat_diagnostics::trace_lines(modifier));
+                        if let Some(reduction) = equipment_reduction(modifier) {
+                            parts.push(reduction);
+                        } else {
+                            parts.extend(tor_client_common::combat_diagnostics::trace_lines(
+                                modifier,
+                            ));
+                        }
                     }
                     parts.join(", ")
                 })
@@ -4269,37 +4500,116 @@ pub fn end_summary(state: &ClientState) -> Vec<String> {
     lines
 }
 
-/// The help screen.
-pub const HELP: &[&str] = &[
-    "NETHACK KEYS (case matters)     MAP",
-    "y k u   move; Shift runs        @ you      a-z creatures",
-    "h @ l   (arrows also move)      # wall     # low wall (tan)",
-    " b j n                          . floor    ^ drop or pit",
-    "< >     go up / down stairs     < > stairs + / doors",
-    "_ click travel; ; / look        grey: remembered, not in sight",
-    "g/G then direction: run using TOR stopping rules",
-    "m then direction: step without bump-attacking; Esc cancels",
-    "",
-    "ACTING                         SEEING",
-    "s       Search                 i       inventory",
-    "t f     Throw / Launch         Ctrl-X  creature stats",
-    "z Z     zap device / ability   Ctrl-P  earlier messages",
-    "r a     read / apply light     #charts read-only charts",
-    "w W P   wield / wear / put on  #attack choose a target",
-    "T R     remove armor/accessory #equip/#remove include tools",
-    ", d q e pickup/drop/drink/eat  . Space wait",
-    "o c     open / close door      Tab     ability weapon choice",
-    "#       extended commands: type to filter, Enter selects",
-    "F2 F5   history / places       F4      state-anchored note",
-    "F3      acquire control        #release releases control",
-    "F6 F12  read / zap aliases     F7      wizard / creature list",
-    "F1      save a screenshot of the current game screen",
-    "F8 F9   resume / cancel work   F10 F11 advancement / hold escape",
-    "#slower/#faster journey pace   S       save and close",
-    "Esc     cancel/close a screen; never quits from the map",
-    "No numpad mode, count repeats, forced empty attacks or swaps.",
-    "Only disclosed grants/tools work; no new NetHack game rules.",
-];
+/// The help screen opens on everyday controls, with reference pages one key away.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelpPage {
+    Play,
+    CombatAndItems,
+    MapSymbols,
+    HistoryAndReports,
+}
+
+impl HelpPage {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Play => "Play",
+            Self::CombatAndItems => "Combat and items",
+            Self::MapSymbols => "Map symbols",
+            Self::HistoryAndReports => "History and reports",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            Self::Play => Self::CombatAndItems,
+            Self::CombatAndItems => Self::MapSymbols,
+            Self::MapSymbols => Self::HistoryAndReports,
+            Self::HistoryAndReports => Self::Play,
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            Self::Play => Self::HistoryAndReports,
+            Self::CombatAndItems => Self::Play,
+            Self::MapSymbols => Self::CombatAndItems,
+            Self::HistoryAndReports => Self::MapSymbols,
+        }
+    }
+
+    pub fn rows(self) -> &'static [&'static str] {
+        match self {
+            Self::Play => &[
+                "MOVE AND EXPLORE",
+                "Arrows       Move one step",
+                "y k u        Letter keys also move, including diagonals",
+                "h @ l        Hold Shift with a direction to run",
+                "b j n        Press m, then a direction, to step without attacking",
+                "< or >       Go up or down stairs",
+                "_ or click   Travel to a known square",
+                "",
+                "LOOK AND INTERACT",
+                "; or /       Look around without taking a turn",
+                "s            Search nearby for hidden features",
+                ",            Pick up items underfoot",
+                "i            Open your inventory",
+                "o or c       Open or close a door, then choose a direction",
+                "Space or .   Wait",
+                "",
+                "#            Find a command by name",
+                "S            Save and close",
+            ],
+            Self::CombatAndItems => &[
+                "FIGHT",
+                "Direction    Move toward an adjacent enemy to attack",
+                "t            Throw: choose a dart, then choose a direction",
+                "f            Fire: choose a launcher and aim",
+                "Tab          Switch between launchers and hand throws",
+                "#attack      Choose an attack target",
+                "F8 or F9     Resume or abandon paused work",
+                "F11          Try to escape a hold",
+                "",
+                "USE YOUR INVENTORY",
+                "q / e / r    Drink a potion, eat food, or read a scroll",
+                "z / Z        Zap a device or choose an ability",
+                "F6 / F12     Alternate keys for reading or zapping",
+                "w / W / P    Wield a weapon, wear armor, or put on an accessory",
+                "T / R        Take off armor or remove an accessory",
+                "a / d        Apply a portable light or drop an item",
+                "Ctrl-X       View creature stats",
+                "F10          View advancement",
+                "",
+                "Letter case matters. Esc backs out of a choice.",
+            ],
+            Self::MapSymbols => &[
+                "@            You",
+                "Letters      Creatures",
+                "#            Wall (tan for low walls)",
+                ".            Floor",
+                "+ or /       Closed or open door",
+                "< or >       Stairs up or down",
+                "^            Drop or pit",
+                "Gray         Remembered terrain outside your current sight",
+                "",
+                "; or /       Look to see what a square contains",
+                "#charts      View detection charts",
+                "#discoveries See identified items",
+            ],
+            Self::HistoryAndReports => &[
+                "Ctrl-P       Read earlier messages",
+                "F2           Browse game history",
+                "F5           Browse remembered places",
+                "F4           Attach a note to the current game state",
+                "#report      Write a playtest report",
+                "F1           Save a screenshot in this game",
+                "",
+                "F3           Take control of the current character",
+                "#release     Release control",
+                "F7           Wizard tools, including the creature list",
+            ],
+        }
+    }
+}
 
 /// Whether the run is over: won or lost with no further play.
 fn bear_trapped(observation: &Observation) -> bool {

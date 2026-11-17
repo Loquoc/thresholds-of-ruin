@@ -1,5 +1,6 @@
 """Behavior of the shared actual-process harness without launching applications."""
 import json
+import copy
 import io
 from pathlib import Path
 import sys
@@ -462,6 +463,34 @@ class DisclosedExploration(unittest.TestCase):
 
 
 class ActionCompletion(unittest.TestCase):
+    def test_checkpoint_started_frame_and_stale_permissions_do_not_qualify(self):
+        from test_checkpoint_process import CheckpointFixture
+        started = {"state": {"observation": {"tick": "13160", "ready": False,
+                   "combat": {"dead": False, "preparation_active": True}}},
+                   "intentions": [{"phase": "started"}],
+                   "readiness": {"admission": True, "resume": [], "cancel": ["wait"]}}
+        observed = copy.deepcopy(started)
+        observed["state"]["observation"].update(tick="13200", ready=True,
+            combat={"dead": False, "preparation_active": False})
+        resolved = {**observed, "intentions": []}
+        settled = {**resolved, "readiness": {"admission": True, "resume": [], "cancel": []}}
+        def frame(player, predicate):
+            self.assertEqual(player, "player")
+            for intermediate in (started, observed, resolved):
+                self.assertFalse(predicate(intermediate))
+            self.assertTrue(predicate(settled))
+            return settled
+        self.frame = frame
+        self.assertIs(CheckpointFixture.settled_waits(self, "player", started, 132), settled)
+
+    def test_checkpoint_already_completed_picture_does_not_wait_for_an_extra_frame(self):
+        from test_checkpoint_process import CheckpointFixture
+        settled = {"state": {"observation": {"tick": "13200", "ready": True,
+                   "combat": {"dead": False, "preparation_active": False}}},
+                   "intentions": [], "readiness": {"admission": True, "resume": [], "cancel": []}}
+        self.frame = lambda *_: self.fail("Already completed picture must be retained")
+        self.assertIs(CheckpointFixture.settled_waits(self, "player", settled, 132), settled)
+
     def test_headless_fight_waits_for_permissions_after_resolved_intention(self):
         # Windows release published the ready observation, then removed the
         # resolved intention, before updating its still-present cancel grant.

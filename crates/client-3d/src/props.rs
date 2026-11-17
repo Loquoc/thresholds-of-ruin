@@ -11,8 +11,9 @@ use bevy::{
     render::{
         mesh::{
             skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
-            Indices, PrimitiveTopology, VertexAttributeValues,
+            Indices, MeshAabb, PrimitiveTopology, VertexAttributeValues,
         },
+        primitives::Aabb,
         render_asset::RenderAssetUsages,
     },
 };
@@ -227,6 +228,8 @@ impl PropMaterials {
 pub struct Model(
     pub Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
     pub Vec<(Vec3, f32, f32)>,
+    // Tiny local bounds survive RENDER_WORLD extraction; CPU vertices need not.
+    pub Vec<Option<Aabb>>,
 );
 
 /// A soft region of a model: flesh that lags and settles as its frame
@@ -350,14 +353,17 @@ impl Model {
         let skinned: Vec<Entity> = self
             .0
             .iter()
-            .map(|(mesh, material)| {
-                let e = commands
-                    .spawn((
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(material.clone()),
-                        Transform::from_scale(scale),
-                    ))
-                    .id();
+            .enumerate()
+            .map(|(index, (mesh, material))| {
+                let mut entity = commands.spawn((
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::from_scale(scale),
+                ));
+                if let Some(Some(bounds)) = self.2.get(index) {
+                    entity.insert(*bounds);
+                }
+                let e = entity.id();
                 commands.entity(parent).add_child(e);
                 e
             })
@@ -380,12 +386,15 @@ impl Model {
 
     /// Art-directed mesh proportions without changing the rig's joint lengths.
     pub(crate) fn attach_scaled(&self, parent: &mut ChildSpawnerCommands, scale: Vec3) {
-        for (mesh, material) in &self.0 {
-            parent.spawn((
+        for (index, (mesh, material)) in self.0.iter().enumerate() {
+            let mut entity = parent.spawn((
                 Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
                 Transform::from_scale(scale),
             ));
+            if let Some(Some(bounds)) = self.2.get(index) {
+                entity.insert(*bounds);
+            }
         }
     }
 }
@@ -420,6 +429,7 @@ impl Parts {
                 if !soft.is_empty() {
                     skin(&mut mesh, &soft);
                 }
+                model.2.push(mesh.compute_aabb());
                 model.0.push((meshes.add(mesh), material));
             }
         };
@@ -627,6 +637,9 @@ impl PropLibrary {
             return entry.model.clone();
         }
         let started = profile_builds().then(std::time::Instant::now);
+        if started.is_some() {
+            eprintln!("3d_model_build_begin key={key:?}");
+        }
         let parts = build();
         let parts_ms = started.map(|time| time.elapsed().as_secs_f64() * 1000.0);
         let model = parts.finish(meshes, &self.materials);

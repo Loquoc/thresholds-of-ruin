@@ -759,7 +759,7 @@ fn incompatible_or_inconsistent_archives_are_rejected_without_overwrite() {
     drop(engine);
     drop(Engine::open(&path, Scenario::two_room(0)).unwrap());
     let original: serde_json::Value = support::read(&path);
-    assert_eq!(original["ruleset"], "interactions-v58");
+    assert_eq!(original["ruleset"], "interactions-v66");
     let mut unsupported = original.clone();
     unsupported["version"] = 999.into();
     // Version 21 could reuse entity identities after a rewind. Its journal
@@ -777,6 +777,8 @@ fn incompatible_or_inconsistent_archives_are_rejected_without_overwrite() {
     // for this save whose only recorded action is an ordinary actor's Wait.
     let mut previous_flee_rules = original.clone();
     previous_flee_rules["ruleset"] = "interactions-v56".into();
+    let mut previous_item_pursuit_rules = original.clone();
+    previous_item_pursuit_rules["ruleset"] = "interactions-v60".into();
     let mut inconsistent = original;
     inconsistent["records"][0]["entry"]["tick"] = 1000.into();
     for bad in [
@@ -784,6 +786,7 @@ fn incompatible_or_inconsistent_archives_are_rejected_without_overwrite() {
         obsolete_identity_rules,
         unsupported_rules,
         previous_flee_rules,
+        previous_item_pursuit_rules,
         missing_regions,
         inconsistent,
     ] {

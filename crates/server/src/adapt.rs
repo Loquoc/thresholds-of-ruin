@@ -208,6 +208,15 @@ pub fn action(action: &a::Action) -> s::Action {
             id: id.clone(),
             invocation: s::abilities::AbilityInvocation {
                 aim: match &invocation.aim {
+                    a::AbilityAim::CellRay { offset } => {
+                        s::abilities::AbilityAim::CellRay { offset: *offset }
+                    }
+                    a::AbilityAim::CellProjectile { offset, delivery } => {
+                        s::abilities::AbilityAim::CellProjectile {
+                            offset: *offset,
+                            delivery: simulation_projectile_delivery(*delivery),
+                        }
+                    }
                     a::AbilityAim::ActorTarget { target } => {
                         s::abilities::AbilityAim::ActorTarget { target: *target }
                     }
@@ -450,6 +459,15 @@ pub fn recorded_action(action: s::Action) -> Option<a::Action> {
             id,
             invocation: a::AbilityInvocation {
                 aim: match invocation.aim {
+                    s::abilities::AbilityAim::CellRay { offset } => {
+                        a::AbilityAim::CellRay { offset }
+                    }
+                    s::abilities::AbilityAim::CellProjectile { offset, delivery } => {
+                        a::AbilityAim::CellProjectile {
+                            offset,
+                            delivery: recorded_projectile_delivery(delivery),
+                        }
+                    }
                     s::abilities::AbilityAim::ActorTarget { target } => {
                         a::AbilityAim::ActorTarget { target }
                     }
@@ -1149,6 +1167,9 @@ fn combat_event_view(
             tick,
             timing,
             appearance,
+            object,
+            visual,
+            style,
             delivery,
             cue,
             segments,
@@ -1186,15 +1207,27 @@ fn combat_event_view(
                 timing: match timing {
                     s::combat::EffectTiming::Instant => p::EffectTiming::Instant,
                 },
-                appearance: match appearance {
-                    s::combat::EffectAppearance::Bolt => p::EffectAppearance::Bolt,
-                    s::combat::EffectAppearance::Missile => p::EffectAppearance::Missile,
-                    s::combat::EffectAppearance::Flash => p::EffectAppearance::Flash,
-                    s::combat::EffectAppearance::Halo => p::EffectAppearance::Halo,
-                    s::combat::EffectAppearance::Cloud => p::EffectAppearance::Cloud,
-                    s::combat::EffectAppearance::StatusIndicator => {
-                        p::EffectAppearance::StatusIndicator
-                    }
+                presentation: p::EffectPresentation {
+                    form: match appearance {
+                        s::combat::EffectAppearance::Bolt => p::EffectAppearance::Bolt,
+                        s::combat::EffectAppearance::Missile => p::EffectAppearance::Missile,
+                        s::combat::EffectAppearance::Flash => p::EffectAppearance::Flash,
+                        s::combat::EffectAppearance::Halo => p::EffectAppearance::Halo,
+                        s::combat::EffectAppearance::Cloud => p::EffectAppearance::Cloud,
+                        s::combat::EffectAppearance::StatusIndicator => {
+                            p::EffectAppearance::StatusIndicator
+                        }
+                    },
+                    visual: match visual {
+                        s::rules::EffectVisual::Neutral => p::EffectVisual::Neutral,
+                        s::rules::EffectVisual::Flame => p::EffectVisual::Flame,
+                        s::rules::EffectVisual::Frost => p::EffectVisual::Frost,
+                        s::rules::EffectVisual::Sparks => p::EffectVisual::Sparks,
+                        s::rules::EffectVisual::Vapor => p::EffectVisual::Vapor,
+                        s::rules::EffectVisual::Radiance => p::EffectVisual::Radiance,
+                    },
+                    style,
+                    object: object.as_ref().map(object_presentation),
                 },
                 delivery: match delivery {
                     s::combat::EffectDelivery::Ray => p::EffectDelivery::Ray,
@@ -1624,6 +1657,7 @@ pub fn device_aim(aim: a::DeviceAim) -> s::DeviceAim {
             direction: step_direction(direction),
         },
         a::DeviceAim::SelfTarget {} => s::DeviceAim::SelfTarget {},
+        a::DeviceAim::Cell { offset } => s::DeviceAim::Cell { offset },
     }
 }
 pub fn recorded_device_aim(aim: s::DeviceAim) -> a::DeviceAim {
@@ -1632,6 +1666,7 @@ pub fn recorded_device_aim(aim: s::DeviceAim) -> a::DeviceAim {
             direction: recorded_step_direction(direction),
         },
         s::DeviceAim::SelfTarget {} => a::DeviceAim::SelfTarget {},
+        s::DeviceAim::Cell { offset } => a::DeviceAim::Cell { offset },
     }
 }
 pub fn requested_device_aim(aim: p::DeviceAim) -> a::DeviceAim {
@@ -1640,6 +1675,7 @@ pub fn requested_device_aim(aim: p::DeviceAim) -> a::DeviceAim {
             direction: requested_direction(direction),
         },
         p::DeviceAim::SelfTarget {} => a::DeviceAim::SelfTarget {},
+        p::DeviceAim::Cell { offset } => a::DeviceAim::Cell { offset },
     }
 }
 pub fn wire_device_aim(aim: a::DeviceAim) -> p::DeviceAim {
@@ -1648,6 +1684,7 @@ pub fn wire_device_aim(aim: a::DeviceAim) -> p::DeviceAim {
             direction: wire_direction(direction),
         },
         a::DeviceAim::SelfTarget {} => p::DeviceAim::SelfTarget {},
+        a::DeviceAim::Cell { offset } => p::DeviceAim::Cell { offset },
     }
 }
 
@@ -1690,6 +1727,9 @@ mod spatial_effect_adapter_tests {
                 tick: 7,
                 timing: s::combat::EffectTiming::Instant,
                 appearance: s::combat::EffectAppearance::Flash,
+                object: None,
+                visual: s::rules::EffectVisual::Neutral,
+                style: None,
                 delivery: s::combat::EffectDelivery::Target,
                 cue: s::combat::EffectCue::Physical,
                 segments: vec![vec![w::Position { x: -2, y: 3, z: 1 }]],

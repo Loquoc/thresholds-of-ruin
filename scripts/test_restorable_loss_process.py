@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock
 
 from process_harness import ProcessTestCase, SPECTATOR_TOKEN
-from restorable_loss_package import DRAIN_HD, WOUND, ZERO_WORD_SEED, prepare
+from restorable_loss_package import DRAIN_HD, LOSS_STRENGTH, WOUND, ZERO_WORD_SEED, prepare
 from restorable_loss_harness import LossHelpers, losses, self_ability
 from status_condition_package import actor_creature, checkpoint, combat, observation
 
@@ -174,6 +174,21 @@ class RestorableLossAsciiProcesses(LossHelpers, ProcessTestCase):
         final = consumed if restored(consumed) else self.ascii_frame(window, restored)
         self.assertEqual(u64(combat(final)["own_stats"]["hit_dice"]["total"]), 3)
         self.assertTrue(final["window_open"])
+
+    def test_native_messages_report_new_strength_loss(self):
+        self.server(scenario=prepare(self), seed=ZERO_WORD_SEED)
+        player, _ = self.client()
+        window, initial = self.window(token=SPECTATOR_TOKEN, observe=True)
+        self.assertEqual(losses(initial)["attributes"]["strength"], 0)
+        # Observe this action's rendered turn before submitting a later action;
+        # apply_losses also submits health loss, which legitimately archives it.
+        before = self.snapshot(player)
+        self.assertIsNone(self.act(player, self_ability(before, LOSS_STRENGTH))["error"])
+        self.finish(player)
+        weakened = self.ascii_frame(window, lambda frame: frame.get("state")
+                                    and losses(frame)["attributes"]["strength"] > 0)
+        self.assertEqual(losses(weakened)["attributes"]["strength"], 1)
+        self.assertIn("You feel weaker.", weakened["messages"]["turn"])
 
     def test_native_stats_and_drink_present_the_same_restorable_deficit(self):
         package = prepare(self)

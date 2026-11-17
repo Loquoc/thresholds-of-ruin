@@ -296,3 +296,47 @@ fn a_note_retains_its_opened_snapshot_with_the_chosen_audience_and_bounded() {
     assert!(note("x".repeat(MAX_NOTE_BYTES + 1), true).is_err());
     assert!(note("x".repeat(MAX_NOTE_BYTES), true).is_ok());
 }
+
+#[test]
+fn cell_ray_uses_current_disclosed_cell_and_never_turns_a_step_into_a_ray() {
+    let initial = state();
+    let mut snapshot = initial.reset_snapshot().unwrap();
+    std::sync::Arc::make_mut(&mut snapshot.state)
+        .observation
+        .visible_cells
+        .push(CellView {
+            object_presentation: None,
+            lit: true,
+            door: None,
+            trap: None,
+            material: String::new(),
+            key: "visible-cell".into(),
+            stairs_up: false,
+            stairs_down: false,
+            position: Position { x: 4, y: -2, z: 1 },
+            wall: false,
+            place_hint: false,
+            asset: None,
+        });
+    let current = ClientState::from_snapshot(snapshot).unwrap();
+    assert_eq!(
+        action(
+            &current,
+            Cmd::Ability("frost_ray".into(), AbilityTarget::Cell([4, -2, 1]))
+        ),
+        Ok(used(
+            "frost_ray",
+            AbilityAim::CellRay { offset: [4, -2, 1] }
+        ))
+    );
+    assert!(action(
+        &current,
+        Cmd::Ability("lunge".into(), AbilityTarget::Cell([4, -2, 1]))
+    )
+    .is_err());
+    assert!(action(
+        &initial,
+        Cmd::Ability("frost_ray".into(), AbilityTarget::Cell([4, -2, 1]))
+    )
+    .is_err());
+}
