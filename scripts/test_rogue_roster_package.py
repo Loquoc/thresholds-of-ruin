@@ -12,6 +12,36 @@ from rogue_roster_package import SPECIES, encounter, encounter_sources, unrelate
 
 
 class RogueRosterPackageTests(unittest.TestCase):
+    def test_explicit_tuned_source_preserves_actual_kit_without_mutating_default(self):
+        default = encounter_sources()
+        tuned_root = ROOT / "scenarios/rogue"
+        tuned = encounter_sources(production=tuned_root)
+        manifest, region = encounter("venus_flytrap", autonomous=True, production=tuned_root)
+        expected = dict(tuned["manifest"]["characters"][0], anchor="1/start")
+        self.assertEqual(manifest["characters"], [expected])
+        self.assertNotEqual(expected["creature"], default["manifest"]["characters"][0]["creature"])
+        self.assertEqual(region["actors"][0]["archetype"], "rogue.venus_flytrap")
+        self.assertEqual(region["actors"][0]["controller"], "ai")
+        self.assertEqual(encounter_sources(), default)
+        self.assertEqual(encounter("venus_flytrap"),
+                         encounter("venus_flytrap", production=ROOT / "scenarios/rogue-exploration"))
+        with self.assertRaisesRegex(ValueError, "selected character"):
+            encounter("venus_flytrap", character=2, production=tuned_root)
+
+    def test_explicit_roster_source_copies_its_own_rules_and_modules(self):
+        from rogue_roster_package import roster_package
+        for source in (ROOT / "scenarios/rogue", ROOT / "scenarios/rogue-exploration"):
+            with self.subTest(source=source.name), tempfile.TemporaryDirectory() as directory:
+                test = SimpleNamespace(directory=Path(directory), bin=Path("fixture-bin"),
+                                       suffix="", assertEqual=self.assertEqual)
+                with mock.patch("rogue_roster_package.subprocess.run", return_value=
+                                SimpleNamespace(returncode=0, stderr="")) as run:
+                    package = roster_package(test, "venus_flytrap", autonomous=True, production=source)
+                manifest = tomllib.loads((package / "scenario.toml").read_text())
+                for relative in (*manifest["modules"], "rules.toml"):
+                    self.assertEqual((package / relative).read_bytes(), (source / relative).read_bytes())
+                self.assertEqual(run.call_args.args[0], [test.bin / "tor-scenario", "validate", package])
+
     def test_inline_fixture_catalogs_keep_canonical_body_closure_and_rebind_cloned_species(self):
         from utility_potions_package import fixture as potions
         from utility_wands_package import fixture as wands

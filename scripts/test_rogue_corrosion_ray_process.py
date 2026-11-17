@@ -9,11 +9,14 @@ Text/ASCII controls and stream repair remain covered by their existing owners.
 import copy
 import json
 import shutil
+import sqlite3
+import tomllib
+from contextlib import closing
 import subprocess
 import unittest
 
 from arena_matrix import toml_source
-from process_harness import ProcessTestCase
+from process_harness import ProcessTestCase, WIZARD_TOKEN
 from process_work_budget import ProcessWorkBudget
 from rogue_roster_package import PRODUCTION, encounter_sources, unrelated_fallback
 from scalar_wire import u64
@@ -68,6 +71,243 @@ def armor_reductions(frame):
 
 
 class RogueCorrosionRayProcesses(ProcessTestCase):
+    def test_autonomous_dragon_approaches_disclosed_low_wall_and_reopens(self):
+        self.work_budget = ProcessWorkBudget(requests=128, actor_ticks=1000,
+                                             transcript_bytes=32 * 1024 * 1024)
+        package = mechanism_package(self, "dragon", size=[11,7,4],
+                                    start=[5,2,0], foe=[1,2,0])
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        region["actors"][0].update(controller="ai", ai="rogue_hostile")
+        region["walls"] = [[2,2,0]]
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        validated = subprocess.run([self.bin / ("tor-scenario"+self.suffix), "validate", package],
+                                   capture_output=True, text=True, timeout=30)
+        self.assertEqual(validated.returncode, 0, validated.stdout+validated.stderr)
+        server = self.server("--checkpoint-interval",4096,scenario=package,wizard=True,seed=42)
+        observer, initial_dragon = self.client(WIZARD_TOKEN,observe=True,actor=3)
+        view = observation(initial_dragon)
+        targets = [row for row in view["visible_actors"] if row["name"] == "Warrior"]
+        self.assertEqual([r["position"] for r in targets],
+                         [{"x":4,"y":0,"z":0},{"x":4,"y":0,"z":1}])
+        self.assertEqual(len({r["id"] for r in targets}), 1)
+        for x in range(1,5):
+            self.assertTrue(any(c["position"] == {"x":x,"y":0,"z":0}
+                                and c["wall"] == (x == 1) for c in view["visible_cells"]),
+                            "complete disclosed nominal ground prefix")
+        self.assertTrue(any(a["id"] == "rogue.breath_weapon"
+                            for a in combat(initial_dragon)["own_stats"]["abilities"]))
+        self.assertEqual(u64(combat(initial_dragon)["own_stats"]["hit_dice"]["total"]), 10)
+        (self.directory/"low-wall-initial-dragon.json").write_text(json.dumps(initial_dragon,indent=2))
+        observer.stop(save=False)
+        player, initial_player = self.client(actor=1)
+        self.assertEqual(u64(combat(initial_player)["hp"]), 18)
+        self.assertTrue(observation(initial_player)["ready"] and initial_player["readiness"]["admission"])
+        self.assertIsNone(self.act(player,{"type":"wait"})["error"])
+        for _ in range(24):
+            after = self.snapshot(player)
+            self.assertIsNone(after["error"])
+            if (u64(observation(after)["tick"]) > u64(observation(initial_player)["tick"])
+                    and (combat(after)["terminal"] or
+                         (observation(after)["ready"] and after["readiness"]["admission"]))):
+                confirmed = self.snapshot(player)
+                self.assertIsNone(confirmed["error"])
+                if decision_boundary(confirmed) == decision_boundary(after):
+                    after = confirmed
+                    break
+        else:
+            self.fail("Single-actor boundary did not settle within 24 read-only attempts")
+        self.flush_save()
+        with closing(sqlite3.connect(self.save)) as db:
+            records = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 UNION ALL "
+                                 "SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _,frame in records]
+        entries = [r["record"]["entry"] for r in payloads if "record" in r]
+        (self.directory/"low-wall-journal.json").write_text(json.dumps(entries,indent=2))
+        starts = [r for r in entries if r.get("actor") == 3
+                  and r["content"]["type"] == "intention_started"]
+        self.assertTrue(starts, "ordinary Wait must release a real autonomous choice")
+        first = starts[0]["content"]
+        self.assertEqual(first["action"]["type"], "move",
+                         "known complete-prefix wall must not spend the first breath")
+        self.assertEqual(first["event"]["type"], "moved")
+        self.assertEqual(first["event"]["from"], {"region":1,"x":1,"y":2,"z":0})
+        self.assertNotEqual(first["event"]["to"], first["event"]["from"])
+        self.assertNotEqual(first["event"]["to"], {"region":1,"x":2,"y":2,"z":0})
+        self.assertTrue(any(end == {"actor":3,"intention":first["intention"],"kind":"resolved"}
+                            for entry in entries for end in entry["intention_ends"]))
+        # No eventual-hit claim: this bounded witness stops at the first ordinary
+        # player boundary and preserves whatever actually happened afterwards.
+        before = self.snapshot(player)
+        self.flush_save()
+        player.stop(save=False)
+        server.stop(save=False)
+        package.rename(self.directory/"retired-low-wall-dragon-source")
+        server = self.server(scenario=unrelated_fallback(self),seed=None)
+        player, reopened = self.client(actor=1)
+        self.assertDisclosedStateEqual(reopened["state"],before["state"])
+        self.assertEqual(reopened["history"],before["history"])
+        player.stop(save=False)
+        server.stop(save=False)
+
+    def test_autonomous_dragon_uses_disclosed_upper_body_around_ally_and_reopens(self):
+        package = mechanism_package(self, "dragon", size=[11,5,4], start=[5,2,0], foe=[1,2,0])
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        region["actors"][0].update(controller="ai", ai="rogue_hostile")
+        region["actors"].append({"id":4,"at":[4,2,0],"archetype":"rogue.snake","controller":"external"})
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        validated = subprocess.run([self.bin / ("tor-scenario"+self.suffix), "validate", package], capture_output=True, text=True, timeout=30)
+        self.assertEqual(validated.returncode,0,validated.stdout+validated.stderr)
+        server = self.server("--checkpoint-interval",4096,scenario=package,wizard=True,seed=42)
+        observer, initial_dragon = self.client(WIZARD_TOKEN,observe=True,actor=3)
+        rows = observation(initial_dragon)["visible_actors"]
+        target_rows = [row for row in rows if row["name"]=="Warrior"]
+        self.assertEqual([row["position"] for row in target_rows],
+                         [{"x":4,"y":0,"z":0},{"x":4,"y":0,"z":1}])
+        self.assertEqual(len({row["id"] for row in target_rows}),1)
+        self.assertTrue(any(row["name"]=="snake" and row["position"]=={"x":3,"y":0,"z":0} for row in rows))
+        self.assertTrue(any(row["id"]=="rogue.breath_weapon" for row in combat(initial_dragon)["own_stats"]["abilities"]))
+        self.assertEqual(u64(combat(initial_dragon)["own_stats"]["hit_dice"]["total"]),10)
+        observer.stop()
+        player, initial_player = self.client(actor=1)
+        snake, initial_snake = self.client(actor=4)
+        clients=(player,snake)
+        self.assertEqual(u64(combat(initial_snake)["hp"]),8)
+        self.assertEqual(u64(combat(initial_player)["hp"]),18)
+        # Two ordinary external Waits release the initial autonomous decision.
+        self.advance_until(clients,lambda frames: observation(frames[0])["ready"])
+        self.assertIsNone(self.act(player,{"type":"wait"})["error"])
+        self.advance_until(clients,lambda frames: observation(frames[1])["ready"])
+        self.assertIsNone(self.act(snake,{"type":"wait"})["error"])
+        after = self.advance_until(clients,lambda frames: combat(frames[0])["dead"] or observation(frames[0])["ready"],allow_dead=True)
+        self.flush_save()
+        with closing(sqlite3.connect(self.save)) as db:
+            records=db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads=[json.loads(frame[24:]) for _,frame in records]
+        entries=[row["record"]["entry"] for row in payloads if "record" in row]
+        (self.directory/"alternate-dragon-journal.json").write_text(json.dumps(entries,indent=2), encoding="utf-8")
+        started=[row["content"]["action"] for row in entries if row.get("actor")==3 and row["content"]["type"]=="intention_started"]
+        self.assertTrue(started,"ordinary waits must actually execute an autonomous Dragon choice")
+        self.assertEqual(started[0],{"type":"use_ability","id":"rogue.breath_weapon",
+            "invocation":{"aim":{"kind":"cell_ray","offset":[4,0,1]},"weapon":{"kind":"default"}},
+            "supplies":{"kind":"carried"}},"fresh AI must recover the safe disclosed upper target cell")
+        self.assertLess(u64(combat(after[0])["hp"]),u64(combat(initial_player)["hp"]))
+        self.assertEqual(combat(after[1])["hp"],combat(initial_snake)["hp"])
+        before=tuple(self.snapshot(client) for client in clients)
+        self.flush_save()
+        for client in clients: client.stop()
+        server.stop(save=False)
+        package.rename(self.directory/"retired-alternate-dragon-source")
+        server=self.server(scenario=unrelated_fallback(self),seed=None)
+        for actor,prior in zip((1,4),before):
+            client,reopened=self.client(actor=actor)
+            self.assertDisclosedStateEqual(reopened["state"],prior["state"])
+            self.assertEqual(reopened["history"],prior["history"])
+            client.stop()
+        server.stop(save=False)
+
+    def test_dragon_wall_approach_and_ally_safe_ray_survive_pending_reopen(self):
+        from status_condition_package import checkpoint
+        self.work_budget = ProcessWorkBudget(requests=128, actor_ticks=2000,
+                                             transcript_bytes=64 * 1024 * 1024)
+        package = mechanism_package(self, "dragon", size=[11,7,4],
+                                    start=[5,2,0], foe=[1,2,0])
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        region["actors"][0].update(controller="ai", ai="rogue_hostile")
+        region["actors"].append({"id":4, "at":[4,2,0], "archetype":"rogue.snake",
+                                 "controller":"external"})
+        region["walls"] = [[2,2,0]]
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        validated = subprocess.run([self.bin / ("tor-scenario"+self.suffix), "validate", package],
+                                   capture_output=True, text=True, timeout=30)
+        self.assertEqual(validated.returncode, 0, validated.stdout+validated.stderr)
+        server = self.server("--checkpoint-interval",1,scenario=package,wizard=True,seed=42)
+        observer, initial = self.client(WIZARD_TOKEN,observe=True,actor=3)
+        view = observation(initial)
+        self.assertEqual([r["position"] for r in view["visible_actors"] if r["name"] == "Warrior"],
+                         [{"x":4,"y":0,"z":0},{"x":4,"y":0,"z":1}])
+        self.assertTrue(any(r["name"] == "snake" and r["position"] == {"x":3,"y":0,"z":0}
+                            for r in view["visible_actors"]))
+        for x in range(1,5):
+            self.assertTrue(any(c["position"] == {"x":x,"y":0,"z":0}
+                                and c["wall"] == (x == 1) for c in view["visible_cells"]))
+        observer.stop(save=False)
+        player, first_player = self.client(actor=1)
+        snake, first_snake = self.client(actor=4)
+        clients = (player,snake)
+        self.assertEqual(u64(combat(first_player)["hp"]),18)
+        self.assertEqual(u64(combat(first_snake)["hp"]),8)
+        # Fixed ordinary tape, never selected from private checkpoint contents.
+        for index in range(6):
+            frames = self.decision_snapshots(clients)
+            self.assertEqual([u64(observation(f)["tick"]) for f in frames], [100*(index//2)]*2)
+            owner = index % 2
+            self.assertTrue(observation(frames[owner])["ready"] and frames[owner]["readiness"]["admission"])
+            if index == 2:
+                observer, moved = self.client(WIZARD_TOKEN,observe=True,actor=3)
+                (self.directory/"cross-flight-moved.json").write_text(json.dumps(moved,indent=2))
+                moved_view = observation(moved)
+                self.assertEqual(u64(moved_view["tick"]),100)
+                self.assertEqual([r["position"] for r in moved_view["visible_actors"] if r["name"] == "Warrior"],
+                                 [{"x":3,"y":1,"z":0},{"x":3,"y":1,"z":1}])
+                self.assertTrue(any(r["name"] == "snake" and r["position"] == {"x":2,"y":1,"z":0}
+                                    for r in moved_view["visible_actors"]))
+                for x,y in ((1,0),(2,1),(3,1)):
+                    for z in (0,1):
+                        self.assertTrue(any(c["position"] == {"x":x,"y":y,"z":z} and not c["wall"]
+                                            for c in moved_view["visible_cells"]))
+                observer.stop(save=False)
+            if index == 4:
+                self.assertEqual(u64(combat(frames[0])["hp"]),18)
+                saved = checkpoint(self,clients[0])
+                (self.directory/"cross-flight-pending.json").write_text(json.dumps(saved,indent=2))
+                pending = saved["actors"]["3"]["pending"]
+                self.assertEqual(saved["tick"],200)
+                self.assertEqual(pending["started"],142)
+                self.assertTrue(pending["active"])
+                self.assertEqual(pending["plan"]["kind"],"ray")
+                self.assertEqual(pending["plan"]["ability"],"rogue.breath_weapon")
+                self.assertEqual(pending["plan"]["aim"],{"kind":"cell","offset":[3,1,1]})
+                before = self.decision_snapshots(clients)
+                for client in clients: client.stop(save=False)
+                server.stop(save=False)
+                package.rename(self.directory/"retired-cross-flight-source")
+                server = self.server("--checkpoint-interval",1,scenario=unrelated_fallback(self),seed=None)
+                reopened = [self.client(actor=actor) for actor in (1,4)]
+                clients = tuple(client for client,_ in reopened)
+                for (_,frame),prior in zip(reopened,before):
+                    self.assertDisclosedStateEqual(frame["state"],prior["state"])
+                    self.assertEqual(frame["history"],prior["history"])
+                self.assertEqual(checkpoint(self,clients[0]),saved)
+            self.assertIsNone(self.act(clients[owner],{"type":"wait"})["error"])
+        after = self.decision_snapshots(clients)
+        self.assertEqual([u64(observation(f)["tick"]) for f in after],[242,242])
+        self.assertEqual([u64(combat(f)["hp"]) for f in after],[0,8])
+        self.assertTrue(combat(after[0])["dead"])
+        self.assertFalse(combat(after[1])["dead"])
+        self.flush_save()
+        with closing(sqlite3.connect(self.save)) as db:
+            records = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 UNION ALL "
+                                 "SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _,frame in records]
+        entries = [r["record"]["entry"] for r in payloads if "record" in r]
+        (self.directory/"cross-flight-journal.json").write_text(json.dumps(entries,indent=2),encoding="utf-8")
+        starts = [r for r in entries if r.get("actor") == 3 and r["content"]["type"] == "intention_started"]
+        self.assertEqual([r["tick"] for r in starts],[0,142])
+        move,breath = [r["content"] for r in starts]
+        self.assertEqual(move["action"]["type"],"move")
+        self.assertEqual(move["event"],{"type":"moved","from":{"region":1,"x":1,"y":2,"z":0},
+                                      "to":{"region":1,"x":2,"y":1,"z":0}})
+        self.assertEqual(breath["action"],{"type":"use_ability","id":"rogue.breath_weapon",
+            "invocation":{"aim":{"kind":"cell_ray","offset":[3,1,1]},"weapon":{"kind":"default"}},
+            "supplies":{"kind":"carried"}})
+        self.assertTrue(any(end == {"actor":3,"intention":breath["intention"],"kind":"resolved"}
+                            for entry in entries for end in entry["intention_ends"]))
+        for client in clients: client.stop(save=False)
+        server.stop(save=False)
+
     def setUp(self):
         super().setUp()
         self.work_budget = ProcessWorkBudget(requests=600, actor_ticks=20000,

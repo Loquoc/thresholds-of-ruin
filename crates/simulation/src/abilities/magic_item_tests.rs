@@ -1,4 +1,6 @@
 //! Item authority contracts; geometry/check arithmetic are owned by ray_tests.
+#[path = "known_device_policy_tests.rs"]
+mod known_device_policy;
 #[path = "physical_device_tests.rs"]
 mod physical_devices;
 use super::*;
@@ -3126,4 +3128,81 @@ fn fresh_known_device_ai_avoids_disclosed_neutral_interceptor() {
         Action::Zap { .. }
     ));
     assert_eq!(game, before);
+}
+
+#[test]
+fn fresh_known_device_ai_declines_a_fully_disclosed_low_wall() {
+    let mut game = fixture();
+    let item = device(&mut game, 10, 5);
+    let scroll = identify_scroll(&mut game, 11, ItemClass::Tool, 1);
+    let choice = execute(&mut game, Action::Read { item: scroll });
+    execute(
+        &mut game,
+        Action::Identify {
+            choice,
+            item: Some(item),
+        },
+    );
+    let location = |x, y, z| Location {
+        region: RegionId(77),
+        position: Position { x, y, z },
+    };
+    game.add_region(tor_world::Region {
+        id: RegionId(77),
+        name: "Known device low wall".into(),
+        bounds: tor_world::Extent::new(11, 7, 4).unwrap(),
+    })
+    .unwrap();
+    game.set_region_light(RegionId(77), true).unwrap();
+    for (actor, x) in [(ActorId(1), 1), (ActorId(2), 5)] {
+        game.teleport(actor, location(x, 2, 0)).unwrap();
+        let mut body = (*game.actors[&actor].body).clone();
+        body.cells = vec![[0, 0, 0], [0, 0, 1]];
+        body.eye = [0, 0, 1];
+        game.set_body(actor, body).unwrap();
+    }
+    game.configure_ai(ActorId(1), crate::ai::AiProfile::general())
+        .unwrap();
+    let last_seen = game.actor_clock(ActorId(1));
+    game.actors
+        .get_mut(&ActorId(1))
+        .unwrap()
+        .behavior
+        .engagement = Some(crate::behavior::Engagement {
+        reference: crate::perception::ActorReferenceKind::Creature,
+        target: ActorId(2),
+        location: location(5, 2, 0),
+        last_seen,
+    });
+    game.refresh_navigation();
+    assert_eq!(
+        game.choose_ai(ActorId(1)).unwrap().action,
+        Action::Zap {
+            item,
+            aim: crate::DeviceAim::Direction {
+                direction: StepDirection::East
+            }
+        }
+    );
+    game.set_wall(location(2, 2, 0), true).unwrap();
+    game.refresh_navigation();
+    let view = game.observe(ActorId(1)).unwrap();
+    assert!(view.visible_actors.iter().any(|r| r.id == ActorId(2)));
+    for x in 2..=5 {
+        assert!(
+            view.visible_cells
+                .iter()
+                .any(|c| c.location == location(x, 2, 0) && c.wall == (x == 2)),
+            "complete ordinary disclosed prefix at {x}"
+        );
+    }
+    let before = game.clone();
+    assert!(!matches!(
+        game.choose_ai(ActorId(1)).unwrap().action,
+        Action::Zap { .. }
+    ));
+    assert_eq!(
+        game, before,
+        "preview spends neither RNG nor known device charge"
+    );
 }

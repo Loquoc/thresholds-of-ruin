@@ -29,6 +29,30 @@ def ranks(build):
 
 
 class RogueProfileContent(unittest.TestCase):
+    def test_haste_wand_is_not_an_ai_hostile_device_in_either_rogue_package(self):
+        definitions = []
+        for package in (PACKAGE, STARTER):
+            with self.subTest(package=package.name):
+                rows = [row for row in load(package / "rules.toml")["overrides"]
+                        if row["path"] == ["abilities", "rogue.wand_haste"]]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["op"], "add")
+                definition = rows[0]["value"]
+                # This hint declines autonomous hostile selection, not ordinary
+                # player use, target resistance, or the authored haste effect.
+                self.assertEqual(definition["interaction"], "hostile_to_target")
+                self.assertEqual(definition["invocation"], "directional_contact_ray")
+                self.assertEqual(definition["reach"], {"kind": "sight", "range": 6})
+                [strike] = definition["strikes"]["strikes"]
+                self.assertEqual(strike["on_success"], [])
+                self.assertEqual(strike["on_failure"], [{
+                    "kind": "apply_persistent_condition", "condition": "rogue.hasted",
+                    "cancels": "rogue.slowed"}])
+                self.assertEqual(strike["check"]["actor"], "target")
+                definitions.append(definition)
+                self.assertIs(definition["ai"]["hostile"], False)
+        self.assertEqual(definitions[0], definitions[1])
+
     def setUp(self):
         self.manifest = load(PACKAGE / "scenario.toml")
         self.rules = load(PACKAGE / "rules.toml")

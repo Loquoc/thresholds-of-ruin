@@ -697,3 +697,313 @@ witness covers ordinary scroll/movement, exploration departure, fresh-cue reuse
 and source-free restart. It uses a production species with a deterministic
 Stealth fixture, not a generated full-roster birth or proof of general patrol,
 territorial, investigation-search or coordinated tactics.
+
+### Exploration continuation and route-interior novelty (2026-11-17)
+
+The retained-destination checkpoint exposed two limited policy weaknesses.
+Successful erratic movement could be immediately undone by the next ordinary
+route toward its old idle goal; fresh destination ranking ignored how much of
+its route had already been visited. Deliberate first-red tests failed at retained
+versus released draft goal and at the independently verified corridor destination,
+respectively. These are two policy regression witnesses, not additional naturally
+failing-test counts. New boundaries cover exact erratic draws/direction, declined
+chance, cancellation atomicity, pending checkpoint execution, unequal route
+lengths, endpoint priority, seeded ties and saturated visit arithmetic.
+
+The refinement releases only the draft idle goal after a selected erratic move.
+For new goals only, equally visited endpoints compare mean interior visits with
+exact integer arithmetic. Existing continuation, priority order and the 16-query /
+512-additional-node limits remain. Comparing additional equal-tier candidates can
+increase average work within those limits; no speedup or performance-neutrality
+claim follows from the unchanged caps.
+
+Eight paired actual-process probes use open/partitioned rooms, seeds 42, 46, 53
+and 71, eight real Rogue species and 256 ordinary player Waits behind an opaque
+wall. The original four checkpoint runs reproduce all journal fields after
+corresponding generated entry/branch identifiers. Equal-weight means across four
+nonerratic mobile species and eight cases are distinct cells 120.16 → 124.47,
+same-direction run 2.830 → 2.838, reversals 1.094 → 1.063 and arrival-inclusive
+Waits 28.53 → 29.31. Wall-band residence rises slightly, 34.1% → 35.1%.
+Bat distinct cells rise 127.5 → 152.5 and reversals fall 28.13 → 20.63;
+each improves in seven of eight cases, not all. Other mobile species' case-mean
+coverage improves in five of eight cases, with small declines in three.
+
+The erratic-only ablation has Bat cells 140.88 and reversals 23.63, while other
+mobile coverage is 116.38. This separates the interventions without asserting
+that their interaction explains every trajectory. All cases preserve inventories,
+keep all actors alive, show no combat events, and leave Ice Monster, Venus Flytrap
+and Xeroc at exactly 256 Waits and zero moves. Pauses break reversal/direction-run
+segments; wall residence is accepted-tick-weighted anchor occupancy, not body area.
+On the original four cases, nonerratic coverage remains 123.31 versus the older
+pre-goal policy's 171.25. Purposeful continuation still trades coverage for pacing.
+These quiet diagnostic layouts do not establish all-roster balance, full-dungeon
+behavior or whole-workload performance. Process elapsed times are not a benchmark.
+
+### Stationary acquisition and disclosed flight recovery (2026-11-17)
+
+Two bounded production-roster scenarios exposed distinct targeting weaknesses.
+A rooted Venus Flytrap repeatedly chose Wait while a nearby foe was in legal
+Clutch contact, because both opponents had unavailable pursuit routes and a
+farther, lower-ID opponent won acquisition. Near-low-ID and only-near controls
+independently performed Clutch. Fresh acquisition now prefers disclosed melee
+contact only for stationary actors; moving actors, retained fallback threats,
+existing engagements, awareness and disposition gates keep their policy. The
+unit and ordinary-process regressions first failed at action selection after
+independent disclosure and contact positives.
+
+A production Dragon declined its first target-body bearing because an allied
+one-cell Snake intercepted it, but never considered the disclosed upper target
+cell. An ordinary manual upper-cell breath harmed the Warrior without harming
+the Snake; the lower-cell control harmed the Snake instead. Fresh flight choice
+now reuses one disclosed canonical chart and, only after a definite primary veto,
+checks at most 16 unique alternative target locations. Each needs positive clear
+prefix evidence within effective range. Unknown, wall, alias and folded cases
+cannot justify a new aim. The ray and ordinary-process first-reds reached the
+expected choice assertion; no hidden collision or opponent-defense preview is
+introduced. Launcher, exact-range, duplicate/cap and disclosure-boundary tests
+exercise the shared mechanism.
+
+Retained tests distinguish elapsed ray preparation from an earned multi-strike
+prefix: rays do not have the latter. Pending and paused work preserve ordinary
+queue/checkpoint authority and frozen aim; cancelling queued work leaves
+authoritative AI and behavior unchanged. Independent review caught a
+draft change to stationary retained-work fallback threat; its explicit guard and
+assertion prevent that unintended scope expansion. That review finding is not a
+third naturally observed production defect.
+
+At seed 42, repeated corrected traces match 36 Flytrap and 6 Dragon accepted
+journal entries after generated entry/branch ID correspondence only. Unchanged
+Flytrap controls match 30 and 36 baseline entries; manual upper/lower Dragon
+controls match 6 and 16. All other accepted fields remain exact. Both corrected
+Dragon repeats reduce Warrior Health from 18 to 0 while the Snake stays at 8.
+These are bounded trace witnesses, not general determinism or balance guarantees.
+
+Probe setup errors are recorded separately: an external bystander initially
+stalled scheduling, a public row used the wrong coordinate field, sequence zero
+had no checkpoint, and a manual-ray driver initially overran terminal admission.
+Corrected positive fixtures precede the intended failing assertions. Fixed-seed
+lit rooms and one known ally do not establish whole-roster combat balance,
+reflected/downstream safety, full-dungeon behavior or performance improvement.
+
+### Known haste-device hostility hint (2026-11-17)
+
+The generic known-device fallback correctly obeyed an incorrect authored hint:
+Rogue's haste wand was eligible as hostile work although its effect benefits the
+recipient. An ordinary Read/Identify unit fixture learned both type and positive
+instance charges without a build grant. Independent ordinary Zap assertions proved
+charge payment, Hasted, shorter target movement and checkpoint equality before
+the intended first-red showed AI proposing that same Zap at its foe. Unknown
+identity and unknown-balance twins preserve observational and decision equality.
+The fixture uses synthetic actors and an explicit high-Intellect modifier for a
+deterministic failed target dodge, not production NPC statistics or birth stock.
+
+Only the hostile AI hint changes in Rogue and rogue-exploration. Content tests
+preserve ordinary interaction, invocation, range, resistance and haste effects;
+this adds neither self-buff selection nor new device reach support. Current NPC
+births do not supply known charged wands, and the process protocol has no supported
+external-to-AI control switch after Identify. This is a supported simulation-state
+boundary, not a demonstrated normal-birth or end-to-end autonomous process case.
+
+Engine semantics and format identities remain unchanged. Canonical rules pinning
+means existing saves keep their old authored hint; the correction applies to new
+content instances, not an implicit old-save repair. Existing source-free rules and
+catalog process tests plus the saved-rules streaming test cover that mechanism,
+not a directly observed old-haste/new-haste pair of saves. Frozen earned source
+baseline 42 depends only on the unchanged bundled rules and remains valid.
+
+
+### Canonical flight-box work reduction (2026-11-17)
+
+This optimization preserves the original primary aim unless the existing full
+chart proves its veto; it adds no attack policy, random draw, saved field or rules
+identity. It avoids constructing that chart when all disclosed nonhostile body
+rows are outside an inclusive canonical primary box. Unit tests compare the new
+fast negative with the unchanged full-veto predicate, including target aliases,
+non-anchor interception, region/coordinate extremes and rotated raster prefixes.
+The rotated test proves geometric containment, not a full rotated-world chooser.
+The synthetic disclosure-row tests are distinct from the real-content witnesses.
+
+Four isolated production Dragon/Warrior/Snake cases verify no bystander, an
+outside-box bystander, an inside-box/off-ray bystander, and a blocked primary with
+a clear upper-cell alternative. Ordinary baseline/candidate process pairs match
+4, 6, 6 and 6 accepted entries respectively after generated entry/branch ID
+correspondence only. Aims, ordinary Wait tapes, resolution receipts, ticks and HP
+outcomes match: Warrior Health is 18 to 0 and every Snake remains at 8. Wizard
+observation is read-only diagnostic inspection; these are not generated births or
+full-dungeon coverage. Public snapshot/record equality in the measurement probe is
+not itself proof of private RNG equality; simulation purity and checkpoint tests
+remain separate owners.
+
+Six balanced-order pairs of warmed complete Engine chooser previews measure an
+outside-box reduction of 42.5–48.5% (paired median 46.8%) on this local machine.
+They exclude setup and execution and do not establish whole-game throughput.
+The initial no-bystander control suggested a 9.3% slowdown; twelve subsequent
+ABBA/BAAB groups gave a 1.6% median increase, spanning -11.7% to +10.5%, while
+identical-binary repeats themselves varied substantially. This does not establish
+a stable large regression or prove zero overhead. Inside-box controls span noise;
+there is no broad performance or tail-latency guarantee. Timing is evidence, not
+a test threshold. The three new correctness tests and existing flight, AI, weapon,
+checkpoint and awareness owners remain assertion-based.
+
+
+## Disclosed low-wall flight selection (rules 70)
+
+An isolated actual exploration-package Dragon at [1,2,0] chose the
+ordinary East breath in the fixed seed-42 adjacent-wall diagnostic, although its
+own observation disclosed the wall at [2,2,0], both target rows at [5,2,0/1], and
+the complete nominal ground prefix. The single recorded breath resolved without
+hurting either actor and spent cooldown. A separately recorded ordinary lateral
+move followed by a disclosed aim damaged the Warrior. This is one decision
+policy defect, not a ray-physics defect or a measured population frequency.
+
+The adjacent-wall unit regression fails before the fix at the shot-versus-move
+assertion after positive disclosure and legal-move controls. An initially proposed
+middle-wall unit instead failed fixture setup: the ordinary two-cell eye cannot
+see the ground cell immediately beyond that wall. That failure is not a second
+production defect. The matching production manual upper-cell hit demonstrates an
+opportunity but does not satisfy this guard's conservative complete-prefix rule.
+That case now explicitly keeps its original aim as Unknown. A separately authored
+three-cell caster with higher eye supplies a genuinely complete chart; its
+alternate-cell regression fails before the fix at the exact East-versus-upper-aim
+assertion, not by injecting missing cells.
+
+Boundary owners cover disclosed versus raw terrain, missing suffixes, sticky
+contradictory duplicate disclosures, folded and target aliases, endpoint wall
+contradictions, off-raster walls, transformed canonical charts, known-device
+selection, and retained alternate preparations through checkpoint restore. These
+are selection proofs, not hidden collision, ricochet, whole-game balance or
+cross-platform qualification. The production Dragon process regression proves an
+actual legal northeast move followed by exact source-free save reopening. A
+separate bounded continuation starts its own breath at tick 142 and hits at tick
+242 after one additional ordinary Wait from the preserved tick-200 save. Initial
+diagnostic expectations confused the 142-tick diagonal move with a 100-tick
+cardinal move and the command-entry tick with the final simulation tick; their
+failed assertions were retained and corrected without changing geometry or aim.
+
+Six balanced release chooser pairs for each existing control preserve exact aims,
+public-state/profile invariants and work counts. Paired median changes relative to
+0044e214 range from -4.1% to +2.0%, with individual pairs spanning approximately
+-16.3% to +16.4%. These noisy controls neither establish a stable large regression
+nor prove zero overhead, whole-game throughput or tail latency. The changed wall
+cases intentionally choose different actions and are not timing-equivalence
+controls. Rules 70 has a genuine current-writer golden, current certificates and
+explicit prior-rules rejection; archive 71 and protocol 72 are unchanged. All
+prior fixture bytes and historical earned-route outcomes remain preserved.
+
+## Repeated autonomous Flytrap hold coverage
+
+The existing Clutch/Tightening Hold implementation correctly preserves an
+existing hold and its escalation; the new witness closes an actual-process
+coverage gap rather than fixing gameplay. The tuned Rogue recipe, modules,
+character kit and rules are copied unchanged into a lit adjacent encounter.
+Twelve ordinary Waits at seed 42 establish one hold, repeat Clutch without
+replacement, and advance escalation from zero to three. Source-free reopening
+at the fixed sixth Wait preserves disclosed state/history and saved actor
+records (including pending work), RNG, items and active-clock stamps. This is
+not a comparison of every field of the full Game checkpoint or a generated-run
+balance claim. Private saved facts assert the fixed tape; they never select
+inputs or extend it until a hit occurs.
+
+The fixture helper now accepts an explicit source path. Its historical default
+remains `rogue-exploration`; selecting tuned `rogue` does not silently replace
+that default or mix either package's modules and player recipe. Missing selected
+characters fail clearly. New helper-contract tests first fail at the absent
+explicit-source API, then pass alongside the existing defaults. The gameplay
+sequence already passed against unchanged rules 70 before becoming a permanent
+regression; no behavior, format or compatibility revision is implied.
+
+## Wall approach, ally-safe flight and pending restore
+
+The exploration-content Dragon process witness
+`test_dragon_wall_approach_and_ally_safe_ray_survive_pending_reopen` composes
+previously isolated behaviors: a known low wall triggers an ordinary approach,
+then the moved Dragon chooses the disclosed upper Warrior body cell around a
+Snake ally. Six fixed ordinary external Waits at seed 42 produce the NE move at
+0, the upper-cell breath at 142, and resolution at 242. Dragon-local disclosure
+is checked both before movement and at the pre-selection tick-100 boundary.
+At tick 200 the breath is pending and the Warrior remains unharmed; after source
+removal, exact disclosed state/history and scoped saved actor records, RNG,
+items and frozen stamps survive reopening. The remaining fixed Wait pair resolves
+the captured breath: Warrior Health 18 to 0, Snake alive at 8. This is a bounded
+cross-feature integration witness, not a new behavior fix, tuned-Rogue balance
+claim, full-Game checkpoint equality, or generated-level qualification. No rules,
+archive or wire identity changes are required by this test-only addition.
+
+## Hostile touch continuation
+
+The tuned-Xeroc witness
+`test_tuned_xeroc_continues_hostile_touch_after_recovery_and_reopen` preserves the
+actual Rogue starter and species kit. At seed 42 the player already recognizes
+the disguise, but two fixed Waits leave the ambusher passive. An ordinary East
+bump at tick 200 spends the initial touch strike and recovery without translating
+either actor. The first ordinary continuation begins at 284, with positive
+preparation, rather than granting another immediate strike. Source-free reopening
+at 300 preserves disclosed state/history and scoped saved actor records, RNG,
+items and frozen stamps. One final fixed Wait resolves that captured attack and
+damages the player. The companion
+`test_tuned_xeroc_hostile_touch_journal_replays_without_source` uses the same tape
+without a latest periodic checkpoint, positively requires accepted journal work
+after the archived base, then verifies source-free replay and the same resolved
+continuation. The rules70 baseline instead returns to Wait at 284.
+
+This is a deliberate continuation enhancement, not a previously promised
+post-touch contract. Unit owners cover initial and deferred touch, preview purity,
+actual AI draft commit, invisible contact, friendly and zero-memory exclusions,
+existing engagement, retained work, and rejected-input state preservation. The
+process witness covers initial-ready continuation, not the deferred path or full
+Game checkpoint equality. No balance, seed-sweep, whole-level or broad timing
+claim follows from this bounded tape. Historical archive bytes remain unchanged;
+rules71 rejects rules70 saves rather than migrating their behavior.
+
+Two surrounding persistence witnesses avoid incidental fixture assumptions.
+`default_enrollment_and_visited_history_survive_source_free_durable_reopen_and_rewind`
+accepts only Move or arrival Wait, requires committed nonzero-displacement moves within each
+fixed four-round tranche, and retains visit-history change and exact replay,
+reopen and rewind comparisons. The streamed-checkpoint deferral witness explicitly
+pins its seven-input finite package before play: its source-preservation contract
+must not depend on whether an ambient compiled cache happens to exist. It still
+requires real detachment, later detachment, byte-identical saved sources and
+successful durable replay and rewind; new-source admission has a separate owner.
+
+
+## Autonomous Medusa variant boundaries
+
+The three Medusa additions to `test_rogue_perception_process` preserve each
+package's actual starter, species, rules and purchases. They deliberately do not
+assume that tuned `rogue` and `rogue-exploration` own the same ability: tuned
+Medusa approaches and chooses its authored basic attack, while exploration
+Medusa selects Confusing Gaze at range and resumes ordinary movement during its
+cooldown. At seed 42, three fixed player Waits cover ticks 0 through 300, with
+source-free checkpoint reopen at 100. Exact public state/history and scoped
+saved actor records, RNG, items and frozen stamps survive reopening. The gaze
+case positively requires retained cooldown and exactly one gaze start; the tuned
+case requires two approach steps followed by basic melee. A full-height opaque
+partition keeps the exploration Medusa undisclosed and allows only movement or
+Wait, never gaze. Every arm requires actual autonomous work and has a fixed
+request/tick/transcript guard.
+
+This is bounded autonomous-selection and checkpoint evidence, not a new combat
+policy, a full cooldown-expiry test, a gaze success-rate measurement or a full
+Game equality claim. Historical external-control gaze mechanics retain their
+separate owner. No rules, archive or protocol identity changes are needed.
+
+
+## Player and NPC demand in generated caves
+
+The generated-cave integration witnesses separate two legitimate sources of
+materialization demand. A copied player-only package changes only generated
+actor counts to zero, retains authored geometry and coins, proves that only the
+player exists, and keeps the exact unbuilt-region boundaries 2, then 1, then 0.
+The walk must observe generated coins and replay exactly after its source is
+removed. This does not claim identical realized layout or item positions to the
+populated package, since population changes may change generator RNG use.
+
+The original populated package has a separate fixed 17-move witness. It requires
+an actual queued NPC movement inside the first cave to reduce the unbuilt count
+from 1 to 0 while every player move remains inside the entry hall. The test then
+removes the copied source and compares exact replayed states for the player and
+all NPCs whose decisions ran, plus the final build count and replayed-record
+count. This replaces an accidental player-only build-timing assumption, not a
+runtime behavior change or a relaxed upper bound. Isolated warm-cache and
+cold-cache failures of the old assertion, and the causal NPC trace, are retained
+as diagnostic evidence. No rules, archive or protocol identity change is needed.

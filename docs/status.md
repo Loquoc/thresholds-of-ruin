@@ -20,15 +20,15 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **72**, save format **70**, scenario format **37**,
-ruleset **`interactions-v66`**, scenario validator **`tor-scenario-51`**.
+**Current formats:** protocol **72**, save format **71**, scenario format **37**,
+ruleset **`interactions-v71`**, scenario validator **`tor-scenario-51`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
-change with a deterministic rules correction. The current AI identity also covers
-completion of anonymous location-alert investigations on committed arrival. This
-clears the existing alert rather than adding actor identification or persistent
-state. See [AI](reference/ai.md). Current private
+change with a deterministic rules correction. The current rules change adds disclosed hostile touch continuation with positive
+memory, without replacing a live engagement or acquiring an unseen or friendly
+toucher. It adds no serialized state
+and retains the existing archive format. See [AI](reference/ai.md). Current private
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.
 

@@ -642,6 +642,9 @@ impl Game {
                 self.health(*id).is_some()
                     && ai.profile.valid()
                     && ai.visits.keys().all(|at| self.world.knows(*at))
+                    && ai
+                        .exploration_destination
+                        .is_none_or(|at| self.world.knows(at))
             })
     }
     pub(crate) fn combat_view(

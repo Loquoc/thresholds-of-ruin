@@ -84,10 +84,36 @@ broader performance and scaling work is finished.
   variable tails do not establish a whole-game speedup. Their deterministic
   work/activity and strict restart checks remain equal. Real-roster process
   traces also retain identical accepted actions, ticks, events and outcomes.
-- **Smallest next step:** establish realistic item-density/type distributions
-  before targeting the remaining candidate projections. Measure complete choices
-  and their constituent work without replacing independent equip admission or
-  weakening the remembered-information boundary.
+- **Early natural-exposure measurement (2026-11-17):** on local `699683be`,
+  512 fresh tuned-Rogue floors used seeds 0–127 at depths 4, 10, 16 and 22.
+  Only the ordinary starter's anchor changed; catalogs, population, knowledge,
+  lighting and hostile behavior remained authored. AI work was drained before
+  each of twelve submitted player Waits, with no final drain and a 2,000-tick
+  ceiling. This is stationary-start owner exposure, not whole-floor density or
+  earned-playthrough frequency. All 89 zero-decision floors, 17 death outcomes
+  and 23 naturally selected treasure rooms remained in the denominator.
+  The 8,425 decision boundaries involved 914 acting actor instances. At most two
+  disclosed potential-equipment-class stacks (weapon/armor/ring/tool, not proven
+  eligible candidates) and one disclosed shortbow were present in any sampled
+  view. Only 28 floors exposed such equipment-class rows; one exposed a shortbow.
+  Initial receipts contained 15 born ground shortbows across the full sample,
+  illustrating why observed exposure must not be called whole-floor density.
+  Projection work occurred in 96 previews from 14 actor instances on 11 floors,
+  with at most three gear projections in one preview. Twenty-two positive
+  previews had no disclosed ground items: counters include carried evaluation
+  and ranking, and do not attribute all work to ground acquisition. Repeated
+  decisions are not independent encounters. Owner observations were unchanged,
+  repeated choices matched, and each preview matched its actual queued action;
+  this does not prove complete private-state equality. The normalized 16-floor
+  pilot prefix and all source hashes matched. Independent receipt/count review
+  agreed. No wall-clock timing or speedup was measured, and this is not an
+  accepted performance-ledger artifact. It does not establish a representative
+  need to prioritize dense 128-launcher optimization or rule out later piles.
+- **Smallest next step:** examine accumulated-playthrough exposure and small-case
+  timing when a representative costly case is established. The early sparse
+  sample does not close those questions. Measure complete choices and their
+  constituent work without replacing independent equip admission or weakening
+  the remembered-information boundary.
 - **Acceptance witnesses for any later change:** compare identical workloads and
   source identities; retain useful, incompatible and secondary-slot candidates,
   known/unknown/cursed-item controls, candidate-order and exact-action equivalence,

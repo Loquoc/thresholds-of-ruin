@@ -481,7 +481,12 @@ fn deferred_checkpoint_replays_streamed_sources_and_rewinds_detached_halls() {
         checkpoint_interval: 1,
         ..SavePolicy::default()
     };
-    let mut engine = Engine::open_with_policy(&path, corridor(), policy.clone()).unwrap();
+    let mut scenario = corridor();
+    // This witness owns a complete finite input closure, not new source
+    // admission. Explicitly pin all seven inputs at save creation rather than
+    // accidentally relying on a missing ambient compiled-artifact cache.
+    std::sync::Arc::make_mut(scenario.package.as_mut().unwrap()).directory = None;
+    let mut engine = Engine::open_with_policy(&path, scenario, policy.clone()).unwrap();
     engine.enable_wizard().unwrap();
     // The authored start anchor. Public observation coordinates are always
     // observer-relative zero, so use executed movement events for this oracle.
