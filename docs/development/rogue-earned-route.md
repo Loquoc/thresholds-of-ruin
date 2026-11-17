@@ -17,15 +17,17 @@ fixture, never a replacement or an independent rate sample.
 The route arm named `production` is the explicit, frozen preactivation E/S source
 snapshot at `8d09063840c51aa4189b146c287829102856b279`, with an explicitly recorded
 adaptation for the current scenario format. Its ordinary population remains two
-emus and two snakes. The current source-only fixture is baseline v44, retaining
+emus and two snakes. The current source-only fixture is baseline v45, retaining
 exact package inputs and its current bundled-rule source hash. Its latest
-transition changes only the bundled import from historical rules identity 70 to
-`interactions-v71`. The identity covers disclosed hostile touch continuation; shared behavior changes may change route outcomes. Historical v43 retains disclosed terrain avoidance for body-origin flights; v42 retains stationary contact priority and alternate disclosed body-cell flight recovery; v41 retains route-interior exploration novelty and successful erratic goal release; v40 retains purposeful exploration destinations; v39 retains completed location-alert investigations; v38 retains known-medicine reserve recognition; v37 retains bounded known ranged-kit recovery; v36 retains bounded known-gold pursuit detours; v35 retains fresh ranged-choice interception avoidance; v34 retains ranged positioning and distance-unbounded known-loot AI; v33
+transition changes only the bundled import from historical rules identity 71 to
+`interactions-v72`. The identity covers hostile first-body device admission for identified items with known
+positive charges, without changing granted-ray behavior or implying natural NPC
+acquisition; shared behavior changes may change route outcomes. Historical v44 retains disclosed hostile touch continuation; v43 retains disclosed terrain avoidance for body-origin flights; v42 retains stationary contact priority and alternate disclosed body-cell flight recovery; v41 retains route-interior exploration novelty and successful erratic goal release; v40 retains purposeful exploration destinations; v39 retains completed location-alert investigations; v38 retains known-medicine reserve recognition; v37 retains bounded known ranged-kit recovery; v36 retains bounded known-gold pursuit detours; v35 retains fresh ranged-choice interception avoidance; v34 retains ranged positioning and distance-unbounded known-loot AI; v33
 retains the targeting/effect-presentation transition; v32 retains seeded
 exploration tie-breaking. These adaptations add no current production loot to
 the frozen baseline.
-The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v43/source.json)
-and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v44/format-transition.json)
+The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v44/source.json)
+and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v45/format-transition.json)
 retain the exact old/new identities and hashes; their historical proof is not
 rewritten. The dependency digest attests to actual bundled source bytes, not a
 compiler certificate. No body-package enrollment, two-HD player kit, treasure-room stages, darts,

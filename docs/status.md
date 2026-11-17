@@ -21,13 +21,13 @@ future work. No hosted
 qualification or measured hosted saving is claimed.
 
 **Current formats:** protocol **72**, save format **71**, scenario format **37**,
-ruleset **`interactions-v71`**, scenario validator **`tor-scenario-51`**.
+ruleset **`interactions-v72`**, scenario validator **`tor-scenario-51`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
-change with a deterministic rules correction. The current rules change adds disclosed hostile touch continuation with positive
-memory, without replacing a live engagement or acquiring an unseen or friendly
-toucher. It adds no serialized state
+change with a deterministic rules correction. The current rules change admits hostile first-body devices with identified type and
+known positive charges. It does not change granted-ray behavior or establish
+natural NPC acquisition of identified devices. It adds no serialized state
 and retains the existing archive format. See [AI](reference/ai.md). Current private
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.

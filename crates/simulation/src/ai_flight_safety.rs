@@ -68,7 +68,7 @@ impl DisclosedFlightChart {
         ])
     }
 
-    fn assess(&self, target: Location, aim: FlightAim, range: u16) -> PrefixEvidence {
+    fn assess(&self, target: Location, aim: FlightAim, range: Option<u16>) -> PrefixEvidence {
         let Some(target_offset) = self.target_offset(target) else {
             return PrefixEvidence::Unknown;
         };
@@ -77,7 +77,7 @@ impl DisclosedFlightChart {
             .map(|n| n.unsigned_abs())
             .max()
             .unwrap_or(0);
-        if distance < 2 || distance > u32::from(range) {
+        if distance < 2 || range.is_some_and(|limit| distance > u32::from(limit)) {
             return PrefixEvidence::Unknown;
         }
         match aim {
@@ -99,6 +99,11 @@ impl DisclosedFlightChart {
             .get(&target)
             .is_some_and(|offsets| offsets.iter().any(|at| *at != target_offset))
         {
+            return PrefixEvidence::Unknown;
+        }
+        // Every step of a proven canonical prefix needs a distinct disclosed
+        // occurrence. Bound proof work by knowledge, not an invented ray range.
+        if u64::from(distance) > self.occurrences.len() as u64 {
             return PrefixEvidence::Unknown;
         }
         let Some(mut trajectory) = tor_world::RayTrajectory::new(aim.vector()) else {
@@ -248,9 +253,22 @@ impl Game {
         view: &crate::Observation,
         range: u16,
     ) -> Option<FlightAim> {
+        self.ai_disclosed_flight_aim_with_range(actor, target, sight, view, Some(range))
+    }
+
+    /// None selects an observed bearing without imposing a gameplay range.
+    /// First-body physics, not this knowledge-only planner, owns stopping.
+    pub(super) fn ai_disclosed_flight_aim_with_range(
+        &self,
+        actor: ActorId,
+        target: ActorId,
+        sight: &[tor_world::SightCell],
+        view: &crate::Observation,
+        range: Option<u16>,
+    ) -> Option<FlightAim> {
         let origin = self.actors.get(&actor)?;
         // Keep the legacy first-row geometry and no-aim behavior unchanged.
-        let aim = disclosed_flight_aim(target, sight, view, origin.body.eye, range)?;
+        let aim = disclosed_flight_aim_with_range(target, sight, view, origin.body.eye, range)?;
         let primary = view
             .visible_actors
             .iter()
@@ -353,6 +371,6 @@ impl Game {
         let Some(chart) = self.disclosed_flight_chart(actor, target, sight, view) else {
             return false;
         };
-        chart.assess(primary.location, aim, range) == PrefixEvidence::Intercepted
+        chart.assess(primary.location, aim, Some(range)) == PrefixEvidence::Intercepted
     }
 }
