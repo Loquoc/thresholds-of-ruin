@@ -17,16 +17,16 @@ fixture, never a replacement or an independent rate sample.
 The route arm named `production` is the explicit, frozen preactivation E/S source
 snapshot at `8d09063840c51aa4189b146c287829102856b279`, with an explicitly recorded
 adaptation for the current scenario format. Its ordinary population remains two
-emus and two snakes. The current source-only fixture is baseline v38, retaining
+emus and two snakes. The current source-only fixture is baseline v39, retaining
 exact package inputs and its current bundled-rule source hash. Its latest
-transition changes only the bundled import from historical rules identity 64 to
-`interactions-v65`. The identity covers conservative known-medicine pickup and
-reserve recognition, without changing consumption policy or disclosing unknown effects; shared behavior changes may change route outcomes. Historical v37 retains bounded known ranged-kit recovery; v36 retains bounded known-gold pursuit detours; v35 retains fresh ranged-choice interception avoidance; v34 retains ranged positioning and distance-unbounded known-loot AI; v33
+transition changes only the bundled import from historical rules identity 65 to
+`interactions-v66`. The identity covers completion of anonymous location-alert
+investigations on committed arrival, without adding actor identification; shared behavior changes may change route outcomes. Historical v38 retains known-medicine reserve recognition; v37 retains bounded known ranged-kit recovery; v36 retains bounded known-gold pursuit detours; v35 retains fresh ranged-choice interception avoidance; v34 retains ranged positioning and distance-unbounded known-loot AI; v33
 retains the targeting/effect-presentation transition; v32 retains seeded
 exploration tie-breaking. These adaptations add no current production loot to
 the frozen baseline.
-The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v37/source.json)
-and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v38/format-transition.json)
+The [prior source receipt](../../scripts/fixtures/rogue-earned-baseline-v38/source.json)
+and [current transition receipt](../../scripts/fixtures/rogue-earned-baseline-v39/format-transition.json)
 retain the exact old/new identities and hashes; their historical proof is not
 rewritten. The dependency digest attests to actual bundled source bytes, not a
 compiler certificate. No body-package enrollment, two-HD player kit, treasure-room stages, darts,

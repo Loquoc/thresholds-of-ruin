@@ -130,6 +130,8 @@ impl Awareness {
         &mut self,
         memory: Option<u64>,
         clock: u64,
+        previous_location: Location,
+        location: Location,
     ) -> Result<(), GameError> {
         let Some(alert) = &mut self.alert else {
             return Ok(());
@@ -138,7 +140,14 @@ impl Awareness {
             self.alert = None;
             return Ok(());
         };
-        if alert.expires <= clock {
+        // A location-only investigation is complete once this committed
+        // transition visits its point. Do not keep pulling an explorer back
+        // after it leaves. Both endpoints matter for a newly received cue at
+        // the actor's current point. Preparing a rejected outcome stays pure.
+        if alert.expires <= clock
+            || alert.location == previous_location
+            || alert.location == location
+        {
             self.alert = None;
             return Ok(());
         }
@@ -1329,6 +1338,91 @@ mod tests {
         );
         let expires = game.actors[&OWNER].awareness.alert.unwrap().expires;
         assert_eq!(game.actors[&OWNER].awareness.alert_at(expires), None);
+    }
+
+    #[test]
+    fn completed_location_investigation_does_not_reopen_after_departure() {
+        let mut game = encounter(false);
+        let destination = game.actors[&SUBJECT].location;
+        game.alert_location_pulse(SUBJECT).unwrap();
+        game.teleport(SUBJECT, at(2, 4, 2)).unwrap();
+        game.configure_ai(
+            OWNER,
+            crate::ai::AiProfile {
+                idle: crate::behavior::IdleBehavior::Explore,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        game.refresh_navigation();
+        let receipt = game.actors[&OWNER].awareness.alert;
+        assert!(receipt.is_some());
+        let before = game.clone();
+        let action = game.next_ai_action().unwrap();
+        assert_eq!(
+            action,
+            (OWNER, crate::Action::Move(tor_world::Direction::East))
+        );
+        assert_eq!(game, before, "investigation preview is pure");
+        game.act(action.0, action.1).unwrap();
+        assert_eq!(game.actors[&OWNER].location, destination);
+        assert_eq!(
+            game.actors[&OWNER].awareness.alert, None,
+            "arrival completes this location-only investigation, not just its current step"
+        );
+        assert!(game.actors[&OWNER].behavior.engagement.is_none());
+    }
+
+    #[test]
+    fn location_investigation_completion_is_endpoint_local_and_transactional() {
+        let mut game = encounter(false);
+        let destination = game.actors[&SUBJECT].location;
+        game.alert_location_pulse(SUBJECT).unwrap();
+        game.teleport(SUBJECT, at(2, 4, 2)).unwrap();
+        let original = game.clone();
+        let mut outcome = game.settled_actor_outcome(OWNER).unwrap();
+        outcome.state.location = destination;
+        let prepared = game.prepare_actor_outcome(outcome).unwrap();
+        drop(prepared);
+        assert_eq!(
+            game, original,
+            "unpublished arrival cannot retire a receipt"
+        );
+        let mut outcome = game.settled_actor_outcome(OWNER).unwrap();
+        outcome.state.location = at(1, 4, 2);
+        game.apply_outcome(outcome).unwrap();
+        assert_eq!(
+            game.actors[&OWNER].awareness.alert, original.actors[&OWNER].awareness.alert,
+            "passing no licensed endpoint is not completion"
+        );
+        // Authorized relocation reaches the point too: this is physical visit
+        // completion, not a hidden search contest or a new target license.
+        game.teleport(OWNER, destination).unwrap();
+        assert!(game.actors[&OWNER].awareness.alert.is_none());
+        game.install_location_alert(OWNER, destination).unwrap();
+        assert!(
+            game.actors[&OWNER].awareness.alert.is_some(),
+            "a fresh cue may be installed"
+        );
+        let before = game.clone();
+        let _ = game.choose_ai(OWNER);
+        assert_eq!(
+            game, before,
+            "current-point preview must not consume the cue"
+        );
+        game.teleport(OWNER, at(1, 4, 2)).unwrap();
+        assert!(
+            game.actors[&OWNER].awareness.alert.is_none(),
+            "departure completes a fresh cue received at the current point"
+        );
+        game.install_location_alert(OWNER, at(1, 2, 2)).unwrap();
+        let renewed = game.actors[&OWNER].awareness.alert;
+        let outcome = game.settled_actor_outcome(OWNER).unwrap();
+        game.apply_outcome(outcome).unwrap();
+        assert_eq!(
+            game.actors[&OWNER].awareness.alert, renewed,
+            "an unrelated committed transition cannot retire a fresh remote cue"
+        );
     }
 
     #[test]
