@@ -1,8 +1,12 @@
 //! Item decisions inspect definitions only after the acting actor knows them.
-use crate::{
-    Action, ActorId, EquipmentSlotId, EquipmentSpec, Game, ItemId, Observation, TravelStep,
-};
+use crate::{Action, ActorId, EquipmentSlotId, Game, ItemId, Observation, TravelStep};
 use tor_world::Location;
+
+#[path = "ai_equipment.rs"]
+mod equipment;
+#[cfg(test)]
+use crate::EquipmentSpec;
+use equipment::{first_nondominated_gear, gear_score, KnownGearEvaluation};
 
 impl Game {
     pub(crate) fn choose_known_gold(
@@ -12,7 +16,8 @@ impl Game {
         profile: &crate::ai::AiProfile,
         route: &mut impl FnMut(Location) -> Option<Vec<TravelStep>>,
     ) -> Option<Action> {
-        self.choose_known_gold_bounded(actor, view, profile, route, &mut 512)
+        let mut remaining = crate::ai_approach::DETOUR_NODE_BUDGET;
+        self.choose_known_gold_bounded(actor, view, profile, route, &mut remaining)
     }
 
     // Preserve existing direct choices. Only a disclosed bystander blocking the
@@ -28,14 +33,7 @@ impl Game {
         if !profile.gold {
             return None;
         }
-        let occupied: std::collections::BTreeSet<_> = view
-            .visible_actors
-            .iter()
-            .filter(|row| {
-                row.id != actor && row.disclosure == crate::perception::ActorDisclosure::Creature
-            })
-            .map(|row| row.location)
-            .collect();
+        let occupied = crate::ai_approach::disclosed_bodies(actor, view);
         let mut blocked_targets = Vec::new();
         let mut direct = Vec::new();
         for item in view
@@ -85,67 +83,20 @@ impl Game {
             return None;
         }
         // Actor-owned movement durations are known; no future-world simulation.
-        let owner = self.actors.get(&actor)?;
-        let disclosed: std::collections::BTreeSet<_> = view
-            .visible_cells
-            .iter()
-            .filter(|cell| !cell.wall)
-            .map(|cell| (cell.location, cell.frame))
-            .collect();
-        let mut alternatives = Vec::new();
-        for (rank, direction) in tor_world::Direction::HORIZONTAL
-            .into_iter()
-            .chain([tor_world::Direction::Up, tor_world::Direction::Down])
-            .enumerate()
-        {
-            if self.condition_blocks_action(actor, &Action::Move(direction)) {
-                continue;
-            }
-            let Some((at, frame)) = self.actor_translation(actor, direction) else {
-                continue;
-            };
-            if at == view.location
-                || !disclosed.contains(&(at, frame))
-                || occupied.contains(&at)
-                || self.exposed_to_visible_hostile(actor, at, view)
-            {
-                continue;
-            }
-            let Ok(cost) = owner.movement_duration(direction) else {
-                continue;
-            };
-            alternatives.push((rank, direction, at, frame, u128::from(cost)));
-        }
-        // All gold targets share this budget. None from route_bounded means
-        // incomplete comparison: discard ALL new candidates, never early-best.
+        let planner = crate::ai_approach::KnownApproachPlanner::new(self, actor, view, &occupied)?;
+        // Preserve item order and repeated destinations: all gold targets share
+        // this budget, and an incomplete comparison discards every candidate.
         blocked_targets.sort();
         let mut best: Option<(u128, ItemId, usize, tor_world::Direction)> = None;
         for (item, target) in blocked_targets {
-            for &(rank, direction, at, frame, first_cost) in &alternatives {
-                let Ok(mut search) = self.route_search_from(actor, at, frame) else {
-                    continue;
-                };
-                let suffix = match search.route_bounded(target, remaining) {
-                    Ok(Some(path)) => path,
-                    Ok(None) => return None,
-                    Err(_) => continue,
-                };
-                if suffix.iter().any(|step| {
-                    step.destination == view.location || occupied.contains(&step.destination)
-                }) {
-                    continue;
-                }
-                let Some(cost) = suffix.iter().try_fold(first_cost, |total, step| {
-                    total.checked_add(u128::from(owner.movement_duration(step.direction).ok()?))
-                }) else {
-                    continue;
-                };
-                if best
-                    .as_ref()
-                    .is_none_or(|old| (cost, item, rank) < (old.0, old.1, old.2))
-                {
-                    best = Some((cost, item, rank, direction));
-                }
+            let Some(approach) = planner.best_detour(target, remaining).ok()? else {
+                continue;
+            };
+            if best
+                .as_ref()
+                .is_none_or(|old| (approach.cost, item, approach.rank) < (old.0, old.1, old.2))
+            {
+                best = Some((approach.cost, item, approach.rank, approach.direction));
             }
         }
         best.map(|(_, _, _, direction)| Action::Move(direction))
@@ -162,7 +113,10 @@ impl Game {
         // compatibility fast path. Only otherwise-idle ranged pair acquisition
         // may recover a disclosed blocked approach.
         self.choose_nearby_loot_direct(actor, view, profile, sight, route)
-            .or_else(|| self.choose_ranged_loot_detour(actor, view, profile, route, &mut 512))
+            .or_else(|| {
+                let mut remaining = crate::ai_approach::DETOUR_NODE_BUDGET;
+                self.choose_ranged_loot_detour(actor, view, profile, route, &mut remaining)
+            })
     }
 
     fn choose_nearby_loot_direct(
@@ -197,14 +151,14 @@ impl Game {
                 .inventory
                 .iter()
                 .any(|item| self.known_food(actor, item.id));
+        let mut gear = KnownGearEvaluation::new(self, actor);
         view.ground_items
             .iter()
             .filter_map(|item| {
                 if let Some(quantity) = ranged.get(&item.id) {
                     return Some((item, (*quantity).min(item.quantity)));
                 }
-                let useful_gear =
-                    profile.equipment && self.gear_destination(actor, item.id).is_some();
+                let useful_gear = profile.equipment && gear.destination(item.id).is_some();
                 let healing =
                     profile.care && !has_healing && self.known_healing_reserve(actor, item.id);
                 let food = wants_food && self.known_food(actor, item.id);
@@ -340,34 +294,6 @@ impl Game {
         Default::default()
     }
 
-    fn known_gear(&self, actor: ActorId, item: ItemId) -> Option<EquipmentSpec> {
-        let mut estimate = self.items.get(&item)?.clone();
-        estimate.condition = self.gear_condition_estimate(actor, item)?;
-        estimate.equipment_view()
-    }
-
-    /// Private planning estimate, never a disclosed numerical item view. An
-    /// identified archetype supplies its ordinary baseline until this actor has
-    /// observed exact instance numbers; hidden mutations never refresh memory.
-    fn gear_condition_estimate(
-        &self,
-        actor: ActorId,
-        item: ItemId,
-    ) -> Option<crate::armor::ItemCondition> {
-        let owner = self.actors.get(&actor)?;
-        let definition = &self.items.get(&item)?.spec;
-        if definition.concealed && !owner.knowledge.contains(&definition.identity) {
-            return None;
-        }
-        definition.equipment.as_ref()?;
-        Some(
-            owner
-                .known_equipment
-                .remembered_condition(item)
-                .unwrap_or_default(),
-        )
-    }
-
     pub(crate) fn exposed_to_visible_hostile(
         &self,
         actor: ActorId,
@@ -390,117 +316,13 @@ impl Game {
             })
     }
 
+    #[cfg(test)]
     pub(crate) fn gear_destination(
         &self,
         actor: ActorId,
         item: ItemId,
     ) -> Option<(EquipmentSlotId, Option<ItemId>)> {
-        let candidate = self.known_gear(actor, item)?;
-        let owner = self.actors.get(&actor)?;
-        if owner.equipment.values().any(|equipped| *equipped == item) {
-            return None;
-        }
-        let mut sockets: Vec<_> = owner.anatomy.slots.iter().enumerate().collect();
-        sockets.sort_by_key(|(index, _)| {
-            (
-                owner
-                    .equipment
-                    .contains_key(&EquipmentSlotId(*index as u16)),
-                *index,
-            )
-        });
-        for (index, kind) in sockets {
-            if *kind != candidate.slot {
-                continue;
-            }
-            let slot = EquipmentSlotId(u16::try_from(index).ok()?);
-            let old = owner.equipment.get(&slot).copied();
-            if old.is_some_and(|old| {
-                self.known_gear(actor, old).is_none()
-                    || owner.known_equipment.curse(old) == Some(true)
-            }) {
-                continue;
-            }
-            if self.gear_upgrade(actor, item, slot) {
-                return Some((slot, old));
-            }
-        }
-        None
-    }
-
-    /// Candidate evaluation uses the production modifier fold. It changes only
-    /// a private snapshot; the chosen ordinary action still owns admission.
-    fn gear_projection(&self, actor: ActorId, item: ItemId, slot: EquipmentSlotId) -> Option<Game> {
-        crate::diagnostics::gear_projection();
-        let mut equipment = self.actors.get(&actor)?.equipment.clone();
-        equipment.remove(&slot);
-        let mut candidate = self.clone();
-        candidate.project_known_loadout_in_place(self, actor, equipment.clone())?;
-        candidate.items.edit(item, |item| {
-            item.location = crate::ItemLocation::Carried(actor)
-        })?;
-        candidate.capture_equip_allocation(actor, item, slot).ok()?;
-        equipment.insert(slot, item);
-        candidate.project_known_loadout_in_place(self, actor, equipment)?;
-        Some(candidate)
-    }
-
-    /// Baseline and candidates use the same remembered facts or ordinary
-    /// archetype estimates. Reading live hidden condition would make AI an oracle.
-    fn known_loadout_projection(
-        &self,
-        actor: ActorId,
-        equipment: std::collections::BTreeMap<EquipmentSlotId, ItemId>,
-    ) -> Option<Game> {
-        let mut candidate = self.clone();
-        candidate.project_known_loadout_in_place(self, actor, equipment)?;
-        Some(candidate)
-    }
-
-    /// Reuse one private workspace across a bounded candidate scan. Restore the
-    /// original actor before each fold so resource/Health clamping from a rejected
-    /// candidate cannot affect the next comparison. Item values always come from
-    /// the original actor's remembered facts, never earlier hypothetical state.
-    fn project_known_loadout_in_place(
-        &mut self,
-        source: &Game,
-        actor: ActorId,
-        equipment: std::collections::BTreeMap<EquipmentSlotId, ItemId>,
-    ) -> Option<()> {
-        *self.actors.get_mut(&actor)? = source.actors.get(&actor)?.clone();
-        for id in equipment.values() {
-            let condition = source.gear_condition_estimate(actor, *id)?;
-            if !source.item_equip_unit_available(*id) {
-                return None;
-            }
-            self.items.edit(*id, |item| {
-                // A private loadout estimates the same single physical unit
-                // that ordinary Equip reserves and extracts at completion.
-                item.quantity = 1;
-                item.condition = condition;
-                item.location = crate::ItemLocation::Carried(actor);
-            })?;
-        }
-        let sources = equipment
-            .iter()
-            .map(|(socket, id)| {
-                self.items
-                    .get(id)?
-                    .equipment_source(*id, *socket, &self.content.rules)
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let context = self.equipment_recovery_context(actor, &sources).ok()?;
-        let mut owner = self.actors.get_mut(&actor)?;
-        let result = owner
-            .combat
-            .as_mut()?
-            .project_equipment_immediately_in_context(sources, context)
-            .ok()?;
-        if result.died {
-            return None;
-        }
-        owner.equipment = equipment;
-        Some(())
+        KnownGearEvaluation::new(self, actor).destination(item)
     }
 
     /// Structural admission and remembered scoring share one reusable workspace
@@ -517,50 +339,15 @@ impl Game {
         let projected = workspace.get_or_insert_with(|| self.clone());
         projected.project_known_loadout_in_place(self, actor, owner.equipment.clone())?;
         let before = gear_score(projected, actor)?;
-        let mut sockets: Vec<_> = owner.anatomy.slots.iter().enumerate().collect();
-        sockets.sort_by_key(|(index, _)| {
-            (
-                owner
-                    .equipment
-                    .contains_key(&EquipmentSlotId(*index as u16)),
-                *index,
-            )
-        });
-        for (index, kind) in sockets {
-            if *kind != gear.slot {
-                continue;
-            }
+        for index in self.known_gear_socket_indices(actor, &gear.slot)? {
             let slot = EquipmentSlotId(index as u16);
-            let previous = owner.equipment.get(&slot).copied();
-            if previous.is_some_and(|id| {
-                self.known_gear(actor, id).is_none()
-                    || owner.known_equipment.curse(id) == Some(true)
-            }) {
+            let Some(previous) = self.known_gear_replacement(actor, slot) else {
                 continue;
-            }
-            let mut equipment = owner.equipment.clone();
-            equipment.remove(&slot);
-            if projected
-                .project_known_loadout_in_place(self, actor, equipment.clone())
-                .is_none()
-            {
-                continue;
-            }
-            projected.items.edit(item, |item| {
-                item.location = crate::ItemLocation::Carried(actor)
-            })?;
-            if projected
-                .capture_equip_allocation(actor, item, slot)
-                .is_err()
-            {
-                continue;
-            }
-            equipment.insert(slot, item);
-            if projected
-                .project_known_loadout_in_place(self, actor, equipment)
-                .is_none()
-            {
-                continue;
+            };
+            match projected.project_gear_candidate_in_place(self, actor, item, slot) {
+                Ok(()) => {}
+                Err(equipment::CandidateProjectionFailure::Rejected) => continue,
+                Err(equipment::CandidateProjectionFailure::ItemUnavailable) => return None,
             }
             if !projected.ranged_loadout_has_budget(actor, item, slot) {
                 continue;
@@ -580,21 +367,9 @@ impl Game {
         None
     }
 
+    #[cfg(test)]
     fn gear_upgrade(&self, actor: ActorId, item: ItemId, slot: EquipmentSlotId) -> bool {
-        let Some(candidate) = self.gear_projection(actor, item, slot) else {
-            return false;
-        };
-        let before = self
-            .actors
-            .get(&actor)
-            .and_then(|owner| self.known_loadout_projection(actor, owner.equipment.clone()));
-        let (Some(before), Some(after)) = (
-            before.as_ref().and_then(|game| gear_score(game, actor)),
-            gear_score(&candidate, actor),
-        ) else {
-            return false;
-        };
-        after.dominates(&before)
+        KnownGearEvaluation::new(self, actor).upgrade(item, slot)
     }
 
     /// Recover a free primary grip when a depleted secondary launcher blocks a
@@ -682,11 +457,12 @@ impl Game {
             return Some(action);
         }
         let retained = self.retained_ranged_weapon(actor, view);
+        let mut gear = KnownGearEvaluation::new(self, actor);
         let choices: Vec<_> = view
             .inventory
             .iter()
             .filter_map(|item| {
-                self.gear_destination(actor, item.id)
+                gear.destination(item.id)
                     .filter(|(_, previous)| previous.is_none() || *previous != retained)
                     .map(|destination| (item.id, destination))
             })
@@ -707,254 +483,12 @@ impl Game {
     }
 }
 
-/// Score each choice once against the same immutable source. Keep unavailable
-/// scores and input order: neither can dominate, and ties/incomparable loadouts
-/// still select the first nondominated choice. Only scores, not Games, survive
-/// projection; production derivation remains the authority for each loadout.
-fn first_nondominated_gear<T>(
-    choices: &[T],
-    score: impl FnMut(&T) -> Option<GearScore>,
-) -> Option<&T> {
-    let scores: Vec<_> = choices.iter().map(score).collect();
-    scores
-        .iter()
-        .position(|candidate| {
-            candidate.as_ref().is_some_and(|candidate| {
-                !scores
-                    .iter()
-                    .flatten()
-                    .any(|other| other.dominates(candidate))
-            })
-        })
-        .map(|index| &choices[index])
-}
-
 pub(crate) fn required_nutrition(view: &Observation) -> Option<crate::nutrition::Hunger> {
     match view.combat.as_ref()?.own_stats.as_ref()?.nutrition() {
         crate::nutrition::NutritionView::Required { hunger, .. } => Some(hunger),
         crate::nutrition::NutritionView::Exempt => None,
     }
 }
-#[derive(PartialEq, Eq)]
-struct GearScore {
-    maximum_health: u64,
-    // Lower effective upkeep is useful, but higher upkeep alone does not veto
-    // a combat upgrade. Exempt creatures and a floored-zero rate gain nothing.
-    nutrition_rate_thirtieths: i64,
-    sustained_attributes: std::collections::BTreeSet<crate::attributes::Attribute>,
-    protects_armor: bool,
-    see_invisible: bool,
-    stats: std::collections::BTreeMap<crate::rules::Stat, i64>,
-    flags: std::collections::BTreeSet<crate::content_ids::FlagId>,
-    abilities: std::collections::BTreeSet<crate::content_ids::AbilityId>,
-    protection: std::collections::BTreeMap<crate::rules::Selector, (bool, u32)>,
-    attack: AttackScore,
-}
-#[derive(Clone, PartialEq, Eq)]
-struct AttackScore {
-    bonus: i64,
-    prepare: u64,
-    recovery: u64,
-    damage: std::collections::BTreeMap<
-        (
-            crate::combat::DamageType,
-            Option<crate::content_ids::DescriptorId>,
-        ),
-        i64,
-    >,
-}
-impl GearScore {
-    fn dominates(&self, old: &Self) -> bool {
-        let improved = self
-            .stats
-            .iter()
-            .any(|(stat, value)| *value > old.stats.get(stat).copied().unwrap_or(0))
-            || self.maximum_health > old.maximum_health
-            || self.nutrition_rate_thirtieths < old.nutrition_rate_thirtieths
-            || self.sustained_attributes.len() > old.sustained_attributes.len()
-            || (self.protects_armor && !old.protects_armor)
-            || (self.see_invisible && !old.see_invisible)
-            || self.flags.len() > old.flags.len()
-            || self.abilities.len() > old.abilities.len()
-            || self
-                .protection
-                .iter()
-                .any(|(selector, (immune, reduction))| {
-                    let (old_immune, old_reduction) =
-                        old.protection.get(selector).copied().unwrap_or_default();
-                    (*immune && !old_immune) || (!old_immune && *reduction > old_reduction)
-                })
-            || self.attack.bonus > old.attack.bonus
-            || self.attack.prepare < old.attack.prepare
-            || self.attack.recovery < old.attack.recovery
-            || self
-                .attack
-                .damage
-                .iter()
-                .any(|(key, value)| *value > old.attack.damage.get(key).copied().unwrap_or(0));
-        improved
-            && self.maximum_health >= old.maximum_health
-            && self
-                .sustained_attributes
-                .is_superset(&old.sustained_attributes)
-            && (!old.protects_armor || self.protects_armor)
-            && (!old.see_invisible || self.see_invisible)
-            && old
-                .stats
-                .iter()
-                .all(|(stat, value)| self.stats.get(stat).copied().unwrap_or(0) >= *value)
-            && self
-                .stats
-                .iter()
-                .all(|(stat, value)| *value >= old.stats.get(stat).copied().unwrap_or(0))
-            && self.flags.is_superset(&old.flags)
-            && self.abilities.is_superset(&old.abilities)
-            && old
-                .protection
-                .iter()
-                .all(|(selector, (immune, reduction))| {
-                    let (new_immune, new_reduction) =
-                        self.protection.get(selector).copied().unwrap_or_default();
-                    (!immune || new_immune) && (new_immune || new_reduction >= *reduction)
-                })
-            && self.attack.bonus >= old.attack.bonus
-            && self.attack.prepare <= old.attack.prepare
-            && self.attack.recovery <= old.attack.recovery
-            && old
-                .attack
-                .damage
-                .iter()
-                .all(|(key, amount)| self.attack.damage.get(key).copied().unwrap_or(0) >= *amount)
-    }
-}
-
-/// Read cache values only. Every candidate above was derived by the same source
-/// fold as actual equipment; damage estimates never inspect enemy protection.
-fn gear_score(game: &Game, actor: ActorId) -> Option<GearScore> {
-    use crate::rules::{AbilityStat, DefenseKind, ModifierOp, Stat};
-    let creature = game.creature(actor)?;
-    let derived = creature.derived();
-    let mut stats = std::collections::BTreeMap::new();
-    for attribute in crate::attributes::Attribute::ALL {
-        stats.insert(
-            Stat::Attribute { attribute },
-            i64::from(derived.attributes.get(attribute)),
-        );
-    }
-    for (defense, value) in [
-        (DefenseKind::Physical, derived.defenses.physical),
-        (DefenseKind::Cognitive, derived.defenses.cognitive),
-        (DefenseKind::Spiritual, derived.defenses.spiritual),
-    ] {
-        stats.insert(Stat::Defense { defense }, i64::from(value));
-    }
-    // Lower derived periods/reset percentages are improvements. Comparing final
-    // values also accounts for HD scaling and all ordinary source interactions.
-    stats.insert(
-        Stat::HealthRecoveryPeriod,
-        -(derived.health_recovery_period as i64),
-    );
-    stats.insert(
-        Stat::HealthRecoveryResetPercent,
-        -i64::from(derived.health_recovery_reset_percent),
-    );
-    // Food cost is an upkeep tradeoff, not a Pareto combat regression.
-    stats.insert(
-        Stat::AttackDamageRollBonus,
-        i64::from(derived.attack_damage_roll_bonus),
-    );
-    for resource in crate::resources::Resource::ALL {
-        stats.insert(
-            Stat::ResourceMax { resource },
-            i64::from(creature.costs().resources().maximum(resource)),
-        );
-    }
-    for (ability, values) in &derived.ability_values {
-        for (stat, value) in [
-            (AbilityStat::Dice, i64::from(values.dice)),
-            (AbilityStat::FlatBonus, i64::from(values.flat)),
-            (AbilityStat::CheckBonus, i64::from(values.check_bonus)),
-            (AbilityStat::Difficulty, i64::from(values.difficulty)),
-            (AbilityStat::Duration, values.duration as i64),
-            (AbilityStat::Range, i64::from(values.range)),
-            (AbilityStat::Preparation, -values.preparation),
-            (AbilityStat::Recovery, -values.recovery),
-        ] {
-            stats.insert(
-                Stat::Ability {
-                    ability: ability.clone(),
-                    stat,
-                },
-                value,
-            );
-        }
-    }
-    let mut protection = std::collections::BTreeMap::new();
-    for modifier in derived.sources.values().flatten() {
-        if let ModifierOp::Immunity { selector }
-        | ModifierOp::Reduction { selector, .. }
-        | ModifierOp::SignedReduction { selector, .. } = &modifier.op
-        {
-            protection.insert(
-                selector.clone(),
-                (
-                    derived.protection.has_immunity(selector),
-                    derived.protection.reduction(selector),
-                ),
-            );
-        }
-    }
-    let attack = game.selected_melee_attack(actor)?;
-    let basic = game.basic_attack(actor)?;
-    let values = derived.ability_values(&basic);
-    let damage = match attack.damage_with_modifiers(values.dice, values.flat, 0) {
-        Ok(damage) => Some(damage),
-        Err(crate::attacks::SelectedDamageError::NoPrimaryDamage) => None,
-        Err(crate::attacks::SelectedDamageError::InvalidDefinition) => return None,
-    };
-    let damage = damage
-        .map(|damage| damage.with_roll_bonus(derived.attack_damage_roll_bonus))
-        .transpose()
-        .ok()?;
-    let mut estimates = std::collections::BTreeMap::new();
-    for component in damage.iter().flat_map(|damage| damage.components()) {
-        let estimate = match component.amount() {
-            crate::damage::DamageAmount::Fixed(value) => i64::from(value) * 2,
-            crate::damage::DamageAmount::Rolled(pool) => (i64::from(pool.count())
-                * (i64::from(pool.sides()) + 1)
-                + i64::from(pool.bonus()) * 2)
-                .max(0),
-        };
-        let key = component.key();
-        *estimates.entry((key.category, key.descriptor)).or_insert(0) += estimate;
-    }
-    let bonus = derived.selected_attack.check_bonus;
-    // Candidate scoring consumes the same cached timing as the ability planner.
-    let timing = game.ability_timing(actor, &basic).ok()?;
-    Some(GearScore {
-        maximum_health: derived.maximum_health,
-        nutrition_rate_thirtieths: match creature.nutrition() {
-            crate::nutrition::Nutrition::Exempt => 0,
-            crate::nutrition::Nutrition::Required { .. } => {
-                (30 + derived.nutrition_rate_thirtieths).max(0)
-            }
-        },
-        sustained_attributes: derived.sustained_attributes.clone(),
-        protects_armor: derived.protects_armor,
-        see_invisible: derived.perception.see_invisible,
-        stats,
-        flags: derived.flags.clone(),
-        abilities: derived.abilities.clone(),
-        protection,
-        attack: AttackScore {
-            bonus,
-            prepare: timing.preparation,
-            recovery: timing.recovery,
-            damage: estimates,
-        },
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1568,6 +1102,115 @@ mod tests {
             attack: None,
             modifiers: vec![defense(value)],
         }
+    }
+
+    #[test]
+    fn shared_gear_projection_preserves_failure_kinds_and_resets_workspace() {
+        let (mut game, actor, at) = fixture();
+        add(&mut game, actor, at, 10, ranking_armor(3));
+        let original = game.clone();
+        let slot = EquipmentSlotId(3);
+        let mut workspace = game.clone();
+        assert_eq!(
+            workspace.project_gear_candidate_in_place(&game, actor, ItemId(10), slot),
+            Ok(()),
+            "positive candidate must pass ordinary admission and both folds"
+        );
+        let expected = gear_score(&workspace, actor).unwrap();
+        assert_eq!(
+            workspace.project_gear_candidate_in_place(&game, actor, ItemId(9999), slot),
+            Err(equipment::CandidateProjectionFailure::ItemUnavailable),
+            "missing unit aborts ranged comparison, not merely this socket"
+        );
+        assert_eq!(
+            workspace.project_gear_candidate_in_place(
+                &game,
+                actor,
+                ItemId(10),
+                EquipmentSlotId(u16::MAX),
+            ),
+            Err(equipment::CandidateProjectionFailure::Rejected),
+            "ordinary admission rejection allows the next socket"
+        );
+        assert_eq!(
+            workspace.project_gear_candidate_in_place(&game, actor, ItemId(10), slot),
+            Ok(())
+        );
+        assert!(gear_score(&workspace, actor).unwrap() == expected);
+        assert_eq!(game, original);
+    }
+
+    #[test]
+    fn ordinary_gear_scan_shares_one_known_baseline_and_preserves_choice() {
+        for count in [1_u64, 4, 16, 64] {
+            let (mut game, actor, at) = fixture();
+            for index in 0..count {
+                add(
+                    &mut game,
+                    actor,
+                    at,
+                    100 + index,
+                    ranking_armor(index as i64 + 1),
+                );
+            }
+            let view = game.observe(actor).unwrap();
+            let original = game.clone();
+            let before = crate::diagnostics::work_counts();
+            assert_eq!(
+                game.choose_gear(actor, &view),
+                Some(Action::Equip {
+                    item: ItemId(99 + count),
+                    slot: EquipmentSlotId(3),
+                })
+            );
+            let after = crate::diagnostics::work_counts();
+            // Each candidate still gets eligibility AND final ranking. Only
+            // the immutable known baseline is shared, never equip admission.
+            assert_eq!(
+                after.gear_projections - before.gear_projections,
+                2 * count as usize
+            );
+            assert_eq!(
+                after.game_clones - before.game_clones,
+                2 * count as usize + 1
+            );
+            assert_eq!(game, original);
+        }
+    }
+
+    #[test]
+    fn known_gear_shared_baseline_matches_fresh_loadouts_after_rejection() {
+        let (mut game, actor, at) = fixture();
+        for (id, value) in [(10, 3), (11, 1), (12, 3), (13, 5)] {
+            add(&mut game, actor, at, id, ranking_armor(value));
+        }
+        let slot = EquipmentSlotId(3);
+        game.equip_authored(actor, ItemId(10), slot).unwrap();
+        let original = game.clone();
+        for order in [[11, 12, 13], [13, 12, 11]] {
+            let mut comparison = KnownGearEvaluation::new(&game, actor);
+            assert_eq!(comparison.destination(ItemId(9999)), None);
+            assert!(
+                comparison.baseline.is_none(),
+                "unavailable item must remain lazy"
+            );
+            for id in order {
+                let candidate = game.gear_projection(actor, ItemId(id), slot).unwrap();
+                let baseline = game
+                    .known_loadout_projection(actor, game.actors[&actor].equipment.clone())
+                    .unwrap();
+                let expected = gear_score(&candidate, actor)
+                    .unwrap()
+                    .dominates(&gear_score(&baseline, actor).unwrap());
+                assert_eq!(expected, id == 13, "equal or weaker gear is not an upgrade");
+                assert_eq!(
+                    comparison.destination(ItemId(id)),
+                    expected.then_some((slot, Some(ItemId(10))))
+                );
+                assert!(comparison.baseline.as_ref().is_some_and(Option::is_some));
+            }
+        }
+        assert_eq!(game, original);
     }
 
     #[test]

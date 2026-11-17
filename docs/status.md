@@ -21,15 +21,14 @@ future work. No hosted
 qualification or measured hosted saving is claimed.
 
 **Current formats:** protocol **72**, save format **70**, scenario format **37**,
-ruleset **`interactions-v65`**, scenario validator **`tor-scenario-51`**.
+ruleset **`interactions-v66`**, scenario validator **`tor-scenario-51`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
 change with a deterministic rules correction. The current AI identity also covers
-conservative pickup and reserve recognition for already-known medicine, without
-changing consumption policy or granting autonomous item knowledge. Authored
-interests and ordinary loot priorities remain unchanged. See [AI](reference/ai.md).
-Current private
+completion of anonymous location-alert investigations on committed arrival. This
+clears the existing alert rather than adding actor identification or persistent
+state. See [AI](reference/ai.md). Current private
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.
 

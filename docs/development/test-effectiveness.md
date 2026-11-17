@@ -511,6 +511,17 @@ captured client queries. Ordinary protocol comparison then passed all 308
 integration and 88 library tests. This qualifies genuine wire samples, not local
 native UI behavior; the original presentation-client test methods remain intact.
 
+### Server-only AI control stays headless, 16 November 2026
+
+The autonomous self-defense owner still used Text solely for wizard arena
+control. Missing that unnecessary executable exposed a harness/ownership gap,
+not a failed gameplay assertion. The owner now sends the same step/resume
+commands through headless and rejects presentation-client launches. Reservation,
+start/resolution payment, exact restored resources, completion tick and surviving
+condition assertions remain unchanged. A guarded Text-backed mutation fails at
+the ownership boundary; the headless process passes. This corrects one test
+owner, not every historical server test or any presentation-client behavior.
+
 ### PR #11 full-profile Python feedback (2026-11-15)
 
 The first Linux debug Python shard exposed eight distinct failing methods
@@ -669,3 +680,20 @@ medicine and care-disabled Emu remain negative controls. Seeded process knowledg
 is not evidence that autonomous creatures learn by experimentation; scenario AI
 cannot be taken over through ordinary client control. Deliberate first-red
 regressions remain separate from naturally failing test counts.
+
+### Completing anonymous investigations (2026-11-17)
+
+A production Hobgoblin species/policy in the deterministic worn-Stealth process
+fixture reached an ordinary aggravation-scroll location before expiry without
+acquiring its hidden source, but retained the receipt. This left subsequent
+Explore decisions liable to return to the already visited point. The new unit
+and process regressions first failed specifically at retained-alert arrival,
+not at package setup, disclosure or movement. Completion is owned by committed
+actor-outcome reconciliation and checks both transition endpoints; it does not
+add hidden target knowledge or a serialized goal field. Unit witnesses cover
+preview/unpublished-outcome purity, arrival and relocation, newly received
+current-point cues, remote fresh cues and unrelated transitions. The process
+witness covers ordinary scroll/movement, exploration departure, fresh-cue reuse
+and source-free restart. It uses a production species with a deterministic
+Stealth fixture, not a generated full-roster birth or proof of general patrol,
+territorial, investigation-search or coordinated tactics.

@@ -378,14 +378,7 @@ impl Game {
             })
             .filter(|row| !self.exposed_to_visible_hostile(actor, row.location, view))
             .collect();
-        let occupied: std::collections::BTreeSet<_> = view
-            .visible_actors
-            .iter()
-            .filter(|row| {
-                row.id != actor && row.disclosure == crate::perception::ActorDisclosure::Creature
-            })
-            .map(|row| row.location)
-            .collect();
+        let occupied = crate::ai_approach::disclosed_bodies(actor, view);
         let destinations: std::collections::BTreeSet<_> =
             ground.iter().map(|row| row.location).collect();
         // (hop count, first direction). None direction means underfoot Take.
@@ -413,70 +406,12 @@ impl Game {
         if blocked.is_empty() {
             return None;
         }
-        let owner = self.actors.get(&actor)?;
-        let disclosed: std::collections::BTreeSet<_> = view
-            .visible_cells
-            .iter()
-            .filter(|cell| !cell.wall)
-            .map(|cell| (cell.location, cell.frame))
-            .collect();
-        let mut alternatives = Vec::new();
-        for (rank, direction) in tor_world::Direction::HORIZONTAL
-            .into_iter()
-            .chain([tor_world::Direction::Up, tor_world::Direction::Down])
-            .enumerate()
-        {
-            if self.condition_blocks_action(actor, &Action::Move(direction)) {
-                continue;
-            }
-            let Some((at, frame)) = self.actor_translation(actor, direction) else {
-                continue;
-            };
-            if at == view.location
-                || !disclosed.contains(&(at, frame))
-                || occupied.contains(&at)
-                || self.exposed_to_visible_hostile(actor, at, view)
-            {
-                continue;
-            }
-            let Ok(cost) = owner.movement_duration(direction) else {
-                continue;
-            };
-            alternatives.push((rank, direction, at, frame, u128::from(cost)));
-        }
+        let planner = crate::ai_approach::KnownApproachPlanner::new(self, actor, view, &occupied)?;
         for target in blocked {
-            let mut best = None;
-            for &(rank, direction, at, frame, first_cost) in &alternatives {
-                let Ok(mut search) = self.route_search_from(actor, at, frame) else {
-                    continue;
-                };
-                let suffix = match search.route_bounded(target, remaining) {
-                    Ok(Some(path)) => path,
-                    // Never let an early partial comparison license a pair.
-                    Ok(None) => return None,
-                    Err(_) => continue,
-                };
-                if suffix.iter().any(|step| {
-                    step.destination == view.location || occupied.contains(&step.destination)
-                }) {
-                    continue;
-                }
-                let Some(cost) = suffix.iter().try_fold(first_cost, |total, step| {
-                    total.checked_add(u128::from(owner.movement_duration(step.direction).ok()?))
-                }) else {
-                    continue;
-                };
-                if best
-                    .as_ref()
-                    .is_none_or(|old: &(u128, usize, usize, tor_world::Direction)| {
-                        (cost, rank) < (old.0, old.1)
-                    })
-                {
-                    best = Some((cost, rank, suffix.len() + 1, direction));
-                }
-            }
-            if let Some((_, _, hops, direction)) = best {
-                approaches.insert(target, (hops, Some(direction)));
+            // Exhaustion invalidates the entire pair comparison, not just this
+            // destination. Direct and fallback eligibility retain one cache.
+            if let Some(approach) = planner.best_detour(target, remaining).ok()? {
+                approaches.insert(target, (approach.hops, Some(approach.direction)));
             }
         }
         let eligible: Vec<_> = ground

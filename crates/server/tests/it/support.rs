@@ -258,7 +258,7 @@ turn_ticks = 100
     .unwrap();
     std::fs::write(
         original.join("rules/nested/base.toml"),
-        "import = \"interactions-v65\"\n",
+        "import = \"interactions-v66\"\n",
     )
     .unwrap();
     std::fs::write(
