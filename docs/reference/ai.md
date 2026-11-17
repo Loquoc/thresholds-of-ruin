@@ -148,14 +148,20 @@ disclosed geometry; it does not optimize against secret opponent defenses.
 Directional/ray candidates use disclosed alignment rather than a hidden trace to
 find concealed bodies. Known finite devices are fallback sources only when their
 identity and a positive charge fact make them usable; query or birth possession
-does not identify them.
+does not identify them. Hostile device fallback accepts bounded Sight and
+UntilObstruction first-body delivery. The latter uses a disclosed bearing without
+inventing a distance cap; physical execution still owns obstruction and first-body
+stopping. This does not change granted creature rays, infer cancellation utility
+from private conditions, or establish that generated creatures acquire or identify
+wands. Exact production Magic Missile admission is covered with synthetic actors
+and ordinary Identify, not a natural NPC inventory claim.
 
 Fresh ray, device, launcher and equipped-throw choices decline a bearing when
 a disclosed nonhostile body cell or a disclosed wall lies on its nominal prefix
 before the target in a fully disclosed ordinary local chart. This includes non-anchor body cells and
 arbitrary cell bearings. After a definite veto only, they examine at most 16 unique
 alternative disclosed target body-cell locations in canonical order. An alternate
-must positively prove a complete clear prefix within effective range; absence of
+must positively prove a complete clear prefix within any authored range; absence of
 a veto is not proof of safety. The original bearing remains unchanged when it
 has no definite veto. The shared decision-local chart reads disclosed occurrences,
 not private target shape or future collisions, and introduces no random draw.
@@ -383,6 +389,8 @@ Source/test witnesses are static evidence here, not newly executed results.
 | Contract | Owner |
 | --- | --- |
 | Pure choice and stable priorities | [ai.rs](../../crates/simulation/src/ai.rs), [decision tests](../../crates/simulation/src/ai.rs) |
+| Retained attack matching, explicit selection modes and fresh fallback | [attack selection](../../crates/simulation/src/ai_attack_selection.rs), [direct probe tests](../../crates/simulation/src/ai_attack_selection_tests.rs) |
+| Retreat metric/frame boundaries and distinct ranged spacing | [tactical movement](../../crates/simulation/src/ai_tactical_movement.rs), [frame tests](../../crates/simulation/src/ai_tactical_movement_tests.rs), [flee contracts](../../crates/simulation/src/ai_flee_tests.rs) |
 | Idle visits, routes and permissions | [idle tests](../../crates/simulation/src/ai_idle_tests.rs), [hobgoblin host tests](../../crates/server/src/hobgoblin_roaming_tests.rs) |
 | Retained exploration interests and save/replay | [exploration tests](../../crates/simulation/src/ai_exploration_tests.rs), [checkpoint tests](../../crates/simulation/src/checkpoint.rs), [streaming tests](../../crates/simulation/src/streaming.rs), [ordinary process tests](../../scripts/test_ai_interactions_process.py) |
 | Awareness, normal contact and Stealth | [awareness](../../crates/simulation/src/awareness.rs) |
@@ -454,6 +462,46 @@ actor-owned RNG. None becomes authoritative until ordinary commit. A stage that 
 intentional draft effects already specified by its contract. Do not re-evaluate
 an earlier predicate merely because a later stage needs its result: cached
 negative gold decisions are as important as positive ones.
+
+Hostile technique selection has its own [owner](../../crates/simulation/src/ai_attack_selection.rs),
+separate from encounter state and tactical movement. Its named modes distinguish
+ordinary engagement, cornered basic-only fallback, and a reposition eligibility
+probe. The last may inspect an outside-melee capability while adjacent; it does
+not execute that capability or choose movement. Granted candidates retain authored
+priority and stable identity order, with known finite devices as the final allowed
+fallback. Do not add combinations of mode flags implicitly.
+
+Retained attack probing distinguishes a selected frozen plan, ordinary mismatch
+that permits fresh selection, and an unsupported retained shape that stops the
+selector. Mode eligibility is checked before aim matching. A matching but no-longer
+available plan permits fresh selection. Retained bearing matching uses its legacy
+disclosed geometry, not the fresh wall/ally alternate search: sharing that fresh
+selector could silently recapture already-paid aim. The probe borrows the existing
+plan; only the selected result is cloned. It adds no resource admission, cache,
+random draw or serialized state.
+
+[Tactical movement](../../crates/simulation/src/ai_tactical_movement.rs) owns retreat
+and ranged-spacing proposals, not encounter priority or commitment. Retreat's
+metric explicitly selects remembered route hops or canonical local coordinates
+for the entire decision; equal scalar values do not make those units comparable.
+Its borrowed local frame names coordinate evidence only, not legal occupancy,
+support or execution. Frame construction performs no eager chart scan. Route
+searches, the shared plateau budget and its destination cache stay in the policy.
+A missing direct return path may prove unbounded graph distance; a failed or
+exhausted bounded plateau query cannot prove escape. Preserve this distinction.
+Ranged spacing retains its separate funded-technique, footprint, gravity,
+footing, disclosure and range guards rather than sharing a generic move score.
+
+Direct loot classification has a small decision-local `DirectLootNeeds` owner in
+[ai_items](../../crates/simulation/src/ai_items.rs). It answers quantity only;
+exposure checks, Wait semantics, approach construction, action legality and final
+distance/item ranking remain visible in the chooser. Ranged pair quantities are
+still computed first by their existing reachability-aware scan, so this is not
+fully navigation-independent desire. One lazy known-gear baseline is reused
+across ground rows. Preserve ranged-first quantity clamping, the original
+gear/healing/food/supply evaluation order, one-unit precedence over supply needs,
+and saturating carried-supply aggregation. This boundary adds no new cache,
+interest, item interpretation or acquisition policy.
 
 To add an interest or tactic, first choose its explicit priority and eligibility
 policy, then implement its bounded decision in the relevant stage. Keep desire,

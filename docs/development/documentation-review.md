@@ -144,7 +144,7 @@ escapes, blocked/unknown-route behavior, same-region folded-chart rejection,
 preview purity and checkpointed AI execution. Additional
 candidate searches are an explicit correctness cost, not a measured speedup.
 The approved deterministic correction was introduced under historical rules identity 57.
-The current `interactions-v71` additionally covers shared item use, carrier
+The current `interactions-v72` additionally covers shared item use, carrier
 generation, disclosed resource-aware ranged positioning and useful item pursuit
 without a fixed three-cell gameplay cutoff, plus fresh-shot avoidance of disclosed
 nonhostile interception before the target in an ordinary local chart. This does
@@ -165,9 +165,12 @@ Historical rules identity 69 prefers disclosed melee contact during stationary f
 target acquisition and permits flight recovery through an alternate disclosed
 body-cell endpoint. Historical rules identity 70 avoids disclosed terrain blocking
 a body-origin flight, while preserving ordinary execution authority.
-Current rules identity 71 adds disclosed hostile touch continuation with positive
+Historical rules identity 71 adds disclosed hostile touch continuation with positive
 memory, without replacing a live engagement or acquiring an unseen or friendly
-toucher. Ordinary paid execution remains authoritative.
+toucher. Current rules identity 72 admits hostile first-body devices only when their type
+is identified and their positive charge balance is known. Granted-ray behavior
+is unchanged; this does not claim natural NPC acquisition of identified devices.
+Ordinary paid execution remains authoritative.
 The stored fields and archive version remain unchanged.
 These changes do not relabel this earlier correction or its test receipts.
 All saves pinned to the previous identity are rejected, not only saves containing

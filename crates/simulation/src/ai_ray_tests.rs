@@ -1492,3 +1492,60 @@ fn known_wall_chart_preserves_canonical_proof_in_every_orientation() {
         );
     }
 }
+
+#[test]
+fn unbounded_disclosed_bearing_has_no_invented_range_and_rejects_bad_evidence() {
+    let game = fixture();
+    let mut view = game.observe(ActorId(2)).unwrap();
+    let target = ActorId(1);
+    let location = view
+        .visible_actors
+        .iter()
+        .find(|row| row.id == target)
+        .unwrap()
+        .location;
+    let cell = SightCell {
+        physical: true,
+        location,
+        offset: Position { x: 9, y: 2, z: -1 },
+        rotation: 0,
+        wall: false,
+    };
+    assert_eq!(
+        disclosed_flight_aim_with_range(target, &[cell], &view, [0, 0, 1], Some(6)),
+        None
+    );
+    assert_eq!(
+        disclosed_flight_aim_with_range(target, &[cell], &view, [0, 0, 1], None),
+        Some(crate::abilities::FlightAim::Cell { offset: [9, 2, 0] })
+    );
+    for invalid in [
+        SightCell {
+            physical: false,
+            ..cell
+        },
+        SightCell { wall: true, ..cell },
+    ] {
+        assert_eq!(
+            disclosed_flight_aim_with_range(target, &[invalid], &view, [0, 0, 1], None),
+            None
+        );
+    }
+    let overflow = SightCell {
+        offset: Position {
+            x: i32::MAX,
+            y: 0,
+            z: 0,
+        },
+        ..cell
+    };
+    assert_eq!(
+        disclosed_flight_aim_with_range(target, &[overflow], &view, [1, 0, 0], None),
+        None
+    );
+    view.visible_actors.retain(|row| row.id != target);
+    assert_eq!(
+        disclosed_flight_aim_with_range(target, &[cell], &view, [0, 0, 1], None),
+        None
+    );
+}

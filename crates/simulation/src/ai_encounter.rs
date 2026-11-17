@@ -180,9 +180,13 @@ impl Game {
                 {
                     return Some(AiChoice::Request(Action::Move(direction)));
                 }
-                if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, false, false)
-                {
+                if let Some(ability) = self.choose_ai_ability(
+                    id,
+                    target,
+                    &snapshot.sight,
+                    view,
+                    super::AttackSelectionMode::Engage,
+                ) {
                     return Some(ability);
                 }
             }
@@ -193,9 +197,13 @@ impl Game {
                         && actor.disclosure.reference() == Some(reference)
                 })
             {
-                if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, true, false)
-                {
+                if let Some(ability) = self.choose_ai_ability(
+                    id,
+                    target,
+                    &snapshot.sight,
+                    view,
+                    super::AttackSelectionMode::CorneredBasic,
+                ) {
                     return Some(ability);
                 }
             }
