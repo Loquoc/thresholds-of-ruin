@@ -10,3 +10,5 @@ requires-python = ">=3.10"
 [tool.maturin]
 features = ["python"]
 locked = true
+python-source = "python"
+module-name = "tor_client_bot._native"
