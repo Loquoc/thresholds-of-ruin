@@ -313,6 +313,15 @@ address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(address, token, 1) as player, Session.connect(address, token, 3) as snake:
     policy = Adventurer(26, "item.amulet.amulet-of-yendor")
     journal = CombatJournal()
+
+    def assert_admitted_or_stale(result):
+        # Another actor can advance the shared input boundary after observe().
+        # Local detection and an authoritative refusal are equally retryable;
+        # all other refusals and unknown outcomes remain failures.
+        assert result.status in {Outcome.CONFIRMED, Outcome.STALE} or (
+            result.status is Outcome.REJECTED and result.code == "stale_context"
+        ), result
+
     for _ in range(30):
         turn = player.observe()
         policy.observe(turn, journal.read(turn))
@@ -324,10 +333,10 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
             victim = next(actor for actor in enemy.creatures if actor.name == "Warrior")
             bite = next(ability for ability in enemy.abilities if ability.identity == "rogue.venomous_bite")
             result = enemy.submit(UseAbility(bite, victim))
-            assert result.status in {Outcome.CONFIRMED, Outcome.STALE}, result
+            assert_admitted_or_stale(result)
         if turn.can_act:
             result = turn.submit(Wait())
-            assert result.status in {Outcome.CONFIRMED, Outcome.STALE}, result
+            assert_admitted_or_stale(result)
     else:
         raise AssertionError("No lasting strength loss observed")
 '''

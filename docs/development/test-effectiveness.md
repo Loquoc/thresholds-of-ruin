@@ -1060,3 +1060,40 @@ build caught this before launching a client: one build/setup root cause, not a
 gameplay failure. Refreshing only rusqlite and libsqlite3-sys in the independent
 lock restores resolution. Dependency updates shared through path dependencies
 must account for both locks; the normal 3D build remains the boundary witness.
+
+
+### Concurrent actor input-boundary refusals
+
+The live venomous-bite learning driver observed the player before submitting a
+snake action. Windows release CI exposed the resulting shared-boundary race:
+the server returned `rejected/stale_context` where the driver allowed only local
+`stale_observation`. This is one driver-oracle root cause, not a persistence or
+combat defect. Both explicitly stale outcomes now permit a fresh observation;
+other refusals and unknown outcomes still fail. The same live witness still
+requires actual lasting strength loss and learned identification of the
+rattlesnake, so a run with only stale refusals cannot pass.
+
+
+### Redundant acknowledgement diagnostics in finite theft recovery
+
+Windows release CI reached the orc arm's final recovery checkpoint after 35
+requests and 2,468 actor ticks, but its transcript exceeded the 16 MiB arm guard
+by 25,208 bytes. This was a diagnostic-volume failure before the final saved-loot
+assertion, not evidence that loot recovery failed. Raw ACK response snapshots
+accounted for about 2.2 MB of that arm's output without changing shared client
+state. Opt-in compact-background output now omits only their repeated derived
+snapshot, retaining exact raw receipts, all ready/error boundaries, and every
+observation/lifecycle update. The output guard, finite action limits and all
+ownership/recovery assertions remain unchanged. Owning headless projection tests
+cover receipt preservation, omitted construction and retained state boundaries;
+actual process qualification remains a separate witness.
+
+
+The ACK projection change initially missed two downstream process owners: the
+headless projection allowlist and a Bind Wounds witness that deliberately checks
+stock, HP and cooldown at the queued ACK. Hosted CI exposed both fixture
+mismatches. The headless owner now also requires real admitted ACK identity in
+compact output. The admission-time gameplay witness explicitly requests full
+derived output and retains all of its pre-spend assertions. Both owners belong
+in focused validation for future projection changes, alongside raw-receipt unit
+checks; unrelated streaming/theft passes do not substitute for them.

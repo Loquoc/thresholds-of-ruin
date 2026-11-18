@@ -102,8 +102,16 @@ class HeadlessProcesses(ProcessTestCase):
         self.assertTrue(any(row["message"]["page"]["cells"] for row in pages))
         for row in compact:
             self.assertEqual(set(row), {"type", "message", "error", "map_hydration", "state_omitted"})
-            self.assertIn(row["message"]["type"], {"map_page", "palette", "waiting"})
+            self.assertIn(row["message"]["type"], {"map_page", "palette", "waiting", "ack"})
             self.assertNotIn("state", row)
+        acknowledgements = [row["message"] for row in compact if row["message"]["type"] == "ack"]
+        self.assertTrue(acknowledgements, "A real successful action must retain its raw ACK")
+        admitted = [ack for ack in acknowledgements if ack["receipt"]["type"] == "admitted"]
+        self.assertTrue(admitted, "Movement admission must retain its operation identity")
+        for ack in admitted:
+            self.assertTrue(ack["request_id"])
+            self.assertTrue(ack["receipt"]["intention"])
+            self.assertEqual(ack["receipt"]["actor"], str(initial["state"]["observation"]["actor"]))
         errors = [row for row in frames if (row.get("message") or {}).get("type") == "error"]
         self.assertTrue(errors, "A real rejected request must remain visible")
         for row in frames:

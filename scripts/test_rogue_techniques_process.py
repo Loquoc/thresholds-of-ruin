@@ -216,7 +216,9 @@ class RogueTechniquesProcesses(ProcessTestCase):
 
     def test_bind_wounds_heals_combat_injury_spends_one_bandage_and_obeys_cooldown(self):
         self.server(scenario="rogue-exploration", seed=42)
-        player, current = self.client(omit_memory=True, compact_background=True)
+        # This witness inspects stock/HP/cooldown at the queued ACK itself,
+        # so request full derived frames, not compact background diagnostics.
+        player, current = self.client(omit_memory=True)
         self.assert_first_floor_population(1)
         self.assertFalse(current["state"]["wizard_game"])
         at, floor, visited, seen = (0, 0), set(), set(), set()
