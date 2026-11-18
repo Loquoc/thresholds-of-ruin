@@ -49,6 +49,7 @@ pub(super) struct RenderEvidence<'w, 's> {
             &'static crate::hud::Action,
             &'static ComputedNode,
             &'static GlobalTransform,
+            &'static InheritedVisibility,
         ),
     >,
     mouse: Res<'w, ButtonInput<MouseButton>>,
@@ -284,10 +285,11 @@ pub(super) fn capture(
         "hud": game.as_ref().map(|game| serde_json::json!({
             "readiness": crate::hud::readiness(game),
             "health": game.view.as_ref().and_then(|view| view.hp),
-            "buttons": hud_buttons.iter().map(|(action, node, transform)| {
+            "menu_open": hud_buttons.iter().any(|(action, _, _, visible)| !matches!(action, crate::hud::Action::Menu | crate::hud::Action::Press(_) | crate::hud::Action::Zoom(_)) && visible.get()),
+            "buttons": hud_buttons.iter().map(|(action, node, transform, visible)| {
                 let center = transform.translation();
                 let size = window.single().map_or(Vec2::ONE, |w| Vec2::new(w.physical_width() as f32, w.physical_height() as f32));
-                serde_json::json!({ "action": format!("{action:?}"), "screen": [center.x / size.x, center.y / size.y], "size": node.size().to_array() })
+                serde_json::json!({ "action": format!("{action:?}"), "visible": visible.get(), "screen": [center.x / size.x, center.y / size.y], "size": node.size().to_array() })
             }).collect::<Vec<_>>()
         })),
         // Pack actions in number-key order, as "row: action".

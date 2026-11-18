@@ -238,41 +238,64 @@ class Native3DProcesses(ProcessTestCase):
             "--connect", self.address, "--capture", self.directory / "hud", "--capture-every", "0.4",
         ], executable=executable)
         initial = self.captured(window, lambda frame: frame["has_control"] and not frame["busy"])
-        self.assertTrue("hud" in initial, "the live frame must present the framed action dock")
+        self.assertTrue("hud" in initial, "the live frame must present the action menu")
         self.assertEqual(initial["hud"]["readiness"], "READY")
         self.assertEqual({button["action"] for button in initial["hud"]["buttons"]},
-                         {"Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Screenshot", "Wait"})
-        for button in initial["hud"]["buttons"]:
+                         {"Menu", "Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Screenshot", "Wait"})
+        self.assertFalse(initial["hud"]["menu_open"], "actions start folded away from the world")
+        self.assertEqual({button["action"] for button in initial["hud"]["buttons"] if button["visible"]}, {"Menu"})
+        self.assertFalse(initial["minimap_open"], "the overlay map waits to be asked for")
+
+        def visible(frame, action):
+            button = next(button for button in frame["hud"]["buttons"] if button["action"] == action)
+            self.assertTrue(button["visible"], button)
             self.assertTrue(all(0 < value < 1 for value in button["screen"]), button)
             self.assertTrue(all(value > 20 for value in button["size"]), button)
-        pack = next(button for button in initial["hud"]["buttons"] if button["action"] == "Inventory")
+            return button
+
         mouse = self.native_mouse(window)
-        try:
-            mouse(pack["screen"], True)
-            opened = self.captured(window, lambda frame: frame["panel_open"])
-        finally:
-            mouse(pack["screen"], False)
-        self.assertEqual(opened["revision"], initial["revision"], "the dock must not click through into the world")
+
+        def click(point, settled):
+            # Let the client see the pointer arrive before pressing: Windows may
+            # deliver a button press ahead of the synthesized move, landing the
+            # click on the previous target (here, the Menu button).
+            mouse(point)
+            self.captured(window)
+            try:
+                mouse(point, True)
+                return self.captured(window, settled)
+            finally:
+                mouse(point, False)
+
+        menu = visible(initial, "Menu")
+        unfolded = click(menu["screen"], lambda frame: frame["hud"]["menu_open"])
+        self.assertEqual(unfolded["revision"], initial["revision"], "the menu must not click through into the world")
+        for action in ("Inventory", "Equipment", "Character", "Map", "Places", "Journal", "Screenshot", "Wait"):
+            visible(unfolded, action)
+        pack = visible(unfolded, "Inventory")
+        opened = click(pack["screen"], lambda frame: frame["panel_open"])
+        self.assertEqual(opened["revision"], initial["revision"], "the menu must not click through into the world")
         self.assertEqual(opened["world_feet"], initial["world_feet"])
+        self.assertFalse(opened["hud"]["menu_open"], "choosing an action folds the menu")
         self.assertTrue(opened["panel_actions"])
         native = self.native_keys(window)
         closed = self.tap(window, native, "Escape", lambda frame: not frame["panel_open"])
-        # Bottom center is reachable even when Xvfb is narrower than the client.
-        try:
-            mouse([0.5, 0.98], True)
-            blank = self.captured(window, lambda frame: "Left" in frame["mouse"])
-        finally:
-            mouse([0.5, 0.98], False)
-        self.assertEqual(blank["revision"], closed["revision"], "empty dock areas must also block world clicks")
         self.captured(window, lambda frame: "Left" not in frame["mouse"])
-        journal = next(button for button in initial["hud"]["buttons"] if button["action"] == "Journal")
-        try:
-            mouse(journal["screen"], True)
-            history = self.captured(window, lambda frame: frame["screen"] == "History")
-        finally:
-            mouse(journal["screen"], False)
+        unfolded = click(menu["screen"], lambda frame: frame["hud"]["menu_open"])
+        # The gap between two menu entries belongs to the framed menu, not the world.
+        first, second = visible(unfolded, "Inventory"), visible(unfolded, "Equipment")
+        gap = [(first["screen"][0] + second["screen"][0]) / 2, (first["screen"][1] + second["screen"][1]) / 2]
+        blank = click(gap, lambda frame: "Left" in frame["mouse"])
+        self.assertEqual(blank["revision"], closed["revision"], "empty menu areas must also block world clicks")
+        self.assertTrue(blank["hud"]["menu_open"])
+        self.captured(window, lambda frame: "Left" not in frame["mouse"])
+        journal = visible(blank, "Journal")
+        history = click(journal["screen"], lambda frame: frame["screen"] == "History")
         self.assertEqual(history["revision"], closed["revision"])
         self.tap(window, native, "Escape", lambda frame: frame["screen"] is None)
+        overlay = self.tap(window, native, "n", lambda frame: frame["minimap_open"])
+        self.assertEqual(overlay["revision"], history["revision"], "the overlay map is local presentation")
+        self.tap(window, native, "n", lambda frame: not frame["minimap_open"])
         self.assertIsNone(window.child.poll())
         native("Escape", True)
         self.assertEqual(window.child.wait(timeout=30), 0)
