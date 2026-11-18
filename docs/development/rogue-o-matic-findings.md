@@ -1,9 +1,90 @@
 # Rogue-O-Matic findings and follow-ups
 
-The first three entries concern the bot API refactor on bundled `rogue`. The earlier entries describe ordinary-player experiments on `rogue-exploration`. Their fixes and campaign results need fresh verification against bundled `rogue`.
+The entries name the scenario and revision used where available. Earlier
+experiments on `rogue-exploration` need fresh verification against bundled `rogue`.
 Use this page to retain observations that may warrant separate work. Campaign
 acceptance and reproduction commands are in the [capability and acceptance
 checks](rogue-o-matic-parity.md).
+
+## A resolved stair move can change the picture at the same tick
+
+The occupied paired-stair process fixture on the `496de9a8` server returned
+a queued receipt at tick zero. A subsequent observation, also at tick zero,
+showed the matching receipt resolved, a different origin cell and the
+previously observed stair endpoint one cardinal step away. The blocker remained
+on the endpoint. The Python client now compares the scene and receipt without
+requiring the simulation clock to advance. This case illustrates a client
+assumption about time and does not establish a server defect.
+
+## Seed 49 produced different search choices in fresh games
+
+Two runs with the same arrow-recovery policy, baseline server and bundled seed
+49 agreed through 1,228 submissions on floor, tick, action reason, movement
+direction, admission and previous phase. At decision 1,229 both chose a search
+approach at tick 120480. One moved south and one moved west. One exhausted
+its routes on floor 4; the other reached floor 8. A policy regression
+independently reproduced a cause of variation: exchanging the opaque keys of
+two otherwise equivalent search sites reversed the preferred direction.
+Search now breaks ties using map traversal order. Other sources of run-to-run
+variation remain possible.
+
+## Save backlog and an unknown movement outcome
+
+The second seed-49 run above, under concurrent host build load, reported an
+unknown movement outcome on floor 8 at tick 338078. Closing the ordinary
+session then raised a save-backlog error: 15,539 entries were saved and this
+save required 16,954. The runner timed out waiting ten seconds for server
+shutdown. Treat this run as an infrastructure failure. The trace does not
+establish whether the movement resolved or whether the backlog caused the
+unknown receipt. A focused server/common-client follow-up should reproduce
+backpressure, check which close errors reach the caller after an unknown
+receipt, and verify durable completion and clean shutdown.
+
+The cohort runner now retains the observed game result if server shutdown
+times out. It records `server_cleanup: "timeout"` on the seed, continues the
+remaining seeds and exits with an infrastructure error.
+
+## An admitted throw can fail on the same tick
+
+On bundled development seed 47, server SHA-256 prefix `864f9811b114`, the
+ordinary player saw a hostile body cell at offset `(-3, 0, 1)` and an offered
+throw source. At tick 8674 the server admitted Throw. The next ready picture
+at tick 8674 showed the same intention in the failed phase. The retained
+phase gives the outcome, but supplies no reason for execution failure.
+A real-client test matches the admission to the failure by intention and
+replays the subsequent decision. A server follow-up should establish which
+execution check failed and whether its reason can be disclosed to the player.
+
+## Queued descent with cancellation available
+
+Three runs of the development seed-49 stair case reached floor 11. At tick
+597000 a floor descent was admitted, and the clock then stopped. The last
+ordinary player picture from the diagnostic run showed 55/57 Health,
+nutrition reserve −759, active hallucination, a ready actor, closed admission
+and one queued intention. The cancel offer named the admitted stair intention.
+The server warned that saving was behind schedule. The run ended in a
+readiness timeout. The role of the save backlog remains unresolved.
+
+Reopening a copy of the save showed the same intention suspended at the same
+tick. Cancellation was confirmed, a wait advanced the clock to 598400 and
+a fresh descent was admitted. The next ready picture was at tick 598500.
+Investigate why the live clock stopped while a ready actor had a queued move.
+
+## A visible stair can be unusable while hovering
+
+On development seed 49 the actor sampled an unidentified potion, reached
+the down stair at tick 3492, and submitted a descent. The server returned
+`invalid_action` and the message `Intention is unavailable`. The recorded
+picture showed the active levitation condition with 1,958 ticks remaining.
+The bundled rules suspend ground pickup and stair use while hovering. The
+policy now waits at its intended stair and checks ground contact before
+attempting a pickup or a vertical escape. On the same seed it waited twenty
+turns and the server admitted descent at tick 5492. A small paired-stair
+fixture verifies arrival on the lower floor after the sampled potion expires.
+
+The terrain flag describes the stair correctly. A player-visible explanation
+of the locomotion restriction on refusal would help clients distinguish it
+from an obstructed landing. This is a response-design follow-up.
 
 ## One door can have different reachability on different body cells
 

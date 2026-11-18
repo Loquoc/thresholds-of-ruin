@@ -17,6 +17,118 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_readiness_timeout_retains_the_last_observed_turn(self):
+        from tor_client_bot import ReadinessTimeout, Session
+
+        transport = Mock()
+        transport.observe.return_value.data.return_value = {
+            "state": {"observation": {"ready": False, "tick": "17"}},
+            "readiness": {"admission": False},
+        }
+        with self.assertRaises(ReadinessTimeout) as caught:
+            Session(transport).wait_for_decision(timeout=0)
+        self.assertIsInstance(caught.exception, TimeoutError)
+        self.assertEqual(caught.exception.turn.tick, 17)
+        self.assertFalse(caught.exception.turn.can_act)
+
+    def test_optional_stalled_decision_preserves_receipt_and_continues_the_same_iterator(self):
+        from tor_client_bot import ActivityPhase, ReadinessTimeout, Session, Wait
+
+        receipt = {"actor": 1, "branch": "game", "intention": "down", "phase": "queued"}
+        transport = Mock()
+        transport.act.return_value = {"status": "confirmed", "receipt": {"type": "admitted", **receipt}}
+        def frame(ready, phase):
+            return Turn({"state": {"observation": {"tick": 17, "ready": ready}},
+                         "readiness": {"admission": ready}, "intentions": [dict(receipt, phase=phase)]},
+                        connection=transport, snapshot=Mock())
+        first, blocked, following = frame(True, "queued"), frame(False, "queued"), frame(True, "cancelled")
+        session = Session(Mock())
+        session.wait_for_decision = Mock(side_effect=[first, ReadinessTimeout(blocked), following])
+        decisions = session.decisions(include_stalls=True)
+        initial = next(decisions)
+        initial.turn.submit(Wait())
+        stall = next(decisions)
+        self.assertTrue(stall.stalled)
+        self.assertIs(stall.turn, blocked)
+        self.assertIs(stall.previous_phase, ActivityPhase.QUEUED)
+        self.assertFalse(next(decisions).stalled)
+
+    def test_identification_accepts_only_items_from_its_own_offer(self):
+        from dataclasses import replace
+        from tor_client_bot import Identification, Item
+
+        item = Item("carried", "scroll", None, 1, (), "scroll")
+        prompt = Identification("choose", (item,))
+        self.assertIs(prompt.select(item).item, item)
+        self.assertIsNone(prompt.select(None).item)
+        with self.assertRaises(ValueError):
+            prompt.select(replace(item))
+
+    def test_decision_iterator_carries_the_previous_receipt_into_the_terminal_picture(self):
+        from tor_client_bot import ActivityPhase, Session, Wait
+        transport = Mock()
+        receipt = dict(actor=1, branch="game", intention="7", phase="queued")
+        transport.act.return_value = {"status": "confirmed", "receipt": {"type": "admitted", **receipt}}
+        def snapshot(terminal):
+            snap = Mock()
+            snap.data.return_value = {
+                "readiness": {"admission": True}, "state": {"observation": {
+                    "ready": True, "combat": {"terminal": terminal}, "tick": 0}},
+                "finished_intentions": [dict(receipt, phase="resolved")] if terminal else [],
+            }
+            return snap
+        transport.observe.side_effect = [snapshot(False), snapshot(True)]
+        decisions = Session(transport).decisions()
+        first = next(decisions)
+        self.assertIsNone(first.previous)
+        result = first.turn.submit(Wait())
+        last = next(decisions)
+        self.assertIs(last.previous, result)
+        self.assertIs(last.previous_phase, ActivityPhase.RESOLVED)
+        self.assertTrue(last.turn.terminal)
+        with self.assertRaises(StopIteration):
+            next(decisions)
+
+    def test_decline_from_an_earlier_prompt_cannot_answer_a_fresh_prompt(self):
+        snap = Mock()
+        snap.data.return_value = {"state": {"observation": {
+            "inventory": [], "interactions": {"identification": {"choice": "offer", "items": []}},
+        }}, "readiness": {}}
+        session = Mock()
+        session.act.return_value = {"status": "confirmed"}
+        first = attached(session, snap)
+        current = attached(session, snap)
+        self.assertIs(current.submit(first.identification.select(None)).status, Outcome.STALE)
+        session.act.assert_not_called()
+        self.assertIs(current.submit(current.identification.select(None)).status, Outcome.CONFIRMED)
+
+    def test_condition_query_distinguishes_active_expired_and_protected(self):
+        def condition(identity, phase, remaining):
+            return {"condition": {"id": identity, "name": identity}, "phase": phase,
+                    "remaining_ticks": remaining}
+        rows = [condition("timed", "active", "2"), condition("persistent", "active", None),
+                condition("expired", "active", "0"), condition("protected", "protection", "3")]
+        view = {"combat": {"own_stats": {"conditions": rows}}}
+        turn = Turn({"state": {"observation": view}, "readiness": {}})
+        self.assertTrue(turn.has_condition("timed"))
+        self.assertTrue(turn.has_condition("persistent"))
+        for key in ("expired", "protected", "undisclosed"):
+            self.assertFalse(turn.has_condition(key))
+
+    def test_action_description_uses_player_visible_operands(self):
+        from tor_client_bot import Wait, describe_action
+
+        session, snapshot = Mock(), Mock()
+        snapshot.data.return_value = {"state": {"observation": {}}, "readiness": {"admission": True}}
+        session.act.return_value = {"status": "confirmed"}
+        turn = attached(session, snapshot)
+        for action, expected in [(Move(Direction.DOWN), {"type": "move", "direction": "down"}),
+                                 (Wait(), {"type": "wait"})]:
+            with self.subTest(action=action):
+                self.assertEqual(describe_action(action), expected)
+                self.assertIs(turn.submit(action).status, Outcome.CONFIRMED)
+                session.act.assert_called_with(expected, snapshot)
+
     def test_journal_interprets_incoming_abilities_without_inventing_a_hidden_caster(self):
         from tor_client_bot import AbilityOutcome, CombatJournal
 
@@ -73,6 +185,10 @@ class BotApiTests(unittest.TestCase):
         self.assertIs(paused.outcome_of(result), ActivityPhase.PAUSED)
         final = observe(finished=[dict(row, phase="resolved", entry_id="later")])
         self.assertIs(Turn.replay(final.recording()).outcome_of(result), ActivityPhase.RESOLVED)
+        wire = Result.from_reply({"status": "confirmed", "receipt": {
+            "type": "admitted", **row, "actor": "1"}})
+        self.assertEqual(wire.activity.actor, 1)
+        self.assertIs(final.outcome_of(wire), ActivityPhase.RESOLVED)
         for other in (dict(row, branch="other"), dict(row, actor=2)):
             self.assertIsNone(observe([other]).outcome_of(result))
         self.assertIsNone(observe().outcome_of(result))
@@ -251,6 +367,11 @@ class BotApiTests(unittest.TestCase):
         first = memory.toward(turn, {"exit"})
         self.assertIsInstance(first, OpenDoor)
         self.assertEqual(first.door.target, "oak")
+        self.assertIsNone(memory.toward(turn, {"corner"}, max_steps=1))
+        self.assertEqual(memory.toward(turn, {"corner"}, max_steps=2), first)
+        self.assertIsNone(memory.toward(turn, {"exit"}, max_steps=0))
+        for prefer_safe in (True, False):
+            self.assertIsNone(memory.toward(turn, {"corner"}, avoid={"exit"}, prefer_safe=prefer_safe))
         self.assertIsNone(turn.step(Direction.SOUTH_EAST))
         self.assertIsNone(turn.health)
         self.assertEqual(memory.visited, {"home"})
@@ -308,6 +429,8 @@ class BotApiTests(unittest.TestCase):
         ]
         turn = attached(session, snap)
         shot, upper = turn.ranged_attacks(max_distance=2)
+        replay = Turn.replay(turn.recording())
+        self.assertEqual(tuple(replay.ranged_attacks(max_distance=2)), (shot, upper))
         self.assertIs(shot.target, upper.target)
         self.assertEqual(upper.offset, (2, 0, 1))
         self.assertEqual(session.projectile_choices.call_count, 3)
@@ -418,6 +541,7 @@ class BotApiTests(unittest.TestCase):
             (chart.acquired_at, mark.component, mark.position, mark.feature),
             (120, 4, (5, -1, 0), "secret_door"),
         )
+        self.assertEqual(Turn.replay(turn.recording()).chart(ChartKind.MAPPING), turn.chart(ChartKind.MAPPING))
         session.chart.assert_called_once_with(snap, "mapping")
 
     def test_replay_runs_the_same_local_policy_without_a_connection(self):

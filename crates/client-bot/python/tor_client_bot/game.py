@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import cached_property
 from itertools import product
 import json
@@ -46,11 +47,12 @@ from .models import (
     RestorableLosses,
     Result,
     Shot,
+    StairAttempt,
     Trap,
     Unequip,
     UseAbility,
     UseItem,
-    Wait,
+    _direct_command,
 )
 
 from .training import Training
@@ -67,6 +69,7 @@ def _item(row: dict, uses: tuple[ItemUse, ...] = ()) -> Item:
         int(row["quantity"]),
         uses,
         row.get("class", "misc"),
+        row.get("appearance"),
     )
 
 
@@ -80,9 +83,12 @@ class Turn:
         connection: _native.Session | None = None,
         snapshot: _native.Observation | None = None,
     ):
+        self._last_submission: Result | None = None
         self._session = connection
         self._snapshot = snapshot
         self._picture = data
+        self._chart_pages: dict[str, dict | None] = data.get("queried_charts", {})
+        self._projectile_choices: dict[str, dict | None] = data.get("queried_projectiles", {})
         self._view = data["state"]["observation"]
         self._readiness = data["readiness"]
         self._combat_updates = data.get("combat_updates", ())
@@ -92,7 +98,12 @@ class Turn:
 
     def recording(self) -> str:
         """Save the disclosed picture for an offline decision test; contains no credentials."""
-        return json.dumps(self._picture, separators=(",", ":"))
+        picture = self._picture.copy()
+        if self._chart_pages:
+            picture["queried_charts"] = self._chart_pages
+        if self._projectile_choices:
+            picture["queried_projectiles"] = self._projectile_choices
+        return json.dumps(picture, separators=(",", ":"))
 
     @classmethod
     def replay(cls, recording: str) -> Turn:
@@ -211,9 +222,20 @@ class Turn:
             if row["id"] == self.self_target
         )
 
-    def in_contact(self, creature: Creature) -> bool:
-        """Whether two observed body cells touch through disclosed open terrain."""
-        for source in self.body:
+    def distance_to(self, creature: Creature, *, from_offset: tuple[int, int, int] = (0, 0, 0)) -> int:
+        """Minimum Chebyshev distance between visible bodies after translating the observer."""
+        dx, dy, dz = from_offset
+        return min(
+            max(abs(x + dx - tx), abs(y + dy - ty), abs(z + dz - tz))
+            for x, y, z in self.body or ((0, 0, 0),)
+            for tx, ty, tz in creature.cells
+        )
+
+    def in_contact(self, creature: Creature, *, from_offset: tuple[int, int, int] = (0, 0, 0)) -> bool:
+        """Whether the observer's translated body touches the creature through disclosed open terrain."""
+        dx, dy, dz = from_offset
+        for x, y, z in self.body:
+            source = x + dx, y + dy, z + dz
             for target in creature.cells:
                 if max(abs(a - b) for a, b in zip(source, target)) != 1:
                     continue
@@ -231,6 +253,38 @@ class Turn:
     @cached_property
     def _occupied(self) -> frozenset[tuple[int, int, int]]:
         return frozenset(at for creature in self.creatures for at in creature.cells)
+
+    def stair_attempt(self, move: Move, receipt: Result | None = None) -> StairAttempt:
+        """Keep the origin and visible landing without retaining the live picture."""
+        landing = self.stair_landing(move.direction)
+        if self.cell is None:
+            raise ValueError("The stair origin is outside this observation")
+        return StairAttempt(move.direction, self.cell.key, landing.key if landing else None, self.tick, receipt)
+
+    def stair_arrival(self, attempt: StairAttempt) -> bool | None:
+        """True for witnessed arrival, False for a refused or failed move, otherwise unknown."""
+        if attempt.receipt is not None:
+            if attempt.receipt.status in (Outcome.REJECTED, Outcome.UNAVAILABLE, Outcome.STALE):
+                return False
+            phase = self.outcome_of(attempt.receipt)
+            if phase in (ActivityPhase.CANCELLED, ActivityPhase.FAILED):
+                return False
+            if attempt.receipt.status is not Outcome.CONFIRMED or phase in (
+                ActivityPhase.QUEUED, ActivityPhase.PAUSED, ActivityPhase.SUSPENDED, ActivityPhase.STARTED
+            ):
+                return None
+        here = self.cell
+        if here is None or here.key == attempt.origin or self.tick < attempt.tick:
+            return None
+        if attempt.landing is not None:
+            if any(
+                cell.key == attempt.landing and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 1
+                for cell in self.visible_cells
+            ):
+                return True
+        elif (here.stairs_up if attempt.direction is Direction.DOWN else here.stairs_down):
+            return True
+        return None
 
     def stair_landing(self, direction: Direction) -> Cell | None:
         """Recognize a visible opposite stair along the actor's vertical axis."""
@@ -412,6 +466,10 @@ class Turn:
             for row in stats.get("conditions", ())
         )
 
+    def has_condition(self, identity: str) -> bool:
+        """Whether this picture shows an active, unexpired instance of the condition."""
+        return any(c.identity == identity and c.active and c.remaining_ticks != 0 for c in self.conditions)
+
     @cached_property
     def nutrition(self) -> Nutrition | None:
         """The disclosed food clock of an actor that needs food."""
@@ -513,8 +571,10 @@ class Turn:
 
     def chart(self, kind: ChartKind) -> Chart | None:
         """Read the common client's assembled chart. Positions use each component's frame."""
-        session, snapshot = self._require_connection()
-        data = session.chart(snapshot, kind.value)
+        if kind.value not in self._chart_pages:
+            session, snapshot = self._require_connection()
+            self._chart_pages[kind.value] = session.chart(snapshot, kind.value)
+        data = self._chart_pages[kind.value]
         if data is None:
             return None
         marks = []
@@ -539,10 +599,13 @@ class Turn:
         return Chart(kind, data["mode"], int(data["acquired_at"]), components, tuple(marks))
 
     def _projectile_pages(self, ability: Ability, phase: dict) -> Iterator[dict]:
-        session, snapshot = self._require_connection()
         offset = 0
         while True:
-            page = session.projectile_choices(snapshot, ability.identity, phase, offset)
+            key = json.dumps([ability.identity, phase, offset], sort_keys=True, separators=(",", ":"))
+            if key not in self._projectile_choices:
+                session, snapshot = self._require_connection()
+                self._projectile_choices[key] = session.projectile_choices(snapshot, ability.identity, phase, offset)
+            page = self._projectile_choices[key]
             if page is None:
                 return
             yield from page["choices"]
@@ -613,7 +676,8 @@ class Turn:
         items = []
         for row in self._view.get("ground_items", ()):
             pos = row["position"]
-            items.append(GroundItem(_item(row["item"]), (pos["x"], pos["y"], pos["z"]), row["reachable"]))
+            offset = (pos["x"], pos["y"], pos["z"])
+            items.append(GroundItem(_item(row["item"]), offset, row["reachable"], self.cell_at(offset)))
         return tuple(items)
 
     @cached_property
@@ -659,6 +723,7 @@ class Turn:
             prompt = self.identification
             return bool(
                 prompt
+                and (action.prompt is None or action.prompt is prompt)
                 and action.choice == prompt.choice
                 and (action.item is None or any(action.item is item for item in prompt.items))
             )
@@ -674,6 +739,11 @@ class Turn:
         return True
 
     def submit(self, action: Action) -> Result:
+        result = self._submit(action)
+        self._last_submission = result
+        return result
+
+    def _submit(self, action: Action) -> Result:
         session, snapshot = self._require_connection()
         if not self._owns_choice(action):
             return Result(Outcome.STALE, None, "Choose an action from this observation")
@@ -681,11 +751,7 @@ class Turn:
             change = session.resume if action is ActivityChoice.RESUME else session.cancel
             return Result.from_reply(change(snapshot))
         command: dict[str, object]
-        if isinstance(action, Move):
-            command = {"type": "move", "direction": action.direction.value}
-        elif isinstance(action, OpenDoor):
-            command = {"type": "set_door", "door": action.door.target, "open": True}
-        elif isinstance(action, Shot):
+        if isinstance(action, Shot):
             if action.launcher:
                 delivery = {
                     "kind": "launch",
@@ -714,27 +780,17 @@ class Turn:
             target = action.target.target if action.target else self.self_target
             reply = session.use_ability(snapshot, action.ability.identity, target)
             return Result.from_reply(reply)
-        elif isinstance(action, Escape):
-            command = {"type": "escape", "hold": action.hold.target}
         elif isinstance(action, Unequip):
             assert action.slot.occupant is not None  # Validated by _owns_choice.
             command = {"type": "unequip", "item": action.slot.occupant.target}
-        elif isinstance(action, Equip):
-            command = {"type": "equip", "item": action.item.target, "slot": action.slot.index}
-        elif isinstance(action, Pickup):
-            command = {"type": "take", "item": action.item.target}
         elif isinstance(action, Identify):
             command = {
                 "type": "identify",
                 "choice": action.choice,
                 "item": action.item.target if action.item else None,
             }
-        elif isinstance(action, UseItem):
-            command = {"type": action.use.value, "item": action.item.target}
-        elif isinstance(action, Wait):
-            command = {"type": "wait"}
         else:
-            raise TypeError(f"Unsupported action {action!r}")
+            command = _direct_command(action)
         return Result.from_reply(session.act(command, snapshot))
 
 
@@ -756,6 +812,28 @@ class CombatJournal:
                 events.extend(batch["events"])
                 self._sequence = sequence
         return CombatReport(turn._view.get("self_target"), tuple(events))
+
+
+@dataclass(frozen=True, slots=True)
+class Decision:
+    """Current picture, new combat events and the preceding decision's last receipt."""
+
+    turn: Turn
+    combat: CombatReport
+    previous: Result | None
+    stalled: bool = False
+
+    @property
+    def previous_phase(self) -> ActivityPhase | None:
+        return self.turn.outcome_of(self.previous) if self.previous else None
+
+
+class ReadinessTimeout(TimeoutError):
+    """The game clock stopped advancing before the next decision was ready."""
+
+    def __init__(self, turn: Turn):
+        self.turn = turn
+        super().__init__(f"Player readiness stalled at tick {turn.tick}")
 
 
 class Session:
@@ -792,8 +870,26 @@ class Session:
                 last_tick = turn.tick
                 deadline = now + timeout
             if now >= deadline:
-                raise TimeoutError("Player readiness stalled")
+                raise ReadinessTimeout(turn)
             time.sleep(0.05)
+
+    def decisions(self, *, timeout: float = 20.0, include_stalls: bool = False) -> Iterator[Decision]:
+        """Yield decisions and the terminal picture. Opt in to inspecting a stalled turn before continuing."""
+        journal = CombatJournal()
+        previous = None
+        while True:
+            try:
+                turn = self.wait_for_decision(timeout=timeout)
+                stalled = False
+            except ReadinessTimeout as error:
+                if not include_stalls:
+                    raise
+                turn = error.turn
+                stalled = True
+            yield Decision(turn, journal.read(turn), previous, stalled)
+            previous = turn._last_submission
+            if turn.terminal:
+                return
 
     def turns(self, *, timeout: float = 20.0) -> Iterator[Turn]:
         """Yield decisions until the game ends."""

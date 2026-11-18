@@ -1,6 +1,6 @@
 """Write player policies against the disclosed common-client view."""
 
-from .game import CombatJournal, Session, Turn
+from .game import CombatJournal, Decision, ReadinessTimeout, Session, Turn
 from .models import (
     Ability,
     AbilityOutcome,
@@ -40,11 +40,13 @@ from .models import (
     RestorableLosses,
     Result,
     Shot,
+    StairAttempt,
     Trap,
     Unequip,
     UseAbility,
     UseItem,
     Wait,
+    describe_action,
 )
 
 from .navigation import FloorMap, RememberedCell, RememberedItem
@@ -78,6 +80,8 @@ __all__ = [
     "ChartKind",
     "ChartMark",
     "CombatJournal",
+    "Decision",
+    "ReadinessTimeout",
     "CombatReport",
     "Condition",
     "Creature",
@@ -109,10 +113,12 @@ __all__ = [
     "Result",
     "Session",
     "Shot",
+    "StairAttempt",
     "Trap",
     "Turn",
     "Unequip",
     "UseAbility",
     "UseItem",
     "Wait",
+    "describe_action",
 ]

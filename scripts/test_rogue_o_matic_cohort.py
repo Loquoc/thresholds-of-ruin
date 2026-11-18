@@ -7,6 +7,28 @@ from rogue_o_matic_cohort import summarize
 
 
 class CohortSummaryTests(unittest.TestCase):
+    def test_shutdown_timeout_preserves_the_observed_campaign_result(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from rogue_o_matic_cohort import play
+
+        def client(*args, stdout, **kwargs):
+            print(json.dumps({"terminal": "action_budget", "actions": 1, "max_depth": 3}), file=stdout)
+            return subprocess.CompletedProcess(args, 1)
+
+        with tempfile.TemporaryDirectory() as temp, patch("rogue_o_matic_cohort.Process") as process:
+            server = process.return_value
+            server.until.return_value = '{"address":"localhost:1"}'
+            server.stop.side_effect = subprocess.TimeoutExpired("server", 10)
+            with patch("rogue_o_matic_cohort.subprocess.run", side_effect=client):
+                result = play(47, "server", "scenario", 1, 1, 60, Path(temp), 26, "amulet", "bot.py")
+        self.assertEqual(result["terminal"], "action_budget")
+        self.assertEqual(result["max_depth"], 3)
+        self.assertEqual(result["server_cleanup"], "timeout")
+
     def test_campaign_inputs_identify_scenario_and_policy(self):
         from pathlib import Path
         import tempfile
@@ -169,6 +191,22 @@ class CohortSummaryTests(unittest.TestCase):
         ]
         self.assertEqual(summarize(rows)["deaths_by_cause"],
                          {"starvation": 1, "undisclosed": 1, "rogue.wand_lightning": 1})
+
+    def test_closest_return_floor_excludes_outbound_travel(self):
+        from pathlib import Path
+        import tempfile
+
+        from rogue_o_matic_cohort import trace_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            rows = []
+            for floor, acquired, expected in [(1, False, None), (26, True, 26),
+                                              (12, True, 12), (13, True, 12)]:
+                rows.append({"floor": floor, "amulet_acquired": acquired, "action": {"type": "wait"}})
+                path.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+                _, report = trace_report(path)
+                self.assertEqual(report["closest_return_floor"], expected)
 
     def test_unverified_claim_does_not_count_as_a_victory(self):
         self.assertEqual(summarize([{"terminal": "victory"}])["victories"], 0)

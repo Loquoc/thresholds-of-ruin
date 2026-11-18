@@ -60,6 +60,41 @@ with Session.connect("127.0.0.1:4000", os.environ["TOR_SERVER_TOKEN"], actor=1) 
 `game.turns()` polls for player decisions and ends at a terminal observation.
 Use `game.wait_for_decision()` when the policy also needs to inspect the final
 turn. `game.observe()` returns a snapshot even while the actor is busy.
+If the clock stops advancing while the client waits, `ReadinessTimeout.turn`
+retains the last observation. For example, a bot can record
+`error.turn.tick` and `error.turn.outcome_of(receipt)` before ending a
+stalled run. The exception is a subclass of `TimeoutError`.
+With `game.decisions(include_stalls=True)`, the iterator yields a
+`decision.stalled` picture on timeout. Its `previous` and `previous_phase`
+let the policy check whether its own action is still queued. Submitting a
+permitted cancellation from that picture keeps the same decision stream.
+
+For a campaign trace, iterate over `game.decisions()`. Each decision
+includes the current `turn`, newly witnessed `combat` events, the preceding
+decision's last submission receipt (`previous`), and its latest observed
+`previous_phase`. The iterator also yields the terminal picture.
+`describe_action(action)` gives a structured description suitable for logging.
+
+### Following a stair crossing
+
+Retain the submitted move's evidence until the next decision. The following
+example assumes the actor is standing on a disclosed down stair.
+
+```python
+from tor_client_bot import Direction, Move
+
+move = Move(Direction.DOWN)
+receipt = turn.submit(move)
+attempt = turn.stair_attempt(move, receipt)
+after = game.wait_for_decision()
+arrived = after.stair_arrival(attempt)
+```
+
+An arrival of `True` means the subsequent picture supports switching maps.
+`False` reports a refusal or observed failure. `None` leaves arrival uncertain.
+A policy can use `after.outcome_of(receipt)` to inspect the latest retained phase.
+When the origin disclosed a landing, its stable key ties the subsequent arrival
+to the expected place, including an adjacent landing beside an occupied stair.
 
 ## Reading the world
 
@@ -68,6 +103,7 @@ turn. `game.observe()` returns a snapshot even while the actor is busy.
   `FloorMap` remembers links and disclosed traps by stable cell key across
   turns. Its `toward` method prefers a trap-free route when one is known.
   Pass `prefer_safe=False` to prioritize the shortest known route.
+  Pass `avoid={cell.key}` to exclude a cell from every candidate route.
   `memory.adjacent(key)` gives known cardinal neighbors. `memory.reachable(key)`
   yields remembered cells and distances in breadth-first order. `memory.items`
   records what the actor last saw at each cell and refreshes on sight.
@@ -75,9 +111,23 @@ turn. `game.observe()` returns a snapshot even while the actor is busy.
 - `turn.creatures` groups visible body cells by creature. Each creature has
   a name, distance to its nearest visible cell, and any disclosed affiliation
   and injury. `turn.hostiles` contains creatures explicitly disclosed as hostile.
+- `ground.cell` associates a ground item with its visible cell and is `None`
+  when that cell is outside the picture. For example, a bot can route toward
+  `ground.cell.key` until `ground.reachable` offers a pickup.
+- `turn.distance_to(foe, from_offset=direction.offset)` returns the shortest
+  Chebyshev distance between the visible bodies after translating the observer.
+  Use `turn.walkable_directions` to choose candidate steps before scoring them.
 - `turn.inventory` combines carried items with their offered uses. For example,
   an unidentified flask can offer `ItemUse.DRINK` while its identity is
   `None`. A policy decides whether to take that risk.
+  `item.appearance` preserves the disclosed appearance when a policy wants
+  to remember an unidentified flask across item stacks.
+- `turn.has_condition(identity)` checks for an active, unexpired condition.
+  Rogue-O-Matic uses it to wait at a stair while levitation prevents descent.
+- `turn.equip_choices()` pairs carried equipment with slots of the offered
+  kind. A shortbow and an empty weapon socket can still need a second free
+  grip. Inspect the submission result for the server's decision, including
+  its disclosed rejection code and message.
 - `turn.step(direction)` examines visible terrain, doors and bodies. It returns
   a proposed move, an action to open a reachable door, or `None`. Reconsider
   movement after opening a door.
@@ -87,6 +137,41 @@ turn. `game.observe()` returns a snapshot even while the actor is busy.
   them with the server's projectile choices. Each shot identifies its target,
   projectile, launcher when applicable, and aim offset. The server resolves
   reach, obstructions and hits.
+
+### Two spatial decisions
+
+A collector can pursue the observed position of an item and use the pickup
+offer when it becomes reachable. The route helper can return a door-opening
+action as the next step.
+
+```python
+from tor_client_bot import Move, Pickup
+
+def collect(turn, memory, ground):
+    if ground.reachable:
+        return Pickup(ground.item)
+    if ground.cell is not None:
+        return memory.toward(turn, {ground.cell.key}, max_steps=3)
+    return None
+
+
+def retreat(turn, foe):
+    def clearance(direction):
+        return turn.distance_to(foe, from_offset=direction.offset)
+
+    step = max(turn.walkable_directions, key=clearance, default=None)
+    if step is not None and clearance(step) > turn.distance_to(foe):
+        return Move(step)
+    return None
+```
+
+The collector allows up to three horizontal steps on the remembered map.
+Opening a door may take an extra action. Omitting `max_steps` permits a
+route of any known length. The retreat compares the nearest observed cells of both bodies. It leaves
+the decision to stand and fight to the caller when every known step keeps
+the foe as close or moves closer. Against several enemies, count
+`turn.in_contact(foe, from_offset=step.offset)` for each candidate direction
+to find a step that leaves fewer opponents in melee reach.
 
 The `turn.health` and `turn.recovery` properties describe current health
 and its recovery clock. `turn.restorable_losses` exposes lasting losses
@@ -137,14 +222,21 @@ from pathlib import Path
 from tor_client_bot import Turn
 
 fixture = Path("at-the-stairs.json")
+chosen = choose(turn)
 fixture.write_text(turn.recording(), encoding="utf-8")
 recorded = Turn.replay(fixture.read_text(encoding="utf-8"))
-assert choose(recorded) == choose(turn)
+assert choose(recorded) == chosen
 ```
 
-A recording includes the attached player's disclosed inventory and combat
-facts. Chart and ammunition queries need a live connection. The replay
-supports local decisions and cannot send commands.
+Record the turn after choosing an action to include the chart and projectile
+pages consulted by the policy. Replaying that recording can make the same
+queries offline. A new query that requires an unrecorded page needs a live
+connection. Store the policy's starting memory separately for a reproducible
+decision. To retain those inputs in a development campaign, pass
+`--record-decisions` to the cohort runner. Each JSON trace row then carries
+its turn recording. Rebuild the policy's memory from its starting configuration
+by replaying observations, choices and recorded admission receipts in order.
+Ordinary campaigns omit these larger payloads.
 
 The bundled retrieval policy and its decision loop live in
 [`rogue_player.py`](../../scripts/rogue_player.py). The

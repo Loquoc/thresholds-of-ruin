@@ -14,6 +14,67 @@ The [Python bot API implementation plan](../plans/python-bot-api.md) pairs each 
 See the [findings and follow-ups](rogue-o-matic-findings.md) for issues uncovered
 during implementation and campaign testing.
 
+The implementation baseline used merged main `496de9a8`, its server and
+installed wheel, actor 1, fresh bundled saves, a 20,000-action limit and a
+900-second timeout per seed. Seed 42 died on floor 8 after 1,512 submissions
+(Venomous Bite). Seeds 47 and 49 died from Rattling Blow after 343 and 238
+submissions on floors 1 and 2 respectively. None acquired the Amulet. The
+enemy-free full-depth fixture independently confirmed victory with the Amulet.
+Seed 42 alternated east and west under the same stair-retreat rationale for
+its last ten moves. The trace establishes the repetition; it does not record
+enough spatial evidence to explain the route choice by itself.
+
+Reproducing seed 42 with its decision memory showed the bot on a down stair
+on floor 8 with two adjacent rattlesnakes, one already associated with lasting
+injury. It stepped east to seek a distant up stair, then reversed. The
+updated policy used the down stair when replayed from that picture. A fresh
+campaign still died on floor 8, so the decision fix alone did not improve
+maximum depth.
+
+Seed 49's retained picture showed an equipped shortbow, no arrows, a carried
+mace and two adjacent enemies. Handling the weapon change while enemies were
+visible took seed 49 to floor 4 (1,596 submissions) and seed 47 to floor 7
+(2,088). Seed 47 exhausted its disclosed routes after 462 searches on that
+floor. Seed 42 still died on floor 8. All three runs used the baseline inputs
+and budgets with the changed policy and Python API. Qualification remains open.
+
+The rebuilt server (SHA-256 prefix `864f9811b114`) reproduced all three baseline
+deaths at the same depths and action counts. The following development runs
+used that binary, the same bundled scenario and the same budgets. Each entry
+gives terminal status, deepest floor and submitted actions.
+
+| Policy change | Seed 42 | Seed 47 | Seed 49 |
+| --- | --- | --- | --- |
+| Baseline control | Death, 8, 1,512 | Death, 1, 343 | Death, 2, 238 |
+| Avoid reversing during pursuit and collect supplies | Death, 17, 4,748 | Death, 3, 1,263 | Stair unavailable, 1, 36 |
+| Prefer a ready melee attack to throwing a dart in contact | Unscheduled | Death, 17, 7,537 | Unscheduled |
+| Also wait for levitation to expire at the stair | Interrupted | Death, 17, 7,537 | Readiness timeout, 11, 5,310 |
+
+On seed 49 the bot waited until ground contact returned and then descended.
+Its final player observation did not establish a death. The seed-47 death on
+floor 17 followed two applied melee strikes. None of these runs acquired the
+Amulet. Seeds 71001–71020 remain reserved for the 16-of-20 qualification.
+
+A fresh diagnostic on seed 47 reproduced the floor-17 death at tick 780440.
+With a medusa adjacent, recovery from 34 to 35 of 69 Health made the bot
+turn and attack. Two player attacks later its Health was 13. Continuing a
+wounded retreat until ordinary recovery Health changed the route earlier in
+the game. That candidate died on floor 10 after 2,544 submissions. It carried
+a food ration while retreating from a centaur at a reserve of −7. The next
+observation recorded Fainted, multiple attacks and death. The policy now
+considers a carried meal during a pursuit when weak or empty. A live test
+confirms meal admission and a reserve increase with an adjacent hostile.
+
+Eating the ration extended seed 47 from 2,544 to 5,162 submissions; both
+runs died on floor 10. The bot spent over a thousand decisions retreating
+on that floor. Seeking the remembered upstairs during pursuit brought it
+to floor 15 (death in melee). A separate seed-42 supply experiment
+exposed a pickup loop on floor 8: walking south revealed a reachable
+smoky potion and an ice monster two steps away. The bot walked north,
+lost sight of the monster and sought the potion again. On replay of
+the recorded approach a healthy bot took the potion, and a regression
+checks that it remembers which nearby scroll the monster guards.
+
 The current acceptance target is the bundled `rogue` scenario from current main.
 The capability table combines live fixtures, earlier `rogue-exploration`
 runs, and bundled `rogue` results. The last column lists the remaining

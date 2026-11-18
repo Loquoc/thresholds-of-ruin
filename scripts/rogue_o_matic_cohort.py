@@ -94,7 +94,7 @@ def summarize(rows):
 
 def trace_report(path):
     progress = {"actions": 0, "max_depth": 0, "amulet_acquired": False,
-                "floors": {}, "stair_transitions": []}
+                "closest_return_floor": None, "floors": {}, "stair_transitions": []}
     previous = None
     terminal = None
     pending_searches = {}
@@ -119,6 +119,9 @@ def trace_report(path):
                 progress["actions"] += 1
                 progress["amulet_acquired"] |= row.get("amulet_acquired") is True
                 floor = row["floor"]
+                if progress["amulet_acquired"]:
+                    closest = progress["closest_return_floor"]
+                    progress["closest_return_floor"] = floor if closest is None else min(closest, floor)
                 progress["max_depth"] = max(progress["max_depth"], floor)
                 reserve = row.get("nutrition_reserve")
                 metrics = progress["floors"].setdefault(str(floor), {
@@ -157,7 +160,7 @@ def verify_victory(address, token, actor, objective_identity):
 
 
 def play(seed, server_path, scenario, actor, budget, timeout, output, retrieval_depth,
-         objective_identity, policy_path):
+         objective_identity, policy_path, record_decisions=False):
     directory = output / f"seed-{seed}"
     directory.mkdir()
     token = secrets.token_urlsafe(32)
@@ -166,38 +169,50 @@ def play(seed, server_path, scenario, actor, budget, timeout, output, retrieval_
                       "--scenario", scenario, "--character", str(actor), "--seed", str(seed)],
                      token=token, diagnostics=directory / "server")
     trace = directory / "turns.jsonl"
+    report = {}
+    try:
+        report = play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth,
+                                objective_identity, policy_path, record_decisions)
+    finally:
+        try:
+            server.stop(save=False)
+        except subprocess.TimeoutExpired:
+            report["server_cleanup"] = "timeout"
+    return {"seed": seed, **report}
+
+
+def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth,
+                   objective_identity, policy_path, record_decisions):
     try:
         line = server.until(lambda text: text.startswith("{") and '"address"' in text)
         address = json.loads(line)["address"]
-        with trace.open("w", encoding="utf-8") as log, (directory / "bot.stderr").open("w", encoding="utf-8") as errors:
+        with trace.open("w", encoding="utf-8") as log, trace.with_name("bot.stderr").open("w", encoding="utf-8") as errors:
             result = subprocess.run(
                 [sys.executable, str(policy_path), "--connect", address,
                  "--actor", str(actor), "--budget", str(budget), "--retrieval-depth", str(retrieval_depth),
-                 "--objective-identity", objective_identity],
+                 "--objective-identity", objective_identity, *(["--record-decisions"] if record_decisions else [])],
                 cwd=ROOT, stdout=log, stderr=errors, timeout=timeout,
                 env={**os.environ, "TOR_SERVER_TOKEN": token},
             )
         report, progress = trace_report(trace)
         if report is None or result.returncode != int(report["terminal"] != "victory"):
-            return {"seed": seed, "terminal": "client_error", "exit_code": result.returncode, **progress}
+            return {"terminal": "client_error", "exit_code": result.returncode, **progress}
         report = {**progress, **report}
         if report["terminal"] == "victory":
             try:
                 verified = verify_victory(address, token, actor, objective_identity)
             except RuntimeError as error:
-                return {"seed": seed, **report, "terminal": "client_error",
+                return {**report, "terminal": "client_error",
                         "victory_verified": False, "verification_error": str(error)}
             if not verified:
-                return {"seed": seed, **report, "terminal": "client_error",
+                return {**report, "terminal": "client_error",
                         "victory_verified": False,
                         "verification_error": "Fresh player observation did not confirm victory with the retrieval item"}
             report["victory_verified"] = True
-        return {"seed": seed, **report}
+        return report
     except subprocess.TimeoutExpired:
         _, progress = trace_report(trace)
-        return {"seed": seed, "terminal": "wall_timeout", **progress}
-    finally:
-        server.stop(save=False)
+        return {"terminal": "wall_timeout", **progress}
 
 
 def write_summary(output, inputs, rows):
@@ -218,6 +233,8 @@ def main():
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--objective-identity", default=DEFAULT_OBJECTIVE_IDENTITY)
     parser.add_argument("seeds", type=int, nargs="+")
+    parser.add_argument("--record-decisions", action="store_true",
+                        help="save replayable player observations in each seed trace")
     args = parser.parse_args()
     if len(args.seeds) != len(set(args.seeds)) or min(args.seeds) < 0:
         parser.error("Seeds must be unique nonnegative integers")
@@ -234,15 +251,17 @@ def main():
         objective = tomllib.load(manifest).get("unique_retrieval", {})
     retrieval_depth = objective.get("minimum_depth", DEFAULT_RETRIEVAL_DEPTH)
     inputs.update(retrieval_depth=retrieval_depth, objective_identity=args.objective_identity,
-                  seeds=args.seeds)
+                  seeds=args.seeds, action_budget=args.budget, timeout_seconds=args.timeout,
+                  record_decisions=args.record_decisions)
     rows = []
     write_summary(output, inputs, rows)
     for seed in args.seeds:
         rows.append(play(seed, server, scenario, args.actor, args.budget, args.timeout, output,
-                         retrieval_depth, args.objective_identity, policy_path))
+                         retrieval_depth, args.objective_identity, policy_path, args.record_decisions))
         summary = write_summary(output, inputs, rows)
     print(json.dumps(summary))
-    return int(any(row["terminal"] in {"client_error", "wall_timeout", "readiness_timeout"} for row in rows))
+    return int(any(row.get("server_cleanup") or row["terminal"] in
+                   {"client_error", "wall_timeout", "readiness_timeout"} for row in rows))
 
 
 if __name__ == "__main__":

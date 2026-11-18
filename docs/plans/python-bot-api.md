@@ -85,9 +85,9 @@ records or reconstruct footprint geometry identifies work still to do. Replay
 each example successfully. Give each shared rule one implementation owner and
 a focused test.
 
-**Campaign reliability.** The proposed first qualification target is at least
-16 independently verified victories on 20 distinct, preselected held-out seeds.
-Agree on the threshold before tuning. Run each seed once from a fresh save with
+**Campaign reliability.** The agreed first qualification target is at least
+16 independently verified victories on held-out seeds 71001 through 71020.
+Reserve these seeds exclusively for qualification. Run each seed once from a fresh save with
 ordinary enemies and nutrition under the pinned configuration. Count all
 scheduled seeds in the denominator. Report deaths, budget exhaustion, stalls
 and infrastructure failures separately. Count a victory only when a fresh

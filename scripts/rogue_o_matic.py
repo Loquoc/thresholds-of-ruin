@@ -15,6 +15,8 @@ def main():
     parser.add_argument("--budget", type=int, default=20_000)
     parser.add_argument("--retrieval-depth", type=int, default=DEFAULT_RETRIEVAL_DEPTH)
     parser.add_argument("--objective-identity", default=DEFAULT_OBJECTIVE_IDENTITY)
+    parser.add_argument("--record-decisions", action="store_true",
+                        help="include player observations and consulted choices in the JSON trace")
     args = parser.parse_args()
     if args.retrieval_depth < 1:
         parser.error("Retrieval depth must be positive")
@@ -26,7 +28,7 @@ def main():
 
     with Session.connect(args.connect, os.environ["TOR_SERVER_TOKEN"], args.actor) as game:
         player = Adventurer(args.retrieval_depth, args.objective_identity)
-        report = play(game, player, args.budget, emit)
+        report = play(game, player, args.budget, emit, record_decisions=args.record_decisions)
         emit(report)
         return 0 if report["terminal"] == "victory" else 1
 

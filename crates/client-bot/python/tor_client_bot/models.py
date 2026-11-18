@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from enum import Enum
 
 
@@ -144,6 +144,7 @@ class Item:
     quantity: int
     uses: tuple[ItemUse, ...]
     category: str
+    appearance: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,12 +186,14 @@ class GroundItem:
     item: Item
     offset: tuple[int, int, int]
     reachable: bool
+    cell: Cell | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Identify:
     choice: str
     item: Item | None
+    prompt: Identification | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,9 +202,9 @@ class Identification:
     items: tuple[Item, ...]
 
     def select(self, item: Item | None) -> Identify:
-        if item is not None and item not in self.items:
+        if item is not None and not any(item is offered for offered in self.items):
             raise ValueError("Choose an offered item")
-        return Identify(self.choice, item)
+        return Identify(self.choice, item, self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +244,17 @@ class Shot:
     launcher: Item | None
     socket: int
     equipped_throw: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class StairAttempt:
+    """Player-visible evidence saved when a vertical move was submitted."""
+
+    direction: Direction
+    origin: str
+    landing: str | None
+    tick: int
+    receipt: Result | None
 
 
 class ActivityChoice(Enum):
@@ -390,7 +404,7 @@ class Activity:
 
     @classmethod
     def from_row(cls, row: dict) -> Activity:
-        return cls(row["actor"], row["branch"], row["intention"], ActivityPhase(row["phase"]))
+        return cls(int(row["actor"]), row["branch"], row["intention"], ActivityPhase(row["phase"]))
 
 
 class Outcome(str, Enum):
@@ -436,3 +450,48 @@ Action = (
     | UseAbility
     | Shot
 )
+
+
+def _direct_command(action: Move | Wait | UseItem | Pickup | Equip | Escape | OpenDoor) -> dict:
+    """These actions use the same operands in the player trace and the submitted command."""
+    if isinstance(action, Move):
+        return {"type": "move", "direction": action.direction.value}
+    if isinstance(action, Wait):
+        return {"type": "wait"}
+    if isinstance(action, UseItem):
+        return {"type": action.use.value, "item": action.item.target}
+    if isinstance(action, Pickup):
+        return {"type": "take", "item": action.item.target}
+    if isinstance(action, Equip):
+        return {"type": "equip", "item": action.item.target, "slot": action.slot.index}
+    if isinstance(action, Escape):
+        return {"type": "escape", "hold": action.hold.target}
+    if isinstance(action, OpenDoor):
+        return {"type": "set_door", "door": action.door.target, "open": True}
+    raise TypeError(f"Unsupported action {action!r}")
+
+
+def describe_action(action: Action) -> dict:
+    """Describe a proposed action with stable labels and player-visible operands."""
+    if isinstance(action, ActivityChoice):
+        return {"type": action.value}
+    if isinstance(action, Unequip):
+        return {"type": "unequip", "slot": action.slot.index}
+    if isinstance(action, Identify):
+        return {"type": "identify", "item": action.item.target if action.item else None}
+    if isinstance(action, Shot):
+        return {
+            "type": "use_ability",
+            "id": action.ability.identity,
+            "target": action.target.target,
+            "offset": action.offset,
+            "projectile": action.projectile.target,
+            "launcher": action.launcher.target if action.launcher else None,
+        }
+    if isinstance(action, UseAbility):
+        return {
+            "type": "use_ability",
+            "id": action.ability.identity,
+            "target": action.target.target if action.target else None,
+        }
+    return _direct_command(action)
