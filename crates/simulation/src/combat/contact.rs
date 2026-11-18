@@ -133,8 +133,11 @@ impl HitContact {
             || self.target.actor != target
             || !self.source.still_matches(game)
             || !self.target.still_matches(game)
-            || game.melee_neighbor_frame(self.contact.source.location, self.contact.delta)
-                != Some((self.contact.target.location, self.contact.route))
+            || game.melee_attack_neighbor_frame(
+                source,
+                self.contact.source.location,
+                self.contact.delta,
+            ) != Some((self.contact.target.location, self.contact.route))
         {
             return None;
         }
@@ -233,7 +236,11 @@ impl<'a> ContactQuery<'a> {
             .copied()
             .flat_map(move |source| deltas(shell).map(move |delta| (source, delta)))
             .filter_map(|(source, delta)| {
-                let (location, route) = self.game.melee_neighbor_frame(source.location, delta)?;
+                let (location, route) = self.game.melee_attack_neighbor_frame(
+                    self.source.actor,
+                    source.location,
+                    delta,
+                )?;
                 let target = *self.disclosed_targets.get(&location)?;
                 Some(ContactCandidate {
                     source,
@@ -297,6 +304,28 @@ impl Game {
         scene: &[SightCell],
         placement: Option<crate::abilities::Placement>,
     ) -> BTreeSet<Location> {
+        self.contact_locations_in_scene(source, scene, placement, |from, delta| {
+            self.melee_attack_neighbor_frame(source, from, delta)
+        })
+    }
+
+    pub(crate) fn physical_contact_locations_in_scene(
+        &self,
+        source: ActorId,
+        scene: &[SightCell],
+    ) -> BTreeSet<Location> {
+        self.contact_locations_in_scene(source, scene, None, |from, delta| {
+            self.melee_neighbor_frame(from, delta)
+        })
+    }
+
+    fn contact_locations_in_scene(
+        &self,
+        source: ActorId,
+        scene: &[SightCell],
+        placement: Option<crate::abilities::Placement>,
+        neighbor: impl Fn(Location, [i64; 3]) -> Option<(Location, u8)>,
+    ) -> BTreeSet<Location> {
         crate::diagnostics::contact_neighborhood();
         let Some(body) = ContactBody::capture_at(self, source, placement) else {
             return BTreeSet::new();
@@ -315,7 +344,7 @@ impl Game {
         for source in body.cells {
             for delta in (1..=3).flat_map(deltas) {
                 crate::diagnostics::contact_route_probe();
-                if let Some((location, _)) = self.melee_neighbor_frame(source.location, delta) {
+                if let Some((location, _)) = neighbor(source.location, delta) {
                     if disclosed.contains(&location) {
                         reachable.insert(location);
                     }
@@ -352,8 +381,26 @@ impl Game {
         ContactQuery::capture(self, source, target, scene)
             .map_or(MeleeContact::Unreachable, ContactQuery::select)
     }
-    /// Same terrain/door/component-order predicate used by ordinary reach and
-    /// ground touch. Occupancy is checked later by physical body translation.
+    /// Horizontal melee shares movement's corner clearance and portal frame.
+    /// The destination can contain the target. Vertical contact still uses
+    /// physical neighbors, since reaching a body is not climbing or flying.
+    pub(crate) fn melee_attack_neighbor_frame(
+        &self,
+        source: ActorId,
+        from: Location,
+        delta: [i64; 3],
+    ) -> Option<(Location, u8)> {
+        if delta[0] != 0 && delta[1] != 0 && delta[2] == 0 {
+            let direction = tor_world::Direction::from_delta(delta)?;
+            return self
+                .voluntary_reach(source, from, direction, false, false)
+                .filter(|(to, _)| self.world.walkable(*to));
+        }
+        self.melee_neighbor_frame(from, delta)
+    }
+
+    /// Physical touch through every component order, used for vertical melee,
+    /// holds and ground interactions.
     pub(crate) fn melee_neighbor_frame(
         &self,
         from: Location,
@@ -597,6 +644,11 @@ mod tests {
         let hit = contact(&game);
         assert_eq!(hit.contact.delta, [1, 1, 0]);
         game.set_wall(at(5, 4, 4), true).unwrap();
+        assert_eq!(
+            hit.current_away(&game, ActorId(1), ActorId(2)),
+            Some([1, 1, 0])
+        );
+        game.set_wall(at(4, 5, 4), true).unwrap();
         assert_eq!(hit.current_away(&game, ActorId(1), ActorId(2)), None);
         assert!(!game.attack_available(ActorId(1), ActorId(2)));
     }
@@ -654,6 +706,8 @@ mod tests {
         rejected.teleport(target, at(5, 5, 4)).unwrap();
         assert_attack_matches_fresh(&rejected, source, target, true);
         rejected.set_wall(at(5, 4, 4), true).unwrap();
+        assert_attack_matches_fresh(&rejected, source, target, true);
+        rejected.set_wall(at(4, 5, 4), true).unwrap();
         assert_attack_matches_fresh(&rejected, source, target, false);
         assert_attack_matches_fresh(&game, source, target, true);
     }
@@ -746,6 +800,8 @@ mod tests {
         game.teleport(target, at(7, 5, 4)).unwrap();
         assert_attack_matches_fresh(&game, source, target, true);
         game.set_wall(at(7, 4, 4), true).unwrap();
+        assert_attack_matches_fresh(&game, source, target, true);
+        game.set_wall(at(6, 5, 4), true).unwrap();
         assert_attack_matches_fresh(&game, source, target, false);
         game.set_wall(at(7, 4, 4), false).unwrap();
         assert_attack_matches_fresh(&game, source, target, true);
@@ -758,6 +814,22 @@ mod tests {
         assert!(!game.attack_available(source, source));
         assert!(!game.attack_available(source, ActorId(u64::MAX)));
         assert!(!game.attack_available(ActorId(u64::MAX), target));
+    }
+
+    #[test]
+    fn cached_diagonal_melee_tracks_a_body_blocking_the_open_side() {
+        let mut game = fixture();
+        let source = ActorId(1);
+        let target = ActorId(2);
+        game.teleport(target, at(5, 5, 4)).unwrap();
+        game.set_wall(at(5, 4, 4), true).unwrap();
+        assert_attack_matches_fresh(&game, source, target, true);
+        let blocker = game
+            .spawn_actor(at(4, 5, 4), std::num::NonZeroU64::new(100).unwrap())
+            .unwrap();
+        assert_attack_matches_fresh(&game, source, target, false);
+        game.teleport(blocker, at(3, 5, 4)).unwrap();
+        assert_attack_matches_fresh(&game, source, target, true);
     }
 
     #[test]

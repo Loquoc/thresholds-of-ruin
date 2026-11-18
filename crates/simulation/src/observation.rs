@@ -47,6 +47,7 @@ pub(crate) struct CachedScene {
 #[derive(Debug)]
 struct SourceContactGeometry {
     world: tor_world::SharedIdentity<tor_world::World>,
+    visibility: u64,
     locations: Arc<BTreeSet<Location>>,
 }
 
@@ -93,12 +94,13 @@ impl CachedScene {
         game: &Game,
         source: ActorId,
     ) -> Arc<BTreeSet<Location>> {
+        let visibility = game.actors.visibility_epoch();
         if let Some(locations) = self
             .contact
             .lock()
             .expect("contact geometry")
             .as_ref()
-            .filter(|entry| entry.world.matches(&game.world))
+            .filter(|entry| entry.world.matches(&game.world) && entry.visibility == visibility)
             .map(|entry| entry.locations.clone())
         {
             return locations;
@@ -109,6 +111,7 @@ impl CachedScene {
         let locations = Arc::new(game.melee_contact_locations_in_scene(source, &self.cells, None));
         *self.contact.lock().expect("contact geometry") = Some(SourceContactGeometry {
             world: game.world.weak_identity(),
+            visibility,
             locations: locations.clone(),
         });
         locations
@@ -1367,7 +1370,7 @@ impl Game {
         actor: ActorId,
         scene: &[tor_world::SightCell],
     ) -> BTreeSet<Location> {
-        let mut contacts = self.melee_contact_locations_in_scene(actor, scene, None);
+        let mut contacts = self.physical_contact_locations_in_scene(actor, scene);
         if let Some(owner) = self.actors.get(&actor) {
             if let Some(body) = self.body_cells(owner.location, owner.orientation, &owner.body) {
                 contacts.extend(body.into_iter().map(|(location, _)| location));

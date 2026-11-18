@@ -96,6 +96,26 @@ current frame; missing or disconnected neighbors use a neutral marker. Keep
 regressions for duplicate keys, ordering, rotation and lost neighbors. This is
 a presentation defect family, distinct from the server-disclosure defects.
 
+Desktop playtesting exposed generic flash narration on ordinary melee and
+Search, separate staff preparation/completion messages, and a short-range ray
+that disappeared before the player could recognize it. Actual-process
+regressions reproduced the unwanted flash and redundant zap messages before
+the fixes. Keep wording expectations current in both client suites and retain
+their authority and privacy assertions. Keep model tests for ray progression
+and its terminal hold. Live recordings measure how
+long the glyphs remain visible after delivery; server event timing alone cannot
+establish that presentation interval.
+History and disclosure tests use a non-basic ability with a visible target
+effect to retain their geometry and authority witnesses. The condition test
+checks the remaining melee ability receipt, including actor, target and outcome.
+
+The same review reproduced a diagonal doorway attack refused beside one wall,
+plus an out-of-reach refusal that omitted repositioning guidance. Horizontal
+diagonal melee now shares movement corner clearance. Keep the doorway process
+witness and cached-contact tests that move a blocking body into and out of the
+remaining open side. Verify both attack admission and the informative refusal,
+since a correct reach predicate alone does not establish the player's feedback.
+
 ## Resource ownership and asynchronous clients
 
 ### Bounded deferred ingress
@@ -1031,3 +1051,12 @@ its matching policy explicitly. This bounded practice setup is not universal
 reaction suppression: awareness and authored fear/control effects still run.
 Native presentation retains its actual-window test and required hosted check;
 a headless replay is not a substitute for that boundary.
+
+## Independent client dependency locks
+
+The November 18 rusqlite update changed the server manifest and root lock but
+left the separate 3D workspace lock stale. The hosted 3D consumer's `--locked`
+build caught this before launching a client: one build/setup root cause, not a
+gameplay failure. Refreshing only rusqlite and libsqlite3-sys in the independent
+lock restores resolution. Dependency updates shared through path dependencies
+must account for both locks; the normal 3D build remains the boundary witness.
