@@ -3,8 +3,11 @@
 The [original Rog-O-Matic paper](https://www.cs.princeton.edu/~appel/papers/rogomatic.pdf)
 describes its knowledge sources, tactics, and performance. The
 [Rog-O-Matic XIV archive](https://github.com/neozeed/Rog-O-Matic) is the historical
-behavior reference. The Python example implements these decisions using TOR's
-ordinary player disclosures and current scenario rules.
+behavior reference. The campaign results and capability table below describe the Python policy
+before the bot API refactor. The rewritten example uses the
+[public Python client](../reference/bot-client.md). Its full-depth fixture
+checks retrieval and return against an independent player observation. The
+historical seed results below belong to the revisions named in the text.
 
 See the [findings and follow-ups](rogue-o-matic-findings.md) for issues uncovered
 during implementation and campaign testing.
@@ -13,6 +16,19 @@ The current acceptance target is the bundled `rogue` scenario from current main.
 The capability table combines live fixtures, earlier `rogue-exploration`
 runs, and bundled `rogue` results. The last column lists the remaining
 campaign checks.
+
+In an 800-action check of the public-API rewrite on the `517a7812` server,
+bundled seeds 42 and 47 reached floors 8 and 7 respectively. Both stopped at
+the action budget. Before the client combined door reachability across
+visible cells, both had spent the same budget on floor 1 repeatedly walking
+east and west. The bounded check exercises navigation, combat and condition
+disclosure. Bundled victory remains unverified for the rewrite.
+
+After updating the binding and policy to main at `5192b143`, another
+800-action run on seed 42 reached floor 8. Seed 47 died from injury on
+floor 1 after 343 actions. Its final events show Rattling Blow applying
+immediately before death. These single runs establish that the installed
+wheel can play against this server. They do not measure a win rate.
 
 On main at `5b9299c4`, the bot binding and server built together and
 the ordinary live startup test passed on `rogue`, including 20

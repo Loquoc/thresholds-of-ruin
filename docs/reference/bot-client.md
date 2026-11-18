@@ -26,76 +26,127 @@ directory and records their SHA-256 hashes in the summary.
 python scripts/rogue_o_matic.py --connect 127.0.0.1:4000 --actor 1 --budget 20000
 ```
 
-The bot respects the scenario's authored growth and skips owner purchases
-when the server reports that advancement is locked. It prints one JSON row
-per attempted action and ends with a terminal
-reason, deepest reached floor, Amulet acquisition, action count, and final tick.
-Each action row includes the tick, player health, and any visible hostiles with
-their injury and relative position. Action and terminal rows include the ordered
-combat events observed since the previous action in
-`events_since_previous_action`. For deaths, the summary also includes combat
-events in the final observation and the actor's final nutrition state.
-A `no_disclosed_route` report includes the bot's last cell, remembered stairs,
-frontier size, rejected moves, and admitted searches for that floor.
-Its policy uses the ordinary player view, along with terrain and stairs
-it has observed during play.
+## First policy
 
-## Session API
+A session attaches to one player. Each turn is a snapshot of what that player
+can perceive, with the common client's attachment context retained for submission.
+Creating a choice spends nothing. `turn.submit(choice)` sends one command.
 
 ```python
-from tor_client_bot import Session
+import os
+from tor_client_bot import ActivityChoice, Direction, Move, Outcome, Session, Wait
 
-session = Session.connect(address, token, actor=1)
-try:
-    observation = session.observe()
-    picture = observation.data()
-    if picture["readiness"]["admission"]:
-        result = session.act({"type": "wait"}, observation)
-        next_picture = session.observe().data()
-finally:
-    session.close()
+
+def choose(turn):
+    if prompt := turn.identification:
+        return prompt.select(next(iter(prompt.items), None))
+    if turn.can_resume:
+        return ActivityChoice.RESUME
+    if turn.cell and turn.cell.stairs_down:
+        return Move(Direction.DOWN)
+    return turn.step(Direction.EAST) or Wait()
+
+
+with Session.connect("127.0.0.1:4000", os.environ["TOR_SERVER_TOKEN"], actor=1) as game:
+    for turn in game.turns():
+        result = turn.submit(choose(turn))
+        if result.status is Outcome.STALE:
+            continue
+        if result.status is not Outcome.CONFIRMED:
+            print(result.status.value, result.reason)
+            break
 ```
 
-`Observation.data()` returns a detached copy of the disclosed state. Use the
-original `Observation` to submit an action. The session checks its context
-against the current attachment before sending. The server also applies ordinary
-control, readiness, and targeting rules.
+`game.turns()` polls for player decisions and ends at a terminal observation.
+Use `game.wait_for_decision()` when the policy also needs to inspect the final
+turn. `game.observe()` returns a snapshot even while the actor is busy.
 
-A confirmed receipt records admission and can precede completion of the in-game
-intention. Read the next observation before sending a new command.
-`intentions` lists active work. `finished_intentions` contains the latest 32
-terminal updates observed on the current stream, in arrival order. Match a
-terminal update's `intention` to the admission receipt to tell whether the work
-resolved, failed, or was canceled. A stream reset clears the retained updates.
-The `combat_updates` list retains up to 16 recent nonvisual combat
-event batches from the current stream. Use each batch's cursor sequence
-to avoid processing it twice. The latest picture can omit an event that
-already arrived on the ordered stream.
+## Reading the world
 
-When readiness offers a paused intention, pass the observation to
-`session.resume(observation)` to continue that work. When readiness permits
-cancellation, pass the observation to `session.cancel(observation)`. A stale observation needs a
-fresh decision. An unknown result after a
-transport failure requires reconnecting and reviewing the new observation before
-any further action. The session never retransmits an action on its own.
+- `turn.cell` is the visible cell at the actor's origin, or `None` when it is
+  outside the eye scene. Visible cell offsets belong to the current view.
+  `FloorMap` remembers links and disclosed traps by stable cell key across
+  turns. Its `toward` method prefers a trap-free route when one is known.
+  Pass `prefer_safe=False` to prioritize the shortest known route.
+  `memory.adjacent(key)` gives known cardinal neighbors. `memory.reachable(key)`
+  yields remembered cells and distances in breadth-first order. `memory.items`
+  records what the actor last saw at each cell and refreshes on sight.
+  Use `turn.walkable_from(cell)` to evaluate a possible next step within the visible scene.
+- `turn.creatures` groups visible body cells by creature. Each creature has
+  a name, distance to its nearest visible cell, and any disclosed affiliation
+  and injury. `turn.hostiles` contains creatures explicitly disclosed as hostile.
+- `turn.inventory` combines carried items with their offered uses. For example,
+  an unidentified flask can offer `ItemUse.DRINK` while its identity is
+  `None`. A policy decides whether to take that risk.
+- `turn.step(direction)` examines visible terrain, doors and bodies. It returns
+  a proposed move, an action to open a reachable door, or `None`. Reconsider
+  movement after opening a door.
+- `turn.projectiles()` queries usable throwables and compatible launcher/ammunition
+  pairs, including when there are no targets in sight.
+- `turn.ranged_attacks()` finds target cells on visible creatures and pairs
+  them with the server's projectile choices. Each shot identifies its target,
+  projectile, launcher when applicable, and aim offset. The server resolves
+  reach, obstructions and hits.
 
-After a fresh observation, `session.advancement("overview")` opens the controlled
-actor's advancement page. Use the commands in the [advancement guide](../play/advancement.md)
-to preview a proposal and confirm it through the same method.
+The `turn.health` and `turn.recovery` properties describe current health
+and its recovery clock. `turn.restorable_losses` exposes lasting losses
+such as strength, hit dice, or maximum health. For instance, a policy
+can save a restore-strength potion until `turn.restorable_losses.strength`
+is positive. These properties return `None` when the player lacks the
+corresponding disclosure.
 
-See the [capability and acceptance checks](../development/rogue-o-matic-parity.md) for the original bot's tactics and the current verification scope.
+## Following an action
 
-Use `session.projectile_choices(observation, ability, phase, offset)` to read
-server-owned throw sources, equipped launchers, and compatible ammunition.
-Start with `{"kind": "sources"}` and offset `0`. To look up ammunition, pass
-`{"kind": "ammunition", "launcher": launcher}` using the exact returned launcher.
-Follow `next_offset` until the page has no successor. A stale observation returns
-`None`. Submit the selected delivery and direction as an ordinary ability action.
+A confirmed submission may complete immediately or start an activity. For an
+admitted action, `result.activity.phase` gives the phase at admission. On a
+later observation, `turn.outcome_of(result)` returns its latest disclosed
+`ActivityPhase`, such as `PAUSED`, `RESOLVED` or `FAILED`. It returns `None`
+if there is no matching activity in the current picture or retained history.
+A resolved attack can still miss. A stale submission calls for a fresh
+observation. If a disconnect leaves the outcome unknown, inspect the player
+after reconnecting before deciding whether to repeat the action.
 
-Use `session.chart(observation, "mapping")` to retrieve a complete Mapping
-chart. The same method accepts `"monsters"`, `"food"`, and `"magic"`. The
-result contains the chart kind, mode, acquisition tick, components, and rows.
-The session assembles and validates all pages without spending a turn. It
-returns `None` if the chart is unavailable or the observation is stale.
-Projected positions are in each chart component's frame. Use ordinary
-observations for movement and targeting.
+## Interpreting combat
+
+Each entry in `turn.recent_combat.incoming` describes an ability directed at the
+player by another or unidentified actor. It carries the observed outcome and any
+disclosed caster, ability identity and strike number. For an unseen attacker,
+an author can respond to a miss or a drop in health even when the caster and
+ability are unknown. A policy can save a `CombatJournal()` and call
+`journal.read(turn).incoming` each time it observes to consume each streamed
+event once. `report.records()` preserves the disclosed events for a trace.
+
+## Character advancement
+
+`game.training.overview()` discloses whether the scenario locks advancement
+and how many points remain. For an unlocked build, browse `training.pools()`
+and `training.options(TrainingKind.TALENT)` on the same `training = game.training`
+object. Each pool lists the kinds of purchase it can fund. An option lists
+its required form choices when applicable. Call `training.preview(pool, option)`
+with an optional `form=` selection, inspect the resulting health and
+`would_die`, then pass that preview to `training.confirm(preview)`. Browsing
+again invalidates the preview. A second confirmation returns `Outcome.STALE`.
+
+## Testing a decision offline
+
+A policy can read health, memory, visible creatures and items from a saved
+picture. Save a recording from a live turn while investigating a decision.
+
+```python
+from pathlib import Path
+from tor_client_bot import Turn
+
+fixture = Path("at-the-stairs.json")
+fixture.write_text(turn.recording(), encoding="utf-8")
+recorded = Turn.replay(fixture.read_text(encoding="utf-8"))
+assert choose(recorded) == choose(turn)
+```
+
+A recording includes the attached player's disclosed inventory and combat
+facts. Chart and ammunition queries need a live connection. The replay
+supports local decisions and cannot send commands.
+
+The bundled retrieval policy and its decision loop live in
+[`rogue_player.py`](../../scripts/rogue_player.py). The
+[findings log](../development/rogue-o-matic-findings.md) records observations
+worth investigating on the server.

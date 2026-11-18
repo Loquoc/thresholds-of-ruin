@@ -67,16 +67,17 @@ class CohortSummaryTests(unittest.TestCase):
 
         from rogue_o_matic_cohort import verify_victory
 
-        report = {"combat": {"terminal": True, "victory": True, "dead": False},
-                  "inventory": [{"identity": "item.amulet.fixture.seal", "name": "Copper seal"}]}
-        observation = SimpleNamespace(data=lambda: {"state": {"observation": report}})
-        session = Mock()
-        session.observe.return_value = observation
+        from unittest.mock import MagicMock
+
+        session = MagicMock()
+        turn = session.__enter__.return_value.observe.return_value
+        turn.victorious = True
+        turn.inventory = (SimpleNamespace(identity="item.amulet.fixture.seal"),)
         extension = SimpleNamespace(Session=SimpleNamespace(connect=lambda *args: session))
         with patch.dict("sys.modules", {"tor_client_bot": extension}):
             self.assertTrue(verify_victory("example", "token", 1, "item.amulet.fixture.seal"))
             self.assertFalse(verify_victory("example", "token", 1, "item.amulet.fixture.lookalike"))
-        self.assertEqual(session.close.call_count, 2)
+        self.assertEqual(session.__exit__.call_count, 2)
 
     def test_cli_reports_readiness_timeout_as_failure_and_keeps_the_report(self):
         from contextlib import redirect_stdout

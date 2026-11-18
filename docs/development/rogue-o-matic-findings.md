@@ -1,9 +1,63 @@
 # Rogue-O-Matic findings and follow-ups
 
-The entries below describe ordinary-player experiments on the earlier `rogue-exploration` checkout. Fixes and campaign results from that checkout need fresh verification against current main and `rogue`.
+The first three entries concern the bot API refactor on bundled `rogue`. The earlier entries describe ordinary-player experiments on `rogue-exploration`. Their fixes and campaign results need fresh verification against bundled `rogue`.
 Use this page to retain observations that may warrant separate work. Campaign
 acceptance and reproduction commands are in the [capability and acceptance
 checks](rogue-o-matic-parity.md).
+
+## One door can have different reachability on different body cells
+
+In a bundled seed-42 campaign on `517a7812`, the observer saw one closed
+secret entrance on two cells immediately west, at heights zero and one.
+Both records had the same door ID. The lower record offered a reachable
+approach from the player's cell. The upper record had no approaches and
+reported unreachable. The observer's own visible body record was at height
+one. Checking only that record made the bot walk back and forth beside a door
+it could open. The Python client now presents one door and combines its
+disclosed approaches for reachability. Per-cell approach information is valid
+geometry. Clarifying its scope in the server field documentation would help
+other clients avoid the same interpretation error.
+
+## A free weapon socket can still be unusable
+
+On the bundled Rogue scenario at `517a7812`, seeds 42 and 47 both reproduced
+this at tick zero. Actor 1 had the mace in weapon socket 0, ring mail in socket
+2, an empty weapon socket 10, and a shortbow in inventory. The inventory view
+listed the shortbow's slot kind as `weapon`. Equipping it in socket 10
+returned `Intention is unavailable`; the actor remained at tick zero.
+
+The [equipment rules](../reference/equipment.md) give the shortbow a two-grip
+requirement. The socket category and an unoccupied socket alone cannot
+establish that the actor has sufficient grips. Consider returning the
+player-known reason for an inadmissible equipment choice, or disclosing the
+feasible socket choices directly. The ordinary common-client item selector
+also chooses a free socket by matching category.
+
+## Projectile reach during selection
+
+On the API refactor baseline `517a7812`, the server offers an exact launcher
+and compatible ammunition. It describes the ability's reach as `Projectile`.
+The source and ammunition rows identify items and sockets, but neither row
+gives the reach of the chosen delivery. A client can tell that an arrow fits
+the bow and that a creature lies along a visible ray. It still has to submit
+the shot or apply a scenario-specific distance estimate to decide whether the
+creature is within range.
+
+This is a response-design finding from the
+[choice schema](../../crates/protocol/src/projectile_choices.rs) and
+[ability reach schema](../../crates/protocol/src/creature.rs). Consider
+disclosing the player-known effective range for the selected delivery,
+including how vertical distance counts. A follow-up fixture should compare
+two deliveries with different ranges and verify the boundary against actual
+resolution while preserving any intentionally undisclosed modifiers.
+
+On bundled seed 47 at `5192b143`, 14 of 18 throw submissions were followed
+by a failed activity at the next decision. Three were resolved and one was
+paused. Near the end of the run, the actor could submit melee at the same
+tick as a failed adjacent throw. The turn trace establishes the admission
+and subsequent phase. It does not establish why the throws failed. A
+focused follow-up should compare the offered projectile and target with
+the failure reason exposed to the player at resolution.
 
 ## Current main reconciliation
 

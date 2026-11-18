@@ -11,29 +11,35 @@ use tor_protocol::{chart_pages::ChartKind, Action, ActorId, ProjectileChoiceQuer
 
 use crate::{Session, Turn};
 
-#[pyclass(frozen, module = "tor_client_bot")]
+#[pyclass(frozen, module = "tor_client_bot._native")]
 struct Observation {
     context: ReplyContext,
     contents: String,
 }
 
-fn encode_observation(state: &ClientState) -> serde_json::Result<String> {
+fn encode_observation(state: &ClientState, diagnostics: bool) -> serde_json::Result<String> {
     let mut contents = Vec::new();
     let mut serializer = serde_json::Serializer::new(&mut contents);
-    let mut fields = serializer.serialize_map(Some(12))?;
+    let mut fields = serializer.serialize_map(None)?;
     fields.serialize_entry("state", state.state())?;
-    let memory: Vec<_> = state.map_memory().map(|cell| cell.appearance()).collect();
-    fields.serialize_entry("memory", &memory)?;
-    fields.serialize_entry("cursor", &state.cursor())?;
-    fields.serialize_entry("branch", &state.branch())?;
     fields.serialize_entry("readiness", &state.readiness())?;
-    fields.serialize_entry("history", state.history())?;
-    fields.serialize_entry("narration", state.narration())?;
-    fields.serialize_entry("outcome", &state.outcome_status())?;
+    if diagnostics {
+        let memory: Vec<_> = state.map_memory().map(|cell| cell.appearance()).collect();
+        fields.serialize_entry("memory", &memory)?;
+        fields.serialize_entry("cursor", &state.cursor())?;
+        fields.serialize_entry("branch", &state.branch())?;
+        fields.serialize_entry("history", state.history())?;
+        fields.serialize_entry("narration", state.narration())?;
+        fields.serialize_entry("outcome", &state.outcome_status())?;
+        fields.serialize_entry("travel", &state.travel())?;
+    } else {
+        fields.serialize_entry("stream", &state.reply_context().input.stream)?;
+        fields.serialize_entry("can_resume", &state.can_resume_intention())?;
+        fields.serialize_entry("can_cancel", &state.can_cancel_intention())?;
+    }
     fields.serialize_entry("intentions", state.intentions())?;
     fields.serialize_entry("finished_intentions", state.finished_intentions())?;
     fields.serialize_entry("combat_updates", state.combat_updates())?;
-    fields.serialize_entry("travel", &state.travel())?;
     fields.end()?;
     Ok(String::from_utf8(contents).expect("JSON serialization produces UTF-8"))
 }
@@ -46,7 +52,7 @@ impl Observation {
     }
 }
 
-#[pyclass(name = "Session", module = "tor_client_bot")]
+#[pyclass(name = "Session", module = "tor_client_bot._native")]
 struct PythonSession {
     runtime: Runtime,
     session: Option<Session>,
@@ -70,14 +76,15 @@ impl PythonSession {
         })
     }
 
-    fn observe(&mut self, py: Python<'_>) -> PyResult<Observation> {
+    #[pyo3(signature = (diagnostics=true))]
+    fn observe(&mut self, py: Python<'_>, diagnostics: bool) -> PyResult<Observation> {
         let session = self.session.as_mut().ok_or_else(closed)?;
         py.detach(|| {
             let state = self
                 .runtime
                 .block_on(session.observe())
                 .map_err(runtime_error)?;
-            let contents = encode_observation(state).map_err(runtime_error)?;
+            let contents = encode_observation(state, diagnostics).map_err(runtime_error)?;
             Ok(Observation {
                 context: state.reply_context(),
                 contents,
@@ -97,6 +104,34 @@ impl PythonSession {
             .extract()?;
         let action: Action = serde_json::from_str(&encoded).map_err(value_error)?;
         let session = self.session.as_mut().ok_or_else(closed)?;
+        let turn = py
+            .detach(|| {
+                self.runtime
+                    .block_on(session.act(&observation.context, action))
+            })
+            .map_err(runtime_error)?;
+        turn_result(py, turn)
+    }
+
+    /// Resolve the selected ability and actor through the shared client catalog.
+    fn use_ability<'py>(
+        &mut self,
+        py: Python<'py>,
+        observation: &Observation,
+        ability: &str,
+        target: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.session.as_mut().ok_or_else(closed)?;
+        let state = session
+            .observation()
+            .ok_or_else(|| runtime_error("Refresh the player view"))?;
+        if state.reply_context() != observation.context {
+            return turn_result(py, Turn::StaleObservation);
+        }
+        let target = serde_json::from_value(json!(target)).map_err(value_error)?;
+        let action =
+            tor_client_common::abilities::action(&state.state().observation, ability, target)
+                .map_err(value_error)?;
         let turn = py
             .detach(|| {
                 self.runtime
@@ -248,7 +283,7 @@ fn value_error(error: impl std::fmt::Display) -> PyErr {
 }
 
 #[pymodule]
-fn tor_client_bot(module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Observation>()?;
     module.add_class::<PythonSession>()
 }

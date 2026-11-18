@@ -189,6 +189,8 @@ REVIEWED_OWNERS = {
     'test_rogue_locomotion_content': ('RogueLocomotionContent',),
     'test_rogue_locomotion_process': ('RogueLocomotionProcesses',),
     'test_rogue_magic_receipts': ('RogueControlReceiptTests', 'RogueEquipmentReceiptTests', 'RogueMagicReceiptTests'),
+    # Recorded player observations and mock connections; live transport is owned by RogueBotProcess.
+    'test_bot_api': ('BotApiTests',),
     'test_rogue_o_matic': ('RogueOMaticPolicyTests',),
     'test_rogue_o_matic_cohort': ('CohortSummaryTests',),
     'test_rogue_perception_content': ('RoguePerceptionContent',),
