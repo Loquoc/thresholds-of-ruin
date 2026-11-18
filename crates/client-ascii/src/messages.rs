@@ -6,7 +6,49 @@
 //! waiting, readiness, hit points) are left out.
 use std::collections::{BTreeMap, VecDeque};
 use tor_client_common::narration::{BasicAttack, Line, Topic};
-use tor_protocol::{AbilityOutcome, Event, Observation};
+use tor_protocol::{AbilityOutcome, ControlHint, Event, Observation, UserMessageStyle};
+
+/// This client's own key for each control a server message names, in the
+/// same quoted form the help screen uses. The server never supplies a key.
+pub fn control_key(control: ControlHint) -> String {
+    match control {
+        ControlHint::Move => "a direction key (hjklyubn)".into(),
+        ControlHint::Equip => "'w', 'W' or 'P'".into(),
+        ControlHint::Look => "';'".into(),
+        control => {
+            let key = match control {
+                ControlHint::Wait | ControlHint::Rest => '.',
+                ControlHint::Search => 's',
+                ControlHint::PickUp => ',',
+                ControlHint::Inventory => 'i',
+                ControlHint::Drink => 'q',
+                ControlHint::Read => 'r',
+                ControlHint::Zap => 'z',
+                ControlHint::Throw => 't',
+                ControlHint::Travel => '_',
+                ControlHint::OpenDoor => 'o',
+                ControlHint::Save => 'S',
+                ControlHint::Help => '?',
+                ControlHint::Move | ControlHint::Equip | ControlHint::Look => unreachable!(),
+            };
+            format!("'{key}'")
+        }
+    }
+}
+
+/// A server message as one message-area sentence: tutorials and hints are
+/// marked, and any other style is shown as plain text.
+pub fn user_message(
+    style: UserMessageStyle,
+    segments: &[tor_protocol::UserMessageSegment],
+) -> String {
+    let text = tor_client_common::narration::user_message_text(segments, &control_key);
+    match style {
+        UserMessageStyle::Tutorial => format!("Tutorial: {text}"),
+        UserMessageStyle::Hint => format!("Hint: {text}"),
+        UserMessageStyle::Narration => text,
+    }
+}
 
 /// Characters per message row.
 pub const WIDTH: usize = 72;
@@ -148,6 +190,7 @@ impl Messages {
                     }
                 }
                 Topic::Finished => self.finish(&line.text),
+                Topic::UserMessage { style, segments } => self.push(user_message(*style, segments)),
                 Topic::Noticed(actor) => {
                     let returning = self
                         .sightings
@@ -211,6 +254,7 @@ impl Messages {
                 }
                 Topic::LostSight(_) | Topic::Pacing => {}
                 Topic::Combat(_) | Topic::PublicPlan | Topic::WorkChanged => self.push(&line.text),
+                Topic::UserMessage { style, segments } => self.push(user_message(*style, segments)),
                 Topic::Status => {
                     if let Some(combat) = view.combat.as_ref() {
                         if combat.victory {

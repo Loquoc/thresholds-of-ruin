@@ -40,6 +40,85 @@ pub enum Topic {
     Status,
     /// Readiness changed: the observer can act again, or must wait.
     Pacing,
+    /// Server-authored tutorial, hint or narration text. The line's text names
+    /// controls neutrally; a client with key bindings re-renders the segments
+    /// with [`user_message_text`].
+    UserMessage {
+        style: UserMessageStyle,
+        segments: Vec<UserMessageSegment>,
+    },
+}
+
+/// A client's own name for each control it offers, such as `,` or `take`.
+/// Messages never carry a key, so the server can't claim a binding.
+pub trait ControlNames {
+    fn control_name(&self, control: ControlHint) -> String;
+}
+
+impl<F: Fn(ControlHint) -> String> ControlNames for F {
+    fn control_name(&self, control: ControlHint) -> String {
+        self(control)
+    }
+}
+
+/// Client-neutral wording for a control, used only where no client names it.
+pub fn neutral_control_name(control: ControlHint) -> String {
+    let words = match control {
+        ControlHint::Move => "move",
+        ControlHint::Wait => "wait",
+        ControlHint::Search => "search",
+        ControlHint::PickUp => "pick up",
+        ControlHint::Inventory => "inventory",
+        ControlHint::Equip => "equip",
+        ControlHint::Drink => "drink",
+        ControlHint::Read => "read",
+        ControlHint::Zap => "zap",
+        ControlHint::Throw => "throw",
+        ControlHint::Travel => "travel",
+        ControlHint::Look => "look",
+        ControlHint::OpenDoor => "open door",
+        ControlHint::Rest => "rest",
+        ControlHint::Save => "save",
+        ControlHint::Help => "help",
+    };
+    format!("[{words}]")
+}
+
+/// A server message as reported by clients without keys of their own
+/// (headless, bot): neutral `text`, plus raw `segments` whose closed control
+/// ids automation maps onto its own inputs.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct UserMessageView {
+    pub style: UserMessageStyle,
+    pub text: String,
+    pub segments: Vec<UserMessageSegment>,
+}
+
+/// The server messages among narrated lines, in order.
+pub fn user_messages(lines: &[Line]) -> Vec<UserMessageView> {
+    lines
+        .iter()
+        .filter_map(|line| match &line.topic {
+            Topic::UserMessage { style, segments } => Some(UserMessageView {
+                style: *style,
+                text: line.text.clone(),
+                segments: segments.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One message's text with each control named by `names`. Text segments are
+/// kept verbatim apart from removing any control characters.
+pub fn user_message_text(segments: &[UserMessageSegment], names: &dyn ControlNames) -> String {
+    segments
+        .iter()
+        .map(|segment| match segment {
+            UserMessageSegment::Text(text) => text.chars().filter(|c| !c.is_control()).collect(),
+            UserMessageSegment::Control(control) => names.control_name(*control),
+        })
+        .collect()
 }
 
 /// One narrated sentence and what it reports.
@@ -312,6 +391,13 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
     };
     let mut line = match fact {
         OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => return None,
+        OutcomeFact::UserMessage { style, segments } => Line::new(
+            Topic::UserMessage {
+                style: *style,
+                segments: segments.clone(),
+            },
+            user_message_text(segments, &neutral_control_name),
+        ),
         OutcomeFact::OwnWorkChanged { work, change, .. } => {
             let subject = work_phrase(work);
             let text = match change {
@@ -1324,6 +1410,65 @@ mod tests {
             .facts
             .iter()
             .any(|fact| matches!(fact, OutcomeFact::Objective { .. })));
+    }
+
+    #[test]
+    fn user_message_names_controls_through_the_client_and_keeps_text_verbatim() {
+        let segments = vec![
+            UserMessageSegment::Text("Press ".into()),
+            UserMessageSegment::Control(ControlHint::PickUp),
+            UserMessageSegment::Text(" to take it, then ".into()),
+            UserMessageSegment::Control(ControlHint::OpenDoor),
+            UserMessageSegment::Text(".".into()),
+        ];
+        let facts = OutcomeFacts {
+            self_target: ActorTarget::from_digest([1; 32]),
+            status: None,
+            actor_names: vec![],
+            facts: vec![OutcomeFact::UserMessage {
+                style: UserMessageStyle::Tutorial,
+                segments: segments.clone(),
+            }],
+        };
+        facts.validate().unwrap();
+        // Without a client binding the line names controls neutrally.
+        assert_eq!(
+            outcome_lines(&facts),
+            [Line::new(
+                Topic::UserMessage {
+                    style: UserMessageStyle::Tutorial,
+                    segments: segments.clone(),
+                },
+                "Press [pick up] to take it, then [open door]."
+            )]
+        );
+        // A client's own names replace every control; nothing else changes.
+        let keys = |control: ControlHint| match control {
+            ControlHint::PickUp => "`,`".to_owned(),
+            ControlHint::OpenDoor => "`o`".to_owned(),
+            other => panic!("unexpected control {other:?}"),
+        };
+        assert_eq!(
+            user_message_text(&segments, &keys),
+            "Press `,` to take it, then `o`."
+        );
+        let mixed = OutcomeFacts {
+            facts: vec![OutcomeFact::Displaced, facts.facts[0].clone()],
+            ..facts.clone()
+        };
+        assert_eq!(
+            serde_json::to_value(user_messages(&outcome_lines(&mixed))).unwrap(),
+            serde_json::json!([{
+                "style": "tutorial",
+                "text": "Press [pick up] to take it, then [open door].",
+                "segments": [{"text": "Press "}, {"control": "pick_up"},
+                    {"text": " to take it, then "}, {"control": "open_door"}, {"text": "."}],
+            }])
+        );
+        for &control in ControlHint::ALL {
+            let name = neutral_control_name(control);
+            assert!(name.starts_with('[') && name.ends_with(']') && name.len() > 2);
+        }
     }
 
     #[test]

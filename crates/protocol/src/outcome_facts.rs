@@ -283,6 +283,13 @@ pub enum OutcomeFact {
     Objective {
         objective: ObjectiveKind,
     },
+    /// Server-authored tutorial, hint or narration text. Controls are named
+    /// by the client; the message grants no input permission.
+    UserMessage {
+        style: UserMessageStyle,
+        #[serde(deserialize_with = "crate::user_message::read_segments")]
+        segments: Vec<UserMessageSegment>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1105,6 +1112,11 @@ impl OutcomeFacts {
                 }
                 OutcomeFact::Status { status } if !status.valid() => {
                     return Err(InvalidState::InvalidCombat);
+                }
+                OutcomeFact::UserMessage { segments, .. }
+                    if !crate::valid_user_message(segments) =>
+                {
+                    return Err(InvalidState::InvalidPresentation);
                 }
                 _ => {}
             }

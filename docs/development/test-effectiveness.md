@@ -887,7 +887,7 @@ public-state/profile invariants and work counts. Paired median changes relative 
 nor prove zero overhead, whole-game throughput or tail latency. The changed wall
 cases intentionally choose different actions and are not timing-equivalence
 controls. Rules 70 has a genuine current-writer golden, current certificates and
-explicit prior-rules rejection; archive 71 and protocol 72 are unchanged. All
+explicit prior-rules rejection; that change left the archive and protocol formats unchanged. All
 prior fixture bytes and historical earned-route outcomes remain preserved.
 
 ## Repeated autonomous Flytrap hold coverage

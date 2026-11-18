@@ -15,6 +15,7 @@ use tor_protocol::*;
 
 pub mod admission;
 pub mod adventure;
+pub mod controls;
 pub mod engine;
 pub mod narrative;
 pub mod parser;

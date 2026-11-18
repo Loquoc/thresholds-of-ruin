@@ -360,9 +360,13 @@ fn emit(
         fields["cursor"] = serde_json::json!(connection.state.cursor());
         fields["has_control"] = serde_json::json!(connection.state.has_control());
         fields["readiness"] = serde_json::json!(connection.state.readiness());
-        fields["narration"] = serde_json::json!(if matches!(message, Some(ServerMessage::Update { update }) if matches!(update.body, UpdateBody::Outcome { .. })) {
+        let outcome = matches!(message, Some(ServerMessage::Update { update }) if matches!(update.body, UpdateBody::Outcome { .. }));
+        fields["narration"] = serde_json::json!(if outcome {
             connection.state.narration()
         } else { &[] });
+        fields["user_messages"] = serde_json::json!(if outcome {
+            tor_client_common::narration::user_messages(connection.state.narration_lines())
+        } else { Vec::new() });
         fields["input_context"] = serde_json::json!(connection.state.input_context());
         fields["history"] = serde_json::json!(connection.state.history());
         fields["travel"] = serde_json::json!(connection.state.travel());

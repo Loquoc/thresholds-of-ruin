@@ -2310,3 +2310,73 @@ fn flying_object_glyph_rechecks_the_current_palette() {
     });
     assert_eq!(fx.glyphs_with_palette(&o, &palette)[0].glyph, '*');
 }
+
+#[test]
+fn server_user_messages_reach_the_top_rows_with_this_clients_keys() {
+    let mut app = app();
+    let state = app.state.as_ref().unwrap();
+    let observation = &state.state().observation;
+    let facts = OutcomeFacts {
+        self_target: observation.self_target,
+        status: None,
+        actor_names: vec![],
+        facts: vec![
+            OutcomeFact::UserMessage {
+                style: UserMessageStyle::Tutorial,
+                segments: vec![
+                    UserMessageSegment::Text("Press ".into()),
+                    UserMessageSegment::Control(ControlHint::PickUp),
+                    UserMessageSegment::Text(" to pick it up.".into()),
+                ],
+            },
+            OutcomeFact::UserMessage {
+                style: UserMessageStyle::Hint,
+                segments: vec![
+                    UserMessageSegment::Control(ControlHint::Travel),
+                    UserMessageSegment::Text(" travels; ".into()),
+                    UserMessageSegment::Control(ControlHint::Help),
+                    UserMessageSegment::Text(" lists keys.".into()),
+                ],
+            },
+            OutcomeFact::UserMessage {
+                style: UserMessageStyle::Narration,
+                segments: vec![UserMessageSegment::Text("The torches gutter.".into())],
+            },
+        ],
+    };
+    let update = StreamUpdate {
+        context: state.context().clone(),
+        actor: observation.actor,
+        branch: state.branch().clone(),
+        cursor: StreamCursor {
+            sequence: 1,
+            tick: observation.tick,
+        },
+        body: UpdateBody::Outcome {
+            facts,
+            event: None,
+            visual_changed: false,
+        },
+    };
+    app.update(update).unwrap();
+    // Sentences are separated by two spaces, as in every other message.
+    assert_eq!(
+        app.messages.text(),
+        "Tutorial: Press ',' to pick it up.  Hint: '_' travels; '?' lists keys.  \
+         The torches gutter."
+    );
+    let shown = app.messages.shown(true);
+    assert!(
+        shown[0].starts_with("Tutorial: Press ',' to pick it up."),
+        "{shown:?}"
+    );
+    assert!(shown.join(" ").contains("The torches gutter."), "{shown:?}");
+    for &control in ControlHint::ALL {
+        let key = tor_client_ascii::messages::control_key(control);
+        assert!(
+            key.contains('\'') || control == ControlHint::Move,
+            "{control:?} names a quoted key: {key}"
+        );
+    }
+    render::Canvas::default().draw(&app);
+}

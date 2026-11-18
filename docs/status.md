@@ -20,7 +20,7 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **72**, save format **71**, scenario format **37**,
+**Current formats:** protocol **73**, save format **71**, scenario format **37**,
 ruleset **`interactions-v72`**, scenario validator **`tor-scenario-51`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
