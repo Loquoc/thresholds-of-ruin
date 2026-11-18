@@ -11,6 +11,7 @@ members = [
     "crates/client-text",
     "crates/client-headless",
     "crates/test-support",
+    "crates/scripting",
 ]
 
 [workspace.package]
@@ -23,6 +24,7 @@ repository = "https://github.com/KCall360/thresholds-of-ruin"
 tor-world = { path = "crates/world" }
 tor-simulation = { path = "crates/simulation" }
 tor-protocol = { path = "crates/protocol" }
+tor-scripting = { path = "crates/scripting" }
 tor-client-common = { path = "crates/client-common" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

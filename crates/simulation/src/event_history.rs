@@ -965,6 +965,7 @@ impl Game {
         mut event: CombatEvent,
         mut origin: Option<EventOrigin>,
     ) -> Result<(), GameError> {
+        self.note_event_hooks(&event);
         if let CombatEvent::Resolved {
             outcome,
             source_disclosure,

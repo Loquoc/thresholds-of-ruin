@@ -1135,8 +1135,11 @@ impl Game {
                     a.location = at;
                     a.orientation = frame;
                     a.motion = motion;
-                    a.visited.insert(at.region);
+                    let first_visit = a.visited.insert(at.region);
                     drop(a);
+                    if first_visit {
+                        game.note_first_visit(id, at.region);
+                    }
                     // A sub-cell lift breaks ground contact even before the actor
                     // crosses a cell boundary. Landing may therefore trigger anew.
                     game.reconcile_trap_contacts(id, None)?;
@@ -1228,6 +1231,7 @@ impl Game {
                     return Ok(Some(true));
                 }
                 game.resolve_preparations()?;
+                game.settle_script_hooks()?;
                 game.check_run_policy()?;
                 if game.run_outcome().terminal {
                     game.settle_creature_time()?;
@@ -1296,8 +1300,11 @@ impl Game {
         actor.location = at;
         actor.orientation = frame;
         actor.motion = motion.clone();
-        actor.visited.insert(at.region);
+        let first_visit = actor.visited.insert(at.region);
         drop(actor);
+        if first_visit {
+            self.note_first_visit(id, at.region);
+        }
         self.reconcile_holds_for_actor(id)?;
         self.reconcile_spatial_condition_anchors(id)?;
         if self.floor_activation.is_some() && from.region != at.region {

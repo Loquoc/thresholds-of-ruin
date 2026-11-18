@@ -902,6 +902,7 @@ impl Game {
             self.actors.set_timer_active(id, false);
         }
         self.lifecycle.frozen.insert(region);
+        self.shift_script_timers(region, true);
         Ok(())
     }
 
@@ -910,6 +911,7 @@ impl Game {
         for id in self.actors_in(region) {
             self.thaw_actor(id)?;
         }
+        self.shift_script_timers(region, false);
         Ok(())
     }
 

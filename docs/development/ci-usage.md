@@ -140,3 +140,33 @@ The maintainer also reviewed three planner registrations in
 `scripts/ci_test_contracts.py`. The bot session tests exercise a real local
 application. The policy and cohort summary suites use Python fixtures.
 The registrations preserve the existing discovery and fallback rules.
+
+## November 17 Luau scripting runtime dependency
+
+The maintainer explicitly authorized scenario scripting with Luau, a
+compatibility-breaking package format bump, and the runtime dependency. The new
+workspace crate `tor-scripting` depends on `mlua` 0.12.2. It uses only the
+`luau` and `vendored` features, so `mlua-sys` builds the pinned
+`luau0-src` C++ sources through `cc` during the ordinary Cargo build.
+
+All new crates come from crates.io under licenses already allowed by
+`deny.toml`, which is unchanged:
+
+- MIT: `mlua`, `mlua-sys`, `luau0-src`, `lua-src`, `luajit-src`, `which`,
+  `redox_syscall`.
+- MIT or Apache-2.0: `parking_lot`, `lock_api`, `bstr`, and the small support
+  crates.
+
+`lua-src` and `luajit-src` are optional backends. They appear in the lock file
+and the all-features license graph, but they are not built.
+
+The build script compiles bundled sources only. It downloads nothing at build
+time and reaches no network destination beyond the existing crates.io registry.
+The hosted Windows (MSVC) and Ubuntu images already provide the needed C++
+compilers, so no workflow step, runner type, trigger, permission, cache,
+artifact or retention changes.
+
+The added hosted cost is one C++ library compile per cold Rust build. Its tests
+are bounded repository correctness tests: the sandbox, budgets, determinism
+goldens, and scenario hook fixtures. They are not benchmarks or generated
+workloads. No reviewed hash changes for this dependency.

@@ -63,6 +63,7 @@ mod item_knowledge;
 pub use item_knowledge::{BucStatus, ItemKnowledge, KnownEnchantments, KnownItemCondition};
 
 pub mod abilities;
+pub mod scripting;
 pub mod action_duration;
 mod actions;
 mod input_basis;
@@ -505,6 +506,8 @@ pub enum GameError {
     ActorBusy,
     /// The scenario disables owner advancement choices.
     AdvancementLocked,
+    /// Script setup was invalid or repeated.
+    Script,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -740,6 +743,14 @@ pub struct Game {
     trap_resolution: Option<traps::TrapResolution>,
     body_return_finalization: polymorph::BodyReturnFinalization,
     host_region_continuation: bool,
+    /// Persisted scenario script values; `None` for unscripted games.
+    script: Option<scripting::ScriptState>,
+    /// Derived bit per bound hook kind; zero makes every fact site one branch.
+    hook_mask: u64,
+    /// The installed runtime. Not state: ignored by equality and checkpoints.
+    hook_port: scripting::HookPort,
+    /// Boundary outputs for the host; drained after each transaction.
+    script_report: scripting::ScriptReport,
 }
 impl Clone for Game {
     fn clone(&self) -> Self {
@@ -782,6 +793,10 @@ impl Clone for Game {
             trap_resolution: self.trap_resolution.clone(),
             body_return_finalization: self.body_return_finalization.clone(),
             host_region_continuation: self.host_region_continuation,
+            script: self.script.clone(),
+            hook_mask: self.hook_mask,
+            hook_port: self.hook_port.clone(),
+            script_report: self.script_report.clone(),
         }
     }
 }
@@ -961,6 +976,10 @@ impl Game {
             trap_resolution: None,
             body_return_finalization: Default::default(),
             host_region_continuation: false,
+            script: None,
+            hook_mask: 0,
+            hook_port: Default::default(),
+            script_report: Default::default(),
         }
     }
 

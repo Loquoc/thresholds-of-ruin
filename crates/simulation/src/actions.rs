@@ -970,12 +970,18 @@ impl Game {
         {
             actor.cancel_preparation();
         }
+        let mut first_visit = None;
         if let OutcomeKind::Moved { to, .. } = kind {
             actor.motion.active_fall = None;
             actor.location = to;
-            actor.visited.insert(to.region);
+            if actor.visited.insert(to.region) {
+                first_visit = Some(to.region);
+            }
         }
         self.apply_outcome(outcome)?;
+        if let Some(region) = first_visit {
+            self.note_first_visit(id, region);
+        }
         match kind {
             OutcomeKind::GrowthSourceChosen { .. } => {
                 unreachable!("growth source uses one actor publication")
@@ -1040,8 +1046,10 @@ impl Game {
             .get_mut(&id)
             .ok_or(GameError::UnknownActor)?
             .ready_at = ready_at;
+        self.note_action_hooks(id, &kind);
         if !matches!(kind, OutcomeKind::Escaped { .. }) && !self.region_transition_pending() {
             self.resolve_preparations()?;
+            self.settle_script_hooks()?;
             self.check_run_policy()?;
             self.advance_to_next_decision()?;
         }
@@ -1071,6 +1079,7 @@ impl Game {
                 .chain(self.next_attack_tick())
                 .chain(self.next_creature_event_tick())
                 .chain(self.run_deadline())
+                .chain(self.next_script_timer_tick())
                 .min()
                 .unwrap_or(self.tick);
             let previous_tick = self.tick;
@@ -1080,12 +1089,18 @@ impl Game {
             }
             if self.tick != previous_tick {
                 self.resolve_preparations()?;
+                self.settle_script_hooks()?;
+                self.check_run_policy()?;
+            } else if self.next_script_timer_tick().is_some_and(|due| due <= self.tick) {
+                self.settle_script_hooks()?;
                 self.check_run_policy()?;
             }
             if self.next_actor().map_or_else(
                 // Timer wakes do not create a controller decision. When
                 // everyone is preparing, continue to the next completion.
-                || self.next_attack_tick().is_none() && self.next_creature_event_tick().is_none(),
+                || self.next_attack_tick().is_none()
+                    && self.next_creature_event_tick().is_none()
+                    && self.next_script_timer_tick().is_none(),
                 |id| self.actors[&id].ready_at <= self.tick,
             ) {
                 break;

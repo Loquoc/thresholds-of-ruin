@@ -1,0 +1,18 @@
+[package]
+name = "tor-scripting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tor-world.workspace = true
+tor-simulation.workspace = true
+mlua = { version = "0.12.2", default-features = false, features = ["luau", "vendored", "send"] }
+
+[dev-dependencies]
+toml = "1.1.6"
