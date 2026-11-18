@@ -1051,3 +1051,12 @@ its matching policy explicitly. This bounded practice setup is not universal
 reaction suppression: awareness and authored fear/control effects still run.
 Native presentation retains its actual-window test and required hosted check;
 a headless replay is not a substitute for that boundary.
+
+## Independent client dependency locks
+
+The November 18 rusqlite update changed the server manifest and root lock but
+left the separate 3D workspace lock stale. The hosted 3D consumer's `--locked`
+build caught this before launching a client: one build/setup root cause, not a
+gameplay failure. Refreshing only rusqlite and libsqlite3-sys in the independent
+lock restores resolution. Dependency updates shared through path dependencies
+must account for both locks; the normal 3D build remains the boundary witness.
