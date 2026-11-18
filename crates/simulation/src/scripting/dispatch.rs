@@ -2,7 +2,7 @@
 
 use super::state::{PendingFact, Timer, TimerClock};
 use super::{
-    ActorClass, Audience, Binding, FactSubject, FailureReason, FilterKey, HandlerId, HookFact,
+    ActorClass, Audience, Binding, FactKeys, FactSubject, FailureReason, HandlerId, HookFact,
     HookKind, Owner, RunEnd, ScriptEffect, ScriptFailure, ScriptMessage,
     ScriptReport, ScriptSetup, ScriptState, ScriptView, DispatchRecord, MAX_CASCADE_DEPTH,
     MAX_EFFECTS_PER_CALL, MAX_PENDING_FACTS, MAX_TEXT_BYTES,
@@ -140,64 +140,75 @@ impl Game {
     /// Note `run_started` and dispatch it. Hosts call this once for a new game
     /// after installing scripts and the host.
     pub fn start_scripts(&mut self) -> Result<(), GameError> {
-        self.note_hook(HookKind::RunStarted, None, |_| {
-            Some((FactSubject::None, Vec::new()))
-        });
+        self.note_hook(
+            HookKind::RunStarted,
+            None,
+            |_| Some(FactKeys::default()),
+            |_, _| Some(FactSubject::None),
+        );
         self.settle_script_hooks()
     }
 
-    /// Match one fact against live bindings. Unsubscribed kinds cost one AND;
-    /// `make` runs only for subscribed kinds and returns the fact's subject
-    /// and its candidate keys beyond `Any` and the actor.
+    /// Match one fact against live bindings. An unsubscribed kind costs one
+    /// load and bit test and nothing else. `keys` runs only for subscribed
+    /// kinds and borrows the fact's keys; `subject` runs only once some
+    /// binding has matched.
     #[inline]
     pub(crate) fn note_hook(
         &mut self,
         kind: HookKind,
         actor: Option<ActorId>,
-        make: impl FnOnce(&Game) -> Option<(FactSubject, Vec<FilterKey>)>,
+        keys: impl for<'a> FnOnce(&'a Game) -> Option<FactKeys<'a>>,
+        subject: impl FnOnce(&Game, &FactKeys<'_>) -> Option<FactSubject>,
     ) {
-        crate::diagnostics::hook_site_checked();
         if self.hook_mask & kind.bit() == 0 {
             return;
         }
-        self.match_fact(kind, actor, make);
+        self.match_fact(kind, actor, keys, subject);
     }
 
     #[cold]
+    #[inline(never)]
     fn match_fact(
         &mut self,
         kind: HookKind,
         actor: Option<ActorId>,
-        make: impl FnOnce(&Game) -> Option<(FactSubject, Vec<FilterKey>)>,
+        keys: impl for<'a> FnOnce(&'a Game) -> Option<FactKeys<'a>>,
+        subject: impl FnOnce(&Game, &FactKeys<'_>) -> Option<FactSubject>,
     ) {
-        let Some((subject, mut keys)) = make(self) else {
-            return;
-        };
-        keys.push(FilterKey::Any);
-        if let Some(actor) = actor {
-            keys.push(FilterKey::Actor(actor));
-        }
-        let character = actor.map(|actor| self.combat.characters.contains(&actor));
+        crate::diagnostics::hook_lookup();
         let Some(state) = &self.script else {
             return;
         };
-        let mut matched = Vec::new();
-        for key in &keys {
-            for id in state.index.matching(kind, key) {
-                let binding = &state.bindings[&id];
-                let hears = match (binding.actors, character) {
-                    (_, None) | (ActorClass::Any, _) => true,
-                    (ActorClass::Character, Some(character)) => character,
-                    (ActorClass::Creature, Some(character)) => !character,
-                };
-                if hears && self.owner_exists(binding.owner) {
-                    matched.push((id, binding.handler));
-                }
+        let Some(mut keys) = keys(self) else {
+            return;
+        };
+        keys.actor = actor;
+        // Allocates only once something matched.
+        let mut candidates = Vec::new();
+        state.index.matching(kind, &keys, |id| candidates.push(id));
+        if candidates.is_empty() {
+            return;
+        }
+        let character = actor.map(|actor| self.combat.characters.contains(&actor));
+        let mut matched = Vec::with_capacity(candidates.len());
+        for id in candidates {
+            let binding = &state.bindings[&id];
+            let hears = match (binding.actors, character) {
+                (_, None) | (ActorClass::Any, _) => true,
+                (ActorClass::Character, Some(character)) => character,
+                (ActorClass::Creature, Some(character)) => !character,
+            };
+            if hears && self.owner_exists(binding.owner) {
+                matched.push((id, binding.handler));
             }
         }
         if matched.is_empty() {
             return;
         }
+        let Some(subject) = subject(self, &keys) else {
+            return;
+        };
         crate::diagnostics::hook_fact_noted();
         let fact = HookFact {
             kind,
@@ -236,29 +247,25 @@ impl Game {
         }
     }
 
+    fn actor_keys(&self, actor: ActorId) -> Option<FactKeys<'static>> {
+        self.actors.get(&actor).map(|a| FactKeys::at(a.location))
+    }
+
     /// Facts an ordinary action outcome offers.
+    #[inline]
     pub(crate) fn note_action_hooks(&mut self, actor: ActorId, kind: &OutcomeKind) {
         if self.hook_mask == 0 {
-            crate::diagnostics::hook_site_checked();
             return;
         }
         match *kind {
-            OutcomeKind::Moved { from, to } => {
-                self.note_hook(HookKind::Moved, Some(actor), |_| {
-                    Some((
-                        FactSubject::Moved { from, to },
-                        vec![FilterKey::Cell(to), FilterKey::Region(to.region)],
-                    ))
-                });
-            }
+            OutcomeKind::Moved { from, to } => self.note_moved(actor, from, to),
             OutcomeKind::DoorChanged { door, open } => {
-                self.note_hook(HookKind::DoorChanged, Some(actor), |game| {
-                    let at = game.world.door_location(door)?;
-                    Some((
-                        FactSubject::Door { at, open },
-                        vec![FilterKey::Cell(at), FilterKey::Region(at.region)],
-                    ))
-                });
+                self.note_hook(
+                    HookKind::DoorChanged,
+                    Some(actor),
+                    |game| game.world.door_location(door).map(FactKeys::at),
+                    |_, keys| Some(FactSubject::Door { at: keys.cell?, open }),
+                );
             }
             OutcomeKind::Taken { result, quantity, .. } => {
                 self.note_item_hook(HookKind::ItemTaken, actor, result, quantity);
@@ -267,16 +274,32 @@ impl Game {
                 self.note_item_hook(HookKind::ItemDropped, actor, result, quantity);
             }
             OutcomeKind::Waited => {
-                self.note_hook(HookKind::Waited, Some(actor), |game| {
-                    let at = game.actors.get(&actor)?.location;
-                    Some((
-                        FactSubject::Waited { at },
-                        vec![FilterKey::Cell(at), FilterKey::Region(at.region)],
-                    ))
-                });
+                self.note_hook(
+                    HookKind::Waited,
+                    Some(actor),
+                    |game| game.actor_keys(actor),
+                    |_, keys| Some(FactSubject::Waited { at: keys.cell? }),
+                );
+            }
+            OutcomeKind::Escaped { .. } => {
+                self.note_hook(
+                    HookKind::Escaped,
+                    Some(actor),
+                    |game| game.actor_keys(actor),
+                    |_, keys| Some(FactSubject::Escaped { at: keys.cell? }),
+                );
             }
             _ => {}
         }
+    }
+
+    pub(crate) fn note_moved(&mut self, actor: ActorId, from: Location, to: Location) {
+        self.note_hook(
+            HookKind::Moved,
+            Some(actor),
+            |_| Some(FactKeys::at(to)),
+            |_, _| Some(FactSubject::Moved { from, to }),
+        );
     }
 
     fn note_item_hook(
@@ -286,48 +309,52 @@ impl Game {
         item: crate::ItemId,
         quantity: u64,
     ) {
-        self.note_hook(kind, Some(actor), |game| {
-            let at = game.actors.get(&actor)?.location;
-            let identity = game.items.get(&item)?.spec.identity.clone();
-            Some((
-                FactSubject::Item {
+        self.note_hook(
+            kind,
+            Some(actor),
+            |game| {
+                let at = game.actors.get(&actor)?.location;
+                Some(FactKeys {
+                    item: Some(item),
+                    identity: Some(&game.items.get(&item)?.spec.identity),
+                    ..FactKeys::at(at)
+                })
+            },
+            |_, keys| {
+                Some(FactSubject::Item {
                     item,
-                    identity: identity.clone(),
+                    identity: keys.identity?.clone(),
                     quantity,
-                    at,
-                },
-                vec![
-                    FilterKey::Item(item),
-                    FilterKey::ItemIdentity(identity),
-                    FilterKey::Cell(at),
-                    FilterKey::Region(at.region),
-                ],
-            ))
-        });
+                    at: keys.cell?,
+                })
+            },
+        );
     }
 
     /// Facts a combat event offers. Called from the single event funnel.
+    #[inline]
     pub(crate) fn note_event_hooks(&mut self, event: &crate::combat::CombatEvent) {
         if self.hook_mask == 0 {
-            crate::diagnostics::hook_site_checked();
             return;
         }
         match event {
             crate::combat::CombatEvent::Resolved { outcome, .. } => {
                 let (actor, target) = (outcome.actor, outcome.target);
-                self.note_hook(HookKind::AttackResolved, Some(actor), |_| {
-                    Some((FactSubject::Attack { target }, vec![]))
-                });
+                self.note_hook(
+                    HookKind::AttackResolved,
+                    Some(actor),
+                    |_| Some(FactKeys::default()),
+                    |_, _| Some(FactSubject::Attack { target }),
+                );
             }
             crate::combat::CombatEvent::Died { actor, .. } => {
                 let actor = *actor;
-                self.note_hook(HookKind::Died, Some(actor), |game| {
-                    let at = game.actors.get(&actor).map(|a| a.location);
-                    let keys = at
-                        .map(|at| vec![FilterKey::Cell(at), FilterKey::Region(at.region)])
-                        .unwrap_or_default();
-                    Some((FactSubject::Death { at }, keys))
-                });
+                self.note_hook(
+                    HookKind::Died,
+                    Some(actor),
+                    |game| Some(game.actor_keys(actor).unwrap_or_default()),
+                    |_, keys| Some(FactSubject::Death { at: keys.cell }),
+                );
             }
             _ => {}
         }
@@ -335,12 +362,17 @@ impl Game {
 
     /// Call where an actor's visited set grew.
     pub(crate) fn note_first_visit(&mut self, actor: ActorId, region: RegionId) {
-        self.note_hook(HookKind::RegionFirstVisit, Some(actor), |_| {
-            Some((
-                FactSubject::Region { region },
-                vec![FilterKey::Region(region)],
-            ))
-        });
+        self.note_hook(
+            HookKind::RegionFirstVisit,
+            Some(actor),
+            |_| {
+                Some(FactKeys {
+                    region: Some(region),
+                    ..FactKeys::default()
+                })
+            },
+            |_, _| Some(FactSubject::Region { region }),
+        );
     }
 
     /// The earliest running script timer, for the scheduler.
@@ -391,16 +423,29 @@ impl Game {
             return Ok(());
         }
         for (handler, batch) in group(pending) {
-            let mut candidate = self.clone();
+            // Script state is copy-on-write, so this snapshot is cheap. The
+            // world is checkpointed only before the root's first effect that
+            // changes it; most roots never pay for a game clone.
+            let script = self.script.clone();
+            let mask = self.hook_mask;
+            let messages = self.script_report.messages.len();
+            let dispatches = self.script_report.dispatches.len();
+            let mut world = None;
             let mut budget = WorkBudget::root();
-            match candidate.invoke(handler, batch, 0, &mut budget) {
-                Ok(()) => *self = candidate,
-                Err((depth, reason)) => self.script_report.failures.push(ScriptFailure {
+            if let Err((depth, reason)) = self.invoke(handler, batch, 0, &mut budget, &mut world) {
+                if let Some(world) = world {
+                    *self = *world;
+                }
+                self.script = script;
+                self.hook_mask = mask;
+                self.script_report.messages.truncate(messages);
+                self.script_report.dispatches.truncate(dispatches);
+                self.script_report.failures.push(ScriptFailure {
                     tick: self.tick,
                     handler,
                     depth,
                     reason,
-                }),
+                });
             }
         }
         Ok(())
@@ -434,6 +479,7 @@ impl Game {
         batch: Vec<PendingFact>,
         depth: u8,
         budget: &mut WorkBudget,
+        world: &mut Option<Box<Game>>,
     ) -> Result<(), (u8, FailureReason)> {
         if depth > MAX_CASCADE_DEPTH {
             return Err((depth, FailureReason::Cascade));
@@ -475,6 +521,9 @@ impl Game {
         }
         self.script.as_mut().expect("scripted").rng = output.rng;
         for (index, effect) in output.effects.iter().enumerate() {
+            if effect.changes_world() && world.is_none() {
+                *world = Some(Box::new(self.clone()));
+            }
             self.apply_script_effect(effect).map_err(|detail| {
                 fail(FailureReason::Invariant {
                     effect: index as u32,
@@ -495,7 +544,7 @@ impl Game {
             return Err(fail(FailureReason::Overflow));
         }
         for (handler, batch) in group(cascade) {
-            self.invoke(handler, batch, depth + 1, budget)?;
+            self.invoke(handler, batch, depth + 1, budget, world)?;
         }
         Ok(())
     }
@@ -620,12 +669,7 @@ impl Game {
                 let first = !self.actors[actor].visited.contains(&to.region);
                 self.teleport(*actor, *to).map_err(|_| "destination unavailable")?;
                 let (actor, to) = (*actor, *to);
-                self.note_hook(HookKind::Moved, Some(actor), |_| {
-                    Some((
-                        FactSubject::Moved { from, to },
-                        vec![FilterKey::Cell(to), FilterKey::Region(to.region)],
-                    ))
-                });
+                self.note_moved(actor, from, to);
                 if first {
                     self.note_first_visit(actor, to.region);
                 }
@@ -671,12 +715,12 @@ impl Game {
         self.world.set_door(base, open);
         self.reconcile_holds_for_actors(affected)
             .map_err(|_| "door change breaks a hold")?;
-        self.note_hook(HookKind::DoorChanged, None, |_| {
-            Some((
-                FactSubject::Door { at: base, open },
-                vec![FilterKey::Cell(base), FilterKey::Region(base.region)],
-            ))
-        });
+        self.note_hook(
+            HookKind::DoorChanged,
+            None,
+            |_| Some(FactKeys::at(base)),
+            |_, _| Some(FactSubject::Door { at: base, open }),
+        );
         Ok(())
     }
 

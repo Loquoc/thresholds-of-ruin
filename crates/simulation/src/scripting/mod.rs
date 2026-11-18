@@ -65,10 +65,12 @@ pub enum HookKind {
     AttackResolved,
     Died,
     RegionFirstVisit,
+    /// An actor took a scenario exit, such as Rogue's level-1 up-stairs.
+    Escaped,
 }
 
 impl HookKind {
-    pub const ALL: [HookKind; 10] = [
+    pub const ALL: [HookKind; 11] = [
         Self::RunStarted,
         Self::Timer,
         Self::Moved,
@@ -79,6 +81,7 @@ impl HookKind {
         Self::AttackResolved,
         Self::Died,
         Self::RegionFirstVisit,
+        Self::Escaped,
     ];
     pub const fn bit(self) -> u64 {
         1 << self as u8
@@ -95,6 +98,7 @@ impl HookKind {
             Self::AttackResolved => "attack_resolved",
             Self::Died => "died",
             Self::RegionFirstVisit => "region_first_visit",
+            Self::Escaped => "escaped",
         }
     }
     pub fn from_id(id: &str) -> Option<Self> {
@@ -116,6 +120,7 @@ impl HookKind {
                     | Self::Waited
                     | Self::Died
                     | Self::RegionFirstVisit
+                    | Self::Escaped
             ),
             FilterKey::Item(_) | FilterKey::ItemIdentity(_) => {
                 matches!(self, Self::ItemTaken | Self::ItemDropped)
@@ -200,6 +205,30 @@ pub enum FactSubject {
     Death { at: Option<Location> },
     Region { region: RegionId },
     Timer { timer: TimerId, arg: i64 },
+    Escaped { at: Location },
+}
+
+/// The filter keys one fact offers, borrowed from the game so noting a fact
+/// allocates nothing. A binding sits in exactly one key class; matching looks
+/// up only classes some binding of that kind uses.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FactKeys<'a> {
+    pub actor: Option<ActorId>,
+    pub item: Option<ItemId>,
+    pub identity: Option<&'a ItemIdentity>,
+    pub cell: Option<Location>,
+    pub region: Option<RegionId>,
+}
+
+impl FactKeys<'_> {
+    /// A cell and the region holding it.
+    pub(crate) fn at(at: Location) -> Self {
+        Self {
+            cell: Some(at),
+            region: Some(at.region),
+            ..Self::default()
+        }
+    }
 }
 
 /// A typed persistent value. Text is bounded by [`MAX_TEXT_BYTES`].
@@ -360,6 +389,27 @@ pub enum ScriptEffect {
         end: RunEnd,
         actor: Option<ActorId>,
     },
+}
+
+impl ScriptEffect {
+    /// Whether applying this changes the world beyond script state and the
+    /// report. Only these make a root invocation checkpoint the game.
+    pub fn changes_world(&self) -> bool {
+        match self {
+            Self::Message { .. }
+            | Self::SetVar { .. }
+            | Self::ClearVar { .. }
+            | Self::StartTimer { .. }
+            | Self::CancelTimer { .. }
+            | Self::Bind { .. }
+            | Self::Unbind { .. } => false,
+            Self::SetDoor { .. }
+            | Self::PlaceItem { .. }
+            | Self::RemoveItem { .. }
+            | Self::Teleport { .. }
+            | Self::EndRun { .. } => true,
+        }
+    }
 }
 
 /// Why a root invocation was rejected. A rejected root changes nothing.

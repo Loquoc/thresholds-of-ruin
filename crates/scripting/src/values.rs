@@ -163,6 +163,7 @@ pub fn fact(lua: &Lua, fact: &HookFact) -> mlua::Result<Table> {
             }
         }
         FactSubject::Region { region } => table.set("region", id("region", region.0))?,
+        FactSubject::Escaped { at } => table.set("at", cell(lua, *at)?)?,
         FactSubject::Timer { timer, arg } => {
             table.set("timer", id("timer", timer.0))?;
             table.set("arg", *arg as f64)?;

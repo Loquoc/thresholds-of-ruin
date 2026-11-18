@@ -1,13 +1,15 @@
 //! Persisted script values and the derived binding index.
 
 use super::{
-    ActorClass, BindingId, FilterKey, HandlerId, HookFact, HookKind, Owner, ScopeKind, TimerId,
+    ActorClass, BindingId, FactKeys, FilterKey, HandlerId, HookFact, HookKind, Owner, ScopeKind,
+    TimerId,
     Value, ValueType, VarScope, MAX_BINDINGS, MAX_NAME_BYTES, MAX_PENDING_FACTS, MAX_TEXT_BYTES,
     MAX_TIMERS, MAX_VARIABLES,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use tor_world::Shared;
+use crate::{ActorId, ItemId, ItemIdentity};
+use tor_world::{Location, RegionId, Shared};
 
 /// A subscription: plain data keyed by a stable identity.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,50 +88,113 @@ pub struct ScriptSetup {
     pub defaults: Vec<(String, Value)>,
 }
 
+/// Live bindings of one kind, split by key class. Each class is its own map,
+/// so a fact looks up only the classes this kind actually uses and borrows
+/// its keys instead of building them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct KindIndex {
+    len: usize,
+    any: BTreeSet<BindingId>,
+    actor: BTreeMap<ActorId, BTreeSet<BindingId>>,
+    item: BTreeMap<ItemId, BTreeSet<BindingId>>,
+    identity: BTreeMap<ItemIdentity, BTreeSet<BindingId>>,
+    cell: BTreeMap<Location, BTreeSet<BindingId>>,
+    region: BTreeMap<RegionId, BTreeSet<BindingId>>,
+}
+
+fn insert_keyed<K: Ord>(map: &mut BTreeMap<K, BTreeSet<BindingId>>, key: K, id: BindingId) {
+    map.entry(key).or_default().insert(id);
+}
+
+fn remove_keyed<K: Ord>(map: &mut BTreeMap<K, BTreeSet<BindingId>>, key: &K, id: BindingId) {
+    if let Some(set) = map.get_mut(key) {
+        set.remove(&id);
+        if set.is_empty() {
+            map.remove(key);
+        }
+    }
+}
+
+fn visit<K: Ord>(
+    map: &BTreeMap<K, BTreeSet<BindingId>>,
+    key: Option<&K>,
+    found: &mut impl FnMut(BindingId),
+) {
+    if map.is_empty() {
+        return;
+    }
+    if let Some(set) = key.and_then(|key| map.get(key)) {
+        set.iter().copied().for_each(&mut *found);
+    }
+}
+
+impl KindIndex {
+    fn insert(&mut self, id: BindingId, key: &FilterKey) {
+        match key {
+            FilterKey::Any => {
+                self.any.insert(id);
+            }
+            FilterKey::Actor(actor) => insert_keyed(&mut self.actor, *actor, id),
+            FilterKey::Item(item) => insert_keyed(&mut self.item, *item, id),
+            FilterKey::ItemIdentity(identity) => {
+                insert_keyed(&mut self.identity, identity.clone(), id)
+            }
+            FilterKey::Cell(cell) => insert_keyed(&mut self.cell, *cell, id),
+            FilterKey::Region(region) => insert_keyed(&mut self.region, *region, id),
+        }
+        self.len += 1;
+    }
+    fn remove(&mut self, id: BindingId, key: &FilterKey) {
+        match key {
+            FilterKey::Any => {
+                self.any.remove(&id);
+            }
+            FilterKey::Actor(actor) => remove_keyed(&mut self.actor, actor, id),
+            FilterKey::Item(item) => remove_keyed(&mut self.item, item, id),
+            FilterKey::ItemIdentity(identity) => remove_keyed(&mut self.identity, identity, id),
+            FilterKey::Cell(cell) => remove_keyed(&mut self.cell, cell, id),
+            FilterKey::Region(region) => remove_keyed(&mut self.region, region, id),
+        }
+        self.len -= 1;
+    }
+    fn matching(&self, keys: &FactKeys<'_>, found: &mut impl FnMut(BindingId)) {
+        self.any.iter().copied().for_each(&mut *found);
+        visit(&self.actor, keys.actor.as_ref(), found);
+        visit(&self.item, keys.item.as_ref(), found);
+        visit(&self.identity, keys.identity, found);
+        visit(&self.cell, keys.cell.as_ref(), found);
+        visit(&self.region, keys.region.as_ref(), found);
+    }
+}
+
 /// Derived per-kind lookup over live bindings. Rebuilt from the bindings on
 /// restore; never serialized.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct BindingIndex {
-    by_kind: BTreeMap<(HookKind, FilterKey), BTreeSet<BindingId>>,
-    counts: BTreeMap<HookKind, usize>,
+    kinds: [KindIndex; HookKind::ALL.len()],
 }
 
 impl BindingIndex {
     fn insert(&mut self, id: BindingId, binding: &Binding) {
-        self.by_kind
-            .entry((binding.kind, binding.key.clone()))
-            .or_default()
-            .insert(id);
-        *self.counts.entry(binding.kind).or_default() += 1;
+        self.kinds[binding.kind as usize].insert(id, &binding.key);
     }
     fn remove(&mut self, id: BindingId, binding: &Binding) {
-        let key = (binding.kind, binding.key.clone());
-        if let Some(set) = self.by_kind.get_mut(&key) {
-            set.remove(&id);
-            if set.is_empty() {
-                self.by_kind.remove(&key);
-            }
-        }
-        if let Some(count) = self.counts.get_mut(&binding.kind) {
-            *count -= 1;
-            if *count == 0 {
-                self.counts.remove(&binding.kind);
-            }
-        }
+        self.kinds[binding.kind as usize].remove(id, &binding.key);
     }
     pub(crate) fn mask(&self) -> u64 {
-        self.counts.keys().fold(0, |mask, kind| mask | kind.bit())
+        HookKind::ALL
+            .iter()
+            .filter(|kind| self.kinds[**kind as usize].len > 0)
+            .fold(0, |mask, kind| mask | kind.bit())
     }
-    pub(crate) fn matching<'a>(
-        &'a self,
+    /// Every binding of `kind` whose key `keys` offers, class by class.
+    pub(crate) fn matching(
+        &self,
         kind: HookKind,
-        key: &FilterKey,
-    ) -> impl Iterator<Item = BindingId> + 'a {
-        self.by_kind
-            .get(&(kind, key.clone()))
-            .into_iter()
-            .flatten()
-            .copied()
+        keys: &FactKeys<'_>,
+        mut found: impl FnMut(BindingId),
+    ) {
+        self.kinds[kind as usize].matching(keys, &mut found);
     }
 }
 

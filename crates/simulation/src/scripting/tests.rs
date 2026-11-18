@@ -124,7 +124,8 @@ fn unscripted_games_never_build_facts_or_call_a_host() {
     game.act(actor, Action::Move(Direction::East)).unwrap();
     game.act(actor, Action::Wait).unwrap();
     let after = crate::diagnostics::work_counts();
-    assert!(after.hook_sites_checked > before.hook_sites_checked);
+    // An unscripted site is one mask test: no lookup, fact or call.
+    assert_eq!(after.hook_lookups, before.hook_lookups);
     assert_eq!(after.hook_facts_noted, before.hook_facts_noted);
     assert_eq!(after.hook_handler_calls, before.hook_handler_calls);
     assert_eq!(game.hook_mask, 0);
@@ -160,6 +161,88 @@ fn a_cell_binding_hears_only_its_cell_at_the_exact_tick() {
     let report = game.take_script_report();
     assert_eq!(report.messages.len(), 1);
     assert_eq!(report.dispatches.len(), 1);
+}
+
+#[test]
+fn unsubscribed_kinds_and_unmatched_keys_cost_no_fact_and_no_call() {
+    let fake = host(|_, _| Ok(vec![]));
+    let (mut game, actor) = scripted(
+        vec![bind(HookKind::Moved, FilterKey::Cell(at(4)), 0)],
+        Some(fake.clone()),
+    );
+    // Waiting is not subscribed: the mask test alone rejects it.
+    let before = crate::diagnostics::work_counts();
+    game.act(actor, Action::Wait).unwrap();
+    let after = crate::diagnostics::work_counts();
+    assert_eq!(after.hook_lookups, before.hook_lookups);
+    // Moving is subscribed, but only the bound cell's class is looked up and
+    // nothing matches x = 2: one lookup, no fact, no call.
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    let moved = crate::diagnostics::work_counts();
+    assert_eq!(moved.hook_lookups, after.hook_lookups + 1);
+    assert_eq!(moved.hook_facts_noted, after.hook_facts_noted);
+    assert_eq!(moved.hook_handler_calls, after.hook_handler_calls);
+    assert!(fake.calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn roots_without_world_effects_never_clone_the_game() {
+    let fake = host(|_, _| Ok(vec![message("noted"), set_count(1)]));
+    let (mut game, actor) = scripted(
+        vec![bind(HookKind::Moved, FilterKey::Any, 0)],
+        Some(fake.clone()),
+    );
+    let before = crate::diagnostics::work_counts();
+    game.note_moved(actor, at(1), at(2));
+    game.settle_script_hooks().unwrap();
+    let after = crate::diagnostics::work_counts();
+    assert_eq!(fake.calls.lock().unwrap().len(), 1);
+    assert_eq!(after.game_clones, before.game_clones, "messages and variables need no checkpoint");
+    assert_eq!(
+        game.script_state().unwrap().var(VarScope::Scenario, "count"),
+        Some(&Value::Int(1))
+    );
+}
+
+#[test]
+fn a_world_effect_checkpoints_once_and_a_rejected_root_restores_it() {
+    let mut game = Game::two_room_with_doorway(42, crate::test_creatures::content());
+    let actor = game
+        .spawn_actor(at(1), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    game.install_scripts(ScriptSetup {
+        handlers: 1,
+        schema: schema(),
+        bindings: vec![Binding {
+            actors: ActorClass::Any,
+            ..bind(HookKind::Moved, FilterKey::Any, 0)
+        }],
+        defaults: vec![],
+    })
+    .unwrap();
+    let door = at(5);
+    // Two world effects, then an invariant violation: one checkpoint, and the
+    // door and variable are both restored.
+    let fake = host(move |_, _| {
+        Ok(vec![
+            set_count(3),
+            ScriptEffect::SetDoor { at: door, open: false },
+            ScriptEffect::SetDoor { at: door, open: true },
+            ScriptEffect::Teleport { actor: ActorId(999), to: at(1) },
+        ])
+    });
+    game.set_hook_host(HookPort::new(fake));
+    let open = game.world.door(door).unwrap().open;
+    let before = crate::diagnostics::work_counts();
+    game.note_moved(actor, at(1), at(2));
+    game.settle_script_hooks().unwrap();
+    let after = crate::diagnostics::work_counts();
+    assert_eq!(after.game_clones - before.game_clones, 1);
+    assert_eq!(game.world.door(door).unwrap().open, open);
+    assert_eq!(game.script_state().unwrap().var(VarScope::Scenario, "count"), None);
+    let report = game.take_script_report();
+    assert_eq!(report.failures.len(), 1);
+    assert!(report.messages.is_empty() && report.dispatches.is_empty());
 }
 
 #[test]
