@@ -9,6 +9,8 @@ before the bot API refactor. The rewritten example uses the
 checks retrieval and return against an independent player observation. The
 historical seed results below belong to the revisions named in the text.
 
+The [Python bot API implementation plan](../plans/python-bot-api.md) pairs each proposed API improvement with a Rogue-O-Matic verification case and defines the proposed campaign reliability target.
+
 See the [findings and follow-ups](rogue-o-matic-findings.md) for issues uncovered
 during implementation and campaign testing.
 

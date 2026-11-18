@@ -9,6 +9,7 @@ own implemented behavior. Preserve useful rationale and label future work explic
 | [Hosted CI reduction](hosted-ci-reduction.md) | Workflow audit, local ownership/admission/proof reuse/shared compilation and planned selection reductions |
 | [Shared requirements](requirements.md) | Unfinished reusable capabilities and their acceptance boundaries |
 | [Rogue adaptation](rogue.md) | Accepted adaptation decisions and remaining full-run/calibration work |
+| [Python bot API and Rogue-O-Matic](python-bot-api.md) | Proposed API improvements, policy migrations and bundled campaign qualification |
 | [Rogue tuning](rogue-tuning.md) | Proposed locked-reference calibration sequence; not final balance |
 | [Consumables/devices](rogue-missing-consumables.md) | Implemented design record, canonical-owner map and remaining scope |
 | [Spatial registry](rogue-spatial-registry-reconstruction.md) | Implemented reconstruction rationale/history; current architecture owns behavior |
