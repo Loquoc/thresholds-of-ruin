@@ -164,8 +164,10 @@ try:
     snapshot = obs.data()
     assert set(snapshot) == {
         "state", "memory", "cursor", "branch", "readiness", "history", "narration",
-        "outcome", "intentions", "finished_intentions", "combat_updates", "travel",
+        "user_messages", "outcome", "intentions", "finished_intentions", "combat_updates",
+        "travel",
     }
+    assert snapshot["user_messages"] == [], snapshot["user_messages"]
     snapshot["state"]["observation"]["visible_cells"].clear()
     picture = obs.data()["state"]
     assert picture["observation"]["visible_cells"]

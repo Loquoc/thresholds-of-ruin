@@ -61,6 +61,8 @@ mod combat_trace;
 mod projectile_choices;
 pub use projectile_choices::*;
 mod outcome_facts;
+mod user_message;
+pub use user_message::*;
 mod projectile_selection;
 mod public_plan;
 pub use combat_diagnostics::*;

@@ -20,7 +20,7 @@ struct Observation {
 fn encode_observation(state: &ClientState) -> serde_json::Result<String> {
     let mut contents = Vec::new();
     let mut serializer = serde_json::Serializer::new(&mut contents);
-    let mut fields = serializer.serialize_map(Some(12))?;
+    let mut fields = serializer.serialize_map(Some(13))?;
     fields.serialize_entry("state", state.state())?;
     let memory: Vec<_> = state.map_memory().map(|cell| cell.appearance()).collect();
     fields.serialize_entry("memory", &memory)?;
@@ -29,6 +29,11 @@ fn encode_observation(state: &ClientState) -> serde_json::Result<String> {
     fields.serialize_entry("readiness", &state.readiness())?;
     fields.serialize_entry("history", state.history())?;
     fields.serialize_entry("narration", state.narration())?;
+    // The bot has no keys: neutral text plus closed control ids to map.
+    fields.serialize_entry(
+        "user_messages",
+        &tor_client_common::narration::user_messages(state.narration_lines()),
+    )?;
     fields.serialize_entry("outcome", &state.outcome_status())?;
     fields.serialize_entry("intentions", state.intentions())?;
     fields.serialize_entry("finished_intentions", state.finished_intentions())?;

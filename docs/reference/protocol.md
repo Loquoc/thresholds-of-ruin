@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":72,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":73,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -558,6 +558,20 @@ the disclosed kind and name of the work, and a replacement admission identity
 when a new action took its place. A client can combine that fact with the new
 action's start in the same update. Work names use the actor's disclosed
 inventory or their authored ability name.
+
+A `user_message` fact carries server-authored text for the player:
+`{"kind":"user_message","style":"tutorial","segments":[{"text":"Press "},{"control":"pick_up"},{"text":" to take it."}]}`.
+`style` is `tutorial`, `hint` or `narration`. Each segment is exactly one of
+`{"text": …}` or `{"control": …}`. Controls come from a closed vocabulary:
+`move`, `wait`, `search`, `pick_up`, `inventory`, `equip`, `drink`, `read`,
+`zap`, `throw`, `travel`, `look`, `open_door`, `rest`, `save` and `help`
+(`ControlHint::from_id` and `id` give the same stable spellings). The message
+never names a key; each client shows its own binding for the control, and a
+client without a distinct presentation for a style shows the text plainly.
+A message has 1 to 32 segments. Each text segment is 1 to 512 bytes, the text
+segments total at most 2,048 bytes, no text contains control characters, and the
+message must have a control or some non-whitespace text. Unknown styles, controls,
+segment kinds and fields are rejected. The message grants no input permission.
 
 Every admitted outcome remains ordered even when pictures are coalesced. Repeated
 visual requests must not repeat narration. Internal event-batch identity separates

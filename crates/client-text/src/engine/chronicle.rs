@@ -109,6 +109,12 @@ pub enum Beat {
         terminal: bool,
     },
     Objective(ObjectiveKind),
+    /// Server-authored tutorial, hint or narration text, with controls
+    /// already named as this client's commands. Told on its own line.
+    UserMessage {
+        style: UserMessageStyle,
+        text: String,
+    },
     /// A journey ended.
     Journey {
         phase: TravelPhase,
@@ -218,6 +224,7 @@ impl Chronicler {
             OutcomeFact::LostSight { .. } => 10,
             OutcomeFact::DoorChanged { .. } => 11,
             OutcomeFact::Pacing { .. } => 12,
+            OutcomeFact::UserMessage { .. } => 13,
         });
         let mut beats = Vec::new();
         for fact in ordered {
@@ -231,6 +238,16 @@ impl Chronicler {
                 }
                 OutcomeFact::Objective { objective } => {
                     beats.push(Beat::Objective(*objective));
+                    continue;
+                }
+                OutcomeFact::UserMessage { style, segments } => {
+                    beats.push(Beat::UserMessage {
+                        style: *style,
+                        text: tor_client_common::narration::user_message_text(
+                            segments,
+                            &crate::controls::command,
+                        ),
+                    });
                     continue;
                 }
                 _ => {}
@@ -369,7 +386,9 @@ impl Chronicler {
                     beats.push(Beat::ItemFinished(line.text))
                 }
                 OutcomeFact::Pacing { .. } => {}
-                OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => unreachable!(),
+                OutcomeFact::Injured { .. }
+                | OutcomeFact::Objective { .. }
+                | OutcomeFact::UserMessage { .. } => unreachable!(),
             }
         }
         self.status = facts.status.clone();
@@ -900,6 +919,58 @@ mod tests {
             ),
             "Silver Flask"
         );
+    }
+
+    #[test]
+    fn user_messages_are_told_on_their_own_line_with_text_commands() {
+        let facts = OutcomeFacts {
+            self_target: view().observation.self_target,
+            status: None,
+            actor_names: vec![],
+            facts: vec![
+                OutcomeFact::UserMessage {
+                    style: UserMessageStyle::Tutorial,
+                    segments: vec![
+                        UserMessageSegment::Text("Type ".into()),
+                        UserMessageSegment::Control(ControlHint::PickUp),
+                        UserMessageSegment::Text(" to pick it up, or ".into()),
+                        UserMessageSegment::Control(ControlHint::Move),
+                        UserMessageSegment::Text(" to walk on.".into()),
+                    ],
+                },
+                OutcomeFact::Displaced,
+                OutcomeFact::UserMessage {
+                    style: UserMessageStyle::Narration,
+                    segments: vec![UserMessageSegment::Text("The wind drops.".into())],
+                },
+                OutcomeFact::UserMessage {
+                    style: UserMessageStyle::Hint,
+                    segments: vec![
+                        UserMessageSegment::Control(ControlHint::Help),
+                        UserMessageSegment::Text(" lists every command.".into()),
+                    ],
+                },
+            ],
+        };
+        facts.validate().unwrap();
+        let beats = Chronicler::default().outcome(&facts, &Palette::default());
+        let passage = super::super::narrate::compose(&super::super::narrate::Record {
+            entries: vec![super::super::narrate::Entry::Beats(beats)],
+        });
+        let lines: Vec<_> = passage.lines().collect();
+        assert_eq!(lines.len(), 4, "{passage}");
+        assert!(lines[0].to_lowercase().contains("moved against your will"));
+        assert_eq!(
+            &lines[1..],
+            [
+                r#"Tutorial: Type "take" to pick it up, or a direction such as "north" to walk on."#,
+                "The wind drops.",
+                r#"Hint: "help" lists every command."#,
+            ]
+        );
+        for &control in ControlHint::ALL {
+            assert!(!crate::controls::command(control).is_empty());
+        }
     }
 
     #[test]

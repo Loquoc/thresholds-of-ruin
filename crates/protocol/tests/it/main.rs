@@ -36,3 +36,5 @@ mod magic_items;
 mod object_presentation;
 
 mod item_knowledge;
+
+mod user_messages;

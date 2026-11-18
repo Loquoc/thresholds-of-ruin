@@ -66,6 +66,15 @@ here."). A creature is announced when it first comes into sight and again
 only after at least 1,000 ticks out of sight, measured from its latest disclosed
 departure rather than the previous arrival. A journey that stops short says why.
 
+Scenario messages from the server appear in the same area, in order with
+everything else. A tutorial reads `Tutorial: Press ',' to pick it up.` and a
+hint `Hint: '_' travels to a known place.`; narration and any other style are
+shown as plain text. The server names a control, never a key, so the message
+always shows this client's own key: a direction key (`hjklyubn`) to move, `.`
+to wait or rest, `s` search, `,` pick up, `i` inventory, `w`, `W` or `P` equip,
+`q` drink, `r` read, `z` zap, `t` throw, `_` travel, `;` look, `o` open a door,
+`S` save and `?` help.
+
 When a turn's messages need more than three rows, the last row ends with
 `--More--`. Your next key shows the next rows and does nothing else, so no
 message scrolls away unseen; Esc skips to the end. Spectators can't page, so

@@ -84,6 +84,8 @@ impl Record {
 #[derive(Default)]
 struct Teller {
     sentences: Vec<String>,
+    /// Paragraphs already closed by a line told on its own.
+    closed: Vec<String>,
     named: BTreeSet<ActorTarget>,
     last: Option<ActorTarget>,
     next_last: Option<ActorTarget>,
@@ -129,9 +131,25 @@ impl Teller {
         self.last = self.next_last.take();
     }
 
+    /// A line told verbatim on its own, after what was said before it.
+    fn alone(&mut self, text: String) {
+        self.close();
+        self.closed.push(text);
+        self.last = None;
+        self.next_last = None;
+    }
+
+    fn close(&mut self) {
+        if !self.sentences.is_empty() {
+            let paragraph = prose::paragraph(&std::mem::take(&mut self.sentences));
+            self.closed.push(paragraph);
+        }
+    }
+
     fn take(&mut self) -> Option<String> {
         self.last = None;
-        (!self.sentences.is_empty()).then(|| prose::paragraph(&std::mem::take(&mut self.sentences)))
+        self.close();
+        (!self.closed.is_empty()).then(|| std::mem::take(&mut self.closed).join("\n"))
     }
 }
 
@@ -870,6 +888,11 @@ fn tell(teller: &mut Teller, beats: &[Beat]) {
                 }
                 teller.say(format!("your task is to {}", goal.trim_end_matches('.')));
             }
+            Beat::UserMessage { style, text } => teller.alone(match style {
+                UserMessageStyle::Tutorial => format!("Tutorial: {text}"),
+                UserMessageStyle::Hint => format!("Hint: {text}"),
+                UserMessageStyle::Narration => text.clone(),
+            }),
             Beat::Control(true) => teller.say("you are in control"),
             Beat::Control(false) => teller.say("you are now only watching"),
             Beat::Stepped(_)
