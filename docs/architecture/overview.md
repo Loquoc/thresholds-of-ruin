@@ -104,7 +104,11 @@ run limits and death policy, not RNG. See [creature rules](../reference/creature
 Content additions built from existing mechanisms are data changes. New Rust should
 introduce a reusable mechanism, not a special case for one spell or creature.
 [Rules review principles](simulation.md#rules-design-and-review) make this
-boundary concrete. Runtime scripting remains [deferred design](../plans/scripting.md).
+boundary concrete. [Scenario scripts](../reference/scripting.md) are scenario
+authority, not actors: the `tor-scripting` crate hosts a sandboxed Luau VM behind
+the simulation's `HookHost` trait, hooks are noted behind a per-kind mask and
+settled at tick boundaries, and their effects are checked only against world
+invariants. Anything a script asks an actor to do would use the action boundary.
 
 ## Geometry, perception and knowledge
 

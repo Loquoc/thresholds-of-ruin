@@ -409,7 +409,8 @@ pub struct DispatchRecord {
 
 /// Everything a boundary produced for the host: delivered messages, handler
 /// calls and rejected roots. Drained by the host after each transaction.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ScriptReport {
     pub messages: Vec<ScriptMessage>,
     pub dispatches: Vec<DispatchRecord>,

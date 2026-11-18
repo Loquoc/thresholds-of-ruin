@@ -981,6 +981,15 @@ fixed or rolled amount. Conditions name a condition ID and duration; resource
 restoration names a resource and amount. Equipment defense and damage reduction
 are modifiers, not separate protection fields.
 
+## Scripts
+
+An optional `[scripting]` table lists package `.luau` scripts, declares their
+typed variables and binds handlers to hooks. Script text is pinned into the
+certificate, saves and compiled artifacts, so editing a script requires
+revalidation. See [scenario scripting](scripting.md) for hooks, effects,
+budgets and determinism, and [`scenarios/tutorial`](../../scenarios/tutorial)
+for an example.
+
 ## Assets
 
 Assets are optional. A manifest may give:

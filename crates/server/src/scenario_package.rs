@@ -51,6 +51,9 @@ pub(crate) use spatial_runtime::{HistoricalSourceAudit, SpatialAudit};
 pub(crate) use spatial_sources::unroot_live_rogue_supplement;
 #[path = "scenario_rules.rs"]
 mod rules_source;
+#[path = "scenario_scripts.rs"]
+mod scripts;
+pub use scripts::{DefaultValue, HookDecl, ScriptingManifest, VariableDecl};
 pub use artifact::export;
 pub use rules_source::{resolve_rules_source, ResolvedRules};
 #[path = "scenario_source.rs"]
@@ -74,12 +77,12 @@ use tor_simulation::Game;
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
 pub const RULESET: &str = "interactions-v72";
-const VALIDATOR: &str = "tor-scenario-51";
+const VALIDATOR: &str = "tor-scenario-52";
 /// The manifest and the validator's files are bounded to this.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// The package layout this version reads: `scenario.toml`, one file per
 /// region in `regions/`, and the validator's `index.json`.
-pub const FORMAT: u32 = 37;
+pub const FORMAT: u32 = 38;
 const REGION_DIR: &str = "regions";
 /// Regions a package may have.
 pub const MAX_REGIONS: usize = 65_536;
@@ -190,6 +193,9 @@ pub struct Manifest {
     pub assets: BTreeMap<String, Vec<String>>,
     /// Terrain assets of regions outside any zone, or in a zone without its own.
     pub terrain: Option<TerrainAssets>,
+    /// Luau scripts and the hooks they react to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scripting: Option<ScriptingManifest>,
 }
 /// Arena source settings; runtime counters and outcomes belong to simulation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1107,6 +1113,11 @@ pub struct Package {
     /// Diagnostic-only author declaration ownership, never replay input.
     #[serde(skip)]
     source_provenance: BTreeMap<String, String>,
+    /// Pinned script text by package-relative path.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scripts: BTreeMap<String, String>,
+    #[serde(skip)]
+    script_cache: scripts::SharedScriptCache,
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -1295,6 +1306,21 @@ fn scan_regions(root: &Path) -> Result<(RegionIndex, BTreeMap<u64, Arc<str>>), F
     }
     regions.sort_by_key(|r| r.id);
     Ok((RegionIndex { regions }, texts))
+}
+
+/// Script text is simulation semantics; unscripted packages keep their
+/// existing model identity.
+fn scripted_model_hash(
+    model: String,
+    scripts: &BTreeMap<String, String>,
+) -> Result<String, Failure> {
+    if scripts.is_empty() {
+        return Ok(model);
+    }
+    Ok(digest(
+        &serde_json::to_vec(&("tor-scripted-model-v1", &model, scripts))
+            .map_err(|e| fail(e.to_string()))?,
+    ))
 }
 
 fn model_hash(
@@ -1903,8 +1929,11 @@ impl Package {
         validated: bool,
         selected: u64,
         directory: Option<String>,
+        scripts: BTreeMap<String, String>,
     ) -> Self {
         Self {
+            scripts,
+            script_cache: Default::default(),
             manifest,
             rules_source: String::new(),
             resolved_rules_source: None,
@@ -1958,6 +1987,7 @@ impl Package {
         manifest: Manifest,
         manifest_text: &str,
         rules_source: &str,
+        scripts: BTreeMap<String, String>,
         index: RegionIndex,
         sources: RegionSources,
         directory: Option<&Path>,
@@ -1975,16 +2005,27 @@ impl Package {
         .map_err(|error| fail(format!("{}: {error:?}", manifest.ruleset)))?;
         require(rules.id().as_str() == RULESET, "Unsupported ruleset ID")?;
         let ruleset_hash = digest(rules_document.as_bytes());
-        let files = BTreeMap::from([
+        scripts::compile(&manifest, &scripts)?;
+        let mut files = BTreeMap::from([
             (manifest.ruleset.clone(), source_digest(rules_source)),
             ("scenario.toml".into(), source_digest(manifest_text)),
             ("index.json".into(), digest(&index.to_bytes()?)),
         ]);
+        let script_digests = scripts::digests(&scripts);
+        for (path, hash) in &script_digests {
+            require(
+                files.insert(path.clone(), hash.clone()).is_none(),
+                format!("Script {path} collides with another package file"),
+            )?;
+        }
         let content_hash = digest(
             &serde_json::to_vec(&(&files, &resolved.dependencies))
                 .map_err(|e| fail(e.to_string()))?,
         );
-        let model_hash = model_hash(&manifest, &index, &ruleset_hash, &resolved.dependencies)?;
+        let model_hash = scripted_model_hash(
+            model_hash(&manifest, &index, &ruleset_hash, &resolved.dependencies)?,
+            &script_digests,
+        )?;
         let certificate = Certificate {
             model_hash,
             validator: VALIDATOR.into(),
@@ -2015,6 +2056,8 @@ impl Package {
             sources,
             manifest_text: Some(Arc::from(manifest_text)),
             source_provenance: BTreeMap::new(),
+            scripts,
+            script_cache: Default::default(),
         })
     }
 
@@ -2044,6 +2087,7 @@ impl Package {
             manifest,
             &manifest_text,
             rules_source,
+            BTreeMap::new(),
             RegionIndex { regions: index },
             RegionSources::with(None, texts),
             None,
@@ -2132,11 +2176,13 @@ impl Package {
 pub(crate) fn read_package(root: &Path) -> Result<Package, Failure> {
     let resolved = resolve_source(root)?;
     let rules_source = read(root, &resolved.manifest.ruleset)?;
+    let scripts = scripts::read_scripts(root, &resolved.manifest)?;
     let (index, texts) = scan_regions(root)?;
     let mut package = Package::assemble(
         resolved.manifest,
         &resolved.manifest_text,
         &rules_source,
+        scripts,
         index,
         RegionSources::with(Some(root), texts),
         Some(root),
@@ -2157,12 +2203,14 @@ pub(crate) fn locate(package: &Package, supplied: Option<&Package>) -> Option<st
 fn read_indexed(root: &Path) -> Result<Package, Failure> {
     let resolved = resolve_source(root)?;
     let rules_source = read(root, &resolved.manifest.ruleset)?;
+    let scripts = scripts::read_scripts(root, &resolved.manifest)?;
     let index =
         RegionIndex::from_bytes(read_limited(root, "index.json", MAX_INDEX_BYTES)?.as_bytes())?;
     let mut package = Package::assemble(
         resolved.manifest,
         &resolved.manifest_text,
         &rules_source,
+        scripts,
         index,
         RegionSources::with(Some(root), BTreeMap::new()),
         Some(root),
@@ -2201,6 +2249,7 @@ pub fn write_package(
 pub(crate) fn checked_package(root: &Path) -> Result<Package, Failure> {
     let mut package = read_package(root)?;
     package.check()?;
+    package.check_script_anchors(0)?;
     let volume = |size: [i32; 3], chamber: bool| -> Result<u64, Failure> {
         size.into_iter().try_fold(1u64, |product, side| {
             let side = u64::try_from(side).map_err(|_| fail("Invalid validation volume"))?;
@@ -2758,6 +2807,7 @@ impl Package {
     fn check_identity_with_origin(&self, origin: Option<Origin<'_>>) -> Result<(), Failure> {
         crate::storage::schema::scenario::check_metadata_capacity(self)?;
         check_manifest_header(&self.manifest)?;
+        self.check_scripts()?;
         require(
             self.certificate.files.get("index.json") == Some(&digest(&self.index.to_bytes()?))
                 && self.certificate.content_hash
@@ -2789,11 +2839,14 @@ impl Package {
         )?;
         require(
             self.certificate.model_hash
-                == model_hash(
-                    &self.manifest,
-                    &self.index,
-                    &self.certificate.ruleset_hash,
-                    &self.certificate.ruleset_dependencies,
+                == scripted_model_hash(
+                    model_hash(
+                        &self.manifest,
+                        &self.index,
+                        &self.certificate.ruleset_hash,
+                        &self.certificate.ruleset_dependencies,
+                    )?,
+                    &scripts::digests(&self.scripts),
                 )?,
             "Pinned scenario content hash mismatch",
         )?;
@@ -3808,6 +3861,7 @@ impl Package {
         self.configure_run(&mut game, &index)?;
         game.initialize_discovery()
             .map_err(|error| fail(format!("Initial discovery publication: {error:?}")))?;
+        self.install_scripts(&mut game, seed)?;
         Ok(game)
     }
 
@@ -4174,6 +4228,7 @@ impl Package {
         if self.manifest.arena.is_none() {
             self.configure_run(&mut game, &index)?;
         }
+        self.install_scripts(&mut game, seed)?;
         Ok(game)
     }
 

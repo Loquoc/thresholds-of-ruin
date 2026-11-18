@@ -1044,6 +1044,7 @@ fn missing_retrieval_receipt_is_rejected_before_candidate_and_store_publication(
                 .game
                 .activations_since(engine.game.activation_count())
                 .unwrap(),
+            hooks: None,
         };
         assert!(
             engine.admit(&forged, &candidate, None).is_err(),

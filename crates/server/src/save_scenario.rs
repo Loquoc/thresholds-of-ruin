@@ -425,6 +425,8 @@ struct Manifest {
     assets: BTreeMap<String, Vec<String>>,
     #[serde(with = "mapped")]
     terrain: Option<source::TerrainAssets>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scripting: Option<source::ScriptingManifest>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -4423,18 +4425,26 @@ struct Package {
     validated: bool,
     selected: u64,
     directory: Option<String>,
+    /// Pinned script text; absent for unscripted packages.
+    #[serde(default)]
+    scripts: BTreeMap<String, String>,
 }
 
 impl Stored for source::Package {
     fn encode<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut value = serializer.serialize_struct("Package", 6)?;
+        let mut value = serializer.serialize_struct("Package", 7)?;
         value.serialize_field("manifest", &Borrowed(&self.manifest))?;
         value.serialize_field("rules_document", &self.rules_document)?;
         value.serialize_field("certificate", &Borrowed(&self.certificate))?;
         value.serialize_field("validated", &self.validated)?;
         value.serialize_field("selected", &self.selected)?;
         value.serialize_field("directory", &self.directory)?;
+        if self.scripts.is_empty() {
+            value.skip_field("scripts")?;
+        } else {
+            value.serialize_field("scripts", &self.scripts)?;
+        }
         value.end()
     }
     fn decode<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -4446,6 +4456,7 @@ impl Stored for source::Package {
             value.validated,
             value.selected,
             value.directory,
+            value.scripts,
         ))
     }
 }
@@ -4566,7 +4577,7 @@ struct ContentPackage {
     #[serde(with = "mapped")]
     index: source::RegionIndex,
 }
-const CONTENT_PACKAGE_FORMAT: u32 = 34;
+const CONTENT_PACKAGE_FORMAT: u32 = 35;
 
 /// Independent payload versions participate in immutable artifact addresses.
 /// Even packages without authored regions must not reuse an older encoding.
@@ -5079,7 +5090,7 @@ mod tests {
                 super::CONTENT_PACKAGE_FORMAT,
                 crate::arena_evaluation::FORMAT,
             ),
-            (71, 37, "interactions-v72", 27, 10, 34, "tor-arena-run-v6")
+            (72, 38, "interactions-v72", 27, 10, 35, "tor-arena-run-v6")
         );
     }
 

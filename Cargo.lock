@@ -1279,6 +1279,7 @@ dependencies = [
  "tor-client-ascii",
  "tor-client-common",
  "tor-protocol",
+ "tor-scripting",
  "tor-simulation",
  "tor-test-support",
  "tor-world",

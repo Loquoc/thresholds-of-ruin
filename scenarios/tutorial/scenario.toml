@@ -1,0 +1,49 @@
+# A short scripted first walk: moving, doors, picking up and leaving.
+# Lessons come from scripts/lessons.luau. Validate after every edit.
+format = 38
+id = "tutorial"
+version = "1.0"
+ruleset = "rules.toml"
+default_character = 1
+themes = ["stone"]
+archetypes = { "token" = { identity = "item.misc.token", "name" = "brass token" } }
+characters = [{ "id" = 1, "anchor" = "1/start", "turn_ticks" = 100 }]
+
+[scripting]
+scripts = ["scripts/lessons.luau"]
+
+[scripting.variables]
+lessons = { scope = "scenario", type = "int", default = 0 }
+has_token = { scope = "scenario", type = "bool", default = false }
+
+[[scripting.hooks]]
+on = "run_started"
+handler = "lessons.welcome"
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/token"
+handler = "lessons.at_token"
+once = true
+
+[[scripting.hooks]]
+on = "item_taken"
+identity = "item.misc.token"
+handler = "lessons.took_token"
+once = true
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/door"
+handler = "lessons.at_door"
+once = true
+
+[[scripting.hooks]]
+on = "door_changed"
+handler = "lessons.door_changed"
+once = true
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/exit"
+handler = "lessons.exit"

@@ -1,16 +1,16 @@
 {
-  "validator": "tor-scenario-51",
+  "validator": "tor-scenario-52",
   "ruleset": "interactions-v72",
   "ruleset_hash": "18ed71341cebfaff367ccf97f6743f5aaa3f51f75334145ec3c69d9a553bb8d3",
   "ruleset_dependencies": {
     "interactions-v72": "78ca10a7744b853cf9603b0d2d5bcd13b6f8ca304bbb43b71d9dacd97fc357e1"
   },
-  "content_hash": "7f968ba0e20d8c6c1b766166926d6140fd446b5b5844e70f2147e8ac2f723f24",
+  "content_hash": "f26edc009b280006f8a59571a9d0c07994849c39ed769615c61f91b294168584",
   "files": {
     "catalog/actors.toml": "ada65853394b19f9a177448b361cabcd67339000f1dc9affbf84760bed802d99",
     "index.json": "9f05bf1cd8d8f6288962adbf87bbd5fb2e1b18a5602c65fffb1cf51bb8033817",
     "rules.toml": "c1e418e4c8de1a933c66fe33d5c2e1946737ad6a0645d89286e859ae1bae6e6c",
-    "scenario.toml": "4508245468ff0d8e961817c215086c9baaeadd1c9c9622e55116b3d8338ddff5"
+    "scenario.toml": "4bbf54a6ca7b5f40fe380e494d284c504ffaf84d2a3ceb2172cbfa5978de5e5e"
   },
   "regions": 1,
   "model_hash": "5ee115035f71166a695f6562e0873cb8b4eddcef47f809ee10d8c119c7c625c3",

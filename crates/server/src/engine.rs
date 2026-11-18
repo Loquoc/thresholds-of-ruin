@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 71;
+pub(crate) const ARCHIVE_VERSION: u32 = 72;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -1189,6 +1189,17 @@ pub(crate) struct Record {
     /// Latest owning transaction only; empty non-entry deltas remain explicit.
     #[serde(deserialize_with = "read_retrieval_entries")]
     pub(crate) retrievals: Vec<RetrievalEntry>,
+    /// Script handler calls, rejections and messages this transaction made.
+    /// Replay recomputes them and requires exact equality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) hooks: Option<tor_simulation::scripting::ScriptReport>,
+}
+
+/// A transaction's script report, absent when scripts did nothing.
+pub(crate) fn hook_record(
+    report: tor_simulation::scripting::ScriptReport,
+) -> Option<tor_simulation::scripting::ScriptReport> {
+    (!report.is_empty()).then_some(report)
 }
 
 fn read_retrieval_entries<'de, D: serde::Deserializer<'de>>(
@@ -1512,6 +1523,9 @@ pub(crate) struct Archive {
     pub(crate) initial_activations: Vec<FloorActivationRecord>,
     #[serde(deserialize_with = "read_retrieval_entries")]
     pub(crate) initial_retrievals: Vec<RetrievalEntry>,
+    /// What scripts did when the run started, before any record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) initial_hooks: Option<tor_simulation::scripting::ScriptReport>,
 }
 
 /// How many of a streaming game's regions are in each state, and how its
@@ -2272,6 +2286,11 @@ impl Engine {
         }
         game.initialize_discovery().map_err(|_| invalid_archive())?;
         game.refresh_navigation();
+        // Scripts hear the run start before the initial boundary, so their
+        // opening effects are part of the base state every replay rebuilds.
+        game.start_scripts().map_err(|_| invalid_archive())?;
+        let initial_hooks = hook_record(game.take_script_report());
+        game.refresh_navigation();
         // Initial knowledge is part of the initial immutable boundary, never a
         // side effect of the first client query.
         let terrain = |region: tor_world::RegionId| {
@@ -2333,6 +2352,7 @@ impl Engine {
                 records: Vec::new(),
                 initial_activations,
                 initial_retrievals,
+                initial_hooks,
             },
         })
     }
@@ -2604,6 +2624,7 @@ impl Engine {
             let mut engine = Self::memory(archive.scenario.clone())?;
             if engine.archive.initial_activations != archive.initial_activations
                 || engine.archive.initial_retrievals != archive.initial_retrievals
+                || engine.archive.initial_hooks != archive.initial_hooks
             {
                 return Err(invalid_archive());
             }
@@ -2757,6 +2778,7 @@ impl Engine {
             if result.map_err(|_| invalid_archive())? != record.entry
                 || engine.archive.records.last().is_none_or(|actual| {
                     actual.action_resolution != record.action_resolution
+                        || actual.hooks != record.hooks
                         || actual.activations != record.activations
                         || actual.retrievals != record.retrievals
                         || actual.retrieval_before != record.retrieval_before
@@ -3838,6 +3860,7 @@ impl Engine {
                     action: Action::Wait,
                 },
             };
+            let hooks = hook_record(self.game.take_script_report());
             self.append_record(Record {
                 attachment: None,
                 retrieval_before,
@@ -3852,6 +3875,7 @@ impl Engine {
                     .game
                     .activations_since(activation_count)
                     .map_err(|_| invalid_archive())?,
+                hooks,
             });
             if end - index <= REWIND_BOUNDARIES {
                 self.boundaries.push_back(Arc::new(Boundary {
@@ -4551,6 +4575,7 @@ impl Engine {
             receipt,
             action_resolution,
             activations,
+            hooks: hook_record(candidate.game.take_script_report()),
         };
         let survival = candidate.game.take_survival_diagnostics();
         let start_tick = self.game.tick();
@@ -4683,6 +4708,7 @@ impl Engine {
             action_resolution: ActionResolution::Unchanged,
             activations: Vec::new(),
             retrievals: Vec::new(),
+            hooks: None,
         };
         let copied = self.admit(&record, &Candidate::capture(self), None)?;
         self.mark_saved(copied);

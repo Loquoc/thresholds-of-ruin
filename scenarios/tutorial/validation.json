@@ -1,0 +1,18 @@
+{
+  "validator": "tor-scenario-52",
+  "ruleset": "interactions-v72",
+  "ruleset_hash": "18ed71341cebfaff367ccf97f6743f5aaa3f51f75334145ec3c69d9a553bb8d3",
+  "ruleset_dependencies": {
+    "interactions-v72": "78ca10a7744b853cf9603b0d2d5bcd13b6f8ca304bbb43b71d9dacd97fc357e1"
+  },
+  "content_hash": "24adbe1bce2fbacce705e65bc4a8296b783b23d7ef61e4e3d05ff6a5df6cb436",
+  "files": {
+    "index.json": "9c436206c90fae5255abe50c5290384c9ef520060987bc0a7fddd377380b1783",
+    "rules.toml": "c1e418e4c8de1a933c66fe33d5c2e1946737ad6a0645d89286e859ae1bae6e6c",
+    "scenario.toml": "901f5697024d62b4aab76b5fccbad41f72819e73f4033dd9576a5094fb7441c9",
+    "scripts/lessons.luau": "fc162ff4206791e078b8e35ae9c6dba45965fa37553123e12e14192259cb3f14"
+  },
+  "regions": 1,
+  "model_hash": "be2161849a4407b39c5b2f7e0385fc0bb9e525e4a903d5516c53117986d0751b",
+  "coverage": "all authored regions and character starts; descriptor structural bounds; deterministic sampled groups at seeds 0, 1, 42 under explicit work budget; no all-seed or winnability proof"
+}

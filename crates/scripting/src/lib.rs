@@ -27,7 +27,7 @@ mod values;
 #[cfg(test)]
 mod tests;
 
-pub use program::{CompileError, Program, ScriptSource};
+pub use program::{CompileError, Program, ScriptSource, MAX_SOURCE_BYTES};
 
 use mlua::{Lua, LuaOptions, StdLib, VmState};
 use std::collections::{BTreeMap, BTreeSet};

@@ -2331,7 +2331,7 @@ class RouteResumeHardeningTests(unittest.TestCase):
         self.assertIn('compiler and route qualification pending', source['reference'])
         self.assertIn('source bytes only', transition['only_transformation'])
 
-    def test_current_baseline_v45_changes_only_required_rules_identity(self):
+    def test_historical_baseline_v45_changes_only_required_rules_identity(self):
         from process_harness import ROOT
         import hashlib
         from arena_evaluation import files
@@ -2364,8 +2364,40 @@ class RouteResumeHardeningTests(unittest.TestCase):
         self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
         self.assertIn('compiler and route qualification pending', source['reference'])
         self.assertIn('source bytes only', transition['only_transformation'])
+
+    def test_current_baseline_v46_changes_only_required_scenario_format(self):
+        from process_harness import ROOT
+        import hashlib
+        from arena_evaluation import files
+        previous = ROOT / 'scripts/fixtures/rogue-earned-baseline-v45'
+        snapshot = ROOT / 'scripts/fixtures/rogue-earned-baseline-v46'
+        prior = json.loads((previous / 'source.json').read_text())
+        source = json.loads((snapshot / 'source.json').read_text())
+        raw = (snapshot / 'format-transition.json').read_bytes()
+        transition = json.loads(raw)
+        self.assertEqual((transition['previous_ruleset'], transition['current_ruleset']), ('interactions-v72', 'interactions-v72'))
+        self.assertEqual((transition['previous_scenario_format'], transition['current_scenario_format']), (37, 38))
+        self.assertEqual((transition['previous_snapshot'], transition['current_snapshot']), (previous.name, snapshot.name))
+        self.assertEqual(transition['previous_source_sha256'], hashlib.sha256((previous / 'source.json').read_bytes()).hexdigest())
+        for key in ('package_inputs', 'rules_dependencies', 'reference'):
+            self.assertEqual(transition['previous_' + key], prior[key])
+        self.assertEqual(files(previous / 'package'), prior['package_inputs'])
+        self.assertEqual(files(snapshot / 'package'), source['package_inputs'])
+        self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
+        for name in source['package_inputs']:
+            current = (snapshot / 'package' / name).read_bytes()
+            if name == 'scenario.toml':
+                self.assertEqual(current.count(b'format = 38'), 1)
+                current = current.replace(b'format = 38', b'format = 38', 1)
+            self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
+        self.assertEqual(source['rules_dependencies'], prior['rules_dependencies'])
+        self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])
+        self.assertTrue(source['reference'].startswith(prior['reference'] + '; '))
+        self.assertTrue(source['reference'].endswith('transition-sha256:' + hashlib.sha256(raw).hexdigest()))
+        self.assertIn('compiler and route qualification pending', source['reference'])
+        self.assertIn('source bytes only', transition['only_transformation'])
         loader = (ROOT / 'scripts/test_rogue_earned_route_process.py').read_text()
-        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v45'", loader)
+        self.assertIn("'production': ROOT / 'scripts/fixtures/rogue-earned-baseline-v46'", loader)
 
     def test_artifact_capacity_is_infrastructure_not_controller_failure(self):
         self.assertEqual(classify_failure(ValueError('JSON artifact exceeds bounded size')),
