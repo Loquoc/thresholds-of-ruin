@@ -1087,3 +1087,13 @@ observation/lifecycle update. The output guard, finite action limits and all
 ownership/recovery assertions remain unchanged. Owning headless projection tests
 cover receipt preservation, omitted construction and retained state boundaries;
 actual process qualification remains a separate witness.
+
+
+The ACK projection change initially missed two downstream process owners: the
+headless projection allowlist and a Bind Wounds witness that deliberately checks
+stock, HP and cooldown at the queued ACK. Hosted CI exposed both fixture
+mismatches. The headless owner now also requires real admitted ACK identity in
+compact output. The admission-time gameplay witness explicitly requests full
+derived output and retains all of its pre-spend assertions. Both owners belong
+in focused validation for future projection changes, alongside raw-receipt unit
+checks; unrelated streaming/theft passes do not substitute for them.
