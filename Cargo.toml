@@ -6,6 +6,7 @@ members = [
     "crates/protocol",
     "crates/server",
     "crates/client-common",
+    "crates/client-bot",
     "crates/client-ascii",
     "crates/client-text",
     "crates/client-headless",

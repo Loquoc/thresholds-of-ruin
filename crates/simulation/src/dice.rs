@@ -284,14 +284,17 @@ pub struct PoolRoll {
 
 // Internal callers supply a statically validated, nonzero catalog die size.
 pub(crate) fn die(state: &mut u64, sides: u16) -> u16 {
+    (uniform_below(state, u64::from(sides)) + 1) as u16
+}
+
+pub(crate) fn uniform_below(state: &mut u64, range: u64) -> u64 {
     // SplitMix64 rejection sampling. A check draws its d6 from the same explicit
     // stream as later damage; health and generation own independent streams.
-    let range = u64::from(sides);
     let limit = u64::MAX - u64::MAX % range;
     loop {
         let value = random_word(state);
         if value < limit {
-            return (value % range + 1) as u16;
+            return value % range;
         }
     }
 }

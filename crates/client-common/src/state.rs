@@ -3,8 +3,11 @@
 //! rejected update and recover through a server snapshot rather than modifying it.
 use crate::{ObservationStream, StreamError};
 use serde::Serialize;
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 use tor_protocol::*;
+
+const RETAINED_FINISHED_INTENTIONS: usize = 32;
+const RETAINED_COMBAT_UPDATES: usize = 16;
 
 /// Last disclosed appearance. Hydrated records have no invented sighting time,
 /// entity handles, occupants, reachability or supply affordances.
@@ -22,11 +25,20 @@ impl std::ops::Deref for RememberedCell {
     }
 }
 
+/// Combat events received together at an ordered stream boundary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct CombatUpdate {
+    pub cursor: StreamCursor,
+    pub events: Vec<CombatEventView>,
+}
+
 /// Shared presentation state for all frontends. Older history pages can be
 /// requested separately; this model retains at most the latest 100 entries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClientState {
     session: ClientSessionState,
+    finished_intentions: VecDeque<IntentionStatus>,
+    combat_updates: VecDeque<CombatUpdate>,
     observation_base: ObservationBase,
     last_visual_change: u64,
     map_memory: crate::map_memory::MapMemory,
@@ -75,6 +87,8 @@ impl ClientState {
     pub fn from_snapshot(snapshot: Snapshot) -> Result<Self, StreamError> {
         validate_reset_snapshot(&snapshot)?;
         let mut client = Self {
+            finished_intentions: VecDeque::new(),
+            combat_updates: VecDeque::new(),
             last_visual_change: snapshot.cursor.sequence,
             observation_base: ObservationBase {
                 snapshot: snapshot.state.snapshot.clone(),
@@ -338,6 +352,12 @@ impl ClientState {
         &self.session.authority.intentions
     }
 
+    /// Recent terminal phases received on the current synchronized stream.
+    /// A snapshot starts a new window and does not provide earlier result history.
+    pub fn finished_intentions(&self) -> &VecDeque<IntentionStatus> {
+        &self.finished_intentions
+    }
+
     pub fn has_pending_intention(&self) -> bool {
         self.intentions()
             .iter()
@@ -486,6 +506,11 @@ impl ClientState {
     pub fn state(&self) -> &StateView {
         &self.session.picture
     }
+    /// Recent semantic combat updates on the current stream, in cursor order.
+    pub fn combat_updates(&self) -> &VecDeque<CombatUpdate> {
+        &self.combat_updates
+    }
+
     /// Latest ordered status, independent of the age of the displayed picture.
     pub fn outcome_status(&self) -> Option<&OutcomeStatusFacts> {
         self.session.authority.outcome_status.as_ref()
@@ -636,6 +661,27 @@ impl ClientState {
                     }
                     self.remember(*entry, update.cursor.tick)?;
                 }
+                let combat_events: Vec<_> = facts
+                    .facts
+                    .iter()
+                    .filter_map(|fact| match fact {
+                        OutcomeFact::Combat { event, .. }
+                            if !matches!(event, CombatEventView::Effect { .. }) =>
+                        {
+                            Some(event.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                if !combat_events.is_empty() {
+                    if self.combat_updates.len() == RETAINED_COMBAT_UPDATES {
+                        self.combat_updates.pop_front();
+                    }
+                    self.combat_updates.push_back(CombatUpdate {
+                        cursor: update.cursor,
+                        events: combat_events,
+                    });
+                }
                 for fact in &facts.facts {
                     if let tor_protocol::OutcomeFact::Pacing { ready } = fact {
                         self.session.authority.character_ready = *ready;
@@ -705,6 +751,7 @@ impl ClientState {
                     return Err(StreamError::InconsistentState);
                 }
                 let mut intentions = self.session.authority.intentions.clone();
+                let finished = (!status.phase.active()).then(|| status.clone());
                 if let Some(index) = previous {
                     if status.phase.active() {
                         intentions[index] = status;
@@ -716,6 +763,12 @@ impl ClientState {
                 }
                 validate_intentions(&intentions, update.actor, &update.branch)?;
                 self.session.authority.intentions = intentions;
+                if let Some(status) = finished {
+                    if self.finished_intentions.len() == RETAINED_FINISHED_INTENTIONS {
+                        self.finished_intentions.pop_front();
+                    }
+                    self.finished_intentions.push_back(status);
+                }
             }
             UpdateBody::Travel { status, entry } => {
                 if update.cursor.tick != self.session.stream.cursor().tick {
@@ -1273,6 +1326,84 @@ mod outcome_stream_tests {
                 .session(),
             client.session()
         );
+    }
+
+    #[test]
+    fn combat_updates_keep_equal_events_in_cursor_order_and_reset_with_the_stream() {
+        let mut client = client();
+        let event = CombatEventView::Interrupted {
+            actor: client.state().observation.self_target,
+        };
+        for _ in 0..=RETAINED_COMBAT_UPDATES {
+            let mut body = outcome(&client);
+            let UpdateBody::Outcome { facts, .. } = &mut body else {
+                unreachable!()
+            };
+            facts.facts.push(OutcomeFact::Combat {
+                event: event.clone(),
+                basic_attack: false,
+            });
+            client
+                .apply(update(&client, client.cursor().tick, body))
+                .unwrap();
+        }
+        let updates = client.combat_updates();
+        assert_eq!(updates.len(), RETAINED_COMBAT_UPDATES);
+        assert_eq!(updates.back().unwrap().cursor, client.cursor());
+        assert!(updates
+            .iter()
+            .all(|update| update.events == [event.clone()]));
+        let mut picture = client.state().clone();
+        picture.snapshot = SnapshotId("combat-updates-picture".into());
+        picture.revision += 1;
+        client
+            .apply(update(
+                &client,
+                client.cursor().tick,
+                UpdateBody::Observation {
+                    state: Arc::new(picture),
+                    event: None,
+                },
+            ))
+            .unwrap();
+        assert_eq!(client.combat_updates().len(), RETAINED_COMBAT_UPDATES);
+        let reset = ClientState::from_snapshot(client.reset_snapshot().unwrap()).unwrap();
+        assert!(reset.combat_updates().is_empty());
+    }
+
+    #[test]
+    fn terminal_intention_phases_are_bounded_and_excluded_from_snapshots() {
+        let mut client = client();
+        for index in 0..=RETAINED_FINISHED_INTENTIONS {
+            let mut status = IntentionStatus {
+                actor: client.state().observation.actor,
+                branch: client.branch().clone(),
+                intention: IntentionId(format!("intention-{index}")),
+                entry_id: EntryId(format!("entry-{index}")),
+                phase: IntentionPhase::Queued,
+            };
+            let tick = client.cursor().tick;
+            client
+                .apply(update(
+                    &client,
+                    tick,
+                    UpdateBody::Intention {
+                        status: status.clone(),
+                    },
+                ))
+                .unwrap();
+            status.phase = IntentionPhase::Failed;
+            client
+                .apply(update(&client, tick, UpdateBody::Intention { status }))
+                .unwrap();
+        }
+        assert!(client.intentions().is_empty());
+        let finished = client.finished_intentions();
+        assert_eq!(finished.len(), RETAINED_FINISHED_INTENTIONS);
+        assert_eq!(finished.front().unwrap().intention.0, "intention-1");
+        assert_eq!(finished.back().unwrap().phase, IntentionPhase::Failed);
+        let reset = ClientState::from_snapshot(client.reset_snapshot().unwrap()).unwrap();
+        assert!(reset.finished_intentions().is_empty());
     }
 
     #[test]

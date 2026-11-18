@@ -14,9 +14,9 @@
   "scripts/ci_python_shards.py": "e6dc055d797f9f4ee5bff7b2fd7f25cecc93bd5d82ce36ca7fab2641e0eaec48",
   "scripts/ci_scope.py": "e183ebe49603b818077ca0c5b44cb85f11f48dc3001b3c4eac01c247218984bb",
   "scripts/ci_selected.py": "3eb0d5565df55c6c40b0f12ad5b4914135b09f3845a82db3352853ab5558a542",
-  "scripts/ci_test_contracts.py": "f256b13f8e31a27db5ee570f4b3a725fe6ba3166cf9f60c32f1f00ff135b8832",
+  "scripts/ci_test_contracts.py": "89cb86b33f3a02885683fd0c559a49ed740df9463cb3df40f4ff49a495d342e5",
   "scripts/ci_test_plan.py": "1d01d019c9b438b5e583da5f027b68940fd9feb4208793a75fbe773e815f9fbd",
   "scripts/ci_usage_review.py": "2844832a48ddee0e84b940cd1ec44735713bb0708c1dc079f0a54e0508f4de04",
   "scripts/test_runner.py": "114ef8b4da80b5297cae808119e6aebc2e129ad8169f9314b723061286526528",
-  "scripts/verify.py": "d19adaa2c7b20641ebf6b6baf8ac5cfa91f1e9ac458e4b1e7ea8ca09918c24cc"
+  "scripts/verify.py": "ab87138b36c2db8fa86ea8b84217684e61fd1c7c69b9f33079cb118790d42d55"
 }

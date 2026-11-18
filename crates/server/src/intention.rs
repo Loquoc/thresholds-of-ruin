@@ -1192,17 +1192,23 @@ impl Engine {
         &mut self,
         recorded_id: Option<EntryId>,
     ) -> Result<Option<CommandResult>, Failure> {
-        self.execute_intention_profiled(recorded_id, None)
+        self.execute_intention_profiled(recorded_id, None, false)
     }
 
     pub(super) fn execute_intention_profiled(
         &mut self,
         recorded_id: Option<EntryId>,
         mut profile: Option<&mut CommandProfile>,
+        replaying_failure: bool,
     ) -> Result<Option<CommandResult>, Failure> {
         let mut candidate = self.capture_command_candidate(profile.as_deref_mut());
         let started = Instant::now();
-        let Some(execution) = candidate.game.execute_next_intention_for_host() else {
+        let execution = if replaying_failure {
+            candidate.game.replay_failed_intention_for_host()
+        } else {
+            candidate.game.execute_next_intention_for_host()
+        };
+        let Some(execution) = execution else {
             return Ok(None);
         };
         if let Some(profile) = profile.as_deref_mut() {

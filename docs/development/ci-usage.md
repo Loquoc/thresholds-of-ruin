@@ -128,3 +128,15 @@ triggers, caches, retention or budgets change. Updated only the reviewed
 `ci_test_contracts.py` hash after this source review. The cord correctness tests
 exercise bounded geometry/animation contracts; exploratory timing, geometry
 exports and parameter sweeps remain ignored/local, not new hosted workloads.
+
+## November 16 bot process selection review
+
+The verifier now selects `test_rogue_bot_process` for changes to
+`tor-client-bot`. The process tests use a local Python extension and a
+loopback server. The maintainer reviewed this selection change. It adds
+no workflow triggers, runner types, network destinations, or uploads.
+
+The maintainer also reviewed three planner registrations in
+`scripts/ci_test_contracts.py`. The bot session tests exercise a real local
+application. The policy and cohort summary suites use Python fixtures.
+The registrations preserve the existing discovery and fallback rules.

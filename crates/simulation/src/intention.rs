@@ -294,9 +294,21 @@ impl Game {
         let movement_context = if self.terminal_exit_context(actor, &action).is_some() {
             None
         } else {
-            action
-                .selected_step()
-                .and_then(|direction| self.movement_context(actor, direction))
+            action.selected_step().and_then(|direction| {
+                if let Some((to, next_orientation)) = matches!(action, Action::Move(_))
+                    .then(|| self.abstract_stair_destination(actor, direction))
+                    .flatten()
+                {
+                    let state = &self.actors[&actor];
+                    return Some(MovementContext {
+                        from: state.location,
+                        orientation: state.orientation,
+                        to,
+                        next_orientation,
+                    });
+                }
+                self.movement_context(actor, direction)
+            })
         };
         if destination.is_some_and(|destination| {
             movement_context.is_none_or(|context| context.to != destination)
@@ -511,6 +523,13 @@ impl Game {
     /// Preserve the actor scheduler's ordering, including waiting human boundaries.
     /// A failed execution consumes the intention but never substitutes another target.
     pub fn execute_next_intention(&mut self) -> Option<IntentionExecution> {
+        self.execute_next_intention_with_stair_fallback(true)
+    }
+
+    pub(crate) fn execute_next_intention_with_stair_fallback(
+        &mut self,
+        allow_stair_fallback: bool,
+    ) -> Option<IntentionExecution> {
         let intention = self.selected_intention()?.clone();
         let actor = intention.actor;
         if self.intention_actor_unavailable(actor) {
@@ -543,6 +562,7 @@ impl Game {
                         action,
                         Some(intention.id),
                         intention.movement_context,
+                        allow_stair_fallback,
                     )
                 },
             ),

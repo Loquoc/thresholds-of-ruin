@@ -589,7 +589,7 @@ mod observation_reuse_tests {
             let mut profile = CommandProfile::default();
             let before = tor_simulation::diagnostics::work_counts();
             engine
-                .execute_intention_profiled(None, Some(&mut profile))
+                .execute_intention_profiled(None, Some(&mut profile), false)
                 .unwrap()
                 .unwrap();
             let after = tor_simulation::diagnostics::work_counts();
@@ -2675,7 +2675,11 @@ impl Engine {
                     return Err(invalid_archive());
                 }
                 engine
-                    .execute_intention(Some(record.entry.id.clone()))?
+                    .execute_intention_profiled(
+                        Some(record.entry.id.clone()),
+                        None,
+                        matches!(record.entry.content, JournalContent::IntentionFailed { .. }),
+                    )?
                     .ok_or_else(invalid_archive)
                     .map(|result| result.entry)
             } else if let JournalContent::TravelIntentionAdmitted {
@@ -3006,7 +3010,7 @@ impl Engine {
         let mut profile = CommandProfile::default();
         self.ensure_ai_admission(actor, Some(&mut profile))?;
         let result = self
-            .execute_intention_profiled(None, Some(&mut profile))?
+            .execute_intention_profiled(None, Some(&mut profile), false)?
             .ok_or_else(invalid_archive)?;
         Ok((result, profile))
     }
