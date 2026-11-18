@@ -657,6 +657,7 @@ impl Service {
                 epoch: 0,
             });
             self.snapshot(id, request_id)?;
+            self.opening_messages(id, actor);
             if let Some(message) = self.save_warning.clone() {
                 self.send(
                     id,
@@ -1510,6 +1511,9 @@ impl Service {
             )
             .and_then(|mut facts| {
                 if let Some(result) = result {
+                    facts
+                        .facts
+                        .extend(self.engine.transaction_user_messages(result, actor));
                     let changes = self
                         .engine
                         .outcome_work_changes(result, actor, &previous_facts);
@@ -1569,6 +1573,42 @@ impl Service {
             self.palette_update(id);
         }
         Ok(())
+    }
+
+    /// A game nobody has acted in yet shows what its scripts said when the run
+    /// started, right after the attachment snapshot.
+    fn opening_messages(&mut self, id: u64, actor: ActorId) {
+        let facts = self.engine.opening_user_messages(actor);
+        let Some(observation) = self
+            .clients
+            .get(&id)
+            .and_then(|client| client.last_observation.as_ref())
+            .map(|last| Arc::clone(&last.state))
+        else {
+            return;
+        };
+        if facts.is_empty() {
+            return;
+        }
+        let facts = tor_protocol::OutcomeFacts {
+            self_target: observation.observation.self_target,
+            status: None,
+            actor_names: Vec::new(),
+            facts,
+        };
+        if facts.validate_at(observation.observation.tick).is_err() {
+            self.disconnect_failed_projection(id, "Invalid opening script messages");
+            return;
+        }
+        self.update_at(
+            id,
+            UpdateBody::Outcome {
+                visual_changed: false,
+                facts,
+                event: None,
+            },
+            Some(observation.observation.tick),
+        );
     }
 
     /// Outcome delivery failures are not persistence failures and must not

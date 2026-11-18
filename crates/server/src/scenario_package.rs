@@ -4828,6 +4828,9 @@ impl Package {
             .any(|c| c.creature.is_some())
             || self.manifest.objective.is_some()
             || self.manifest.unique_retrieval.is_some()
+            // Scripts address characters and end runs, so a scripted package
+            // is always a configured adventure run.
+            || self.manifest.scripting.is_some()
         {
             let objective =
                 self.manifest
@@ -5471,7 +5474,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
         let original = read_package(&root).unwrap();
         original.check_identity().unwrap();
-        assert_eq!(original.certificate.validator, "tor-scenario-51");
+        assert_eq!(original.certificate.validator, "tor-scenario-52");
         assert_eq!(original.certificate.ruleset, "interactions-v72");
         let current_artifact = artifact::relative_root(&original);
         for (boundary, identity) in [
@@ -5482,6 +5485,7 @@ mod tests {
             ("validator", "tor-scenario-31"),
             ("validator", "tor-scenario-32"),
             ("validator", "tor-scenario-47"),
+            ("validator", "tor-scenario-51"),
             ("ruleset", "interactions-v38"),
             ("ruleset", "interactions-v39"),
             ("ruleset", "interactions-v40"),

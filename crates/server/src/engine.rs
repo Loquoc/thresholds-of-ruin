@@ -1195,6 +1195,68 @@ pub(crate) struct Record {
     pub(crate) hooks: Option<tor_simulation::scripting::ScriptReport>,
 }
 
+/// The user-message facts `report` shows `actor`'s controller. Messages
+/// outside the protocol's vocabulary or bounds are never delivered; the
+/// simulation already rejects them, so this only guards the wire contract.
+pub(crate) fn user_message_facts(
+    game: &Game,
+    report: &tor_simulation::scripting::ScriptReport,
+    actor: ActorId,
+) -> Vec<tor_protocol::OutcomeFact> {
+    use tor_protocol::{ControlHint, UserMessageSegment, UserMessageStyle};
+    use tor_simulation::scripting::{MessageSegment, MessageStyle};
+    report
+        .messages
+        .iter()
+        .filter(|message| game.hears_script_message(message, SimActor(actor.0)))
+        .filter_map(|message| {
+            let style = match message.style {
+                MessageStyle::Tutorial => UserMessageStyle::Tutorial,
+                MessageStyle::Hint => UserMessageStyle::Hint,
+                MessageStyle::Narration => UserMessageStyle::Narration,
+            };
+            let segments = message
+                .segments
+                .iter()
+                .map(|segment| match segment {
+                    MessageSegment::Text(text) => Some(UserMessageSegment::Text(text.clone())),
+                    MessageSegment::Control(id) => {
+                        ControlHint::from_id(id).map(UserMessageSegment::Control)
+                    }
+                })
+                .collect::<Option<Vec<_>>>()?;
+            tor_protocol::valid_user_message(&segments)
+                .then_some(tor_protocol::OutcomeFact::UserMessage { style, segments })
+        })
+        .collect()
+}
+
+impl Engine {
+    /// Script messages the committed transaction `result` shows `actor`.
+    pub(crate) fn transaction_user_messages(
+        &self,
+        result: &CommandResult,
+        actor: ActorId,
+    ) -> Vec<tor_protocol::OutcomeFact> {
+        self.history_index
+            .find(&result.entry.id)
+            .and_then(|index| self.archive.records.get(index))
+            .filter(|record| record.entry.id == result.entry.id)
+            .and_then(|record| record.hooks.as_ref())
+            .map_or_else(Vec::new, |report| {
+                user_message_facts(&self.game, report, actor)
+            })
+    }
+
+    /// Script messages from the run's start, for a game nobody has acted in.
+    pub(crate) fn opening_user_messages(&self, actor: ActorId) -> Vec<tor_protocol::OutcomeFact> {
+        match (&self.archive.initial_hooks, self.archive.records.is_empty()) {
+            (Some(report), true) => user_message_facts(&self.game, report, actor),
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// A transaction's script report, absent when scripts did nothing.
 pub(crate) fn hook_record(
     report: tor_simulation::scripting::ScriptReport,
@@ -6253,3 +6315,4 @@ mod semantic_capture_tests {
         ));
     }
 }
+

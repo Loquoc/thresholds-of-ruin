@@ -2388,7 +2388,7 @@ class RouteResumeHardeningTests(unittest.TestCase):
             current = (snapshot / 'package' / name).read_bytes()
             if name == 'scenario.toml':
                 self.assertEqual(current.count(b'format = 38'), 1)
-                current = current.replace(b'format = 38', b'format = 38', 1)
+                current = current.replace(b'format = 38', b'format = 37', 1)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         self.assertEqual(source['rules_dependencies'], prior['rules_dependencies'])
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])

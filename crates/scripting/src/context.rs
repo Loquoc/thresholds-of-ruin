@@ -108,8 +108,13 @@ fn segments(text: &str, controls: &std::collections::BTreeSet<String>) -> mlua::
     if !rest.is_empty() {
         out.push(MessageSegment::Text(rest.to_owned()));
     }
-    if out.is_empty() || out.len() > MAX_MESSAGE_SEGMENTS {
+    if out.len() > MAX_MESSAGE_SEGMENTS {
         return Err(mlua::Error::runtime("a message needs 1 to 32 segments"));
+    }
+    if !tor_simulation::scripting::valid_message(&out) {
+        return Err(mlua::Error::runtime(
+            "a message needs visible text or a control and no control characters",
+        ));
     }
     Ok(out)
 }

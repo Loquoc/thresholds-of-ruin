@@ -423,6 +423,35 @@ impl ScriptReport {
     }
 }
 
+/// A presentable message: 1 to [`MAX_MESSAGE_SEGMENTS`] segments, no empty
+/// or control-character text, some visible content, and at most
+/// [`MAX_TEXT_BYTES`] of text in total. Hosts deliver only such messages.
+pub fn valid_message(segments: &[MessageSegment]) -> bool {
+    let mut total = 0usize;
+    let mut visible = false;
+    if segments.is_empty() || segments.len() > MAX_MESSAGE_SEGMENTS {
+        return false;
+    }
+    for segment in segments {
+        match segment {
+            MessageSegment::Text(text) => {
+                if text.is_empty() || text.chars().any(char::is_control) {
+                    return false;
+                }
+                total += text.len();
+                visible |= !text.trim().is_empty();
+            }
+            MessageSegment::Control(id) => {
+                if !bounded_name(id) {
+                    return false;
+                }
+                visible = true;
+            }
+        }
+    }
+    visible && total <= MAX_TEXT_BYTES
+}
+
 pub(crate) fn bounded_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_NAME_BYTES

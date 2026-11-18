@@ -23,12 +23,6 @@ use tor_world::RegionId;
 /// All of a package's scripts together.
 pub(crate) const MAX_TOTAL_SCRIPT_BYTES: usize = 512 * 1024;
 
-/// Semantic controls a message may name with `{control:<id>}`. Clients name
-/// their own bindings; this closed list is the protocol's control vocabulary.
-pub(crate) const CONTROLS: &[&str] = &[
-    "move", "wait", "search", "pick_up", "inventory", "equip", "drink", "read", "zap", "throw",
-    "travel", "look", "open_door", "rest", "save", "help",
-];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -364,7 +358,12 @@ impl Package {
         drop(cache);
         let config = RuntimeConfig {
             anchors: self.anchors(seed)?,
-            controls: CONTROLS.iter().map(|id| (*id).to_owned()).collect(),
+            // The protocol's closed control vocabulary; clients name their
+            // own bindings.
+            controls: tor_protocol::ControlHint::ALL
+                .iter()
+                .map(|control| control.id().to_owned())
+                .collect(),
         };
         let runtime = Arc::new(
             Runtime::new(program.clone(), config).map_err(|error| fail(error.to_string()))?,
@@ -447,3 +446,4 @@ impl Package {
         }
     }
 }
+

@@ -316,6 +316,9 @@ pub fn copy_package(from: &Path, to: &Path) {
     let resolved = scenario_package::resolve_source(from).unwrap();
     let mut files: BTreeSet<_> = resolved.source_hashes.into_keys().collect();
     files.insert(resolved.manifest.ruleset);
+    if let Some(scripting) = &resolved.manifest.scripting {
+        files.extend(scripting.scripts.iter().cloned());
+    }
     for name in ["index.json", "validation.json"] {
         if from.join(name).exists() {
             files.insert(name.to_owned());

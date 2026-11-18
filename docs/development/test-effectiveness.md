@@ -1031,3 +1031,34 @@ its matching policy explicitly. This bounded practice setup is not universal
 reaction suppression: awareness and authored fear/control effects still run.
 Native presentation retains its actual-window test and required hosted check;
 a headless replay is not a substitute for that boundary.
+
+
+## Scenario hooks (scripting milestone 1, 2026-11-18)
+
+Two production defects and one class of stale pins, counted by root cause:
+
+- **Once-binding mask (production, simulation).** A fake-host unit test of a
+  `once` binding found that retiring the binding left its hook kind's mask
+  bit set, so later sites kept building facts for a kind nobody heard. The
+  invocation now refreshes the mask whenever it retires a binding. One method
+  failed; it now owns the regression.
+- **Unconfigured scripted runs (production, server).** The tutorial
+  walkthrough integration test failed with only the run-start and timer
+  lessons delivered. A package configured its adventure run, and so its
+  character set, only for creature-built characters, an objective or a unique
+  retrieval. In a scripted package without those, every actor fact failed
+  the default character filter and `ctx:win` had no run to end. Scripted
+  packages now always configure a run. Engine-level work counters (sites
+  checked, facts noted) and the installed bindings localized it. The same
+  walkthrough also showed that a character without a creature build has no
+  combat view, so clients cannot see a scripted victory; that was tutorial
+  content, fixed by giving its character a build. One method, one root cause.
+- **Stale version pins (stale tests, expected with the format change).**
+  Protocol 73, save format 72, scenario format 38 and validator
+  `tor-scenario-52` failed the explicit pin and golden tests until the
+  protocol 73 wire samples and the save format 72 scenario golden were
+  recorded and the pins updated. These are deliberate first-red pins, not defects.
+
+Not counted: a bulk `format = 37` replacement that also rewrote one literal
+in the new v46 baseline test was an authoring slip caught by that test before
+publication.

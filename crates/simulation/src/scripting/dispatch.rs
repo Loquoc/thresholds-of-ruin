@@ -3,9 +3,9 @@
 use super::state::{PendingFact, Timer, TimerClock};
 use super::{
     ActorClass, Audience, Binding, FactSubject, FailureReason, FilterKey, HandlerId, HookFact,
-    HookKind, MessageSegment, Owner, RunEnd, ScriptEffect, ScriptFailure, ScriptMessage,
+    HookKind, Owner, RunEnd, ScriptEffect, ScriptFailure, ScriptMessage,
     ScriptReport, ScriptSetup, ScriptState, ScriptView, DispatchRecord, MAX_CASCADE_DEPTH,
-    MAX_EFFECTS_PER_CALL, MAX_MESSAGE_SEGMENTS, MAX_PENDING_FACTS, MAX_TEXT_BYTES,
+    MAX_EFFECTS_PER_CALL, MAX_PENDING_FACTS, MAX_TEXT_BYTES,
 };
 use crate::{ActorId, Game, GameError, ItemLocation, OutcomeKind};
 use std::sync::Arc;
@@ -117,6 +117,15 @@ impl Game {
     /// restoring a scripted game; hosts are never saved.
     pub fn set_hook_host(&mut self, port: HookPort) {
         self.hook_port = port;
+    }
+
+    /// Whether `actor`'s controller should be shown `message`: its named
+    /// actor, or any current character for a message to every character.
+    pub fn hears_script_message(&self, message: &ScriptMessage, actor: ActorId) -> bool {
+        match message.audience {
+            Audience::Actor(named) => named == actor,
+            Audience::Characters => self.combat.characters.contains(&actor),
+        }
     }
 
     pub fn script_state(&self) -> Option<&ScriptState> {
@@ -499,13 +508,7 @@ impl Game {
                 style,
                 segments,
             } => {
-                if segments.is_empty()
-                    || segments.len() > MAX_MESSAGE_SEGMENTS
-                    || segments.iter().any(|segment| match segment {
-                        MessageSegment::Text(text) => text.len() > MAX_TEXT_BYTES,
-                        MessageSegment::Control(id) => !super::bounded_name(id),
-                    })
-                {
+                if !super::valid_message(segments) {
                     return Err("invalid message");
                 }
                 if let Audience::Actor(actor) = audience {
