@@ -1072,3 +1072,18 @@ combat defect. Both explicitly stale outcomes now permit a fresh observation;
 other refusals and unknown outcomes still fail. The same live witness still
 requires actual lasting strength loss and learned identification of the
 rattlesnake, so a run with only stale refusals cannot pass.
+
+
+### Redundant acknowledgement diagnostics in finite theft recovery
+
+Windows release CI reached the orc arm's final recovery checkpoint after 35
+requests and 2,468 actor ticks, but its transcript exceeded the 16 MiB arm guard
+by 25,208 bytes. This was a diagnostic-volume failure before the final saved-loot
+assertion, not evidence that loot recovery failed. Raw ACK response snapshots
+accounted for about 2.2 MB of that arm's output without changing shared client
+state. Opt-in compact-background output now omits only their repeated derived
+snapshot, retaining exact raw receipts, all ready/error boundaries, and every
+observation/lifecycle update. The output guard, finite action limits and all
+ownership/recovery assertions remain unchanged. Owning headless projection tests
+cover receipt preservation, omitted construction and retained state boundaries;
+actual process qualification remains a separate witness.
