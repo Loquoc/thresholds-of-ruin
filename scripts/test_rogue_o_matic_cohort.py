@@ -63,7 +63,7 @@ class CohortSummaryTests(unittest.TestCase):
 
     def test_fresh_victory_verification_requires_the_configured_identity(self):
         from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+        from unittest.mock import patch
 
         from rogue_o_matic_cohort import verify_victory
 
