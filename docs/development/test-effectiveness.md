@@ -1060,3 +1060,15 @@ build caught this before launching a client: one build/setup root cause, not a
 gameplay failure. Refreshing only rusqlite and libsqlite3-sys in the independent
 lock restores resolution. Dependency updates shared through path dependencies
 must account for both locks; the normal 3D build remains the boundary witness.
+
+
+### Concurrent actor input-boundary refusals
+
+The live venomous-bite learning driver observed the player before submitting a
+snake action. Windows release CI exposed the resulting shared-boundary race:
+the server returned `rejected/stale_context` where the driver allowed only local
+`stale_observation`. This is one driver-oracle root cause, not a persistence or
+combat defect. Both explicitly stale outcomes now permit a fresh observation;
+other refusals and unknown outcomes still fail. The same live witness still
+requires actual lasting strength loss and learned identification of the
+rattlesnake, so a run with only stale refusals cannot pass.
