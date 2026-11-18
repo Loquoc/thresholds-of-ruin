@@ -1,4 +1,4 @@
-"""Knowledge-limited item decisions through actual autonomous server execution."""
+"""Knowledge-limited AI decisions through actual autonomous server execution."""
 from scalar_wire import u64
 import shutil
 import json
@@ -18,6 +18,332 @@ from rogue_roster_package import roster_package
 
 
 class AiInteractionProcesses(ProcessTestCase):
+    def test_tuned_flytrap_repeats_one_escalating_hold_through_source_free_reopen(self):
+        from process_work_budget import ProcessWorkBudget
+        from status_condition_package import checkpoint, observation
+        from rogue_roster_package import unrelated_fallback
+
+        budget = ProcessWorkBudget(requests=128, actor_ticks=2000,
+                                   transcript_bytes=64 * 1024 * 1024)
+        package = roster_package(self, "venus_flytrap", autonomous=True, height=3,
+                                 production=ROOT / "scenarios/rogue")
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        region["anchors"] = {"start": [2, 2, 0]}
+        region["actors"][0]["at"] = [3, 2, 0]
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        self.validate_item_package(package)
+        server = self.server("--checkpoint-interval", 1, scenario=package, seed=42)
+        player, initial = self.client(actor=1, omit_memory=True, compact_background=True)
+        budget.output.paths = tuple(p.transcript.path for p in self.processes)
+        budget.track(player, initial)
+        # Scope instrumentation to this test instance, including any Observe
+        # issued internally by act()/picture_after and asynchronous frames.
+        original_command, original_frame = self.command, self.frame
+
+        def guarded_command(client, value):
+            budget.before()
+            result = original_command(client, value)
+            budget.after(client, result)
+            return result
+
+        def guarded_frame(client, predicate, seconds=15):
+            return budget.frame_wait(original_frame, client, predicate, seconds=seconds)
+
+        for attribute, wrapper in (("command", guarded_command), ("frame", guarded_frame)):
+            guard = patch.object(self, attribute, side_effect=wrapper)
+            guard.start()
+            self.addCleanup(guard.stop)
+        root = {"region": 1, "position": {"x": 3, "y": 2, "z": 0}}
+        samples = []
+        try:
+            # Fixed ordinary inputs only. Private saved hold facts assert the
+            # outcome; they never select actions, force hits or extend the run.
+            for turn in range(12):
+                frame = self.completed_idle_wait(player)
+                saved = checkpoint(self, player)
+                budget.check()
+                incoming = saved["actors"]["1"]["holds"]["incoming"]
+                outgoing = saved["actors"]["3"]["holds"]["outgoing"]
+                self.assertEqual(saved["actors"]["3"]["location"], root)
+                samples.append({"tick": saved["tick"], "incoming": incoming,
+                                "outgoing": outgoing,
+                                "public": observation(frame)["linked_holds"]})
+                if turn == 5:
+                    self.assertEqual(len(incoming), 1,
+                                     "ordinary successful Clutch must precede reopening")
+                    self.assertEqual(incoming[0]["kind"], "linked")
+                    before = self.request(player, {"type": "snapshot"})
+                    player.stop(save=False)
+                    server.stop(save=False)
+                    package.rename(self.directory / "retired-tuned-flytrap-source")
+                    server = self.server("--checkpoint-interval", 1,
+                                         scenario=unrelated_fallback(self), seed=None)
+                    player, reopened = self.client(actor=1, omit_memory=True,
+                                                   compact_background=True)
+                    budget.output.paths = tuple(p.transcript.path for p in self.processes)
+                    budget.track(player, reopened)
+                    self.assertDisclosedStateEqual(reopened["state"], before["state"])
+                    self.assertEqual(reopened["history"], before["history"])
+                    self.assertEqual(checkpoint(self, player), saved,
+                                     "reopen preserves hold identity, work, actors and RNG")
+                    budget.check()
+            self.assertEqual([s["tick"] for s in samples], list(range(100, 1201, 100)))
+            self.assertTrue(all(not s["incoming"] for s in samples[:4]))
+            links = []
+            for sample in samples[4:]:
+                self.assertEqual(len(sample["incoming"]), 1)
+                self.assertEqual(sample["incoming"][0]["kind"], "linked")
+                link = sample["incoming"][0]["link"]
+                self.assertEqual(link["holder"], 3)
+                self.assertEqual(sample["outgoing"], [{"id": link["id"], "target": 1}])
+                self.assertEqual(len(sample["public"]), 1)
+                links.append(link)
+            self.assertEqual(len({link["id"] for link in links}), 1,
+                             "repeat Clutch cannot replace the existing hold")
+            self.assertEqual(len({sample["public"][0]["target"] for sample in samples[4:]}), 1,
+                             "the ordinary escape selector stays stable for the same hold")
+            self.assertEqual([link["escalation"] for link in links],
+                             [0, 0, 1, 1, 2, 2, 3, 3],
+                             "each later autonomous strike advances the retained hold once")
+            with closing(sqlite3.connect(self.save)) as db:
+                records = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 "
+                    "UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+            payloads = [json.loads(frame[24:]) for _, frame in records]
+            entries = [p["record"]["entry"] for p in payloads if "record" in p]
+            starts = [e for e in entries if e.get("actor") == 3
+                      and e["content"]["type"] == "intention_started"]
+            self.assertEqual([e["tick"] for e in starts], list(range(0, 1200, 200)))
+            expected = {"type": "use_ability", "id": "clutch",
+                "invocation": {"aim": {"kind": "actor_target", "target": 1},
+                               "weapon": {"kind": "default"}}, "supplies": {"kind": "carried"}}
+            self.assertTrue(all(e["content"]["action"] == expected for e in starts))
+            (self.directory / "flytrap-hold-sequence.json").write_text(
+                json.dumps({"samples": samples, "starts": starts}, indent=2), encoding="utf-8")
+            player.stop(save=False)
+            server.stop(save=False)
+            budget.check()
+        finally:
+            (self.directory / "flytrap-work-budget.json").write_text(
+                json.dumps(budget.report(), indent=2), encoding="utf-8")
+
+    def _stationary_flytrap_acquisition_case(self, case):
+        import copy
+        from checkpoint_payload import decode_checkpoint_payload
+
+        package = roster_package(self, "venus_flytrap", autonomous=True, height=2)
+        manifest = tomllib.loads((package / "scenario.toml").read_text(encoding="utf-8"))
+        hero = manifest["characters"][0]
+        # Keep the authored Flytrap and production delver build unchanged. The
+        # second human uses passive human disposition and a diagnostic Wait AI
+        # override, rather than an external controller that stalls scheduling.
+        manifest["ai_profiles"]["fixture_wait"] = {
+            "idle": "wait", "flee_percent": 0, "care": False,
+            "equipment": False, "loot": False, "doors": False}
+        (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        region["size"] = [9, 5, 2]
+        region["anchors"] = {"start": [6, 2, 0] if case == "near-low-id" else [1, 2, 0]}
+        region["actors"][0]["at"] = [5, 2, 0]
+        if case == "only-near":
+            region["walls"] = [[3, y, z] for y in range(5) for z in range(2)]
+        region["actors"].append({
+            "id": 4, "at": [1, 2, 0] if case == "near-low-id" else [6, 2, 0],
+            "controller": "ai", "ai": "fixture_wait", "turn_ticks": hero["turn_ticks"],
+            "body": copy.deepcopy(hero["body"]), "creature": copy.deepcopy(hero["creature"])})
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        self.validate_item_package(package)
+        server = self.server("--checkpoint-interval", 1, scenario=package, wizard=True, seed=42)
+        observer, frame = self.client(WIZARD_TOKEN, observe=True, actor=3)
+        view = frame["state"]["observation"]
+        # Public observer-local geometry: do not confuse opaque public IDs with
+        # the authoritative actor IDs in accepted execution records.
+        endpoints = {(row["position"]["x"], row["position"]["y"], row["position"]["z"])
+                     for row in view["visible_actors"] if row["name"] == "Warrior"}
+        self.assertEqual(endpoints, {(1, 0, 0), (1, 0, 1)} if case == "only-near"
+                         else {(-4, 0, 0), (-4, 0, 1), (1, 0, 0), (1, 0, 1)})
+        observer.stop()
+        player, _ = self.client()
+
+        def saved_state():
+            self.assertIsNone(self.request(player, {"type": "save"})["error"])
+            with closing(sqlite3.connect(self.save.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+                sequence, payload = db.execute("SELECT sequence,payload FROM checkpoint").fetchone()
+                self.assertEqual(db.execute("SELECT count(*) FROM journal WHERE sequence>?", (sequence,)).fetchone()[0], 0)
+            value = json.loads(decode_checkpoint_payload(payload))
+            game, shared = value["game"], value["shared"]
+            return {"tick": game["tick"], "rules_rng": game["rules_rng"],
+                    "actors": {actor: shared["actor_records"][index]
+                               for actor, index in shared["actors"][game["actors"]].items()},
+                    "ai": {actor: shared["ai_records"][index]
+                           for actor, index in game["combat"]["ai"].items()}}
+
+        # Sequence zero need not materialize a checkpoint. The authored root
+        # is an independent oracle; inspect persisted state only after a turn.
+        root = {"region": 1, "position": {"x": 5, "y": 2, "z": 0}}
+        # One ordinary PC wait suffices to witness the fresh acquisition at tick
+        # zero. No private checkpoint fact chooses an action or extends a run.
+        self.completed_idle_wait(player)
+        saved = saved_state()
+        self.assertEqual(saved["actors"]["3"]["location"], root)
+        with closing(sqlite3.connect(self.save)) as db:
+            frames = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 "
+                "UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _, frame in frames]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        starts = [row for row in entries if row.get("actor") == 3
+                  and row.get("content", {}).get("type") == "intention_started"]
+        self.assertTrue(starts)
+        first = starts[0]
+        expected_target = 1 if case == "near-low-id" else 4
+        self.assertEqual(first["tick"], 0)
+        self.assertEqual(first["content"]["action"], {
+            "type": "use_ability", "id": "clutch",
+            "invocation": {"aim": {"kind": "actor_target", "target": expected_target},
+                           "weapon": {"kind": "default"}}, "supplies": {"kind": "carried"}})
+        self.assertEqual(first["content"]["event"]["type"], "ability_started")
+        self.assertEqual(first["content"]["event"]["target"], expected_target)
+        self.assertEqual(saved["actors"]["3"]["behavior"]["engagement"]["target"], expected_target)
+        player.stop()
+        server.stop(save=False)
+        package.rename(self.directory / "stationary-acquisition-source-removed")
+        server = self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", wizard=True, seed=None)
+        player, _ = self.client()
+        self.assertEqual(saved_state(), saved, "source-free reopen preserves the committed engagement and pending work")
+        player.stop()
+        server.stop(save=False)
+
+    def test_stationary_flytrap_prefers_adjacent_high_id_over_far_low_id(self):
+        self._stationary_flytrap_acquisition_case("far-low-id")
+
+    def test_stationary_flytrap_attacks_adjacent_low_id_control(self):
+        self._stationary_flytrap_acquisition_case("near-low-id")
+
+    def test_stationary_flytrap_attacks_only_disclosed_near_foe_control(self):
+        self._stationary_flytrap_acquisition_case("only-near")
+
+    def test_authored_explorer_retains_destination_and_replays_without_source(self):
+        from checkpoint_payload import decode_checkpoint_payload
+
+        package = roster_package(self, "hobgoblin", autonomous=True, height=2)
+        path = package / "regions/1.toml"
+        region = tomllib.loads(path.read_text(encoding="utf-8"))
+        # Production recipes, species, policies and knowledge. Only placement
+        # changes; the ordinary PC waits behind an opaque separating wall.
+        region.update(size=[21, 13, 2], anchors={"start": [19, 6, 0]},
+            walls=[[17, y, z] for y in range(13) for z in range(2)],
+            actors=[
+                {"id": 3, "at": [2, 2, 0], "archetype": "rogue.hobgoblin", "controller": "ai", "ai": "rogue_hostile"},
+                {"id": 4, "at": [12, 9, 0], "archetype": "rogue.ice_monster", "controller": "ai", "ai": "rogue_hostile"}])
+        path.write_text(toml_source(region), encoding="utf-8", newline="\n")
+        self.validate_item_package(package)
+        server = self.server("--checkpoint-interval", 1, scenario=package, wizard=True, seed=42)
+        for actor in (3, 4):
+            observer, initial = self.client(WIZARD_TOKEN, observe=True, actor=actor)
+            self.assertFalse(any(row["name"] in ("Warrior", "Mage")
+                                 for row in initial["state"]["observation"]["visible_actors"]))
+            observer.stop()
+        player, _ = self.client()
+
+        def saved_state():
+            self.assertIsNone(self.request(player, {"type": "save"})["error"])
+            with closing(sqlite3.connect(self.save.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+                row = db.execute("SELECT sequence,payload FROM checkpoint").fetchone()
+                self.assertIsNotNone(row)
+                sequence, payload = row
+                self.assertEqual(db.execute("SELECT count(*) FROM journal WHERE sequence>?", (sequence,)).fetchone()[0], 0)
+            value = json.loads(decode_checkpoint_payload(payload))
+            game, shared = value["game"], value["shared"]
+            return {"tick": game["tick"], "rules_rng": game["rules_rng"],
+                    "actors": {actor: shared["actor_records"][index]
+                               for actor, index in shared["actors"][game["actors"]].items()},
+                    "ai": {actor: shared["ai_records"][index]
+                           for actor, index in game["combat"]["ai"].items()}}
+
+        # Fixed ordinary waits, not actions selected using private checkpoint
+        # facts. Stop conditions only bound the acceptance witness.
+        pending = None
+        for _ in range(4):
+            self.completed_idle_wait(player)
+            saved = saved_state()
+            destination = saved["ai"]["3"]["exploration_destination"]
+            if destination is not None and destination != saved["actors"]["3"]["location"]:
+                pending = saved
+                break
+        self.assertIsNotNone(pending, "real Explore species must retain a noncurrent destination")
+        destination = pending["ai"]["3"]["exploration_destination"]
+        self.assertIsNone(pending["ai"]["4"]["exploration_destination"])
+        ice_location = pending["actors"]["4"]["location"]
+        player.stop()
+        server.stop(save=False)
+        package.rename(self.directory / "retained-exploration-source")
+        server = self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", wizard=True, seed=None)
+        player, _ = self.client()
+        self.assertEqual(saved_state(), pending, "source-free checkpoint preserves the exact AI interest")
+        arrived = None
+        for _ in range(24):
+            self.completed_idle_wait(player)
+            saved = saved_state()
+            self.assertEqual(saved["actors"]["4"]["location"], ice_location)
+            self.assertIsNone(saved["ai"]["4"]["exploration_destination"])
+            if (saved["actors"]["3"]["location"] == destination
+                    and saved["ai"]["3"]["exploration_destination"] is None):
+                arrived = saved
+                break
+        self.assertIsNotNone(arrived, "the retained point must be reached and retired")
+        with closing(sqlite3.connect(self.save)) as db:
+            frames = db.execute("SELECT sequence,frame FROM journal WHERE sequence>0 "
+                "UNION ALL SELECT sequence,frame FROM history WHERE sequence>0 ORDER BY sequence").fetchall()
+        payloads = [json.loads(frame[24:]) for _, frame in frames]
+        entries = [row["record"]["entry"] for row in payloads if "record" in row]
+        explorer = [row for row in entries if row["actor"] == 3 and "event" in row["content"]]
+        destination_event = {"region": destination["region"], **destination["position"]}
+        arrival = next(i for i, row in enumerate(explorer)
+                       if row["content"]["event"].get("to") == destination_event)
+        self.assertGreater(len(explorer), arrival + 1)
+        self.assertEqual(explorer[arrival + 1]["content"]["action"], {"type": "wait"})
+        self.assertEqual(explorer[arrival + 1]["content"]["event"]["type"], "waited")
+        ice = [row for row in entries if row["actor"] == 4 and "event" in row["content"]]
+        self.assertTrue(ice)
+        self.assertTrue(all(row["content"]["event"]["type"] == "waited" for row in ice))
+        expected_observation = self.request(player, {"type": "snapshot"})["state"]["observation"]
+        player.stop()
+        server.stop(save=False)
+        # Preserve this stopped database before obtaining a one-action ordinary
+        # continuation oracle. No accepted frame is synthesized or rewritten.
+        retained = self.directory / "exploration-replay-prefix.sqlite"
+        with closing(sqlite3.connect(self.save)) as source, closing(sqlite3.connect(retained)) as target:
+            source.backup(target)
+        server = self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", wizard=True, seed=None)
+        player, reopened = self.client()
+        self.assertEqual(reopened["state"]["observation"], expected_observation)
+        self.assertEqual(saved_state(), arrived)
+        self.completed_idle_wait(player)
+        expected_next = saved_state()
+        player.stop()
+        server.stop(save=False)
+        with closing(sqlite3.connect(retained)) as source, closing(sqlite3.connect(self.save)) as target:
+            source.backup(target)
+        # Existing full-journal replay selection: original frames move verbatim
+        # from history to journal; no checkpoint remains. The save owns sources.
+        with closing(sqlite3.connect(self.save)) as db:
+            with db:
+                frames = db.execute("SELECT sequence,frame FROM journal UNION ALL "
+                    "SELECT sequence,frame FROM history ORDER BY sequence").fetchall()
+                self.assertGreater(db.execute("SELECT count(*) FROM history").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT count(*) FROM checkpoint").fetchone()[0], 1)
+                db.execute("INSERT INTO journal(sequence,frame) SELECT sequence,frame FROM history")
+                db.execute("DELETE FROM history")
+                db.execute("DELETE FROM checkpoint")
+                self.assertEqual(db.execute("SELECT sequence,frame FROM journal ORDER BY sequence").fetchall(), frames)
+        self.server("--checkpoint-interval", 1, scenario=ROOT / "scenarios/two-room", wizard=True, seed=None)
+        player, replayed = self.client()
+        self.assertEqual(replayed["state"]["observation"], expected_observation)
+        self.completed_idle_wait(player)
+        self.assertEqual(saved_state(), expected_next,
+                         "full replay and the same next ordinary action must reproduce actors and pooled AI")
+
     def idle_item_package(self, name):
         package = self.directory / name
         shutil.copytree(ROOT / "scenarios/tests/ai-interactions", package)

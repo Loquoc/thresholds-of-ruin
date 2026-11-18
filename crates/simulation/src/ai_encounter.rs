@@ -53,6 +53,12 @@ impl Game {
             })
             .min_by_key(|other| {
                 (
+                    // Rooted creatures cannot rank foes by pursuit distance:
+                    // every off-cell route is unavailable. Prefer disclosed
+                    // contact before the existing route/identity tie-breaks.
+                    !has_retained
+                        && actor.locomotion().stationary
+                        && !self.attack_available_in_scene(id, other.id, &snapshot.sight),
                     route(other.location).map_or(usize::MAX, |r| r.len()),
                     other.id,
                 )
@@ -174,9 +180,13 @@ impl Game {
                 {
                     return Some(AiChoice::Request(Action::Move(direction)));
                 }
-                if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, false, false)
-                {
+                if let Some(ability) = self.choose_ai_ability(
+                    id,
+                    target,
+                    &snapshot.sight,
+                    view,
+                    super::AttackSelectionMode::Engage,
+                ) {
                     return Some(ability);
                 }
             }
@@ -187,9 +197,13 @@ impl Game {
                         && actor.disclosure.reference() == Some(reference)
                 })
             {
-                if let Some(ability) =
-                    self.choose_ai_ability(id, target, &snapshot.sight, view, true, false)
-                {
+                if let Some(ability) = self.choose_ai_ability(
+                    id,
+                    target,
+                    &snapshot.sight,
+                    view,
+                    super::AttackSelectionMode::CorneredBasic,
+                ) {
                     return Some(ability);
                 }
             }

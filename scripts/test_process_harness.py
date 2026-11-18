@@ -1532,6 +1532,40 @@ class CreaturePackages(unittest.TestCase):
             self.assertNotIn("grants", species)
             self.assertIn({"scope": "always", "op": {"kind": "grant_ability", "ability": "fixture_ability"}}, species["modifiers"])
 
+    def test_nonreactive_wait_fixture_preserves_autonomous_controller_and_other_inputs(self):
+        import tomllib
+        from types import SimpleNamespace
+        from process_harness import ROOT, creature_package
+        fixture_rules = tomllib.loads((ROOT / "crates/simulation/data/default-ruleset.toml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            harness = ProcessTestCase()
+            harness.directory = Path(directory)
+            harness.bin = Path(directory)
+            harness.suffix = ""
+            with patch("ruleset_sources.load_rules", side_effect=lambda *args: copy.deepcopy(fixture_rules)), \
+                    patch("process_harness.subprocess.run", return_value=SimpleNamespace(returncode=0, stderr="")):
+                baseline = creature_package(harness, "exploring")
+                waiting = creature_package(harness, "waiting", idle_behavior="wait", memory_ticks=0)
+                with self.assertRaisesRegex(ValueError, "idle behavior"):
+                    creature_package(harness, "invalid", idle_behavior="frozen")
+                for invalid in (-1, 1_000_001, True, "0"):
+                    with self.subTest(memory_ticks=invalid), self.assertRaisesRegex(ValueError, "memory ticks"):
+                        creature_package(harness, "invalid-memory", memory_ticks=invalid)
+            before = tomllib.loads((baseline / "scenario.toml").read_text(encoding="utf-8"))
+            after = tomllib.loads((waiting / "scenario.toml").read_text(encoding="utf-8"))
+            self.assertEqual(before["creatures"]["species"]["human"]["behavior"]["idle"], "explore")
+            self.assertEqual(after["creatures"]["species"]["human"]["behavior"]["idle"], "wait")
+            self.assertEqual(before["creatures"]["species"]["human"]["behavior"]["memory_ticks"], 1000)
+            self.assertEqual(after["creatures"]["species"]["human"]["behavior"]["memory_ticks"], 0)
+            after["creatures"]["species"]["human"]["behavior"]["memory_ticks"] = 1000
+            after["creatures"]["species"]["human"]["behavior"]["idle"] = "explore"
+            self.assertEqual(before, after)
+            for relative in ("rules.toml", "regions/1.toml"):
+                self.assertEqual((baseline / relative).read_bytes(), (waiting / relative).read_bytes())
+            region = tomllib.loads((waiting / "regions/1.toml").read_text(encoding="utf-8"))
+            self.assertEqual(region["actors"][-1]["controller"], "ai")
+            self.assertEqual(region["actors"][-1]["ai"], "practice")
+
 
 class ProcessDeadlines(unittest.TestCase):
     def child(self, source):

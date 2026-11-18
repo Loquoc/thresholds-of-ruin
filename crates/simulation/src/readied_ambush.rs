@@ -238,6 +238,63 @@ impl Game {
         Ok(())
     }
 
+    /// A started touch attack may continue an encounter after ordinary recovery.
+    /// Physical contact licenses the initial strike, not hidden target tracking:
+    /// ongoing engagement requires the attacker's current disclosed hostile row.
+    pub(crate) fn touch_continuation(
+        &self,
+        plan: &crate::abilities::Plan,
+        readied_credit: bool,
+    ) -> Result<Option<crate::behavior::Engagement>, GameError> {
+        let actor = plan.actor();
+        let source = self.actors.get(&actor).ok_or(GameError::UnknownActor)?;
+        let Some(ability) = plan.as_ability() else {
+            return Ok(None);
+        };
+        let crate::abilities::AbilityAim::ContactTarget { target } = ability.invocation.aim else {
+            return Ok(None);
+        };
+        if !source.perception().readied_touch_ambush
+            || source.guise.appearance().is_none()
+            || (!readied_credit && source.readied_ambush.toucher() != Some(target))
+            || self
+                .creature(actor)
+                .and_then(|creature| eligible_ability(&creature))
+                .as_ref()
+                != Some(&ability.ability)
+            || source.engagement_at(self.actor_clock(actor)).is_some()
+        {
+            return Ok(None);
+        }
+        let Some(policy) = source
+            .behavior_policy()
+            .filter(|policy| policy.memory_ticks > 0)
+        else {
+            return Ok(None);
+        };
+        let view = self.observe(actor)?;
+        let Some(witness) = view
+            .visible_actors
+            .iter()
+            .find(|row| row.id == target && self.perceived_hostile(actor, target, row.disclosure))
+        else {
+            return Ok(None);
+        };
+        let Some(reference) = witness.disclosure.reference() else {
+            return Ok(None);
+        };
+        let last_seen = self.actor_clock(actor);
+        last_seen
+            .checked_add(policy.memory_ticks)
+            .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?;
+        Ok(Some(crate::behavior::Engagement {
+            target,
+            reference,
+            location: witness.location,
+            last_seen,
+        }))
+    }
+
     /// Called only by an already-authorized physical touch, never a private
     /// discovery receipt. The next ordinary completion pass releases at this tick.
     pub(crate) fn touch_readied_ambush(
@@ -614,5 +671,259 @@ mod tests {
             ["readied_ambush"]["at"]["location"]["position"]["x"] = 6.into();
         let shared = serde_json::from_value(json).unwrap();
         assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_err());
+    }
+    fn continuation_fixture(memory: u64, hostile: bool) -> Game {
+        continuation_fixture_with_perception(memory, hostile, &[], 0)
+    }
+    fn continuation_fixture_with_perception(
+        memory: u64,
+        hostile: bool,
+        owner: &[PerceptionValue],
+        guise_edge: i64,
+    ) -> Game {
+        let mut appearance = guise();
+        if let PerceptionValue::ObjectGuise { edge, .. } = &mut appearance {
+            *edge = guise_edge;
+        }
+        let mut game = fixture_with(
+            owner,
+            &[
+                appearance,
+                ambush(),
+                PerceptionValue::ReadiedTouchAmbush { enabled: true },
+            ],
+            |_, _, subject| {
+                subject.behavior.memory_ticks = memory;
+            },
+        );
+        let hostility = if hostile {
+            std::collections::BTreeMap::from([(
+                "private affiliation".into(),
+                std::collections::BTreeSet::from(["private affiliation".into()]),
+            )])
+        } else {
+            Default::default()
+        };
+        game.configure_run(
+            OWNER,
+            std::collections::BTreeSet::from([OWNER]),
+            None,
+            hostility,
+        )
+        .unwrap();
+        game.configure_ai(SUBJECT, crate::ai::AiProfile::default())
+            .unwrap();
+        game
+    }
+
+    fn release_touch(game: &mut Game) {
+        game.begin_effect_publication().unwrap();
+        game.touch_readied_ambush(SUBJECT, OWNER).unwrap();
+        game.resolve_preparations().unwrap();
+        game.finish_effect_publication().unwrap();
+    }
+
+    #[test]
+    fn touch_continuation_starts_only_after_contact_with_ordinary_recovery() {
+        let mut game = continuation_fixture(1000, true);
+        let before = game.clone();
+        assert_eq!(game.choose_ai(SUBJECT).unwrap().action, Action::Wait);
+        assert_eq!(
+            game, before,
+            "private recognition/adjacency and preview stay pure"
+        );
+        let plan = game
+            .compile_touch_strike_plan(SUBJECT, &id("basic_melee"), OWNER)
+            .unwrap();
+        let recovery = plan.recovery();
+        release_touch(&mut game);
+        assert_eq!(released(&game), 1);
+        assert_eq!(game.actors[&SUBJECT].ready_at, game.tick() + recovery);
+        assert_eq!(
+            game.actors[&SUBJECT].behavior.engagement.unwrap().target,
+            OWNER
+        );
+        assert!(game.choose_ai(SUBJECT).unwrap().plan.is_some());
+        assert_eq!(restore(&game), game);
+        game.touch_readied_ambush(SUBJECT, OWNER).unwrap();
+        assert_eq!(
+            released(&game),
+            1,
+            "continuation never rearms initial credit"
+        );
+    }
+
+    #[test]
+    fn touch_continuation_deferred_plan_is_pure_until_started() {
+        let mut game = continuation_fixture(1000, true);
+        game.actors.get_mut(&OWNER).unwrap().turn_ticks = std::num::NonZeroU64::new(1).unwrap();
+        let mut body = crate::BodySpec::default();
+        body.mass += 1;
+        game.set_body(SUBJECT, body).unwrap();
+        game.touch_readied_ambush(SUBJECT, OWNER).unwrap();
+        assert!(game.actors[&SUBJECT].behavior.engagement.is_none());
+        let before = game.clone();
+        let plan = game.choose_ai(SUBJECT).unwrap().plan.unwrap();
+        assert!(plan.preparation() > 0);
+        assert_eq!(game, before);
+        game.act(OWNER, Action::Wait).unwrap();
+        assert_eq!(game.next_actor(), Some(SUBJECT));
+        let admitted = game.admit_ai_intention(SUBJECT).unwrap();
+        assert_eq!(
+            restore(&game),
+            game,
+            "queued touch keeps exact checkpoint state"
+        );
+        let executed = game.execute_next_intention().unwrap();
+        assert_eq!(executed.intention.id, admitted);
+        executed.outcome.unwrap();
+        assert_eq!(
+            game.actors[&SUBJECT].behavior.engagement.unwrap().target,
+            OWNER
+        );
+        assert!(game.preparation(SUBJECT).unwrap().remaining > 0);
+    }
+
+    #[test]
+    fn touch_continuation_requires_hostility_memory_and_current_disclosure() {
+        for (memory, hostile, blind) in [(0, true, false), (1000, false, false), (1000, true, true)]
+        {
+            let hidden = [PerceptionValue::Invisible { enabled: true }];
+            let mut game = continuation_fixture_with_perception(
+                memory,
+                hostile,
+                if blind { &hidden } else { &[] },
+                0,
+            );
+            release_touch(&mut game);
+            assert_eq!(released(&game), 1, "contact still owns the initial strike");
+            assert!(game.actors[&SUBJECT].behavior.engagement.is_none());
+            assert_eq!(restore(&game), game);
+        }
+    }
+
+    #[test]
+    fn touch_continuation_does_not_apply_to_ordinary_outgoing_attack() {
+        let mut game = continuation_fixture(1000, true);
+        let plan = game
+            .ability_plan(SUBJECT, &id("basic_melee"), OWNER)
+            .unwrap();
+        game.start_work(plan, Some(crate::IntentionId(99))).unwrap();
+        assert!(game.actors[&SUBJECT].behavior.engagement.is_none());
+    }
+    #[test]
+    fn touch_continuation_preserves_a_live_other_engagement() {
+        let mut game = continuation_fixture(1000, true);
+        let other = spawn(&mut game, "fixture_perception_owner", at(1, 6, 2));
+        let existing = crate::behavior::Engagement {
+            target: other,
+            reference: crate::perception::ActorReferenceKind::Creature,
+            location: at(1, 6, 2),
+            last_seen: game.actor_clock(SUBJECT),
+        };
+        game.actors.get_mut(&SUBJECT).unwrap().behavior.engagement = Some(existing);
+        release_touch(&mut game);
+        assert_eq!(game.actors[&SUBJECT].behavior.engagement, Some(existing));
+        assert_eq!(restore(&game), game);
+    }
+
+    #[test]
+    fn touch_continuation_rejected_turn_keeps_state_and_rng() {
+        let mut game = continuation_fixture(1000, true);
+        let mut body = crate::BodySpec::default();
+        body.mass += 1;
+        game.set_body(SUBJECT, body).unwrap();
+        game.touch_readied_ambush(SUBJECT, OWNER).unwrap();
+        let before = game.clone();
+        assert!(matches!(
+            game.act_ai_with_intention(SUBJECT, crate::IntentionId(99)),
+            Err(GameError::NotActorsTurn)
+        ));
+        assert_eq!(game, before);
+    }
+    #[test]
+    fn touch_continuation_resume_keeps_original_memory() {
+        let mut game = continuation_fixture(1000, true);
+        game.actors.get_mut(&OWNER).unwrap().turn_ticks = std::num::NonZeroU64::new(1).unwrap();
+        let mut body = crate::BodySpec::default();
+        body.mass += 1;
+        game.set_body(SUBJECT, body).unwrap();
+        game.touch_readied_ambush(SUBJECT, OWNER).unwrap();
+        game.act(OWNER, Action::Wait).unwrap();
+        let admitted = game.admit_ai_intention(SUBJECT).unwrap();
+        assert_eq!(
+            restore(&game),
+            game,
+            "queued touch keeps exact checkpoint state"
+        );
+        let executed = game.execute_next_intention().unwrap();
+        assert_eq!(executed.intention.id, admitted);
+        executed.outcome.unwrap();
+        let original = game.actors[&SUBJECT].behavior.engagement.unwrap();
+        assert_eq!(game.next_actor(), Some(OWNER));
+        game.act(OWNER, Action::Wait).unwrap();
+        assert!(game.tick() > original.last_seen);
+        game.pause_preparation(SUBJECT).unwrap();
+        let pending = game.preparation(SUBJECT).unwrap().clone();
+        let before = game.clone();
+        let decision = game.choose_ai(SUBJECT).unwrap();
+        assert_eq!(game, before);
+        assert_eq!(decision.behavior.engagement, Some(original));
+        game.start_work(pending.plan.clone(), pending.intention)
+            .unwrap();
+        assert_eq!(game.actors[&SUBJECT].behavior.engagement, Some(original));
+        assert_eq!(game.preparation(SUBJECT).unwrap().plan, pending.plan);
+    }
+
+    #[test]
+    fn contact_invocation_without_owned_touch_does_not_acquire_continuation() {
+        let game = continuation_fixture(1000, true);
+        let plan = game
+            .compile_touch_strike_plan(SUBJECT, &id("basic_melee"), OWNER)
+            .unwrap();
+        assert_eq!(game.touch_continuation(&plan, false).unwrap(), None);
+    }
+    #[test]
+    fn touch_continuation_invalid_quantity_does_not_spend_or_acquire() {
+        // Authored high concealment makes this a positively disclosed object
+        // selector fixture, not an assumption about a lucky discovery roll.
+        let mut game = continuation_fixture_with_perception(1000, true, &[], 100);
+        for quantity in [0, 2] {
+            let before = game.clone();
+            assert!(game
+                .act(
+                    OWNER,
+                    Action::TouchApparentObject {
+                        subject: SUBJECT,
+                        quantity: Some(quantity)
+                    }
+                )
+                .is_err());
+            assert_eq!(
+                game, before,
+                "rejected physical probe must keep state and RNG"
+            );
+        }
+        let before = game.observe(OWNER).unwrap();
+        assert!(
+            before
+                .apparent_objects
+                .iter()
+                .any(|row| row.subject == SUBJECT),
+            "positive core apparent-object fixture (the server projects its item selector)"
+        );
+        game.act(
+            OWNER,
+            Action::TouchApparentObject {
+                subject: SUBJECT,
+                quantity: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            game.actors[&SUBJECT].behavior.engagement.unwrap().target,
+            OWNER
+        );
+        assert_eq!(released(&game), 1);
     }
 }

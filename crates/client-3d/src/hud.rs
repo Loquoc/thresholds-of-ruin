@@ -1,15 +1,26 @@
 //! Persistent live HUD. It presents disclosed facts and reuses existing actions.
+//!
+//! The world keeps most of the window: health and status sit in a compact
+//! bottom-left corner, actions fold into a bottom-centre menu, and new messages
+//! fade from the top-left after a few seconds.
 use crate::{chrome, interact, net::Cmd, screen, Game, Net};
 use bevy::{
     asset::RenderAssetUsages,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    ui::FocusPolicy,
 };
 
 const ORB_SIZE: usize = 128;
+/// Seconds a new message stays fully shown, then the seconds it takes to fade.
+const LOG_HOLD: f32 = 6.0;
+const LOG_FADE: f32 = 1.0;
+const LOG_BACKDROP: f32 = 0.5;
 
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Action {
+    /// Unfolds or folds the action menu.
+    Menu,
     Inventory,
     Equipment,
     Character,
@@ -18,8 +29,8 @@ pub(crate) enum Action {
     Journal,
     Screenshot,
     Wait,
-    /// Standalone play: ask to save and leave.
-    Menu,
+    /// Standalone play: ask to save and leave for the title menu.
+    Leave,
     /// A touch stand-in for a key: pressed for one frame, as the key would be.
     Press(KeyCode),
     /// Moves the camera nearer (negative) or farther, as the wheel does.
@@ -90,37 +101,15 @@ pub(crate) fn touch_keys(mut touch: ResMut<TouchControls>, mut keys: ResMut<Butt
     }
 }
 
-fn action_button(buttons: &mut ChildSpawnerCommands, action: Action, label: &str) {
-    buttons
-        .spawn((
-            Button,
-            action,
-            BackgroundColor(chrome::BUTTON),
-            BorderColor(chrome::GOLD),
-            Node {
-                min_width: Val::Px(76.0),
-                padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
-                border: UiRect::all(Val::Px(1.0)),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-        ))
-        .with_child((
-            Text::new(label),
-            chrome::text(16.0, chrome::INK),
-            TextLayout::new_with_justify(JustifyText::Center),
-        ));
-}
-
-const ACTIONS: [(Action, &str); 8] = [
-    (Action::Inventory, "I\nInventory"),
-    (Action::Equipment, "F6\nEquipment"),
-    (Action::Character, "F10\nCharacter"),
-    (Action::Map, "M\nMap"),
-    (Action::Places, "F5\nPlaces"),
-    (Action::Journal, "F2\nJournal"),
-    (Action::Screenshot, "F12\nScreenshot"),
-    (Action::Wait, "Space\nWait"),
+const ACTIONS: [(Action, &str, &str); 8] = [
+    (Action::Inventory, "Inventory", "I"),
+    (Action::Equipment, "Equipment", "F6"),
+    (Action::Character, "Character", "F10"),
+    (Action::Map, "Map", "M"),
+    (Action::Places, "Places", "F5"),
+    (Action::Journal, "Journal", "F2"),
+    (Action::Screenshot, "Screenshot", "F12"),
+    (Action::Wait, "Wait", "Space"),
 ];
 
 #[derive(Component, Debug)]
@@ -134,6 +123,27 @@ pub(crate) enum Field {
 
 #[derive(Component)]
 pub(crate) struct LogFrame;
+
+/// The prompt line under the readiness badge; hidden while it has nothing to say.
+#[derive(Component)]
+pub(crate) struct PromptFrame;
+
+/// The folding list of dock actions above the Menu button.
+#[derive(Component)]
+pub(crate) struct MenuList;
+
+/// Whether the action menu is unfolded.
+#[derive(Resource, Default)]
+pub(crate) struct Menu {
+    pub(crate) open: bool,
+}
+
+/// When the newest message arrived, by the count of lines received.
+#[derive(Resource, Default)]
+pub(crate) struct LogFade {
+    seen: u64,
+    since: f32,
+}
 
 #[derive(Resource)]
 pub(crate) struct HealthOrb {
@@ -213,6 +223,26 @@ fn orb_pixels(health: Option<(u64, u64)>) -> Vec<u8> {
     bytes
 }
 
+fn action_button(action: Action, label: impl Into<String>) -> impl Bundle {
+    (
+        Button,
+        action,
+        BackgroundColor(chrome::BUTTON),
+        BorderColor(chrome::GOLD),
+        Node {
+            padding: UiRect::axes(Val::Px(12.0), Val::Px(5.0)),
+            border: UiRect::all(Val::Px(1.0)),
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        children![(
+            Text::new(label),
+            chrome::text(16.0, chrome::INK),
+            TextLayout::new_with_justify(JustifyText::Center),
+        )],
+    )
+}
+
 pub(crate) fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -235,21 +265,30 @@ pub(crate) fn setup(
         image: image.clone(),
         shown: None,
     });
+    commands.init_resource::<Menu>();
+    commands.init_resource::<LogFade>();
+
+    // Readiness badge, with the current prompt beneath it.
     commands
-        .spawn((Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(14.0),
-            width: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        },))
+        .spawn((
+            FocusPolicy::Pass,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(14.0),
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(6.0),
+                ..default()
+            },
+        ))
         .with_children(|root| {
             root.spawn((
                 chrome::BlockWorld,
                 Interaction::default(),
                 chrome::frame(),
                 Node {
-                    padding: UiRect::axes(Val::Px(28.0), Val::Px(10.0)),
+                    padding: UiRect::axes(Val::Px(22.0), Val::Px(6.0)),
                     border: UiRect::all(Val::Px(2.0)),
                     ..default()
                 },
@@ -257,136 +296,159 @@ pub(crate) fn setup(
             .with_child((
                 Field::Readiness,
                 Text::new("CONNECTING"),
-                chrome::text(16.0, chrome::INK),
+                chrome::text(15.0, chrome::INK),
+            ));
+            root.spawn((
+                PromptFrame,
+                Visibility::Hidden,
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, LOG_BACKDROP)),
+                BorderRadius::all(Val::Px(3.0)),
+                Node {
+                    max_width: Val::Percent(36.0),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)),
+                    ..default()
+                },
+            ))
+            .with_child((
+                Field::Message,
+                Text::new(""),
+                chrome::text(15.0, chrome::INK),
+                TextLayout::new_with_justify(JustifyText::Center),
             ));
         });
+
+    // New messages, top left. They do not block the world and fade on their own.
     commands
         .spawn((
             LogFrame,
-            chrome::BlockWorld,
-            Interaction::default(),
-            chrome::frame(),
+            Visibility::Hidden,
+            FocusPolicy::Pass,
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, LOG_BACKDROP)),
+            BorderRadius::all(Val::Px(3.0)),
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(16.0),
-                bottom: Val::Px(190.0),
-                width: Val::Percent(40.0),
-                max_width: Val::Px(650.0),
-                padding: UiRect::all(Val::Px(10.0)),
-                border: UiRect::all(Val::Px(1.0)),
+                top: Val::Px(14.0),
+                max_width: Val::Percent(30.0),
+                padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
                 ..default()
             },
         ))
-        .with_child((
-            Field::Log,
-            Text::new("Connecting..."),
-            chrome::text(17.0, chrome::INK),
-        ));
+        .with_child((Field::Log, Text::new(""), chrome::text(16.0, chrome::INK)));
+
+    // Health and status, bottom left.
     commands
         .spawn((
             chrome::BlockWorld,
             Interaction::default(),
             chrome::frame(),
-            GlobalZIndex(1),
             Node {
                 position_type: PositionType::Absolute,
-                bottom: Val::Px(0.0),
-                width: Val::Percent(100.0),
-                min_height: Val::Px(166.0),
-                border: UiRect::top(Val::Px(3.0)),
-                padding: UiRect::all(Val::Px(14.0)),
-                column_gap: Val::Px(18.0),
+                left: Val::Px(12.0),
+                bottom: Val::Px(12.0),
+                max_width: Val::Percent(38.0),
+                padding: UiRect::all(Val::Px(6.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                column_gap: Val::Px(10.0),
                 align_items: AlignItems::Center,
                 ..default()
             },
         ))
-        .with_children(|dock| {
-            dock.spawn(Node {
-                width: Val::Px(112.0),
-                height: Val::Px(132.0),
-                flex_shrink: 0.0,
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                ..default()
-            })
-            .with_children(|orb| {
-                orb.spawn((
+        .with_children(|corner| {
+            corner
+                .spawn((
                     ImageNode::new(image),
                     Node {
-                        width: Val::Px(112.0),
-                        height: Val::Px(112.0),
+                        width: Val::Px(72.0),
+                        height: Val::Px(72.0),
+                        flex_shrink: 0.0,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         ..default()
                     },
                 ))
                 .with_child((
                     Field::Health,
                     Text::new("— / —"),
-                    chrome::text(18.0, Color::WHITE),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        width: Val::Percent(100.0),
-                        top: Val::Px(49.0),
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },
+                    chrome::text(15.0, Color::WHITE),
                     TextLayout::new_with_justify(JustifyText::Center),
                 ));
-                orb.spawn((Text::new("HEALTH"), chrome::text(15.0, chrome::INK)));
-            });
-            dock.spawn(Node {
+            corner.spawn((
+                Field::Status,
+                Text::new(""),
+                chrome::text(15.0, chrome::INK),
+                Node {
+                    min_width: Val::Px(0.0),
+                    flex_shrink: 1.0,
+                    ..default()
+                },
+            ));
+        });
+
+    // Actions, folded into a bottom-centre menu.
+    commands
+        .spawn((
+            FocusPolicy::Pass,
+            GlobalZIndex(1),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(12.0),
+                width: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                min_width: Val::Px(0.0),
-                row_gap: Val::Px(9.0),
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(6.0),
                 ..default()
-            })
-            .with_children(|center| {
-                center
-                    .spawn(Node {
+            },
+        ))
+        .with_children(|root| {
+            root.spawn((
+                MenuList,
+                Visibility::Hidden,
+                chrome::BlockWorld,
+                Interaction::default(),
+                chrome::frame(),
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Stretch,
+                    padding: UiRect::all(Val::Px(8.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    row_gap: Val::Px(4.0),
+                    min_width: Val::Px(200.0),
+                    ..default()
+                },
+            ))
+            .with_children(|list| {
+                for (action, name, key) in ACTIONS {
+                    list.spawn(action_button(action, format!("{name}  [{key}]")));
+                }
+                if standalone {
+                    list.spawn(action_button(Action::Leave, "Leave  [Esc]"));
+                }
+            });
+            // Touch stand-ins for keys stay one tap away rather than folded.
+            if touch {
+                root.spawn((
+                    chrome::BlockWorld,
+                    Interaction::default(),
+                    Node {
                         flex_wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::Center,
                         column_gap: Val::Px(6.0),
                         row_gap: Val::Px(4.0),
+                        max_width: Val::Percent(60.0),
                         ..default()
-                    })
-                    .with_children(|buttons| {
-                        for (action, label) in ACTIONS {
-                            action_button(buttons, action, label);
-                        }
-                        if standalone {
-                            action_button(
-                                buttons,
-                                Action::Menu,
-                                "Esc
-Menu",
-                            );
-                        }
-                    });
-                if touch {
-                    center
-                        .spawn(Node {
-                            flex_wrap: FlexWrap::Wrap,
-                            column_gap: Val::Px(6.0),
-                            row_gap: Val::Px(4.0),
-                            ..default()
-                        })
-                        .with_children(|buttons| {
-                            for (action, label) in TOUCH {
-                                action_button(buttons, action, label);
-                            }
-                        });
-                }
-                center.spawn((
-                    Field::Status,
-                    Text::new(""),
-                    chrome::text(16.0, chrome::INK),
-                ));
-                center.spawn((
-                    Field::Message,
-                    Text::new(""),
-                    chrome::text(15.0, chrome::MUTED),
-                ));
-            });
+                    },
+                ))
+                .with_children(|buttons| {
+                    for (action, label) in TOUCH {
+                        buttons.spawn(action_button(action, label));
+                    }
+                });
+            }
+            root.spawn((
+                chrome::BlockWorld,
+                action_button(Action::Menu, "Menu"),
+            ));
         });
 }
 
@@ -395,17 +457,10 @@ pub(crate) fn update(
     mut fields: Query<(&Field, &mut Text)>,
     mut orb: ResMut<HealthOrb>,
     mut images: ResMut<Assets<Image>>,
-    mut log_frames: Query<&mut Visibility, With<LogFrame>>,
+    mut prompts: Query<&mut Visibility, With<PromptFrame>>,
 ) {
     if !game.is_changed() {
         return;
-    }
-    if let Ok(mut visibility) = log_frames.single_mut() {
-        visibility.set_if_neq(if game.log.is_empty() {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        });
     }
     let hp = game.view.as_ref().and_then(|v| v.hp);
     if orb.shown != hp {
@@ -427,28 +482,15 @@ pub(crate) fn update(
                     .join("\n")
             }),
             Field::Message => {
-                let mut parts = Vec::new();
-                if !game.status.is_empty() {
-                    parts.push(game.status.clone());
+                let value = prompt(&game);
+                for mut visibility in &mut prompts {
+                    visibility.set_if_neq(if value.is_empty() {
+                        Visibility::Hidden
+                    } else {
+                        Visibility::Inherited
+                    });
                 }
-                if let Some(view) = &game.view {
-                    if view.can_resume {
-                        parts.push("F8: resume".into());
-                    }
-                    if view.can_cancel {
-                        parts.push("F9: cancel".into());
-                    }
-                    let here: Vec<_> = view
-                        .items
-                        .iter()
-                        .filter(|i| i.position == view.feet)
-                        .map(|i| i.name.as_str())
-                        .collect();
-                    if !here.is_empty() {
-                        parts.push(format!("G: take · {}", here.join(", ")));
-                    }
-                }
-                parts.join("   |   ")
+                value
             }
             Field::Log => game
                 .log
@@ -466,11 +508,79 @@ pub(crate) fn update(
     }
 }
 
+/// Status text and the actions the server currently offers here.
+fn prompt(game: &Game) -> String {
+    let mut parts = Vec::new();
+    if !game.status.is_empty() {
+        parts.push(game.status.clone());
+    }
+    if let Some(view) = &game.view {
+        if view.can_resume {
+            parts.push("F8: resume".into());
+        }
+        if view.can_cancel {
+            parts.push("F9: cancel".into());
+        }
+        let here: Vec<_> = view
+            .items
+            .iter()
+            .filter(|i| i.position == view.feet)
+            .map(|i| i.name.as_str())
+            .collect();
+        if !here.is_empty() {
+            parts.push(format!("G: take · {}", here.join(", ")));
+        }
+    }
+    parts.join("   |   ")
+}
+
+/// Shows the latest messages when they arrive, then fades them out.
+pub(crate) fn fade_log(
+    time: Res<Time>,
+    game: Res<Game>,
+    mut fade: ResMut<LogFade>,
+    mut frames: Query<(&mut Visibility, &mut BackgroundColor), With<LogFrame>>,
+    mut lines: Query<(&Field, &mut TextColor)>,
+) {
+    let now = time.elapsed_secs();
+    if fade.seen != game.log_received {
+        fade.seen = game.log_received;
+        fade.since = now;
+    }
+    let alpha = if game.log.is_empty() {
+        0.0
+    } else {
+        ((LOG_HOLD + LOG_FADE - (now - fade.since)) / LOG_FADE).clamp(0.0, 1.0)
+    };
+    for (mut visibility, mut backdrop) in &mut frames {
+        visibility.set_if_neq(if alpha > 0.0 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        let shade = Color::srgba(0.0, 0.0, 0.0, LOG_BACKDROP * alpha);
+        if backdrop.0 != shade {
+            backdrop.0 = shade;
+        }
+    }
+    for (field, mut color) in &mut lines {
+        if matches!(field, Field::Log) {
+            let ink = chrome::INK.with_alpha(alpha);
+            if color.0 != ink {
+                color.0 = ink;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn buttons(
     net: Res<Net>,
     mut game: ResMut<Game>,
     mut panel: ResMut<interact::Panel>,
+    mut menu: ResMut<Menu>,
     mut buttons: Query<(&Interaction, &Action, &mut BackgroundColor), Changed<Interaction>>,
+    mut lists: Query<&mut Visibility, With<MenuList>>,
     mut touch: Option<ResMut<TouchControls>>,
     mut rig: Option<ResMut<crate::CameraRig>>,
     mut session: Option<ResMut<crate::session::Session>>,
@@ -484,7 +594,15 @@ pub(crate) fn buttons(
         if *interaction != Interaction::Pressed {
             continue;
         }
+        // Choosing an action folds the menu away; Wait may be pressed
+        // repeatedly, and touch stand-ins for keys leave it as it is.
         match action {
+            Action::Menu => menu.open = !menu.open,
+            Action::Wait | Action::Press(_) | Action::Zoom(_) => {}
+            _ => menu.open = false,
+        }
+        match action {
+            Action::Menu => {}
             Action::Screenshot => crate::playtest_capture::request(&net, &mut game),
             Action::Inventory | Action::Equipment => {
                 if let Some(open) = game.screen.clone() {
@@ -525,7 +643,7 @@ pub(crate) fn buttons(
                 game.send(&net, Cmd::Wait);
             }
             Action::Wait => {}
-            Action::Menu => {
+            Action::Leave => {
                 if let Some(session) = session.as_mut() {
                     session.ask_to_leave();
                 }
@@ -542,38 +660,224 @@ pub(crate) fn buttons(
             }
         }
     }
+    for mut visibility in &mut lists {
+        visibility.set_if_neq(if menu.open {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn an_empty_message_log_does_not_leave_a_blank_panel_over_the_world() {
+    fn log_app() -> (App, Entity) {
         let mut app = App::new();
         app.init_resource::<Assets<Image>>()
             .init_resource::<Game>()
+            .init_resource::<Time>()
             .add_systems(Startup, setup)
-            .add_systems(Update, update);
+            .add_systems(Update, (update, fade_log).chain());
         app.update();
         let root = app
             .world_mut()
             .query_filtered::<Entity, With<LogFrame>>()
             .single(app.world())
             .unwrap();
+        (app, root)
+    }
+
+    fn receive(app: &mut App, line: &str) {
+        let mut game = app.world_mut().resource_mut::<Game>();
+        game.log.push_back(line.into());
+        game.log_received += 1;
+    }
+
+    fn wait(app: &mut App, seconds: f32) {
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(seconds));
+        app.update();
+    }
+
+    #[test]
+    fn an_empty_message_log_does_not_leave_a_blank_panel_over_the_world() {
+        let (mut app, root) = log_app();
         assert_eq!(
             *app.world().get::<Visibility>(root).unwrap(),
             Visibility::Hidden
         );
-        app.world_mut()
-            .resource_mut::<Game>()
-            .log
-            .push_back("You move north.".into());
+        receive(&mut app, "You move north.");
         app.update();
         assert_eq!(
             *app.world().get::<Visibility>(root).unwrap(),
             Visibility::Inherited
         );
+    }
+
+    #[test]
+    fn messages_fade_after_a_while_and_a_new_one_brings_them_back() {
+        let (mut app, root) = log_app();
+        let backdrop = |app: &App| app.world().get::<BackgroundColor>(root).unwrap().0.alpha();
+        let visibility = |app: &App| *app.world().get::<Visibility>(root).unwrap();
+        receive(&mut app, "You move north.");
+        app.update();
+        wait(&mut app, LOG_HOLD - 0.5);
+        assert_eq!(
+            visibility(&app),
+            Visibility::Inherited,
+            "still within the hold"
+        );
+        assert!((backdrop(&app) - LOG_BACKDROP).abs() < 1e-4);
+        wait(&mut app, 1.0);
+        assert_eq!(
+            visibility(&app),
+            Visibility::Inherited,
+            "fading, not yet gone"
+        );
+        assert!(backdrop(&app) > 0.0 && backdrop(&app) < LOG_BACKDROP);
+        wait(&mut app, LOG_FADE);
+        assert_eq!(
+            visibility(&app),
+            Visibility::Hidden,
+            "faded messages leave the world clear"
+        );
+        assert!(
+            !app.world().resource::<Game>().log.is_empty(),
+            "fading is presentation only; the log keeps its lines"
+        );
+        // A repeat of the same words is still a new message.
+        receive(&mut app, "You move north.");
+        app.update();
+        assert_eq!(visibility(&app), Visibility::Inherited);
+        assert!((backdrop(&app) - LOG_BACKDROP).abs() < 1e-4);
+        let text = app
+            .world_mut()
+            .query::<(&Field, &Text)>()
+            .iter(app.world())
+            .find(|(field, _)| matches!(field, Field::Log))
+            .map(|(_, text)| text.0.clone())
+            .unwrap();
+        assert_eq!(text, "You move north.\nYou move north.");
+    }
+
+    #[test]
+    fn actions_fold_into_a_menu_that_closes_after_a_choice() {
+        let (mut app, _receiver) = dock(Action::Menu);
+        let list = app.world_mut().spawn((MenuList, Visibility::Hidden)).id();
+        let open = |app: &App| *app.world().get::<Visibility>(list).unwrap() != Visibility::Hidden;
+        app.update();
+        assert!(app.world().resource::<Menu>().open);
+        assert!(open(&app));
+        let inventory = app
+            .world_mut()
+            .spawn((
+                Action::Inventory,
+                Interaction::Pressed,
+                BackgroundColor(chrome::BUTTON),
+            ))
+            .id();
+        app.update();
+        assert!(!open(&app), "choosing an action folds the menu");
+        assert!(app.world().resource::<interact::Panel>().open);
+        // Wait stays available for repeated presses.
+        app.world_mut().resource_mut::<Menu>().open = true;
+        *app.world_mut().get_mut::<Interaction>(inventory).unwrap() = Interaction::None;
+        app.world_mut().spawn((
+            Action::Wait,
+            Interaction::Pressed,
+            BackgroundColor(chrome::BUTTON),
+        ));
+        app.update();
+        assert!(open(&app));
+        // A touch stand-in for a key leaves the menu as it is.
+        app.insert_resource(TouchControls::default());
+        app.world_mut().spawn((
+            Action::Press(KeyCode::KeyQ),
+            Interaction::Pressed,
+            BackgroundColor(chrome::BUTTON),
+        ));
+        app.update();
+        assert!(open(&app));
+        assert_eq!(
+            app.world().resource::<TouchControls>().pending,
+            [KeyCode::KeyQ]
+        );
+    }
+
+    #[test]
+    fn standalone_leave_folds_into_the_menu_while_touch_keys_stay_one_tap_away() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<Game>()
+            .init_resource::<Time>()
+            .insert_resource(crate::session::Session::new(
+                std::path::PathBuf::from("missing-scenarios"),
+                std::path::PathBuf::from("missing-saves"),
+            ))
+            .insert_resource(TouchControls::default())
+            .add_systems(Startup, setup);
+        app.update();
+        let list = app
+            .world_mut()
+            .query_filtered::<Entity, With<MenuList>>()
+            .single(app.world())
+            .unwrap();
+        let actions = app
+            .world_mut()
+            .query::<(&Action, &ChildOf)>()
+            .iter(app.world())
+            .map(|(action, parent)| (*action, parent.parent()))
+            .collect::<Vec<_>>();
+        let leave = actions
+            .iter()
+            .find(|(action, _)| *action == Action::Leave)
+            .expect("standalone play offers leaving");
+        assert_eq!(leave.1, list, "leaving waits inside the folded menu");
+        let touch = actions
+            .iter()
+            .filter(|(action, _)| matches!(action, Action::Press(_) | Action::Zoom(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(touch.len(), TOUCH.len());
+        let row = touch[0].1;
+        assert_ne!(row, list, "touch keys are not folded away");
+        assert!(touch.iter().all(|(_, parent)| *parent == row));
+        assert!(
+            app.world().get::<chrome::BlockWorld>(row).is_some(),
+            "gaps between touch keys must not click into the world"
+        );
+    }
+
+    #[test]
+    fn the_hud_spawns_one_menu_button_and_every_action_inside_the_folded_list() {
+        let (app, _) = log_app();
+        let mut app = app;
+        let mut actions = app
+            .world_mut()
+            .query::<(&Action, &ChildOf)>()
+            .iter(app.world())
+            .map(|(action, parent)| (*action, parent.parent()))
+            .collect::<Vec<_>>();
+        actions.sort_by_key(|(action, _)| *action != Action::Menu);
+        let list = app
+            .world_mut()
+            .query_filtered::<Entity, With<MenuList>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            *app.world().get::<Visibility>(list).unwrap(),
+            Visibility::Hidden
+        );
+        assert_eq!(actions.len(), ACTIONS.len() + 1);
+        assert_eq!(actions[0].0, Action::Menu);
+        assert_ne!(actions[0].1, list);
+        assert!(app
+            .world()
+            .get::<chrome::BlockWorld>(actions[0].1)
+            .is_none());
+        assert!(actions[1..].iter().all(|(_, parent)| *parent == list));
     }
 
     fn dock(action: Action) -> (App, tokio::sync::mpsc::Receiver<crate::net::Input>) {
@@ -588,6 +892,7 @@ mod tests {
                 ..default()
             })
             .init_resource::<interact::Panel>()
+            .init_resource::<Menu>()
             .add_systems(Update, buttons);
         app.world_mut().spawn((
             action,

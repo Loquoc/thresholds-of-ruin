@@ -289,6 +289,51 @@ pub(crate) fn renderer_ready(mut splash: ResMut<Splash>) {
     );
 }
 
+/// The game window's preferred logical size.
+const GAME_WINDOW: Vec2 = Vec2::new(1440.0, 900.0);
+
+/// A window size that leaves room for the taskbar and title bar on the
+/// monitor, so no part of the interface opens below the screen's edge.
+fn fitted_game_window(monitor: Vec2) -> Vec2 {
+    Vec2::new(
+        GAME_WINDOW.x.min(monitor.x * 0.92),
+        GAME_WINDOW.y.min(monitor.y * 0.86),
+    )
+    .floor()
+}
+
+/// Before the game window is first shown, fit it to the primary monitor and
+/// place it at the monitor's top, centred across it.
+pub(crate) fn fit_window(
+    mut fitted: Local<bool>,
+    monitors: Query<&bevy::window::Monitor, With<bevy::window::PrimaryMonitor>>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+) {
+    // An Android window always fills its screen.
+    if *fitted || cfg!(target_os = "android") {
+        return;
+    }
+    let (Ok(monitor), Ok(mut window)) = (monitors.single(), windows.single_mut()) else {
+        return;
+    };
+    *fitted = true;
+    if window.visible {
+        return;
+    }
+    let scale = monitor.scale_factor.max(0.1) as f32;
+    let logical = Vec2::new(
+        monitor.physical_width as f32,
+        monitor.physical_height as f32,
+    ) / scale;
+    let size = fitted_game_window(logical);
+    window.resolution.set(size.x, size.y);
+    // Centring on the whole monitor would tuck the bottom under a taskbar, so
+    // the window opens at the monitor's top edge, centred across it.
+    let left = (monitor.physical_width as f32 - size.x * scale).max(0.0) * 0.5;
+    window.position =
+        bevy::window::WindowPosition::At(monitor.physical_position + IVec2::new(left as i32, 0));
+}
+
 pub(crate) fn tick(
     mut splash: ResMut<Splash>,
     game: Res<Game>,
@@ -353,6 +398,22 @@ pub(crate) fn window_cli(arguments: &[String]) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_game_window_fits_small_monitors_and_keeps_its_size_on_large_ones() {
+        assert_eq!(fitted_game_window(Vec2::new(2560.0, 1440.0)), GAME_WINDOW);
+        // A 1920x1080 display at 125% scale is 1536x864 logical; 900 would overflow.
+        let laptop = fitted_game_window(Vec2::new(1536.0, 864.0));
+        assert_eq!(laptop, Vec2::new(1413.0, 743.0));
+        assert!(
+            laptop.y + 48.0 + 32.0 <= 864.0,
+            "taskbar and title bar still fit"
+        );
+        assert_eq!(
+            fitted_game_window(Vec2::new(1280.0, 720.0)),
+            Vec2::new(1177.0, 619.0)
+        );
+    }
     #[test]
     fn splash_stays_until_world_and_visible_render_frames_are_ready() {
         let mut handoff = Handoff::default();

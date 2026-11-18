@@ -479,7 +479,13 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     .add_systems(
         Update,
         (
-            (receive, creatures::loading::poll, startup::tick).chain(),
+            (
+                receive,
+                creatures::loading::poll,
+                startup::fit_window,
+                startup::tick,
+            )
+                .chain(),
             react,
             (pile_picker::update, interact::keys, hud::buttons)
                 .chain()
@@ -552,7 +558,9 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
             autoplay::run,
             autoplay::hunt,
             minimap::toggle.after(inventory::typing),
-            minimap::draw,
+            minimap::show.after(minimap::toggle),
+            minimap::draw.after(minimap::show),
+            hud::fade_log,
             boredom,
             cursor::update,
         ),
@@ -729,6 +737,8 @@ struct Game {
     labels: HashSet<Entity>,
     items: Vec<Entity>,
     log: VecDeque<String>,
+    /// Message lines ever received, so the HUD can tell when new ones arrive.
+    log_received: u64,
     last_narration: Vec<String>,
     status: String,
     /// A device or ability waiting for what it is aimed at.

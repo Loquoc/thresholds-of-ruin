@@ -286,7 +286,7 @@ fn reconfiguring_a_task_preserves_earned_visits() {
 }
 
 #[test]
-fn simple_idle_roaming_needs_one_scene_and_no_route_searches() {
+fn purposeful_idle_roaming_reuses_one_scene_and_one_route_search() {
     let mut game = fixture(AiProfile::general());
     fill_history(&mut game);
     // Retain a cold-build witness independent of fixture perception reads.
@@ -298,7 +298,9 @@ fn simple_idle_roaming_needs_one_scene_and_no_route_searches() {
     ));
     let after = crate::diagnostics::work_counts();
     assert_eq!(after.scenes - before.scenes, 1);
-    assert_eq!(after.route_searches - before.route_searches, 0);
+    // The destination stage now owns one bounded remembered-route frontier,
+    // shared by its candidates rather than rebuilt per target.
+    assert_eq!(after.route_searches - before.route_searches, 1);
     assert_eq!(after.ability_plans - before.ability_plans, 0);
 }
 
