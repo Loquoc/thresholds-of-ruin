@@ -248,13 +248,17 @@ fn host_condition_application_preserves_unpublished_observer_extension() {
     assert!(game.event_observation_pending(&proof));
     game.record_event_observation(&witness, &proof, &mut observation)
         .unwrap();
-    assert!(matches!(
-        observation.combat.unwrap().events.as_slice(),
-        [
-            crate::combat::DisclosedCombatEvent::Effect { .. },
-            crate::combat::DisclosedCombatEvent::Ability { .. }
-        ]
-    ));
+    let observed_events = observation.combat.unwrap().events;
+    assert!(
+        matches!(observed_events.as_slice(), [crate::combat::DisclosedCombatEvent::Ability {
+            id,
+            caster: Some(ActorId(1)),
+            target: Some(ActorId(1)),
+            outcome: super::OutcomeStatus::Unaffected,
+            ..
+        }] if id.as_str() == "basic_melee"),
+        "{observed_events:?}"
+    );
     game.seal_event_observations().unwrap();
     assert_eq!(round_trip(&game), game);
 }
