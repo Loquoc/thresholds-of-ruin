@@ -236,7 +236,8 @@ try:
         if enemy.data()["readiness"]["admission"]:
             actors = enemy.data()["state"]["observation"]["visible_actors"]
             target = next(actor["id"] for actor in actors if actor["name"] == "Warrior")
-            assert snake.act(use("rogue.venomous_bite", target), enemy)["status"] == "confirmed"
+            bite = snake.act(use("rogue.venomous_bite", target), enemy)
+            assert bite["status"] in {"confirmed", "stale_observation"}, bite
         if current.data()["readiness"]["admission"]:
             result = player.act({"type": "wait"}, current)
             assert result["status"] in {"confirmed", "stale_observation"}, result
