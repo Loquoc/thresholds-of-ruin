@@ -55,7 +55,7 @@ def headless_combat_boundary(test, intention=None):
 class AsciiMessageProcesses(ProcessTestCase):
     graphical = True
 
-    def combat_package(self, *, healing_potion=False):
+    def combat_package(self, *, healing_potion=False, doorway=False):
         # Preserve the shipped creatures, equipment and species-owned behavior.
         # Their explore/wake policy may leave the distant dungeon doorway before
         # combat starts. A small closed chamber makes continuous sight a fixture
@@ -69,7 +69,7 @@ class AsciiMessageProcesses(ProcessTestCase):
         manifest.write_text(toml_source(document), encoding="utf-8", newline="\n")
         for region in (package / "regions").glob("*.toml"):
             region.unlink()
-        (package / "regions/1.toml").write_text(toml_source({
+        room = {
             "id": 1, "name": "Combat chamber", "size": [3, 1, 2],
             "chamber": True, "gravity": [0, 0, -1],
             "anchors": {"exit": [0, 0, 0]},
@@ -77,7 +77,14 @@ class AsciiMessageProcesses(ProcessTestCase):
                         "controller": "ai", "ai": "tactical", "turn_ticks": 80}],
             "items": [{"id": 101, "at": [0, 0, 0], "archetype": "dungeon.delver_blade",
                        "carried_by": 1, "equipped_slot": 0}],
-        }), encoding="utf-8", newline="\n")
+        }
+        if doorway:
+            room["size"] = [5, 4, 2]
+            room["anchors"]["exit"] = [1, 1, 0]
+            room["items"][0]["at"] = [1, 1, 0]
+            room["actors"][0]["at"] = [2, 2, 0]
+            room["walls"] = [[1, 2, 0], [1, 2, 1]]
+        (package / "regions/1.toml").write_text(toml_source(room), encoding="utf-8", newline="\n")
         if healing_potion:
             catalog = package / "catalog/items.toml"
             items = tomllib.loads(catalog.read_text(encoding="utf-8"))
@@ -288,6 +295,35 @@ class AsciiMessageProcesses(ProcessTestCase):
             and facts[-1] in message["update"]["body"]["facts"]["facts"]
         )
 
+    @non_graphical
+    def test_a_visible_target_out_of_melee_reach_explains_where_to_try(self):
+        self.server(scenario=self.combat_package())
+        client, initial = self.client()
+        view = initial["state"]["observation"]
+        scout = next(actor for actor in view["visible_actors"] if actor["name"] == "ruin scout")
+        refused = self.act(client, {"type": "use_ability", "id": "basic_melee",
+                                    "invocation": {"aim": {"kind": "actor_target",
+                                                           "target": scout["id"]},
+                                                   "weapon": {"kind": "default"}}})
+        self.assertIn("Try from an open adjacent square.", refused["error"])
+        after = self.request(client, {"type": "snapshot"})
+        self.assertDisclosedStateEqual(after["state"], initial["state"])
+
+    def test_diagonal_melee_reaches_around_one_wall_at_a_doorway(self):
+        self.server(scenario=self.combat_package(doorway=True))
+        window, initial = self.window()
+        view = initial["state"]["observation"]
+        scout = next(actor for actor in view["visible_actors"]
+                     if actor["name"] == "ruin scout" and actor["position"]["z"] == 0)
+        self.assertEqual((scout["position"]["x"] - view["position"]["x"],
+                          scout["position"]["y"] - view["position"]["y"]), (1, 1))
+        attacked = self.key(window, "south_east")
+        starts = [entry["content"]["event"] for entry in attacked["history"]
+                  if entry["content"].get("event", {}).get("type") == "ability_started"]
+        self.assertTrue(any(event["target"] == scout["id"] for event in starts),
+                        (attacked["status"], attacked["messages"]["turn"]))
+        self.assertEqual(attacked["state"]["observation"]["position"], view["position"])
+
     def test_fight_messages_persist_and_the_single_map_names_creatures(self):
         self.server(scenario=self.combat_package())
         window, initial = self.window()
@@ -338,6 +374,7 @@ class AsciiMessageProcesses(ProcessTestCase):
             self.assertNotIn("HP ", turn)
             self.assertNotIn("You prepare to use Attack.", turn)
             self.assertNotIn("You used Attack on", turn)
+            self.assertNotIn("A flash flares briefly", turn)
             seen.append(turn)
             observation = frame["state"]["observation"]
             trace.append({"key": key, "input_done": frame.get("input_done"),

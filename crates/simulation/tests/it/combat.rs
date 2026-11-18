@@ -112,11 +112,13 @@ fn duel_with_subjects(subjects: [Species; 2], factions: [&str; 2]) -> Game {
 }
 
 #[test]
-fn diagonal_reach_is_conservative_at_blocked_corners() {
+fn diagonal_melee_uses_the_open_side_and_stops_at_closed_corners() {
     let mut game = duel();
     game.teleport(ActorId(2), at(2, 2, 0)).unwrap();
     assert!(game.attack_available(ActorId(1), ActorId(2)));
     game.set_wall(at(2, 1, 0), true).unwrap();
+    assert!(game.attack_available(ActorId(1), ActorId(2)));
+    game.set_wall(at(1, 2, 0), true).unwrap();
     assert!(!game.attack_available(ActorId(1), ActorId(2)));
 }
 

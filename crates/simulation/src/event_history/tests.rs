@@ -58,6 +58,18 @@ fn fixture() -> Game {
         },
     });
     let mut rules = crate::test_creatures::ruleset().document().clone();
+    // History disclosure probes need an explicitly visible target effect.
+    let mut flash = rules
+        .abilities
+        .iter()
+        .find(|ability| ability.basic_attack)
+        .unwrap()
+        .clone();
+    flash.id = AbilityId::new("event_flash").unwrap();
+    flash.name = "Event flash".into();
+    flash.basic_attack = false;
+    rules.constants.default_abilities.push(flash.id.clone());
+    rules.abilities.push(flash);
     rules.conditions.push(serde_json::from_value(serde_json::json!({
         "id":"event_detecting", "family":"event_detecting", "name":"Detecting",
         "lifecycle":"timed", "timing":{"kind":"actor_active","on_expiry":{"kind":"remove"}},
@@ -125,7 +137,7 @@ fn damage(actor: ActorId, target: ActorId, amount: u32) -> Outcome {
         resistance: None,
         actor,
         target,
-        ability: Some(AbilityId::new("basic_melee").unwrap()),
+        ability: Some(AbilityId::new("event_flash").unwrap()),
         intention: None,
         result: OutcomeStatus::Applied,
         check: None,
@@ -877,7 +889,7 @@ fn provoke_with_zero_damage_primary(game: &mut Game) {
     let plan = game
         .ability_plan(
             ActorId(1),
-            &AbilityId::new("basic_melee").unwrap(),
+            &AbilityId::new("event_flash").unwrap(),
             ActorId(2),
         )
         .unwrap();
@@ -1100,7 +1112,7 @@ fn source_disclosure_ceiling_names_only_licensed_historical_observers() {
             if ceiling.permits(observer, ActorId(1)) {
                 assert!(
                     matches!(&disclosed[0], DisclosedCombatEvent::Ability { id, .. }
-                    if id.as_str() == "basic_melee")
+                    if id.as_str() == "event_flash")
                 );
             } else {
                 assert!(matches!(
@@ -1305,7 +1317,7 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
             for replacement in [
                 json!("spark_lance_fire"),
                 if entry["disclosed_ability"].is_null() {
-                    json!("basic_melee")
+                    json!("event_flash")
                 } else {
                     json!(null)
                 },
@@ -1336,7 +1348,7 @@ fn source_receipts_reject_missing_ids_substitution_and_ceiling_or_recipient_forg
             forged["observers"]["2"]["entries"][entry_index]["key"]["source_disclosure"] =
                 json!("public");
             forged["observers"]["2"]["entries"][entry_index]["disclosed_ability"] =
-                json!("basic_melee");
+                json!("event_flash");
             let mut corrupt = game.clone();
             corrupt.event_receipts = serde_json::from_value(forged).unwrap();
             assert!(

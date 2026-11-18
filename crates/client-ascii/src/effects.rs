@@ -8,6 +8,8 @@ use tor_protocol::{CombatEventView, EffectAppearance, EffectDelivery, Observatio
 
 const MAX_ANIMATIONS: usize = 64;
 const STEP_MS: u64 = 60;
+const RAY_STEP_MS: u64 = 110;
+const RAY_HOLD_MS: u64 = 250;
 const MAX_DURATION_MS: u64 = 1800;
 
 #[derive(Clone, Debug)]
@@ -23,7 +25,7 @@ struct Animation {
     color: u32,
     object: Option<tor_protocol::ObjectPresentation>,
     elapsed: Duration,
-    duration_ms: u64,
+    travel_ms: u64,
     steps: usize,
 }
 
@@ -105,13 +107,15 @@ impl EffectAnimations {
         if self.active.len() == MAX_ANIMATIONS {
             self.active.pop_front();
         }
+        let trail = *delivery == EffectDelivery::Ray;
+        let step_ms = if trail { RAY_STEP_MS } else { STEP_MS };
         self.active.push_back(Animation {
             segments: paths,
-            trail: *delivery == EffectDelivery::Ray,
+            trail,
             color: visual_color(presentation.visual),
             object: presentation.object.clone(),
             elapsed: Duration::ZERO,
-            duration_ms: STEP_MS.saturating_mul(steps as u64).min(MAX_DURATION_MS),
+            travel_ms: step_ms.saturating_mul(steps as u64).min(MAX_DURATION_MS),
             steps,
         });
     }
@@ -121,8 +125,10 @@ impl EffectAnimations {
         for animation in &mut self.active {
             animation.elapsed = animation.elapsed.saturating_add(elapsed);
         }
-        self.active
-            .retain(|a| a.elapsed.as_millis() < u128::from(a.duration_ms));
+        self.active.retain(|a| {
+            let hold_ms = if a.trail { RAY_HOLD_MS } else { 0 };
+            a.elapsed.as_millis() < u128::from((a.travel_ms + hold_ms).min(MAX_DURATION_MS))
+        });
         was_active
     }
     pub fn glyphs(&self, observation: &Observation) -> Vec<EffectGlyph> {
@@ -146,8 +152,9 @@ impl EffectAnimations {
         }
         let mut glyphs = Vec::new();
         for a in &self.active {
-            let step =
-                (a.elapsed.as_millis() * a.steps as u128 / u128::from(a.duration_ms)) as usize;
+            // During the hold, keep the final visible segment on the map.
+            let step = (a.elapsed.as_millis() * a.steps as u128 / u128::from(a.travel_ms))
+                .min(a.steps as u128 - 1) as usize;
             let mut offset = 0;
             for path in &a.segments {
                 let end = offset + path.len();

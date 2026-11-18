@@ -242,13 +242,15 @@ impl Messages {
             let (verb, name) = rest.split_once(" the ")?;
             Some((verb.to_owned(), name.to_owned()))
         };
-        let Some((verbing, name)) = parts(finished, "You finish ") else {
+        let Some((completion, name)) = parts(finished, "You finish ")
+            .or_else(|| parts(finished, "You ").filter(|(verb, _)| verb == "zap"))
+        else {
             return self.push(finished);
         };
         let mut learned = None;
         self.turn
             .retain(|(sentence, _)| match parts(sentence, "You begin to ") {
-                Some((verb, began)) if verbing.starts_with(verb.trim_end_matches('e')) => {
+                Some((verb, began)) if completion.starts_with(verb.trim_end_matches('e')) => {
                     if began != name && began != "item" {
                         learned = Some(began);
                     }

@@ -119,7 +119,9 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(charges(learned, first["id"]), 3)
         self.assertIsNone(charges(learned, second["id"]), "type knowledge must not invent another instance's charges")
         self.assertIn("3 charges", text.command("inventory"))
-        text.command("zap #" + first["id"] + " east")
+        reply = text.command("zap #" + first["id"] + " east")
+        self.assertIn("You zap the ", reply)
+        self.assertNotIn("You finish zapping", reply)
         zapped = self.snapshot(probe)
         self.assertEqual(charges(zapped, first["id"]), 2)
         self.assertEqual(len(items(zapped, "wand")), 2)
@@ -1508,6 +1510,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         for attempt in range(2):
             reply = self.say(text, "zap #" + wand["id"] + " east")
             self.assertIn("too weak", reply.lower())
+            self.assertNotIn("You zap the ", reply)
             self.assertNotIn("You finish zapping", reply)
             after = self.snapshot(probe)
             after_saved = checkpoint(self, probe)
@@ -1672,6 +1675,32 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
     @non_graphical
     def test_imported_cancellation_text_hits_invisible_body_and_reopens_without_sources(self):
         self.exercise_imported_first_contact(missile=False)
+
+    def test_native_short_range_magic_missile_names_the_zap_and_hit(self):
+        package = prepare_imported_first_contact(self, missile=True)
+        self.server(scenario=package)
+        peer, _ = self.client(actor=2)
+        collector, initial = self.client()
+        carried = self.collect(collector, initial, [peer])
+        wand, = items(carried, "wand")
+        self.assertIsNone(self.request(collector, {"type": "release_control"})["error"])
+        window = self.launch("tor-client-ascii", ["--connect", self.address, "--report-frames"])
+        self.ascii_frame(window, lambda frame: frame["has_control"] and frame["can_admit_intention"])
+        native = self.native_keys(window)
+        self.native_press(window, native, "z", "zap")
+        aimed = self.native_press(window, native, "Return", "enter")
+        self.assertEqual(aimed["zap_item"], wand["id"])
+        self.native_press(window, native, "Right", "right", wait_for_simulation=False)
+        self.advance(collector, [peer])
+        fired = self.ascii_frame(window, lambda frame: "magic missile hits" in frame["messages"]["turn"].lower()
+                                 or "used Magic Missile" in frame["messages"]["turn"])
+        turn = fired["messages"]["turn"]
+        self.assertIn("You zap the " + wand["name"] + ".", turn)
+        self.assertIn("The magic missile hits the contact recipient.", turn)
+        self.assertNotIn("You finish zapping", turn)
+        self.assertNotIn("You used Magic Missile", turn)
+        self.assertNotIn("Your bolt streaks through view.", turn)
+        self.assertNotIn("You begin to zap", turn)
 
     @non_graphical
     def test_imported_magic_missile_text_fails_one_save_and_reopens_without_sources(self):

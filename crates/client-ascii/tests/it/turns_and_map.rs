@@ -2021,7 +2021,9 @@ fn ascii_zap_trail_and_missile_advance_without_changing_the_map() {
     ));
     let o = &a.state.as_ref().unwrap().state().observation;
     assert_eq!(a.effect_animations.glyphs(o).len(), 1);
-    assert!(a.effect_animations.advance(Duration::from_millis(60)));
+    assert!(a.effect_animations.advance(Duration::from_millis(109)));
+    assert_eq!(a.effect_animations.glyphs(o).len(), 1);
+    assert!(a.effect_animations.advance(Duration::from_millis(1)));
     assert_eq!(
         a.effect_animations
             .glyphs(o)
@@ -2032,7 +2034,15 @@ fn ascii_zap_trail_and_missile_advance_without_changing_the_map() {
     );
     canvas.draw(&a);
     assert!(canvas.pixels != baseline, "zap must be painted on map");
-    a.effect_animations.advance(Duration::from_secs(3));
+    a.effect_animations.advance(Duration::from_millis(330));
+    assert_eq!(
+        a.effect_animations.glyphs(o).len(),
+        4,
+        "hold the completed trail beyond the last travel step"
+    );
+    a.effect_animations.advance(Duration::from_millis(249));
+    assert_eq!(a.effect_animations.glyphs(o).len(), 4);
+    a.effect_animations.advance(Duration::from_millis(1));
     canvas.draw(&a);
     assert!(
         canvas.pixels == baseline,
@@ -2059,7 +2069,7 @@ fn ascii_effects_preserve_bounces_break_gaps_and_follow_only_visible_anchor_keys
         EffectDelivery::Ray,
         vec![path(&[-2, -1, -2]), path(&[2, 3])],
     ));
-    fx.advance(Duration::from_millis(120));
+    fx.advance(Duration::from_millis(220));
     assert_eq!(
         fx.glyphs(&o)
             .iter()
@@ -2067,7 +2077,7 @@ fn ascii_effects_preserve_bounces_break_gaps_and_follow_only_visible_anchor_keys
             .collect::<Vec<_>>(),
         vec![-2, -1, -2]
     );
-    fx.advance(Duration::from_millis(60));
+    fx.advance(Duration::from_millis(110));
     assert_eq!(
         fx.glyphs(&o)
             .iter()
@@ -2097,10 +2107,10 @@ fn ascii_effect_clock_is_frame_rate_independent_and_bounded() {
     let mut b = tor_client_ascii::effects::EffectAnimations::default();
     a.push(&e);
     b.push(&e);
-    for _ in 0..12 {
+    for _ in 0..22 {
         a.advance(Duration::from_millis(10));
     }
-    b.advance(Duration::from_millis(120));
+    b.advance(Duration::from_millis(220));
     assert_eq!(a.glyphs(&view()), b.glyphs(&view()));
     for _ in 0..1000 {
         a.push(&e);
