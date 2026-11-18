@@ -11,11 +11,15 @@ use tor_server::{
 };
 
 /// Two authored halls around two generated caves, with radii of zero: the
-/// first cave is built at the start (it's linked to the start hall), the
-/// second when the character enters the first.
+/// first cave is built at the start (it's linked to the start hall). Later
+/// builds may be required by player or NPC observations, not just entry.
 fn caves(seed: u64) -> Scenario {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/generated-filler");
-    let mut scenario = scenario_package::load(&root, seed, None, false).unwrap();
+    caves_at(&root, seed)
+}
+
+fn caves_at(root: &Path, seed: u64) -> Scenario {
+    let mut scenario = scenario_package::load(root, seed, None, false).unwrap();
     scenario.streaming = Some(Streaming {
         active_radius: 0,
         load_radius: 0,
@@ -79,29 +83,39 @@ fn seen(engine: &Engine) -> Observation {
     engine.state(ActorId(1)).unwrap().observation
 }
 
-fn generated_things(observation: &Observation) -> usize {
+fn generated_coins(observation: &Observation) -> usize {
     observation
         .ground_items
         .iter()
-        .filter(|i| i.item.name == "copper coin")
+        .filter(|item| item.item.name == "copper coin")
         .count()
-        + observation
-            .visible_actors
-            .iter()
-            .filter(|a| a.name == "cave rat")
-            .count()
 }
 
 #[test]
-fn crossing_generated_caves_builds_each_when_needed_and_replays_exactly() {
+fn player_only_crossing_generated_caves_builds_each_when_needed_and_replays_exactly() {
     let directory = tempfile::tempdir().unwrap();
     let save = directory.path().join("game.db");
     let policy = SavePolicy {
         checkpoint_interval: 0,
         ..SavePolicy::default()
     };
-    let mut engine = Engine::open_with_policy(&save, caves(5), policy.clone()).unwrap();
+    // This arm owns player-driven demand. Wandering NPC observations may
+    // legitimately build the far hall before the player enters the first cave;
+    // the separate autonomous witness below owns that path.
+    let package = directory.path().join("player-demand-package");
+    support::copy_package(&support::package("generated-filler"), &package);
+    for region in [2, 3] {
+        let path = package.join(format!("regions/{region}.toml"));
+        let mut source: toml::Value =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        source["generate"]["actors"]["count"] = toml::Value::Array(vec![0.into(), 0.into()]);
+        std::fs::write(path, toml::to_string(&source).unwrap()).unwrap();
+    }
+    scenario_package::validate(&package).unwrap();
+    let scenario = caves_at(&package, 5);
+    let mut engine = Engine::open_with_policy(&save, scenario, policy.clone()).unwrap();
     let start = engine.region_counts().unwrap();
+    assert_eq!(engine.actors(), vec![ActorId(1)]);
     // The start hall and the first cave are built; the second cave and the
     // far hall aren't.
     assert_eq!(
@@ -110,28 +124,117 @@ fn crossing_generated_caves_builds_each_when_needed_and_replays_exactly() {
         "{start:?}"
     );
     let mut commands = walk_east(&mut engine, INTO_CAVE);
-    let mut things = generated_things(&seen(&engine));
+    let mut things = generated_coins(&seen(&engine));
     let inside = engine.region_counts().unwrap();
+    assert_eq!(engine.actors(), vec![ActorId(1)]);
     assert_eq!(
         inside.unbuilt, 1,
         "entering the first cave built the second"
     );
     for _ in 0..ACROSS_CAVE {
         commands += walk_east(&mut engine, 1);
-        things += generated_things(&seen(&engine));
+        things += generated_coins(&seen(&engine));
+        assert_eq!(engine.actors(), vec![ActorId(1)]);
     }
     assert_eq!(engine.region_counts().unwrap().unbuilt, 0);
-    assert!(things > 0, "the walk saw a generated rat or coin");
+    assert!(things > 0, "the player-only walk must see generated coins");
     engine.flush().unwrap();
     let expected = engine.state(ActorId(1)).unwrap();
-    // Every command issued, including AI turns before a refused step.
+    // All admitted player work remains part of exact durable replay.
     assert!(engine.profile_counts().0 >= commands);
     let commands = engine.profile_counts().0;
     drop(engine);
+    std::fs::remove_dir_all(&package).unwrap();
     // Replay from the start builds the caves again, exactly.
     let engine = Engine::open_with_policy(&save, Scenario::two_room(0), policy).unwrap();
     assert_eq!(engine.recovery_profile().records_replayed, commands);
     assert_eq!(engine.state(ActorId(1)).unwrap(), expected);
+    assert_eq!(engine.actors(), vec![ActorId(1)]);
+    assert_eq!(engine.region_counts().unwrap().unbuilt, 0);
+}
+
+#[test]
+fn wandering_npc_observation_builds_the_far_hall_before_player_entry_and_replays() {
+    use tor_server::journal::{Event, JournalContent};
+    let directory = tempfile::tempdir().unwrap();
+    let save = directory.path().join("npc-build.db");
+    let package = directory.path().join("npc-source");
+    support::copy_package(&support::package("generated-filler"), &package);
+    let policy = SavePolicy {
+        checkpoint_interval: 0,
+        ..SavePolicy::default()
+    };
+    let mut engine =
+        Engine::open_with_policy(&save, caves_at(&package, 5), policy.clone()).unwrap();
+    assert_eq!(engine.region_counts().unwrap().unbuilt, 2);
+    let mut npc_builds = 0;
+    let mut witnesses = std::collections::BTreeSet::new();
+    // Stop one move short of entering the cave. Every player outcome proves
+    // that the player remains in the entry hall throughout the NPC build.
+    for _ in 0..INTO_CAVE - 1 {
+        for turn in 0..1000 {
+            let Some(actor) = engine.next_actor().filter(|id| engine.is_ai(*id)) else {
+                break;
+            };
+            assert!(turn < 999, "NPC work must return to the player");
+            let before = engine.region_counts().unwrap().unbuilt;
+            let result = engine.advance_ai(actor).unwrap();
+            witnesses.insert(actor);
+            let after = engine.region_counts().unwrap().unbuilt;
+            if after < before {
+                assert_eq!((before, after), (1, 0));
+                let JournalContent::IntentionStarted {
+                    event: Event::Moved { from, to },
+                    ..
+                } = result.entry.content
+                else {
+                    panic!(
+                        "NPC build did not follow a committed move: {:?}",
+                        result.entry
+                    );
+                };
+                assert_eq!((from.region, to.region), (2, 2));
+                assert_ne!(from, to);
+                npc_builds += 1;
+            }
+        }
+        assert_eq!(engine.next_actor(), Some(ActorId(1)));
+        let result = support::act(
+            &mut engine,
+            Action::Move {
+                direction: Direction::East,
+            },
+        )
+        .unwrap();
+        let JournalContent::Action {
+            event: Event::Moved { from, to },
+            ..
+        } = result.entry.content
+        else {
+            panic!("player did not move: {:?}", result.entry);
+        };
+        assert_eq!((from.region, to.region), (1, 1));
+    }
+    assert_eq!(
+        npc_builds, 1,
+        "the fixed tape must exercise an NPC-driven build"
+    );
+    assert_eq!(engine.region_counts().unwrap().unbuilt, 0);
+    witnesses.insert(ActorId(1));
+    let expected: Vec<_> = witnesses
+        .into_iter()
+        .map(|actor| (actor, engine.state(actor).unwrap()))
+        .collect();
+    engine.flush().unwrap();
+    let records = engine.profile_counts().0;
+    drop(engine);
+    std::fs::remove_dir_all(&package).unwrap();
+    let engine = Engine::open_with_policy(&save, Scenario::two_room(0), policy).unwrap();
+    assert_eq!(engine.recovery_profile().records_replayed, records);
+    for (actor, state) in expected {
+        assert_eq!(engine.state(actor).unwrap(), state);
+    }
+    assert_eq!(engine.region_counts().unwrap().unbuilt, 0);
 }
 
 #[test]

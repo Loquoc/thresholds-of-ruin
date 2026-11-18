@@ -686,7 +686,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         self.check_ability("fixture_focus_fear", "focus")
 
     def test_text_commands_prepare_and_resolve_all_granted_abilities(self):
-        package = creature_package(self, "text-creatures")
+        package = creature_package(self, "text-creatures", idle_behavior="wait", memory_ticks=0)
         self.server(scenario=package)
         observer, _ = self.client(observe=True)
         text, _ = self.adventure()
@@ -849,7 +849,7 @@ class NativeCreatureAbilityProcesses(ProcessTestCase):
         self.assertTrue(completed["window_open"])
 
     def test_presented_stats_and_ability_target_selection_execute_shared_combat(self):
-        package = creature_package(self, "native-creatures")
+        package = creature_package(self, "native-creatures", idle_behavior="wait", memory_ticks=0)
         self.server(scenario=package)
         window, initial = self.window()
         stats = self.key(window, "stats")

@@ -759,7 +759,7 @@ fn incompatible_or_inconsistent_archives_are_rejected_without_overwrite() {
     drop(engine);
     drop(Engine::open(&path, Scenario::two_room(0)).unwrap());
     let original: serde_json::Value = support::read(&path);
-    assert_eq!(original["ruleset"], "interactions-v66");
+    assert_eq!(original["ruleset"], "interactions-v72");
     let mut unsupported = original.clone();
     unsupported["version"] = 999.into();
     // Version 21 could reuse entity identities after a rewind. Its journal

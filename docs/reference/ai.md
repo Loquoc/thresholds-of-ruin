@@ -45,7 +45,8 @@ free equipment path or a reaction selected after inspecting a private result.
 | Engagement | Target/reference kind, last seen location and actor-active expiry |
 | Anonymous alert | A location to investigate/flee, never a target identity or attack handle |
 | Retained preparation | Frozen work, claims and committed cursor; resuming does not recapture it |
-| Visit history | Saved per-location exploration counts; pure choice does not increment authoritative counts |
+| Visit history | Saved per-location exploration decision counts; pure choice does not increment authoritative counts |
+| Exploration destination | Optional actor-owned idle interest, not a stored route; combat/care/acquisition suspend it, successful erratic movement releases it |
 | Behavior RNG | Saved actor-owned state used for authored random choices, not a wall clock |
 
 Frozen actors accrue no active time and gain no catch-up turns on thaw. An attack
@@ -83,12 +84,25 @@ use an eligible visible candidate, followed by an anonymous awareness alert.
 
 Hostile candidates must be currently disclosed, pass awareness eligibility and
 perceived-hostility checks. Ranking uses remembered route length, then actor ID;
-no route ranks after reachable candidates. The [known-space routing algorithm](../architecture/perception.md#known-space-pathfinding-and-its-limits)
+no route ranks after reachable candidates. During fresh acquisition, stationary
+actors first prefer currently disclosed legal melee contact, because unavailable
+pursuit routes cannot distinguish a nearby foe from a distant one. Moving actors
+and retained-work fallback threats keep the original ordering. This does not
+replace an existing engagement or bypass disposition, provocation or awareness. The [known-space routing algorithm](../architecture/perception.md#known-space-pathfinding-and-its-limits)
 owns edge costs, deterministic search and path reconstruction. Mean actors with positive memory can
 acquire eligible opponents directly, with **no separate wake lottery**. Passive
 actors need ordinary provocation, except readied touch ambush. Continual Stealth
 still gates awareness. Engagement refresh needs a matching current reference;
 reaching last-seen position without seeing the target clears the engagement.
+
+A fresh, actually started readied-touch attack can establish bounded engagement
+with its currently disclosed faction-hostile toucher. This applies to both the
+initial-ready strike and a later ordinary preparation after invalidation. It
+preserves an existing live engagement and requires positive memory. Friendly or
+undisclosed contact retains its immediate-contact semantics but gains no new
+ongoing aggression or hidden tracking. Recognition and adjacency still produce
+Wait; resumed work does not refresh continuation memory. Normal preparation,
+recovery, costs and subsequent AI priorities remain authoritative.
 
 ## Exact priority order
 
@@ -112,12 +126,15 @@ because they might appear tactically better to an observer with hidden knowledge
 | 13 | Anonymous-alert investigation | Outside Flee and without engagement, route to licensed alert location; do not invent a target attack |
 | 14 | Safe Search items | Equipment improvement, then useful nearby loot, then known Gold; each has policy and visible-hostile gates |
 | 15 | Doors | Search plus door permission and voluntary input: first disclosed reachable closed door |
-| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, choose legal disclosed neighbor by fewest visits, breaking equal-best ties with the copied actor-owned RNG |
+| 16 | Idle exploration | Search + Explore + voluntary input: increment proposed current-cell visits, continue a short remembered destination or pause once on arrival, otherwise select a disclosed destination; fall back to the established least-visited neighbor policy |
 | 17 | Fallback | Wait through ordinary action execution |
 
 Stable location ordering defines the candidate list, not a preferred compass direction.
-Only a tie draws randomness; a unique best neighbor and an idle Wait do not.
-This removes shared coordinate bias without introducing persistent goals or a planner.
+A unique first-tier destination or local neighbor needs no tie draw. Within the
+exploration stage, continuing a destination and its arrival Wait draw none.
+Unsuccessful destination selection leaves the local fallback its original RNG
+stream; independent earlier stages retain their own draw contracts.
+This removes shared coordinate bias without introducing a generic goal registry or planner.
 
 An idle Wait profile forbids roaming and detours, not retaliation or every useful
 underfoot action. Tool permissions remain independent. One decision does not
@@ -131,14 +148,37 @@ disclosed geometry; it does not optimize against secret opponent defenses.
 Directional/ray candidates use disclosed alignment rather than a hidden trace to
 find concealed bodies. Known finite devices are fallback sources only when their
 identity and a positive charge fact make them usable; query or birth possession
-does not identify them.
+does not identify them. Hostile device fallback accepts bounded Sight and
+UntilObstruction first-body delivery. The latter uses a disclosed bearing without
+inventing a distance cap; physical execution still owns obstruction and first-body
+stopping. This does not change granted creature rays, infer cancellation utility
+from private conditions, or establish that generated creatures acquire or identify
+wands. Exact production Magic Missile admission is covered with synthetic actors
+and ordinary Identify, not a natural NPC inventory claim.
 
 Fresh ray, device, launcher and equipped-throw choices decline a bearing when
-a disclosed nonhostile body cell intercepts its prefix before the target in a
-fully disclosed ordinary local chart. This includes non-anchor body cells and
-arbitrary cell bearings. The conservative guard does not predict hidden bodies,
-post-target hits or reflections; ambiguous folded charts retain prior behavior.
-Already prepared work retains its existing continuation policy.
+a disclosed nonhostile body cell or a disclosed wall lies on its nominal prefix
+before the target in a fully disclosed ordinary local chart. This includes non-anchor body cells and
+arbitrary cell bearings. After a definite veto only, they examine at most 16 unique
+alternative disclosed target body-cell locations in canonical order. An alternate
+must positively prove a complete clear prefix within any authored range; absence of
+a veto is not proof of safety. The original bearing remains unchanged when it
+has no definite veto. The shared decision-local chart reads disclosed occurrences,
+not private target shape or future collisions, and introduces no random draw.
+
+The chooser skips chart construction when every disclosed nonhostile body row
+and wall lies outside the inclusive same-region box from the actor's origin to
+the primary target cell. A canonical monotone prefix cannot meet such a row. This is only a
+fast negative bound, not proof that a bearing is clear; every body row remains
+eligible, and folded/aliased primary behavior and alternative checks are unchanged.
+
+The conservative guard does not predict hidden bodies, post-target hits or
+reflections. A known wall is a nominal straight-path veto, not a prediction of
+whether a bounce could eventually hit. The entire prefix must still be disclosed:
+a missing cell beyond a visible wall retains the original bearing. Conflicting
+wall/clear rows, target-wall contradictions and ambiguous folded charts likewise
+retain prior primary behavior and cannot justify an alternate. A safe endpoint beyond the cap may remain undiscovered.
+Already prepared work retains its frozen aim and existing continuation policy.
 
 Healing care recognizes a narrow safe plan: positive possible healing, with only
 healing effects in the relevant branches, not any ability whose name resembles
@@ -349,7 +389,10 @@ Source/test witnesses are static evidence here, not newly executed results.
 | Contract | Owner |
 | --- | --- |
 | Pure choice and stable priorities | [ai.rs](../../crates/simulation/src/ai.rs), [decision tests](../../crates/simulation/src/ai.rs) |
+| Retained attack matching, explicit selection modes and fresh fallback | [attack selection](../../crates/simulation/src/ai_attack_selection.rs), [direct probe tests](../../crates/simulation/src/ai_attack_selection_tests.rs) |
+| Retreat metric/frame boundaries and distinct ranged spacing | [tactical movement](../../crates/simulation/src/ai_tactical_movement.rs), [frame tests](../../crates/simulation/src/ai_tactical_movement_tests.rs), [flee contracts](../../crates/simulation/src/ai_flee_tests.rs) |
 | Idle visits, routes and permissions | [idle tests](../../crates/simulation/src/ai_idle_tests.rs), [hobgoblin host tests](../../crates/server/src/hobgoblin_roaming_tests.rs) |
+| Retained exploration interests and save/replay | [exploration tests](../../crates/simulation/src/ai_exploration_tests.rs), [checkpoint tests](../../crates/simulation/src/checkpoint.rs), [streaming tests](../../crates/simulation/src/streaming.rs), [ordinary process tests](../../scripts/test_ai_interactions_process.py) |
 | Awareness, normal contact and Stealth | [awareness](../../crates/simulation/src/awareness.rs) |
 | Safe item/source selection | [ai_items](../../crates/simulation/src/ai_items.rs), [ai_projectiles](../../crates/simulation/src/ai_projectiles.rs) |
 | Defense predicate | [ai_defense](../../crates/simulation/src/ai_defense.rs), [shared condition safety](../../crates/simulation/src/ai_effect_safety.rs) |
@@ -390,8 +433,10 @@ or promise that future steps remain clear.
 
 The coordinator in `ai.rs` remains an explicit first-applicable priority pipeline,
 not a global utility contest or dynamically registered behavior tree. Its order
-is the table above. Contiguous fresh-care, safe-acquisition and exploration stages
+is the table above. Fresh-care and safe-acquisition stages
 live in [decision stages](../../crates/simulation/src/ai_decision_stages.rs).
+[Exploration](../../crates/simulation/src/ai_exploration.rs) owns the bounded idle
+interest and the established local fallback.
 [Encounter stages](../../crates/simulation/src/ai_encounter.rs) own engagement
 refresh and combat proposals. The coordinator visibly places retained-work
 resumption, care, erratic movement, retreat and committed-prefix fallback before
@@ -405,17 +450,58 @@ search, a named positive-or-negative `GoldChoiceCache`, and one copied AI/behavi
 Read-only predicates may use the acting body's capabilities and present legality;
 they must not inspect an opponent's private inventory or undisclosed future
 occupancy. New stage helpers receive only the context they need, not a new
-unrestricted knowledge store. Nothing adds serialized memory or another rules
-representation.
+unrestricted knowledge store. The structural stage boundaries do not add another rules representation. The
+exploration destination is explicitly serialized actor memory, not a global goal
+registry or unrestricted blackboard.
 
 A stage proposes an ordinary action or a frozen evaluated plan. It does not
 execute, consume resources, draw world randomness or commit memory. The winning
 proposal attaches the existing draft to `AiDecision`; ordinary execution owns
-validation and commitment. Exploration may update draft visits and its copied
-actor-owned RNG, in the existing order. A stage that declines must preserve any
+validation and commitment. Exploration may update its draft destination, visits and copied
+actor-owned RNG. None becomes authoritative until ordinary commit. A stage that declines must preserve any
 intentional draft effects already specified by its contract. Do not re-evaluate
 an earlier predicate merely because a later stage needs its result: cached
 negative gold decisions are as important as positive ones.
+
+Hostile technique selection has its own [owner](../../crates/simulation/src/ai_attack_selection.rs),
+separate from encounter state and tactical movement. Its named modes distinguish
+ordinary engagement, cornered basic-only fallback, and a reposition eligibility
+probe. The last may inspect an outside-melee capability while adjacent; it does
+not execute that capability or choose movement. Granted candidates retain authored
+priority and stable identity order, with known finite devices as the final allowed
+fallback. Do not add combinations of mode flags implicitly.
+
+Retained attack probing distinguishes a selected frozen plan, ordinary mismatch
+that permits fresh selection, and an unsupported retained shape that stops the
+selector. Mode eligibility is checked before aim matching. A matching but no-longer
+available plan permits fresh selection. Retained bearing matching uses its legacy
+disclosed geometry, not the fresh wall/ally alternate search: sharing that fresh
+selector could silently recapture already-paid aim. The probe borrows the existing
+plan; only the selected result is cloned. It adds no resource admission, cache,
+random draw or serialized state.
+
+[Tactical movement](../../crates/simulation/src/ai_tactical_movement.rs) owns retreat
+and ranged-spacing proposals, not encounter priority or commitment. Retreat's
+metric explicitly selects remembered route hops or canonical local coordinates
+for the entire decision; equal scalar values do not make those units comparable.
+Its borrowed local frame names coordinate evidence only, not legal occupancy,
+support or execution. Frame construction performs no eager chart scan. Route
+searches, the shared plateau budget and its destination cache stay in the policy.
+A missing direct return path may prove unbounded graph distance; a failed or
+exhausted bounded plateau query cannot prove escape. Preserve this distinction.
+Ranged spacing retains its separate funded-technique, footprint, gravity,
+footing, disclosure and range guards rather than sharing a generic move score.
+
+Direct loot classification has a small decision-local `DirectLootNeeds` owner in
+[ai_items](../../crates/simulation/src/ai_items.rs). It answers quantity only;
+exposure checks, Wait semantics, approach construction, action legality and final
+distance/item ranking remain visible in the chooser. Ranged pair quantities are
+still computed first by their existing reachability-aware scan, so this is not
+fully navigation-independent desire. One lazy known-gear baseline is reused
+across ground rows. Preserve ranged-first quantity clamping, the original
+gear/healing/food/supply evaluation order, one-unit precedence over supply needs,
+and saturating carried-supply aggregation. This boundary adds no new cache,
+interest, item interpretation or acquisition policy.
 
 To add an interest or tactic, first choose its explicit priority and eligibility
 policy, then implement its bounded decision in the relevant stage. Keep desire,
@@ -471,3 +557,65 @@ and decline a bounded comparison completely on exhaustion. Tests should include
 an unknown item, a disclosed bystander, two equal-ranked targets, and an earlier
 care or committed-work choice that must still win. This is an extension recipe,
 not an implemented new interest.
+
+### Short exploration interests
+
+Actors already permitted to Explore can retain one short destination instead of
+reranking adjacent cells after every step. This adds continuity, not a guard post,
+patrol assignment or new creature lore. Wait profiles remain stationary unless an
+independent higher-priority behavior applies; switching to Wait clears the goal.
+
+New targets come only from currently disclosed non-wall cells, excluding the
+actor and disclosed creature body cells. Sort and deduplicate by visit count and
+location, then sample one candidate from each visit tier before another from the
+same tier, with at most 16 attempts total. Endpoint visit count remains primary.
+Among equal endpoint tiers, prefer the lower exact mean of actor-owned visits on
+route-interior cells, excluding the endpoint; integer cross-products compare the
+means without floating-point rounding. Ties retain the first sampled choice.
+A valid higher-tier destination remains provisional while lower-visit tiers remain
+within the allowance. Higher tiers cannot improve it; equal tiers can improve its
+interior score. Only a minimum-tier candidate with zero interior visits ends the
+comparison early. Each sampled tied tier has a lazy cyclic actor-RNG start; a
+unique first-tier success draws nothing. Accept a remembered route of 3–12 steps.
+The score compares ordinary shortest routes, not longer alternative paths to one
+goal. Proposal draws commit only if a destination is selected;
+failed selection preserves local fallback RNG. This bounded preference is not
+global least-visited reachability optimization. In particular, unreachable
+zero-visit air seen by a walking creature cannot monopolize every attempt and
+exclude useful visited floor cells. No absolute-height or walking-only target
+filter overrides portals, stairs or flight.
+
+Continuation recomputes remembered navigation, stores no path, and rechecks the
+actual next move against disclosed location/frame and present body legality.
+Known occupied suffixes are rejected. No future undisclosed obstacle or occupant
+is inspected. Selection and continuation permit at most 512 additional route-node
+expansions in the decision's shared search. After that allowance is spent, later
+candidates may still use routes already settled by the same search. This does not
+cap work already done by
+earlier priorities or route reconstruction. An impossible, blocked, overlong or
+budget-exhausted interest is abandoned, then local exploration runs without
+immediately choosing another destination. Exhaustion is a policy cost limit,
+not evidence that the goal is unreachable.
+
+At the remembered destination, the idle stage clears its draft and proposes one
+ordinary Wait. This is a pause, not an active search action or a promise of safety.
+Higher-priority combat, care, anonymous investigation and acquisition retain
+their order and suspend the interest. Successful erratic movement is an explicit
+exception: it releases the draft destination rather than resuming the old idle
+interest afterward. A declined erratic draw leaves that destination intact.
+Direction choice and RNG draws remain the erratic stage's existing contract;
+release becomes authoritative only when its ordinary move commits. Current-cell
+visits count eligible exploration decisions, including arrival pauses, not just
+entries into a cell. A later departure can count another decision at that cell.
+The destination survives checkpoints and frozen/detached regions; forgotten
+navigation affects the next choice rather than invalidating a save. Structural
+validation checks that its location is in the world's known bounds, not whether
+it is currently traversable or unoccupied.
+
+Retained continuation is unchanged: it does not abandon a valid destination
+merely because an adjacent cell has fewer visits. Route-interior scoring applies
+only when choosing a new goal. Following remembered routes can still revisit
+cells, including unavoidable bottlenecks. These policies do not establish maximum
+cell coverage, a complete purpose system or an all-roster balance/performance
+guarantee. Historical checkpoint measurements and follow-up comparisons must
+remain separate evidence; neither policy description claims measured improvement.

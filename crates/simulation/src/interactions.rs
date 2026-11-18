@@ -1309,6 +1309,13 @@ impl Game {
         {
             return Err(GameError::Rule(crate::abilities::RuleError::InvalidPlan));
         }
+        // Capture touch-owned provenance before readiness/guise retirement. A
+        // resumed plan never acquires or refreshes continuation memory.
+        let touch_continuation = if resuming {
+            None
+        } else {
+            self.touch_continuation(&plan, readied_credit)?
+        };
         if !resuming && self.preparation(actor).is_some() {
             let mut retirement = self.actor_outcome(actor)?;
             retirement.discard(self.tick)?;
@@ -1356,6 +1363,9 @@ impl Game {
         }
         let mut outcome = self.actor_outcome(actor)?;
         let candidate = &mut outcome.state;
+        if let Some(engagement) = touch_continuation {
+            candidate.behavior.engagement = Some(engagement);
+        }
         if readied_credit {
             candidate.readied_ambush.retire();
         }

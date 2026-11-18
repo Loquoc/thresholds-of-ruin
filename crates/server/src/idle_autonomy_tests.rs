@@ -612,7 +612,7 @@ fn population_without_ai_remains_external_even_when_its_species_has_idle_default
     );
 }
 
-fn idle_round(engine: &mut Engine, request: &str) {
+fn idle_round(engine: &mut Engine, request: &str) -> usize {
     assert_eq!(engine.next_actor(), Some(ActorId(1)));
     engine
         .command(
@@ -628,23 +628,52 @@ fn idle_round(engine: &mut Engine, request: &str) {
         )
         .unwrap();
     let mut decisions = 0;
+    let mut moves = 0;
     for _ in 0..8 {
         if engine.next_actor() == Some(ActorId(1)) {
             break;
         }
         assert_eq!(engine.next_actor(), Some(ActorId(3)));
-        assert!(matches!(
-            engine.next_ai_action(),
-            Some((ActorId(3), Action::Move { .. }))
-        ));
-        engine.advance_ai(ActorId(3)).unwrap();
+        match engine.next_ai_action() {
+            Some((ActorId(3), Action::Move { .. })) => {}
+            // Purposeful exploration pauses on arrival; it must not be
+            // mistaken for lost enrollment or a failed replay.
+            Some((ActorId(3), Action::Wait)) => {}
+            other => panic!("unexpected idle decision: {other:?}"),
+        }
+        let result = engine.advance_ai(ActorId(3)).unwrap();
+        match result.entry.content {
+            JournalContent::IntentionStarted {
+                event: crate::journal::Event::Moved { from, to },
+                ..
+            } => {
+                assert_ne!(from, to);
+                moves += 1;
+            }
+            JournalContent::IntentionStarted {
+                event: crate::journal::Event::Waited,
+                ..
+            } => {}
+            other => panic!("unexpected committed idle outcome: {other:?}"),
+        }
         decisions += 1;
     }
-    assert!(
-        decisions > 0,
-        "the round must commit default-driven roaming"
-    );
+    if decisions == 0 {
+        // A diagonal move costs more than one player Wait. An enrolled
+        // creature may still be recovering without a decision this round.
+        assert!(
+            engine
+                .game
+                .observe(Actor(3))
+                .unwrap()
+                .combat
+                .unwrap()
+                .recovery_remaining
+                > 0
+        );
+    }
     assert_eq!(engine.next_actor(), Some(ActorId(1)));
+    moves
 }
 
 #[test]
@@ -686,9 +715,10 @@ fn default_enrollment_and_visited_history_survive_source_free_durable_reopen_and
         };
         let mut engine = Engine::open_with_policy(&path, scenario, policy.clone()).unwrap();
         engine.enable_wizard().unwrap();
-        for index in 0..4 {
-            idle_round(&mut engine, &format!("before-marker-{index}"));
-        }
+        let before_moves: usize = (0..4)
+            .map(|index| idle_round(&mut engine, &format!("before-marker-{index}")))
+            .sum();
+        assert!(before_moves > 0, "fixed initial rounds must actually roam");
         let marker = engine
             .command(
                 "player",
@@ -721,9 +751,10 @@ fn default_enrollment_and_visited_history_survive_source_free_durable_reopen_and
             retained_ai["profile"],
             expected_profile("explore", [true; 4], 25)
         );
-        for index in 0..4 {
-            idle_round(&mut engine, &format!("after-marker-{index}"));
-        }
+        let after_moves: usize = (0..4)
+            .map(|index| idle_round(&mut engine, &format!("after-marker-{index}")))
+            .sum();
+        assert!(after_moves > 0, "fixed later rounds must actually roam");
         assert_ne!(saved_ai(&engine.game)["visits"], retained_ai["visits"]);
         engine.flush().unwrap();
         let before = Engine::replay(engine.archive.clone(), None, None).unwrap();
@@ -764,7 +795,10 @@ fn default_enrollment_and_visited_history_survive_source_free_durable_reopen_and
             retained_observation
         );
         assert!(resumed.is_ai(ActorId(3)));
-        idle_round(&mut resumed, "roam-on-rewound-branch");
+        let resumed_moves: usize = (0..4)
+            .map(|index| idle_round(&mut resumed, &format!("roam-on-rewound-branch-{index}")))
+            .sum();
+        assert!(resumed_moves > 0, "fixed rewound rounds must actually roam");
         resumed.flush().unwrap();
         let rewound = Engine::replay(resumed.archive.clone(), None, None).unwrap();
         drop(resumed);

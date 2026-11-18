@@ -8,6 +8,106 @@ mod equipment;
 use crate::EquipmentSpec;
 use equipment::{first_nondominated_gear, gear_score, KnownGearEvaluation};
 
+/// Actor-bound facts for one direct-loot decision, not persistent goal memory.
+/// Ranged quantities are supplied by the existing reachability-aware pair scan;
+/// this owner does not turn that scan into navigation-independent desire.
+/// One lazy gear baseline is shared across rows; no new quantity/cache policy.
+struct DirectLootNeeds<'a> {
+    game: &'a Game,
+    actor: ActorId,
+    view: &'a Observation,
+    profile: &'a crate::ai::AiProfile,
+    ranged: std::collections::BTreeMap<ItemId, u64>,
+    has_healing: bool,
+    supplies: std::collections::BTreeMap<crate::content_ids::SupplyId, u64>,
+    wants_food: bool,
+    gear: KnownGearEvaluation<'a>,
+}
+
+impl<'a> DirectLootNeeds<'a> {
+    fn new(
+        game: &'a Game,
+        actor: ActorId,
+        view: &'a Observation,
+        profile: &'a crate::ai::AiProfile,
+        sight: &[tor_world::SightCell],
+        ranged: std::collections::BTreeMap<ItemId, u64>,
+    ) -> Self {
+        let has_healing = view
+            .inventory
+            .iter()
+            .any(|item| game.known_healing_reserve(actor, item.id));
+        let supplies = if profile.care
+            && view
+                .ground_items
+                .iter()
+                .any(|item| item.known_supply.is_some())
+        {
+            game.healing_supply_reserve(actor, sight)
+        } else {
+            Default::default()
+        };
+        let wants_food = profile.care
+            && required_nutrition(view).is_some()
+            && !view
+                .inventory
+                .iter()
+                .any(|item| game.known_food(actor, item.id));
+        let gear = KnownGearEvaluation::new(game, actor);
+        Self {
+            game,
+            actor,
+            view,
+            profile,
+            ranged,
+            has_healing,
+            supplies,
+            wants_food,
+            gear,
+        }
+    }
+
+    /// Preserve ranged-first precedence, then the original eager per-row
+    /// gear/healing/food/supply checks. A one-unit interest wins over supply need.
+    fn quantity_for(&mut self, item: &crate::observation::GroundItemView) -> Option<u64> {
+        if let Some(quantity) = self.ranged.get(&item.id) {
+            return Some((*quantity).min(item.quantity));
+        }
+        let useful_gear = self.profile.equipment && self.gear.destination(item.id).is_some();
+        let healing = self.profile.care
+            && !self.has_healing
+            && self.game.known_healing_reserve(self.actor, item.id);
+        let food = self.wants_food && self.game.known_food(self.actor, item.id);
+        let supply = self
+            .profile
+            .care
+            .then(|| {
+                let id = &item.known_supply.as_ref()?.id;
+                let required = *self.supplies.get(id)?;
+                let carried = self
+                    .view
+                    .inventory
+                    .iter()
+                    .filter(|owned| {
+                        owned
+                            .known_supply
+                            .as_ref()
+                            .is_some_and(|known| &known.id == id)
+                    })
+                    .fold(0_u64, |sum, owned| sum.saturating_add(owned.quantity));
+                required
+                    .checked_sub(carried)
+                    .filter(|quantity| *quantity > 0)
+            })
+            .flatten();
+        if useful_gear || healing || food {
+            Some(1)
+        } else {
+            supply.map(|quantity| quantity.min(item.quantity))
+        }
+    }
+}
+
 impl Game {
     pub(crate) fn choose_known_gold(
         &self,
@@ -131,63 +231,10 @@ impl Game {
             return None;
         }
         let ranged = self.ranged_loot_quantities(actor, view, profile, route);
-        let has_healing = view
-            .inventory
-            .iter()
-            .any(|item| self.known_healing_reserve(actor, item.id));
-        let supplies = if profile.care
-            && view
-                .ground_items
-                .iter()
-                .any(|item| item.known_supply.is_some())
-        {
-            self.healing_supply_reserve(actor, sight)
-        } else {
-            Default::default()
-        };
-        let wants_food = profile.care
-            && required_nutrition(view).is_some()
-            && !view
-                .inventory
-                .iter()
-                .any(|item| self.known_food(actor, item.id));
-        let mut gear = KnownGearEvaluation::new(self, actor);
+        let mut needs = DirectLootNeeds::new(self, actor, view, profile, sight, ranged);
         view.ground_items
             .iter()
-            .filter_map(|item| {
-                if let Some(quantity) = ranged.get(&item.id) {
-                    return Some((item, (*quantity).min(item.quantity)));
-                }
-                let useful_gear = profile.equipment && gear.destination(item.id).is_some();
-                let healing =
-                    profile.care && !has_healing && self.known_healing_reserve(actor, item.id);
-                let food = wants_food && self.known_food(actor, item.id);
-                let supply = profile
-                    .care
-                    .then(|| {
-                        let id = &item.known_supply.as_ref()?.id;
-                        let required = *supplies.get(id)?;
-                        let carried = view
-                            .inventory
-                            .iter()
-                            .filter(|owned| {
-                                owned
-                                    .known_supply
-                                    .as_ref()
-                                    .is_some_and(|known| &known.id == id)
-                            })
-                            .fold(0_u64, |sum, owned| sum.saturating_add(owned.quantity));
-                        required
-                            .checked_sub(carried)
-                            .filter(|quantity| *quantity > 0)
-                    })
-                    .flatten();
-                if useful_gear || healing || food {
-                    Some((item, 1))
-                } else {
-                    supply.map(|quantity| (item, quantity.min(item.quantity)))
-                }
-            })
+            .filter_map(|item| needs.quantity_for(item).map(|quantity| (item, quantity)))
             .filter(|(item, _)| !self.exposed_to_visible_hostile(actor, item.location, view))
             .filter_map(|(item, quantity)| {
                 if profile.idle == crate::behavior::IdleBehavior::Wait

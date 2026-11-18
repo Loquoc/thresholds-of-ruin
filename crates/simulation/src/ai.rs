@@ -104,6 +104,20 @@ pub(crate) struct Ai {
     pub profile: AiProfile,
     pub state: State,
     pub visits: crate::navigation_map::RegionMap<Location, u64>,
+    /// A remembered idle destination, never a stored path or hidden-world claim.
+    pub exploration_destination: Option<Location>,
+}
+
+fn read_exploration_destination<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Location>, D::Error> {
+    struct Destination(Location);
+    impl<'de> Deserialize<'de> for Destination {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            crate::public_plan::read_location(d).map(Self)
+        }
+    }
+    Option::<Destination>::deserialize(d).map(|value| value.map(|value| value.0))
 }
 
 impl<'de> Deserialize<'de> for Ai {
@@ -114,12 +128,15 @@ impl<'de> Deserialize<'de> for Ai {
             profile: AiProfile,
             state: State,
             visits: crate::navigation_map::RegionMap<Location, u64>,
+            #[serde(deserialize_with = "read_exploration_destination")]
+            exploration_destination: Option<Location>,
         }
         let fields: Fields = crate::bounded::named_map(d)?;
         Ok(Self {
             profile: fields.profile,
             state: fields.state,
             visits: fields.visits,
+            exploration_destination: fields.exploration_destination,
         })
     }
 }
@@ -173,15 +190,23 @@ impl AiChoice {
         }
     }
 }
+#[path = "ai_attack_selection.rs"]
+mod attack_selection;
+use attack_selection::AttackSelectionMode;
+
 #[path = "ai_encounter.rs"]
 mod encounter;
 
 #[path = "ai_decision_stages.rs"]
 mod decision_stages;
+#[path = "ai_exploration.rs"]
+mod exploration;
 #[path = "ai_flight_safety.rs"]
 mod flight_safety;
 #[path = "ai_projectiles.rs"]
 mod projectiles;
+#[path = "ai_tactical_movement.rs"]
+mod tactical_movement;
 
 // Priority-ordered transition table: frightened, target known, resulting state.
 const TRANSITIONS: [(bool, bool, State); 4] = [
@@ -272,6 +297,9 @@ impl Game {
             return Err(GameError::UnknownActor);
         }
         if let Some(ai) = self.combat.ai.get_mut(&actor) {
+            if profile.idle == crate::behavior::IdleBehavior::Wait {
+                ai.exploration_destination = None;
+            }
             ai.profile = profile;
         } else {
             self.combat.ai.insert(
@@ -280,6 +308,7 @@ impl Game {
                     profile,
                     state: State::Search,
                     visits: Default::default(),
+                    exploration_destination: None,
                 },
             );
         }
@@ -323,6 +352,13 @@ impl Game {
                     {
                         if let Ok(plan) = self.compile_touch_strike_plan(id, &ability, toucher) {
                             if self.ai_plan_resources_available(&plan) {
+                                // Commit installs this draft after starting the work;
+                                // keep the same touch-owned continuation in both paths.
+                                if let Some(engagement) =
+                                    self.touch_continuation(&plan, false).ok()?
+                                {
+                                    behavior.engagement = Some(engagement);
+                                }
                                 return Some(AiDecision::ability(plan, ai, behavior));
                             }
                         }
@@ -387,6 +423,11 @@ impl Game {
                     if draw % u64::from(chance.denominator) < u64::from(chance.numerator) {
                         let choice =
                             crate::dice::random_word(&mut behavior.rng) as usize % candidates.len();
+                        // A random deviation replaces an idle interest rather
+                        // than forcing the next ordinary move to undo it. This
+                        // is only a draft: admission/cancellation cannot clear
+                        // the authoritative goal before successful execution.
+                        ai.exploration_destination = None;
                         return Some(AiDecision::action(
                             Action::Move(candidates[choice]),
                             ai,
@@ -473,601 +514,17 @@ impl Game {
                 ));
             }
         }
-        if let Some(action) =
-            self.choose_exploration(id, &mut ai, &mut behavior, retained.is_some(), view)
-        {
+        if let Some(action) = self.choose_exploration(
+            id,
+            &mut ai,
+            &mut behavior,
+            retained.is_some(),
+            view,
+            search.as_mut(),
+        ) {
             return Some(AiDecision::action(action, ai, behavior));
         }
         Some(AiDecision::action(Action::Wait, ai, behavior))
-    }
-
-    fn ai_retreat_direction(
-        &self,
-        actor: ActorId,
-        threat: Location,
-        current_route: Option<usize>,
-        view: &crate::Observation,
-        scene: &[tor_world::SightCell],
-    ) -> Option<Direction> {
-        let actor_state = self.actors.get(&actor)?;
-        let displacement = |from: Location, to: Location| {
-            [
-                i64::from(to.position.x) - i64::from(from.position.x),
-                i64::from(to.position.y) - i64::from(from.position.y),
-                i64::from(to.position.z) - i64::from(from.position.z),
-            ]
-        };
-        let local_distance = |at: Location| {
-            [
-                (at.position.x, threat.position.x),
-                (at.position.y, threat.position.y),
-                (at.position.z, threat.position.z),
-            ]
-            .into_iter()
-            .map(|(at, threat)| u128::from(i64::from(at).abs_diff(i64::from(threat))))
-            .sum::<u128>()
-        };
-        // Current visibility does not require a retained navigation map. Keep
-        // ordinary local retreat available in that case, but select one metric
-        // for the whole decision: local coordinates never compete with hops.
-        // Same-region portals can fold coordinates too. Use only an unwrapped
-        // already-disclosed chart in this region, never inspect hidden links
-        // to justify it. Other-region occurrences do not invalidate ordinary
-        // local steps; any disclosed fold back into this region still does.
-        let local_chart = || {
-            scene
-                .iter()
-                .filter(|cell| cell.physical && cell.location.region == view.location.region)
-                .all(|cell| {
-                    cell.rotation == actor_state.orientation
-                        && displacement(view.location, cell.location)
-                            == tor_world::rotate_vector(
-                                actor_state.orientation,
-                                [
-                                    i64::from(cell.offset.x),
-                                    i64::from(cell.offset.y),
-                                    i64::from(cell.offset.z),
-                                ],
-                            )
-                })
-        };
-        let current = match current_route {
-            Some(distance) => distance as u128,
-            None if view.location.region == threat.region && local_chart() => {
-                local_distance(view.location)
-            }
-            None => return None,
-        };
-        let mut plateau = Vec::new();
-        let direct = Direction::HORIZONTAL
-            .into_iter()
-            .chain([Direction::Up, Direction::Down])
-            .filter_map(|direction| {
-                let (at, orientation) = self.actor_translation(actor, direction)?;
-                if !view
-                    .visible_cells
-                    .iter()
-                    .any(|c| c.location == at && !c.wall)
-                {
-                    return None;
-                }
-                let distance = if current_route.is_some() {
-                    let mut search = self.route_search_from(actor, at, orientation).ok()?;
-                    // A directed escape can remove every remembered return path
-                    // to this known threat: unbounded distance in this graph.
-                    search
-                        .route(threat)
-                        .map_or(u128::MAX, |route| route.len() as u128)
-                } else if at.region == threat.region
-                    && orientation == actor_state.orientation
-                    && displacement(view.location, at) == {
-                        let (x, y, z) = direction.rotated(actor_state.orientation).delta();
-                        [i64::from(x), i64::from(y), i64::from(z)]
-                    }
-                {
-                    local_distance(at)
-                } else {
-                    // Local coordinates cannot rank a portal destination, and
-                    // this decision has no known current route to compare.
-                    return None;
-                };
-                if distance == current {
-                    plateau.push((direction, at, orientation));
-                }
-                (distance > current).then_some((distance, direction))
-            })
-            .max_by_key(|(distance, _)| *distance)
-            .map(|(_, direction)| direction);
-        if direct.is_some()
-            || current_route.is_none()
-            || actor_state.body.cells != [[0, 0, 0]]
-            || !local_chart()
-        {
-            return direct;
-        }
-        // Anchor routing cannot certify a larger footprint's second-step fit.
-        // Only single-cell, two-step local witnesses; no state or assumed future
-        // occupancy. Execution rechecks the first step and the next decision
-        // re-evaluates the threat. Unknown or exhausted searches are not escape.
-        let mut remaining = 512;
-        let mut distances = std::collections::BTreeMap::new();
-        let ordinary_step =
-            |from: Location, to: Location, orientation: u8, direction: Direction| {
-                let (x, y, z) = direction.rotated(actor_state.orientation).delta();
-                to.region == view.location.region
-                    && orientation == actor_state.orientation
-                    && displacement(from, to) == [i64::from(x), i64::from(y), i64::from(z)]
-            };
-        for (first, at, orientation) in plateau {
-            if !ordinary_step(view.location, at, orientation, first) {
-                continue;
-            }
-            let Ok(search) = self.route_search_from(actor, at, orientation) else {
-                continue;
-            };
-            for (second, end, end_orientation) in search.remembered_steps() {
-                if !ordinary_step(at, end, end_orientation, second) {
-                    continue;
-                }
-                let distance = *distances.entry(end).or_insert_with(|| {
-                    self.route_search_from(actor, end, end_orientation)
-                        .ok()?
-                        .route_bounded(threat, &mut remaining)
-                        .ok()??
-                        .len()
-                        .try_into()
-                        .ok()
-                });
-                if distance.is_some_and(|distance: u128| distance > current) {
-                    return Some(first);
-                }
-            }
-        }
-        None
-    }
-
-    // Experimental conservative local positioning. Ordinary attack planning
-    // proves own funding/cooldowns; the movement policy reads only disclosed cells.
-    fn ai_ranged_reposition(
-        &self,
-        actor: ActorId,
-        target: ActorId,
-        sight: &[tor_world::SightCell],
-        scene: &[tor_world::SightCell],
-        view: &crate::Observation,
-    ) -> Option<Direction> {
-        let creature = self.creature(actor)?;
-        // Ordinary melee-only actors never pay for a second attack-plan search.
-        if !creature.derived().abilities.iter().any(|ability| {
-            creature
-                .build()
-                .ruleset()
-                .ability(ability)
-                .is_some_and(|definition| {
-                    definition.ai.hostile
-                        && definition.ai.range_preference
-                            == crate::rules::RangePreference::OutsideMelee
-                        && definition.invocation == crate::abilities::InvocationKind::ActorTarget
-                        && matches!(definition.reach, crate::rules::Reach::Sight { .. })
-                })
-        }) {
-            return None;
-        }
-        if self.condition_blocks_action(actor, &Action::Move(Direction::North))
-            || !self.attack_available_in_scene(actor, target, sight)
-        {
-            return None;
-        }
-        let AiChoice::Frozen(plan) =
-            self.choose_ai_ability(actor, target, sight, view, false, true)?
-        else {
-            return None;
-        };
-        let crate::Work::UseAbility { id, invocation, .. } = plan.work() else {
-            return None;
-        };
-        if !matches!(
-            invocation.aim,
-            crate::abilities::AbilityAim::ActorTarget { .. }
-        ) {
-            return None;
-        }
-        let definition = creature.build().ruleset().ability(&id)?;
-        if definition.ai.range_preference != crate::rules::RangePreference::OutsideMelee {
-            return None;
-        }
-        let crate::rules::Reach::Sight { range } = plan.as_ability()?.reach else {
-            return None;
-        };
-        let origin = self.actors.get(&actor)?;
-        // This small policy supports only upright columns. Own morphology is
-        // known; unsupported forms keep the ordinary attack policy unchanged.
-        if origin.body.eye[0] != 0
-            || origin.body.eye[1] != 0
-            || origin.body.eye[2] < 0
-            || origin
-                .body
-                .cells
-                .iter()
-                .any(|cell| cell[0] != 0 || cell[1] != 0 || cell[2] < 0)
-            || tor_world::rotate_vector(origin.orientation, [0, 0, 1]) != [0, 0, 1]
-            || u32::try_from(origin.body.eye[2]).ok()? > u32::from(range)
-        {
-            return None;
-        }
-        // The narrow ground policy understands downward/absent current gravity.
-        // It does not inspect undisclosed gravity fields at hypothetical locations.
-        if !origin.locomotion().hovers()
-            && self
-                .world
-                .gravity(view.location)
-                .is_some_and(|g| g[0] != 0 || g[1] != 0 || g[2] >= 0)
-        {
-            return None;
-        }
-        let target = view
-            .visible_actors
-            .iter()
-            .find(|other| other.id == target)?
-            .location;
-        if target.region != view.location.region || target.position.z != view.location.position.z {
-            return None;
-        }
-        let distance = |a: Location, b: Location| {
-            a.position
-                .x
-                .abs_diff(b.position.x)
-                .max(a.position.y.abs_diff(b.position.y))
-        };
-        // Scene offsets are body-relative; the attack sight above is eye-relative.
-        // Do not mix unwrapped coordinates with a disclosed folded chart.
-        if scene
-            .iter()
-            .filter(|cell| cell.physical && cell.location.region == view.location.region)
-            .any(|cell| {
-                cell.rotation != origin.orientation
-                    || [
-                        i64::from(cell.location.position.x) - i64::from(view.location.position.x),
-                        i64::from(cell.location.position.y) - i64::from(view.location.position.y),
-                        i64::from(cell.location.position.z) - i64::from(view.location.position.z),
-                    ] != tor_world::rotate_vector(
-                        origin.orientation,
-                        [
-                            i64::from(cell.offset.x),
-                            i64::from(cell.offset.y),
-                            i64::from(cell.offset.z),
-                        ],
-                    )
-            })
-        {
-            return None;
-        }
-        Direction::HORIZONTAL.into_iter().find(|direction| {
-            let Some((at, orientation)) = self.actor_translation(actor, *direction) else {
-                return false;
-            };
-            if at.region != target.region
-                || at.position.z != target.position.z
-                || orientation != origin.orientation
-                || distance(at, target) != 2
-                || distance(at, target) > u32::from(range)
-            {
-                return false;
-            }
-            // An ordinary legal step may fall. Require presently disclosed solid
-            // ground, rather than predicting support using hidden destination state.
-            if !origin.locomotion().hovers() {
-                let Some(z) = at.position.z.checked_sub(1) else {
-                    return false;
-                };
-                let below = Location {
-                    region: at.region,
-                    position: tor_world::Position { z, ..at.position },
-                };
-                let support_offset = tor_world::rotate_vector(
-                    tor_world::inverse_rotation(origin.orientation),
-                    [
-                        i64::from(below.position.x) - i64::from(view.location.position.x),
-                        i64::from(below.position.y) - i64::from(view.location.position.y),
-                        i64::from(below.position.z) - i64::from(view.location.position.z),
-                    ],
-                );
-                // A location disclosed through a different occurrence is not
-                // proof of footing at this step. Use only the current chart,
-                // never a hidden topology query or hypothetical awareness.
-                if !scene.iter().any(|cell| {
-                    cell.physical
-                        && cell.wall
-                        && cell.location == below
-                        && cell.rotation == origin.orientation
-                        && [
-                            i64::from(cell.offset.x),
-                            i64::from(cell.offset.y),
-                            i64::from(cell.offset.z),
-                        ] == support_offset
-                }) || !view
-                    .visible_cells
-                    .iter()
-                    .any(|cell| cell.location == below && cell.wall)
-                {
-                    return false;
-                }
-            }
-            let Some(eye_z) = at.position.z.checked_add(origin.body.eye[2]) else {
-                return false;
-            };
-            // Every destination body cell must already be disclosed. ActorView
-            // has one row per disclosed hostile body cell, not just an anchor.
-            if origin.body.cells.iter().any(|cell| {
-                let Some(z) = at.position.z.checked_add(cell[2]) else {
-                    return true;
-                };
-                !view.visible_cells.iter().any(|visible| {
-                    visible.location
-                        == Location {
-                            region: at.region,
-                            position: tor_world::Position { z, ..at.position },
-                        }
-                        && !visible.wall
-                })
-            }) {
-                return false;
-            }
-            if view
-                .visible_actors
-                .iter()
-                .filter(|other| self.perceived_hostile(actor, other.id, other.disclosure))
-                .any(|other| {
-                    other.location.region != at.region || distance(at, other.location) <= 1
-                })
-            {
-                return false;
-            }
-            // A completely disclosed clear rectangle is deliberately stricter
-            // than sight-line prediction; unseen cells cannot justify a move.
-            (at.position.x.min(target.position.x)..=at.position.x.max(target.position.x)).all(|x| {
-                (at.position.y.min(target.position.y)..=at.position.y.max(target.position.y)).all(
-                    |y| {
-                        (at.position.z..=eye_z).all(|z| {
-                            view.visible_cells.iter().any(|cell| {
-                                cell.location
-                                    == Location {
-                                        region: at.region,
-                                        position: tor_world::Position { x, y, z },
-                                    }
-                                    && !cell.wall
-                            })
-                        })
-                    },
-                )
-            })
-        })
-    }
-
-    /// Default combat policy uses personal capabilities and resources, never
-    /// enemy defenses, immunity or condition state. Choices reserve nothing;
-    /// ordinary execution rechecks funding and reach before preparation.
-    fn choose_ai_ability(
-        &self,
-        actor: ActorId,
-        target: ActorId,
-        sight: &[tor_world::SightCell],
-        view: &crate::Observation,
-        basic_only: bool,
-        consider_reposition: bool,
-    ) -> Option<AiChoice> {
-        use crate::rules::RangePreference;
-        let creature = self.creature(actor)?;
-        let costs = creature.costs();
-        let rules = creature.build().ruleset();
-        if let Some(preparation) = self
-            .preparation(actor)
-            .filter(|preparation| !preparation.active)
-        {
-            if let crate::Work::UseAbility { id, invocation, .. } = &preparation.plan.work() {
-                if let Some(definition) = rules.ability(id).filter(|definition| {
-                    definition.ai.hostile && (!basic_only || definition.basic_attack)
-                }) {
-                    let selected = match &invocation.aim {
-                        crate::abilities::AbilityAim::ActorTarget {
-                            target: prepared_target,
-                        } => *prepared_target == target,
-                        crate::abilities::AbilityAim::DirectionalRay { direction } => {
-                            let crate::rules::Reach::Sight { range } = definition.reach else {
-                                return None;
-                            };
-                            disclosed_ray_direction(
-                                target,
-                                sight,
-                                view,
-                                self.actors.get(&actor)?.body.eye,
-                                range,
-                            ) == Some(*direction)
-                        }
-                        crate::abilities::AbilityAim::DirectionalProjectile {
-                            direction, ..
-                        } => preparation.plan.as_projectile().is_some_and(|plan| {
-                            u16::try_from(
-                                plan.range.long_feet / crate::weapon_profiles::PROJECTILE_STEP_FEET,
-                            )
-                            .ok()
-                            .and_then(|range| {
-                                disclosed_ray_direction(
-                                    target,
-                                    sight,
-                                    view,
-                                    self.actors.get(&actor)?.body.eye,
-                                    range,
-                                )
-                            }) == Some(*direction)
-                        }),
-                        crate::abilities::AbilityAim::CellRay { offset } => {
-                            let crate::rules::Reach::Sight { range } = definition.reach else {
-                                return None;
-                            };
-                            disclosed_flight_aim(
-                                target,
-                                sight,
-                                view,
-                                self.actors.get(&actor)?.body.eye,
-                                range,
-                            ) == Some(crate::abilities::FlightAim::Cell { offset: *offset })
-                        }
-                        crate::abilities::AbilityAim::CellProjectile { offset, .. } => {
-                            preparation.plan.as_projectile().is_some_and(|plan| {
-                                u16::try_from(
-                                    plan.range.long_feet
-                                        / crate::weapon_profiles::PROJECTILE_STEP_FEET,
-                                )
-                                .ok()
-                                .and_then(|range| {
-                                    disclosed_flight_aim(
-                                        target,
-                                        sight,
-                                        view,
-                                        self.actors.get(&actor)?.body.eye,
-                                        range,
-                                    )
-                                }) == Some(crate::abilities::FlightAim::Cell { offset: *offset })
-                            })
-                        }
-                        _ => false,
-                    };
-                    if selected && self.preparation_still_available(preparation, Some(sight)) {
-                        return Some(preparation.plan.clone().into());
-                    }
-                }
-            }
-        }
-        let in_melee = self.attack_available_in_scene(actor, target, sight);
-        let mut candidates: Vec<_> = creature
-            .derived()
-            .abilities
-            .iter()
-            .filter_map(|id| {
-                let definition = rules.ability(id)?;
-                (definition.ai.hostile && (!basic_only || definition.basic_attack)).then_some((
-                    definition.ai.priority,
-                    id,
-                    &definition.ai,
-                    definition.cost.as_ref(),
-                ))
-            })
-            .collect();
-        candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
-        for (_, id, hints, cost) in candidates {
-            if hints.range_preference == RangePreference::OutsideMelee
-                && in_melee
-                && !consider_reposition
-            {
-                continue;
-            }
-            if let Some(cost) = cost {
-                let available = costs.available(cost.resource);
-                let maximum = costs.resources().maximum(cost.resource);
-                if !cost
-                    .start
-                    .checked_add(cost.resolution)
-                    .is_some_and(|total| available >= total)
-                    || u64::from(available) * 100
-                        < u64::from(maximum) * u64::from(hints.minimum_resource_percent)
-                {
-                    continue;
-                }
-            }
-            let definition = rules.ability(id)?;
-            if definition.invocation == crate::abilities::InvocationKind::DirectionalProjectile {
-                if let Some(action) =
-                    self.choose_ai_projectile_request(actor, target, sight, view, id)
-                {
-                    return Some(AiChoice::Request(action));
-                }
-                continue;
-            }
-            let invocation = if definition.invocation.is_directional_ray() {
-                let crate::rules::Reach::Sight { range } = definition.reach else {
-                    continue;
-                };
-                let Some(direction) =
-                    self.ai_disclosed_flight_aim(actor, target, sight, view, range)
-                else {
-                    continue;
-                };
-                direction.ray_invocation()
-            } else {
-                crate::abilities::AbilityInvocation::actor_target(target)
-            };
-            let Ok(plan) = self.ability_invocation_plan_in_scene(actor, id, invocation, sight)
-            else {
-                continue;
-            };
-            if let Some(plan) = self.physical_ai_plan(plan, view) {
-                return Some(plan.into());
-            }
-        }
-        if !basic_only {
-            return self
-                .choose_ai_known_device(actor, target, sight, view)
-                .map(Into::into);
-        }
-        None
-    }
-
-    /// A device is a carried capability, not a granted build ability. Restrict
-    /// this conservative fallback to explicitly known positive instance charges.
-    /// Unknown balances cannot become a free AI-only empty-device oracle.
-    fn choose_ai_known_device(
-        &self,
-        actor: ActorId,
-        target: ActorId,
-        sight: &[tor_world::SightCell],
-        view: &crate::Observation,
-    ) -> Option<crate::abilities::Plan> {
-        let rows = &view.interactions.as_ref()?.inventory;
-        let rules = self.content.rules();
-        let mut candidates = Vec::new();
-        for disclosed in &view.inventory {
-            if !disclosed.identified
-                || !rows.iter().any(|row| {
-                    row.item == disclosed.id
-                        && row.zappable
-                        && row.charges.is_some_and(|count| count > 0)
-                })
-            {
-                continue;
-            }
-            let device = self.items.get(&disclosed.id)?.spec.device.as_ref()?;
-            let definition = rules.ability(&device.ability)?;
-            if !definition.ai.hostile {
-                continue;
-            }
-            let crate::rules::Reach::Sight { range } = definition.reach else {
-                continue;
-            };
-            let Some(direction) = self.ai_disclosed_flight_aim(actor, target, sight, view, range)
-            else {
-                continue;
-            };
-            candidates.push((definition.ai.priority, disclosed.id, direction));
-        }
-        candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        for (_, item, direction) in candidates {
-            let work = crate::Work::Zap {
-                item,
-                aim: direction.device(),
-            };
-            if let Some(pending) = self.preparation(actor).filter(|pending| {
-                !pending.active
-                    && pending.plan.work() == work
-                    && self.preparation_still_available(pending, Some(sight))
-            }) {
-                return Some(pending.plan.clone());
-            }
-            if let Ok(plan) = self.plan_work(actor, work) {
-                return self.physical_ai_plan(plan, view);
-            }
-        }
-        None
     }
 
     fn choose_ai_healing(
@@ -1231,7 +688,17 @@ fn disclosed_flight_aim(
     eye: [i32; 3],
     range: u16,
 ) -> Option<crate::abilities::FlightAim> {
-    if let Some(direction) = disclosed_ray_direction(target, sight, view, eye, range) {
+    disclosed_flight_aim_with_range(target, sight, view, eye, Some(range))
+}
+
+fn disclosed_flight_aim_with_range(
+    target: ActorId,
+    sight: &[tor_world::SightCell],
+    view: &crate::Observation,
+    eye: [i32; 3],
+    range: Option<u16>,
+) -> Option<crate::abilities::FlightAim> {
+    if let Some(direction) = disclosed_ray_direction_with_range(target, sight, view, eye, range) {
         return Some(direction.into());
     }
     let target = view.visible_actors.iter().find(|other| {
@@ -1247,7 +714,8 @@ fn disclosed_flight_aim(
                 cell.offset.z.checked_add(eye[2])?,
             ];
             let distance = offset.iter().map(|n| n.unsigned_abs()).max()?;
-            (distance > 0 && distance <= u32::from(range)).then_some((distance, offset))
+            (distance > 0 && range.is_none_or(|limit| distance <= u32::from(limit)))
+                .then_some((distance, offset))
         })
         .min()
         .map(|(_, offset)| crate::abilities::FlightAim::Cell { offset })
@@ -1259,6 +727,16 @@ fn disclosed_ray_direction(
     view: &crate::Observation,
     eye: [i32; 3],
     range: u16,
+) -> Option<crate::abilities::StepDirection> {
+    disclosed_ray_direction_with_range(target, sight, view, eye, Some(range))
+}
+
+fn disclosed_ray_direction_with_range(
+    target: ActorId,
+    sight: &[tor_world::SightCell],
+    view: &crate::Observation,
+    eye: [i32; 3],
+    range: Option<u16>,
 ) -> Option<crate::abilities::StepDirection> {
     let target = view.visible_actors.iter().find(|other| {
         other.id == target && other.disclosure == crate::perception::ActorDisclosure::Creature
@@ -1274,7 +752,7 @@ fn disclosed_ray_direction(
             ];
             let distance = offset.iter().map(|value| value.unsigned_abs()).max()?;
             if distance == 0
-                || distance > u32::from(range)
+                || range.is_some_and(|limit| distance > u32::from(limit))
                 || offset
                     .iter()
                     .any(|value| *value != 0 && value.unsigned_abs() != distance)
@@ -1302,7 +780,7 @@ mod tests {
     use crate::{combat::DamageType, test_creatures};
     use std::{collections::BTreeSet, num::NonZeroU64};
     use tor_world::{Position, RegionId};
-    fn at(region: u64, x: i32, y: i32) -> Location {
+    pub(super) fn at(region: u64, x: i32, y: i32) -> Location {
         Location {
             region: RegionId(region),
             position: Position { x, y, z: 0 },
@@ -1339,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn explore_unique_least_visited_neighbor_and_idle_wait_do_not_draw() {
+    fn explore_local_fallback_unique_neighbor_and_idle_wait_do_not_draw() {
         let mut game = fixture();
         game.configure_run(
             ActorId(1),
@@ -1366,9 +844,17 @@ mod tests {
                 .insert(at, if at == preferred.0 { 0 } else { 10 });
         }
         let rng = game.actors[&ActorId(2)].behavior.rng;
-        let decision = game.choose_ai(ActorId(2)).unwrap();
-        assert_eq!(decision.action, Action::Move(preferred.1));
-        assert_eq!(decision.behavior.rng, rng);
+        let before = game.clone();
+        let view = game.observe(ActorId(2)).unwrap();
+        let mut ai = game.combat.ai[&ActorId(2)].clone();
+        let mut behavior = game.actors[&ActorId(2)].behavior.clone();
+        // This is the local fallback contract, now below the destination stage.
+        // Missing remembered routing cannot make the unique local choice random.
+        let action =
+            game.choose_exploration(ActorId(2), &mut ai, &mut behavior, false, &view, None);
+        assert_eq!(action, Some(Action::Move(preferred.1)));
+        assert_eq!(behavior.rng, rng);
+        assert_eq!(game, before);
         game.combat.ai.get_mut(&ActorId(2)).unwrap().profile.idle =
             crate::behavior::IdleBehavior::Wait;
         let decision = game.choose_ai(ActorId(2)).unwrap();
@@ -1517,7 +1003,7 @@ mod tests {
         ]);
         crate::rules::Ruleset::validate(document).unwrap()
     }
-    fn paid_fixture(magical: bool, fear: bool) -> Game {
+    pub(super) fn paid_fixture(magical: bool, fear: bool) -> Game {
         use crate::{
             attributes::{Attributes, ByAttribute},
             content_ids::{AbilityId, DescriptorId, FlagId},
@@ -1566,7 +1052,7 @@ mod tests {
         }
         configured_game(hero, foe, paid_probe_rules())
     }
-    fn basic(target: ActorId) -> Action {
+    pub(super) fn basic(target: ActorId) -> Action {
         Action::UseAbility {
             id: crate::content_ids::AbilityId::new("basic_melee").unwrap(),
             invocation: crate::abilities::AbilityInvocation::actor_target(target),
@@ -3286,3 +2772,11 @@ mod ray_tests;
 #[cfg(test)]
 #[path = "ai_item_use_tests.rs"]
 mod item_use_tests;
+
+#[cfg(test)]
+#[path = "ai_exploration_tests.rs"]
+mod exploration_tests;
+
+#[cfg(test)]
+#[path = "ai_stationary_tests.rs"]
+mod stationary_tests;

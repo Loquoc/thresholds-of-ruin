@@ -1056,7 +1056,7 @@ class CreatureInspectionProcesses(ProcessTestCase):
                 ]
                 grants += ('{ scope = "always", op = { kind = "immunity", selector = { kind = "' + kind + '", '
                            + kind + ' = "' + value + '" } } }' for kind, value in immunities)
-                source += ('\n[creatures.species.defender]\nbehavior = { disposition = "mean", idle = "explore", memory_ticks = 1000 }\nkind = "humanoid"\nattributes = { strength = 0, speed = 0, intellect = 0, willpower = 0, awareness = 0, presence = 0 }\n' + natural_attack_source([{"category": "impact", "amount": {"kind": "fixed", "amount": 4}}]) + '\nmodifiers = [' + ", ".join(grants) + ']\n')
+                source += ('\n[creatures.species.defender]\nbehavior = { disposition = "mean", idle = "wait", memory_ticks = 0 }\nkind = "humanoid"\nattributes = { strength = 0, speed = 0, intellect = 0, willpower = 0, awareness = 0, presence = 0 }\n' + natural_attack_source([{"category": "impact", "amount": {"kind": "fixed", "amount": 4}}]) + '\nmodifiers = [' + ", ".join(grants) + ']\n')
                 manifest.write_text(source, encoding="utf-8", newline="\n")
                 region = package / "regions/1.toml"
                 source = region.read_text(encoding="utf-8").replace('species = "human"', 'species = "defender"', 1)
@@ -1376,7 +1376,8 @@ class CreatureInspectionProcesses(ProcessTestCase):
 
     def test_equipped_weapon_discloses_full_source_and_resolves_its_own_skill(self):
         import json
-        package = creature_package(self, "equipped-creature", abilities=("fixture_stamina_strike",))
+        package = creature_package(self, "equipped-creature", abilities=("fixture_stamina_strike",),
+                                   idle_behavior="wait", memory_ticks=0)
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         blade = ('fire_blade = { class = "weapon", identity = "item.weapon.fixture.fire-blade", name = "fire blade", equipment = { slot = "weapon", attack = { skill = "light_weaponry", bonus = 100, wind_up = 90, recovery = 70, damage = { primary = { category = "energy", descriptor = "fire", sides = 6 }, components = [{ category = "energy", descriptor = "fire", amount = { type = "rolled", count = 2, sides = 6, bonus = -1 } }, { category = "keen", amount = { type = "fixed", value = 3 } }] } }, modifiers = [] } }, ')

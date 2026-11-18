@@ -2243,6 +2243,10 @@ impl Game {
             };
             expected.insert(*region, record.identities());
             if !record.valid_contents(*region, self.tick)
+                || !record.ai.values().all(|ai| {
+                    ai.exploration_destination
+                        .is_none_or(|at| self.world.knows(at))
+                })
                 || record
                     .world
                     .traps()
@@ -2889,6 +2893,129 @@ mod tests {
             .unwrap();
         let seen = game.actors[&watcher].behavior.engagement.unwrap().last_seen;
         assert_eq!(seen, 400);
+    }
+
+    fn exploration_goal_corridor() -> (Game, ActorId, ActorId, Location) {
+        let at = |region, x| Location {
+            region: RegionId(region),
+            position: Position { x, y: 1, z: 0 },
+        };
+        let mut game = Game::region_corridor(42, 6, crate::test_creatures::content());
+        let player = game
+            .spawn_actor(at(1, 2), NonZeroU64::new(100).unwrap())
+            .unwrap();
+        let explorer = game
+            .spawn_actor(at(4, 5), NonZeroU64::new(100).unwrap())
+            .unwrap();
+        crate::test_creatures::configure(
+            &mut game,
+            explorer,
+            "neutral",
+            crate::test_creatures::species(),
+        );
+        game.configure_ai(explorer, crate::ai::AiProfile::default())
+            .unwrap();
+        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+            .unwrap();
+        game.add_default_reference_points().unwrap();
+        let goal = at(6, 5);
+        game.combat
+            .ai
+            .get_mut(&explorer)
+            .unwrap()
+            .exploration_destination = Some(goal);
+        // Losing route memory is a decision-time obstacle, not malformed storage.
+        game.navigation.remove(&explorer);
+        assert!(game.combat_valid());
+        (game, player, explorer, goal)
+    }
+
+    #[test]
+    fn exploration_destination_survives_detach_frozen_clock_and_forgotten_navigation() {
+        let (mut game, player, explorer, goal) = exploration_goal_corridor();
+        let mut records = MemoryRecords::default();
+        game.transition_regions(&sets(&[1], &[1]), &mut records)
+            .unwrap();
+        assert_eq!(game.region_state(RegionId(6)), Some(RegionState::Detached));
+        assert!(game.world.knows(goal));
+        assert!(!game.world.contains(goal));
+        let id = game.detached_record(RegionId(4)).unwrap();
+        let record = records.get(id).unwrap();
+        assert_eq!(record.ai[&explorer].exploration_destination, Some(goal));
+        assert!(!record.navigation.contains_key(&explorer));
+        let bytes = serde_json::to_vec(&*record).unwrap();
+        let decoded: RegionRecordData = serde_json::from_slice(&bytes).unwrap();
+        let restored = decoded.restore(game.content().clone()).unwrap();
+        assert_eq!(restored, *record);
+        records.put(id, Shared::new(restored));
+        assert!(game.detached_records_valid(&mut records));
+        for _ in 0..4 {
+            game.act(player, Action::Wait).unwrap();
+        }
+        assert_eq!(game.tick(), 400);
+        game.transition_regions(
+            &sets(&[1, 2, 3, 4, 5, 6], &[1, 2, 3, 4, 5, 6]),
+            &mut records,
+        )
+        .unwrap();
+        assert_eq!(
+            game.combat.ai[&explorer].exploration_destination,
+            Some(goal)
+        );
+        assert!(game.combat_valid());
+    }
+
+    #[test]
+    fn detached_exploration_destination_rejects_unknown_or_outside_bounds_atomically() {
+        for invalid in [
+            Location {
+                region: RegionId(999),
+                position: Position { x: 5, y: 1, z: 0 },
+            },
+            Location {
+                region: RegionId(3),
+                position: Position {
+                    x: i32::MAX,
+                    y: 1,
+                    z: 0,
+                },
+            },
+        ] {
+            let (mut game, _, explorer, _) = exploration_goal_corridor();
+            let mut records = MemoryRecords::default();
+            game.transition_regions(&sets(&[1], &[1]), &mut records)
+                .unwrap();
+            assert!(game.detached_records_valid(&mut records));
+            let id = game.detached_record(RegionId(4)).unwrap();
+            let mut record = (*records.get(id).unwrap()).clone();
+            record
+                .ai
+                .get_mut(&explorer)
+                .unwrap()
+                .exploration_destination = Some(invalid);
+            // Simulate a corrupt read with a fresh immutable store rather than
+            // illegally replacing already-published bytes under one RecordId.
+            let mut damaged = MemoryRecords::default();
+            for other in records.ids().collect::<Vec<_>>() {
+                let value = if other == id {
+                    Shared::new(record.clone())
+                } else {
+                    records.get(other).unwrap()
+                };
+                damaged.put(other, value);
+            }
+            records = damaged;
+            assert!(!game.detached_records_valid(&mut records));
+            let before = game.clone();
+            assert!(matches!(
+                game.transition_regions(
+                    &sets(&[1, 2, 3, 4, 5, 6], &[1, 2, 3, 4, 5, 6]),
+                    &mut records
+                ),
+                Err(TransitionError::InvalidRecord(_))
+            ));
+            assert_eq!(game, before);
+        }
     }
 
     #[test]
