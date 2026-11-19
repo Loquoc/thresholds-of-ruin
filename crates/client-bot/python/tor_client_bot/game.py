@@ -476,12 +476,38 @@ class Turn:
                 devices.append(Device(item, DeviceActivation(mode), int(charges) if charges is not None else None))
         return tuple(devices)
 
-    def aim_device(self, device: Device, creature: Creature) -> Zap | None:
-        """Propose a bearing toward the closest visible body cell. The server resolves interception."""
+    def aim_device(self, device: Device, creature: Creature, *, clear_horizontal_ray: bool = False) -> Zap | None:
+        """Aim at the nearest suitable visible body cell. The server resolves the actual ray.
+
+        Set clear_horizontal_ray to require a disclosed cardinal or diagonal lane with
+        no intervening body, wall or closed door. A diagonal needs one open side.
+        """
         if device.activation is DeviceActivation.SELF_TARGET or not any(device is d for d in self.devices):
             return None
         offsets = self._aim_offsets(creature)
-        return Zap(device, self._local_map[offsets[0]]) if offsets else None
+        for offset in offsets:
+            if not clear_horizontal_ray or self._clear_horizontal_ray(offset):
+                return Zap(device, self._local_map[offset])
+        return None
+
+    def _clear_horizontal_ray(self, offset: tuple[int, int, int]) -> bool:
+        x, y, z = offset
+        if z or (x and y and abs(x) != abs(y)):
+            return False
+        distance = max(abs(x), abs(y))
+        dx, dy = x // distance, y // distance
+
+        def open_terrain(x: int, y: int) -> bool:
+            cell = self.cell_at((x, y, 0))
+            return cell is not None and not cell.wall and (cell.door is None or cell.door.open)
+
+        for step in range(1, distance + 1):
+            step_x, step_y = step * dx, step * dy
+            if not open_terrain(step_x, step_y) or (step < distance and (step_x, step_y, 0) in self._occupied):
+                return False
+            if dx and dy and not (open_terrain(step_x - dx, step_y) or open_terrain(step_x, step_y - dy)):
+                return False
+        return True
 
     @cached_property
     def equipment(self) -> tuple[EquipmentSlot, ...]:

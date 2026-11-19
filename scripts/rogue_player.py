@@ -296,8 +296,8 @@ class Adventurer:
         if not adjacent and sum(foe.distance <= 3 for foe in turn.hostiles) >= 2:
             if step := self.take_corridor(turn):
                 return step, "take_corridor"
-        if not adjacent and health and (slow := self.slow_approach(turn, health.current)):
-            return slow, "slow_approach"
+        if turn.hostiles and not adjacent and health and (decision := self.counter_approach(turn, health.current)):
+            return decision
 
         if (
             turn.hostiles
@@ -386,31 +386,23 @@ class Adventurer:
                 return Move(direction)
         return None
 
-    def slow_approach(self, turn: Turn, health: int) -> Zap | None:
-        device = next((d for d in turn.devices if d.item.identity == "item.wand.wand-slow"
-                       and d.charges != 0 and (d.charges is not None or
-                       d.item.target not in self.tried_unmeasured_devices)), None)
-        if device is None:
+    def counter_approach(self, turn: Turn, health: int) -> tuple[Zap, str] | None:
+        effects = {"item.wand.wand-slow": "slow_approach", "item.wand.wand-magic-missile": "magic_missile"}
+        devices = [(device, effects[device.item.identity]) for device in turn.devices
+                   if device.item.identity in effects and device.charges != 0 and
+                   (device.charges is not None or device.item.target not in self.tried_unmeasured_devices)]
+        if not devices:
             return None
+        devices.sort(key=lambda pair: pair[1] != "slow_approach")
         for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
-            if (foe.target in self.attempted_slow or not 2 <= foe.distance <= 3 or
+            if (not 2 <= foe.distance <= 3 or
                     (2 * self.damage_estimate(foe) < health and foe.name not in self.draining_creatures)):
                 continue
-            zap = turn.aim_device(device, foe)
-            if zap is None or not isinstance(zap.target, Cell):
-                continue
-            x, y, z = zap.target.offset
-            if z or (x and y and abs(x) != abs(y)):
-                continue
-            distance = max(abs(x), abs(y))
-            occupied = {at for body in turn.creatures for at in body.cells}
-            for step in range(1, distance):
-                offset = (step * x // distance, step * y // distance, 0)
-                cell = turn.cell_at(offset)
-                if cell is None or cell.wall or (cell.door and not cell.door.open) or offset in occupied:
-                    break
-            else:
-                return zap
+            for device, reason in devices:
+                if reason == "slow_approach" and foe.target in self.attempted_slow:
+                    continue
+                if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
+                    return zap, reason
         return None
 
     def retreat_to_stairs(self, turn: Turn) -> tuple[Action, str] | None:
@@ -441,6 +433,7 @@ class Adventurer:
             (cell.stairs_up and safe_exit(cell.key, Direction.UP)) or
             (can_descend and cell.stairs_down and safe_exit(cell.key, Direction.DOWN)))}
         nearby = [cell.offset for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
+        step = None
         if nearby:
             destination = min(nearby, key=lambda at: sum(map(abs, at)))
             distance = sum(map(abs, destination))
@@ -455,10 +448,19 @@ class Adventurer:
                     clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
                     approaches.append((clearance, -remaining, direction))
             if approaches:
-                return Move(max(approaches)[2]), "retreat_to_stairs"
-        if step := memory.toward(turn, exits, avoid=avoid):
-            return step, "retreat_to_stairs"
-        return None
+                step = Move(max(approaches)[2])
+        if step is None:
+            step = memory.toward(turn, exits, avoid=avoid)
+        if step is None:
+            return None
+        exposure = sum(self.damage_estimate(foe) for foe in turn.hostiles
+                       if turn.in_contact(foe, from_offset=step.direction.offset))
+        if turn.health and 2 * exposure >= turn.health.current:
+            escape = self.evade(turn)
+            if escape and not any(turn.in_contact(foe, from_offset=escape[0].direction.offset)
+                                  for foe in turn.hostiles):
+                return escape
+        return step, "retreat_to_stairs"
 
     @staticmethod
     def evade(turn: Turn) -> tuple[Move, str] | None:

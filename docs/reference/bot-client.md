@@ -168,6 +168,14 @@ a bearing. Pass `None` explicitly for an offered self activation. A fresh
 turn requires a fresh device and cell. Admission and a resolved phase can
 both precede an observed dodge, so check the enemy's next position.
 
+For a first-contact device such as Slow or Magic Missile, use
+`turn.aim_device(device, foe, clear_horizontal_ray=True)` to request a
+visible cardinal or diagonal lane. The helper tries each visible cell of
+the creature, nearest first, and returns `None` when every lane is off-axis,
+unknown or obstructed. Each diagonal step needs one visibly open side.
+The check describes the current picture. Movement during preparation, the
+device's reach, and effects beyond the target still depend on the server.
+
 ### Two spatial decisions
 
 A collector can pursue the observed position of an item and use the pickup

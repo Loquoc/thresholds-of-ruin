@@ -737,6 +737,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            actors=[foe], hostiles=["pursuer"], combat={"hp": "24", "max_hp": "35"})
         self.assertEqual(choose(player, turn), (Move(Direction.UP), "retreat_upstairs"))
 
+    def test_stair_approach_breaks_dangerous_contact_when_there_is_room(self):
+        foe = {"id": "centaur", "name": "centaur", "position": {"x": 1, "y": 1, "z": 0}}
+        for health, side_open, expected in [(9, True, Direction.WEST), (9, False, Direction.EAST),
+                                            (35, True, Direction.EAST)]:
+            with self.subTest(health=health, side_open=side_open):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=13, recovering_from_pursuit=True)
+                player.observed_loss_by_name["centaur"] = 16
+                cells = [cell("here"), cell("stairs", 1, up=True), {**cell("enemy"), "position": foe["position"]}]
+                if side_open:
+                    cells.append(cell("side", -1))
+                turn = player_turn(cells, actors=[foe], hostiles=["centaur"],
+                                   combat={"hp": str(health), "max_hp": "35"})
+                player.observe(turn)
+                player.recovering_from_pursuit = True
+                self.assertEqual(player.retreat_to_stairs(turn)[0], Move(expected))
+
     def test_retreat_rejects_a_diagonal_tile_still_in_melee_reach(self):
         foe = {"id": "foe", "position": {"x": 0, "y": 1, "z": 0}}
         enemy_tile = cell("enemy")

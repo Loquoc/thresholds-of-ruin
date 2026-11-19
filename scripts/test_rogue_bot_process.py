@@ -353,7 +353,10 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     def test_bot_uses_a_safe_diagonal_to_a_disclosed_stair(self):
         self.check_safe_stair_route(diagonal=True)
 
-    def check_safe_stair_route(self, *, diagonal):
+    def test_stair_approach_breaks_contact_with_a_dangerous_attacker(self):
+        self.check_safe_stair_route(diagonal=False, exposed=True)
+
+    def check_safe_stair_route(self, *, diagonal, exposed=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -362,11 +365,14 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         manifest["characters"][0]["loadout"] = []
         manifest["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/up"}}
         lower, = contents["regions"]
-        if diagonal:
+        if diagonal or exposed:
             lower["anchors"]["start"] = [2, 2, 0]
         lower["anchors"]["up"] = [1, 1, 0] if diagonal else [2, 1, 0]
         lower["actors"] = [{"archetype": "rogue.griffin", "id": 3, "controller": "external",
                             "at": [4, 2, 0], "turn_ticks": 1000000}]
+        if exposed:
+            lower["anchors"]["up"] = [3, 2, 0]
+            lower["actors"][0]["at"] = [3, 3, 0]
         contents["regions"].append({"id": 2, "name": "Upper floor", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"down": [2, 2, 0]}})
         server = self.server(scenario=write_package(self, contents, "rogue-bot-safe-stair-route"))
@@ -396,11 +402,18 @@ try:
     turn = session.observe()
     policy = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
     policy.observe(turn)
+    exposed = os.environ["BOT_TEST_EXPOSED"] == "1"
+    if exposed:
+        policy.observed_loss_by_name[turn.hostiles[0].name] = turn.health.current
     action, reason = policy.choose(turn)
     diagonal = os.environ["BOT_TEST_DIAGONAL"] == "1"
     direction = Direction.NORTH_WEST if diagonal else Direction.NORTH
-    assert (action, reason) == (Move(direction), "retreat_to_stairs"), (action, reason)
-    offset = (-1, -1, 0) if diagonal else (0, -1, 0)
+    if exposed:
+        assert isinstance(action, Move) and reason == "retreat", (action, reason)
+        assert not turn.in_contact(turn.hostiles[0], from_offset=action.direction.offset)
+    else:
+        assert (action, reason) == (Move(direction), "retreat_to_stairs"), (action, reason)
+    offset = action.direction.offset
     goal = next(cell.key for cell in turn.visible_cells if cell.offset == offset)
     assert turn.submit(action).status is Outcome.CONFIRMED
     assert enemy.observe().submit(Wait()).status is Outcome.CONFIRMED
@@ -418,7 +431,8 @@ finally:
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
-                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_DIAGONAL": str(int(diagonal))},
+                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_DIAGONAL": str(int(diagonal)),
+                 "BOT_TEST_EXPOSED": str(int(exposed))},
             text=True, capture_output=True, timeout=55,
         )
         server.stop(save=False)
@@ -1220,6 +1234,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_slows_a_dangerous_foe_before_contact(self):
         self.check_control_wand("slow", 3)
 
+    def test_bot_damages_a_dangerous_foe_with_a_known_magic_missile(self):
+        self.check_control_wand("magic_missile", 3)
+
     def check_control_wand(self, wand, enemy_x):
         from discovery_package import write_package
         from utility_potions_package import fixture
@@ -1246,20 +1263,24 @@ address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
     turn = game.wait_for_decision()
     foe, = turn.hostiles
-    slowing = os.environ["WAND"] == "slow"
-    assert turn.in_contact(foe) != slowing
+    wand = os.environ["WAND"]
+    assert turn.in_contact(foe) == (wand == "teleport_away")
+    before_health = enemy.observe().health.current
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
     player.observed_loss[foe.target] = turn.health.current
     action, reason = player.choose(turn)
-    assert isinstance(action, Zap) and reason == ("slow_approach" if slowing else "displace_threat"), (action, reason)
+    expected = {"slow": "slow_approach", "teleport_away": "displace_threat", "magic_missile": "magic_missile"}
+    assert isinstance(action, Zap) and reason == expected[wand], (action, reason)
     receipt = turn.submit(action)
     assert receipt.status is Outcome.CONFIRMED, receipt
     assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     after = game.wait_for_decision()
     assert after.outcome_of(receipt).value == "resolved"
-    if slowing:
+    if wand == "slow":
         assert enemy.observe().has_condition("rogue.slowed")
+    elif wand == "magic_missile":
+        assert enemy.observe().health.current < before_health
     else:
         assert not any(c.target == foe.target and after.in_contact(c) for c in after.hostiles)
 """

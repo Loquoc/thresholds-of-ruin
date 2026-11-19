@@ -17,6 +17,24 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_clear_horizontal_device_aim_can_choose_another_visible_body_cell(self):
+        def tile(x, y, wall=False):
+            return {"key": f"{x},{y}", "position": {"x": x, "y": y, "z": 0}, "wall": wall,
+                    "stairs_up": False, "stairs_down": False}
+
+        wand = {"id": "w", "name": "staff", "quantity": 1, "class": "wand", "identified": False}
+        offer = {"item": "w", "zappable": True, "device_activation": "direction"}
+        for side_open in (True, False):
+            cells = [tile(1, 0, True), tile(2, 0), tile(0, 1, not side_open), tile(1, 1), tile(2, 1), tile(2, 2)]
+            actors = [{"id": "foe", "name": "large creature", "position": c["position"]} for c in (cells[1], cells[-1])]
+            turn = Turn({"readiness": {}, "state": {"observation": {"self_target": "self", "visible_cells": cells,
+                        "visible_actors": actors, "inventory": [wand], "interactions": {"inventory": [offer]}}}})
+            device, = turn.devices
+            foe, = turn.creatures
+            self.assertEqual(turn.aim_device(device, foe).target.offset, (2, 0, 0))
+            aimed = turn.aim_device(device, foe, clear_horizontal_ray=True)
+            self.assertEqual(aimed.target.offset if aimed else None, (2, 2, 0) if side_open else None)
+
     def test_rejected_training_preview_reopens_before_another_selection(self):
         from tor_client_bot import Session, TrainingKind, TrainingRefused
         basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": "4"}

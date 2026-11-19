@@ -28,6 +28,19 @@ nearby exit used the exit and conserved the charge. In a discretionary-growth
 fixture the production CLI gained a hit die, previewed purchases, and learned
 Rattling Blow. Bundled Rogue allocates its own growth automatically.
 
+In a separate live encounter the bot had a known Magic Missile wand and a
+dangerous opponent two cells away. The original decision was to explore.
+After the change the bot aimed along the clear lane, the activation resolved,
+and the opposing player's Health fell. Both Magic Missile and Slow use the
+public aiming helper to check intervening bodies and terrain. The bot still
+gives an available escape stair priority.
+
+The stair-retreat test now also covers an exposed approach. When recorded
+incoming damage could kill the player in two hits, the bot can step out of
+contact before approaching the stair. The repeat production run on seed 47
+matched the earlier experiment at floor 15 and 6,269 submissions. The bot
+died in melee carrying an unidentified zinc wand whose activation was offered.
+
 Terminal reports count distinct items seen, carried, recognized, assessed
 and worn, plus admitted item uses and activations. The cohort records observed
 supply-detour ticks, reserve decreases and immediate movement reversals
