@@ -236,6 +236,31 @@ The sleeve review did not establish a new hole or a continuous-joint cloth fix.
 These are retained limitations of those reviews, not newly verified failures or
 claims that later work has resolved them.
 
+### Short-garment posed fit, November 18
+
+The unchanged native short-skirt/tasset owner reproduced the existing thigh
+crossing defect: all three resting layer cases cleared, but six walk/strike
+cases contained 1,507 crossing triangle pairs. These are samples of the existing
+root cause, not 1,507 distinct defects. A shared, instance-owned thigh-following
+field reduced those sampled crossings to zero without changing joint poses.
+Matched front, quarter and rear captures retained the skirt silhouette. The
+first candidate lifted cloth through the belt; an upper-attachment regression
+and matched rerender rejected that version before pinning the attachment band.
+The authored front slit remains, rather than deleting or closing panels to hide
+contact. Ordinary construction, layering, ownership, immutable-rest restoration,
+scene remapping, topology and shared-material controls accompany the change.
+Robes, long garments, aprons and separately fitted Orc/Troll hip decorations
+retain their existing owners; the bestiary Red Arcanist stays on its fitted robe.
+
+This is focused native geometry and sampled image evidence, not continuous
+collision certification, a full native suite or hosted CI qualification. Existing
+cloak and belt issues outside this slice remain unresolved. Initial OpenGL
+capture failed its depth shader; software Vulkan produced one image before the
+process was killed. Extending the existing software DX12 frame wait to software
+Vulkan passed a first-red backend-selection regression and completed the matched
+capture runs. Hardware/backend exclusion controls remain. No hardware timing or
+performance improvement is claimed from that capture fix.
+
 ## Fixtures, tooling and evidence integrity
 
 ### Performance evidence locations

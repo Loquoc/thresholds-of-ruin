@@ -396,6 +396,22 @@ fn present_pose(
     place_segments(rig, anim, fun, joints);
     swing_drapes(rig, anim, dt, joints);
     record_phase(&mut profile, 2, started);
+    if !rig.short_garments.is_empty() {
+        let roots = [rig.rest[J::LegL as usize], rig.rest[J::LegR as usize]];
+        let legs = [J::LegL, J::LegR].map(|j| {
+            Affine3A::from_rotation_translation(
+                pose.rot[j as usize],
+                rig.rest[j as usize] + pose.off[j as usize],
+            )
+        });
+        super::skirt_motion::place(
+            &mut rig.short_garments,
+            roots,
+            legs,
+            |entity| joints.get(entity).ok().map(Transform::compute_affine),
+            meshes,
+        );
+    }
     let has_apron = !rig.aprons.is_empty();
     let has_lower_cloth = rig.robe.is_some() || has_apron;
     let Rig { rest, robe, .. } = rig;
