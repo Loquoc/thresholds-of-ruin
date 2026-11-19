@@ -1301,6 +1301,48 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_walks_to_a_nearby_potion_and_collects_it(self):
         self.check_supply_detour("rogue.healing", [], "test_unknown_potion")
 
+    def test_bot_collects_nearby_gold_before_distant_visible_arrows(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character["loadout"] = [{"archetype": "rogue.shortbow", "quantity": 1}]
+        room, = contents["regions"]
+        room.update(size=[17, 5, 2], anchors={"start": [13, 2, 0]}, actors=[], items=[
+            {"id": 9, "archetype": "rogue.arrow", "at": [1, 2, 0]},
+            {"id": 10, "archetype": "rogue.gold", "at": [15, 2, 0]}])
+        self.server(scenario=write_package(self, contents, "loot-in-opposite-directions"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Move, Outcome, Pickup, Session
+
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    assert {g.item.identity for g in turn.ground_items} >= {"item.coin.gold", "item.weapon.arrow"}
+    for _ in range(3):
+        player.observe(turn)
+        action, reason = player.choose(turn)
+        if isinstance(action, Move):
+            assert reason == "seek_supplies" and action.direction.offset[0] == 1, (action, reason)
+        else:
+            assert isinstance(action, Pickup) and action.item.identity == "item.coin.gold", (action, reason)
+        result = turn.submit(action)
+        assert result.status is Outcome.CONFIRMED
+        player.admitted(turn, action, result, reason=reason)
+        turn = game.wait_for_decision()
+        if isinstance(action, Pickup):
+            break
+    assert any(i.identity == "item.coin.gold" for i in turn.inventory)
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                capture_output=True, text=True, timeout=55)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_cli_collects_reachable_treasure_and_searches_a_dead_end_six_times(self):
         from discovery_package import write_package
         from utility_potions_package import fixture

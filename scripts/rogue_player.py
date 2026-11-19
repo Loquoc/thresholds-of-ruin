@@ -940,7 +940,8 @@ class Adventurer:
                              and not item.known_cursed and item.identity in ring_upgrades(turn))
                 if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
                     supplies.add(ground.cell.key)
-            if item.identity == "item.weapon.arrow" and carried["item.weapon.shortbow"]:
+            # Outbound arrows use the same recovery radius after leaving sight.
+            if returning and item.identity == "item.weapon.arrow" and carried["item.weapon.shortbow"]:
                 wanted = not turn.hostiles and carried[item.identity] < 8
             if not returning:
                 wanted |= item.identity == "item.weapon.dart" and carried[item.identity] < 12

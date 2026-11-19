@@ -630,6 +630,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([cell("here", down=True)], inventory=[weapon("shortbow")], ground=[ground])
         self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
 
+    def test_collects_nearby_gold_before_a_distant_stack_of_arrows(self):
+        cells = [cell(str(i), i) for i in range(-12, 3)]
+        bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
+               "identified": True, "quantity": 1, "class": "weapon"}
+        arrow = {**bow, "id": "arrows", "identity": "item.weapon.arrow", "quantity": 4}
+        gold = {**bow, "id": "gold", "identity": "item.coin.gold", "class": "coin"}
+        ground = [{**cells[0], "item": arrow, "reachable": False},
+                  {**cells[-1], "item": gold, "reachable": False}]
+        turn = player_turn(cells, inventory=[bow], ground=ground)
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.EAST), "seek_supplies"))
+
     def test_collects_visible_spent_arrows_beyond_an_immediate_detour(self):
         cells = [cell(str(i), i, down=i == 0) for i in range(5)]
         bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
