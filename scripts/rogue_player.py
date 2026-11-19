@@ -108,6 +108,7 @@ class Adventurer:
     draining_creatures: set[str] = field(default_factory=set)
     danger_until: dict[str, int] = field(default_factory=dict)
     recovering_from_pursuit: bool = False
+    recovery_landing: str | None = None
     last_retreat_origin: str | None = None
     training_checked_at: int | None = None
     growth_locked: bool = False
@@ -168,6 +169,7 @@ class Adventurer:
         health = turn.health
         if health and health.current * 5 >= health.maximum * 4:
             self.recovering_from_pursuit = False
+            self.recovery_landing = None
         loss = self.previous_health - health.current if health and self.previous_health is not None else 0
         self.previous_health = health.current if health else None
         report = turn.recent_combat if combat is None else combat
@@ -242,6 +244,9 @@ class Adventurer:
                         and health.current * 5 < health.maximum * 4
                         and not self.carrying_objective(turn)
                     )
+                self.recovery_landing = (
+                    (attempt.landing or here.key) if attempt.direction is Direction.UP and self.recovering_from_pursuit else None
+                )
                 self.entered_floor_at = turn.tick
             self.pending_stair = None
             self.stair_pursuers = ()
@@ -570,7 +575,8 @@ class Adventurer:
 
     def safe_stairs(self, turn: Turn, direction: Direction) -> set[str]:
         return {key for key in self.maps[self.depth].stairs(direction)
-                if self.unsafe_stairs.get((key, direction), 0) <= turn.tick}
+                if self.unsafe_stairs.get((key, direction), 0) <= turn.tick
+                and not (direction is Direction.DOWN and key == self.recovery_landing)}
 
     def retreat_to_stairs(self, turn: Turn, *, pressed: bool = False) -> tuple[Action, str] | None:
         if not turn.hostiles or self.trapped(turn) or turn.holds:

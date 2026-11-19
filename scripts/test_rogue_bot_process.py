@@ -1977,6 +1977,9 @@ with ExitStack() as stack:
             region["actors"].append({"archetype": "rogue.hobgoblin", "id": 4, "at": [0, 2, 0],
                                      "controller": "external", "turn_ticks": 1000000})
         if blocked_ray:
+            from outcome_scripts import apply
+
+            apply(contents["manifest"], self.directory / "escape-device", "death")
             # Let the ray pass the dodging target on both legs and reach its caster.
             opponent = contents["manifest"]["creatures"]["species"][species_id]
             opponent.setdefault("modifiers", []).append({"scope": "always", "op": {
