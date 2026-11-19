@@ -72,6 +72,13 @@ floor, reason, action type, movement direction, nutrition reserve and terminal
 status. Both ended in death on floor 17 after 8,429 submissions. This supplies a
 matched baseline for search and provisioning changes on this seed.
 
+Of the 1,337 Search submissions, 454 were the first at their cell, 448 the
+second and 435 the third. Three searches were immediately followed by opening
+a door, on floors 4, 8 and 17. Each was the first search at its cell. The trace
+does not reveal what an earlier attempt at another cell could have discovered.
+Compare an initial sweep of unsearched boundaries against immediate retries,
+counting both searches and the moves needed to reach the next site.
+
 The subsequent clear-ray development cohort ended with a readiness timeout
 on seed 49 and unknown action outcomes on seeds 47 and 42. Seed 47's server
 logged that saving was behind schedule. In a separate small scroll fixture,
