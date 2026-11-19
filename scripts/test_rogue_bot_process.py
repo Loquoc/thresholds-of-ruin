@@ -1995,31 +1995,41 @@ with ExitStack() as stack:
     def test_bot_uses_its_learned_rattling_blow_in_contact(self):
         self.pinned_melee("rattling_blow")
 
+    def test_pinned_bot_pushes_an_opponent_off_the_exit(self):
+        self.pinned_melee("dislocating_strike")
+
     def pinned_melee(self, expected):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         manifest = contents["manifest"]
-        if expected == "rattling_blow":
+        if expected in {"rattling_blow", "dislocating_strike"}:
             build = manifest["characters"][0]["creature"]
             build["hit_dice"][-1]["purchases"].append(
-                {"pool": "advancement", "selection": {"kind": "talent", "talent": expected}})
+                {"pool": "advancement", "selection": {"kind": "talent", "talent": "rattling_blow"}})
+            if expected == "dislocating_strike":
+                build["hit_dice"].extend({"source": "warrior", "purchases": []} for _ in range(4))
+                build["hit_dice"][-1]["purchases"].append(
+                    {"pool": "advancement", "selection": {"kind": "talent", "talent": expected}})
         manifest["characters"][0]["loadout"] = [{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0}]
         manifest["stair_pairs"] = {"exit": {"upper": "1/down", "lower": "2/up"}}
         region, = contents["regions"]
-        region.update(size=[3, 1, 2], anchors={"start": [1, 0, 0], "down": [2, 0, 0]},
+        width = 4 if expected == "dislocating_strike" else 3
+        region.update(size=[width, 1, 2], anchors={"start": [1, 0, 0], "down": [2, 0, 0]},
                       actors=[{"archetype": "rogue.hobgoblin", "id": i, "at": [x, 0, 0],
                                "controller": "external", "turn_ticks": 1000000} for i, x in [(3, 0), (4, 2)]])
         contents["regions"].append({"id": 2, "name": "Landing", "size": [3, 3, 2],
                                     "chamber": True, "anchors": {"up": [1, 1, 0]}})
-        self.server(scenario=write_package(self, contents, "stair-blocker"))
+        # Seed 43 lands the strike, allowing the following frame to verify the push.
+        self.server(scenario=write_package(self, contents, "stair-blocker"),
+                    seed=43 if expected == "dislocating_strike" else 42)
         self.install_bot_extension()
         code = """
 import os
 from contextlib import ExitStack
 from rogue_player import Adventurer
-from tor_client_bot import ActivityPhase, Outcome, Session, Wait
+from tor_client_bot import ActivityPhase, Direction, Move, Outcome, Session, Wait
 
 with ExitStack() as clients:
     game, west, east = [clients.enter_context(Session.connect(os.environ["BOT_TEST_ADDRESS"],
@@ -2035,9 +2045,22 @@ with ExitStack() as clients:
     assert attack.status is Outcome.CONFIRMED
     for foe in (west, east):
         assert foe.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
-    assert game.wait_for_decision().outcome_of(attack) is ActivityPhase.RESOLVED
+    after = game.wait_for_decision()
+    assert after.outcome_of(attack) is ActivityPhase.RESOLVED
     incoming = east.observe().recent_combat.incoming
     assert any(hit.ability == action.ability.identity for hit in incoming), incoming
+    if action.ability.identity == "dislocating_strike":
+        assert after.cell_at((1, 0, 0)).stairs_down
+        assert any((2, 0, 0) in foe.cells for foe in after.hostiles), after.hostiles
+        player.observe(after)
+        step, reason = player.choose(after)
+        assert (step, reason) == (Move(Direction.EAST), "retreat_to_stairs"), (step, reason)
+        assert after.submit(step).status is Outcome.CONFIRMED
+        on_exit = game.wait_for_decision()
+        assert on_exit.cell.stairs_down
+        player.observe(on_exit)
+        assert player.choose(on_exit) == (Move(Direction.DOWN), "retreat_downstairs")
+
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"),

@@ -50,6 +50,31 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_moves_onto_freed_downstairs_with_a_second_opponent_one_step_from_contact(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        turn = player_turn([cell("here"), cell("west", -1), cell("exit", 1, down=True), cell("east", 2)],
+                           actors=[{"id": "west", "name": "orc", "position": cell("west", -1)["position"]},
+                                   {"id": "east", "name": "emu", "position": cell("east", 2)["position"]}],
+                           hostiles=["west", "east"],
+                           abilities=[{"id": "basic_melee", "name": "Strike", "basic_attack": True,
+                                       "target_kind": "actor", "reach": {"kind": "melee"},
+                                       "cost": None, "cooldown_remaining": 0}])
+        self.assertEqual(choose(player, turn), (Move(Direction.EAST), "retreat_to_stairs"))
+
+    def test_pinned_player_pushes_only_when_it_can_see_space_beyond_the_blocker(self):
+        foes = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                for name, x in (("emu", -1), ("orc", 1))]
+        abilities = [{"id": name, "name": name, "basic_attack": name == "basic_melee", "cost": None,
+                      "cooldown_remaining": 0, "target_kind": "actor", "reach": {"kind": "melee"}}
+                     for name in ("basic_melee", "dislocating_strike")]
+        for space, expected in (([], "basic_melee"), ([{**cell("wall", 2), "wall": True}], "basic_melee"),
+                                ([cell("free", 2)], "dislocating_strike")):
+            with self.subTest(space=space):
+                turn = player_turn([cell("here"), cell("west", -1), cell("exit", 1, down=True), *space],
+                                   actors=foes, hostiles=["emu", "orc"], abilities=abilities)
+                action, _ = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.ability.identity, action.target.name), (expected, "orc"))
+
     def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
         potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",
                   "quantity": 2, "identified": True, "class": "potion"}

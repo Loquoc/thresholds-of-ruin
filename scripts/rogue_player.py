@@ -356,7 +356,8 @@ class Adventurer:
 
         if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
             return decision
-        if escape := self.retreat_to_stairs(turn, pressed=injured or surrounded or two_hit_threat):
+        close_pursuit = bool(adjacent) and sum(turn.distance_to(foe) <= 2 for foe in turn.hostiles) >= 2
+        if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
             return escape
         approaching_group = not adjacent and sum(turn.distance_to(foe) <= 3 for foe in turn.hostiles) >= 2
         if approaching_group:
@@ -434,6 +435,10 @@ class Adventurer:
             return injury_priority.get(foe.injury, 3), not opens_exit, foe.distance
 
         for foe in sorted(turn.hostiles, key=attack_order):
+            if (surrounded or two_hit_threat) and foe.injury is not Injury.NEAR_DEATH:
+                push = turn.attack(foe, technique="dislocating_strike")
+                if push and self.has_push_space(turn, foe):
+                    return push, "melee"
             if attack := turn.attack(foe, technique="rattling_blow"):
                 return attack, "melee"
             if attack := turn.attack(foe):
@@ -484,6 +489,20 @@ class Adventurer:
             if not all(c is not None and c.wall for c in previous_flanks):
                 return Move(direction)
         return None
+
+    @staticmethod
+    def has_push_space(turn: Turn, foe: Creature) -> bool:
+        """Look for a clear landing directly behind a single column of body cells."""
+        dx, dy, _ = foe.cells[0]
+        if abs(dx) + abs(dy) != 1 or any((x, y) != (dx, dy) for x, y, _ in foe.cells):
+            return False
+        occupied = {offset for creature in turn.creatures for offset in creature.cells}
+        for x, y, z in foe.cells:
+            destination = (x + dx, y + dy, z)
+            cell = turn.cell_at(destination)
+            if cell is None or cell.wall or (cell.door and not cell.door.open) or destination in occupied:
+                return False
+        return True
 
     def try_unknown_wand(self, turn: Turn) -> Zap | None:
         health = turn.health
