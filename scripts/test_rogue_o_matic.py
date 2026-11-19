@@ -831,6 +831,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, action, reason=reason)
         self.assertNotIsInstance(choose(player, turn)[0], Zap)
 
+    def test_elemental_wand_requires_a_recognized_effect_and_an_available_charge(self):
+        cells = [cell(str(i), i) for i in range(6)]
+        foe = {"id": "foe", "name": "hunter", "position": cells[3]["position"]}
+        for known, charges, fires in [(True, 1, True), (True, None, True), (True, 0, False), (False, 2, False)]:
+            with self.subTest(known=known, charges=charges):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                wand = {"id": "rod", "class": "wand", "name": "rod", "quantity": 1, "identified": known,
+                        "identity": "item.wand.wand-cold" if known else None}
+                offer = {"item": "rod", "zappable": True, "device_activation": "direction", "charges": charges}
+                turn = player_turn(cells, actors=[foe], hostiles=["foe"], inventory=[wand],
+                                   interactions={"inventory": [offer]})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "elemental_ray", fires)
+                if fires and charges is None:
+                    player.admitted(turn, action, reason=reason)
+                    self.assertNotEqual(player.choose(turn)[1], "elemental_ray")
+
     def test_polymorph_is_reserved_for_a_dangerous_uninjured_approach(self):
         wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
                 "identified": True, "name": "staff of polymorph", "quantity": 1}
@@ -884,6 +901,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
 
     def test_polymorph_targets_the_lethal_troll_while_another_foe_is_in_contact(self):
+        from tor_client_bot import CombatReport
+
         wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
                 "identified": True, "name": "staff of polymorph", "quantity": 1}
         offer = {"item": "staff", "zappable": True, "device_activation": "direction_or_self", "charges": 3}
@@ -901,6 +920,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, reason = choose(player, turn)
                 self.assertEqual(reason, "polymorph_threat")
                 self.assertEqual(action.target, turn.cell_at((distance, 0, 0)))
+                player.admitted(turn, action, reason=reason)
+                resisted = {"type": "ability", "ability": {"id": "rogue.wand_polymorph"},
+                            "caster": "player", "target": "troll", "outcome": "unaffected"}
+                player.observe(turn, CombatReport("player", (resisted,)))
+                self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
+                alone = player_turn(cells, actors=foes[1:], inventory=[wand],
+                                    interactions={"inventory": [offer]}, combat=combat)
+                self.assertEqual(choose(player, alone)[1], "polymorph_threat")
 
     def test_weak_player_eats_a_carried_ration_during_a_prolonged_pursuit(self):
         from tor_client_bot import ItemUse, UseItem
@@ -1814,6 +1841,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         self.assertEqual(choose(player, turn), (Wait(), "recover"))
         player.maps[1].visited.add("hall")
+        player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick + 100
+        self.assertEqual(player.choose(turn), (Wait(), "recover"))
+        scarce = player_turn(room, combat={"hp": 6}, stats={**stats, "nutrition": {
+            "kind": "required", "reserve": 50, "maximum": 2000, "unit_ticks": 100,
+            "hunger": "nourished", "elapsed": 0}})
+        player.ascent_ticks_by_floor[1] = scarce.nutrition.ticks_until_empty
+        self.assertIsNone(player.recovery_action(scarce))
+        player.ascent_ticks_by_floor.clear()
+        player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "recover_en_route"))
         player.danger_until["hall"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))

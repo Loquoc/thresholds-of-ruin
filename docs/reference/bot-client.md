@@ -105,6 +105,8 @@ to the expected place, including an adjacent landing beside an occupied stair.
   outside the eye scene. Visible cell offsets belong to the current view.
   `FloorMap` remembers links and disclosed traps by stable cell key across
   turns. Its `toward` method prefers a trap-free route when one is known.
+  To head for a remembered exit, use `memory.toward(turn, memory.stairs(Direction.UP))`.
+  The keys come from the latest sighting of each cell and persist when it leaves view.
   Pass `prefer_safe=False` to prioritize the shortest known route.
   Pass `avoid={cell.key}` to exclude a cell from every candidate route.
   Use `memory.toward_unexplored(turn, avoid=dangerous_cells)` to explore.
@@ -182,6 +184,15 @@ bearing. A direction also supplies
 a bearing. Pass `None` explicitly for an offered self activation. A fresh
 turn requires a fresh device and cell. Admission and a resolved phase can
 both precede an observed dodge, so check the enemy's next position.
+
+For an elemental device in bundled Rogue, use
+`turn.aim_device(device, foe, reflected_ray_range=6)`. The six is the
+scenario's ray range. The helper requires enough visible open terrain that
+a reflection could no longer return to the shooter's observed body before
+the ray runs out of steps. This includes checking both sides of diagonal
+corners and the terrain beyond a nearby target. It returns `None` when
+the disclosed scene cannot establish that clearance. Creatures and doors
+can still move between choosing the shot and its release.
 
 For a first-contact device such as Slow or Magic Missile, use
 `turn.aim_device(device, foe, clear_horizontal_ray=True)` to request a

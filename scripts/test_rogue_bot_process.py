@@ -22,6 +22,114 @@ def add_injury_potion(manifest):
     }
 
 
+def identify_staff(game, turn, opponents):
+    from tor_client_bot import ItemUse, Outcome, UseItem, Wait
+
+    scroll = next(item for item in turn.inventory if ItemUse.READ in item.uses)
+    assert turn.submit(UseItem(scroll, ItemUse.READ)).status is Outcome.CONFIRMED
+    for opponent in opponents:
+        assert opponent.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    prompt = turn.identification
+    staff = next(item for item in prompt.items if item.target == turn.devices[0].item.target)
+    assert turn.submit(prompt.select(staff)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.can_act and turn.identification is None
+    assert turn.devices[0].charges >= 3
+    return turn
+
+
+def check_resisted_polymorph(game, player, after, foe, initial_charges, second_attacker):
+    from tor_client_bot import AbilityOutcome, Outcome, Zap
+
+    player.observe(after)
+    retry, reason = player.choose(after)
+    assert after.devices[0].charges == initial_charges - 1
+    if second_attacker:
+        assert any(other.target != foe.target and after.in_contact(other) for other in after.hostiles)
+        assert reason != "polymorph_threat", (retry, reason)
+        return
+    assert isinstance(retry, Zap) and reason == "polymorph_threat", (retry, reason)
+    receipt = after.submit(retry)
+    assert receipt.status is Outcome.CONFIRMED
+    player.admitted(after, retry, receipt, reason=reason)
+    final = game.wait_for_decision()
+    assert final.outcome_of(receipt).value == "resolved"
+    assert final.devices[0].charges == initial_charges - 2
+    assert any(effect.target == foe.target and effect.ability == "rogue.wand_polymorph"
+               and effect.outcome is AbilityOutcome.UNAFFECTED for effect in final.recent_combat.outgoing)
+    player.observe(final)
+    assert player.choose(final)[1] != "polymorph_threat"
+
+
+def check_wand_encounter(address, *, wand, contact, resists, blocked_ray, second_attacker):
+    from contextlib import ExitStack
+    from rogue_player import Adventurer
+    from tor_client_bot import AbilityOutcome, Outcome, Session, Wait, Zap
+
+    token = os.environ["TOR_SERVER_TOKEN"]
+    with ExitStack() as sessions:
+        game = sessions.enter_context(Session.connect(address, token, 1))
+        enemy = sessions.enter_context(Session.connect(address, token, 3))
+        opponents = [enemy]
+        if second_attacker:
+            opponents.append(sessions.enter_context(Session.connect(address, token, 4)))
+        turn = game.wait_for_decision()
+        if resists:
+            turn = identify_staff(game, turn, opponents)
+        if second_attacker:
+            foe = next(foe for foe in turn.hostiles if foe.name.casefold() == "griffin")
+        else:
+            foe, = turn.hostiles
+        assert turn.in_contact(foe) == contact
+        before = enemy.observe()
+        player = Adventurer(26, "item.amulet.amulet-of-yendor")
+        player.observe(turn)
+        player.observed_loss[foe.target] = turn.health.current
+        action, reason = player.choose(turn)
+        if blocked_ray:
+            assert not isinstance(action, Zap), (action, reason)
+            direct = turn.aim_device(turn.devices[0], foe, clear_horizontal_ray=True)
+            assert direct and turn.aim_device(turn.devices[0], foe, reflected_ray_range=6) is None
+            # Fire the declined shot in this fixture to verify what the clearance check prevented.
+            assert turn.submit(direct).status is Outcome.CONFIRMED
+            assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+            reflected = game.wait_for_decision()
+            assert reflected.health.current < turn.health.current
+            assert any(effect.target == turn.self_target and effect.ability == "rogue.wand_lightning"
+                       and effect.outcome is AbilityOutcome.APPLIED for effect in reflected.recent_combat.outgoing)
+            return
+        expected = {"fire": "elemental_ray", "cold": "elemental_ray", "lightning": "elemental_ray",
+                    "slow": "slow_approach", "teleport_away": "displace_threat",
+                    "magic_missile": "magic_missile", "polymorph": "polymorph_threat"}
+        assert isinstance(action, Zap) and reason == expected[wand], (action, reason)
+        receipt = turn.submit(action)
+        assert receipt.status is Outcome.CONFIRMED, receipt
+        player.admitted(turn, action, receipt, reason=reason)
+        if not resists:
+            assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        after = game.wait_for_decision()
+        assert after.outcome_of(receipt).value == "resolved"
+        if wand == "slow":
+            assert enemy.observe().has_condition("rogue.slowed")
+        elif wand in {"magic_missile", "fire", "cold", "lightning"}:
+            assert enemy.observe().health.current < before.health.current
+            assert after.health.current == turn.health.current
+        elif wand == "polymorph":
+            outcome = AbilityOutcome.UNAFFECTED if resists else AbilityOutcome.APPLIED
+            assert any(e.target == foe.target and e.ability == "rogue.wand_polymorph" and e.outcome is outcome
+                       for e in after.recent_combat.outgoing), after.recent_combat.outgoing
+            changed = enemy.observe()
+            assert changed.hit_dice is not None and before.hit_dice is not None
+            if resists:
+                assert changed.hit_dice == before.hit_dice
+                check_resisted_polymorph(game, player, after, foe, turn.devices[0].charges, second_attacker)
+            else:
+                assert changed.hit_dice < before.hit_dice, (changed.hit_dice, before.hit_dice)
+        else:
+            assert not any(c.target == foe.target and after.in_contact(c) for c in after.hostiles)
+
+
 class RogueBotProcess(ProcessTestCase):
     def install_bot_extension(self):
         build = os.environ.get("TOR_TEST_BOT_EXTENSION_DIR")
@@ -1612,7 +1720,22 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_polymorph_reports_an_unaffected_target_after_a_resolved_cast(self):
         self.check_control_wand("polymorph", 2, resists=True)
 
-    def check_control_wand(self, wand, enemy_x, *, resists=False):
+    def test_fire_wand_damages_the_foe_in_a_clear_lane(self):
+        self.check_control_wand("fire", 3)
+
+    def test_cold_wand_damages_the_foe_in_a_clear_lane(self):
+        self.check_control_wand("cold", 3)
+
+    def test_lightning_wand_damages_the_foe_in_a_clear_lane(self):
+        self.check_control_wand("lightning", 3)
+
+    def test_elemental_device_is_kept_when_the_wall_is_too_close_behind_the_foe(self):
+        self.check_control_wand("lightning", 3, blocked_ray=True)
+
+    def test_bot_defers_a_resisted_polymorph_with_a_second_attacker_in_contact(self):
+        self.check_control_wand("polymorph", 2, resists=True, second_attacker=True)
+
+    def check_control_wand(self, wand, enemy_x, *, resists=False, blocked_ray=False, second_attacker=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1630,82 +1753,23 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         species_id = "rogue.griffin" if wand == "polymorph" else "rogue.hobgoblin"
         region.update(size=[17, 9, 2], actors=[{"archetype": species_id, "id": 3,
                       "at": [enemy_x, 2, 0], "controller": "external", "turn_ticks": 1000000}])
+        if second_attacker:
+            region["actors"].append({"archetype": "rogue.hobgoblin", "id": 4, "at": [0, 2, 0],
+                                     "controller": "external", "turn_ticks": 1000000})
+        if blocked_ray:
+            # Let the ray pass the dodging target on both legs and reach its caster.
+            opponent = contents["manifest"]["creatures"]["species"][species_id]
+            opponent.setdefault("modifiers", []).append({"scope": "always", "op": {
+                "kind": "add", "stat": {"kind": "attribute", "attribute": "speed"}, "value": 300}})
+            region["walls"] = [[5, 2, z] for z in range(2)]
         self.server(scenario=write_package(self, contents, "escape-device"))
         self.install_bot_extension()
-        code = """
-import os
-from rogue_player import Adventurer
-from tor_client_bot import Outcome, Session, Wait, Zap
-
-address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
-with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
-    turn = game.wait_for_decision()
-    foe, = turn.hostiles
-    wand = os.environ["WAND"]
-    resisted = os.environ["RESISTS"] == "1"
-    if resisted:
-        from tor_client_bot import ItemUse, UseItem
-        scroll = next(item for item in turn.inventory if ItemUse.READ in item.uses)
-        assert turn.submit(UseItem(scroll, ItemUse.READ)).status is Outcome.CONFIRMED
-        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
-        turn = game.wait_for_decision()
-        prompt = turn.identification
-        staff = next(item for item in prompt.items if item.target == turn.devices[0].item.target)
-        assert turn.submit(prompt.select(staff)).status is Outcome.CONFIRMED
-        turn = game.wait_for_decision()
-        assert turn.can_act and turn.identification is None
-        assert turn.devices[0].charges >= 3
-    assert turn.in_contact(foe) == (os.environ["CONTACT"] == "1")
-    before = enemy.observe()
-    player = Adventurer(26, "item.amulet.amulet-of-yendor")
-    player.observe(turn)
-    player.observed_loss[foe.target] = turn.health.current
-    action, reason = player.choose(turn)
-    expected = {"slow": "slow_approach", "teleport_away": "displace_threat",
-                "magic_missile": "magic_missile", "polymorph": "polymorph_threat"}
-    assert isinstance(action, Zap) and reason == expected[wand], (action, reason)
-    receipt = turn.submit(action)
-    assert receipt.status is Outcome.CONFIRMED, receipt
-    player.admitted(turn, action, receipt, reason=reason)
-    if not resisted:
-        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
-    after = game.wait_for_decision()
-    assert after.outcome_of(receipt).value == "resolved"
-    if wand == "slow":
-        assert enemy.observe().has_condition("rogue.slowed")
-    elif wand == "magic_missile":
-        assert enemy.observe().health.current < before.health.current
-    elif wand == "polymorph":
-        from tor_client_bot import AbilityOutcome
-        expected = AbilityOutcome.UNAFFECTED if resisted else AbilityOutcome.APPLIED
-        assert any(effect.target == foe.target and effect.ability == "rogue.wand_polymorph"
-                   and effect.outcome is expected for effect in after.recent_combat.outgoing), after.recent_combat.outgoing
-        changed = enemy.observe()
-        assert changed.hit_dice is not None and before.hit_dice is not None
-        if resisted:
-            assert changed.hit_dice == before.hit_dice
-            player.observe(after)
-            retry, why = player.choose(after)
-            assert isinstance(retry, Zap) and why == "polymorph_threat", (why, retry)
-            second = after.submit(retry)
-            assert second.status is Outcome.CONFIRMED
-            player.admitted(after, retry, second, reason=why)
-            final = game.wait_for_decision()
-            assert final.outcome_of(second).value == "resolved"
-            assert final.devices[0].charges == turn.devices[0].charges - 2
-            assert any(e.target == foe.target and e.outcome is AbilityOutcome.UNAFFECTED
-                       for e in final.recent_combat.outgoing)
-            player.observe(final)
-            assert player.choose(final)[1] != "polymorph_threat"
-        else:
-            assert changed.hit_dice < before.hit_dice, (changed.hit_dice, before.hit_dice)
-    else:
-        assert not any(c.target == foe.target and after.in_contact(c) for c in after.hostiles)
-"""
-        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
-                             env={**os.environ, "WAND": wand, "CONTACT": str(int(enemy_x == 2)), "RESISTS": str(int(resists)),
-                                  "PYTHONPATH": str(ROOT / "scripts"),
-                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
+        options = {"wand": wand, "contact": enemy_x == 2, "resists": resists,
+                   "blocked_ray": blocked_ray, "second_attacker": second_attacker}
+        code = ("import json, sys; from test_rogue_bot_process import check_wand_encounter; "
+                "check_wand_encounter(sys.argv[1], **json.loads(sys.argv[2]))")
+        run = subprocess.run([sys.executable, "-c", code, self.address, json.dumps(options)], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                              capture_output=True, text=True, timeout=55)
         self.assertEqual(run.returncode, 0, run.stderr)
 
@@ -2058,6 +2122,14 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert (after.cell.key == origin) == (not limited)
     else:
         if not limited:
+            memory = player.maps[player.depth]
+            landing, = memory.stairs(Direction.DOWN)
+            assert landing == next(cell.key for cell in turn.visible_cells if cell.stairs_down)
+            player.unsafe_stairs[landing, Direction.DOWN] = turn.tick + 100
+            action, reason = player.choose(turn)
+            assert (action, reason) == (Wait(), "recover"), (action, reason)
+            turn = submit(turn, action)
+            assert player.unsafe_stairs[landing, Direction.DOWN] <= turn.tick
             hall = turn.cell_at(east.direction.offset).key
             player.danger_until[hall] = turn.tick + 100
             player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty

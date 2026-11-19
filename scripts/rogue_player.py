@@ -51,6 +51,8 @@ from rogue_gear import (
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
 LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
 DEAD_END_SEARCHES = 6
+ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
+ELEMENTAL_RAY_RANGE = 6
 CONTROL_DEVICES = (
     ("item.wand.wand-slow", "slow_approach"),
     ("item.wand.wand-polymorph", "polymorph_threat"),
@@ -217,7 +219,7 @@ class Adventurer:
                 self.cancelled_stair_origin = None
                 if attempt.direction is Direction.DOWN:
                     previous = self.maps[self.depth]
-                    upstairs = {key for key, cell in previous.cells.items() if cell.stairs_up}
+                    upstairs = previous.stairs(Direction.UP)
                     distance = previous.distance(attempt.origin, upstairs)
                     if distance is not None:
                         self.ascent_ticks_by_floor[self.depth] = (distance + 1) * (turn.tick - attempt.tick)
@@ -360,6 +362,14 @@ class Adventurer:
             if decision := self.evade(turn):
                 return decision
 
+        if turn.hostiles:
+            for device in turn.devices:
+                if device.item.identity not in ELEMENTAL_WANDS or not self.can_spend_charge(device):
+                    continue
+                for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
+                    if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                        return zap, "elemental_ray"
+
         if turn.hostiles and turn.tick != self.last_shot_tick:
             can_strike = any(turn.attack(foe) is not None for foe in adjacent)
             for shot in turn.ranged_attacks(max_distance=8):
@@ -457,14 +467,20 @@ class Adventurer:
             for device, reason in devices:
                 if reason == "slow_approach" and foe.target in self.attempted_slow:
                     continue
-                if reason == "polymorph_threat" and (
-                    foe.target in self.attempted_polymorph or foe.injury is not Injury.HEALTHY or damage < health
-                    or (foe.target in self.resisted_polymorph and device.charges is None)
-                ):
-                    continue
+                if reason == "polymorph_threat":
+                    if foe.target in self.attempted_polymorph or foe.injury is not Injury.HEALTHY or damage < health:
+                        continue
+                    if foe.target in self.resisted_polymorph and (device.charges is None or any(
+                        other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
+                    )):
+                        continue
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason
         return None
+
+    def safe_stairs(self, turn: Turn, direction: Direction) -> set[str]:
+        return {key for key in self.maps[self.depth].stairs(direction)
+                if self.unsafe_stairs.get((key, direction), 0) <= turn.tick}
 
     def retreat_to_stairs(self, turn: Turn) -> tuple[Action, str] | None:
         if not turn.hostiles or self.depth <= 1 or self.trapped(turn) or turn.holds:
@@ -479,20 +495,19 @@ class Adventurer:
         if not (dangerous or self.recovering_from_pursuit):
             return None
         avoid = {self.last_retreat_origin} if self.last_retreat_origin is not None else set()
-        def safe_exit(key: str, direction: Direction) -> bool:
-            return self.unsafe_stairs.get((key, direction), 0) <= turn.tick
-
-        if turn.cell and turn.cell.stairs_up and safe_exit(turn.cell.key, Direction.UP):
+        exits = self.safe_stairs(turn, Direction.UP)
+        if turn.cell and turn.cell.key in exits:
             return Move(Direction.UP), "retreat_upstairs"
         can_descend = dangerous and self.depth < self.retrieval_depth and not self.carrying_objective(turn)
-        if can_descend and turn.cell and turn.cell.stairs_down and safe_exit(turn.cell.key, Direction.DOWN):
-            return Move(Direction.DOWN), "retreat_downstairs"
+        if can_descend:
+            downstairs = self.safe_stairs(turn, Direction.DOWN)
+            if turn.cell and turn.cell.key in downstairs:
+                return Move(Direction.DOWN), "retreat_downstairs"
+            exits.update(downstairs)
         for foe in turn.hostiles:
             avoid.update(cell.key for cell in turn.cells_of(foe))
         memory = self.maps[self.depth]
-        exits = {cell.key for cell in memory.cells.values() if cell.key not in avoid and (
-            (cell.stairs_up and safe_exit(cell.key, Direction.UP)) or
-            (can_descend and cell.stairs_down and safe_exit(cell.key, Direction.DOWN)))}
+        exits.difference_update(avoid)
         nearby = [cell.offset for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
         step = None
         if nearby:
@@ -567,12 +582,12 @@ class Adventurer:
 
         memory = self.maps[self.depth]
         returning = self.carrying_objective(turn)
-        stairs = {
-            key for key, cell in memory.cells.items() if (cell.stairs_up if returning else cell.stairs_down)
-        }
+        direction = Direction.UP if returning else Direction.DOWN
+        stairs = self.safe_stairs(turn, direction)
         reserve = turn.nutrition
         rest_budget = reserve.ticks_until_empty if reserve else None
-        if rest_budget is not None and stairs:
+        # A guarded exit still counts toward the return budget.
+        if rest_budget is not None and (stairs or memory.stairs(direction)):
             rest_budget -= sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
                                if not returning or floor <= self.depth)
 
@@ -840,12 +855,7 @@ class Adventurer:
 
         direction = Direction.UP if returning else Direction.DOWN
         if returning or self.depth < self.retrieval_depth:
-            stairs = {
-                cell.key
-                for cell in memory.cells.values()
-                if (cell.stairs_up if returning else cell.stairs_down)
-                and self.unsafe_stairs.get((cell.key, direction), 0) <= turn.tick
-            }
+            stairs = self.safe_stairs(turn, direction)
             if turn.cell.key in stairs:
                 if hovering:
                     return Wait(), "wait_for_ground_contact"
@@ -867,7 +877,7 @@ class Adventurer:
             if action := memory.toward_unexplored(turn):
                 return action, "explore"
         fallback = None
-        if returning and any(cell.stairs_up for cell in memory.cells.values()):
+        if returning and memory.stairs(Direction.UP):
             for item in turn.inventory:
                 if item.identity == "item.scroll.teleportation" and ItemUse.READ in item.uses:
                     fallback = UseItem(item, ItemUse.READ), "find_return_route"
@@ -879,8 +889,8 @@ class Adventurer:
                     break
         if decision := self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback:
             return decision
-        if (not returning and not turn.hostiles and any(c.stairs_up for c in memory.cells.values())
-                and not any(c.stairs_down for c in memory.cells.values())):
+        if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
+                and not memory.stairs(Direction.DOWN)):
             # A failed Search leaves concealed doors looking like ordinary walls.
             if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
                 return decision
@@ -944,7 +954,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
                     detail["navigation"] = {
                         "floor": player.depth,
                         "visited_cells": len(memory.visited),
-                        "known_down_stairs": sum(cell.stairs_down for cell in memory.cells.values()),
+                        "known_down_stairs": len(memory.stairs(Direction.DOWN)),
                         "searches_admitted": sum(player.searches[key] for key in memory.cells),
                     }
                 break

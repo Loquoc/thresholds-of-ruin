@@ -17,6 +17,25 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_map_remembers_stairs_by_direction_until_the_cell_is_seen_again(self):
+        def observe(*stairs):
+            cells = [{"key": key, "position": {"x": i, "y": 0, "z": 0}, "wall": False,
+                      "stairs_up": up, "stairs_down": down} for i, (key, up, down) in enumerate(stairs)]
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": cells, "ground_items": [], "interactions": {},
+            }}}))
+
+        memory = FloorMap()
+        observe(("up", True, False), ("both", True, True))
+        observe(("room", False, False))
+        self.assertEqual(memory.stairs(Direction.UP), {"up", "both"})
+        self.assertEqual(memory.stairs(Direction.DOWN), {"both"})
+        observe(("both", False, False))
+        self.assertEqual(memory.stairs(Direction.UP), {"up"})
+        self.assertEqual(memory.stairs(Direction.DOWN), set())
+        with self.assertRaises(ValueError):
+            memory.stairs(Direction.EAST)
+
     def test_recovery_estimate_accounts_for_elapsed_ticks_and_a_stopped_clock(self):
         from tor_client_bot import Recovery
 
@@ -127,6 +146,33 @@ class BotApiTests(unittest.TestCase):
             self.assertEqual(turn.aim_device(device, foe).target.offset, (2, 0, 0))
             aimed = turn.aim_device(device, foe, clear_horizontal_ray=True)
             self.assertEqual(aimed.target.offset if aimed else None, (2, 2, 0) if side_open else None)
+
+    def test_reflecting_device_requires_disclosed_clearance_for_the_shooters_body(self):
+        def aim(terrain, target, body=((0, 0),), *, steps=6):
+            def position(xy):
+                return {"x": xy[0], "y": xy[1], "z": 0}
+
+            cells = [{"key": str(at), "position": position(at), "wall": blocked, "stairs_up": False,
+                      "stairs_down": False} for at, blocked in terrain.items()]
+            actors = [{"id": "self", "name": "self", "position": position(at)} for at in body]
+            actors.append({"id": "enemy", "name": "foe", "position": position(target)})
+            view = {"self_target": "self", "visible_cells": cells, "visible_actors": actors,
+                    "inventory": [{"id": "w", "name": "staff", "class": "wand", "quantity": 1, "identified": False}],
+                    "interactions": {"inventory": [{"item": "w", "zappable": True, "device_activation": "direction"}]}}
+            turn = Turn({"state": {"observation": view}, "readiness": {}})
+            return turn.aim_device(turn.devices[0], turn.creatures[0], reflected_ray_range=steps)
+
+        lane = {(x, 0): False for x in range(7)}
+        self.assertIsNotNone(aim(lane, (2, 0)))
+        self.assertIsNone(aim({**lane, (4, 0): True}, (2, 0)))
+        self.assertIsNone(aim({(x, 0): False for x in range(4)}, (2, 0)))
+        self.assertIsNone(aim({**lane, (5, 0): True}, (3, 0), body=((0, 0), (1, 0), (2, 0))))
+        diagonal = {(x, y): False for x in range(5) for y in range(5)}
+        self.assertIsNotNone(aim(diagonal, (2, 2)))
+        self.assertIsNone(aim({**diagonal, (3, 4): True}, (2, 2)))
+        self.assertIsNone(aim(lane, (5, 0), steps=4))
+        with self.assertRaises(ValueError):
+            aim(lane, (2, 0), steps=0)
 
     def test_rejected_training_preview_reopens_before_another_selection(self):
         from tor_client_bot import Session, TrainingKind, TrainingRefused

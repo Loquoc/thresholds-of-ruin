@@ -84,12 +84,29 @@ uses the player's current position when estimating exposure to the pursuer.
 
 When an uninjured enemy is approaching and its previously observed damage
 could exhaust the player's current Health, the bot can aim a known Polymorph
-device. It checks the line of fire and tries the effect at most once on that
-target. A live test supplied that threat history for a griffin, observed the
+device. It checks the line of fire and can spend one more measured charge
+if it observes that the target resisted the first cast and no other hostile
+is in contact. A live test supplied that threat history for a griffin, observed the
 charged action resolve, and used the griffin's ordinary player connection to
 confirm its new body had fewer hit dice. The scenario can choose different
 replacement bodies. The test establishes the decision and this particular
 outcome; other encounters still need campaign evidence.
+
+The current Python player uses recognized Fire, Cold and Lightning devices.
+It checks the six-step ray budget against the disclosed terrain, diagonal
+corners and its own body before firing. Each device damaged a real opponent
+without injuring the shooter on an open lane. With a wall four steps ahead,
+the player kept its lightning wand even though it could aim directly at the
+creature two steps away. Firing that declined shot in the fixture showed
+the lightning returning to the caster and costing it Health. Unknown charge
+counts still permit one trial per
+device. Disclosed empty devices stay in the pack.
+
+For travel, the bot asks its floor map for previously seen stair cells
+leading in the desired direction. It applies its remembered danger period
+to choices for ordinary travel, emergency retreat and walking while healing.
+A live injured player waited in shelter until the stair became eligible again,
+then advanced along its visited route.
 
 Terminal reports count distinct items seen, carried, recognized, assessed
 and worn, plus admitted item uses and activations. The cohort records observed

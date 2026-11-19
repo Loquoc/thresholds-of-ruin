@@ -479,21 +479,26 @@ class Turn:
                 devices.append(Device(item, DeviceActivation(mode), int(charges) if charges is not None else None))
         return tuple(devices)
 
-    def aim_device(self, device: Device, creature: Creature, *, clear_horizontal_ray: bool = False) -> Zap | None:
+    def aim_device(self, device: Device, creature: Creature, *, clear_horizontal_ray: bool = False,
+                   reflected_ray_range: int | None = None) -> Zap | None:
         """Aim at the nearest suitable visible body cell. The server resolves the actual ray.
 
         Set clear_horizontal_ray to require a disclosed cardinal or diagonal lane with
         no intervening body, wall or closed door. A diagonal needs one open side.
+        For a reflecting ray, pass its range in cells. The lane must clear both sides
+        of every diagonal until a reflection could no longer reach the shooter's body.
         """
+        if reflected_ray_range is not None and reflected_ray_range < 1:
+            raise ValueError("A reflecting ray needs a positive range")
         if device.activation is DeviceActivation.SELF_TARGET or not any(device is d for d in self.devices):
             return None
-        offsets = self._aim_offsets(creature)
-        for offset in offsets:
-            if not clear_horizontal_ray or self._clear_horizontal_ray(offset):
+        check_lane = clear_horizontal_ray or reflected_ray_range is not None
+        for offset in self._aim_offsets(creature, reflected_ray_range):
+            if not check_lane or self._clear_horizontal_ray(offset, reflected_ray_range):
                 return Zap(device, self._local_map[offset])
         return None
 
-    def _clear_horizontal_ray(self, offset: tuple[int, int, int]) -> bool:
+    def _clear_horizontal_ray(self, offset: tuple[int, int, int], reflected_range: int | None) -> bool:
         x, y, z = offset
         if z or (x and y and abs(x) != abs(y)):
             return False
@@ -504,13 +509,30 @@ class Turn:
             cell = self.cell_at((x, y, 0))
             return cell is not None and not cell.wall and (cell.door is None or cell.door.open)
 
-        for step in range(1, distance + 1):
+        body = set()
+        if reflected_range is not None:
+            if not self.body:
+                return False
+            # The launch origin may be below the visible body. Include its anchor and all observed body columns.
+            body = {(bx, by) for bx, by, _ in self.body} | {(0, 0)}
+        for step in range(1, (reflected_range or distance) + 1):
             step_x, step_y = step * dx, step * dy
             if not open_terrain(step_x, step_y) or (step < distance and (step_x, step_y, 0) in self._occupied):
                 return False
-            if dx and dy and not (open_terrain(step_x - dx, step_y) or open_terrain(step_x, step_y - dy)):
+            if dx and dy:
+                sides = open_terrain(step_x - dx, step_y), open_terrain(step_x, step_y - dy)
+                if not (all(sides) if reflected_range is not None else any(sides)):
+                    return False
+            if (step_x, step_y) in body and (step_x - dx, step_y - dy) not in body:
                 return False
-        return True
+            if step >= distance:
+                if reflected_range is None:
+                    return True
+                # Even a reversal can close at most one grid step per remaining ray visit.
+                separation = min(max(abs(step_x - bx), abs(step_y - by)) for bx, by in body)
+                if separation > reflected_range - step:
+                    return True
+        return False
 
     @cached_property
     def equipment(self) -> tuple[EquipmentSlot, ...]:

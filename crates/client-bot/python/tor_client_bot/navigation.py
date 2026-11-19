@@ -103,6 +103,14 @@ class FloorMap:
             if len(sides) < 4 and not self.cells[key].wall and key not in self.visited
         }
 
+    def stairs(self, direction: Direction) -> set[str]:
+        """Cell keys last seen with stairs leading in the given vertical direction."""
+        if direction is Direction.UP:
+            return {key for key, cell in self.cells.items() if cell.stairs_up}
+        if direction is Direction.DOWN:
+            return {key for key, cell in self.cells.items() if cell.stairs_down}
+        raise ValueError("Stairs lead up or down")
+
     def adjacent(self, key: str) -> tuple[RememberedCell, ...]:
         """Known cardinal neighbors, including walls."""
         return tuple(self.cells[n] for n in self._neighbors.get(key, {}).values())

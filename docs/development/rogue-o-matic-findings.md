@@ -19,12 +19,31 @@ with reserve at −47 on its last decision. The control died on the same floor
 with 216 reserve. In particular the variant spent 196 actions resting on
 floor 12, compared with none in the control.
 
+On seed 47 the same comparison eliminated all 37 scout–stair reversals.
+That run died on floor 15 after 6,028 actions. Its control reached floor 16
+and stopped on a stalled teleport-away action, so the improved navigation
+has not yet translated into a deeper run.
+
+Scouting sometimes pays for equipment instead of food. Across the three
+budget-control runs on seeds 42, 47 and 49, there were 920 moves labeled
+`scout_for_food` on 15 floor visits. From the first scouting move to the end
+of each uninterrupted visit, only one visit included a food pickup. A floor
+visit can include other decisions before the player leaves. Seed 42 collected
+armor during its scouting visit and seed 47 collected potions. Future choices
+about spending turns on undisclosed food should account for this yield and
+for the earlier successful floor-26 retrieval.
+
 The current player can also recover while advancing along a known safe
 stretch of the active food route. It rests before entering an unexplored or
 recently dangerous cell when the budget permits. In a live underfunded
 descent it took damage after leaving the stair, followed an already visited
 step even with enough reserve to rest, gained Health while walking, collected
-a ration and then turned back toward the stair.
+a ration and then turned back toward the stair. In the paired seed-49
+campaign this version eliminated all 111 scout–stair reversals. It spent
+zero turns resting on floor 12, down from 196 with the in-place rule, but
+spent 950 turns resting on floor 14. It died of injury on floor 15 after
+6,543 actions with nutrition reserve at −837 on its last decision. The
+remaining recovery cost is concentrated away from the floor-12 food route.
 
 On development seed 49 at `843d00f8`, floor 15 had 31 sequences where
 the player took a step toward the stairs and immediately moved back to
@@ -69,6 +88,15 @@ The transformed target and another creature both landed blows in the terminal
 observation at tick 609,985. The player died 66 actions earlier than the
 one-cast control. Spending a second charge in this encounter did not improve
 survival.
+
+In a third matched seed-49 run, the player observed a quagga in contact
+when the troll resisted. Deferring the retry let it spend two moves
+retreating. At tick 610,023 only the troll was still in contact, so it
+retried, and the cast took effect. This run also died on floor 15, at tick
+621,825 after 5,885 actions, compared with 5,773 for an immediate retry
+and 5,839 for one cast only. The player now defers the second cast while
+another hostile is in contact. In a live two-opponent fixture it kept
+the charge when the first cast failed to change the griffin.
 
 The budget-only comparison with contact polymorph (before the retry change)
 ended after 6,189 actions on floor 15 of seed 49. The last decision had 216
