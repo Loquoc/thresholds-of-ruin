@@ -72,6 +72,30 @@ floor, reason, action type, movement direction, nutrition reserve and terminal
 status. Both ended in death on floor 17 after 8,429 submissions. This supplies a
 matched baseline for search and provisioning changes on this seed.
 
+Giving unsearched walls priority produced 650 search submissions from 446
+positions on seed 49. Repeat searches fell from 883 to 204, while movement
+toward search sites rose from 824 to 958. The bot left floor 16 at tick
+816,320 with 1,069 reserve, compared with tick 842,678 and 419 reserve in
+the control. It died on floor 18 after 10,449 actions and 49 Fainted events.
+The control died on floor 17 after 13 Fainted events. Neither retrieved the
+Amulet. Search order deserves a second development seed before adoption.
+
+In that baseline the largest observed decreases in nutrition reserve between
+successive decisions followed exploration (3,616 units), searching and travel
+to search positions (2,247), and scouting unknown territory for food (1,322).
+These totals sum decreases and exclude gains after meals. On floors 6, 8, 12
+and 16 the bot spent a combined 197 reserve on scout moves and collected no
+item between the first scout decision and leaving that floor. Other floors
+did yield pickups. The old trace contains opaque item handles, so an arbitrary
+pickup during a scouting trip cannot be counted as a meal found.
+
+New action traces include `reachable_pickups` from the player's picture at
+each decision. Match the opaque item handle against a later resolved pickup
+to see if an earlier trip passed within reach of the same ration. The row also
+gives its last observed cell, category, quantity and any disclosed identity.
+A live pickup followed by eating verifies that the reachable item disappears
+from the next decision. Resuming an activity can leave reachable food in place.
+
 Of the 1,337 Search submissions, 454 were the first at their cell, 448 the
 second and 435 the third. Three searches were immediately followed by opening
 a door, on floors 4, 8 and 17. Each was the first search at its cell. The trace

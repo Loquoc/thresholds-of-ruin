@@ -1245,7 +1245,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
         native = Mock()
         paused, ready = Mock(), Mock()
-        picture = json.loads(player_turn([cell("here")]).recording())
+        here, far = cell("here"), cell("other", 2)
+        meal = {"id": "ration-a", "name": "ration", "class": "food", "quantity": "2", "identified": False}
+        ground = [{**here, "item": meal, "reachable": True},
+                  {**far, "item": {**meal, "id": "ration-b"}, "reachable": False}]
+        picture = json.loads(player_turn([here, far], ground=ground).recording())
         paused.data.return_value = {**picture, "can_resume": True, "readiness": {"admission": False}}
         ready.data.return_value = picture
         native.observe.side_effect = [paused, ready]
@@ -1256,6 +1260,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         native.act.assert_not_called()
         self.assertEqual(report["terminal"], "action_budget")
         self.assertEqual(trace[0]["action"], {"type": "resume"})
+        self.assertEqual(trace[0]["reachable_pickups"], [
+            {"item": "ration-a", "category": "food", "identity": None, "quantity": 2, "cell": "here"}])
 
     def test_switches_to_stronger_disclosed_armor_and_ignores_cursed_gear(self):
         slot = {"id": "armor"}

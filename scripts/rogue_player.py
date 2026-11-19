@@ -874,6 +874,12 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
                 "tick": turn.tick,
                 "cell": turn.cell.key if turn.cell else None,
                 "known_cells": len(player.maps[player.depth].cells),
+                "reachable_pickups": [
+                    {"item": ground.item.target, "category": ground.item.category,
+                     "identity": ground.item.identity, "quantity": ground.item.quantity,
+                     "cell": ground.cell.key if ground.cell else None}
+                    for ground in turn.ground_items if ground.reachable
+                ],
                 **({"stalled": True} if decision.stalled else {}),
                 "reason": reason,
                 "action": command,

@@ -864,6 +864,10 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         pickup, eat, terminal = (json.loads(line) for line in result.stdout.splitlines())
         self.assertEqual(pickup["action"]["type"], "take")
+        meal, = pickup["reachable_pickups"]
+        self.assertEqual(meal["item"], pickup["action"]["item"])
+        self.assertEqual(meal["category"], "food")
+        self.assertEqual(eat["reachable_pickups"], [])
         self.assertEqual(pickup["result"]["status"], "confirmed")
         self.assertEqual(eat["action"]["type"], "eat")
         self.assertEqual(eat["result"]["status"], "confirmed")
