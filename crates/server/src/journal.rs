@@ -333,6 +333,15 @@ pub enum WizardOperation {
         kind: WizardItem,
         position: Position,
     },
+    SpawnItem {
+        position: Position,
+        #[serde(deserialize_with = "required_option")]
+        identity: Option<String>,
+        #[serde(deserialize_with = "required_option")]
+        appearance: Option<String>,
+        #[serde(deserialize_with = "required_option")]
+        recipe: Option<String>,
+    },
     SpawnCreature {
         selector: String,
         position: Position,

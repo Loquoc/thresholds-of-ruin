@@ -5025,6 +5025,47 @@ impl PackageIndex {
         self.definitions.creature_archetypes()
     }
 
+    pub(crate) fn wizard_item(
+        &self,
+        identity: Option<&str>,
+        appearance: Option<&str>,
+        recipe: Option<&str>,
+    ) -> Result<tor_simulation::ItemSpec, Failure> {
+        require(
+            identity.is_some() || appearance.is_some() || recipe.is_some(),
+            "A wizard item selector is required",
+        )?;
+        let identity = identity
+            .map(|value| -> Result<_, Failure> {
+                let id: tor_simulation::ItemIdentity = value
+                    .parse()
+                    .map_err(|_| fail("Invalid wizard item identity"))?;
+                require(
+                    !id.is_unknown() && id.as_str().split('.').count() >= 3,
+                    "Wizard item identity must be a known leaf",
+                )?;
+                Ok(id)
+            })
+            .transpose()?;
+        require(
+            appearance.is_none_or(|value| value.contains('.') && asset_id(value)),
+            "Invalid wizard item appearance asset",
+        )?;
+        require(
+            recipe.is_none_or(|value| {
+                value.len() <= 80 && crate::wizard_creatures::valid_selector(value)
+            }),
+            "Invalid wizard item recipe key",
+        )?;
+        self.definitions.wizard_item(
+            identity.as_ref(),
+            appearance,
+            recipe,
+            self.seed,
+            &self.appearances,
+        )
+    }
+
     pub(crate) fn standalone_creature(
         &self,
         id: &str,
@@ -5190,6 +5231,146 @@ mod tests {
         let second = definitions.item(&renamed, 0, &BTreeMap::new()).unwrap();
         assert_eq!(first.identity, second.identity);
         assert_ne!(first.name, second.name);
+    }
+
+    #[test]
+    fn wizard_item_resolves_pinned_identity_appearance_and_equivalent_alias() {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/items");
+        let mut package = super::read_package(&root).unwrap();
+        let arrow = package.manifest.archetypes.get_mut("arrow").unwrap();
+        arrow.asset = Some("item.weapon.arrow".into());
+        let alias = arrow.clone();
+        package.manifest.archetypes.insert("a-arrow".into(), alias);
+        let pool = package
+            .manifest
+            .appearance_pools
+            .get_mut("potions")
+            .unwrap();
+        pool.appearances[0].asset = Some("item.potion.red".into());
+
+        let index = package.index(42).unwrap();
+        let arrow_identity = "item.weapon.arrow";
+        let healing = "item.potion.healing";
+        let red = "item.potion.red";
+        let by_identity = index.wizard_item(Some(arrow_identity), None, None).unwrap();
+        assert_eq!(by_identity.archetype, "a-arrow");
+        assert_eq!(by_identity.identity.as_str(), arrow_identity);
+        assert!(by_identity.stackable);
+        assert_eq!(
+            index.wizard_item(None, Some(arrow_identity), None).unwrap(),
+            by_identity
+        );
+
+        // Both potions use the one confounding pool entry. Match the already
+        // allocated name and asset together, never invent a pairing.
+        let allocated = index.wizard_item(Some(healing), Some(red), None).unwrap();
+        assert_eq!(
+            (
+                allocated.identity.as_str(),
+                allocated.appearance.as_str(),
+                allocated.asset.as_deref()
+            ),
+            (healing, "red potion", Some(red))
+        );
+        assert!(index
+            .wizard_item(None, Some(red), None)
+            .unwrap_err()
+            .message
+            .contains("Ambiguous"));
+        assert!(index
+            .wizard_item(Some(arrow_identity), Some(red), None)
+            .is_err());
+        assert!(index
+            .wizard_item(Some("item.weapon.unknown"), None, None)
+            .is_err());
+        assert!(index
+            .wizard_item(Some("item.weapon.missing"), None, None)
+            .is_err());
+        assert!(index.wizard_item(None, Some("red potion"), None).is_err());
+        assert!(index
+            .wizard_item(None, Some("item.potion.absent"), None)
+            .is_err());
+        assert!(index.wizard_item(None, None, None).is_err());
+
+        // Same item identity is not enough to prove stackability equivalence.
+        package
+            .manifest
+            .archetypes
+            .get_mut("a-arrow")
+            .unwrap()
+            .stackable = false;
+        let index = package.index(42).unwrap();
+        assert!(index
+            .wizard_item(Some(arrow_identity), None, None)
+            .unwrap_err()
+            .message
+            .contains("Ambiguous"));
+    }
+
+    #[test]
+    fn wizard_item_exact_rogue_recipe_resolves_distinct_birth_policies() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scenarios/rogue-exploration");
+        let package = super::read_package(&root).unwrap();
+        let index = package.index(42).unwrap();
+        for (identity, appearance, ordinary, generated) in [
+            (
+                "item.weapon.mace",
+                "item.weapon.mace",
+                "rogue.mace",
+                "rogue.generated_mace",
+            ),
+            (
+                "item.weapon.arrow",
+                "item.weapon.arrow",
+                "rogue.arrow",
+                "rogue.generated_arrow",
+            ),
+            (
+                "item.armor.ring-mail",
+                "item.armor.mail.ring",
+                "rogue.ring_mail",
+                "rogue.generated_ring_mail",
+            ),
+        ] {
+            for selectors in [
+                (Some(identity), None),
+                (None, Some(appearance)),
+                (Some(identity), Some(appearance)),
+            ] {
+                assert!(index
+                    .wizard_item(selectors.0, selectors.1, None)
+                    .unwrap_err()
+                    .message
+                    .contains("Ambiguous"));
+            }
+            let base = index.wizard_item(None, None, Some(ordinary)).unwrap();
+            assert_eq!(base.archetype, ordinary);
+            assert_eq!(base.identity.as_str(), identity);
+            assert_eq!(base.asset.as_deref(), Some(appearance));
+            assert_eq!(
+                base.equipment_generation.is_none(),
+                ordinary == "rogue.arrow"
+            );
+            let loot = index
+                .wizard_item(Some(identity), Some(appearance), Some(generated))
+                .unwrap();
+            assert_eq!(loot.archetype, generated);
+            assert!(loot.equipment_generation.is_some());
+            assert_ne!(loot.equipment_generation, base.equipment_generation);
+            assert!(index
+                .wizard_item(Some("item.potion.hallucination"), None, Some(ordinary))
+                .is_err());
+            assert!(index
+                .wizard_item(None, Some("item.potion.saffron"), Some(ordinary))
+                .is_err());
+        }
+        for invalid in ["", "rogue missing", "rogue.no-such-recipe"] {
+            assert!(index.wizard_item(None, None, Some(invalid)).is_err());
+        }
+        let (creature, _) = index.creature_archetypes().next().unwrap();
+        assert!(index.wizard_item(None, None, Some(creature)).is_err());
     }
 
     #[test]
