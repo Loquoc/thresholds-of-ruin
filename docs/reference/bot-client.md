@@ -107,6 +107,10 @@ to the expected place, including an adjacent landing beside an occupied stair.
   turns. Its `toward` method prefers a trap-free route when one is known.
   Pass `prefer_safe=False` to prioritize the shortest known route.
   Pass `avoid={cell.key}` to exclude a cell from every candidate route.
+  Use `memory.toward_unexplored(turn, avoid=dangerous_cells)` to explore.
+  It prefers an unvisited cell bordering unknown terrain, then any reachable
+  unvisited floor cell. It returns a move, a door-opening action, or `None`
+  when the remembered map offers no such route outside the excluded cells.
   `memory.adjacent(key)` gives known cardinal neighbors. `memory.reachable(key)`
   yields remembered cells and distances in breadth-first order. `memory.items`
   records what the actor last saw at each cell and refreshes on sight.

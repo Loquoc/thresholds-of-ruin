@@ -133,6 +133,13 @@ class FloorMap:
         """Fewest known horizontal steps to a goal, ignoring transient occupants."""
         return next((distance for cell, distance in self.reachable(start) if cell.key in goals), None)
 
+    def toward_unexplored(self, turn: Turn, *, avoid: Set[str] = frozenset()) -> Move | OpenDoor | None:
+        """Head for a frontier, then any unvisited floor. Excluded cells stay off the route."""
+        if step := self.toward(turn, self.frontier, avoid=avoid):
+            return step
+        unvisited = {key for key, cell in self.cells.items() if not cell.wall and key not in self.visited}
+        return self.toward(turn, unvisited, avoid=avoid)
+
     def toward(self, turn: Turn, goals: set[str], *, prefer_safe: bool = True,
                avoid: Set[str] = frozenset(), max_steps: int | None = None) -> Move | OpenDoor | None:
         """Choose a first step on a known route within the optional horizontal step limit."""

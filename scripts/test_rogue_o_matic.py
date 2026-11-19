@@ -615,6 +615,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            actors=[snake], hostiles=["snake"])
         self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
 
+    def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.draining_creatures.add("rattlesnake")
+        foe = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 9)["position"]}
+        turn = player_turn([cell("landing", up=True), cell("hall", -1)], actors=[foe], hostiles=["snake"],
+                           combat={"hp": "25", "max_hp": "26"})
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "explore"))
+
     def test_does_not_reverse_an_escape_stair_at_sight_of_a_distant_foe(self):
         self.check_escape_landing(1)
 

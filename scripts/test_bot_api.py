@@ -45,6 +45,20 @@ class BotApiTests(unittest.TestCase):
         observe()
         self.assertFalse(memory.is_dead_end("end"))
 
+    def test_exploration_prefers_a_frontier_and_respects_excluded_routes(self):
+        cells = [{"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": wall,
+                  "stairs_up": False, "stairs_down": False}
+                 for key, x, y, wall in (("home", 0, 0, False), ("alcove", -1, 0, False),
+                                         ("wall", -2, 0, True), ("north", -1, -1, True),
+                                         ("south", -1, 1, True), ("frontier", 1, 0, False))]
+        turn = Turn({"state": {"observation": {"visible_cells": cells, "visible_actors": []}}, "readiness": {}})
+        memory = FloorMap()
+        memory.observe(turn)
+        self.assertEqual(memory.toward_unexplored(turn), Move(Direction.EAST))
+        self.assertEqual(memory.toward_unexplored(turn, avoid={"frontier"}), Move(Direction.WEST))
+        memory.visited.add("alcove")
+        self.assertIsNone(memory.toward_unexplored(turn, avoid={"frontier"}))
+
     def test_named_melee_requires_contact_an_actor_target_and_disclosed_costs(self):
         actor = {"id": "foe", "name": "opponent", "position": {"x": 1, "y": 0, "z": 0}}
         technique = {"id": "tech", "name": "Attack", "target_kind": "actor", "reach": {"kind": "melee"},

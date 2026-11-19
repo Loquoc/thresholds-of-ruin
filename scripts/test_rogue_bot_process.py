@@ -372,12 +372,15 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         self.check_safe_stair_route(diagonal=False)
 
     def test_bot_keeps_the_refuge_after_escaping_a_guarded_stair(self):
-        self.check_stair_refuge(enemy_x=2)
+        self.check_stair_refuge(enemy_x=2, expect_escape=True)
 
     def test_bot_keeps_the_refuge_when_it_escaped_before_contact(self):
-        self.check_stair_refuge(enemy_x=3)
+        self.check_stair_refuge(enemy_x=3, expect_escape=True)
 
-    def check_stair_refuge(self, enemy_x):
+    def test_bot_keeps_exploring_the_landing_while_the_drainer_is_distant(self):
+        self.check_stair_refuge(enemy_x=5, expect_escape=False)
+
+    def check_stair_refuge(self, enemy_x, *, expect_escape):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -402,6 +405,14 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     player.draining_creatures.add(turn.hostiles[0].name)
     player.observe(turn)
     step, reason = player.choose(turn)
+    if sys.argv[2] == "explore":
+        assert turn.hostiles[0].distance == 4
+        assert isinstance(step, Move) and reason == "explore", (step, reason)
+        destination = turn.cell_at(step.direction.offset).key
+        assert turn.submit(step).status is Outcome.CONFIRMED
+        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        assert game.wait_for_decision().cell.key == destination
+        sys.exit(0)
     assert step == Move(Direction.UP) and reason == "retreat_upstairs", (step, reason)
     result = turn.submit(step)
     assert result.status is Outcome.CONFIRMED
@@ -416,7 +427,8 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     assert receipt.status is Outcome.CONFIRMED
     assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
 """
-        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+        expected = "escape" if expect_escape else "explore"
+        result = subprocess.run([sys.executable, "-c", code, self.address, expected], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                                 text=True, capture_output=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stderr)

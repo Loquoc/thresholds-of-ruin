@@ -284,6 +284,10 @@ class Adventurer:
     def damage_estimate(self, foe: Creature) -> int:
         return max(self.observed_loss[foe.target], self.observed_loss_by_name[foe.name])
 
+    def nearby_drainer(self, foe: Creature) -> bool:
+        # Allow one closing step before a creature can strike in contact.
+        return foe.distance <= 2 and foe.name in self.draining_creatures
+
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
         health = turn.health
         injured = health is not None and health.current * 2 < health.maximum
@@ -334,7 +338,7 @@ class Adventurer:
                 or self.recovering_from_pursuit
                 or surrounded
                 or two_hit_threat
-                or any(c.name in self.draining_creatures for c in turn.hostiles)
+                or any(self.nearby_drainer(foe) for foe in turn.hostiles)
             )
             and not self.trapped(turn)
             and not turn.holds
@@ -453,7 +457,7 @@ class Adventurer:
             return None
         dangerous = any(
             foe.name.casefold() in {"griffin", "dragon", "jabberwock", "wraith"}
-            or foe.name in self.draining_creatures
+            or self.nearby_drainer(foe)
             for foe in turn.hostiles
         )
         if not (dangerous or self.recovering_from_pursuit):
@@ -824,16 +828,12 @@ class Adventurer:
                 if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
                         and device.charges != 0):
                     return Zap(device, None), "light_room"
-        frontier = memory.frontier
         avoid = self.danger_until.keys()
-        if action := memory.toward(turn, frontier, avoid=avoid):
-            return action, "explore"
-        unvisited = {key for key, cell in memory.cells.items() if not cell.wall and key not in memory.visited}
-        if action := memory.toward(turn, unvisited, avoid=avoid):
+        if action := memory.toward_unexplored(turn, avoid=avoid):
             return action, "explore"
         if avoid:
             # Accept the risk when every remaining route crosses a recent threat.
-            if action := memory.toward(turn, frontier) or memory.toward(turn, unvisited):
+            if action := memory.toward_unexplored(turn):
                 return action, "explore"
         fallback = None
         if returning and any(cell.stairs_up for cell in memory.cells.values()):

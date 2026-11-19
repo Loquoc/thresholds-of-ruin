@@ -1,5 +1,17 @@
 # Rogue-O-Matic findings and follow-ups
 
+In the seed-49 landing recording the player climbed back upstairs at tick
+70,262 with 25 of 26 Health. The only visible hostile was a rattlesnake
+nine cells away. Earlier attacks had taught the player that rattlesnakes
+could cause lasting injury. The bot now uses that observation to initiate
+retreat when the creature is within two cells. In the paired development
+run it first chose exploration over retreat at tick 63,394 and reached floor
+4 after 982 actions instead of 1,953. Its reserve at that point was lower,
+328 against 437. The number of retreats upstairs from floor 3 fell from
+44 to 10. The new run reached floor 15 and died of injury after 6,057
+actions, with 342 reserve on its last decision. The earlier run starved on
+floor 8. These are outcomes for one development seed.
+
 On development seed 47, the policy at `b2fe496b` died on floor 2 after
 320 actions. Preferring exploration routes that avoided recently threatened
 cells reached floor 10 on the same seed. The bot then reported
@@ -31,6 +43,10 @@ observed the same intention paused with 68 preparation ticks remaining. The
 server confirmed Resume, but the next decision timed out at the same tick.
 The original save journal ends with autonomous intention 16498 admitted for
 actor 132 at that tick, after the player's wand activation started.
+Opening a fresh copy directly with the server engine selected actor 132
+next. Executing that queued intention returned `StorageFailure` with the
+message “Could not commit the game journal.” The player connection had
+reported a readiness timeout. Which journal operation failed remains open.
 The expected outcome is either a resolved or failed activation followed by a
 decision. The reason time stopped remains open. Classify this run as a
 readiness timeout.
@@ -145,6 +161,9 @@ The run ended with a client error and a server cleanup timeout. The paired
 seed-47 control subsequently timed out before announcing an address. Neither
 run gives a terminal gameplay comparison. Preserve both query and shutdown
 errors when diagnosing future interrupted runs.
+
+A fresh retry of the pinned known-food-only policy completed on development
+seed 49. It starved on floor 8 after 5,168 actions.
 
 The completed seed-47 repeat used the same frozen player and bindings for
 both search orders. The control starved on floor 17 after 8,719 actions.
