@@ -35,6 +35,17 @@ Paired policy checks kept a worn slow-digestion ring ahead of a searching
 ring on the floor and skipped a duplicate searching ring. The existing
 three-step detour budget applies on the outbound trip.
 
+The bot picks up useful loot within reach on both legs of the trip, including
+coins, tools, ammunition without a launcher, spare weapons and clean bandages.
+Stock limits apply to longer detours. While exploring outbound it also takes
+safe pickups within two moves. Combat and hungry-player decisions run first.
+
+A mapped hallway end with three cardinal walls and one known exit gets six
+resolved searches. An opening changes that assessment immediately. The player
+can interrupt the search for combat or retrieval, and a failed search leaves
+the remaining count unchanged. In a live corridor fixture it collected gold,
+resolved six searches from the same cell and then resumed exploration.
+
 Two live combat encounters verified pre-contact choices. The bot entered
 a narrow passage before two opponents surrounded it, and the opposing
 player observed Slowed after a dangerous approach. A paired decision with a

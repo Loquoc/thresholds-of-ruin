@@ -940,6 +940,31 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_walks_to_a_nearby_potion_and_collects_it(self):
         self.check_supply_detour("rogue.healing", [], "test_unknown_potion")
 
+    def test_cli_collects_reachable_treasure_and_searches_a_dead_end_six_times(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["manifest"]["characters"][0]["loadout"] = []
+        region, = contents["regions"]
+        region.update(anchors={"start": [3, 2, 0]}, actors=[], items=[
+            {"id": 15, "archetype": "rogue.gold", "at": [3, 2, 0]}],
+            walls=[[x, y, z] for x, y in ((3, 1), (3, 3), (4, 2)) for z in range(2)])
+        self.server(scenario=write_package(self, contents, "treasure-at-corridor-end"))
+        self.install_bot_extension()
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
+                              "--budget", "8"], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=55)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        *actions, terminal = map(json.loads, run.stdout.splitlines())
+        self.assertEqual([a["reason"] for a in actions], ["take", *(["search"] * 6), "explore"])
+        self.assertEqual(actions[0]["reachable_pickups"][0]["category"], "coin")
+        self.assertEqual({a["cell"] for a in actions[:7]}, {actions[0]["cell"]})
+        self.assertEqual({a["action"].get("id") for a in actions[1:7]}, {"rogue.search"})
+        self.assertTrue(all(a["previous_intention_phase"] == "resolved" for a in actions[1:]))
+        self.assertEqual(terminal["terminal"], "action_budget")
+
     def test_bot_walks_to_a_recognized_slow_digestion_ring_and_wears_it(self):
         self.check_supply_detour("rogue.ring_slow_digestion", ["item.ring.ring-slow-digestion"], "conserve_food")
 

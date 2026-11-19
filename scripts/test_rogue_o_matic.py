@@ -1422,7 +1422,46 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([here], inventory=inventory, ground=ground)
         self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
         inventory.append({**spear, "id": "carried-spear"})
-        self.assertNotIsInstance(choose(player, player_turn([here], inventory=inventory, ground=ground))[0], Pickup)
+        self.assertIsInstance(choose(player, player_turn([here], inventory=inventory, ground=ground))[0], Pickup)
+
+    def test_collects_nearby_loot_with_a_full_pack_of_the_same_type(self):
+        here, hall, near = cell("here"), cell("hall", 1), cell("loot", 2)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for category, identity in [("weapon", "item.weapon.arrow"), ("coin", None),
+                                   ("tool", None), ("misc", "item.misc.clean-bandage"), ("wand", None)]:
+            with self.subTest(category=category):
+                item = {"id": "ground", "class": category, "identity": identity, "name": category,
+                        "identified": identity is not None, "quantity": 1}
+                pack = [{**item, "id": "stock", "quantity": 40}]
+                for pos, reachable, reason in ((near, False, "seek_supplies"), (here, True, "take")):
+                    turn = player_turn([here, hall, near], inventory=pack,
+                                       ground=[{**pos, "item": item, "reachable": reachable}])
+                    self.assertEqual(choose(player, turn)[1], reason)
+
+    def test_searches_closed_corridor_end_six_times_before_exploring_elsewhere(self):
+        import json
+        from tor_client_bot import Result
+        here = cell("end")
+        walls = [{**cell(key), "position": {"x": x, "y": y, "z": 0}, "wall": True} for key, x, y in
+                 [("north", 0, -1), ("east", 1, 0), ("south", 0, 1)]]
+        ability = {"id": "rogue.search", "name": "Search", "cost": None, "cooldown_remaining": 0,
+                   "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        room = [here, cell("hall", -1), *walls]
+        turn = player_turn(room, abilities=[ability])
+        for index, phase in enumerate(["failed"] + ["resolved"] * 6):
+            action, reason = choose(player, turn)
+            self.assertEqual(reason, "search")
+            activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": str(index), "phase": "queued"}
+            receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+            player.admitted(turn, action, receipt)
+            picture = json.loads(turn.recording())
+            picture["finished_intentions"] = [{**activity, "phase": phase}]
+            turn = Turn(picture)
+        self.assertEqual(choose(player, turn)[1], "explore")
+        player.completed_end_searches["end"] = 1
+        walls[1]["wall"] = False
+        self.assertEqual(choose(player, player_turn(room, abilities=[ability]))[1], "explore")
 
     def test_full_weapon_stock_does_not_hide_a_stronger_known_weapon(self):
         inventory = [{"id": item, "name": "mace", "identity": "item.weapon.mace",

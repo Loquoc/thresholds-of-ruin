@@ -42,12 +42,14 @@ from tor_client_bot import (
 
 
 from rogue_gear import (
-    IDENTIFY_CATEGORIES, MELEE_WEAPONS, EquipmentHistory, choose_armor, choose_ring, improve_worn_gear,
+    IDENTIFY_CATEGORIES, EquipmentHistory, choose_armor, choose_ring, improve_worn_gear,
     needs_identification, ready_weapon, ring_upgrades,
 )
 
 
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
+LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
+DEAD_END_SEARCHES = 6
 APPROACH_DEVICES = (
     ("item.wand.wand-slow", "slow_approach"),
     ("item.wand.wand-polymorph", "polymorph_threat"),
@@ -63,6 +65,8 @@ class Adventurer:
     maps: dict[int, FloorMap] = field(default_factory=dict)
     last_shot_tick: int | None = None
     searches: Counter[str] = field(default_factory=Counter)
+    completed_end_searches: Counter[str] = field(default_factory=Counter)
+    pending_end_search: tuple[str, Result] | None = None
     wall_searches: Counter[str] = field(default_factory=Counter)
     ascent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
     descent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
@@ -129,6 +133,13 @@ class Adventurer:
 
     def observe(self, turn: Turn, combat: CombatReport | None = None) -> None:
         here = turn.cell
+        if self.pending_end_search:
+            origin, receipt = self.pending_end_search
+            phase = turn.outcome_of(receipt)
+            if phase is ActivityPhase.RESOLVED:
+                self.completed_end_searches[origin] += 1
+            if phase in (ActivityPhase.RESOLVED, ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+                self.pending_end_search = None
         for ground in turn.ground_items:
             if (ground.cell and (ground.item.category in DETOUR_STOCK or ground.item.category in {"armor", "ring"}) and
                     any(turn.distance_to(foe, from_offset=ground.offset) <= 1 for foe in turn.hostiles)):
@@ -240,6 +251,8 @@ class Adventurer:
             self.sampled_potions.add(action.item.appearance or action.item.name)
         if turn.cell and isinstance(action, UseAbility) and action.ability.identity == "rogue.search":
             self.searches[turn.cell.key] += 1
+            if receipt and self.corridor_end(self.maps[self.depth].adjacent(turn.cell.key)):
+                self.pending_end_search = turn.cell.key, receipt
             self.wall_searches.update(
                 c.key for c in self.maps[self.depth].adjacent(turn.cell.key) if c.wall
             )
@@ -599,26 +612,49 @@ class Adventurer:
     def has_arrows(turn: Turn) -> bool:
         return any(item.identity == "item.weapon.arrow" for item in turn.inventory)
 
+    @staticmethod
+    def corridor_end(neighbors) -> bool:
+        return len(neighbors) == 4 and sum(cell.wall for cell in neighbors) == 3
+
+    def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
+        here = turn.cell
+        if (here is None or here.stairs_up or here.stairs_down or turn.hostiles
+                or self.completed_end_searches[here.key] >= DEAD_END_SEARCHES
+                or not self.corridor_end(memory.adjacent(here.key))):
+            return None
+        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
+        return UseAbility(ability) if ability else None
+
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
                allow_unseen: bool = True) -> tuple[Action, str] | None:
+        if returning and (action := self.search_dead_end(turn, memory)):
+            return action, "search"
         ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
         if ability is None or turn.cell is None:
             return None
         sites = []
         for site, distance in memory.reachable(turn.cell.key):
             attempts = self.searches[site.key]
-            if attempts >= 4:
-                continue
             neighbors = memory.adjacent(site.key)
             walls = [c for c in neighbors if c.wall]
-            untested = [c for c in walls if attempts < 3 and self.wall_searches[c.key] < 3]
+            dead_end = self.corridor_end(neighbors) and not (site.stairs_down or site.stairs_up)
+            if dead_end:
+                remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
+                if remaining <= 0 or turn.hostiles:
+                    continue
+                untested = walls
+                value = remaining * len(walls)
+            else:
+                if attempts >= 4:
+                    continue
+                untested = [c for c in walls if attempts < 3 and self.wall_searches[c.key] < 3]
+                value = sum(3 - self.wall_searches[c.key] for c in untested)
             if not untested and (not allow_unseen or len(neighbors) == 4):
                 continue
             near_exit = returning and any(
                 n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
             )
             # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
-            value = sum(3 - self.wall_searches[c.key] for c in untested) + 3 * (len(walls) >= 3)
             rank = near_exit, bool(untested), value - distance * 2, -distance
             sites.append((rank, site.key))
         # Equal ranks keep the map traversal order. Cell keys identify places within the game.
@@ -713,6 +749,7 @@ class Adventurer:
         returning = self.carrying_objective(turn)
         item_goals = set()
         supplies = set()
+        nearby_loot = set()
         carried: Counter[str | None] = Counter()
         stock: Counter[str] = Counter()
         for item in turn.inventory:
@@ -728,13 +765,17 @@ class Adventurer:
         )
         for ground in sorted(ground_items, key=lambda row: row.item.identity != self.objective):
             item = ground.item
+            useful = item.category in LOOT_CLASSES or item.identity == "item.misc.clean-bandage"
+            if ground.reachable:
+                if item.identity == self.objective or (safe_pickup and useful):
+                    return Pickup(item), "take"
+                continue
             wanted = item.identity == self.objective or item.category == "food"
-            if ground.reachable and (item.category in DETOUR_STOCK or item.category in {"ring", "armor"} or
-                                     (item.identity in MELEE_WEAPONS and not carried[item.identity])):
-                wanted = safe_pickup
-            elif item.identity in {"item.potion.healing", "item.potion.extra-healing"}:
+            if item.identity in {"item.potion.healing", "item.potion.extra-healing"}:
                 wanted = carried[item.identity] < 2
             elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.guarded_supplies:
+                if useful and not turn.cell.stairs_down:
+                    nearby_loot.add(ground.cell.key)
                 seek_armor = item.category == "armor" and not spare_armor_to_identify and (
                     item.identity is None or not carried[item.identity]
                 )
@@ -743,23 +784,23 @@ class Adventurer:
                 if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
                     supplies.add(ground.cell.key)
             if item.identity == "item.weapon.arrow" and carried["item.weapon.shortbow"]:
-                wanted = (ground.reachable and carried[item.identity] < 32) or (
-                    not turn.hostiles and carried[item.identity] < 8
-                )
+                wanted = not turn.hostiles and carried[item.identity] < 8
             if not returning:
                 wanted |= item.identity == "item.weapon.dart" and carried[item.identity] < 12
                 wanted |= item.identity == "item.weapon.spear" and not carried[item.identity]
-            if wanted:
-                if ground.reachable:
-                    return Pickup(item), "take"
-                if cell := ground.cell:
-                    item_goals.add(cell.key)
+            if wanted and ground.cell:
+                item_goals.add(ground.cell.key)
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
         if self.trapped(turn):
             return Wait(), "wait_for_restraint"
+        if not returning and not any(g.item.identity == self.objective for g in ground_items):
+            if search := self.search_dead_end(turn, memory):
+                return search, "search"
         if action := memory.toward(turn, item_goals):
             return action, "seek_item"
+        if nearby_loot and (action := memory.toward(turn, nearby_loot, max_steps=2)):
+            return action, "seek_supplies"
         if supplies and (action := memory.toward(turn, supplies, max_steps=3)):
             return action, "seek_supplies"
 
