@@ -1101,6 +1101,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         after = following
         player.observe(after)
     assert all(player.wall_searches[key] == 2 for key in walls(east))
+    across_room = {cell.key for cell in after.visible_cells
+                   if cell.wall and cell.offset[2] == 0 and 2 <= max(map(abs, cell.offset)) <= 3}
+    assert across_room and all(player.wall_searches[key] == 2 for key in across_room)
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,

@@ -278,9 +278,12 @@ class Adventurer:
             self.searches[turn.cell.key] += 1
             if receipt and self.maps[self.depth].is_dead_end(turn.cell.key):
                 self.pending_end_search = turn.cell.key, receipt
-            self.wall_searches.update(
-                c.key for c in self.maps[self.depth].adjacent(turn.cell.key) if c.wall
-            )
+            # Search covers visible walls. Credit the near and middle distance bands
+            # on this floor, leaving distant or unseen walls for a closer look.
+            self.wall_searches.update({
+                cell.key for cell in turn.visible_cells
+                if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3
+            })
         if isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None:
             self.tried_unknown_scroll = True
             self.sampled_scrolls.add(action.item.appearance or action.item.name)
