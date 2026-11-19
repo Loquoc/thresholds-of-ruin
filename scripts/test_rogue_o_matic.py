@@ -737,6 +737,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            actors=[snake], hostiles=["snake"])
         self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
 
+    def test_recontests_a_guarded_landing_only_with_a_health_margin(self):
+        snake = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 1)["position"]}
+        strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
+                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        for hp, damage, guard, expected in [(23, 2, "snake", "melee"), (10, 2, "snake", "retreat_upstairs"),
+                                             (23, 8, "snake", "retreat_upstairs"), (23, 2, "other", "retreat_upstairs")]:
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+            player.draining_creatures.add("rattlesnake")
+            player.observed_loss["snake"] = damage
+            player.last_guarded_landing = "landing", guard
+            turn = player_turn([cell("landing", up=True), cell("snake", 1)], actors=[snake], hostiles=["snake"],
+                               abilities=[strike], combat={"hp": str(hp), "max_hp": "26"})
+            self.assertEqual(choose(player, turn)[1], expected)
+
     def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.draining_creatures.add("rattlesnake")

@@ -82,7 +82,8 @@ class Adventurer:
     # A floor gets one bounded detour. A confirmed increase in supplies ends it early.
     food_scouts: dict[int, tuple[int, int]] = field(default_factory=dict)
     pending_stair: StairAttempt | None = None
-    fled_via_stair: bool = False
+    stair_pursuers: tuple[str, ...] = ()
+    last_guarded_landing: tuple[str, str] | None = None
     unsafe_stairs: dict[tuple[str, Direction], int] = field(default_factory=dict)
     cancelled_stair_origin: str | None = None
     wait_after_cancel: bool = False
@@ -218,7 +219,9 @@ class Adventurer:
             if arrived is None:
                 return
             if arrived:
-                if self.fled_via_stair:
+                if self.stair_pursuers:
+                    if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
+                        self.last_guarded_landing = attempt.origin, self.stair_pursuers[0]
                     reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
                     self.unsafe_stairs[attempt.landing or here.key, reverse] = self.danger_until.get(
                         attempt.origin, turn.tick)
@@ -241,7 +244,7 @@ class Adventurer:
                     )
                 self.entered_floor_at = turn.tick
             self.pending_stair = None
-            self.fled_via_stair = False
+            self.stair_pursuers = ()
         self.maps.setdefault(self.depth, FloorMap()).observe(turn)
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
@@ -307,7 +310,8 @@ class Adventurer:
             self.last_shot_tick = turn.tick
         if turn.cell and isinstance(action, Move) and action.direction in (Direction.UP, Direction.DOWN):
             self.pending_stair = turn.stair_attempt(action, receipt)
-            self.fled_via_stair = reason in {"retreat_upstairs", "retreat_downstairs"}
+            self.stair_pursuers = (tuple(foe.target for foe in turn.hostiles)
+                                   if reason in {"retreat_upstairs", "retreat_downstairs"} else ())
 
     def carrying_objective(self, turn: Turn) -> bool:
         return any(item.identity == self.objective for item in turn.inventory)
@@ -364,6 +368,15 @@ class Adventurer:
 
         if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
             return decision
+        # Leaving by this stair already failed to shake this opponent.
+        if (len(turn.hostiles) == 1 and adjacent and turn.cell and turn.cell.stairs_up
+                and self.last_guarded_landing == (turn.cell.key, adjacent[0].target)
+                and not self.carrying_objective(turn) and health and health.current * 4 >= health.maximum * 3):
+            guard = adjacent[0]
+            if guard.name in self.draining_creatures and 0 < self.damage_estimate(guard) * 4 < health.current:
+                attack = turn.attack(guard, technique="rattling_blow") or turn.attack(guard)
+                if attack:
+                    return ready_weapon(turn, bow=False) or (attack, "melee")
         close_pursuit = bool(adjacent) and sum(turn.distance_to(foe) <= 2 for foe in turn.hostiles) >= 2
         if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
             return escape

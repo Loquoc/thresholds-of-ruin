@@ -642,6 +642,22 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         sys.exit(0)
     step, reason = player.choose(refuge)
     assert step is not None and step != Move(Direction.DOWN), (step, reason)
+    if turn.in_contact(turn.hostiles[0]):
+        # Revisit the stair with the same opponent and a previously observed light hit.
+        player.observed_loss[turn.hostiles[0].target] = 1
+        descent = Move(Direction.DOWN)
+        receipt = refuge.submit(descent)
+        assert receipt.status is Outcome.CONFIRMED
+        player.admitted(refuge, descent, receipt, reason="descend")
+        landing = game.wait_for_decision()
+        player.observe(landing)
+        assert player.depth == 6 and landing.cell.key == turn.cell.key
+        strike, reason = player.choose(landing)
+        assert reason == "melee" and strike.target.target == turn.hostiles[0].target, (strike, reason)
+        receipt = landing.submit(strike)
+        assert receipt.status is Outcome.CONFIRMED
+        assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
+        sys.exit(0)
     receipt = refuge.submit(step)
     assert receipt.status is Outcome.CONFIRMED
     assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
