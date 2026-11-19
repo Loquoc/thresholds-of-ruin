@@ -7,6 +7,13 @@ from tor_client_bot import Action, Item, ItemUse, Turn, Unequip, UseItem, Zap
 
 MELEE_WEAPONS = {"item.weapon.mace", "item.weapon.dagger", "item.weapon.long-sword",
                  "item.weapon.two-handed-sword", "item.weapon.spear"}
+IDENTIFY_CATEGORIES = {
+    "item.scroll.identify-armor": {"armor"},
+    "item.scroll.identify-weapon": {"weapon"},
+    "item.scroll.identify-potion": {"potion"},
+    "item.scroll.identify-scroll": {"scroll"},
+    "item.scroll.identify-wand": {"ring", "wand"},
+}
 # Public Rogue catalog values. The instance can be cursed or corroded.
 BASE_PROTECTION = {
     "item.armor.leather-armor": 1, "item.armor.ring-mail": 2, "item.armor.studded-leather": 2,

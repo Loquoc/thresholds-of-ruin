@@ -41,7 +41,8 @@ from tor_client_bot import (
 
 
 from rogue_gear import (
-    MELEE_WEAPONS, EquipmentHistory, choose_armor, choose_ring, improve_worn_gear, needs_identification, ready_weapon,
+    IDENTIFY_CATEGORIES, MELEE_WEAPONS, EquipmentHistory, choose_armor, choose_ring, improve_worn_gear,
+    needs_identification, ready_weapon,
 )
 
 
@@ -534,13 +535,9 @@ class Adventurer:
                 "item.potion.raise-level",
             }:
                 return UseItem(item, ItemUse.DRINK), "permanent_growth"
-            if (
-                ItemUse.READ in item.uses
-                and item.identity
-                and item.identity.startswith("item.scroll.identify-")
-            ):
-                category = item.identity.removeprefix("item.scroll.identify-")
-                if any(other.category == category and needs_identification(other) for other in turn.inventory):
+            if ItemUse.READ in item.uses and item.identity in IDENTIFY_CATEGORIES:
+                categories = IDENTIFY_CATEGORIES[item.identity]
+                if any(other.category in categories and needs_identification(other) for other in turn.inventory):
                     return UseItem(item, ItemUse.READ), "identify_gear"
         if improvement := improve_worn_gear(turn):
             return improvement

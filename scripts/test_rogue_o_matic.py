@@ -50,6 +50,18 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_ring_or_wand_scroll_matches_either_unidentified_category(self):
+        for category, should_read in [("ring", True), ("wand", True), ("armor", False)]:
+            with self.subTest(category=category):
+                items = [{"id": "scroll", "class": "scroll", "name": "lore", "identified": True,
+                          "identity": "item.scroll.identify-wand", "quantity": 1},
+                         {"id": "unknown", "class": category, "name": "mystery", "identified": False,
+                          "identity": f"item.{category}.unknown", "quantity": 1}]
+                turn = player_turn([cell("stairs", down=True)], inventory=items,
+                                   interactions={"inventory": [{"item": "scroll", "readable": True}]})
+                _, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason == "identify_gear", should_read)
+
     def test_protects_disclosed_unprotected_armor_and_preserves_scroll_otherwise(self):
         from tor_client_bot import UseItem, ItemUse
         body = {"id": "body_armor", "name": "body"}

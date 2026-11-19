@@ -1062,7 +1062,10 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_bot_replaces_adornment_with_searching_and_keeps_protection(self):
         self.check_searching_ring(occupied=True)
 
-    def check_searching_ring(self, *, occupied):
+    def test_bot_identifies_and_wears_a_ring_without_carrying_a_wand(self):
+        self.check_searching_ring(occupied=False, identify=True)
+
+    def check_searching_ring(self, *, occupied, identify=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1072,6 +1075,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         character, = manifest["characters"]
         character["known_identities"] = ["item.ring.ring-searching"]
         character["loadout"] = []
+        if identify:
+            character["known_identities"] = ["item.scroll.identify-wand"]
+            character["loadout"] = [{"archetype": "rogue.identify_wand", "quantity": 1}]
         if occupied:
             for slot, name in [(7, "protection"), (8, "adornment")]:
                 archetype = "rogue.ring_" + name
@@ -1085,7 +1091,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.install_bot_extension()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
-             "--budget", "3" if occupied else "2"],
+             "--budget", str(2 + int(occupied) + 2 * int(identify))],
             cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory),
                                      "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
@@ -1093,6 +1099,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         pickup, *swaps, equip, terminal = (json.loads(line) for line in result.stdout.splitlines())
+        if identify:
+            self.assertEqual([row["action"]["type"] for row in swaps], ["read", "identify"])
+            self.assertTrue(all(row["result"]["status"] == "confirmed" for row in swaps))
         if occupied:
             swap, = swaps
             self.assertEqual((swap["action"]["type"], swap["reason"]), ("unequip", "change_ring"))

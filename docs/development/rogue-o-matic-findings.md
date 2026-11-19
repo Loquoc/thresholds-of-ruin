@@ -33,6 +33,15 @@ hid an identification bottleneck. Test safe opportunities to read scrolls,
 record what the player learns from each one, and compare the resulting
 device and ring use on the same seed.
 
+In bundled Rogue the known scroll of identify ring or wand has the historical
+identity `item.scroll.identify-wand`. Inferring its target class from that
+suffix caused the bot to walk past the opportunity when only a ring needed
+identification. The production policy now uses the published target classes.
+A live regression picked up an unknown searching ring, read the scroll,
+selected the ring from the offered prompt, and equipped it. The pre-fix
+player spent those turns moving. A useful future client disclosure would
+show the eligible classes of a known readable scroll before it is consumed.
+
 Seed 42 twice escaped an adjacent rattlesnake upstairs and promptly returned
 to its floor. The bot now remembers the return direction for a short time
 after observing arrival at the refuge. A two-floor live encounter verifies
