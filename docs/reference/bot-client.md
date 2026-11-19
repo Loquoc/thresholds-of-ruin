@@ -19,8 +19,11 @@ the server discloses when the item is known. The default is
 scenario manifest and accepts the same identity option for independent
 victory verification.
 The cohort runner requires Python 3.11 or newer for manifest parsing.
-Each cohort runs the archived Python sources in its output
-directory and records their SHA-256 hashes in the summary.
+Each cohort runs the archived bot policy under `policy/` in its output
+directory. The installed Python client modules and native extension are
+copied beside it under `policy/tor_client_bot/`. The summary records
+per-file SHA-256 hashes in `policy_sources_sha256` and `bot_bindings_sha256`
+so two runs can be compared even when the installed client has changed.
 
 ```sh
 python scripts/rogue_o_matic.py --connect 127.0.0.1:4000 --actor 1 --budget 20000

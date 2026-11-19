@@ -185,6 +185,12 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
             expected = hashlib.sha256((ROOT / "scenarios/rogue" / path).read_bytes()).hexdigest()
             self.assertEqual(summary["inputs"][key], expected)
         hashes = summary["inputs"]["policy_sources_sha256"]
+        bindings = summary["inputs"]["bot_bindings_sha256"]
+        native = "_native.pyd" if os.name == "nt" else "_native.so"
+        for name in ("__init__.py", "game.py", native):
+            expected = hashlib.sha256((self.directory / "tor_client_bot" / name).read_bytes()).hexdigest()
+            self.assertEqual(bindings[name], expected)
+            self.assertEqual(hashlib.sha256((output / "policy/tor_client_bot" / name).read_bytes()).hexdigest(), expected)
         self.assertEqual(summary["inputs"]["policy_sha256"], hashes["rogue_o_matic.py"])
         self.assertEqual({p.name for p in (output / "policy").glob("*.py")}, hashes.keys())
         for name, digest in hashes.items():

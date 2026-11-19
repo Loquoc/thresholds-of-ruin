@@ -7,6 +7,40 @@ from rogue_o_matic_cohort import summarize
 
 
 class CohortSummaryTests(unittest.TestCase):
+    def test_binding_snapshot_preserves_the_selected_python_and_native_code(self):
+        import hashlib
+        import os
+        import tempfile
+        from pathlib import Path
+        from importlib.machinery import EXTENSION_SUFFIXES
+        from unittest.mock import Mock, patch
+        from rogue_o_matic_cohort import play_on_server, snapshot_bindings
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, policy = root / "installed/tor_client_bot", root / "policy"
+            source.mkdir(parents=True)
+            policy.mkdir()
+            native = "_native" + EXTENSION_SUFFIXES[0]
+            contents = {"__init__.py": b"", "game.py": b"current = True", native: b"binary fixture"}
+            for name, data in contents.items():
+                (source / name).write_bytes(data)
+            (source / "_native.pyi").write_text("stub only")
+            hashes = snapshot_bindings(source, policy)
+            (source / "game.py").write_text("current = False")
+            for name, data in contents.items():
+                self.assertEqual((policy / "tor_client_bot" / name).read_bytes(), data)
+            self.assertEqual(hashes, {name: hashlib.sha256(data).hexdigest() for name, data in contents.items()})
+            entry = policy / "player.py"
+            terminal = json.dumps({"terminal": "action_budget"})
+            entry.write_text("from tor_client_bot.game import current\nassert current\n"
+                             f"print({terminal!r})\nraise SystemExit(1)\n")
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            with patch.dict(os.environ, {"PYTHONPATH": str(source.parent), "PYTHONSAFEPATH": "1"}):
+                result = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl", 26, "amulet", entry, False)
+            self.assertEqual(result["terminal"], "action_budget")
+
     def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
         from pathlib import Path
         import subprocess

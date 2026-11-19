@@ -80,6 +80,13 @@ the control. It died on floor 18 after 10,449 actions and 49 Fainted events.
 The control died on floor 17 after 13 Fainted events. Neither retrieved the
 Amulet. Search order deserves a second development seed before adoption.
 
+The floor-18 run recorded six distinct food handles on the ground, three
+distinct food handles carried and three used. At least three ground handles
+never appeared in the pack. Ground sightings include distant items, and
+carried totals include starting inventory. Those counts cannot establish
+that the bot walked past three reachable rations. Its last decision had a
+reserve of −595, making the missed food worth tracing on a fresh run.
+
 In that baseline the largest observed decreases in nutrition reserve between
 successive decisions followed exploration (3,616 units), searching and travel
 to search positions (2,247), and scouting unknown territory for food (1,322).

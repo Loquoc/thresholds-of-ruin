@@ -3,10 +3,13 @@
 import argparse
 import hashlib
 from collections import Counter
+from importlib.machinery import EXTENSION_SUFFIXES
+from importlib.util import find_spec
 import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -58,6 +61,24 @@ def snapshot_policy(source, output):
         (directory / name).write_bytes(data)
         hashes[name] = hashlib.sha256(data).hexdigest()
     return directory / "rogue_o_matic.py", hashes
+
+
+def snapshot_bindings(source, policy_directory):
+    """Put the runnable package beside the policy so every seed imports the same bytes."""
+    directory = policy_directory / "tor_client_bot"
+    directory.mkdir()
+    files = sorted(source.glob("*.py"))
+    native = next((source / ("_native" + suffix) for suffix in EXTENSION_SUFFIXES
+                   if (source / ("_native" + suffix)).is_file()), None)
+    if native:
+        files.append(native)
+    hashes = {}
+    for path in files:
+        target = directory / path.name
+        shutil.copyfile(path, target)
+        with target.open("rb") as copied:
+            hashes[path.name] = hashlib.file_digest(copied, "sha256").hexdigest()
+    return hashes
 
 
 def campaign_inputs(server, scenario, actor, policy):
@@ -217,12 +238,15 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
         return {"terminal": "server_startup_error", "startup_error": str(error), "actions": 0}
     try:
         with trace.open("w", encoding="utf-8") as log, trace.with_name("bot.stderr").open("w", encoding="utf-8") as errors:
+            policy_imports = [str(Path(policy_path).resolve().parent)]
+            if inherited := os.environ.get("PYTHONPATH"):
+                policy_imports.append(inherited)
             result = subprocess.run(
                 [sys.executable, str(policy_path), "--connect", address,
                  "--actor", str(actor), "--budget", str(budget), "--retrieval-depth", str(retrieval_depth),
                  "--objective-identity", objective_identity, *(["--record-decisions"] if record_decisions else [])],
                 cwd=ROOT, stdout=log, stderr=errors, timeout=timeout,
-                env={**os.environ, "TOR_SERVER_TOKEN": token},
+                env={**os.environ, "PYTHONPATH": os.pathsep.join(policy_imports), "TOR_SERVER_TOKEN": token},
             )
         report, progress = trace_report(trace)
         if report is None or result.returncode != int(report["terminal"] != "victory"):
@@ -277,6 +301,11 @@ def main():
     policy_path, policy_hashes = snapshot_policy(ROOT / "scripts", output)
     inputs = campaign_inputs(server, scenario, args.actor, policy_path)
     inputs["policy_sources_sha256"] = policy_hashes
+    bindings = find_spec("tor_client_bot")
+    inputs["bot_bindings_sha256"] = (
+        snapshot_bindings(Path(bindings.origin).parent, policy_path.parent)
+        if bindings and bindings.origin else None
+    )
     with (scenario / "scenario.toml").open("rb") as manifest:
         objective = tomllib.load(manifest).get("unique_retrieval", {})
     retrieval_depth = objective.get("minimum_depth", DEFAULT_RETRIEVAL_DEPTH)
