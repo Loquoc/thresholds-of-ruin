@@ -264,7 +264,7 @@ The manifest declares the [current `format`](../status.md), `id`, `version`, `ru
 admission boundary for authored, compiled and saved package metadata. Current
 semantic hashes or validator evidence cannot bypass header validation.
 The optional fields include `themes`, `zones`, `archetypes`, `appearance_pools`,
-`creatures`, `factions`, `ai_profiles`, `arena`, `objective`, `assets`, `terrain`,
+`creatures`, `factions`, `ai_profiles`, `arena`, `scripting`, `assets`, `terrain`,
 `generation_recipes`, `generation_groups`, `procedural_worlds`, `stair_pairs`,
 `capabilities`, `floor_activation` and `spatial_scopes`. These organize content,
 run policy and structural generation; unknown fields are rejected. This is a
@@ -710,9 +710,9 @@ refill rule, food-pressure mechanism or Amulet objective. The
 source example; its provisional content is described in the
 [Rogue guide](../play/rogue.md).
 
-### Unique retrieval objective
+### Unique retrieval
 
-`unique_retrieval` declares a small typed entry objective separately from the
+`unique_retrieval` declares a small typed entry rule separately from the
 once-only `floor_activation` population. The Rogue package uses:
 
 ```toml
@@ -726,12 +726,12 @@ exit_anchor = "dungeon/1/up"
 ```
 
 The family and surface endpoint must resolve through the declared procedural
-world. The objective binds the selected character, not its current controller.
+world. The retrieval binds the selected character, not its current controller.
 Its item must be one ordinary nonstackable identity, excluded from authored
 births, starting loadouts and population stock. The initial eligible entry
 creates it once; every actual selected-player entry at or below the threshold
 then relocates the same identity unless that player carries it. Eligible revisits
-still run this objective after the independent once-only population decision.
+still run this rule after the independent once-only population decision.
 Ground piles, the entrant's cell and same-cell reselection remain legal.
 
 Destination candidates use current supported, reachable geometry. A remote
@@ -742,14 +742,13 @@ publish together, or the whole entry is rejected. No candidate means a recoverab
 entry refusal, not a missing item or duplicate creation. Queries, preparation,
 NPC travel and restore do not trigger relocation.
 
-The surface stair is a disclosed terminal endpoint with no invented exterior
-landing. Only the configured player deliberately executing ordinary `up` there
-with the bound item wins. Missing-item refusal costs no time. Occupancy, forced
-movement and teleportation alone never complete the objective. Dungeon-to-dungeon
-stairs keep their usual semantics. Successful surface escape is an immediate
-terminal resolution: it adds no world ticks, recovery interval or subsequent
-dungeon actor work. It does not fabricate an exterior landing or a paid journey
-after the accepted victory.
+The surface stair is a terminal endpoint with no invented exterior landing.
+When the configured player deliberately executes ordinary `up` there, the turn
+is an `escaped` [script fact](scripting.md#outcomes-and-goals); occupancy,
+forced movement and teleportation are not. The engine decides nothing about
+it: the Rogue package's outcome script wins when the hero carries the Amulet
+and otherwise tells the player it is needed. Dungeon-to-dungeon stairs keep
+their usual semantics.
 
 ### Paired stairs
 
@@ -855,8 +854,8 @@ population-stage enrollment is the separate `ai` rule described above. See
 
 Region gravity vectors/sparse overrides, body declarations, initial velocity,
 and full portal rotations are implemented; see [physics](../architecture/geometry.md).
-Objective declarations (`anchor`, optional authored item ID, `disclosed`,
-`continue_play`) are implemented; see [dungeon gameplay](../play/gameplay.md). Regions
+Packages declare no built-in objective; victory, defeat and goals come from
+[outcome scripts](scripting.md#outcomes-and-goals). Regions
 can be generated; see [generated regions](#generated-regions). Dependency
 registries are not supported. Rules imports use the explicit built-in general
 rules identity; arbitrary filesystem paths and network imports are rejected.
@@ -980,6 +979,15 @@ Consumables use the same effect vocabulary as abilities. Fixed healing is
 fixed or rolled amount. Conditions name a condition ID and duration; resource
 restoration names a resource and amount. Equipment defense and damage reduction
 are modifiers, not separate protection fields.
+
+## Scripts
+
+An optional `[scripting]` table lists package `.luau` scripts, declares their
+typed variables and binds handlers to hooks. Script text is pinned into the
+certificate, saves and compiled artifacts, so editing a script requires
+revalidation. See [scenario scripting](scripting.md) for hooks, effects,
+budgets and determinism, and [`scenarios/tutorial`](../../scenarios/tutorial)
+for an example.
 
 ## Assets
 
@@ -1184,10 +1192,10 @@ exist. Unselected AI starting characters retain their authored inventory. The
 selected character begins at an explicit input boundary even when its numeric ID follows an AI
 actor. Ordinary actor decisions otherwise retain stable time/identity ordering.
 
-An objective does not create a creature build or infer combat attributes.
-Packages with an objective require declared builds for every starting character,
-so outcome and combat status remain observable. Exploration actors in packages
-without objectives may omit a build.
+Scripts do not create creature builds or infer combat attributes. A package
+whose scripts end runs should give its starting characters builds, so combat
+status and the outcome remain observable to clients. Exploration actors may
+omit a build.
 
 ## Behavior defaults and AI overrides
 

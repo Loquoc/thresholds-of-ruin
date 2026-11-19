@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 71;
+pub(crate) const ARCHIVE_VERSION: u32 = 72;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -1189,6 +1189,69 @@ pub(crate) struct Record {
     /// Latest owning transaction only; empty non-entry deltas remain explicit.
     #[serde(deserialize_with = "read_retrieval_entries")]
     pub(crate) retrievals: Vec<RetrievalEntry>,
+    /// Script handler calls, rejections and messages this transaction made.
+    /// Replay recomputes them and requires exact equality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) hooks: Option<tor_simulation::scripting::ScriptReport>,
+}
+
+/// The user-message facts `report` shows `actor`'s controller. Messages
+/// outside the protocol's vocabulary or bounds are never delivered; the
+/// simulation already rejects them, so this only guards the wire contract.
+pub(crate) fn user_message_facts(
+    game: &Game,
+    report: &tor_simulation::scripting::ScriptReport,
+    actor: ActorId,
+) -> Vec<tor_protocol::OutcomeFact> {
+    use tor_protocol::UserMessageStyle;
+    use tor_simulation::scripting::MessageStyle;
+    report
+        .messages
+        .iter()
+        .filter(|message| game.hears_script_message(message, SimActor(actor.0)))
+        .filter_map(|message| {
+            let style = match message.style {
+                MessageStyle::Tutorial => UserMessageStyle::Tutorial,
+                MessageStyle::Hint => UserMessageStyle::Hint,
+                MessageStyle::Narration => UserMessageStyle::Narration,
+            };
+            let segments = adapt::message_segments(&message.segments)?;
+            Some(tor_protocol::OutcomeFact::UserMessage { style, segments })
+        })
+        .collect()
+}
+
+impl Engine {
+    /// Script messages the committed transaction `result` shows `actor`.
+    pub(crate) fn transaction_user_messages(
+        &self,
+        result: &CommandResult,
+        actor: ActorId,
+    ) -> Vec<tor_protocol::OutcomeFact> {
+        self.history_index
+            .find(&result.entry.id)
+            .and_then(|index| self.archive.records.get(index))
+            .filter(|record| record.entry.id == result.entry.id)
+            .and_then(|record| record.hooks.as_ref())
+            .map_or_else(Vec::new, |report| {
+                user_message_facts(&self.game, report, actor)
+            })
+    }
+
+    /// Script messages from the run's start, for a game nobody has acted in.
+    pub(crate) fn opening_user_messages(&self, actor: ActorId) -> Vec<tor_protocol::OutcomeFact> {
+        match (&self.archive.initial_hooks, self.archive.records.is_empty()) {
+            (Some(report), true) => user_message_facts(&self.game, report, actor),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// A transaction's script report, absent when scripts did nothing.
+pub(crate) fn hook_record(
+    report: tor_simulation::scripting::ScriptReport,
+) -> Option<tor_simulation::scripting::ScriptReport> {
+    (!report.is_empty()).then_some(report)
 }
 
 fn read_retrieval_entries<'de, D: serde::Deserializer<'de>>(
@@ -1512,6 +1575,9 @@ pub(crate) struct Archive {
     pub(crate) initial_activations: Vec<FloorActivationRecord>,
     #[serde(deserialize_with = "read_retrieval_entries")]
     pub(crate) initial_retrievals: Vec<RetrievalEntry>,
+    /// What scripts did when the run started, before any record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) initial_hooks: Option<tor_simulation::scripting::ScriptReport>,
 }
 
 /// How many of a streaming game's regions are in each state, and how its
@@ -2277,6 +2343,11 @@ impl Engine {
         }
         game.initialize_discovery().map_err(|_| invalid_archive())?;
         game.refresh_navigation();
+        // Scripts hear the run start before the initial boundary, so their
+        // opening effects are part of the base state every replay rebuilds.
+        game.start_scripts().map_err(|_| invalid_archive())?;
+        let initial_hooks = hook_record(game.take_script_report());
+        game.refresh_navigation();
         // Initial knowledge is part of the initial immutable boundary, never a
         // side effect of the first client query.
         let terrain = |region: tor_world::RegionId| {
@@ -2338,6 +2409,7 @@ impl Engine {
                 records: Vec::new(),
                 initial_activations,
                 initial_retrievals,
+                initial_hooks,
             },
         })
     }
@@ -2609,6 +2681,7 @@ impl Engine {
             let mut engine = Self::memory(archive.scenario.clone())?;
             if engine.archive.initial_activations != archive.initial_activations
                 || engine.archive.initial_retrievals != archive.initial_retrievals
+                || engine.archive.initial_hooks != archive.initial_hooks
             {
                 return Err(invalid_archive());
             }
@@ -2762,6 +2835,7 @@ impl Engine {
             if result.map_err(|_| invalid_archive())? != record.entry
                 || engine.archive.records.last().is_none_or(|actual| {
                     actual.action_resolution != record.action_resolution
+                        || actual.hooks != record.hooks
                         || actual.activations != record.activations
                         || actual.retrievals != record.retrievals
                         || actual.retrieval_before != record.retrieval_before
@@ -3843,6 +3917,7 @@ impl Engine {
                     action: Action::Wait,
                 },
             };
+            let hooks = hook_record(self.game.take_script_report());
             self.append_record(Record {
                 attachment: None,
                 retrieval_before,
@@ -3857,6 +3932,7 @@ impl Engine {
                     .game
                     .activations_since(activation_count)
                     .map_err(|_| invalid_archive())?,
+                hooks,
             });
             if end - index <= REWIND_BOUNDARIES {
                 self.boundaries.push_back(Arc::new(Boundary {
@@ -4245,10 +4321,6 @@ impl Engine {
                         tor_simulation::IntentionOrigin::Human,
                     )
                     .map_err(|error| match error {
-                        tor_simulation::GameError::ExitItemRequired => Failure::new(
-                            ErrorCode::InvalidAction,
-                            "You need the objective item to leave through the surface exit",
-                        ),
                         tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::MeleeOutOfReach) => Failure::new(
                             ErrorCode::InvalidAction,
                             "You can't reach that target in melee from here. Try from an open adjacent square.",
@@ -4560,6 +4632,7 @@ impl Engine {
             receipt,
             action_resolution,
             activations,
+            hooks: hook_record(candidate.game.take_script_report()),
         };
         let survival = candidate.game.take_survival_diagnostics();
         let start_tick = self.game.tick();
@@ -4692,6 +4765,7 @@ impl Engine {
             action_resolution: ActionResolution::Unchanged,
             activations: Vec::new(),
             retrievals: Vec::new(),
+            hooks: None,
         };
         let copied = self.admit(&record, &Candidate::capture(self), None)?;
         self.mark_saved(copied);
@@ -5765,7 +5839,9 @@ mod frozen_plan_profile_tests {
             }))
             .unwrap(),
         );
-        let package = Package::from_parts(
+        let package = Package::from_parts_at(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scenarios/tests/interactions"),
             manifest,
             vec![region],
             tor_simulation::rules::DEFAULT_RULESET_TOML,

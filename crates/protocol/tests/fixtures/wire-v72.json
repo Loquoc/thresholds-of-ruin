@@ -5,7 +5,7 @@
  ],
  "fixture_format": "wire-parts-v1",
  "protocol": 72,
- "server_count": 83,
+ "server_count": 82,
  "server_parts": [
   "wire-v72/server-000-6b82bdec7aefcff7bacaa5eead7974221762e55f79ac7d41a620c32976b71feb.json",
   "wire-v72/server-001-e62f69f8ef6e629439f09e11dd51912a0f9efcf62cc37d1c2667246849d5d36e.json",
@@ -27,7 +27,6 @@
   "wire-v72/server-017-7e167a7a102fb247bded37f1229ab8b35f53c45786adb61bb10c23cbeb598a07.json",
   "wire-v72/server-018-0f2abd69e25d3f4a19d82ff08a54b6db76d230c47143137bba53a8eeeb94d2bd.json",
   "wire-v72/server-019-68f87b54e2fffda1ebfc2ad39e62aacc125208aefb34b4026f4c0e8eb7e1cad0.json",
-  "wire-v72/server-020-5816d84751592de16f1ba83b22eb4c2fcedb07ea4ffa2d6f170a77e7cc780ac8.json",
-  "wire-v72/server-021-441bd53c5707db3a5a7f51d5e5c51ce6834a131843f97e0cb22a864054fcf4ef.json"
+  "wire-v72/server-020-5816d84751592de16f1ba83b22eb4c2fcedb07ea4ffa2d6f170a77e7cc780ac8.json"
  ]
 }

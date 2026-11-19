@@ -309,11 +309,10 @@ pub(crate) fn outcome_observation(
                 .cloned()
                 .filter_map(|event| combat_event_view(event, targets, &effect_anchors))
                 .collect(),
-            objective: combat.objective.map(|objective| match objective {
-                s::combat::ObjectiveKind::RetrieveAndReturn => p::ObjectiveKind::RetrieveAndReturn,
-                s::combat::ObjectiveKind::ReachExit => p::ObjectiveKind::ReachExit,
-                s::combat::ObjectiveKind::RetrieveAndExit => p::ObjectiveKind::RetrieveAndExit,
-            }),
+            goal: combat
+                .goal
+                .as_ref()
+                .and_then(|goal| crate::adapt::message_segments(&goal.segments)),
         }),
     }
 }
@@ -446,8 +445,10 @@ mod tests {
                 outcome: s::abilities::OutcomeStatus::Miss,
                 strike: Some(1),
             }],
-            objective: Some(s::combat::ObjectiveKind::RetrieveAndExit),
-            exit: Some(view.location),
+            goal: Some(s::scripting::Goal {
+                segments: vec![s::scripting::MessageSegment::Text("Climb out.".into())],
+                cell: Some(view.location),
+            }),
             victory: false,
             dead: false,
             terminal: false,

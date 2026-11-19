@@ -29,7 +29,8 @@ fn bounded_package(
     manifest.stair_pairs.clear();
     manifest.floor_activation = None;
     manifest.unique_retrieval = None;
-    manifest.objective = None;
+    // Its outcome script names the retrieval exit; this fixture has none.
+    manifest.scripting = None;
     let mut actor = json!({"id":3,"at":[3,2,0],"archetype":archetype,"controller":"ai"});
     if archetype == "rogue.human" {
         actor.as_object_mut().unwrap().remove("archetype");
@@ -587,10 +588,11 @@ fn population_without_ai_remains_external_even_when_its_species_has_idle_default
     stage.as_object_mut().unwrap().remove("ai");
     stage["bands"][0]["depth"]["minimum"] = json!(1);
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -696,11 +698,12 @@ fn default_enrollment_and_visited_history_survive_source_free_durable_reopen_and
             },
         )
         .unwrap();
-        crate::scenario_package::write_package(
+        crate::scenario_package::write_package_scripted(
             &source,
             &package.manifest,
             &package.region_defs().unwrap(),
             &package.rules_source,
+            &package.scripts,
         )
         .unwrap();
         crate::scenario_package::validate(&source).unwrap();

@@ -1,4 +1,4 @@
-format = 37
+format = 38
 id = "rogue-exploration"
 version = "1.0"
 ruleset = "rules.toml"
@@ -568,3 +568,20 @@ dungeon = [
   "item.ring",
   "item.coin",
 ]
+
+[scripting]
+scripts = ["scripts/outcome.luau"]
+
+[[scripting.hooks]]
+on = "run_started"
+handler = "outcome.start"
+
+[[scripting.hooks]]
+on = "escaped"
+actor = "selected"
+handler = "outcome.escaped"
+
+[[scripting.hooks]]
+on = "died"
+actor = "selected"
+handler = "outcome.died"

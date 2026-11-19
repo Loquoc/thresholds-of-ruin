@@ -146,10 +146,11 @@ pub(crate) fn revocable_scenario() -> crate::Scenario {
         .templates
         .push("revocable".into());
     scenario.package = Some(Arc::new(
-        crate::scenario_package::Package::from_parts(
+        crate::scenario_package::Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -311,8 +312,13 @@ pub(crate) fn equipped_scenario() -> crate::Scenario {
         .unwrap(),
     );
     scenario.package = Some(Arc::new(
-        crate::scenario_package::Package::from_parts(manifest, regions, &package.rules_source)
-            .unwrap(),
+        crate::scenario_package::Package::from_parts_scripted(
+            manifest,
+            regions,
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap(),
     ));
     scenario
 }
@@ -343,8 +349,13 @@ pub(crate) fn unload_target_scenario() -> crate::Scenario {
         .unwrap(),
     );
     scenario.package = Some(Arc::new(
-        crate::scenario_package::Package::from_parts(manifest, regions, &package.rules_source)
-            .unwrap(),
+        crate::scenario_package::Package::from_parts_scripted(
+            manifest,
+            regions,
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap(),
     ));
     scenario
 }

@@ -101,13 +101,8 @@ fn fixture_placed(
         )
         .unwrap();
     }
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+        .unwrap();
     game.configure_ai(
         ActorId(2),
         AiProfile {
@@ -158,7 +153,6 @@ fn passive_species_wait_until_a_visible_hostile_strike_commits() {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("neighbors".into(), BTreeSet::from(["neighbors".into()]))]),
     )
     .unwrap();
@@ -190,7 +184,6 @@ fn ordinary_awareness_has_no_wake_lottery_and_queries_draw_nothing() {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("neighbors".into(), BTreeSet::from(["neighbors".into()]))]),
     )
     .unwrap();
@@ -237,7 +230,6 @@ fn no_enemy_no_wake_and_multi_cell_self_never_acquires_itself() {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("neighbors".into(), BTreeSet::from(["neighbors".into()]))]),
     )
     .unwrap();
@@ -294,7 +286,6 @@ fn private_grudge_changes_only_the_requesters_relationships() {
     calm.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("neighbors".into(), BTreeSet::from(["neighbors".into()]))]),
     )
     .unwrap();
@@ -952,7 +943,6 @@ fn ai_engagement_deadline_overflow_rejects_the_whole_decision() {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("neighbors".into(), BTreeSet::from(["neighbors".into()]))]),
     )
     .unwrap();
@@ -1161,7 +1151,6 @@ fn hostile_neighbors(game: &mut Game) {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("neighbors".into(), BTreeSet::from(["neighbors".into()]))]),
     )
     .unwrap();

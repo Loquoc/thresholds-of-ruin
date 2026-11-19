@@ -186,9 +186,8 @@ pub enum Event {
         result: u64,
         quantity: u64,
     },
-    Escaped {
-        item: u64,
-    },
+    /// The actor took the scenario's exit; scripts decide what it means.
+    Escaped,
     Waited,
 }
 

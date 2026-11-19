@@ -1778,7 +1778,8 @@ fn canonical_wraith_earned_regrowth_survives_source_free_service_reopen() {
         manifest.stair_pairs.clear();
         manifest.floor_activation = None;
         manifest.unique_retrieval = None;
-        manifest.objective = None;
+        // Its outcome script names the retrieval exit; this fixture has none.
+        manifest.scripting = None;
         // Preserve resolved production catalogs, rules, loadout, themes/assets,
         // and actor turn timings. Only placement/control and one empty HD differ.
         let region: scenario_package::RegionDef = serde_json::from_value(json!({

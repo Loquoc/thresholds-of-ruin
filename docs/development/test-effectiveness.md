@@ -932,7 +932,7 @@ public-state/profile invariants and work counts. Paired median changes relative 
 nor prove zero overhead, whole-game throughput or tail latency. The changed wall
 cases intentionally choose different actions and are not timing-equivalence
 controls. Rules 70 has a genuine current-writer golden, current certificates and
-explicit prior-rules rejection; archive 71 and protocol 72 are unchanged. All
+explicit prior-rules rejection; that change left the archive and protocol formats unchanged. All
 prior fixture bytes and historical earned-route outcomes remain preserved.
 
 ## Repeated autonomous Flytrap hold coverage
@@ -1076,6 +1076,88 @@ its matching policy explicitly. This bounded practice setup is not universal
 reaction suppression: awareness and authored fear/control effects still run.
 Native presentation retains its actual-window test and required hosted check;
 a headless replay is not a substitute for that boundary.
+
+
+## Scenario hooks (scripting milestone 1, 2026-11-18)
+
+Two production defects and one class of stale pins, counted by root cause:
+
+- **Once-binding mask (production, simulation).** A fake-host unit test of a
+  `once` binding found that retiring the binding left its hook kind's mask
+  bit set, so later sites kept building facts for a kind nobody heard. The
+  invocation now refreshes the mask whenever it retires a binding. One method
+  failed; it now owns the regression.
+- **Unconfigured scripted runs (production, server).** The tutorial
+  walkthrough integration test failed with only the run-start and timer
+  lessons delivered. A package configured its adventure run, and so its
+  character set, only for creature-built characters, an objective or a unique
+  retrieval. In a scripted package without those, every actor fact failed
+  the default character filter and `ctx:win` had no run to end. Scripted
+  packages now always configure a run. Engine-level work counters (sites
+  checked, facts noted) and the installed bindings localized it. The same
+  walkthrough also showed that a character without a creature build has no
+  combat view, so clients cannot see a scripted victory; that was tutorial
+  content, fixed by giving its character a build. One method, one root cause.
+- **Stale version pins (stale tests, expected with the format change).**
+  Protocol 73, save format 72, scenario format 38 and validator
+  `tor-scenario-52` failed the explicit pin and golden tests until the
+  protocol 73 wire samples and the save format 72 scenario golden were
+  recorded and the pins updated. These are deliberate first-red pins, not defects.
+
+Not counted: a bulk `format = 37` replacement that also rewrote one literal
+in the new v46 baseline test was an authoring slip caught by that test before
+publication.
+
+## Scripted outcomes (2026-11-18)
+
+Moving every victory and defeat into scripts exposed two defects, counted by
+root cause:
+
+- **Goals on unentered regions (production, simulation).** The amulet process
+  test, replayed by the wire recorder, found Rogue's opening goal missing: its
+  root invocation was rejected because goal validation required the cell to
+  be in a declared region, and the surface exit's floor is not declared while
+  the hero starts on floor 26. A goal's cell is disclosed only by key until
+  seen, so the check was wrong and is removed; the retrieval engine test now
+  asserts the opening goal and its exit cell. One method, one root cause.
+- **Run-start victory (package scripts).** `dungeon-characters`' integration
+  test found the companion's start-of-run victory missing: the old objective
+  was checked when the run was configured, but the first outcome script only
+  checked moves and pickups. Seal and companion scripts now also check every
+  character at `run_started`. One method, one root cause.
+
+Not counted: about two hundred test fixtures that rebuilt or rewrote scripted
+packages without their scripts, and tests asserting the removed built-in
+outcomes, were stale fixtures for the deliberate behavior change.
+
+The first hosted run of PR #32 found three more defects in Python package
+tools, counted by root cause:
+
+- **Silently dropped outcome scripts (tooling).** Eight package builders
+  rebuild a Rogue, arena or fixture manifest without its `scripting`, so
+  `copy_declared` copied nothing and their packages lost the death defeat the
+  engine used to provide. The corrosion-ray process test caught it: the run
+  continued past the player's death to tick 300 instead of ending at 242.
+  Those generators now apply the canonical death script, and `copy_declared`
+  refuses a manifest that declares no scripts. One failing method; the guard
+  has its own unit test.
+- **Activation candidates without scripts (tooling).** The Rogue activation
+  candidate snapshot read only the manifest, ruleset and modules, so every
+  candidate package failed validation for a missing `scripts/outcome.luau`.
+  It now retains and writes the declared scripts. Fourteen methods across the
+  activation and earned-route process tests, one root cause.
+- **Stale scenario format (tooling).** The format 38 bump missed the arena
+  matrix generator and one Rogue bot fixture, which still wrote format 37.
+  Every curated arena, search, starter-study and evaluation package failed
+  validation. About fifteen methods, one root cause.
+
+Not counted as defects: service-contract and wizard fixtures that copied a
+scripted manifest without its scripts; amulet tests whose limit tables kept a
+renamed method's old name, or that asserted the removed escape item and text;
+the objective validation tests; and the independent 3D lock, which lacked the
+Luau crates (the same setup failure as the rusqlite update below). The
+benchmark examples, which still cleared the removed objective, were caught
+locally by the performance comparison's release build, before CI.
 
 ## Independent client dependency locks
 
@@ -1242,3 +1324,14 @@ exhaustive `ServerMessage` taxonomy in `protocol/tests/it/samples.rs` omitted
 The test match, required-kind list and recorder now include it, with one sample
 captured from the unchanged production Service encoder. Existing wire samples
 remain unchanged; this was a test coverage defect, not a production wire change.
+
+The v73/Luau integration merge was textually clean but its active corpus lacked
+WizardReport. The required-kind test failed at that exact boundary. The verified
+report sample now resides in v73, leaving v72 byte-identical to merged main;
+existing v73 scripted-message samples remain unchanged. Independent omission
+controls detect the missing WizardReport kind and missing tutorial text/control
+fact, then the restored corpus passes. The AI Give fixture also inherited an
+external outcome-script declaration without supplying script sources; like the
+upstream catalog fixture, it now removes only that unused scripting declaration.
+Its tactical rules and existing medicine/knowledge setup are unchanged. Exact
+integrated Service runtime remains a hosted qualification, not a local claim.

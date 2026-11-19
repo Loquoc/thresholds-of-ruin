@@ -43,10 +43,11 @@ fn evaluate() -> Result<arena_evaluation::ArenaEvaluation, String> {
         let arena = manifest.arena.as_mut().ok_or("Scenario is not an arena")?;
         arena.control = ArenaControl::AllAi;
         arena.start_paused = false;
-        let mut resolved = Package::from_parts(
+        let mut resolved = Package::from_parts_scripted(
             manifest,
             package.region_defs().map_err(|e| e.to_string())?,
             &package.rules_source,
+            package.scripts.clone(),
         )
         .map_err(|e| e.to_string())?;
         resolved.selected = package.selected;

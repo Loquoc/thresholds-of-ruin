@@ -21,10 +21,11 @@ fn mapping_package(up: Option<&str>) -> Package {
         parsed.is_ok(),
         "valid supplied mapping metadata rejected: {parsed:?}"
     );
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         parsed.unwrap(),
         base.region_defs().unwrap(),
         &base.rules_source,
+        base.scripts.clone(),
     )
     .unwrap();
     package
@@ -166,10 +167,11 @@ fn source_compiler_derives_only_exterior_owned_doorway_subset_not_every_doorway(
     let definition: RegionDef = serde_json::from_value(json!({"id":1,"name":"Doorway basis",
         "size":[5,1,2],"chamber":true,"anchors":{"start":[0,0,0]}}))
     .unwrap();
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         vec![definition],
         &base.rules_source,
+        base.scripts.clone(),
     )
     .unwrap();
     package.check().unwrap();
@@ -232,10 +234,11 @@ fn sixty_five_authored_members_are_not_rejected_or_silently_downgraded_by_certif
             .unwrap()
         })
         .collect();
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         regions,
         &base.rules_source,
+        base.scripts.clone(),
     )
     .unwrap();
     package.check().unwrap();

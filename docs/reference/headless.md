@@ -126,6 +126,13 @@ Every stdout line is a JSON frame containing:
   the whole palette itself after a missed revision, and once for each asset an
   observation names that the palette lacks; the answer arrives as an `update`
   or `response` frame like any other message.
+- `narration`: on an outcome update, the shared narration sentences for its
+  facts; otherwise empty.
+- `user_messages`: on an outcome update, each server-authored tutorial, hint or
+  narration message as `style`, `text` and `segments`; otherwise empty. The
+  headless client has no keys, so `text` names each control neutrally in
+  brackets (`[pick up]`) and `segments` keeps the closed control ids
+  (`{"control":"pick_up"}`) for automation to map onto its own inputs.
 - `message`: the received protocol message, or null. History query pages and
   accepted action results are available here; no hidden state is added.
 - `error`: an input/request error on `ready`, otherwise null.
@@ -136,7 +143,7 @@ with `type`, `error`, `map_hydration` and `state_omitted: true`. Only their repe
 derived attachment fields are not constructed: `state`, `branch`, `cursor`, `role`,
 `has_control`, `readiness`, `input_context`, `history`, `intentions`, `travel`,
 `memory`, `palette`, `advancement`, `advancement_page`, `synchronized`,
-`capabilities`, `observation_base` and `narration`. Absence means no derived
+`capabilities`, `observation_base`, `narration` and `user_messages`. Absence means no derived
 snapshot was printed, never empty state. Consumers must read the raw message or
 wait for a complete frame rather than clear their state. Every `ready` frame, observation and lifecycle update,
 snapshot, protocol error and local error remains complete. Default output is

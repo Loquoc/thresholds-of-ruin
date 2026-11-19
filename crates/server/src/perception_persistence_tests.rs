@@ -106,7 +106,7 @@ fn scenario() -> Scenario {
     // No unrelated population, survival or retrieval work participates here.
     source["floor_activation"] = Value::Null;
     source["unique_retrieval"] = Value::Null;
-    source["objective"] = Value::Null;
+    source["scripting"] = Value::Null;
     let package =
         Package::from_parts(serde_json::from_value(source).unwrap(), vec![], &rules).unwrap();
     assert!(!package.sources.has_directory());

@@ -1,9 +1,9 @@
 # Scenario scripting
 
-**Status: desired feature; runtime and implementation deferred.** This note records the direction agreed in
-discussion. Nothing is implemented, and the scenario package format is
-unchanged. Adding scripts to packages is a compatibility-breaking format
-decision that needs the maintainer's authorization before work starts. Existing [three-dimensional sight](../architecture/perception.md) and
+**Status: first milestone implemented with Luau; see the
+[scripting reference](../reference/scripting.md).** This note keeps the
+original direction and the open questions beyond that milestone. Scenario
+format 38 added scripts, variables and hooks to packages. Existing [three-dimensional sight](../architecture/perception.md) and
 [region lifecycle](../architecture/streaming.md) provide foundations; their implementation
 does not authorize a scripting milestone.
 

@@ -32,10 +32,11 @@ def read_fixture(output):
 ESCAPE_SAMPLE = {
     "type": "snapshot", "request_id": "exact-response-request",
     "snapshot": {"state": {"observation": {
-        "combat": {"objective": "retrieve_and_exit", "victory": True, "terminal": True},
+        "combat": {"goal": {"segments": [{"text": "Climb out with the Amulet."}]},
+                   "victory": True, "terminal": True},
         "inventory": [{"id": "exact-opaque-item", "name": "Amulet of Yendor"}],
     }}, "history": {"entries": [{"content": {"type": "action", "event": {
-        "type": "escaped", "item": "exact-opaque-item"}}}]}, "cursor": "exact-cursor"},
+        "type": "escaped"}}}]}, "cursor": "exact-cursor"},
 }
 
 
@@ -373,10 +374,14 @@ class CompleteRecordingContracts(unittest.TestCase):
         }}, "history": []}
         escaped = copy.deepcopy(before)
         escaped["state"]["observation"]["combat"].update(victory=True, terminal=True)
-        escaped["history"] = [{"content": {"type": "action", "event": {
-            "type": "escaped", "item": "exact-item"}}}]
+        escaped["history"] = [{"content": {"type": "action", "event": {"type": "escaped"}}}]
         case.assert_escape(before, escaped, "exact-item")
-        for changed in ("tick", "identity", "duplicate_event", "victory", "terminal", "dead", "location"):
+        # An earlier climb without the Amulet is an ordinary escape too.
+        earlier = copy.deepcopy(escaped)
+        earlier["history"] *= 2
+        case.assert_escape(before, earlier, "exact-item")
+        for changed in ("tick", "identity", "item_event", "later_action", "victory", "terminal", "dead",
+                        "location"):
             with self.subTest(changed=changed):
                 invalid = copy.deepcopy(escaped)
                 view = invalid["state"]["observation"]
@@ -384,8 +389,10 @@ class CompleteRecordingContracts(unittest.TestCase):
                     view["tick"] = "1100"
                 elif changed == "identity":
                     view["inventory"][0]["id"] = "another-item"
-                elif changed == "duplicate_event":
-                    invalid["history"] *= 2
+                elif changed == "item_event":
+                    invalid["history"][0]["content"]["event"]["item"] = "exact-item"
+                elif changed == "later_action":
+                    invalid["history"].append({"content": {"type": "action", "event": {"type": "waited"}}})
                 elif changed == "location":
                     view["visible_cells"][0]["key"] = "fabricated-destination"
                 else:
@@ -402,7 +409,7 @@ class CompleteRecordingContracts(unittest.TestCase):
                 (384, 40000, 64 * 1024 * 1024, 240),
             "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
                 (256, 25000, 48 * 1024 * 1024, 180),
-            "test_native_surface_exit_explains_what_is_needed_before_retrieval":
+            "test_native_surface_exit_without_the_amulet_is_a_scripted_hint_not_a_win":
                 (16, 1000, 8 * 1024 * 1024, 60),
         }
         self.assertEqual(case.limits, expected)

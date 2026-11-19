@@ -117,7 +117,6 @@ fn defensive_ai_admission_replays_the_same_paid_plan_then_stops_reapplying() {
     game.configure_run(
         human,
         [human].into(),
-        None,
         [("foe".into(), ["hero".into()].into())].into(),
     )
     .unwrap();

@@ -1,0 +1,63 @@
+# A short scripted first walk: moving, doors, picking up and leaving.
+# Lessons come from scripts/lessons.luau. Validate after every edit.
+format = 38
+id = "tutorial"
+version = "1.0"
+ruleset = "rules.toml"
+default_character = 1
+themes = ["stone"]
+archetypes = { "token" = { identity = "item.misc.token", "name" = "brass token" } }
+factions = { students = [] }
+characters = [{ id = 1, anchor = "1/start", turn_ticks = 100, creature = { corpse_identity = "item.corpse.persona.student", species = "student", name = "student", faction = "students", binding = "intellect", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["persuasion", "deception"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
+
+# The player's body: one plain humanoid hit die, no hunger.
+[creatures.species.student]
+behavior = { disposition = "mean", idle = "explore", memory_ticks = 1000 }
+kind = "humanoid"
+attributes = { strength = 0, speed = 0, intellect = 0, willpower = 0, awareness = 0, presence = 0 }
+melee = { skill = "heavy_weaponry", bonus = 0, wind_up = 20, recovery = 80, strikes = [{ offset = 0, check = { actor = "user", skill = { kind = "selected_weapon" }, against = { kind = "defense", defense = "physical" } }, on_success = [{ kind = "damage", damage = { kind = "components", components = [{ category = "impact", amount = { kind = "fixed", amount = 4 } }] } }], on_failure = [], descriptors = [], riders = [] }] }
+modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "health" }, value = 12 } }]
+
+[scripting]
+scripts = ["scripts/lessons.luau"]
+
+[scripting.variables]
+lessons = { scope = "scenario", type = "int", default = 0 }
+has_token = { scope = "scenario", type = "bool", default = false }
+
+[[scripting.hooks]]
+on = "run_started"
+handler = "lessons.welcome"
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/token"
+handler = "lessons.at_token"
+once = true
+
+[[scripting.hooks]]
+on = "item_taken"
+identity = "item.misc.token"
+handler = "lessons.took_token"
+once = true
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/door"
+handler = "lessons.at_door"
+once = true
+
+[[scripting.hooks]]
+on = "door_changed"
+handler = "lessons.door_changed"
+once = true
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/exit"
+handler = "lessons.exit"
+
+[[scripting.hooks]]
+on = "died"
+actor = "selected"
+handler = "lessons.died"

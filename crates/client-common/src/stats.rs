@@ -168,8 +168,7 @@ mod tests {
         let abilities = serde_json::json!([{"cooldown_remaining":"0","supply_costs":[],"id":"basic_melee","name":"Basic Melee","cost":null,"reach":{"kind":"melee"},"target_kind":"actor","basic_attack":true,"weapon_selection":true}, {"cooldown_remaining":"0","supply_costs":[],"id":"magic_bolt","name":"Magic Bolt","cost":null,"reach":{"kind":"sight","range":6},"target_kind":"actor","basic_attack":false,"weapon_selection":false}]);
         let combat: CombatView = serde_json::from_value(serde_json::json!({
             "hp": "7", "max_hp": "12", "public_plan":null,"sequence":null,"preparation_remaining": "50", "preparation_active": true,
-            "recovery_remaining": "0", "actors": [], "events": [], "objective": null,
-            "victory": false, "dead": false, "terminal": false,
+            "recovery_remaining": "0", "actors": [], "events": [], "victory": false, "dead": false, "terminal": false,
             "own_stats": {
                 "nutrition":{"kind":"exempt"}, "conditions":[],
                 "restorable_losses":{"hit_dice":"0","attributes":{"strength":0,"speed":0,"intellect":0,"willpower":0,"awareness":0,"presence":0},"maximum_health":0},

@@ -58,8 +58,9 @@ pub(super) fn game() -> (Game, ActorId, ActorId) {
         .unwrap();
         ids.push(id);
     }
-    game.configure_run(ids[0], BTreeSet::from([ids[0]]), None, Default::default())
+    game.configure_run(ids[0], BTreeSet::from([ids[0]]), Default::default())
         .unwrap();
+    super::defeat::lose_on_death(&mut game, ids[0]);
     game.add_default_reference_points().unwrap();
     game.refresh_navigation();
     game.rebuild_creature(ids[1], enhanced).unwrap();

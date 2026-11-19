@@ -10,7 +10,7 @@ interactions: recover the **dawn seal** and return to the entrance. Death is
 persistent. A separate [**Rogue starter slice**](docs/play/rogue.md) authors Warrior
 and Mage presets, ordinary low-depth foes and finite supplies on open-ended,
 generated persistent floors. Its full 26-species roster, hunger and recovery,
-current loot and Amulet retrieval/ascent objective are implemented; calibrated
+current loot and the scripted Amulet retrieval and ascent are implemented; calibrated
 depth/food pressure and complete-run balance remain unfinished. This is a development build, without an installer or automatic
 server launch for the Text and ASCII clients. Windows and Linux are supported.
 An optional [procedural 3D prototype](crates/client-3d/README.md) has its own

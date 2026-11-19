@@ -700,10 +700,10 @@ fn add_enemy(game: &mut Game) -> ActorId {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("allies".into(), BTreeSet::from(["enemies".into()]))]),
     )
     .unwrap();
+    super::defeat::lose_on_death(game, ActorId(1));
     assert!(game
         .observe(ActorId(1))
         .unwrap()
@@ -1770,13 +1770,17 @@ fn phase5_respec_post_spend_corpse_exhaustion_rolls_back_control_advancement_and
         "progress":{"kind":"active","control":{"kind":"paused","remaining":0}},"deceased":null
     }});
     let shared = serde_json::from_value(pool).unwrap();
+    // The arena ends by its elimination script when a participant dies; the
+    // restored game gets that host back as the server would reattach it.
     let restore = |snapshot: Value| {
-        Game::restore_checkpoint(
+        let mut restored = Game::restore_checkpoint(
             serde_json::from_value(snapshot).unwrap(),
             &shared,
             game.content().clone(),
         )
-        .unwrap()
+        .unwrap();
+        super::defeat::eliminate_on_death(&mut restored);
+        restored
     };
     let mut control = restore(snapshot.clone());
     assert_eq!(round_trip(&control), control);

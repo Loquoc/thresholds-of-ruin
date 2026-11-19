@@ -34,6 +34,7 @@ import unittest
 
 from arena_matrix import toml_source
 from process_harness import ProcessTestCase, SPECTATOR_TOKEN, settle_rogue_action, underfoot
+from outcome_scripts import apply
 from process_work_budget import ProcessWorkBudget
 from rogue_roster_package import PRODUCTION, encounter_sources, unrelated_fallback
 from rogue_test_support import cardinal_melee_candidate, disclosed_actor_candidates, disclosed_contact_step
@@ -121,6 +122,9 @@ def theft_package(test, species):
         {"namespace": "fixture", "items": {MUNDANE_MACE: mundane}}),
         encoding="utf-8", newline="\n")
     shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+    # The selected character's death ends the run, as it did before
+    # outcomes moved into scripts.
+    apply(manifest, package, "death")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     result = subprocess.run([test.bin / ("tor-scenario" + test.suffix), "validate", package],
                             capture_output=True, text=True, encoding="utf-8", timeout=30)

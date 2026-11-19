@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import tomllib
 from ruleset_sources import resolve_with_dependencies
+from outcome_scripts import apply
 
 # Named point-by-point inputs are shared by the diagnostic matrix and the
 # paired starter study. No engine path branches on these class or family IDs.
@@ -121,7 +122,7 @@ def encounter(family, hd, candidate, mirrored, ruleset):
         catalog["subject"]["modifiers"] = [
             {"scope": "always", "op": {"kind": "immunity", "selector": {"kind": "descriptor", "descriptor": "fear"}}},
             {"scope": "always", "op": {"kind": "reduction", "selector": {"kind": "category", "category": "energy"}, "amount": 2}}]
-    manifest = {"format": 37, "id": "arena-matrix-" + family + "-" + str(hd),
+    manifest = {"format": 38, "id": "arena-matrix-" + family + "-" + str(hd),
                 "version": "1.0", "ruleset": ruleset, "default_character": 1,
                 "arena": {"participants": [1, 2], "control": "all_ai", "ticks": 100000, "actions": 10000},
                 "factions": {"blue": ["red"], "red": ["blue"]},
@@ -184,6 +185,7 @@ def create_matrix(output, compiler, ruleset, seeds, *, families=None, levels=Non
                     manifest, region = encounter(family, hd, variant == "candidate",
                                                  orientation == "mirrored", "rules.toml")
                     (package / "rules.toml").write_bytes(rules_source)
+                    apply(manifest, package, "elimination")
                     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
                     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
                     result = subprocess.run([str(compiler), "validate", str(package)], capture_output=True,

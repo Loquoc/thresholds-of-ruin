@@ -42,7 +42,13 @@ fn large_floor_fixture() -> Scenario {
         height: [30, 30],
     };
     scenario.package = Some(Arc::new(
-        Package::from_parts(manifest, vec![], &original.rules_source).unwrap(),
+        Package::from_parts_scripted(
+            manifest,
+            vec![],
+            &original.rules_source,
+            original.scripts.clone(),
+        )
+        .unwrap(),
     ));
     scenario
 }
@@ -109,7 +115,13 @@ fn changing_retrieval_boundaries_keep_large_unchanged_population_pooled() {
     let mut manifest = original.manifest.clone();
     manifest.characters[0].anchor = "dungeon/26/up".into();
     scenario.package = Some(Arc::new(
-        Package::from_parts(manifest, vec![], &original.rules_source).unwrap(),
+        Package::from_parts_scripted(
+            manifest,
+            vec![],
+            &original.rules_source,
+            original.scripts.clone(),
+        )
+        .unwrap(),
     ));
     let scenario = super::retrieval::attach_objective(scenario);
     let at = |depth| {
@@ -252,10 +264,11 @@ fn omitted_group_capacity_failure_preserves_exact_checkpoint_and_region_authorit
             "operation":{"kind":"room_omissions", "config":{"count":[impossible,impossible]}}}),
         );
     let rejected = Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     );
@@ -448,10 +461,11 @@ capacity = "reject"
     assert_eq!(trap["operation"]["config"]["count"], json!([1, 1]));
     trap["operation"]["config"]["count"] = json!([1, 26]);
     let rejected = Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     );

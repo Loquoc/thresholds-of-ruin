@@ -183,7 +183,6 @@ impl Game {
         if self.tick != 0
             || self.unique_retrieval.is_some()
             || !policy.valid(self)
-            || self.combat.run.objective().is_some()
             || self.combat.run.arena().is_some()
             || self.items.values().any(|item| policy.reserves(&item.spec))
         {
@@ -465,11 +464,13 @@ impl Game {
                 && policy.exit.direction == direction
         })
     }
+    /// The protagonist may take the exit whenever it stands on it. What
+    /// leaving means is the scenario's scripts' to decide.
     pub(crate) fn prepare_terminal_escape(
         &self,
         actor: ActorId,
         direction: Direction,
-    ) -> Result<ItemId, GameError> {
+    ) -> Result<(), GameError> {
         if self
             .actors
             .get(&actor)
@@ -477,7 +478,6 @@ impl Game {
         {
             return Err(GameError::Blocked);
         }
-        let state = self.unique_retrieval.as_ref().ok_or(GameError::Blocked)?;
         let at = self
             .actors
             .get(&actor)
@@ -486,28 +486,6 @@ impl Game {
         if !self.is_terminal_exit(actor, at, direction) {
             return Err(GameError::Blocked);
         }
-        let item = state.item.ok_or(GameError::ExitItemRequired)?;
-        if self.retrieval_item_source(item, &state.policy)? != crate::ItemLocation::Carried(actor) {
-            return Err(GameError::ExitItemRequired);
-        }
-        Ok(item)
-    }
-    pub(crate) fn commit_terminal_escape(
-        &mut self,
-        actor: ActorId,
-        item: ItemId,
-    ) -> Result<(), GameError> {
-        if self.prepare_terminal_escape(actor, Direction::Up)? != item {
-            return Err(GameError::ItemUnavailable);
-        }
-        let crate::run_policy::RunMode::Adventure(run) = &mut self.combat.run else {
-            return Err(invalid());
-        };
-        if run.outcome.terminal {
-            return Err(GameError::Run(crate::run_policy::RunError::Finished));
-        }
-        run.outcome.victor = Some(actor);
-        run.outcome.terminal = true;
         Ok(())
     }
     /// Historical shape/policy validation deliberately does not compare the
@@ -602,7 +580,6 @@ impl Game {
             return true;
         };
         if !state.policy.valid(self)
-            || self.combat.run.objective().is_some()
             || self.combat.run.arena().is_some()
             || state.placement_count > state.entry_count
             || state.item.is_some() != (state.entry_count > 0)
@@ -669,23 +646,7 @@ impl Game {
                 placement_count = next;
             }
         }
-        if placement_count != state.placement_count {
-            return false;
-        }
-        let outcome = self.run_outcome();
-        outcome.victor.is_none_or(|victor| {
-            victor == state.policy.protagonist
-                && outcome.terminal
-                && self
-                    .actors
-                    .get(&victor)
-                    .is_some_and(|actor| actor.location == state.policy.exit.at)
-                && state.item.is_some_and(|item| {
-                    self.items
-                        .get(&item)
-                        .is_some_and(|entry| entry.location == crate::ItemLocation::Carried(victor))
-                })
-        })
+        placement_count == state.placement_count
     }
 }
 impl From<crate::ItemLocation> for RetrievalSource {

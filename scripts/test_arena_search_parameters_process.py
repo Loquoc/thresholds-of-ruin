@@ -8,6 +8,7 @@ import tomllib
 from process_harness import ProcessTestCase, ROOT, WIZARD_TOKEN
 from arena_evaluation import files, run_batch, replay
 from arena_matrix import create_matrix
+from outcome_scripts import apply
 
 
 class SearchParameterProcesses(ProcessTestCase):
@@ -89,6 +90,7 @@ class SearchParameterProcesses(ProcessTestCase):
             if orientation == "mirrored":
                 for catalog in ["resources", "abilities", "talents"]:
                     authored_rules[catalog].reverse()
+            apply(manifest, package, "elimination")
             for name, document in [("scenario.toml", manifest), ("rules.toml", authored_rules), ("regions/1.toml", region)]:
                 (package / name).write_text(toml_source(document), encoding="utf-8", newline="\n")
             inputs[orientation] = str(package)

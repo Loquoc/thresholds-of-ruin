@@ -168,6 +168,8 @@ class WizardItemServiceContracts(WizardItemHarness):
 def ai_give_fixture():
     package = Path(__file__).resolve().parents[1] / "scenarios/tests/ai-interactions"
     manifest = tomllib.loads((package / "scenario.toml").read_text(encoding="utf-8"))
+    # Service create supplies no script sources; this AI medicine fixture decides no outcome.
+    manifest.pop("scripting", None)
     region = tomllib.loads((package / "regions/1.toml").read_text(encoding="utf-8"))
     # Keep the real tactical policy and actual melee fixture. Only remove the
     # preloaded medicine and its knowledge so Give is the only source of either.

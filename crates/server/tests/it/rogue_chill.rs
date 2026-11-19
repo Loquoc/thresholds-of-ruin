@@ -102,13 +102,8 @@ fn production_ice_monster_waits_unprovoked_then_pursues_a_disclosed_attacker() {
     profile.flee_percent = 0;
     assert_eq!(profile.idle, tor_simulation::behavior::IdleBehavior::Wait);
     game.configure_ai(ice, profile).unwrap();
-    game.configure_run(
-        hero,
-        BTreeSet::from([hero]),
-        None,
-        manifest.factions.clone(),
-    )
-    .unwrap();
+    game.configure_run(hero, BTreeSet::from([hero]), manifest.factions.clone())
+        .unwrap();
     game.refresh_navigation();
     assert!(game
         .observe(ice)

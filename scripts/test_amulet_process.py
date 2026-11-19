@@ -23,6 +23,7 @@ from process_harness import (
 )
 from process_work_budget import ProcessBudgetExceeded, ProcessWorkBudget
 from rogue_roster_package import PRODUCTION, encounter_sources, unrelated_fallback
+from outcome_scripts import ROGUE_EXPLORATION, copy_declared
 
 
 AMULET = "Amulet of Yendor"
@@ -47,7 +48,7 @@ class AmuletProcesses(ProcessTestCase):
             (384, 40000, 64 * 1024 * 1024, 240),
         "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
             (256, 25000, 48 * 1024 * 1024, 180),
-        "test_native_surface_exit_explains_what_is_needed_before_retrieval":
+        "test_native_surface_exit_without_the_amulet_is_a_scripted_hint_not_a_win":
             (16, 1000, 8 * 1024 * 1024, 60),
     }
 
@@ -138,7 +139,6 @@ class AmuletProcesses(ProcessTestCase):
         selected["creature"]["nutrition"] = {"kind": "exempt"}
         selected["known_identities"].append("item.amulet.fixture-retrieval")
         manifest.update(id="amulet-process", default_character=ACTOR, characters=[selected])
-        manifest.pop("objective", None)
         manifest.pop("arena", None)
         manifest["generation_recipes"] = {"exploration": {
             "kind": "grid_rooms", "version": 1, "room_width": [5, 5],
@@ -166,6 +166,11 @@ class AmuletProcesses(ProcessTestCase):
         for module in manifest["modules"]:
             shutil.copy2(PRODUCTION / module, package / module)
         shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+        copy_declared(manifest, package, ROGUE_EXPLORATION)
+        script = package / "scripts/outcome.luau"
+        script.write_text(script.read_text(encoding="utf-8").replace(
+            "item.amulet.amulet-of-yendor", "item.amulet.fixture-retrieval"),
+            encoding="utf-8", newline="\n")
         (package / "scenario.toml").write_text(
             toml_source(manifest), encoding="utf-8", newline="\n")
         result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
@@ -280,7 +285,7 @@ class AmuletProcesses(ProcessTestCase):
             current = self.transition(player, current, "up")
             self.assert_carried(current, identity)
         current = self.stairs(player, current, "up")
-        self.assertEqual(observation(current)["combat"]["exit"], underfoot(current["state"])["key"])
+        self.assertEqual(observation(current)["combat"]["goal"]["cell"], underfoot(current["state"])["key"])
         self.assertFalse(observation(current)["combat"]["victory"], "Standing at the exit is not escape")
         waited = self.ordinary(player, {"type": "wait"})
         self.assertFalse(observation(waited)["combat"]["victory"], "Waiting at the exit is not escape")
@@ -292,14 +297,18 @@ class AmuletProcesses(ProcessTestCase):
         self.assertTrue(combat["victory"])
         self.assertTrue(combat["terminal"])
         self.assertFalse(combat["dead"])
-        # Accepted surface escape is an immediate terminal endpoint: it does
-        # not advance dungeon time or fabricate a destination beyond the exit.
+        # The scripted win ends the run at the climb's boundary: it does not
+        # advance dungeon time or fabricate a destination beyond the exit.
         self.assertEqual(observation(escaped)["tick"], observation(before)["tick"])
         self.assertEqual(underfoot(escaped["state"])["key"], underfoot(before["state"])["key"])
         events = [row["content"]["event"] for row in escaped["history"]
                   if row["content"]["type"] == "action"]
-        self.assertEqual([event for event in events if event["type"] == "escaped"],
-                         [{"type": "escaped", "item": identity}])
+        # Earlier climbs without the Amulet are ordinary escape actions too;
+        # the winning climb is the last action.
+        escapes = [event for event in events if event["type"] == "escaped"]
+        self.assertTrue(escapes)
+        self.assertTrue(all(event == {"type": "escaped"} for event in escapes))
+        self.assertEqual(events[-1], {"type": "escaped"})
         self.assertFalse(escaped["state"]["wizard_game"])
 
     @non_graphical
@@ -307,7 +316,7 @@ class AmuletProcesses(ProcessTestCase):
         package = self.fixture()
         server = self.server("--checkpoint-interval", 1, scenario=package, character=ACTOR)
         player, current = self.client()
-        self.assertEqual(observation(current)["combat"]["objective"], "retrieve_and_exit")
+        self.assertIn("Amulet of Yendor", observation(current)["combat"]["goal"]["segments"][0]["text"])
         self.assertEqual(observation(current)["combat"]["own_stats"]["nutrition"]["kind"], "exempt")
         identity = self.ground_amulet(current)["item"]["id"]
         created = self.retrieval_receipts(player)
@@ -366,11 +375,15 @@ class AmuletProcesses(ProcessTestCase):
         self.assertEqual(self.ground_amulet(dropped)["item"]["id"], identity)
         observer, watched = self.client(token=SPECTATOR_TOKEN, observe=True)
         self.assert_spectator_state_equal(watched["state"], dropped["state"])
-        refused = self.act(player, {"type": "move", "direction": "up"})
-        self.assertIsNotNone(refused["error"])
+        # Without the Amulet the climb is an ordinary turn: Rogue's outcome
+        # script only says what is missing, and the run goes on.
+        climbed = self.act(player, {"type": "move", "direction": "up"})
+        self.assertIsNone(climbed["error"])
+        settle_rogue_action(self, player, climbed, survive=True)
         unchanged = self.request(observer, {"type": "snapshot"})
-        self.assertDisclosedStateEqual(unchanged["state"], watched["state"], "Missing artifact refusal must cost zero time")
-        self.assertEqual(unchanged["history"], dropped["history"])
+        self.assertFalse(observation(unchanged)["combat"]["victory"])
+        self.assertFalse(observation(unchanged)["combat"]["terminal"])
+        self.assertEqual(self.ground_amulet(unchanged)["item"]["id"], identity)
         self.ordinary(player, {"type": "take", "item": identity})
         carried = self.request(observer, {"type": "snapshot"})
         self.assert_carried(carried, identity)
@@ -399,7 +412,7 @@ class AmuletProcesses(ProcessTestCase):
         package = self.fixture()
         server = self.server("--checkpoint-interval", 1, scenario=package, character=ACTOR)
         player, current = self.client()
-        self.assertEqual(observation(current)["combat"]["objective"], "retrieve_and_exit")
+        self.assertIn("Amulet of Yendor", observation(current)["combat"]["goal"]["segments"][0]["text"])
         self.assertEqual(observation(current)["combat"]["own_stats"]["nutrition"]["kind"], "exempt")
         identity = self.ground_amulet(current)["item"]["id"]
         created = self.retrieval_receipts(player)
@@ -460,23 +473,24 @@ class AmuletProcesses(ProcessTestCase):
         text = self.launch("tor-client-text", ["--connect", self.address, "--actor", str(ACTOR)],
                            cls=AdventureProcess)
         welcome = text.until(lambda line: line == "> ", seconds=self.remaining())
-        self.assertIn("carry it up through the surface exit", welcome)
+        self.assertIn("climb back out with it", welcome)
         self.assertIn("You are standing at the exit.", welcome)
         observer, watched = self.client(token=SPECTATOR_TOKEN, observe=True)
         self.assert_spectator_state_equal(watched["state"], dropped["state"])
+        # The climb is an ordinary turn; the script names what is missing.
         refused = self.say(text, "up")
-        self.assertNotIn("You leave the dungeon", refused)
+        self.assertIn("You need the Amulet of Yendor to leave the dungeon.", refused)
         unchanged = self.request(observer, {"type": "snapshot"})
-        self.assertDisclosedStateEqual(unchanged["state"], watched["state"], "Missing artifact refusal must cost zero time")
-        self.assertEqual(unchanged["history"], dropped["history"])
+        self.assertFalse(observation(unchanged)["combat"]["victory"])
+        self.assertFalse(observation(unchanged)["combat"]["terminal"])
         taken = self.say(text, "take Amulet of Yendor")
         self.assertEqual(taken, "You pick up the amulet of yendor.\n> ")
         carried = self.request(observer, {"type": "snapshot"})
         self.assert_carried(carried, identity)
         self.assertFalse(observation(carried)["combat"]["victory"])
         escaped_text = self.say(text, "up")
-        self.assertTrue(escaped_text.startswith("You go up. You leave the dungeon with the " + AMULET
-                        + ". You have done it! This run has ended.\n"), escaped_text)
+        self.assertIn("You take the way out.", escaped_text)
+        self.assertIn("You have done it! This run has ended.", escaped_text)
         self.assertEqual(escaped_text.count("*** You have won ***"), 1)
         self.assertIn("This session recorded", escaped_text)
         self.assertIn("goals attempted", escaped_text)
@@ -498,12 +512,12 @@ class AmuletProcesses(ProcessTestCase):
         observer.stop()
         server.stop(save=False)
 
-    def test_native_surface_exit_explains_what_is_needed_before_retrieval(self):
+    def test_native_surface_exit_without_the_amulet_is_a_scripted_hint_not_a_win(self):
         self.server(scenario=self.fixture(start_depth=1), character=ACTOR)
         window = self.launch("tor-client-ascii", ["--connect", self.address, "--actor", str(ACTOR),
                                                  "--report-frames"])
         initial = self.ascii_frame(window, lambda frame: frame.get("state") and not frame["busy"])
-        self.assertEqual(observation(initial)["combat"]["exit"], underfoot(initial["state"])["key"])
+        self.assertEqual(observation(initial)["combat"]["goal"]["cell"], underfoot(initial["state"])["key"])
         native = self.native_keys(window)
         for _ in range(8):
             if not initial["messages"]["more"]:
@@ -517,8 +531,13 @@ class AmuletProcesses(ProcessTestCase):
                                         seconds=self.remaining(20), wait_for_simulation=False)
         finally:
             native("Shift_L", False)
-        self.assertEqual(refused["status"], "You need the objective item to leave through the surface exit.")
-        self.assertDisclosedStateEqual(refused["state"], initial["state"])
+        # Climbing is an ordinary turn; Rogue's outcome script only says what
+        # is missing, and the run goes on.
+        told = refused["messages"]["turn"]
+        self.assertIn("You take the way out.", told)
+        self.assertIn("Hint: You need the Amulet of Yendor to leave the dungeon.", told)
+        self.assertFalse(observation(refused)["combat"]["victory"])
+        self.assertFalse(observation(refused)["combat"]["terminal"])
 
     def test_native_up_escapes_only_from_the_disclosed_surface_endpoint(self):
         server = self.server("--checkpoint-interval", 1, scenario=self.fixture(), character=ACTOR)
@@ -533,9 +552,9 @@ class AmuletProcesses(ProcessTestCase):
         self.assertTrue(initial["window_open"])
         self.assertTrue(initial["has_control"])
         self.assertDisclosedStateEqual(initial["state"], current["state"])
-        self.assertIn("surface exit", " ".join(initial["status_lines"]))
+        self.assertIn("climb back out", " ".join(initial["status_lines"]))
         self.assertTrue(underfoot(initial["state"])["stairs_up"])
-        self.assertEqual(observation(initial)["combat"]["exit"], underfoot(initial["state"])["key"])
+        self.assertEqual(observation(initial)["combat"]["goal"]["cell"], underfoot(initial["state"])["key"])
         native = self.native_keys(window)
         # Native input first pages any unread opening narration. Read those
         # presented rows explicitly so the one deliberate Up cannot be eaten
@@ -560,7 +579,8 @@ class AmuletProcesses(ProcessTestCase):
                                        and observation(frame)["combat"]["terminal"] and not frame["busy"])
         self.assert_escape(initial, escaped, identity)
         shown = " ".join(escaped["messages"]["shown"])
-        self.assertIn("You leave the dungeon with the " + AMULET + ".", shown)
+        # The climb itself is ordinary; the script's win ends the run.
+        self.assertIn("You take the way out.", shown)
         self.assertIn("Victory! This run has ended.", shown)
         window.stop()
         server.stop(save=False)

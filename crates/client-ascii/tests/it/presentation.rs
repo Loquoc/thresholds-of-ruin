@@ -8,8 +8,7 @@ fn creature_snapshot() -> Snapshot {
     let mut snapshot = state().reset_snapshot().unwrap();
     Arc::make_mut(&mut snapshot.state).observation.combat = Some(serde_json::from_value(serde_json::json!({
         "public_plan":null,"hp": "7", "max_hp": "12", "sequence":null,"preparation_remaining": null, "preparation_active": false,
-        "recovery_remaining": "0", "actors": [], "events": [], "objective": null,
-        "victory": false, "dead": false, "terminal": false,
+        "recovery_remaining": "0", "actors": [], "events": [], "victory": false, "dead": false, "terminal": false,
         "own_stats": {
                 "nutrition":{"kind":"exempt"}, "conditions":[],
                 "restorable_losses":{"hit_dice":"0","attributes":{"strength":0,"speed":0,"intellect":0,"willpower":0,"awareness":0,"presence":0},"maximum_health":0},
@@ -1623,8 +1622,7 @@ fn configurable_bump_attacks_use_disclosed_hostility_only() {
                 injury: Injury::Healthy,
             }],
             events: vec![],
-            objective: None,
-            exit: None,
+            goal: None,
             victory: false,
             dead: false,
             terminal: false,

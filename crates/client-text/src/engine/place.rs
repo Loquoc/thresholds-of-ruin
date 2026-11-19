@@ -384,8 +384,8 @@ pub fn survey(state: &dyn ScenicView) -> Place {
                         .combat
                         .as_ref()
                         .is_some_and(|combat| {
-                            combat.objective == Some(ObjectiveKind::RetrieveAndExit)
-                                && combat.exit.as_deref() == Some(here.key.as_str())
+                            combat.goal.as_ref().and_then(|goal| goal.cell.as_deref())
+                                == Some(here.key.as_str())
                         });
                 let z = if up { 1 } else { -1 };
                 let landing = if terminal {

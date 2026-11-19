@@ -789,13 +789,8 @@ mod tests {
     #[test]
     fn explore_equal_neighbors_use_actor_rng_without_mutating_preview() {
         let mut game = fixture();
-        game.configure_run(
-            ActorId(1),
-            BTreeSet::from([ActorId(1)]),
-            None,
-            BTreeMap::new(),
-        )
-        .unwrap();
+        game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+            .unwrap();
         let mut choices = BTreeSet::new();
         for seed in 0..26 {
             game.actors.get_mut(&ActorId(2)).unwrap().behavior.rng = seed;
@@ -819,13 +814,8 @@ mod tests {
     #[test]
     fn explore_local_fallback_unique_neighbor_and_idle_wait_do_not_draw() {
         let mut game = fixture();
-        game.configure_run(
-            ActorId(1),
-            BTreeSet::from([ActorId(1)]),
-            None,
-            BTreeMap::new(),
-        )
-        .unwrap();
+        game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+            .unwrap();
         let candidates: Vec<_> = Direction::HORIZONTAL
             .into_iter()
             .filter_map(|direction| {
@@ -865,13 +855,8 @@ mod tests {
     #[test]
     fn explore_rng_commits_with_execution_and_survives_checkpoint() {
         let mut game = fixture();
-        game.configure_run(
-            ActorId(1),
-            BTreeSet::from([ActorId(1)]),
-            None,
-            BTreeMap::new(),
-        )
-        .unwrap();
+        game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+            .unwrap();
         game.act(ActorId(1), Action::Wait).unwrap();
         let chosen = game.choose_ai(ActorId(2)).unwrap();
         let rng = game.actors[&ActorId(2)].behavior.rng;
@@ -986,7 +971,6 @@ mod tests {
         game.configure_run(
             ActorId(1),
             BTreeSet::from([ActorId(1)]),
-            None,
             BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
         )
         .unwrap();
@@ -1772,7 +1756,6 @@ mod tests {
         game.configure_run(
             human,
             BTreeSet::from([human]),
-            None,
             BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
         )
         .unwrap();
@@ -2615,13 +2598,8 @@ mod tests {
             },
         )
         .unwrap();
-        game.configure_run(
-            ActorId(1),
-            BTreeSet::from([ActorId(1)]),
-            None,
-            BTreeMap::new(),
-        )
-        .unwrap();
+        game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+            .unwrap();
         game.act(ActorId(1), Action::Wait).unwrap();
         let clock = game.actor_clock(actor);
         {

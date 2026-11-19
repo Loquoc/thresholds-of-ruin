@@ -85,24 +85,19 @@ fn tick_limit_wakes_between_actor_decisions_without_overshoot() {
 }
 
 #[test]
-fn elimination_records_surviving_team_without_waiting_for_limits() {
+fn the_engine_never_eliminates_by_itself() {
+    // Elimination is an outcome, and outcomes belong to scenario scripts.
+    // Only the tick and action limits stop an arena on their own.
     let mut game = bounded(1000, 100);
     game.apply_effects(ActorId(3), &[damage(1_000_000)])
         .unwrap();
-    assert_eq!(game.tick(), 0);
-    assert_eq!(game.arena_run().unwrap().actions, 0);
-    assert_eq!(
-        game.arena_run().unwrap().stop().cloned(),
-        Some(ArenaStop::Elimination {
-            winner: Some("left".into()),
-        })
-    );
-    assert!(game.run_outcome().terminal);
+    assert!(game.arena_run().unwrap().stop().is_none());
+    assert!(!game.run_outcome().terminal);
     assert_eq!(round_trip(&game), game);
 }
 
 #[test]
-fn single_team_inspection_stays_active_until_every_participant_dies() {
+fn a_single_team_arena_stays_active_when_everyone_dies() {
     let mut game = unconfigured();
     game.configure_arena_run(
         ActorId(1),
@@ -110,15 +105,10 @@ fn single_team_inspection_stays_active_until_every_participant_dies() {
         BTreeMap::new(),
     )
     .unwrap();
-    assert!(!game.run_outcome().terminal);
     kill_selected(&mut game);
-    assert!(!game.run_outcome().terminal);
     game.apply_effects(ActorId(2), &[damage(1_000_000)])
         .unwrap();
-    assert_eq!(
-        game.arena_run().unwrap().stop().cloned(),
-        Some(ArenaStop::Elimination { winner: None })
-    );
+    assert!(game.arena_run().unwrap().stop().is_none());
     assert_eq!(round_trip(&game), game);
 }
 
@@ -276,7 +266,7 @@ fn fixture(arena: bool) -> Game {
         game.configure_arena_run(ActorId(1), participants, hostility)
             .unwrap();
     } else {
-        game.configure_run(ActorId(1), participants, None, hostility)
+        game.configure_run(ActorId(1), participants, hostility)
             .unwrap();
     }
     game.refresh_navigation();
@@ -315,9 +305,20 @@ fn arena_ai_continues_after_selected_death_and_checkpoint_restore() {
 }
 
 #[test]
-fn ordinary_run_selected_death_still_ends_the_run() {
+fn ordinary_run_selected_death_ends_the_run_only_through_its_defeat_script() {
     let mut game = fixture(false);
+    let mut unscripted = game.clone();
+    kill_selected(&mut unscripted);
+    assert_eq!(unscripted.run_outcome().deceased, Some(ActorId(1)));
+    assert!(
+        !unscripted.run_outcome().terminal,
+        "death alone ends no run"
+    );
+    super::defeat::lose_on_death(&mut game, ActorId(1));
     kill_selected(&mut game);
+    // The death settles at the next boundary, an ordinary AI turn here.
+    game.admit_ai_intention(ActorId(2)).unwrap();
+    game.execute_next_intention().unwrap().outcome.unwrap();
     assert!(game.run_outcome().terminal);
     assert!(game.admit_ai_intention(ActorId(2)).is_err());
     let before = game.clone();
@@ -356,7 +357,7 @@ fn configured_runs_cannot_switch_into_or_out_of_arena_death_policy() {
     let mut arena = fixture(true);
     let before = arena.clone();
     assert!(arena
-        .configure_run(ActorId(1), participants, None, BTreeMap::new())
+        .configure_run(ActorId(1), participants, BTreeMap::new())
         .is_err());
     assert_eq!(arena, before);
 }

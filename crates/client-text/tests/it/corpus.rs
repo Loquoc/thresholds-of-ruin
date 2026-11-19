@@ -47,7 +47,7 @@ fn state() -> StateView {
         ],
         "combat":{"own_stats":stats,"public_plan":null,"hp":"20","max_hp":"20","sequence":null,"preparation_remaining":null,"preparation_active":false,
             "recovery_remaining":"0","actors":[{"actor":super::actor_target(2),"hostile":true,"allied":false,"injury":"healthy"}],
-            "events":[],"objective":"retrieve_and_return","exit":"cell-0",
+            "events":[],"goal":{"segments":[{"text":"Find what you came for, then leave."}],"cell":"cell-0"},
             "victory":false,"dead":false,"terminal":false}}}))
     .unwrap()
 }

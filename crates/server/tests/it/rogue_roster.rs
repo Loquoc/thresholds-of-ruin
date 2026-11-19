@@ -21,7 +21,7 @@ pub(super) fn catalog() -> (
     let authored = std::fs::read_to_string(root.join("rules.toml")).unwrap();
     // Authored effects may omit source-only optional fields; use the same
     // authoring boundary as real packages rather than the strict runtime codec.
-    let package = Package::from_parts(manifest.clone(), vec![], &authored).unwrap();
+    let package = Package::from_parts_at(&root, manifest.clone(), vec![], &authored).unwrap();
     let rules = package.rules().unwrap();
     (manifest.creatures.compile(rules).unwrap(), manifest)
 }

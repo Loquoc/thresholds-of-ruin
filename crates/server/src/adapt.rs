@@ -570,6 +570,24 @@ pub fn recorded_action(action: s::Action) -> Option<a::Action> {
     })
 }
 
+/// Script message text in the protocol's vocabulary, or `None` when it does
+/// not fit the wire contract.
+pub(crate) fn message_segments(
+    segments: &[tor_simulation::scripting::MessageSegment],
+) -> Option<Vec<p::UserMessageSegment>> {
+    use tor_simulation::scripting::MessageSegment;
+    let segments = segments
+        .iter()
+        .map(|segment| match segment {
+            MessageSegment::Text(text) => Some(p::UserMessageSegment::Text(text.clone())),
+            MessageSegment::Control(id) => {
+                p::ControlHint::from_id(id).map(p::UserMessageSegment::Control)
+            }
+        })
+        .collect::<Option<Vec<_>>>()?;
+    p::valid_user_message(&segments).then_some(segments)
+}
+
 pub fn event(kind: s::OutcomeKind) -> crate::journal::Event {
     match kind {
         s::OutcomeKind::TrapExamined { trap } => crate::journal::Event::TrapExamined { trap },
@@ -629,7 +647,7 @@ pub fn event(kind: s::OutcomeKind) -> crate::journal::Event {
         s::OutcomeKind::ItemStarted { work } => crate::journal::Event::ItemStarted {
             action: recorded_action(work.action()).unwrap(),
         },
-        s::OutcomeKind::Escaped { item } => crate::journal::Event::Escaped { item: item.0 },
+        s::OutcomeKind::Escaped => crate::journal::Event::Escaped,
         // The paid touch carries no creature identity or pickup result publicly.
         s::OutcomeKind::ApparentObjectTouched { .. } | s::OutcomeKind::Waited => {
             crate::journal::Event::Waited
@@ -1077,12 +1095,14 @@ pub(crate) fn observation(
                 .into_iter()
                 .filter_map(|event| combat_event_view(event, targets, &effect_anchors))
                 .collect(),
-            objective: c.objective.map(|o| match o {
-                s::combat::ObjectiveKind::RetrieveAndReturn => p::ObjectiveKind::RetrieveAndReturn,
-                s::combat::ObjectiveKind::ReachExit => p::ObjectiveKind::ReachExit,
-                s::combat::ObjectiveKind::RetrieveAndExit => p::ObjectiveKind::RetrieveAndExit,
+            // A goal is shown only when its text maps onto the protocol's
+            // message vocabulary; the simulation already validates it.
+            goal: c.goal.and_then(|goal| {
+                Some(p::GoalView {
+                    segments: message_segments(&goal.segments)?,
+                    cell: goal.cell.map(|at| cell_key(salt, view.actor.0, at)),
+                })
             }),
-            exit: c.exit.map(|at| cell_key(salt, view.actor.0, at)),
             victory: c.victory,
             dead: c.dead,
             terminal: c.terminal,

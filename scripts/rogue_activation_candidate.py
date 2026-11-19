@@ -209,6 +209,11 @@ def candidate_manifest(source, *, start_depth=1):
     return manifest
 
 
+def declared_scripts(manifest):
+    """The package scripts a manifest declares; they decide its run outcome."""
+    return manifest.get("scripting", {}).get("scripts", [])
+
+
 def source_inputs(package):
     """Read only declared package inputs, retaining their exact supplied bytes."""
     package = Path(package)
@@ -217,7 +222,7 @@ def source_inputs(package):
     package = package.resolve(strict=True)
     manifest_bytes = (package / "scenario.toml").read_bytes()
     manifest = tomllib.loads(manifest_bytes.decode("utf-8"))
-    names = ["scenario.toml", manifest["ruleset"], *manifest["modules"]]
+    names = ["scenario.toml", manifest["ruleset"], *manifest["modules"], *declared_scripts(manifest)]
     if any(not isinstance(name, str) for name in names) or len(names) != len(set(names)):
         raise ValueError("Invalid or duplicate declared candidate source input")
     if len(names) > 4096:
@@ -320,7 +325,7 @@ def create_candidate(output, compiler, *, source_package, source_provenance, sta
             raise ValueError("Compiler bundled rules differ from the pinned source dependency")
         package = output / "package"
         package.mkdir()
-        for module in source["modules"]:
+        for module in [*source["modules"], *declared_scripts(source)]:
             (package / module).parent.mkdir(parents=True, exist_ok=True)
             (package / module).write_bytes(snapshot[module])
         (package / source["ruleset"]).parent.mkdir(parents=True, exist_ok=True)

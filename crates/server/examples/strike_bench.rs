@@ -58,7 +58,6 @@ fn scenario(
     let mut manifest: Manifest =
         toml::from_str(include_str!("../../../scenarios/two-room/scenario.toml"))?;
     manifest.id = "ordered-strike-benchmark".into();
-    manifest.objective = None;
     manifest.characters[0].turn_ticks = 150;
     let mut rules: tor_simulation::rules::RulesetDocument =
         toml::from_str(tor_simulation::rules::DEFAULT_RULESET_TOML)?;

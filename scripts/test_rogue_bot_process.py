@@ -253,8 +253,10 @@ try:
     snapshot = obs.data()
     assert set(snapshot) == {
         "state", "memory", "cursor", "branch", "readiness", "history", "narration",
-        "outcome", "intentions", "finished_intentions", "combat_updates", "travel",
+        "user_messages", "outcome", "intentions", "finished_intentions", "combat_updates",
+        "travel",
     }
+    assert snapshot["user_messages"] == [], snapshot["user_messages"]
     snapshot["state"]["observation"]["visible_cells"].clear()
     assert obs.data()["state"]["observation"]["visible_cells"]
 finally:
@@ -354,7 +356,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
 
         contents = {
             "manifest": {
-                "format": 37, "id": "occupied-paired-stair", "version": "1.0",
+                "format": 38, "id": "occupied-paired-stair", "version": "1.0",
                 "ruleset": "rules.toml", "default_character": 1,
                 "characters": [{"id": 1, "anchor": "1/stair", "turn_ticks": 100}],
                 "stair_pairs": {"first": {"upper": "1/stair", "lower": "2/up"}},

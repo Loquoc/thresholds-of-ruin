@@ -13,13 +13,13 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tor_protocol::*;
 
 const WAIT: Duration = Duration::from_secs(15);
-fn context() -> StreamContext {
+pub(super) fn context() -> StreamContext {
     StreamContext {
         stream: StreamId("synthetic-effects".into()),
         epoch: 0,
     }
 }
-fn cursor(tick: u64) -> StreamCursor {
+pub(super) fn cursor(tick: u64) -> StreamCursor {
     StreamCursor {
         sequence: tick,
         tick,
@@ -50,7 +50,7 @@ fn effect(id: u8, since: u64, expiry: Option<u64>, points: &[(i32, i32)]) -> Pub
         segments: vec![points],
     }
 }
-fn state(tick: u64, effects: Vec<PublicEffectView>) -> StateView {
+pub(super) fn state(tick: u64, effects: Vec<PublicEffectView>) -> StateView {
     let cells: Vec<_> = (-2..=2).flat_map(|y| (-2..=2).map(move |x| {
         let p=point(x,y);
         json!({"key":key(p),"position":p,"trap":null,"object_presentation":null,
@@ -95,10 +95,10 @@ fn update(next: &StateView, base: Option<&StateView>) -> ServerMessage {
         }),
     }
 }
-struct Client {
+pub(super) struct Client {
     child: Child,
     lines: mpsc::UnboundedReceiver<Value>,
-    send: mpsc::UnboundedSender<ServerMessage>,
+    pub(super) send: mpsc::UnboundedSender<ServerMessage>,
     peer: tokio::task::JoinHandle<()>,
     recovery: mpsc::UnboundedReceiver<()>,
 }
@@ -113,7 +113,7 @@ impl Client {
     async fn start(initial: StateView) -> Self {
         Self::start_with_deferred_map(initial, false).await
     }
-    async fn start_with_deferred_map(initial: StateView, defer_map: bool) -> Self {
+    pub(super) async fn start_with_deferred_map(initial: StateView, defer_map: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (send, mut incoming) = mpsc::unbounded_channel::<ServerMessage>();
@@ -242,7 +242,7 @@ impl Client {
         client.until(|v| v["type"] == "ready").await;
         client
     }
-    async fn until(&mut self, predicate: impl Fn(&Value) -> bool) -> Value {
+    pub(super) async fn until(&mut self, predicate: impl Fn(&Value) -> bool) -> Value {
         timeout(WAIT, async {
             loop {
                 let value = self
@@ -265,7 +265,7 @@ impl Client {
         self.until(|v| v["state"]["revision"].as_str() == Some(revision.as_str()))
             .await
     }
-    async fn inspect(&mut self) -> Value {
+    pub(super) async fn inspect(&mut self) -> Value {
         writeln!(
             self.child.stdin.as_mut().unwrap(),
             "{{\"type\":\"inspect\"}}"

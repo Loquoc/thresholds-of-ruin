@@ -131,11 +131,12 @@ fn a_palette_forecasts_nearby_themes_never_what_regions_hold() {
     let recipe = regions[2].generate.as_mut().unwrap();
     recipe.actors.as_mut().unwrap().count = [2, 2];
     recipe.items.as_mut().unwrap().count = [3, 3];
-    scenario_package::write_package(
+    scenario_package::write_package_scripted(
         directory.path(),
         &package.manifest,
         &regions,
         &package.rules_source,
+        &package.scripts,
     )
     .unwrap();
     let mut other = scenario_package::load(directory.path(), 5, None, true).unwrap();
@@ -711,10 +712,11 @@ fn authored_assetless_torch_discloses_no_asset_and_does_not_change_the_palette()
             quantity: 1,
             equipped_slot: None,
         });
-    let package = scenario_package::Package::from_parts(
+    let package = scenario_package::Package::from_parts_scripted(
         manifest,
         source.region_defs().unwrap(),
         &source.rules_source,
+        source.scripts.clone(),
     )
     .unwrap();
     package.check().unwrap();

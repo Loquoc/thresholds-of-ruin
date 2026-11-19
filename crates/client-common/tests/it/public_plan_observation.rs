@@ -2,8 +2,7 @@
 use tor_protocol::{CombatView, ObservedAimView, PublicPlanObservationView, PublicPlanStateView};
 fn combat() -> CombatView {
     serde_json::from_value(serde_json::json!({"hp":"10","max_hp":"10","preparation_remaining":null,"preparation_active":false,
-        "sequence":null,"public_plan":null,"recovery_remaining":"0","actors":[],"events":[],"objective":null,
-        "victory":false,"dead":false,"terminal":false})).unwrap()
+        "sequence":null,"public_plan":null,"recovery_remaining":"0","actors":[],"events":[],"victory":false,"dead":false,"terminal":false})).unwrap()
 }
 fn record() -> PublicPlanObservationView {
     PublicPlanObservationView {

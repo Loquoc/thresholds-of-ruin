@@ -13,9 +13,23 @@ pub(super) fn attach_objective(mut scenario: Scenario) -> Scenario {
         "minimum_depth":26, "archetype":"amulet", "exit_anchor":"dungeon/1/up"
     });
     source["floor_activation"]["protagonist"] = json!("selected_character");
+    // Rogue's outcome script decides the win: climb out carrying the amulet.
+    source["scripting"] = json!({
+        "scripts": ["scripts/outcome.luau"],
+        "hooks": [
+            {"on": "run_started", "handler": "outcome.start"},
+            {"on": "escaped", "actor": "selected", "handler": "outcome.escaped"},
+            {"on": "died", "actor": "selected", "handler": "outcome.died"}
+        ]
+    });
     let manifest: Manifest = serde_json::from_value(source)
         .expect("admit the narrow selected-character unique retrieval policy");
-    let package = Package::from_parts(manifest, vec![], &original.rules_source).unwrap();
+    let scripts = std::collections::BTreeMap::from([(
+        "scripts/outcome.luau".to_owned(),
+        include_str!("../../../scenarios/rogue/scripts/outcome.luau").to_owned(),
+    )]);
+    let package =
+        Package::from_parts_scripted(manifest, vec![], &original.rules_source, scripts).unwrap();
     package.check().unwrap();
     scenario.package = Some(Arc::new(package));
     scenario
@@ -30,7 +44,13 @@ fn start_at(mut scenario: Scenario, depth: u32) -> Scenario {
     let mut manifest = original.manifest.clone();
     manifest.characters[0].anchor = format!("dungeon/{depth}/up");
     scenario.package = Some(Arc::new(
-        Package::from_parts(manifest, vec![], &original.rules_source).unwrap(),
+        Package::from_parts_scripted(
+            manifest,
+            vec![],
+            &original.rules_source,
+            original.scripts.clone(),
+        )
+        .unwrap(),
     ));
     attach_objective(scenario)
 }
@@ -167,10 +187,11 @@ fn reserved_retrieval_definition_rejects_all_source_birth_channels() {
             }
             _ => unreachable!(),
         }
-        let invalid = Package::from_parts(
+        let invalid = Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap();
         assert!(
@@ -237,7 +258,13 @@ fn selected_second_character_initial_deep_entry_happens_once_on_restore() {
     let mut second = manifest.characters[0].clone();
     second.id = 2;
     manifest.characters.push(second);
-    let mut package = Package::from_parts(manifest, vec![], &original.rules_source).unwrap();
+    let mut package = Package::from_parts_scripted(
+        manifest,
+        vec![],
+        &original.rules_source,
+        original.scripts.clone(),
+    )
+    .unwrap();
     package.selected = 2;
     scenario.package = Some(Arc::new(package));
     let engine = Engine::memory(scenario).unwrap();
@@ -621,9 +648,25 @@ fn expired_shallow_ground_source_is_validated_against_its_own_bounds() {
 }
 
 #[test]
-fn surface_escape_requires_the_bound_item_and_an_intentional_ordinary_up() {
+fn the_rogue_script_wins_only_a_climb_out_carrying_the_bound_item() {
     let mut engine = Engine::memory(at_depth(26)).unwrap();
-    let item = retrieval(&engine).item.unwrap();
+    // The goal names the surface exit even though its floor is not built yet.
+    assert!(engine
+        .archive
+        .initial_hooks
+        .as_ref()
+        .unwrap()
+        .failures
+        .is_empty());
+    assert_eq!(
+        engine
+            .game
+            .script_state()
+            .unwrap()
+            .goal(SimActor(1))
+            .and_then(|goal| goal.cell),
+        Some(retrieval(&engine).policy.exit.at)
+    );
     let deep = engine.game.observe(SimActor(1)).unwrap().location;
     let exit = retrieval(&engine).policy.exit.at;
     let teleport = |engine: &mut Engine, at: Location| {
@@ -642,15 +685,30 @@ fn surface_escape_requires_the_bound_item_and_an_intentional_ordinary_up() {
     };
     teleport(&mut engine, exit);
     assert!(!engine.game.run_outcome().terminal);
-    let before = engine.diagnostic_copy();
-    assert!(act(
+    // Without the amulet the climb is an ordinary turn and the script only
+    // tells the player what is missing.
+    let refused = act(
         &mut engine,
         Action::Move {
-            direction: Direction::Up
-        }
+            direction: Direction::Up,
+        },
     )
-    .is_err());
-    exact_equal(&engine, &before);
+    .unwrap();
+    assert!(matches!(
+        refused.entry.content,
+        JournalContent::Action {
+            event: crate::journal::Event::Escaped,
+            ..
+        }
+    ));
+    assert!(!engine.game.run_outcome().terminal);
+    let record = engine.archive.records.last().unwrap();
+    let said = &record
+        .hooks
+        .as_ref()
+        .expect("the escape reached the script")
+        .messages;
+    assert_eq!(said.len(), 1);
     teleport(&mut engine, deep);
     take_bound_item(&mut engine);
     teleport(&mut engine, exit);
@@ -667,9 +725,13 @@ fn surface_escape_requires_the_bound_item_and_an_intentional_ordinary_up() {
         },
     )
     .unwrap();
-    assert!(matches!(result.entry.content, JournalContent::Action {
-        event: crate::journal::Event::Escaped { item: escaped }, ..
-    } if escaped == item.0));
+    assert!(matches!(
+        result.entry.content,
+        JournalContent::Action {
+            event: crate::journal::Event::Escaped,
+            ..
+        }
+    ));
     assert_eq!(engine.game.run_outcome().victor, Some(SimActor(1)));
     assert!(engine.game.run_outcome().terminal);
     assert_eq!(engine.game.observe(SimActor(1)).unwrap().location, exit);
@@ -695,7 +757,13 @@ fn wizard_birth_cannot_duplicate_a_reserved_identity_but_may_share_its_display_n
             manifest.unique_retrieval.as_mut().unwrap().archetype = "copper token".into();
         }
         scenario.package = Some(Arc::new(
-            Package::from_parts(manifest, vec![], &original.rules_source).unwrap(),
+            Package::from_parts_scripted(
+                manifest,
+                vec![],
+                &original.rules_source,
+                original.scripts.clone(),
+            )
+            .unwrap(),
         ));
         let mut engine = Engine::memory(scenario).unwrap();
         engine.enable_wizard().unwrap();
@@ -847,7 +915,13 @@ fn one_host_action_keeps_two_physical_entries_through_late_cohort_completion() {
     let mut manifest = original.manifest.clone();
     manifest.procedural_worlds.get_mut("dungeon").unwrap().grid = [1, 1];
     manifest.characters[0].turn_ticks = 1000;
-    let package = Package::from_parts(manifest, vec![], &original.rules_source).unwrap();
+    let package = Package::from_parts_scripted(
+        manifest,
+        vec![],
+        &original.rules_source,
+        original.scripts.clone(),
+    )
+    .unwrap();
     let family = &package.manifest.procedural_worlds["dungeon"];
     let regions: Vec<_> = (25..=27)
         .map(|depth| {
@@ -1069,6 +1143,7 @@ fn missing_retrieval_receipt_is_rejected_before_candidate_and_store_publication(
                 .game
                 .activations_since(engine.game.activation_count())
                 .unwrap(),
+            hooks: None,
         };
         assert!(
             engine.admit(&forged, &candidate, None).is_err(),

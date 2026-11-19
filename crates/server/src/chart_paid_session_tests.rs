@@ -46,15 +46,21 @@ fn chart_source(root: &Path, kind: &str) -> crate::Scenario {
         {"id":30,"at":[28,25,0],"archetype":"ember"}
     ]);
     regions[0] = serde_json::from_value(region).unwrap();
-    let package =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let package = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     package.check().unwrap();
     package.build(42, false).unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();
@@ -720,16 +726,22 @@ fn aggregate_history_source(root: &Path, streaming: bool) -> crate::Scenario {
     }
     manifest["spatial_scopes"] = Value::Object(scopes);
     let rules = &package.rules_source;
-    let checked =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, rules).unwrap();
+    let checked = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        rules,
+        package.scripts.clone(),
+    )
+    .unwrap();
     checked.check().unwrap();
     checked.build(42, false).unwrap();
     let destination = root.join("complete");
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         &destination,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(&destination).unwrap();

@@ -297,7 +297,6 @@ fn a_many_target_decision_uses_one_remembered_topology_search() {
     game.configure_run(
         human,
         BTreeSet::from([human]),
-        None,
         BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
     )
     .unwrap();

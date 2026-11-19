@@ -149,7 +149,6 @@ fn game_with_context(hostile_present: bool, contextual: bool) -> Game {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("hero".into(), BTreeSet::from(["foe".into()]))]),
     )
     .unwrap();
@@ -242,13 +241,8 @@ fn hostility_policy_changes_rephase_only_the_affected_context() {
     let mut game = game(true);
     fixture::injure(&mut game, ActorId(1), 3).unwrap();
     rest(&mut game, 400);
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+        .unwrap();
     assert_eq!(recovery(&game), (3, 300, 900));
 }
 
@@ -302,7 +296,6 @@ fn frozen_recovery_context_reconciles_on_thaw_without_earning_hidden_elapsed_tim
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("clock".into(), BTreeSet::from(["foe".into()]))]),
     )
     .unwrap();
@@ -650,7 +643,6 @@ fn freeze_clock_actor(contextual: bool) -> (Game, tor_simulation::MemoryRecords)
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([("clock".into(), BTreeSet::from(["foe".into()]))]),
     )
     .unwrap();
