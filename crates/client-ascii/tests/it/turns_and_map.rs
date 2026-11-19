@@ -45,7 +45,8 @@ fn snapshot() -> Snapshot {
             ],
             "combat":{"public_plan":null,"hp":"40","max_hp":"50","sequence":null,"preparation_remaining":null,"preparation_active":false,"recovery_remaining":"0",
                 "actors":[{"actor":super::actor_target(2),"hostile":true,"allied":false,"injury":"wounded"}],"events":[],
-                "objective":"retrieve_and_return","exit":null,"victory":false,"dead":false,"terminal":false},
+                "goal":{"segments":[{"text":"Retrieve the idol."}],"cell":null},
+                "victory":false,"dead":false,"terminal":false},
             "ready":true
         }}
     }))
@@ -1677,7 +1678,7 @@ fn refusals_status_lines_and_the_end_screen_use_plain_words() {
     );
     let mut app = app();
     let [first, second] = tor_client_ascii::status_lines(&app, app.state.as_ref().unwrap());
-    assert!(first.contains("Retrieve the objective item"));
+    assert!(first.contains("Retrieve the idol."));
     assert_eq!(second, "HP:40(50)  Gold:0  T:100");
     let mut won = app.state.as_ref().unwrap().state().observation.clone();
     won.tick += 100;

@@ -1093,7 +1093,7 @@ mod tests {
                 "position":{"x":2,"y":0,"z":0}}],
             "combat":{"public_plan":null,"hp":"50","max_hp":"50","sequence":null,"preparation_remaining":null,
                 "preparation_active":false,"recovery_remaining":"0","actors":[],
-                "events":[],"objective":null,"victory":false,"dead":false,
+                "events":[],"victory":false,"dead":false,
                 "terminal":false}}}))
         .unwrap()
     }

@@ -1224,8 +1224,7 @@ fn things_and_figures_are_told_in_sentences() {
         serde_json::from_value(serde_json::json!({
             "public_plan":null,"hp": "10", "max_hp": "10", "dead": false, "victory": false, "terminal": false,
             "sequence":null,"preparation_remaining": null, "preparation_active": false,
-            "recovery_remaining": "0", "events": [], "objective": null,
-            "actors": [{"actor": super::actor_target(50), "hostile": true, "allied": false, "injury": "badly_wounded"}]
+            "recovery_remaining": "0", "events": [], "actors": [{"actor": super::actor_target(50), "hostile": true, "allied": false, "injury": "badly_wounded"}]
         }))
         .unwrap(),
     );
@@ -1262,7 +1261,8 @@ fn look_leaves_the_objective_to_status() {
         serde_json::from_value(serde_json::json!({
             "public_plan":null,"hp": "7", "max_hp": "10", "dead": false, "victory": false, "terminal": false,
             "sequence":null,"preparation_remaining": null, "preparation_active": false,
-            "recovery_remaining": "0", "events": [], "objective": "reach_exit", "actors": []
+            "recovery_remaining": "0", "events": [], "actors": [],
+            "goal": {"segments": [{"text": "Find your way to the exit."}], "cell": null}
         }))
         .unwrap(),
     );

@@ -303,8 +303,12 @@ class AmuletProcesses(ProcessTestCase):
         self.assertEqual(underfoot(escaped["state"])["key"], underfoot(before["state"])["key"])
         events = [row["content"]["event"] for row in escaped["history"]
                   if row["content"]["type"] == "action"]
-        self.assertEqual([event for event in events if event["type"] == "escaped"],
-                         [{"type": "escaped"}])
+        # Earlier climbs without the Amulet are ordinary escape actions too;
+        # the winning climb is the last action.
+        escapes = [event for event in events if event["type"] == "escaped"]
+        self.assertTrue(escapes)
+        self.assertTrue(all(event == {"type": "escaped"} for event in escapes))
+        self.assertEqual(events[-1], {"type": "escaped"})
         self.assertFalse(escaped["state"]["wizard_game"])
 
     @non_graphical
