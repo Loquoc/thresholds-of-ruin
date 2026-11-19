@@ -11,8 +11,8 @@ enter the command without the leading `wizard`, then press Enter to submit or
 Esc to cancel. For example, `creature inspect 2` opens a scrollable private report.
 [Geometry setup](../architecture/geometry.md) includes room placement, rotated passages,
 wall terrain and explicit vertical links. See [arena tools](arena.md) for controlled encounters, combat capture,
-paired evaluation and search. Minimal `item` placement still supports only its
-listed kinds and ground placement; it is not a general item-property editor.
+paired evaluation and search. Legacy `item token|tablet` placement remains available. Authored-item spawning
+uses the pinned scenario catalog; it is not a general item-property editor.
 
 ## Start or promote a wizard game
 
@@ -45,6 +45,42 @@ Restart without `--wizard` and without `TOR_WIZARD_TOKEN` to disable privileged
 access. The save remains a wizard game and both frontends continue showing it.
 The trusted library equivalent is `Engine::enable_wizard()` before constructing
 the service; session accounts must separately have `AccessRole::Wizard`.
+
+## Authored item spawning
+
+Create one item on a walkable ground cell (region, x, y, z):
+
+```text
+wizard item spawn 1 3 2 0 identity item.potion.hallucination
+wizard item spawn 1 3 2 0 appearance item.potion.saffron
+wizard item spawn 1 3 2 0 identity item.potion.hallucination appearance item.potion.saffron
+wizard item spawn 1 3 2 0 recipe rogue.mace
+wizard item spawn 1 3 2 0 recipe rogue.generated_mace identity item.weapon.mace appearance item.weapon.mace
+```
+
+The identity example requires the Rogue item catalog. Appearance is the dotted
+**asset ID**, not a display label; the saffron-potion examples use seed 42 in the stock Rogue catalog and succeed only if that
+asset is assigned to the requested identity in this game's seeded allocation.
+Selectors can be supplied in any order. Identity-only retains its assigned
+appearance and physical form. Appearance-only must resolve uniquely; supplying
+both is a conjunction, never an override of the game's identity/appearance map.
+Equivalent authored aliases collapse, but distinct recipes sharing the selected
+identity or asset are rejected as ambiguous, even if both dotted names match.
+Use `recipe` with the exact authored item archetype key to select the desired
+birth policy: `rogue.mace` has the starter +1/+1 enchantments, while
+`rogue.generated_mace` uses the ordinary random loot policy. The same distinction
+exists for `rogue.arrow`/`rogue.generated_arrow` and
+`rogue.ring_mail`/`rogue.generated_ring_mail`. Recipe alone is sufficient; any
+identity or appearance supplied alongside it must still match. There is no
+silent default between different birth policies. Missing, unknown, mismatched or
+ambiguous selectors and invalid cells do not spawn or consume item-generation
+randomness. Reserved unique-retrieval artifacts cannot be duplicated this way.
+
+Placement uses ordinary item construction, including authored device charges,
+equipment generation and fuel. It does not advance game time, carry/equip the
+item, identify it, or teach any player its identity. Existing wizard credentials,
+private journal history, permanent wizard marking, save and rewind apply.
+In the ASCII F7 editor omit the leading `wizard`.
 
 ## Named creature spawning
 

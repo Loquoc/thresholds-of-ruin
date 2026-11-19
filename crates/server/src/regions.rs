@@ -270,6 +270,14 @@ impl Regions {
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.index.creature_archetypes()
     }
+    pub(crate) fn wizard_item(
+        &self,
+        identity: Option<&str>,
+        appearance: Option<&str>,
+        recipe: Option<&str>,
+    ) -> Result<tor_simulation::ItemSpec, Failure> {
+        self.index.wizard_item(identity, appearance, recipe)
+    }
     pub(crate) fn standalone_creature(
         &self,
         id: &str,

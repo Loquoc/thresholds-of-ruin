@@ -1156,3 +1156,25 @@ consumer owners; their final execution remains required evidence.
 A passing duration test does not guarantee a different catalog row at each reroll,
 all-pose visual quality, or an unbounded nonrepeating random stream. The documented
 1,024-duration ring eventually reuses durations for exceptionally long conditions.
+
+## Authored wizard item selection
+
+Authored item spawning has an independent encoded-Service first-red witness:
+a correctly authenticated wizard's identity selector was rejected as an unknown
+command before implementation. That is an intentional new-feature boundary,
+not a discovered gameplay regression. Selector tests distinguish identity,
+allocated appearance and their conjunction, collapse truly equivalent aliases,
+and reject shared-asset or mechanically different recipe ambiguity. Engine
+witnesses retain normal charges, location, unchanged knowledge, atomic rejection,
+checkpoint/replay and rewind. The Service owner separately checks player and
+spectator rejection, private wizard history and real potion consumption; mere
+creation of a correctly named object would not satisfy its effect assertion.
+
+Acceptance audit exposed one local feature gap: Rogue starter and generated
+mace, arrow and ring mail share both identity and appearance but have different
+birth policies. Rejecting ambiguity was correct, but neither dotted selector
+could reach those recipes. An explicit authored `recipe` selector now closes
+that gap without guessing a default or overriding allocated appearance. The
+encoded first-red rejects `recipe rogue.mace` at the old parser. Resolver tests
+cover all three pairs and retain mismatch/ambiguity rejection; recipe-specific
+engine coverage preserves charges, knowledge, checkpoint/replay and rewind.
