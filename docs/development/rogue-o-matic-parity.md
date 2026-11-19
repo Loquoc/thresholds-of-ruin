@@ -190,8 +190,15 @@ in a losing run.
    a hobgoblin blocking the exit confirmed that a trained player used the
    technique and an untrained player used basic melee. Both attacks resolved.
    Replayable API tests cover insufficient Stamina, supplies, reach and
-   cooldown. Dislocating Strike still needs a decision about when pushing the
-   opponent opens an escape.
+   cooldown. At `bc60ae9d` an outnumbered player with Dislocating Strike can
+   push a target when it sees a clear landing directly behind it. In a pinned
+   two-hobgoblin encounter, seed 43 hit the opponent on the downstairs. The
+   next observations showed the opponent beyond the exit and the player on
+   the stairs, choosing descent. On seed 42 the opponent kept its cell after the strike.
+   The seed-43 diagnostic completed the gameplay assertions before the client
+   timed out on close. Bundled Rogue assigns its Warrior's advancement through
+   an authored skill schedule. The technique requires a build that offers it.
+   Using a nearby exit under pursuit also works without the technique.
 4. **Plan where combat will happen.** XIV's `archmonster` searched for a
    firing position and `markcycles` marked doors on escape loops. The Python
    player already takes some corridor positions and checks clear device rays.
