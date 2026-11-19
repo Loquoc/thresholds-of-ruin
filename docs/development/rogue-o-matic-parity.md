@@ -13,6 +13,26 @@ The [Python bot API implementation plan](../plans/python-bot-api.md) pairs each 
 
 ### Verified in the current production player
 
+On development seed 51 the player saw the downstairs, walked to within one
+step of it, then retreated across floor 2 when an emu and a hobgoblin came
+into contact. At `82f497b2` it stepped onto the stairs and descended. A live
+two-opponent encounter also confirmed arrival on the next floor. The change
+took seed 51 from floor 2 to floor 4 and seed 52 from floor 2 to floor 3.
+
+At `c2796572`, a paid Search counts toward the player's search budget for
+visible walls on the same horizontal plane within three cells, including
+diagonals. On seed 51, floor 2 took 145 resolved searches, down from 614 at
+`82f497b2`. Its last food reserve on that floor rose from 267 to 933. The bot
+died on floor 8. Both policies died on floor 3 on seed 52. Separate live
+corridor cases verified six completed searches at a sealed end and opening
+a door immediately after an earlier successful Search.
+
+At `4626f592` a live encounter placed two hobgoblins within three cells of a
+player carrying two recognized haste potions. The player drank one before
+contact. The following observation showed Hasted and one dose in inventory.
+The player kept that dose while Hasted. The effect on full-campaign survival
+still needs measurement.
+
 The production CLI now collects reachable armor and melee weapons, identifies
 individual pieces and compares their disclosed properties. Live encounters
 checked the final worn armor and primary weapon using a second ordinary
