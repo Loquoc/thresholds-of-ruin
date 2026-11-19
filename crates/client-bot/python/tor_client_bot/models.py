@@ -104,6 +104,7 @@ class Cell:
     stairs_down: bool
     door: Door | None
     trap: Trap | None = None
+    lit: bool | None = None
 
 
 class Injury(str, Enum):

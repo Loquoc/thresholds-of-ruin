@@ -14,6 +14,7 @@ from tor_client_bot import (
     ActivityPhase,
     CombatReport,
     Cell,
+    DeviceActivation,
     Direction,
     Creature,
     Escape,
@@ -81,6 +82,7 @@ class Adventurer:
     guarded_supplies: set[str] = field(default_factory=set)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
+    attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
     draining_creatures: set[str] = field(default_factory=set)
     danger_until: dict[str, int] = field(default_factory=dict)
@@ -207,6 +209,8 @@ class Adventurer:
             self.pending_stair = None
             self.fled_contact = False
         self.maps.setdefault(self.depth, FloorMap()).observe(turn)
+        if here and here.lit:
+            self.attempted_room_light.discard(self.depth)
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
@@ -217,6 +221,8 @@ class Adventurer:
             self.wait_after_cancel = False
         if isinstance(action, Zap) and action.device.charges is None:
             self.tried_unmeasured_devices.add(action.device.item.target)
+        if isinstance(action, Zap) and reason == "light_room":
+            self.attempted_room_light.add(self.depth)
         if reason == "slow_approach" and isinstance(action, Zap) and isinstance(action.target, Cell):
             self.attempted_slow.update(foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
         if isinstance(action, Move) and turn.cell:
@@ -455,8 +461,10 @@ class Adventurer:
             step = memory.toward(turn, exits, avoid=avoid)
         if step is None:
             return None
+        # Opening a door spends the turn in the current cell.
+        destination = step.direction.offset if isinstance(step, Move) else (0, 0, 0)
         exposure = sum(self.damage_estimate(foe) for foe in turn.hostiles
-                       if turn.in_contact(foe, from_offset=step.direction.offset))
+                       if turn.in_contact(foe, from_offset=destination))
         if turn.health and 2 * exposure >= turn.health.current:
             escape = self.evade(turn)
             if escape and not any(turn.in_contact(foe, from_offset=escape[0].direction.offset)
@@ -751,6 +759,12 @@ class Adventurer:
             if action := memory.toward(turn, stairs):
                 return action, "seek_stairs"
 
+        if (turn.cell.lit is False and not turn.hostiles and self.depth not in self.attempted_room_light
+                and not turn.has_condition("rogue.blindness")):
+            for device in turn.devices:
+                if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
+                        and device.charges != 0):
+                    return Zap(device, None), "light_room"
         if action := memory.toward(turn, memory.frontier):
             return action, "explore"
         unvisited = {

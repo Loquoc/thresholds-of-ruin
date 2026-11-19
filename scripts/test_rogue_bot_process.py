@@ -353,6 +353,56 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     def test_bot_uses_a_safe_diagonal_to_a_disclosed_stair(self):
         self.check_safe_stair_route(diagonal=True)
 
+    def test_bot_opens_a_closed_door_on_its_remembered_stair_route(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["characters"][0]["loadout"] = []
+        manifest["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
+        region, = contents["regions"]
+        region.update(anchors={"start": [4, 2, 0]}, doors=[{"id": 1, "at": [3, 2, 0], "height": 2, "open": False}],
+                      actors=[{"archetype": "rogue.griffin", "id": 3, "at": [1, 2, 0],
+                               "turn_ticks": 1000000, "controller": "external"}])
+        contents["regions"].append({"id": 2, "name": "Upper", "size": [5, 5, 2], "chamber": True,
+                                    "anchors": {"down": [2, 2, 0]}})
+        self.server(scenario=write_package(self, contents, "stair-behind-door"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, OpenDoor, Outcome, Session, Wait
+token = os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as guard:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
+    turn = game.wait_for_decision()
+    assert turn.cell.stairs_up
+    player.observe(turn)
+    # Map a route around the closed door to the other side without opening it.
+    for index, direction in enumerate([Direction.NORTH, Direction.WEST, Direction.WEST, Direction.SOUTH]):
+        result = turn.submit(Move(direction))
+        assert result.status is Outcome.CONFIRMED
+        if index == 0:
+            assert guard.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        turn = game.wait_for_decision()
+        assert turn.outcome_of(result).value == "resolved"
+        player.observe(turn)
+    door = turn.cell_at((1, 0, 0)).door
+    assert not door.open and turn.hostiles
+    action, reason = player.choose(turn)
+    assert (action, reason) == (OpenDoor(door), "retreat_to_stairs"), (action, reason)
+    result = turn.submit(action)
+    assert result.status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert after.outcome_of(result).value == "resolved" and after.cell.key == turn.cell.key
+    assert after.cell_at((1, 0, 0)).door.open
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_stair_approach_breaks_contact_with_a_dangerous_attacker(self):
         self.check_safe_stair_route(diagonal=False, exposed=True)
 
@@ -1167,6 +1217,41 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as session:
         self.assertEqual((first["action"]["type"], first["reason"]), ("move", "explore"), first)
         self.assertEqual(first["result"]["status"], "confirmed")
         self.assertGreater(terminal["tick"], first["tick"])
+
+    def test_player_illuminates_a_dark_chamber_before_exploring(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["characters"][0].update(known_identities=["item.wand.wand-light"],
+                                         loadout=[{"archetype": "rogue.wand_light", "quantity": 1}])
+        contents["regions"][0].update(actors=[], lit=False)
+        manifest["spatial_scopes"] = {"study": {"members": [1], "rooms": {"1": [
+            {"region": 1, "min": [0, 0, 0], "max": [6, 4, 1]}]}, "passages": [], "doorways": []}}
+        self.server(scenario=write_package(self, contents, "bot-light-room"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Session, Outcome, Zap
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    bot = Adventurer(26, "item.amulet.amulet-of-yendor")
+    bot.observe(turn)
+    action, reason = bot.choose(turn)
+    assert reason == "light_room" and isinstance(action, Zap) and action.target is None, reason
+    assert turn.cell.lit is False
+    result = turn.submit(action)
+    assert result.status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert after.outcome_of(result).value == "resolved" and after.cell.lit is True
+    assert len(after.visible_cells) > len(turn.visible_cells)
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                text=True, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_unknown_scroll_trial_identifies_a_device_at_a_quiet_exit(self):
         from discovery_package import write_package

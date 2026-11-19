@@ -178,6 +178,12 @@ device's reach, and effects beyond the target still depend on the server.
 
 ### Two spatial decisions
 
+`cell.lit` reports the server's current illumination of that cell, including
+when the observer can sense their own position in darkness. Older recordings
+that lack the field return `None`. A bot can use this when deciding whether
+to activate a known light device, then check the same cell after the action
+resolves.
+
 A collector can pursue the observed position of an item and use the pickup
 offer when it becomes reachable. The route helper can return a door-opening
 action as the next step.

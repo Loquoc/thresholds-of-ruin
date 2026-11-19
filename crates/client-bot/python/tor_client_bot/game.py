@@ -239,6 +239,7 @@ class Turn:
                     row["stairs_down"],
                     door,
                     Trap(trap["id"], trap["family"], trap["reachable"]) if trap else None,
+                    lit=row.get("lit"),
                 )
             )
         return tuple(cells)

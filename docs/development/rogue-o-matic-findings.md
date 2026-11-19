@@ -56,6 +56,22 @@ an effect and exposes another missing decision about when to use it. The
 stair-retreat control for this comparison stopped with an unknown outcome on
 floor 13, so the pair cannot establish an improvement in survival.
 
+The last twelve rows of this floor-17 run also showed five Fainted condition
+events. Nutrition reserve was already −89 before the first of the final two
+bow shots and reached −138 before the final melee attack. The bot spent 1,146
+moves scouting for food over the run. Of 2,161 submissions labelled search,
+1,337 invoked the Search ability and 824 moved toward search sites. On floor
+8 alone, searching and moving between search sites accounted for 1,056
+submissions. Compare food spent on overlapping visual searches with fresh
+coverage on the same rooms. Each paid check can cover several illuminated
+surfaces, with different advantages by distance. [Discovery rules](../architecture/perception.md#concealed-physical-features)
+
+An isolated production rerun at `0610efef` reproduced the stair-scroll experiment
+on seed 49. Across all 8,430 trace rows, the two runs agreed on decision tick,
+floor, reason, action type, movement direction, nutrition reserve and terminal
+status. Both ended in death on floor 17 after 8,429 submissions. This supplies a
+matched baseline for search and provisioning changes on this seed.
+
 The subsequent clear-ray development cohort ended with a readiness timeout
 on seed 49 and unknown action outcomes on seeds 47 and 42. Seed 47's server
 logged that saving was behind schedule. In a separate small scroll fixture,

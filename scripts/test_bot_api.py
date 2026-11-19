@@ -17,6 +17,15 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_cell_illumination_survives_recording_and_unknown_stays_unknown(self):
+        import json
+        cells = [{"key": str(x), "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False} for x in range(3)]
+        cells[0]["lit"], cells[1]["lit"] = False, True
+        turn = Turn({"state": {"observation": {"visible_cells": cells}}, "readiness": {}})
+        for picture in (turn, Turn(json.loads(turn.recording()))):
+            self.assertEqual([cell.lit for cell in picture.visible_cells], [False, True, None])
+
     def test_clear_horizontal_device_aim_can_choose_another_visible_body_cell(self):
         def tile(x, y, wall=False):
             return {"key": f"{x},{y}", "position": {"x": x, "y": y, "z": 0}, "wall": wall,

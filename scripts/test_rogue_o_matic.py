@@ -50,6 +50,29 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_uses_room_light_only_in_disclosed_darkness_and_remembers_an_unlit_passage(self):
+        from tor_client_bot import Zap
+        wand = {"id": "light", "name": "staff of light", "identity": "item.wand.wand-light",
+                "identified": True, "quantity": 1, "class": "wand"}
+        offer = {"item": "light", "zappable": True, "device_activation": "self_target", "charges": 3}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        def picture(lit):
+            terrain = cell("here")
+            if lit is not None:
+                terrain["lit"] = lit
+            return player_turn([terrain, cell("east", 1)], inventory=[wand], interactions={"inventory": [offer]})
+        for illumination in (None, True):
+            turn = picture(illumination)
+            self.assertIs(turn.cell.lit, illumination)
+            self.assertNotIsInstance(choose(player, turn)[0], Zap)
+        dark = picture(False)
+        action, reason = choose(player, dark)
+        self.assertEqual((action, reason), (Zap(dark.devices[0], None), "light_room"))
+        player.admitted(dark, action, reason=reason)
+        self.assertNotIsInstance(choose(player, dark)[0], Zap)
+        choose(player, picture(True))
+        self.assertEqual(choose(player, dark)[1], "light_room")
+
     def test_unknown_scroll_trial_uses_a_safe_outbound_stair_once_per_appearance(self):
         scroll = {"id": "scroll", "class": "scroll", "name": "runed scroll", "quantity": 2, "identified": False}
         ring = {"id": "ring", "class": "ring", "name": "opal ring", "quantity": 1, "identified": False}
@@ -779,6 +802,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observe(turn)
                 player.recovering_from_pursuit = True
                 self.assertEqual(player.retreat_to_stairs(turn)[0], Move(expected))
+
+    def test_a_retreat_can_open_a_door_or_break_contact_before_opening_it(self):
+        from tor_client_bot import OpenDoor
+        door = {"id": "gate", "open": False, "reachable": True}
+        obstacle = {**cell("threshold", 1), "door": door}
+        enemy = {"id": "griffin", "name": "griffin", "position": {"x": 0, "y": 1, "z": 0}}
+        for can_evade in (False, True):
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+            room = [cell("here"), obstacle, cell("stairs", 2, up=True), {**cell("foe"), "position": enemy["position"]}]
+            if can_evade:
+                room.append({**cell("side"), "position": {"x": 0, "y": -1, "z": 0}})
+            turn = player_turn(room, actors=[enemy], hostiles=["griffin"])
+            player.observed_loss_by_name["griffin"] = 20
+            action, reason = choose(player, turn)
+            if can_evade:
+                self.assertEqual(reason, "retreat")
+                self.assertFalse(turn.in_contact(turn.hostiles[0], from_offset=action.direction.offset))
+            else:
+                self.assertEqual((action, reason), (OpenDoor(turn.cell_at((1, 0, 0)).door), "retreat_to_stairs"))
 
     def test_retreat_rejects_a_diagonal_tile_still_in_melee_reach(self):
         foe = {"id": "foe", "position": {"x": 0, "y": 1, "z": 0}}

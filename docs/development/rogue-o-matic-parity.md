@@ -47,6 +47,13 @@ contact before approaching the stair. The repeat production run on seed 47
 matched the earlier experiment at floor 15 and 6,269 submissions. The bot
 died in melee carrying an unidentified zinc wand whose activation was offered.
 
+Two additional live encounters checked decisions before movement. In a dark
+chamber the bot activated its known Light device and subsequently observed
+both an illuminated origin and more visible terrain. On a retreat it followed
+a remembered route to the stairs, opened a closed door while staying in the
+same cell, and saw the door open after the intention resolved. Opening a door
+uses the player's current position when estimating exposure to the pursuer.
+
 Terminal reports count distinct items seen, carried, recognized, assessed
 and worn, plus admitted item uses and activations. The cohort records observed
 supply-detour ticks, reserve decreases and immediate movement reversals
