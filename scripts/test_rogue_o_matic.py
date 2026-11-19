@@ -210,6 +210,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[1]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
 
+    def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
+        here, near = cell("exit", down=True), cell("ring", 1)
+        slot = {"id": "ring", "name": "Finger"}
+        def ring(name):
+            return {"id": name, "identity": "item.ring.ring-" + name, "name": name,
+                    "quantity": 1, "class": "ring", "identified": True}
+        for worn, found, expected in [("searching", "slow-digestion", "seek_supplies"),
+                                      ("slow-digestion", "searching", "descend"),
+                                      ("searching", "searching", "descend")]:
+            with self.subTest(worn=worn, found=found):
+                ground = {**near, "item": {**ring(found), "id": "new"}, "reachable": False}
+                turn = player_turn([here, near], inventory=[ring(worn)], ground=[ground],
+                                   interactions={"slots": [slot], "inventory": [
+                                       {"item": worn, "slot": slot, "equipped_slot": 0}]})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
     def test_nearby_armor_detour_depends_on_retrieval_phase(self):
         here, nearby = cell("exit", up=True, down=True), cell("mail", 1)
         armor = {"id": "plate", "identity": "item.armor.plate-mail", "name": "plate",

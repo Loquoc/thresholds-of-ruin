@@ -27,6 +27,14 @@ recognized see-invisible potion. The phantom became visible, the ring was
 worn and the potion remained in the pack. A separate run with only the
 potion verified that the player drank it and saw the phantom.
 
+The player uses the same ring ranking when deciding whether to leave its
+route for a recognized ring and when choosing which finger to put it on.
+In an outbound encounter it approached a slow-digestion ring three cells
+away, picked it up and wore it. Before the change it chose to explore.
+Paired policy checks kept a worn slow-digestion ring ahead of a searching
+ring on the floor and skipped a duplicate searching ring. The existing
+three-step detour budget applies on the outbound trip.
+
 Two live combat encounters verified pre-contact choices. The bot entered
 a narrow passage before two opponents surrounded it, and the opposing
 player observed Slowed after a dangerous approach. A paired decision with a

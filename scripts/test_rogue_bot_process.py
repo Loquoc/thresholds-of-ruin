@@ -938,15 +938,21 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(terminal["terminal"], "action_budget")
 
     def test_bot_walks_to_a_nearby_potion_and_collects_it(self):
+        self.check_supply_detour("rogue.healing", [], "test_unknown_potion")
+
+    def test_bot_walks_to_a_recognized_slow_digestion_ring_and_wears_it(self):
+        self.check_supply_detour("rogue.ring_slow_digestion", ["item.ring.ring-slow-digestion"], "conserve_food")
+
+    def check_supply_detour(self, archetype, known, use):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         character, = contents["manifest"]["characters"]
-        character.update(loadout=[], known_identities=[])
+        character.update(loadout=[], known_identities=known)
         region, = contents["regions"]
-        region.update(actors=[], items=[{"id": 9, "archetype": "rogue.healing", "at": [4, 2, 0]}])
-        self.server(scenario=write_package(self, contents, "visible-potion-detour"))
+        region.update(actors=[], items=[{"id": 9, "archetype": archetype, "at": [4, 2, 0]}])
+        self.server(scenario=write_package(self, contents, "visible-supply-detour"))
         self.install_bot_extension()
         run = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
@@ -959,8 +965,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(rows[0]["reason"], "seek_supplies")
         take = next(i for i, row in enumerate(rows) if row.get("reason") == "take")
         self.assertEqual(rows[take]["result"]["status"], "confirmed")
-        self.assertEqual(rows[take + 1]["reason"], "test_unknown_potion")
+        self.assertEqual(rows[take + 1]["reason"], use)
         self.assertEqual(rows[take + 1]["previous_intention_phase"], "resolved")
+        if use == "conserve_food":
+            self.assertEqual(rows[-1]["equipment_opportunities"]["ring"]["worn"], 1)
 
     def test_bot_descends_after_its_sampled_potion_stops_levitation(self):
         from discovery_package import write_package

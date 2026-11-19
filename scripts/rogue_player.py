@@ -43,7 +43,7 @@ from tor_client_bot import (
 
 from rogue_gear import (
     IDENTIFY_CATEGORIES, MELEE_WEAPONS, EquipmentHistory, choose_armor, choose_ring, improve_worn_gear,
-    needs_identification, ready_weapon,
+    needs_identification, ready_weapon, ring_upgrades,
 )
 
 
@@ -130,7 +130,7 @@ class Adventurer:
     def observe(self, turn: Turn, combat: CombatReport | None = None) -> None:
         here = turn.cell
         for ground in turn.ground_items:
-            if (ground.cell and (ground.item.category in DETOUR_STOCK or ground.item.category == "armor") and
+            if (ground.cell and (ground.item.category in DETOUR_STOCK or ground.item.category in {"armor", "ring"}) and
                     any(turn.distance_to(foe, from_offset=ground.offset) <= 1 for foe in turn.hostiles)):
                 self.guarded_supplies.add(ground.cell.key)
         if self.entered_floor_at is None:
@@ -738,7 +738,9 @@ class Adventurer:
                 seek_armor = item.category == "armor" and not spare_armor_to_identify and (
                     item.identity is None or not carried[item.identity]
                 )
-                if seek_armor or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
+                seek_ring = (item.category == "ring" and item.identity is not None and not carried[item.identity]
+                             and not item.known_cursed and item.identity in ring_upgrades(turn))
+                if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
                     supplies.add(ground.cell.key)
             if item.identity == "item.weapon.arrow" and carried["item.weapon.shortbow"]:
                 wanted = (ground.reachable and carried[item.identity] < 32) or (

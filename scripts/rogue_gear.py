@@ -59,7 +59,8 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     return best
 
 
-def choose_ring(turn: Turn) -> tuple[Action, str] | None:
+def ring_upgrades(turn: Turn) -> dict[str, dict[int, int]]:
+    """Positive gains by recognized ring identity and replaceable finger slot."""
     worn = Counter(slot.occupant.identity for slot in turn.equipment if slot.kind == "ring" and slot.occupant)
     priorities = ["slow-digestion", "protection", "searching", "regeneration", "sustain-strength",
                   "see-invisible", "maintain-armor", "stealth"]
@@ -67,17 +68,29 @@ def choose_ring(turn: Turn) -> tuple[Action, str] | None:
             ItemUse.EAT in item.uses for item in turn.inventory):
         priorities.insert(0, priorities.pop(priorities.index("regeneration")))
     ranks = {"item.ring.ring-" + name: len(priorities) - i for i, name in enumerate(priorities)}
+    upgrades: dict[str, dict[int, int]] = {}
+    for slot in turn.equipment:
+        if slot.kind != "ring" or slot.removal_blocked:
+            continue
+        old = slot.occupant.identity if slot.occupant else None
+        cost = ranks.get(old, 0) if old and worn[old] == 1 else 0
+        for identity, rank in ranks.items():
+            if identity not in worn and rank > cost:
+                upgrades.setdefault(identity, {})[slot.index] = rank - cost
+    return upgrades
+
+
+def choose_ring(turn: Turn) -> tuple[Action, str] | None:
+    choices = [choice for choice in turn.equip_choices() if choice.slot.kind == "ring"
+               and choice.item.identity is not None and not choice.item.known_cursed]
+    if not choices:
+        return None
+    upgrades = ring_upgrades(turn)
     best_gain = 0
     best = None
-    for choice in turn.equip_choices():
-        identity = choice.item.identity
-        if (choice.slot.kind != "ring" or choice.slot.removal_blocked or choice.item.known_cursed
-                or identity is None or identity in worn):
-            continue
+    for choice in choices:
         incumbent = choice.slot.occupant
-        value = ranks.get(identity, 0)
-        if incumbent and worn[incumbent.identity] == 1:
-            value -= ranks.get(incumbent.identity or "", 0)
+        value = upgrades.get(choice.item.identity or "", {}).get(choice.slot.index, 0)
         if value > best_gain or (value == best_gain and value > 0 and incumbent is None):
             best, best_gain = choice, value
     if best is None:
