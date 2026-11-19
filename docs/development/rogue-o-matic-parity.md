@@ -27,6 +27,17 @@ died on floor 8. Both policies died on floor 3 on seed 52. Separate live
 corridor cases verified six completed searches at a sealed end and opening
 a door immediately after an earlier successful Search.
 
+On development seed 49 the bot saw arrows twelve cells west and gold nearby
+to the east. Moving west hid the arrows, at which point it went east for
+the gold. In the first 800 actions, 213 immediate reversals alternated
+between those two loot decisions with no new terrain. At `003da17f` the
+outbound player uses its six-step arrow recovery budget for both visible and
+remembered arrows. In the same 800-action window the loot reversals fell to
+zero and total immediate reversals from 223 to 3. In a live corridor fixture
+the player saw both items, walked east and collected the gold. The longer
+seed-49 run stopped on floor 3 at action 987 with an unknown outcome and a
+save-backlog error on close.
+
 At `4f40aca5` a player carrying the Amulet can recover a disconnected return
 route. If there is no known walkable path to the upstairs, it searches a wall
 that borders both its reachable area and a remembered passage leading to the
