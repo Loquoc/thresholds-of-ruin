@@ -2126,6 +2126,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "search"))
         self.assertEqual({c.key for c in player.maps[4].adjacent("connection")}, {"search-site", "stair"})
 
+        # The link is still worth trying if it joins a hallway leading to the stairs.
+        room[-1:] = [cell("far-hall", 3), cell("stair", 4, up=True)]
+        room.append({**cell("unvisited"), "position": {"x": 0, "y": 1, "z": 0}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
+        turn = player_turn(room, inventory=[item], abilities=[search])
+        player.observe(turn)
+        player.maps[4].visited.update({"here", "search-site"})
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "search"))
+        player.searches["search-site"] = 3
+        self.assertEqual(player.choose(turn), (Move(Direction.SOUTH), "explore"))
+
+
     def test_uses_known_teleportation_when_the_remembered_return_route_is_disconnected(self):
         items = [{"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                   "quantity": 1, "identified": True},

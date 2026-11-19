@@ -2777,12 +2777,14 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     anchor = turn.cell_at((1, 0, 0)).key
     east = turn.cell_at((2, 0, 0)).key
     player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=4)
-    # Prior view from the other side of the same wall disclosed a stair.
+    # Prior view from the other side disclosed a passage leading to the stair.
     memory_picture = json.loads(turn.recording())
     prior = memory_picture["state"]["observation"]
     prior["visible_cells"] = [
-        {"key": "remembered-stair", "position": {"x": 0, "y": 0, "z": 0}, "wall": False,
+        {"key": "remembered-stair", "position": {"x": 1, "y": 0, "z": 0}, "wall": False,
          "stairs_up": True, "stairs_down": False},
+        {"key": "remembered-hall", "position": {"x": 0, "y": 0, "z": 0}, "wall": False,
+         "stairs_up": False, "stairs_down": False},
         {"key": east, "position": {"x": -1, "y": 0, "z": 0}, "wall": True,
          "stairs_up": False, "stairs_down": False}]
     prior["ground_items"] = []

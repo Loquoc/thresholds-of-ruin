@@ -754,6 +754,27 @@ class Adventurer:
         ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
         return UseAbility(ability) if ability else None
 
+    def search_return_connection(self, turn: Turn, memory: FloorMap, upstairs: set[str]) -> tuple[Action, str] | None:
+        """Search where one opening could reconnect the route to a remembered staircase."""
+        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
+        if turn.cell is None or ability is None:
+            return None
+        sites: set[str] = set()
+        for stair in upstairs:
+            passages = {c.key for c, _ in memory.reachable(stair)}
+            if turn.cell.key in passages:
+                continue
+            for key in passages:
+                for wall in memory.adjacent(key):
+                    if wall.wall:
+                        sites.update(c.key for c in memory.adjacent(wall.key)
+                                     if not c.wall and c.key not in passages and self.searches[c.key] < 3)
+        if turn.cell.key in sites:
+            return UseAbility(ability), "search"
+        if step := memory.toward(turn, sites):
+            return step, "search"
+        return None
+
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
                allow_unseen: bool = True, wall_limit: int = 3) -> tuple[Action, str] | None:
         if returning and (action := self.search_dead_end(turn, memory)):
@@ -957,6 +978,9 @@ class Adventurer:
                 return Move(direction), "ascend" if returning else "descend"
             if action := memory.toward(turn, stairs):
                 return action, "seek_stairs"
+            if returning and stairs and not turn.hostiles:
+                if link := self.search_return_connection(turn, memory, stairs):
+                    return link
 
         if (turn.cell.lit is False and not turn.hostiles and self.depth not in self.attempted_room_light
                 and not turn.has_condition("rogue.blindness")):
