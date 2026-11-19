@@ -17,6 +17,13 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_falling_uses_only_downward_velocity_and_supports_older_recordings(self):
+        for motion, expected in [(None, False), ({"velocity": ["4", "0", "0"]}, False),
+                                 ({"velocity": [0, 0, 2]}, False), ({"velocity": ["0", "0", "-1"]}, True)]:
+            with self.subTest(motion=motion):
+                view = {"motion": motion} if motion else {}
+                self.assertEqual(Turn({"state": {"observation": view}, "readiness": {}}).falling, expected)
+
     def test_map_remembers_stairs_by_direction_until_the_cell_is_seen_again(self):
         def observe(*stairs):
             cells = [{"key": key, "position": {"x": i, "y": 0, "z": 0}, "wall": False,

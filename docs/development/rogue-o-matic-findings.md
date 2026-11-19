@@ -11,7 +11,9 @@ with `invalid_action` and the message `Intention is unavailable`. An
 independent run reproduced the same rejection. The saved decision showed
 16/16 Health, no visible hostile, hold, or condition, and west among the
 walkable directions. The destination had no disclosed wall, door or trap.
-The reason for rejection is still unknown.
+The observation reported downward velocity. On a copy of the save, a wait
+advanced the clock 100 ticks, after which walking west succeeded. A run that
+waited for landing continued to floor 13 and died there.
 
 Recovery used two different food budgets. A short rest in shelter could
 spend food reserved for the return journey, while a player carrying the

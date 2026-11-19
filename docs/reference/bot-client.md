@@ -129,6 +129,7 @@ to the expected place, including an adjacent landing beside an occupied stair.
 - `turn.distance_to(foe, from_offset=direction.offset)` returns the shortest
   Chebyshev distance between the visible bodies after translating the observer.
   Use `turn.walkable_directions` to choose candidate steps before scoring them.
+  When `turn.falling` is true, Rogue-O-Matic waits until it lands before choosing a step.
 - `turn.inventory` combines carried items with their offered uses. For example,
   an unidentified flask can offer `ItemUse.DRINK` while its identity is
   `None`. A policy decides whether to take that risk.

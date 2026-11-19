@@ -193,6 +193,12 @@ class Turn:
         )
 
     @property
+    def falling(self) -> bool:
+        """Whether the observed body has downward velocity."""
+        motion = self._view.get("motion")
+        return bool(motion and int(motion["velocity"][2]) < 0)
+
+    @property
     def can_resume(self) -> bool:
         return self._can_resume
 

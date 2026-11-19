@@ -2254,6 +2254,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(reason, "ranged_device")
         self.assertEqual(action["aim"]["direction"], "north_east")
 
+    def test_player_samples_a_wand_appearance_once_and_only_with_clearance(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        cells = [cell(str(x), x) for x in range(5)]
+        wand = {"id": "wand", "name": "oak wand", "class": "wand", "appearance": "oak wand", "identified": False, "quantity": 1}
+        offer = {"item": "wand", "device_activation": "direction", "zappable": True}
+        def picture(distance=3, hp=10):
+            foe = {"id": "foe", "name": "emu", "position": cell("foe", distance)["position"]}
+            return player_turn(cells, actors=[foe], hostiles=["foe"], inventory=[wand], combat={"hp": hp},
+                               interactions={"inventory": [offer]})
+
+        self.assertIsNone(player.try_unknown_wand(picture(distance=2)))
+        self.assertIsNone(player.try_unknown_wand(picture(hp=7)))
+        cells[-1]["wall"] = True
+        self.assertIsNone(player.try_unknown_wand(picture()))
+        cells[-1]["wall"] = False
+        turn = picture()
+        action, reason = choose(player, turn)
+        self.assertEqual(reason, "test_unknown_device")
+        player.admitted(turn, action, reason=reason)
+        wand["id"] = offer["item"] = "second"
+        self.assertIsNone(player.try_unknown_wand(picture()))
+
     def test_does_not_test_an_unknown_wand_without_room_to_clear_a_reflection(self):
         foe = {"id": "foe", "position": {"x": 3, "y": 0, "z": 0}}
         wand = {"id": "wand", "name": "oak wand", "class": "wand",

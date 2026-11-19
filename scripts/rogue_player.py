@@ -93,6 +93,7 @@ class Adventurer:
     tried_unknown_scroll: bool = False
     sampled_potions: set[str] = field(default_factory=set)
     sampled_scrolls: set[str] = field(default_factory=set)
+    sampled_wands: set[str] = field(default_factory=set)
     guarded_supplies: set[str] = field(default_factory=set)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
@@ -251,6 +252,8 @@ class Adventurer:
             self.wait_after_cancel = False
         if isinstance(action, Zap) and action.device.charges is None:
             self.tried_unmeasured_devices.add(action.device.item.target)
+        if isinstance(action, Zap) and reason == "test_unknown_device":
+            self.sampled_wands.add(action.device.item.appearance or action.device.item.name)
         if isinstance(action, Zap) and reason == "light_room":
             self.attempted_room_light.add(self.depth)
         if reason in {"slow_approach", "polymorph_threat"} and isinstance(action, Zap) and isinstance(action.target, Cell):
@@ -381,6 +384,9 @@ class Adventurer:
                     if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
                         return zap, "elemental_ray"
 
+        if turn.hostiles and (trial := self.try_unknown_wand(turn)):
+            return trial, "test_unknown_device"
+
         if turn.hostiles and self.has_arrows(turn):
             nearest = min(foe.distance for foe in turn.hostiles)
             if nearest >= 5 or nearest <= 2:
@@ -467,6 +473,23 @@ class Adventurer:
             previous_flanks = [turn.cell_at((sign * dy, sign * dx, 0)) for sign in (-1, 1)]
             if not all(c is not None and c.wall for c in previous_flanks):
                 return Move(direction)
+        return None
+
+    def try_unknown_wand(self, turn: Turn) -> Zap | None:
+        health = turn.health
+        if not health or health.current * 5 < health.maximum * 4 or self.carrying_objective(turn):
+            return None
+        if any(turn.distance_to(foe) < 3 for foe in turn.hostiles):
+            return None
+        for device in turn.devices:
+            item = device.item
+            if (item.category != "wand" or item.identity is not None or device.activation is not DeviceActivation.DIRECTION
+                    or not self.can_spend_charge(device) or (item.appearance or item.name) in self.sampled_wands):
+                continue
+            for foe in turn.hostiles:
+                if turn.distance_to(foe) <= 4:
+                    if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                        return zap
         return None
 
     def counter_threat(self, turn: Turn, health: int, *, in_melee: bool = False) -> tuple[Zap, str] | None:
@@ -787,6 +810,8 @@ class Adventurer:
             return None, "busy"
         if self.pending_stair:
             return None, "uncertain_stair_landing"
+        if turn.falling:
+            return Wait(), "settle_fall"
         if self.wait_after_cancel:
             return Wait(), "wait_after_cancel"
 
