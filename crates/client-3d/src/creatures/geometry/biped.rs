@@ -1319,6 +1319,18 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
                     .fit_over(under, Affine3A::IDENTITY, raised_trim);
         }
     }
+    // A shared thigh deformation only applies while every layer ends above
+    // the knee. Aprons and robes already have separate contact ownership.
+    let thigh_following = outfit.robe.is_none()
+        && !fit_details
+        && l.equipment.outerwear() != Some(outfit::outerwear::OuterwearAppearance::Apron)
+        && skirt_stack
+            .iter()
+            .all(|(_, skirt, _)| skirt.length <= body.thigh.length)
+        && l.equipment
+            .outerwear()
+            .and_then(equipment_outerwear::lower_length)
+            .is_none_or(|length| length <= body.thigh.length);
     let skirt_layer = skirt_stack.first().map(|(_, _, surface)| surface.clone());
     let skirt_scale = storybook_part(Plan::Biped, J::Hips);
     // Sample the same resolved, fitted surfaces that are actually emitted,
@@ -1362,12 +1374,11 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             });
             // Posed robe contacts mutate these vertices. Never mutate the
             // appearance cache shared by other wearers of the same outfit.
-            if outfit.robe.is_some() || outerwear == outfit::outerwear::OuterwearAppearance::Apron {
-                for (handle, _) in &mut model.0 {
-                    let mut private = super::super::retained_mesh(kit.meshes, handle).clone();
-                    private.asset_usage |= bevy::asset::RenderAssetUsages::MAIN_WORLD;
-                    *handle = kit.meshes.add(private);
-                }
+            if thigh_following
+                || outfit.robe.is_some()
+                || outerwear == outfit::outerwear::OuterwearAppearance::Apron
+            {
+                kit.make_meshes_private(&mut model);
             }
             let entity = kit
                 .commands
@@ -1388,6 +1399,18 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
                 }
             });
             kit.commands.entity(hips).add_child(entity);
+            if thigh_following {
+                for (mesh, _) in &model.0 {
+                    kit.rig
+                        .short_garments
+                        .push(super::super::skirt_motion::Panel::new(
+                            entity,
+                            mesh.clone(),
+                            Vec3::ONE,
+                            kit.meshes,
+                        ));
+                }
+            }
             if outerwear == outfit::outerwear::OuterwearAppearance::Apron {
                 for (mesh, _) in &model.0 {
                     kit.rig.aprons.push(super::super::apron::Panel::new(
@@ -1445,21 +1468,26 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
                 scale: skirt_scale,
             });
         }
-        let entity = kit.drape_scaled(
-            hips,
-            Transform::IDENTITY,
-            Drape::Skirt(skirt.length),
-            &name,
-            skirt_scale,
-            |p| {
-                let b = if skirt.sheer {
-                    &mut p.sheer
-                } else {
-                    &mut p.matte
-                };
-                skirt_cloth(b, surface, skirt);
-            },
-        );
+        let build = |p: &mut Parts| {
+            let b = if skirt.sheer {
+                &mut p.sheer
+            } else {
+                &mut p.matte
+            };
+            skirt_cloth(b, surface, skirt);
+        };
+        let entity = if thigh_following {
+            kit.short_garment(hips, Drape::Skirt(skirt.length), &name, skirt_scale, build)
+        } else {
+            kit.drape_scaled(
+                hips,
+                Transform::IDENTITY,
+                Drape::Skirt(skirt.length),
+                &name,
+                skirt_scale,
+                build,
+            )
+        };
         retained_surfaces.push((entity, triangles));
         kit.rig.skirt_layers.push(entity);
     }

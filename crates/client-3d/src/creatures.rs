@@ -1124,6 +1124,7 @@ pub struct Rig {
     /// Continuous caster garment with an owned mesh and shared material.
     robe: Option<robe::RobeRig>,
     aprons: Vec<apron::Panel>,
+    short_garments: Vec<skirt_motion::Panel>,
     apron_contacts: Vec<visual_contact::Part>,
     /// Instance-owned connected shoulder sheets; materials remain shared.
     cloaks: Vec<cloak::CloakRig>,
@@ -1214,6 +1215,9 @@ impl Rig {
             robe.map_entities(&entity);
             robe.map_mesh(&mut mesh);
         }
+        for panel in &mut self.short_garments {
+            panel.map_references(&entity, &mut mesh);
+        }
         for apron in &mut self.aprons {
             apron.map_references(&entity, &mut mesh);
         }
@@ -1226,6 +1230,9 @@ impl Rig {
     }
     /// Re-enter a preloaded review scene without retaining prior cloth/contact caches.
     pub(crate) fn reset_presentation(&mut self) {
+        for panel in &mut self.short_garments {
+            panel.invalidate();
+        }
         if let Some(hair) = &mut self.hair {
             hair.reset_presentation();
         }
@@ -1559,6 +1566,7 @@ mod reaction_tests;
 mod robe;
 #[cfg(test)]
 mod rogue_tests;
+mod skirt_motion;
 #[cfg(test)]
 mod soft_tests;
 mod visual_contact;

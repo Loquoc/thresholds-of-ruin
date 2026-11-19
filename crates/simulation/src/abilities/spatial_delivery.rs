@@ -124,10 +124,17 @@ impl Game {
         let Some(definition) = self.content.rules.ability(ability) else {
             return Ok(());
         };
-        if !matches!(
-            definition.invocation,
-            super::InvocationKind::ActorTarget | super::InvocationKind::SelfStep
-        ) {
+        // Ordinary strikes and searches already publish their own results.
+        if definition.basic_attack
+            || matches!(
+                outcome.effects.as_slice(),
+                [super::ResolvedEffect::SearchAdjacentGuises { .. }]
+            )
+            || !matches!(
+                definition.invocation,
+                super::InvocationKind::ActorTarget | super::InvocationKind::SelfStep
+            )
+        {
             return Ok(());
         }
         let Some(target) = self.actors.get(&outcome.target) else {

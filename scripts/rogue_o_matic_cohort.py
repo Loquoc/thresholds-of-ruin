@@ -12,10 +12,10 @@ import sys
 import tomllib
 
 from process_harness import Process, ROOT
-from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH, is_retrieval_item
+from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH
 
 
-POLICY_FILES = ("rogue_o_matic.py", "rogue_earned_route.py", "rogue_test_support.py", "scalar_wire.py")
+POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py")
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
 
 
@@ -151,14 +151,9 @@ def trace_report(path):
 def verify_victory(address, token, actor, objective_identity):
     from tor_client_bot import Session
 
-    session = Session.connect(address, token, actor)
-    try:
-        view = session.observe().data()["state"]["observation"]
-        combat = view["combat"]
-        return (combat["terminal"] and combat["victory"] and not combat["dead"]
-                and any(is_retrieval_item(item, objective_identity) for item in view["inventory"]))
-    finally:
-        session.close()
+    with Session.connect(address, token, actor) as game:
+        turn = game.observe()
+        return turn.victorious and any(item.identity == objective_identity for item in turn.inventory)
 
 
 def play(seed, server_path, scenario, actor, budget, timeout, output, retrieval_depth,

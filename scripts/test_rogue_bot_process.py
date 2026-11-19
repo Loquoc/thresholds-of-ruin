@@ -24,8 +24,96 @@ class RogueBotProcess(ProcessTestCase):
                                 "PYO3_PYTHON": sys.executable})
             build = target / profile
         library = "tor_client_bot.dll" if os.name == "nt" else "libtor_client_bot.so"
-        extension = "tor_client_bot.pyd" if os.name == "nt" else "tor_client_bot.so"
-        shutil.copyfile(Path(build) / library, self.directory / extension)
+        package = self.directory / "tor_client_bot"
+        shutil.copytree(ROOT / "crates/client-bot/python/tor_client_bot", package, dirs_exist_ok=True)
+        extension = "_native.pyd" if os.name == "nt" else "_native.so"
+        shutil.copyfile(Path(build) / library, package / extension)
+
+    def test_player_api_interprets_real_observation_and_submits_wait(self):
+        self.server(scenario=ROOT / "scenarios/rogue")
+        self.install_bot_extension()
+        code = """
+import os
+from tor_client_bot import ActivityPhase, Outcome, Session, Wait
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.observe()
+    assert turn.can_act and turn.cell.offset == (0, 0, 0)
+    assert 0 < turn.health.current <= turn.health.maximum
+    assert any(item.quantity > 1 for item in turn.inventory)
+    assert all(creature.cells for creature in turn.creatures)
+    admitted = turn.submit(Wait())
+    assert admitted.status is Outcome.CONFIRMED, admitted
+    assert admitted.activity is not None
+    following = game.wait_for_decision()
+    assert following.outcome_of(admitted) is ActivityPhase.RESOLVED, following.finished_activities
+"""
+        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
+                             env={**os.environ, "TOR_SERVER_TOKEN": TOKEN, "BOT_TEST_ADDRESS": self.address},
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_walks_through_a_two_cell_tall_door_with_one_reachable_approach(self):
+        from discovery_package import fixture, write_package
+
+        contents = fixture()
+        region, = contents["regions"]
+        region["anchors"]["start"] = [2, 2, 0]
+        del region["doors"][0]["concealment"]
+        region["traps"] = []
+        server = self.server(scenario=write_package(self, contents, "tall-door"))
+        self.install_bot_extension()
+        code = """
+import os
+from tor_client_bot import Direction, Move, OpenDoor, Outcome, Session
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    door_cells = [cell for cell in turn.visible_cells if cell.door]
+    assert len({cell.offset[2] for cell in door_cells}) == 2, door_cells
+    assert len({id(cell.door) for cell in door_cells}) == 1
+    opened = turn.step(Direction.EAST)
+    assert isinstance(opened, OpenDoor), opened
+    assert turn.submit(opened).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.step(Direction.EAST) == Move(Direction.EAST)
+    entered = next(cell.key for cell in turn.visible_cells if cell.offset == (1, 0, 0))
+    assert turn.submit(turn.step(Direction.EAST)).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().cell.key == entered
+"""
+        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
+                             env={**os.environ, "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=30)
+        server.stop(save=False)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_public_training_previews_and_confirms_one_disclosed_purchase(self):
+        server = self.server(scenario=ROOT / "scenarios/rogue-exploration", character=1)
+        self.install_bot_extension()
+        code = """
+import os
+from tor_client_bot import Outcome, Session, TrainingKind
+
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    game.wait_for_decision()
+    training = game.training
+    initial = training.overview()
+    assert not initial.locked and initial.unspent == 1, initial
+    pool = next(p for p in training.pools() if p.available and TrainingKind.TALENT in p.allowed)
+    talent = next(choice for choice in training.options(TrainingKind.TALENT)
+                  if choice.identity == "rattling_blow")
+    proposal = training.preview(pool, talent)
+    assert not proposal.would_die and proposal.resulting_health.current > 0
+    assert training.confirm(proposal).status is Outcome.CONFIRMED
+    assert training.confirm(proposal).status is Outcome.STALE
+    game.wait_for_decision()
+    assert training.overview().unspent == 0
+"""
+        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
+                             env={**os.environ, "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=45)
+        server.stop(save=False)
+        self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_rogue_bot_plays_with_authored_growth(self):
         self.install_bot_extension()
@@ -154,13 +242,14 @@ class RogueBotProcess(ProcessTestCase):
         code = """
 import os
 import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
+from tor_client_bot._native import Session as Transport
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
-session, enemy = (Session.connect(address, token, actor) for actor in (1, 3))
+diagnostics = Transport.connect(address, token, 1)
 try:
-    obs = session.observe()
+    obs = diagnostics.observe()
     snapshot = obs.data()
     assert set(snapshot) == {
         "state", "memory", "cursor", "branch", "readiness", "history", "narration",
@@ -169,23 +258,25 @@ try:
     }
     assert snapshot["user_messages"] == [], snapshot["user_messages"]
     snapshot["state"]["observation"]["visible_cells"].clear()
-    picture = obs.data()["state"]
-    assert picture["observation"]["visible_cells"]
-    policy = Policy()
-    policy.floor = 2
-    action, reason = policy.choose(picture)
+    assert obs.data()["state"]["observation"]["visible_cells"]
+finally:
+    diagnostics.close()
+session, enemy = (Session.connect(address, token, actor) for actor in (1, 3))
+try:
+    turn = session.observe()
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
+    policy.observe(turn)
+    action, reason = policy.choose(turn)
     diagonal = os.environ["BOT_TEST_DIAGONAL"] == "1"
-    direction = "north_west" if diagonal else "north"
-    assert (action, reason) == ({"type": "move", "direction": direction}, "retreat_to_stairs"), (action, reason)
+    direction = Direction.NORTH_WEST if diagonal else Direction.NORTH
+    assert (action, reason) == (Move(direction), "retreat_to_stairs"), (action, reason)
     offset = (-1, -1, 0) if diagonal else (0, -1, 0)
-    goal = next(c["key"] for c in picture["observation"]["visible_cells"] if position(c) == offset)
-    assert session.act(action, obs)["status"] == "confirmed"
-    assert enemy.act({"type": "wait"}, enemy.observe())["status"] == "confirmed"
+    goal = next(cell.key for cell in turn.visible_cells if cell.offset == offset)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    assert enemy.observe().submit(Wait()).status is Outcome.CONFIRMED
     for _ in range(150):
-        frame = session.observe().data()
-        if frame["readiness"]["admission"] and any(
-                c["key"] == goal and position(c) == (0, 0, 0)
-                for c in frame["state"]["observation"]["visible_cells"]):
+        frame = session.observe()
+        if frame.can_act and frame.cell and frame.cell.key == goal:
             break
         time.sleep(0.02)
     else:
@@ -217,37 +308,39 @@ finally:
         code = '''
 import os
 
-from rogue_o_matic import Policy, use
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import CombatJournal, Outcome, Session, UseAbility, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
-player, snake = (Session.connect(address, token, actor) for actor in (1, 3))
-try:
-    policy = Policy()
+with Session.connect(address, token, 1) as player, Session.connect(address, token, 3) as snake:
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    journal = CombatJournal()
+
+    def assert_admitted_or_stale(result):
+        # Another actor can advance the shared input boundary after observe().
+        # Local detection and an authoritative refusal are equally retryable;
+        # all other refusals and unknown outcomes remain failures.
+        assert result.status in {Outcome.CONFIRMED, Outcome.STALE} or (
+            result.status is Outcome.REJECTED and result.code == "stale_context"
+        ), result
+
     for _ in range(30):
-        current = player.observe()
-        data = current.data()
-        view = data["state"]["observation"]
-        policy.observe_combat(view, data["combat_updates"])
-        if view["combat"]["own_stats"]["restorable_losses"]["attributes"]["strength"] > 0:
-            assert ("name", "rattlesnake") in policy.lasting_injury_foes, (
-                policy.lasting_injury_foes, data["combat_updates"], view["combat"]["actors"],
-            )
+        turn = player.observe()
+        policy.observe(turn, journal.read(turn))
+        if turn.restorable_losses.strength > 0:
+            assert "rattlesnake" in policy.draining_creatures, policy.draining_creatures
             break
         enemy = snake.observe()
-        if enemy.data()["readiness"]["admission"]:
-            actors = enemy.data()["state"]["observation"]["visible_actors"]
-            target = next(actor["id"] for actor in actors if actor["name"] == "Warrior")
-            bite = snake.act(use("rogue.venomous_bite", target), enemy)
-            assert bite["status"] in {"confirmed", "stale_observation"}, bite
-        if current.data()["readiness"]["admission"]:
-            result = player.act({"type": "wait"}, current)
-            assert result["status"] in {"confirmed", "stale_observation"}, result
+        if enemy.can_act:
+            victim = next(actor for actor in enemy.creatures if actor.name == "Warrior")
+            bite = next(ability for ability in enemy.abilities if ability.identity == "rogue.venomous_bite")
+            result = enemy.submit(UseAbility(bite, victim))
+            assert_admitted_or_stale(result)
+        if turn.can_act:
+            result = turn.submit(Wait())
+            assert_admitted_or_stale(result)
     else:
         raise AssertionError("No lasting strength loss observed")
-finally:
-    snake.close()
-    player.close()
 '''
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -282,7 +375,7 @@ finally:
         code = """
 import os
 import time
-from tor_client_bot import Session
+from tor_client_bot._native import Session
 
 def view(session):
     return session.observe().data()["state"]["observation"]
@@ -344,48 +437,30 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
 
-def ready(session, when=lambda state: True):
-    for _ in range(100):
-        obs = session.observe()
-        data = obs.data()
-        if data["readiness"]["admission"] and when(data["state"]):
-            return obs, data["state"]
-        time.sleep(0.02)
-    raise AssertionError("No ready player boundary")
-
-def underfoot(state):
-    return next(cell["key"] for cell in state["observation"]["visible_cells"]
-                if position(cell) == (0, 0, 0))
-
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    policy = Policy()
-    obs, initial = ready(session)
-    policy.choose(initial)
-    origin = underfoot(initial)
-    move = {"type": "move", "direction": "east"}
-    assert session.act(move, obs)["status"] == "confirmed"
-    obs, after_move = ready(session, lambda state: underfoot(state) != origin)
-    exposed = underfoot(after_move)
-    item, = after_move["observation"]["inventory"]
-    dose = {"type": "drink", "item": item["id"]}
-    assert session.act(dose, obs)["status"] == "confirmed"
-    obs, injured = ready(session, lambda state: not state["observation"]["inventory"])
-    view = injured["observation"]
-    assert int(view["combat"]["hp"]) * 5 < int(view["combat"]["max_hp"]) * 4, view["combat"]
-    memory = policy.floors[policy.floor]
-    memory.recent_danger[exposed] = int(view["tick"]) + 1200
-    action, reason = policy.choose(injured)
-    assert (action, reason) == ({"type": "move", "direction": "west"}, "reposition_to_recover"), (action, reason)
-    assert session.act(action, obs)["status"] == "confirmed"
-    _, safer = ready(session, lambda state: underfoot(state) == origin)
-    assert policy.choose(safer) == ({"type": "wait"}, "recover")
-finally:
-    session.close()
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    origin = turn.cell.key
+    assert turn.submit(Move(Direction.EAST)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    exposed = turn.cell.key
+    assert exposed != origin
+    dose, = turn.inventory
+    assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.health.current * 5 < turn.health.maximum * 4
+    player.observe(turn)
+    player.danger_until[exposed] = turn.tick + 1200
+    action, reason = player.choose(turn)
+    assert (action, reason) == (Move(Direction.WEST), "reposition_to_recover"), (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    player.observe(after)
+    assert after.cell.key == origin and player.choose(after) == (Wait(), "recover")
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -407,43 +482,29 @@ finally:
         ]
         contents["manifest"]["characters"][0]["loadout"] = []
         contents["manifest"]["stair_pairs"] = {"escape": {"upper": "2/upper", "lower": "1/up"}}
-        contents["regions"][0]["anchors"]["up"] = [1, 1, 0]
+        contents["regions"][0]["anchors"]["up"] = [2, 1, 0]
         contents["regions"].append({"id": 2, "name": "Upper floor", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"upper": [2, 2, 0]}})
         server = self.server(scenario=write_package(self, contents, "rogue-bot-diagonal-retreat"))
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    view = state["observation"]
-    assert any(actor["name"].lower() == "wraith" and position(actor) == (0, 1, 0)
-               for actor in view["visible_actors"]), view["visible_actors"]
-    assert any(c["stairs_up"] and position(c) == (0, -1, 0) for c in view["visible_cells"])
-    policy = Policy()
-    policy.floor = 11
-    action, reason = policy.choose(state)
-    assert action["type"] == "move" and action["direction"] in {"north_east", "north_west"}, (action, reason)
-    assert reason == "retreat_to_stairs", reason
-    dx = 1 if action["direction"] == "north_east" else -1
-    target = next(cell["key"] for cell in view["visible_cells"] if position(cell) == (dx, -1, 0))
-    outcome = session.act(action, obs)
-    assert outcome["status"] == "confirmed", outcome
-    for _ in range(100):
-        after = session.observe().data()["state"]["observation"]
-        if any(cell["key"] == target and position(cell) == (0, 0, 0) for cell in after["visible_cells"]):
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError(("Retreat did not settle", after["tick"]))
-finally:
-    session.close()
+address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as wraith:
+    turn = game.wait_for_decision()
+    assert any(c.name.casefold() == "wraith" and (0, 1, 0) in c.cells for c in turn.creatures)
+    stair = turn.cell_at((1, -1, 0))
+    assert stair.stairs_up
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=11)
+    player.observe(turn)
+    action, reason = player.choose(turn)
+    assert (action, reason) == (Move(Direction.NORTH_EAST), "retreat_to_stairs"), (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    assert wraith.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().cell.key == stair.key
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -467,69 +528,37 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Floor, Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, UseAbility
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    cells = {position(c): c for c in state["observation"]["visible_cells"]}
-    here, east, west = (cells[(x, 0, 0)]["key"] for x in (0, 1, -1))
-    memory = Floor(visited={c["key"] for c in cells.values() if not c["wall"]})
-    memory.tactile_attempts.update(dict.fromkeys(memory.visited, 4))
-    memory.rejected_edges.update((here, direction) for direction in
-                                 ("north", "south", "north_east", "north_west", "south_east", "south_west"))
-    policy = Policy()
-    policy.floors[1] = memory
-    action, reason = policy.choose(state)
-    assert len(memory.boundaries[east]) == 2 and len(memory.boundaries[west]) == 1, memory.boundaries
-    assert (action, reason) == ({"type": "move", "direction": "east"}, "search"), (action, reason)
-    outcome = session.act(action, obs)
-    assert outcome["status"] == "confirmed", outcome
-    for _ in range(100):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and any(
-                c["key"] == east and position(c) == (0, 0, 0) for c in view["visible_cells"]):
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError(("Search route did not settle", view["tick"]))
-    memory.visited.update(c["key"] for c in view["visible_cells"] if not c["wall"])
-    memory.tactile_attempts.update(dict.fromkeys(memory.visited, 4))
-    search, reason = policy.choose(data["state"])
-    assert search.get("id") == "rogue.search" and reason == "search", (search, reason)
-    assert session.act(search, obs)["status"] == "confirmed"
-    policy.accepted(search, view, reason=reason)
-    tick = int(view["tick"])
-    for _ in range(100):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and view["ready"] and int(view["tick"]) > tick:
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError(("Search did not settle", view["tick"]))
-    near_walls = set(memory.boundaries[east].values())
-    plain_walls = near_walls - memory.joining_wall_hints.keys()
-    assert plain_walls, memory.joining_wall_hints
-    for wall in near_walls - plain_walls:
-        memory.search_attempts[wall] = 8
-    memory.search_attempts.update({
-        wall: 8 for walls in memory.boundaries.values() for wall in walls.values() if wall not in near_walls
-    })
-    for wall in memory.boundaries[west].values():
-        memory.search_attempts[wall] = 0
-    memory.tactile_attempts[east] = 1
-    retry, reason = policy.choose(data["state"])
-    assert (retry, reason) == (search, "search"), (retry, reason)
-    assert session.act(retry, obs)["status"] == "confirmed"
-finally:
-    session.close()
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    memory = player.maps[1]
+    east, west = (turn.cell_at((x, 0, 0)).key for x in (1, -1))
+    memory.visited.update(memory.cells)
+    # The only remaining candidate sites are equally far away.
+    player.searches.update({key: 3 for key in memory.cells if key not in {east, west}})
+    walls = lambda key: {cell.key for cell in memory.adjacent(key) if cell.wall}
+    assert len(walls(east)) == 2 and len(walls(west)) == 1
+    step, reason = player.choose(turn)
+    assert (step, reason) == (Move(Direction.EAST), "search"), (step, reason)
+    assert turn.submit(step).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert after.cell.key == east
+    player.observe(after)
+    memory.visited.update(memory.cells)
+    for _ in range(2):
+        action, reason = player.choose(after)
+        assert isinstance(action, UseAbility) and action.ability.identity == "rogue.search" and reason == "search"
+        assert after.submit(action).status is Outcome.CONFIRMED
+        player.admitted(after, action)
+        following = game.wait_for_decision()
+        assert following.tick > after.tick
+        after = following
+        player.observe(after)
+    assert all(player.wall_searches[key] == 2 for key in walls(east))
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -741,58 +770,40 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Floor, Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseAbility, UseItem
 
-def ready(session, condition):
-    for _ in range(150):
-        obs = session.observe()
-        data = obs.data()
-        if data["readiness"]["admission"] and condition(data["state"]["observation"]):
-            return obs, data["state"]
-        time.sleep(0.02)
-    raise AssertionError("Search fixture did not reach the expected boundary")
-
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs, state = ready(session, lambda view: True)
-    cells = {position(c): c for c in state["observation"]["visible_cells"]}
-    end = cells[(1, 0, 0)]["key"]
-    memory = Floor(visited={c["key"] for c in cells.values() if not c["wall"]})
-    memory.tactile_attempts.update(dict.fromkeys(memory.visited, 4))
-    memory.search_attempts.update(cells[pos]["key"] for pos in ((1, -1, 0), (1, 1, 0), (2, 0, 0)))
-    policy = Policy()
-    policy.floors[1] = memory
-    step, reason = policy.choose(state)
-    assert memory.corridor_end(end), (memory.boundaries.get(end), memory.graph.edges.get(end),
-                                      [(pos, cells[pos]['wall'], cells[pos]['door'])
-                                       for pos in ((1, -1, 0), (1, 1, 0), (2, 0, 0))])
-    assert (step, reason) == ({"type": "move", "direction": "east"}, "search"), (step, reason)
-    assert session.act(step, obs)["status"] == "confirmed"
-    obs, state = ready(session, lambda view: any(c["key"] == end and position(c) == (0, 0, 0)
-                                                for c in view["visible_cells"]))
-    memory.visited.update(c["key"] for c in state["observation"]["visible_cells"] if not c["wall"])
-    search, reason = policy.choose(state)
-    assert search.get("id") == "rogue.search" and reason == "search", (search, reason)
-    assert session.act(search, obs)["status"] == "confirmed"
-    tick = int(state["observation"]["tick"])
-    obs, state = ready(session, lambda view: int(view["tick"]) > tick)
-    view = state["observation"]
-    assert view["combat"]["own_stats"]["nutrition"]["hunger"] == "nourished"
-    policy.choose(state)
-    memory.visited.update(memory.graph.edges)
-    memory.tactile_attempts.update(dict.fromkeys(memory.visited, 4))
-    memory.search_attempts.update({wall: 8 for edges in memory.boundaries.values() for wall in edges.values()})
-    wall = min(memory.boundaries[end].values())
-    memory.search_attempts[wall] = 3
-    action, reason = policy.choose(state)
-    assert action["type"] == "read" and reason == "test_unknown_magic", (action, reason)
-    assert session.act(action, obs)["status"] == "confirmed"
-    tick = int(view["tick"])
-    ready(session, lambda view: int(view["tick"]) > tick)
-finally:
-    session.close()
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    memory = player.maps[1]
+    end = turn.cell_at((1, 0, 0)).key
+    walls = {c.key for c in memory.adjacent(end) if c.wall}
+    assert len(walls) == 3
+    player.wall_searches.update(walls)
+    memory.visited.update(memory.cells)
+    action, reason = player.choose(turn)
+    assert (action, reason) == (Move(Direction.EAST), "search"), (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.cell.key == end
+    player.observe(turn)
+    memory.visited.update(memory.cells)
+    action, reason = player.choose(turn)
+    assert isinstance(action, UseAbility) and action.ability.identity == "rogue.search"
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    player.admitted(turn, action)
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    assert turn.hunger == "nourished"
+    memory.visited.update(memory.cells)
+    player.wall_searches.update({c.key: 3 for c in memory.cells.values() if c.wall})
+    action, reason = player.choose(turn)
+    assert isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None
+    assert reason == "test_unknown_magic"
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().tick > turn.tick
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -818,35 +829,23 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    view = state["observation"]
-    target = next(a["id"] for a in view["visible_actors"]
-                  if a["name"].lower() == "hobgoblin" and position(a) == (0, 1, 0))
-    west = next(c["key"] for c in view["visible_cells"] if position(c) == (-1, 0, 0))
-    policy = Policy()
-    hp = int(view["combat"]["hp"])
-    assert hp * 4 > int(view["combat"]["max_hp"])
-    policy.largest_hits[("actor", target)] = (hp + 1) // 2
-    step, reason = policy.choose(state)
-    assert (step, reason) == ({"type": "move", "direction": "west"}, "break_contact"), (step, reason)
-    result = session.act(step, obs)
-    assert result["status"] == "confirmed", result
-    for _ in range(150):
-        after = session.observe().data()["state"]["observation"]
-        if any(c["key"] == west and position(c) == (0, 0, 0) for c in after["visible_cells"]):
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError(("Retreat did not settle", after["tick"]))
-finally:
-    session.close()
+address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
+    turn = game.wait_for_decision()
+    foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin" and (0, 1, 0) in c.cells)
+    west = turn.cell_at((-1, 0, 0))
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    assert turn.health.current * 4 > turn.health.maximum
+    player.observed_loss[foe.target] = (turn.health.current + 1) // 2
+    step, reason = player.choose(turn)
+    assert (step, reason) == (Move(Direction.WEST), "break_contact"), (step, reason)
+    assert turn.submit(step).status is Outcome.CONFIRMED
+    assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().cell.key == west.key
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -882,76 +881,69 @@ finally:
         code = """
 import os
 import time
-from rogue_o_matic import Policy, position, use
+from rogue_player import Adventurer
 from rogue_o_matic_cohort import death_cause
-from tor_client_bot import Session
+from tor_client_bot import CombatJournal, Move, Outcome, Session, UseItem, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
-player, phantom = (Session.connect(address, token, actor) for actor in (1, 3))
-try:
-    policy = Policy()
+with Session.connect(address, token, 1) as player, Session.connect(address, token, 3) as phantom:
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    journal = CombatJournal()
     let_die = os.environ["BOT_TEST_UNSEEN_DEATH"] == "1"
     for _ in range(120 if let_die else 25):
-        obs = player.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        policy.observe_combat(view)
-        if let_die and view["combat"]["dead"]:
-            report = {"self_target": view["self_target"], "last_combat_events": view["combat"]["events"]}
-            assert death_cause(report) == "unseen_ability", report
+        turn = player.observe()
+        report = journal.read(turn)
+        policy.observe(turn, report)
+        if let_die and turn.dead:
+            cause = death_cause({"self_target": turn.self_target, "last_combat_events": turn.recent_combat.records()})
+            assert cause == "unseen_ability", cause
             raise SystemExit(0)
-        if not let_die and policy.unseen_danger and data["readiness"]["admission"]:
+        if not let_die and policy.last_unseen_attack and turn.can_act:
             break
         enemy = phantom.observe()
-        enemy_data = enemy.data()
-        if enemy_data["readiness"]["admission"]:
-            target = next(a["id"] for a in enemy_data["state"]["observation"]["visible_actors"]
-                          if a["name"] == "Warrior")
-            result = phantom.act(use("basic_melee", target), enemy)
-            assert result["status"] == "confirmed", result
-        if data["readiness"]["admission"]:
-            result = player.act({"type": "wait"}, obs)
-            assert (result["status"] in {"confirmed", "stale_observation"}
-                    or result.get("code") == "stale_context"), result
+        if enemy.can_act:
+            victim = next(c for c in enemy.creatures if c.name == "Warrior")
+            attack = enemy.attack(victim)
+            assert attack is not None, victim
+            result = enemy.submit(attack)
+            assert result.status is Outcome.CONFIRMED, result
+        if turn.can_act:
+            result = turn.submit(Wait())
+            assert result.status in {Outcome.CONFIRMED, Outcome.STALE} or result.code == "stale_context", result
         time.sleep(0.02)
     else:
-        raise AssertionError(("No actionable unseen attack", view["tick"], view["combat"]["events"]))
-    assert not any(a["name"] == "phantom" for a in view["visible_actors"])
-    start = next(c["key"] for c in view["visible_cells"] if position(c) == (0, 0, 0))
-    step, reason = policy.choose(data["state"])
+        raise AssertionError(("No actionable unseen attack", turn.tick, turn.recent_combat.records()))
+    assert all(c.name != "phantom" for c in turn.creatures)
+    start = turn.cell.key
+    step, reason = policy.choose(turn)
     use_sight = os.environ["BOT_TEST_SIGHT"] == "1"
     if use_sight:
-        assert step["type"] == "drink" and reason == "reveal_attacker", (step, reason)
+        assert isinstance(step, UseItem) and reason == "reveal_attacker", (step, reason)
     else:
-        assert step["type"] == "move" and reason == "evade_unseen_attack", (step, reason)
-    result = player.act(step, obs)
-    assert result["status"] == "confirmed", result
-    policy.accepted(step, view, reason=reason)
+        assert isinstance(step, Move) and reason == "evade_unseen_attack", (step, reason)
+    assert turn.submit(step).status is Outcome.CONFIRMED
+    policy.admitted(turn, step)
     for _ in range(150):
-        observation = player.observe()
-        settled = observation.data()
-        after = settled["state"]["observation"]
-        if use_sight and any(a["name"] == "phantom" for a in after["visible_actors"]):
+        after = player.observe()
+        if use_sight and any(c.name == "phantom" for c in after.creatures):
             break
-        if not use_sight and settled["readiness"]["admission"] and after["ready"] and any(
-                c["key"] != start and position(c) == (0, 0, 0) for c in after["visible_cells"]):
+        if not use_sight and after.can_act and after.cell.key != start:
             break
         opponent = phantom.observe()
-        status = opponent.data()
-        if status["readiness"]["admission"] and status["state"]["observation"]["ready"]:
-            waited = phantom.act({"type": "wait"}, opponent)
-            assert waited["status"] in {"confirmed", "stale_observation"}, waited
+        if opponent.can_act:
+            result = opponent.submit(Wait())
+            assert result.status in {Outcome.CONFIRMED, Outcome.STALE}, result
         time.sleep(0.02)
     else:
-        raise AssertionError(("Unseen attack response did not settle", reason, after["tick"]))
-    if not use_sight:
-        assert not any(event["type"] == "unseen_ability" for event in after["combat"]["events"])
-        second, reason = policy.choose(settled["state"])
-        assert second["type"] == "move" and reason == "evade_unseen_attack", (second, reason)
-        assert player.act(second, observation)["status"] == "confirmed"
-finally:
-    phantom.close()
-    player.close()
+        raise AssertionError(("Unseen attack response did not settle", reason, after.tick))
+    if use_sight:
+        assert any(effect.identity == "rogue.see_invisible" and effect.active for effect in after.conditions)
+    else:
+        assert not any(event.unseen for event in after.recent_combat.incoming)
+        policy.observe(after, journal.read(after))
+        second, reason = policy.choose(after)
+        assert isinstance(second, Move) and reason == "evade_unseen_attack", (second, reason)
+        assert after.submit(second).status is Outcome.CONFIRMED
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1007,85 +999,59 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
 
-def ready(session, after_tick=-1):
-    for _ in range(100):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and view["ready"] and int(view["tick"]) > after_tick:
-            return obs, data["state"], view
-        time.sleep(0.02)
-    raise AssertionError(("No settled player boundary", after_tick))
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=3)
 
-def submit(session, observation, view, action):
-    result = session.act(action, observation)
-    assert result["status"] == "confirmed", result
-    return ready(session, int(view["tick"]))
+    def submit(turn, action):
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        player.admitted(turn, action)
+        after = game.wait_for_decision()
+        assert after.tick > turn.tick
+        player.observe(after)
+        return after
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    policy = Policy()
-    obs, state, view = ready(session)
-    policy.choose(state)
-    east = {"type": "move", "direction": "east"}
-    obs, state, view = submit(session, obs, view, east)
-    policy.choose(state)
-    obs, state, view = submit(session, obs, view, {"type": "move", "direction": "west"})
-    item, = view["inventory"]
-    obs, state, view = submit(session, obs, view, {"type": "drink", "item": item["id"]})
-    hp, total = (int(view["combat"][name]) for name in ("hp", "max_hp"))
-    assert hp * 2 >= total and hp * 5 < total * 4, (hp, total)
-    if os.environ["BOT_TEST_STAIRS"] == "0":
-        assert view["combat"]["own_stats"]["nutrition"]["hunger"] == "nourished"
-        assert not any(cell["stairs_down"] for cell in view["visible_cells"])
-        if os.environ["BOT_TEST_FOOD_LIMITED"] == "0":
-            policy.floor = 3
-            nutrition = view["combat"]["own_stats"]["nutrition"]
-            policy.return_travel_ticks[2] = nutrition["reserve"] * int(nutrition["unit_ticks"])
-            action, reason = policy.choose(state)
-            assert (action, reason) == ({"type": "wait"}, "recover"), (action, reason)
-            _, _, after = submit(session, obs, view, action)
-            assert int(after["tick"]) > int(view["tick"])
-            start = next(c["key"] for c in view["visible_cells"] if position(c) == (0, 0, 0))
-            assert any(c["key"] == start and position(c) == (0, 0, 0) for c in after["visible_cells"])
-            raise SystemExit(0)
-        action, reason = policy.choose(state)
-        assert action["type"] == "move" and reason == "recover_en_route", (action, reason)
-        before = int(view["combat"]["own_stats"]["health_recovery"]["elapsed_ticks"])
-        _, _, after = submit(session, obs, view, action)
-        assert int(after["combat"]["own_stats"]["health_recovery"]["elapsed_ticks"]) > before
-    elif os.environ["BOT_TEST_FOOD_LIMITED"] == "1":
-        policy.recovering = True
-        move = {"type": "move", "direction": "east"}
-        obs, state, view = submit(session, obs, view, move)
-        obs, state, view = submit(session, obs, view, move)
-        assert view["combat"]["own_stats"]["nutrition"]["hunger"] == "nourished"
-        action, reason = policy.choose(state)
-        assert (action, reason) == ({"type": "move", "direction": "down"}, "descend"), (action, reason)
-        _, _, below = submit(session, obs, view, action)
-        assert any(c["stairs_up"] and position(c) == (0, 0, 0) for c in below["visible_cells"])
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    east = Move(Direction.EAST)
+    turn = submit(turn, east)
+    turn = submit(turn, Move(Direction.WEST))
+    dose, = turn.inventory
+    turn = submit(turn, UseItem(dose, ItemUse.DRINK))
+    assert turn.health.maximum / 2 <= turn.health.current < turn.health.maximum * 0.8
+    limited = os.environ["BOT_TEST_FOOD_LIMITED"] == "1"
+    stairs = os.environ["BOT_TEST_STAIRS"] == "1"
+    assert turn.hunger == "nourished"
+    if not stairs:
+        assert not any(c.stairs_down for c in turn.visible_cells)
+        if not limited:
+            player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+        action, reason = player.choose(turn)
+        before = turn.recovery.elapsed_ticks
+        origin = turn.cell.key
+        if limited:
+            assert isinstance(action, Move) and reason == "explore", (action, reason)
+        else:
+            assert (action, reason) == (Wait(), "recover")
+        after = submit(turn, action)
+        assert after.recovery.elapsed_ticks > before
+        assert (after.cell.key == origin) == (not limited)
     else:
-        before = int(view["combat"]["own_stats"]["health_recovery"]["elapsed_ticks"])
-        assert policy.choose(state) == (east, "recover_en_route")
-        obs, state, view = submit(session, obs, view, east)
-        assert int(view["combat"]["own_stats"]["health_recovery"]["elapsed_ticks"]) > before
-        assert policy.choose(state) == (east, "recover_en_route")
-        obs, state, view = submit(session, obs, view, east)
-        assert any(c["stairs_down"] and position(c) == (0, 0, 0) for c in view["visible_cells"])
-        assert policy.choose(state) == ({"type": "wait"}, "recover")
-        policy.floor = 3
-        nutrition = view["combat"]["own_stats"]["nutrition"]
-        policy.return_travel_ticks[2] = nutrition["reserve"] * int(nutrition["unit_ticks"])
-        action, reason = policy.choose(state)
-        assert (action, reason) == ({"type": "move", "direction": "down"}, "descend"), (action, reason)
-        _, _, below = submit(session, obs, view, action)
-        assert any(c["stairs_up"] and position(c) == (0, 0, 0) for c in below["visible_cells"])
-finally:
-    session.close()
+        for _ in range(2):
+            if not limited:
+                assert player.choose(turn) == (east, "recover_en_route")
+            before = turn.recovery.elapsed_ticks
+            turn = submit(turn, east)
+            assert turn.recovery.elapsed_ticks > before
+        assert turn.cell.stairs_down
+        if not limited:
+            assert player.choose(turn) == (Wait(), "recover")
+            player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+        action, reason = player.choose(turn)
+        assert (action, reason) == (Move(Direction.DOWN), "descend"), (action, reason)
+        assert submit(turn, action).cell.stairs_up
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1128,57 +1094,39 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy
-from tor_client_bot import Session
-
-def ready(session, after_tick=-1):
-    for _ in range(150):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and view["ready"] and int(view["tick"]) > after_tick:
-            return obs, data["state"], view
-        time.sleep(0.02)
-    raise AssertionError(("Player action did not settle", after_tick))
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseAbility, UseItem, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
-player, enemy = (Session.connect(address, token, actor) for actor in (1, 3))
-try:
-    obs, state, view = ready(player)
-    dose = next(item["id"] for item in view["inventory"] if item["identity"] == "item.potion.fixture.injury")
-    assert player.act({"type": "drink", "item": dose}, obs)["status"] == "confirmed"
-    other, _, _ = ready(enemy)
-    assert enemy.act({"type": "wait"}, other)["status"] == "confirmed"
-    obs, state, view = ready(player, int(view["tick"]))
-    hp, maximum = (int(view["combat"][field]) for field in ("hp", "max_hp"))
-    assert maximum > hp and hp * 2 >= maximum, (hp, maximum)
-    threat = next(a["id"] for a in view["visible_actors"] if a["name"].lower() == "hobgoblin")
-    policy = Policy()
-    policy.largest_hits[("actor", threat)] = hp
+with Session.connect(address, token, 1) as player, Session.connect(address, token, 3) as enemy:
+    turn = player.wait_for_decision()
+    dose = next(item for item in turn.inventory if item.identity == "item.potion.fixture.injury")
+    assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+    assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    turn = player.wait_for_decision()
+    hp = turn.health.current
+    assert turn.health.maximum > hp and hp * 2 >= turn.health.maximum
+    foe = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    policy.observe(turn)
+    policy.observed_loss[foe.target] = hp
+    action, reason = policy.choose(turn)
     if os.environ["BOT_TEST_UNKNOWN_SCROLLS"] == "1":
-        action, reason = policy.choose(state)
-        assert action["type"] == "read" and reason == "test_unknown_magic", (action, reason)
-        assert player.act(action, obs)["status"] == "confirmed"
-        policy.accepted(action, view, reason=reason)
-        obs, state, view = ready(player, int(view["tick"]))
-        assert any(item["class"] == "scroll" and not item["identified"] for item in view["inventory"])
-        action, reason = policy.choose(state)
-        assert action["type"] == "use_ability" and reason == "melee", (action, reason)
-        result = player.act(action, obs)
-        assert result["status"] == "confirmed", result
-        ready(player, int(view["tick"]))
+        assert isinstance(action, UseItem) and action.use is ItemUse.READ and reason == "test_unknown_magic"
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        policy.admitted(turn, action)
+        turn = player.wait_for_decision()
+        policy.observe(turn)
+        assert any(item.category == "scroll" and item.identity is None for item in turn.inventory)
+        action, reason = policy.choose(turn)
+        assert isinstance(action, UseAbility) and reason == "melee", (action, reason)
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        assert player.wait_for_decision().tick > turn.tick
     else:
-        item = next(item for item in view["inventory"] if item["identity"] == "item.potion.healing")
-        assert item["name"] == "Restorative draught", item
-        action, reason = policy.choose(state)
-        assert (action, reason) == ({"type": "drink", "item": item["id"]}, "heal"), (action, reason)
-        assert player.act(action, obs)["status"] == "confirmed"
-        _, _, restored = ready(player, int(view["tick"]))
-        assert int(restored["combat"]["hp"]) > hp
-finally:
-    enemy.close()
-    player.close()
+        assert isinstance(action, UseItem) and action.use is ItemUse.DRINK and reason == "heal"
+        assert action.item.name == "Restorative draught" and action.item.identity == "item.potion.healing"
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        assert player.wait_for_decision().health.current > hp
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1214,53 +1162,34 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
-
-def ready(session, after_tick=-1):
-    for _ in range(150):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and view["ready"] and int(view["tick"]) > after_tick:
-            return obs, data["state"], view
-        time.sleep(0.02)
-    raise AssertionError(("Player action did not settle", after_tick))
+from rogue_player import Adventurer
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
-player, enemy = (Session.connect(address, token, actor) for actor in (1, 3))
-try:
-    obs, state, view = ready(player)
-    dose = view["inventory"][0]["id"]
-    assert player.act({"type": "drink", "item": dose}, obs)["status"] == "confirmed"
-    other, _, _ = ready(enemy)
-    assert enemy.act({"type": "wait"}, other)["status"] == "confirmed"
-    obs, state, view = ready(player, int(view["tick"]))
-    policy = Policy()
-    policy.floor = 24
-    retreat = {"type": "move", "direction": "up"}
-    assert player.act(retreat, obs)["status"] == "confirmed"
-    policy.accepted(retreat, view, reason="retreat_upstairs")
-    obs, state, view = ready(player, int(view["tick"]))
-    landing = next(c for c in view["visible_cells"] if position(c) == (0, 0, 0))
-    policy.observe_stair(landing)
-    assert policy.floor == 23 and landing["stairs_down"]
-    hp, maximum = (int(view["combat"][field]) for field in ("hp", "max_hp"))
-    assert hp * 5 < maximum * 4, (hp, maximum)
-    threat = next(a["id"] for a in view["visible_actors"] if a["name"].lower() == "hobgoblin")
-    action, reason = policy.choose(state)
+with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
+    turn = game.wait_for_decision()
+    dose, = turn.inventory
+    assert turn.submit(UseItem(dose, ItemUse.DRINK)).status is Outcome.CONFIRMED
+    assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=24)
+    player.observe(turn)
+    retreat = Move(Direction.UP)
+    assert turn.submit(retreat).status is Outcome.CONFIRMED
+    player.admitted(turn, retreat)
+    turn = game.wait_for_decision()
+    player.observe(turn)
+    assert player.depth == 23 and turn.cell.stairs_down
+    assert turn.health.current * 5 < turn.health.maximum * 4
+    threat = next(c for c in turn.hostiles if c.name.casefold() == "hobgoblin")
+    action, reason = player.choose(turn)
     assert reason == "retreat", (action, reason)
-    policy.largest_hits[("actor", threat)] = hp
-    action, reason = policy.choose(state)
-    assert action["type"] == "move" and action["direction"] not in {"up", "down"}, (action, reason)
-    assert player.act(action, obs)["status"] == "confirmed"
-    _, _, moved = ready(player, int(view["tick"]))
-    here = next(c for c in moved["visible_cells"] if position(c) == (0, 0, 0))
-    assert here["key"] != landing["key"] and not here["stairs_up"]
-finally:
-    enemy.close()
-    player.close()
+    player.observed_loss[threat.target] = turn.health.current
+    action, reason = player.choose(turn)
+    assert isinstance(action, Move) and action.direction not in {Direction.UP, Direction.DOWN}
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert after.cell.key != turn.cell.key and not after.cell.stairs_up
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1289,37 +1218,33 @@ finally:
         code = """
 import os
 import time
-from rogue_o_matic import Policy
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Outcome, Session, Shot, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 player, enemy = (Session.connect(address, token, actor) for actor in (1, 3))
 try:
-    obs = player.observe()
-    state = obs.data()["state"]
-    view = state["observation"]
-    arrows = next(item for item in view["inventory"] if item["identity"] == "item.weapon.arrow")
-    def query(identity, phase, offset):
-        return player.projectile_choices(obs, identity, phase, offset)
-    action, reason = Policy().choose(state, projectile_choices=query)
-    assert reason == "launch_projectile", (action, reason)
-    aim = action["invocation"]["aim"]
-    assert aim["direction"] == "east" and aim["delivery"]["ammunition"] == arrows["id"], aim
-    result = player.act(action, obs)
-    assert result["status"] == "confirmed", result
+    turn = player.observe()
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    policy.observe(turn)
+    arrows = next(item for item in turn.inventory if item.identity == "item.weapon.arrow")
+    action, reason = policy.choose(turn)
+    assert isinstance(action, Shot) and reason == "launch_projectile", (action, reason)
+    assert action.offset[0] > 0 and action.offset[1:] == (0, 0), action.offset
+    assert action.target.hostile and action.projectile is arrows
+    result = turn.submit(action)
+    assert result.status is Outcome.CONFIRMED, result
     other = enemy.observe()
-    status = other.data()
-    if status["readiness"]["admission"]:
-        result = enemy.act({"type": "wait"}, other)
-        assert result["status"] in {"confirmed", "stale_observation"}, result
+    if other.can_act:
+        assert other.submit(Wait()).status in {Outcome.CONFIRMED, Outcome.STALE}
     for _ in range(150):
-        after = player.observe().data()["state"]["observation"]
-        remaining = next(item["quantity"] for item in after["inventory"] if item["id"] == arrows["id"])
-        if remaining == "2":
+        after = player.observe()
+        remaining = next(item.quantity for item in after.inventory if item.target == arrows.target)
+        if remaining == 2:
             break
         time.sleep(0.02)
     else:
-        raise AssertionError(("Arrow was not committed", after["tick"], remaining))
+        raise AssertionError(("Arrow was not committed", after.tick, remaining))
 finally:
     enemy.close()
     player.close()
@@ -1362,38 +1287,31 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Outcome, Pickup, Session
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    row, = state["observation"]["ground_items"]
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
     identity = os.environ["BOT_TEST_WEAPON"]
-    assert row["item"]["identity"] == identity, row
-    take, reason = Policy().choose(state)
-    assert (take, reason) == ({"type": "take", "item": row["item"]["id"], "quantity": row["item"]["quantity"]}, "loot")
-    result = session.act(take, obs)
-    assert result["status"] == "confirmed", result
-    for _ in range(150):
-        current = session.observe()
-        data = current.data()
-        inventory = data["state"]["observation"]["inventory"]
-        weapon = next((item for item in inventory if item["identity"] == identity), None)
-        if weapon and data["readiness"]["admission"]:
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError("Weapon was not added to carried inventory")
+    row, = turn.ground_items
+    assert row.item.identity == identity
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    key = turn.cell_at(row.offset).key
+    assert player.maps[1].items[key][0].identity == identity
+    take, reason = player.choose(turn)
+    assert isinstance(take, Pickup) and take.item == row.item and reason == "take", (take, reason)
+    assert turn.submit(take).status is Outcome.CONFIRMED
+    current = game.wait_for_decision()
+    player.observe(current)
+    assert key not in player.maps[1].items
+    weapon = next(item for item in current.inventory if item.identity == identity)
+    assert weapon.quantity == row.item.quantity
     if identity == "item.weapon.dart":
-        choices = session.projectile_choices(current, "rogue.throw", {"kind": "sources"}, 0)
-        assert any(row.get("source", {}).get("item") == weapon["id"] for row in choices["choices"]), choices
+        assert any(option.projectile == weapon and option.launcher is None
+                   for option in current.projectiles())
     else:
-        assert weapon["name"] == "Ash pike", weapon
-finally:
-    session.close()
+        assert weapon.name == "Ash pike"
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1485,49 +1403,35 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Equip, ItemUse, Outcome, Session, UseItem, Wait
 
-def ready(session, after_tick=-1):
-    for _ in range(100):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and view["ready"] and int(view["tick"]) > after_tick:
-            return obs, data["state"], view
-        time.sleep(0.02)
-    raise AssertionError(("No settled player boundary", after_tick))
+def submit(game, turn, action):
+    result = turn.submit(action)
+    assert result.status is Outcome.CONFIRMED, result
+    after = game.wait_for_decision()
+    assert after.tick > turn.tick
+    return after
 
-def submit(session, frame, action):
-    obs, _, view = frame
-    result = session.act(action, obs)
-    assert result["status"] == "confirmed", result
-    return ready(session, int(view["tick"]))
-
-def reserve(frame):
-    return frame[2]["combat"]["own_stats"]["nutrition"]["reserve"]
-
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    frame = ready(session)
-    dose = next(item for item in frame[2]["inventory"] if item["name"] == "injury potion")
-    frame = submit(session, frame, {"type": "drink", "item": dose["id"]})
-    start = reserve(frame)
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    dose = next(item for item in turn.inventory if item.name == "injury potion")
+    turn = submit(game, turn, UseItem(dose, ItemUse.DRINK))
+    start = turn.nutrition.reserve
     for _ in range(4):
-        frame = submit(session, frame, {"type": "wait"})
-    before = start - reserve(frame)
-    policy = Policy()
-    action, reason = policy.choose(frame[1])
-    assert action["type"] == "equip" and reason == "conserve_food", (action, reason)
-    frame = submit(session, frame, action)
-    start = reserve(frame)
+        turn = submit(game, turn, Wait())
+    before = start - turn.nutrition.reserve
+    policy = Adventurer(26, "item.amulet.amulet-of-yendor")
+    policy.observe(turn)
+    action, reason = policy.choose(turn)
+    assert isinstance(action, Equip) and action.item.identity == "item.ring.ring-slow-digestion"
+    assert reason == "conserve_food", reason
+    turn = submit(game, turn, action)
+    start = turn.nutrition.reserve
     for _ in range(4):
-        frame = submit(session, frame, {"type": "wait"})
-    after = start - reserve(frame)
+        turn = submit(game, turn, Wait())
+    after = start - turn.nutrition.reserve
     assert 0 < after < before, (before, after)
-finally:
-    session.close()
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1552,52 +1456,40 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Floor, Policy, position
-from tor_client_bot import Session
+import json
+from rogue_player import Adventurer
+from tor_client_bot import ActivityPhase, Direction, Move, Outcome, Session, Turn, UseAbility
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    cells = {position(c): c for c in state["observation"]["visible_cells"]}
-    west, east = (cells[(x, 0, 0)]["key"] for x in (-1, 2))
-    anchor = cells[(1, 0, 0)]["key"]
-    policy = Policy()
-    policy.floor = 4
-    memory = Floor(visited={c["key"] for c in cells.values() if not c["wall"]},
-                   stairs_up={"remembered-stair"})
-    memory.graph.edges["remembered-stair"] = {}
-    memory.joining_wall_hints.update({west: {"decoy-side"}, east: {"remembered-stair"}})
-    policy.floors[4] = memory
-    action, reason = policy.choose(state)
-    assert (action, reason) == ({"type": "move", "direction": "east"}, "search"), (action, reason)
-    assert session.act(action, obs)["status"] == "confirmed"
-    for _ in range(150):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and any(
-                c["key"] == anchor and position(c) == (0, 0, 0) for c in view["visible_cells"]):
-            action, reason = policy.choose(data["state"])
-            assert action.get("id") == "rogue.search" and reason == "search", (action, reason)
-            result = session.act(action, obs)
-            assert result["status"] == "confirmed", result
-            intention = result["receipt"]["intention"]
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError("The return search route did not settle")
-    for _ in range(150):
-        frame = session.observe().data()
-        if any(row["intention"] == intention and row["phase"] == "resolved"
-               for row in frame["finished_intentions"]):
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError("Search did not resolve")
-finally:
-    session.close()
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    anchor = turn.cell_at((1, 0, 0)).key
+    east = turn.cell_at((2, 0, 0)).key
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=4)
+    # Prior view from the other side of the same wall disclosed a stair.
+    memory_picture = json.loads(turn.recording())
+    prior = memory_picture["state"]["observation"]
+    prior["visible_cells"] = [
+        {"key": "remembered-stair", "position": {"x": 0, "y": 0, "z": 0}, "wall": False,
+         "stairs_up": True, "stairs_down": False},
+        {"key": east, "position": {"x": -1, "y": 0, "z": 0}, "wall": True,
+         "stairs_up": False, "stairs_down": False}]
+    prior["ground_items"] = []
+    player.observe(Turn.replay(json.dumps(memory_picture)))
+    player.observe(turn)
+    memory = player.maps[4]
+    memory.visited.update(memory.cells)
+    action, reason = player.choose(turn)
+    assert (action, reason) == (Move(Direction.EAST), "search"), (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.cell.key == anchor
+    player.observe(turn)
+    memory.visited.update(memory.cells)
+    action, reason = player.choose(turn)
+    assert isinstance(action, UseAbility) and action.ability.identity == "rogue.search"
+    result = turn.submit(action)
+    assert result.status is Outcome.CONFIRMED
+    assert game.wait_for_decision().outcome_of(result) is ActivityPhase.RESOLVED
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1622,42 +1514,26 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Floor, Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Outcome, Session, UseItem
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    view = state["observation"]
-    origin = next(c["key"] for c in view["visible_cells"] if position(c) == (0, 0, 0))
-    scroll = next(item for item in view["inventory"] if item["identity"] == "item.scroll.teleportation")
-    policy = Policy()
-    policy.floor = 4
-    memory = Floor(stairs_up={"remembered-landing"})
-    policy.floors[4] = memory
-    for cell in view["visible_cells"]:
-        if cell["wall"]:
-            memory.search_attempts[cell["key"]] = 8
-        else:
-            memory.visited.add(cell["key"])
-            memory.tactile_attempts[cell["key"]] = 4
-    action, reason = policy.choose(state)
-    assert (action, reason) == ({"type": "read", "item": scroll["id"]}, "find_return_route"), (action, reason)
-    assert session.act(action, obs)["status"] == "confirmed"
-    for _ in range(150):
-        data = session.observe().data()
-        moved = data["state"]["observation"]
-        if data["readiness"]["admission"] and int(moved["tick"]) > int(view["tick"]):
-            assert all(item["id"] != scroll["id"] for item in moved["inventory"])
-            assert any(c["key"] != origin and position(c) == (0, 0, 0) for c in moved["visible_cells"])
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError("Teleportation did not settle")
-finally:
-    session.close()
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    origin = turn.cell.key
+    scroll = next(item for item in turn.inventory if item.identity == "item.scroll.teleportation")
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=4)
+    player.observe(turn)
+    memory = player.maps[4]
+    from dataclasses import replace
+    memory.cells["remembered-landing"] = replace(memory.cells[origin], key="remembered-landing", stairs_up=True)
+    memory.visited.update(memory.cells)
+    for key in memory.cells:
+        player.searches[key] = 8
+    action, reason = player.choose(turn)
+    assert isinstance(action, UseItem) and action.item == scroll and reason == "find_return_route"
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert after.cell.key != origin and not any(item.target == scroll.target for item in after.inventory)
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1706,78 +1582,54 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem
 
-def ready(session, after=-1):
-    for _ in range(150):
-        obs = session.observe()
-        data = obs.data()
-        view = data["state"]["observation"]
-        if data["readiness"]["admission"] and view["ready"] and int(view["tick"]) > after:
-            return obs, data["state"], view
-        time.sleep(0.02)
-    raise AssertionError(("No settled player boundary", after))
-
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     carrying = os.environ["BOT_TEST_CARRYING"] == "1"
     scouting = os.environ["BOT_TEST_SCOUTING"] == "1"
-    policy = Policy(retrieval_depth=int(os.environ["BOT_TEST_RETRIEVAL_DEPTH"]))
-    policy.floor = 3
-    obs, state, view = ready(session)
-    assert bool(view["ground_items"]) != scouting
+    player = Adventurer(int(os.environ["BOT_TEST_RETRIEVAL_DEPTH"]), "item.amulet.amulet-of-yendor", depth=3)
+    turn = game.wait_for_decision()
+    player.observe(turn)
+
+    def advance(turn, action):
+        assert turn.submit(action).status is Outcome.CONFIRMED
+        player.admitted(turn, action)
+        following = game.wait_for_decision()
+        assert following.tick > turn.tick
+        player.observe(following)
+        return following
+
+    assert bool(turn.ground_items) != scouting
     if scouting:
-        action, reason = policy.choose(state)
-        assert action["type"] == "eat" and reason == "eat", (action, reason)
-        assert session.act(action, obs)["status"] == "confirmed"
-        policy.accepted(action, view, reason=reason)
-        obs, state, view = ready(session, int(view["tick"]))
+        action, reason = player.choose(turn)
+        assert isinstance(action, UseItem) and action.use is ItemUse.EAT, (action, reason)
+        turn = advance(turn, action)
     for _ in range(7 if scouting else 28):
-        policy.choose(state)
-        assert session.act({"type": "move", "direction": "east"}, obs)["status"] == "confirmed"
-        obs, state, view = ready(session, int(view["tick"]))
-    assert not view["ground_items"], view["ground_items"]
-    assert view["combat"]["own_stats"]["nutrition"]["hunger"] == "nourished"
-    direction, reason = ("up", "ascend") if carrying else ("down", "descend")
-    assert any(c["stairs_" + direction] and position(c) == (0, 0, 0) for c in view["visible_cells"])
-    assert bool(policy.floors[3].food_cells) != scouting
-    assert policy.choose(state) == ({"type": "move", "direction": direction}, reason)
-    nutrition = view["combat"]["own_stats"]["nutrition"]
-    policy.return_travel_ticks[2] = (nutrition["reserve"] + 1) * int(nutrition["unit_ticks"])
+        turn = advance(turn, Move(Direction.EAST))
+    assert not turn.ground_items and turn.hunger == "nourished"
+    direction = Direction.UP if carrying else Direction.DOWN
+    assert player.choose(turn)[0] == Move(direction)
+    player.ascent_ticks_by_floor[2] = (turn.nutrition.reserve + 1) * turn.nutrition.ticks_per_unit
     if scouting:
-        assert policy.food_value["item.food.ration"] > 0
-        policy.descent_travel_ticks = {2: 110000}
-    action, reason = policy.choose(state)
-    if scouting:
-        assert action["type"] == "move" and reason == "scout_for_food", (action, reason)
-        offset = {"east": (1, 0, 0), "north_east": (1, -1, 0), "south_east": (1, 1, 0)}[action["direction"]]
+        assert player.food_value["item.food.ration"] > 0
+        player.descent_ticks_by_floor[2] = 110000
+    action, reason = player.choose(turn)
+    assert isinstance(action, Move) and action.direction.offset[0] == (1 if scouting else -1), (action, reason)
+    destination = turn.cell_at(action.direction.offset).key
+    turn = advance(turn, action)
+    assert turn.cell.key == destination
+    for _ in range(45):
+        action, reason = player.choose(turn)
+        assert reason in {"scout_for_food", "forage", "seek_item", "take"}, (action, reason)
+        turn = advance(turn, action)
+        if sum(item.quantity for item in turn.inventory if item.identity == "item.food.ration") == (2 if scouting else 1):
+            break
     else:
-        assert (action, reason) == ({"type": "move", "direction": "west"}, "forage"), (action, reason)
-        offset = (-1, 0, 0)
-    target = next(c["key"] for c in view["visible_cells"] if position(c) == offset)
-    assert session.act(action, obs)["status"] == "confirmed"
-    obs, state, after = ready(session, int(view["tick"]))
-    assert any(c["key"] == target and position(c) == (0, 0, 0) for c in after["visible_cells"])
-    if scouting:
-        for _ in range(45):
-            action, reason = policy.choose(state)
-            assert reason in {"scout_for_food", "approach_loot", "loot"}, (action, reason)
-            assert session.act(action, obs)["status"] == "confirmed"
-            policy.accepted(action, after, reason=reason)
-            obs, state, after = ready(session, int(after["tick"]))
-            if sum(int(item["quantity"]) for item in after["inventory"]
-                   if item.get("identity") == "item.food.ration") == 2:
-                break
-        else:
-            raise AssertionError("The scout did not collect the ration")
-        action, reason = policy.choose(state)
-        assert reason == "find_descent", (action, reason)
-        assert policy.floors[3].food_scout_end <= int(after["tick"])
-        assert session.act(action, obs)["status"] == "confirmed"
-finally:
-    session.close()
+        raise AssertionError("The bot did not collect the ration")
+    action, reason = player.choose(turn)
+    assert reason == "seek_stairs", (action, reason)
+    advance(turn, action)
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1804,33 +1656,24 @@ finally:
         self.install_bot_extension()
         code = """
 import os
-import time
-from rogue_o_matic import Floor, Policy, position
-from tor_client_bot import Session
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
 
-session = Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1)
-try:
-    obs = session.observe()
-    state = obs.data()["state"]
-    view = state["observation"]
-    target = next(c["key"] for c in view["visible_cells"] if position(c) == (-1, 0, 0))
-    assert any(a["name"] == "orc" and position(a) == (2, 0, 0) for a in view["visible_actors"])
-    policy = Policy()
-    policy.floors[1] = Floor(visited={c["key"] for c in view["visible_cells"]
-                                    if position(c)[2] == 0 and c["key"] != target and not c["wall"]})
-    action, reason = policy.choose(state)
-    assert (action, reason) == ({"type": "move", "direction": "west"}, "explore"), (action, reason)
-    result = session.act(action, obs)
-    assert result["status"] == "confirmed", result
-    for _ in range(150):
-        after = session.observe().data()["state"]["observation"]
-        if any(c["key"] == target and position(c) == (0, 0, 0) for c in after["visible_cells"]):
-            break
-        time.sleep(0.02)
-    else:
-        raise AssertionError(("Exit exploration did not settle", after["tick"]))
-finally:
-    session.close()
+with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    target = turn.cell_at((-1, 0, 0))
+    assert any(c.name == "orc" and (2, 0, 0) in c.cells for c in turn.creatures)
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    assert player.carrying_objective(turn)
+    player.maps[1].visited.update(c.key for c in turn.visible_cells
+                                 if c.offset[2] == 0 and c.key != target.key and not c.wall)
+    action, reason = player.choose(turn)
+    assert (action, reason) == (Move(Direction.WEST), "explore"), (action, reason)
+    assert turn.submit(action).status is Outcome.CONFIRMED
+    with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 3) as orc:
+        assert orc.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().cell.key == target.key
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,

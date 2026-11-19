@@ -138,7 +138,7 @@ Every stdout line is a JSON frame containing:
 - `error`: an input/request error on `ready`, otherwise null.
 
 For long diagnostic runs, `--compact-background` is an explicit opt-in. Raw
-`map_page`, `palette` and `waiting` messages still appear unchanged in `message`,
+`map_page`, `palette`, `waiting` and `ack` messages still appear unchanged in `message`,
 with `type`, `error`, `map_hydration` and `state_omitted: true`. Only their repeated
 derived attachment fields are not constructed: `state`, `branch`, `cursor`, `role`,
 `has_control`, `readiness`, `input_context`, `history`, `intentions`, `travel`,
@@ -149,6 +149,10 @@ wait for a complete frame rather than clear their state. Every `ready` frame, ob
 snapshot, protocol error and local error remains complete. Default output is
 unchanged; this option can be combined with `--omit-memory`. It changes neither
 map hydration nor server traffic and does not remove any raw message or error.
+Acknowledgements validate the receipt actor and complete a pending request but do
+not apply an observation or lifecycle update to the shared client state. Their
+raw request identity and receipt (including admission/operation identity) remain
+present; the following `ready` boundary still carries complete derived state.
 
 Private strike inspection is available to wizard accounts through the ordinary
 `request` command envelope. After `wizard creature inspect <actor-id>`, use

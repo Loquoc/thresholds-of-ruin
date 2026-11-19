@@ -4023,7 +4023,13 @@ async fn ordinary_zap_and_paid_abort_use_current_authority_and_no_hidden_names()
         "{aborted}"
     );
     let zapped = play(&mut link, &mut engine, "zap the ivory wand east").await;
-    assert!(zapped.contains("zapping the ivory wand"), "{zapped}");
+    assert_eq!(
+        zapped.matches("You zap the ivory wand.").count(),
+        1,
+        "{zapped}"
+    );
+    assert!(!zapped.contains("begin to zap"), "{zapped}");
+    assert!(!zapped.contains("finish zapping"), "{zapped}");
     assert!(!zapped.contains("charges"));
     assert_eq!(link.sent.len(), 2);
     link.role = AccessRole::Spectator;

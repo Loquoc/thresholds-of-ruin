@@ -553,7 +553,7 @@ impl Game {
             || self.world.passage(from, direction).is_some()
     }
 
-    fn voluntary_reach(
+    pub(crate) fn voluntary_reach(
         &self,
         id: ActorId,
         from: Location,
@@ -719,11 +719,16 @@ impl Game {
         }
         let (x, y, z) = direction.delta();
         let delta = [i64::from(x), i64::from(y), i64::from(z)];
-        let (destination, rotation) =
-            self.melee_neighbor_frame(actor.location, rotate_vector(actor.orientation, delta))?;
+        let (destination, rotation) = self.melee_attack_neighbor_frame(
+            id,
+            actor.location,
+            rotate_vector(actor.orientation, delta),
+        )?;
         let mut contacts = std::collections::BTreeSet::new();
         for (from, frame) in self.body_cells(actor.location, actor.orientation, &actor.body)? {
-            if let Some((to, _)) = self.melee_neighbor_frame(from, rotate_vector(frame, delta)) {
+            if let Some((to, _)) =
+                self.melee_attack_neighbor_frame(id, from, rotate_vector(frame, delta))
+            {
                 for other in self.actors.at(&self.world, to).keys() {
                     if *other != id
                         && self.actors[other].alive()

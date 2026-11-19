@@ -170,3 +170,32 @@ The added hosted cost is one C++ library compile per cold Rust build. Its tests
 are bounded repository correctness tests: the sandbox, budgets, determinism
 goldens, and scenario hook fixtures. They are not benchmarks or generated
 workloads. No reviewed hash changes for this dependency.
+
+## November 18 Ruff dependency refresh
+
+The maintainer authorized handling the current Dependabot dependency updates,
+including fixes and publication, with merging conditional on passing CI. PR #24
+updates only the pinned Ruff package from 0.17.4 to 0.17.5. Reviewed the actual
+requirements diff, the repository's Ruff configuration, the lint job and its
+installation command against the current GitHub terms linked above. Ruff still
+checks only this repository's Python tooling with the same non-preview bug-finding
+rules; no autofix, new workload or external interaction is enabled. Installation
+uses the existing pip package registry, and actionlint remains unchanged.
+
+The existing Ubuntu lint job, ten-minute timeout, read-only permissions,
+checkout behavior, workflow triggers, application gates, runner fan-out and
+artifact retention are unchanged. The original PR run already passed the
+repository tooling lint job; admission stopped because the reviewed requirements
+hash had not yet been updated. This review records the new requirements input,
+not a gate exception. Required hosted CI must still qualify the final head.
+
+## November 19 outcome-script test registration
+
+Scripted outcomes register one planner owner in `scripts/ci_test_contracts.py`:
+`test_outcome_scripts` (class `OutcomeScripts`). Reviewed its source: it reads
+the checked-in scenario packages and the canonical outcome scripts, and writes
+one generated script into a temporary directory. It starts no process, server,
+renderer or benchmark, reaches no network destination and produces no
+artifact. No workflow commands, runners, triggers, permissions, dependencies,
+caches, retention or budgets change. Updated only the reviewed
+`ci_test_contracts.py` hash after this source review.

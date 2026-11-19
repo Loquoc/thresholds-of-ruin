@@ -96,6 +96,26 @@ current frame; missing or disconnected neighbors use a neutral marker. Keep
 regressions for duplicate keys, ordering, rotation and lost neighbors. This is
 a presentation defect family, distinct from the server-disclosure defects.
 
+Desktop playtesting exposed generic flash narration on ordinary melee and
+Search, separate staff preparation/completion messages, and a short-range ray
+that disappeared before the player could recognize it. Actual-process
+regressions reproduced the unwanted flash and redundant zap messages before
+the fixes. Keep wording expectations current in both client suites and retain
+their authority and privacy assertions. Keep model tests for ray progression
+and its terminal hold. Live recordings measure how
+long the glyphs remain visible after delivery; server event timing alone cannot
+establish that presentation interval.
+History and disclosure tests use a non-basic ability with a visible target
+effect to retain their geometry and authority witnesses. The condition test
+checks the remaining melee ability receipt, including actor, target and outcome.
+
+The same review reproduced a diagonal doorway attack refused beside one wall,
+plus an out-of-reach refusal that omitted repositioning guidance. Horizontal
+diagonal melee now shares movement corner clearance. Keep the doorway process
+witness and cached-contact tests that move a blocking body into and out of the
+remaining open side. Verify both attack admission and the informative refusal,
+since a correct reach predicate alone does not establish the player's feedback.
+
 ## Resource ownership and asynchronous clients
 
 ### Bounded deferred ingress
@@ -215,6 +235,31 @@ panel review left Mage waist gaps and Knight neckline issues outside its scope.
 The sleeve review did not establish a new hole or a continuous-joint cloth fix.
 These are retained limitations of those reviews, not newly verified failures or
 claims that later work has resolved them.
+
+### Short-garment posed fit, November 18
+
+The unchanged native short-skirt/tasset owner reproduced the existing thigh
+crossing defect: all three resting layer cases cleared, but six walk/strike
+cases contained 1,507 crossing triangle pairs. These are samples of the existing
+root cause, not 1,507 distinct defects. A shared, instance-owned thigh-following
+field reduced those sampled crossings to zero without changing joint poses.
+Matched front, quarter and rear captures retained the skirt silhouette. The
+first candidate lifted cloth through the belt; an upper-attachment regression
+and matched rerender rejected that version before pinning the attachment band.
+The authored front slit remains, rather than deleting or closing panels to hide
+contact. Ordinary construction, layering, ownership, immutable-rest restoration,
+scene remapping, topology and shared-material controls accompany the change.
+Robes, long garments, aprons and separately fitted Orc/Troll hip decorations
+retain their existing owners; the bestiary Red Arcanist stays on its fitted robe.
+
+This is focused native geometry and sampled image evidence, not continuous
+collision certification, a full native suite or hosted CI qualification. Existing
+cloak and belt issues outside this slice remain unresolved. Initial OpenGL
+capture failed its depth shader; software Vulkan produced one image before the
+process was killed. Extending the existing software DX12 frame wait to software
+Vulkan passed a first-red backend-selection regression and completed the matched
+capture runs. Hardware/backend exclusion controls remain. No hardware timing or
+performance improvement is claimed from that capture fix.
 
 ## Fixtures, tooling and evidence integrity
 
@@ -1084,3 +1129,83 @@ root cause:
 Not counted: about two hundred test fixtures that rebuilt or rewrote scripted
 packages without their scripts, and tests asserting the removed built-in
 outcomes, were stale fixtures for the deliberate behavior change.
+
+## Independent client dependency locks
+
+The November 18 rusqlite update changed the server manifest and root lock but
+left the separate 3D workspace lock stale. The hosted 3D consumer's `--locked`
+build caught this before launching a client: one build/setup root cause, not a
+gameplay failure. Refreshing only rusqlite and libsqlite3-sys in the independent
+lock restores resolution. Dependency updates shared through path dependencies
+must account for both locks; the normal 3D build remains the boundary witness.
+
+
+### Concurrent actor input-boundary refusals
+
+The live venomous-bite learning driver observed the player before submitting a
+snake action. Windows release CI exposed the resulting shared-boundary race:
+the server returned `rejected/stale_context` where the driver allowed only local
+`stale_observation`. This is one driver-oracle root cause, not a persistence or
+combat defect. Both explicitly stale outcomes now permit a fresh observation;
+other refusals and unknown outcomes still fail. The same live witness still
+requires actual lasting strength loss and learned identification of the
+rattlesnake, so a run with only stale refusals cannot pass.
+
+
+### Redundant acknowledgement diagnostics in finite theft recovery
+
+Windows release CI reached the orc arm's final recovery checkpoint after 35
+requests and 2,468 actor ticks, but its transcript exceeded the 16 MiB arm guard
+by 25,208 bytes. This was a diagnostic-volume failure before the final saved-loot
+assertion, not evidence that loot recovery failed. Raw ACK response snapshots
+accounted for about 2.2 MB of that arm's output without changing shared client
+state. Opt-in compact-background output now omits only their repeated derived
+snapshot, retaining exact raw receipts, all ready/error boundaries, and every
+observation/lifecycle update. The output guard, finite action limits and all
+ownership/recovery assertions remain unchanged. Owning headless projection tests
+cover receipt preservation, omitted construction and retained state boundaries;
+actual process qualification remains a separate witness.
+
+
+The ACK projection change initially missed two downstream process owners: the
+headless projection allowlist and a Bind Wounds witness that deliberately checks
+stock, HP and cooldown at the queued ACK. Hosted CI exposed both fixture
+mismatches. The headless owner now also requires real admitted ACK identity in
+compact output. The admission-time gameplay witness explicitly requests full
+derived output and retains all of its pre-spend assertions. Both owners belong
+in focused validation for future projection changes, alongside raw-receipt unit
+checks; unrelated streaming/theft passes do not substitute for them.
+
+## Hallucinated disguise duration versus cadence bookkeeping
+
+A shared base-turn phase was passed directly to the appearance selector, causing
+all perceived mobs and objects to reroll on every normal turn. The native first-red
+catalog witness changed its creature at phase one. The corrected contract is an
+independent `(2d10) × 100` active-game-tick interval, not a longer condition lifetime
+or a speed-scaled number of turns. The catalog's original selector recipe remains
+unchanged, preserving historical event fields as final selector indices.
+
+Pure witnesses retain independent literal dice-pair boundaries, exact interval
+endpoints, private staggered streams, full first minimum duration, extreme-age
+bounded access, and lazy ring-generation cost. Live observation checks compare
+both mob and item through a base turn and checkpoint restoration. Unequal base
+periods retain partial age and 100-tick publication boundaries; legacy projectile
+round trips must not reinterpret old selector values. Owner/follower wire tests
+retain literal initial appearances and refresh delivery without treating every
+housekeeping signal as a new disguise. Existing lifetime, hidden-information,
+map-acquisition and replay contracts remain separate required owners.
+
+PR #31's first hosted selected run exposed one stale cadence-oracle root cause
+across five Python methods: the Service follower witness, headless and Text
+cadence/reopen, monster-detection refresh, and acquired-map/paid history. They
+still expected the old phase-one bat after only 100 active ticks. The revised
+witnesses preserve the initial appearance at that age and demand a changed
+picture at independently derived seeded interval boundaries; detection's private
+channel remains distinct, and acquired history retains its actual earlier
+sample. This is test maintenance, not an additional production defect or five
+separate gameplay bugs. Native focused coverage had not exercised these Python
+consumer owners; their final execution remains required evidence.
+
+A passing duration test does not guarantee a different catalog row at each reroll,
+all-pose visual quality, or an unbounded nonrepeating random stream. The documented
+1,024-duration ring eventually reuses durations for exceptionally long conditions.

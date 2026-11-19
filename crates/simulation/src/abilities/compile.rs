@@ -615,7 +615,14 @@ impl Game {
             .ability_reach(ability)
             .map_err(|_| invalid())?;
         if !self.target_in_reach_snapshot(actor, target, &reach, sight) {
-            return Err(GameError::Rule(RuleError::OutOfReach));
+            let error = if matches!(reach, crate::rules::Reach::Melee)
+                && disclosure.reference() == Some(invocation.reference())
+            {
+                RuleError::MeleeOutOfReach
+            } else {
+                RuleError::OutOfReach
+            };
+            return Err(GameError::Rule(error));
         }
         let mut compiler = Compiler {
             game: self,

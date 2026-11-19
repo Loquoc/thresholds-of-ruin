@@ -1,6 +1,8 @@
 //! Presentation cadence only; ordinary ConditionState owns lifetime.
 use serde::{Deserialize, Serialize};
 
+use crate::appearance_state::HALLUCINATION_TICK_UNIT;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct HallucinationCadence {
@@ -43,11 +45,30 @@ impl HallucinationCadence {
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
+    #[cfg(test)]
     pub(crate) fn phase(&self) -> u64 {
         self.phase
     }
     pub(crate) fn next_in(&self) -> u64 {
         self.remaining_to_shift
+    }
+
+    /// Exact age in game ticks, independent of the captured base-turn period.
+    pub(crate) fn elapsed_ticks(&self) -> u64 {
+        u64::try_from(self.elapsed_wide()).expect("validated hallucination cadence age")
+    }
+
+    fn elapsed_wide(&self) -> u128 {
+        u128::from(self.phase) * u128::from(self.period)
+            + u128::from(self.period - self.remaining_to_shift)
+    }
+
+    pub(crate) fn presentation_tick(&self) -> u64 {
+        self.elapsed_ticks() / HALLUCINATION_TICK_UNIT
+    }
+
+    fn next_presentation_tick_in(&self) -> u64 {
+        HALLUCINATION_TICK_UNIT - self.elapsed_ticks() % HALLUCINATION_TICK_UNIT
     }
 
     /// Conservative impossibility check, not historical authenticity. The
@@ -56,13 +77,16 @@ impl HallucinationCadence {
     /// Call only for a record settled to this same timestamp, not a lazily
     /// projected presentation paired with the old persisted timestamp.
     pub(crate) fn valid_at(&self, settled_at: u64) -> bool {
-        let elapsed = u128::from(self.phase) * u128::from(self.period)
-            + u128::from(self.period - self.remaining_to_shift);
-        elapsed <= u128::from(settled_at)
+        self.elapsed_wide() <= u128::from(settled_at)
     }
 
     /// Pure bounded arithmetic; no per-shift loop, random draw or duration state.
     pub(crate) fn advance(&mut self, ticks: u64) -> Result<(), crate::GameError> {
+        if self.elapsed_wide() + u128::from(ticks) > u128::from(u64::MAX) {
+            return Err(crate::GameError::Schedule(
+                crate::ScheduleError::TimeExhausted,
+            ));
+        }
         if ticks < self.remaining_to_shift {
             self.remaining_to_shift -= ticks;
             return Ok(());
@@ -154,7 +178,16 @@ pub(crate) fn hallucination_instance(actor: &crate::Actor) -> Option<(u64, u64)>
 pub(crate) fn next_in(actor: &crate::Actor) -> Option<u64> {
     let (generation, remaining) = hallucination_instance(actor)?;
     let clock = actor.hallucination.as_ref()?;
-    (clock.generation() == generation).then(|| clock.next_in().min(remaining))
+    (clock.generation() == generation).then(|| next_boundary(clock, remaining))
+}
+
+fn next_boundary(clock: &HallucinationCadence, remaining: u64) -> u64 {
+    // Every appearance interval is a multiple of the fixed tick unit. Wake
+    // on that grid even when a viewer's captured base turn is longer.
+    clock
+        .next_in()
+        .min(clock.next_presentation_tick_in())
+        .min(remaining)
 }
 
 /// Shared by current, history and detached actor record restoration. Period is
@@ -170,7 +203,7 @@ pub(crate) fn valid_for(actor: &crate::Actor) -> bool {
                 && clock.valid_at(actor.active_since)
                 && actor
                     .active_since
-                    .checked_add(clock.next_in().min(remaining))
+                    .checked_add(next_boundary(clock, remaining))
                     .is_some()
         }
         _ => false,
@@ -220,6 +253,37 @@ mod tests {
             assert_eq!((clock.phase(), clock.next_in()), (0, 100));
         }
     }
+    #[test]
+    fn presentation_grid_uses_exact_age_for_unequal_base_periods_and_roundtrips() {
+        for period in [40, 125, 1000] {
+            let mut clock =
+                HallucinationCadence::new(4, std::num::NonZeroU64::new(period).unwrap());
+            clock.advance(97).unwrap();
+            let saved = serde_json::to_string(&clock).unwrap();
+            let restored: HallucinationCadence = serde_json::from_str(&saved).unwrap();
+            assert_eq!(restored, clock);
+            assert_eq!(restored.elapsed_ticks(), 97);
+            assert_eq!(restored.presentation_tick(), 0);
+            assert_eq!(next_boundary(&restored, 1000), 3);
+            assert_eq!(next_boundary(&restored, 2), 2);
+            let projected = restored.projected(3).unwrap();
+            assert_eq!(projected.elapsed_ticks(), 100);
+            assert_eq!(projected.presentation_tick(), 1);
+            assert_eq!(projected.next_presentation_tick_in(), 100);
+            assert_eq!(restored.elapsed_ticks(), 97);
+        }
+    }
+
+    #[test]
+    fn advance_rejects_unrepresentable_elapsed_age_without_mutating_clock() {
+        let mut clock = HallucinationCadence::new(4, std::num::NonZeroU64::new(125).unwrap());
+        clock.advance(u64::MAX).unwrap();
+        assert_eq!(clock.elapsed_ticks(), u64::MAX);
+        let saved = clock.clone();
+        assert!(clock.advance(1).is_err());
+        assert_eq!(clock, saved);
+    }
+
     #[test]
     fn same_condition_generation_keeps_cadence_new_generation_resets_and_cure_clears() {
         let period = std::num::NonZeroU64::new(100).unwrap();

@@ -608,6 +608,28 @@ and [place-knowledge evidence](https://github.com/KCall360/thresholds-of-ruin/bl
 They are historical workload measurements; consult
 [performance methodology](../development/performance.md) for current comparisons.
 
+### Hallucinated disguise persistence
+
+Each visible creature or object rerolls its observer-specific disguise after
+`(2d10) × 100` active game ticks: 200–2,000 ticks, mean 1,100. Timing is independent
+of actor speed and does not change the hallucination condition's lifetime.
+A reroll can choose the same catalog row, so the visible disguise can last longer.
+
+The simulation derives a private deterministic duration stream from the world
+seed, observer, subject, presentation channel and condition generation. Queries
+consume no rules RNG or saved per-entity state. Existing cadence fields retain
+exact elapsed age, including partial base turns; publication checks include
+100-tick boundaries even with different base-turn periods. Reconnect and repeated
+queries cannot reset a disguise. Frozen-region downtime retains the existing
+condition-time semantics.
+
+A 1,024-duration ring bounds random access at extreme ages. Ordinary reads stop
+at the requested interval; the duration pattern repeats only after at least
+204,800 active ticks. Selection epochs keep increasing across rings, so pictures
+do not loop with the duration ring. Exceptionally extended conditions can reuse
+this duration pattern. Historical projectile fields remain final selection
+indices, not new tick ages; already captured appearances remain unchanged.
+
 ### Public effect presentation
 
 Instant combat effects and observed sustained effects carry the same cosmetic

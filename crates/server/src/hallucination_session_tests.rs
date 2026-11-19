@@ -133,27 +133,16 @@ fn ground(view: &Observation) -> &GroundItemView {
     &view.ground_items[0]
 }
 
-fn assert_sample(view: &Observation, phase: u64) {
-    // Frozen values independently evaluated from the documented integer recipe
-    // against the actual production 26-creature/98-object cosmetic roster.
-    // Seed42, observer1, peer2 / item40. Not a probabilistic inequality.
-    let (name, asset, object, object_asset, class) = match phase {
-        0 => (
-            "emu",
-            "creature.bird.emu",
-            "gold wand",
-            Some("item.wand.gold"),
-            ItemClass::Wand,
-        ),
-        1 => (
-            "bat",
-            "creature.bat",
-            "cedar staff",
-            Some("item.wand.staff.cedar"),
-            ItemClass::Wand,
-        ),
-        _ => panic!("unlisted literal phase witness"),
-    };
+fn assert_initial_sample(view: &Observation) {
+    // Phase zero literal values independently evaluated for seed42,
+    // observer1, peer2/item40 from the production cosmetic catalog.
+    let (name, asset, object, object_asset, class) = (
+        "emu",
+        "creature.bird.emu",
+        "gold wand",
+        Some("item.wand.gold"),
+        ItemClass::Wand,
+    );
     let peer = true_peer(view);
     assert_eq!(peer.name, name);
     assert_eq!(peer.asset.as_deref(), Some(asset));
@@ -207,7 +196,7 @@ fn paid_production_dose_selects_exact_visual_cosmetics_without_query_rng_or_auth
     assert_eq!(cadence(&after)["period"], 100);
     assert_eq!(cadence(&after)["remaining_to_shift"], 100);
     let current = wire.snapshot(OWNER);
-    assert_sample(&current.state.observation, 0);
+    assert_initial_sample(&current.state.observation);
     assert_eq!(
         ground(&current.state.observation).item.id,
         ground(&initial.state.observation).item.id
@@ -312,24 +301,24 @@ fn apply_updates(state: &mut StateView, messages: Vec<ServerMessage>, shifted: &
             _ => continue,
         }
         if state.observation.tick == 200 {
-            assert_sample(&state.observation, 1);
+            assert_initial_sample(&state.observation);
             *shifted += 1;
         }
     }
 }
 
 #[test]
-fn peer_driven_exact_base_period_marks_owner_and_followed_pictures_for_refresh() {
+fn peer_driven_base_turn_keeps_owner_and_followed_disguises_stable() {
     let directory = tempfile::tempdir().unwrap();
     let mut wire = Wire::new(Engine::memory(source(directory.path())).unwrap());
     drink(&mut wire, 30, "publish-dose");
     let initial = wire.snapshot(OWNER);
     assert_eq!(initial.state.observation.tick, 100);
-    assert_sample(&initial.state.observation, 0);
+    assert_initial_sample(&initial.state.observation);
     let initial_seed = true_peer(&initial.state.observation).appearance_seed;
     let mut owner_state = (*initial.state).clone();
     let (mut follower, mut follower_state) = follower(&mut wire);
-    assert_sample(&follower_state.observation, 0);
+    assert_initial_sample(&follower_state.observation);
     let request = Request::Command {
         context: initial.reply_context().input,
         branch: initial.branch.clone(),
@@ -374,15 +363,16 @@ fn peer_driven_exact_base_period_marks_owner_and_followed_pictures_for_refresh()
     }
     assert!(
         owner_dirty && follower_dirty,
-        "both affected observers receive a causal refresh signal"
+        "both observers receive a housekeeping refresh signal, not necessarily a disguise reroll"
     );
     assert_eq!(
         (owner_updates, follower_updates),
         (0, 0),
         "no undemanded intermediate pictures"
     );
-    // The phase is authoritative even without an eager intermediate picture.
-    // Each observer explicitly demands its current visual state.
+    // The stored base clock reaches phase one before any disguise can change:
+    // age100 is below the two-die minimum of 200 ticks. Explicitly demand
+    // current visual state from both roles and check the unchanged disguise.
     let observed = wire.send(OWNER, "phase-picture", Request::Observe);
     apply_updates(&mut owner_state, observed, &mut owner_updates);
     wire.service
@@ -393,11 +383,11 @@ fn peer_driven_exact_base_period_marks_owner_and_followed_pictures_for_refresh()
     apply_updates(&mut follower_state, frames, &mut follower_updates);
     assert!(
         owner_updates > 0,
-        "stationary owner received no requested phase picture"
+        "stationary owner received no requested picture"
     );
     assert!(
         follower_updates > 0,
-        "followed observer received no phase publication"
+        "followed observer received no requested picture"
     );
     assert_eq!(
         true_peer(&owner_state.observation).appearance_seed,
@@ -606,7 +596,7 @@ fn pending_paid_dose_and_active_palette_reopen_interval_one_without_sources_befo
     assert_eq!(completed.entry_id(), admitted.entry_id());
     assert_eq!(quantity(&wire.snapshot(OWNER), potion), 5);
     assert!(nothing_identified(&wire.snapshot(OWNER), potion));
-    assert_sample(&wire.snapshot(OWNER).state.observation, 0);
+    assert_initial_sample(&wire.snapshot(OWNER).state.observation);
     let active = wire.checkpoint();
     assert_eq!(
         ack(wire.send(OWNER, "pending-hallucination", request)),
@@ -620,7 +610,7 @@ fn pending_paid_dose_and_active_palette_reopen_interval_one_without_sources_befo
     let engine = Engine::open_with_policy(&path, crate::Scenario::two_room(123), policy).unwrap();
     assert_eq!(checkpoint(&engine), active);
     assert_eq!(engine.state(OWNER).unwrap(), active_view);
-    assert_sample(&engine.state(OWNER).unwrap().observation, 0);
+    assert_initial_sample(&engine.state(OWNER).unwrap().observation);
 }
 
 #[test]
@@ -787,7 +777,7 @@ fn acquired_map_and_paid_public_plan_keep_historical_cosmetics_after_door_cure_a
         .iter()
         .any(|cell| cell.door.as_ref().is_some_and(|door| door.open)));
     drink(&mut wire, 30, "history-dose");
-    assert_sample(&wire.snapshot(OWNER).state.observation, 0);
+    assert_initial_sample(&wire.snapshot(OWNER).state.observation);
     ready(&mut wire, OWNER);
     let target = true_peer(&wire.snapshot(OWNER).state.observation).id;
     wire.act(
@@ -801,8 +791,8 @@ fn acquired_map_and_paid_public_plan_keep_historical_cosmetics_after_door_cure_a
     let plan = public_plan(&wire.service.engine);
     assert_eq!(plan.observed_at, 200);
     assert_eq!(
-        plan.subject_name, "bat",
-        "capture samples phase1 once at actual paid acquisition"
+        plan.subject_name, "emu",
+        "capture samples the still-active initial disguise at paid acquisition"
     );
     assert_eq!(plan.state, PublicPlanStateView::NoPublicPlan);
     ready(&mut wire, OWNER);

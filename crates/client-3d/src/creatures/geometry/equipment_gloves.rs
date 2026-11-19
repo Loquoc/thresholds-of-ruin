@@ -438,6 +438,136 @@ mod tests {
     use super::*;
 
     #[test]
+    fn assembled_padded_back_of_hand_quilting_remains_visible_below_cuff() {
+        use crate::creatures::{rogue_tests, Equipment, Look, Variant, Wardrobe, J};
+        use bevy::render::mesh::VertexAttributeValues;
+        fn surface(
+            world: &World,
+            meshes: &Assets<Mesh>,
+            entity: Entity,
+            inverse: Affine3A,
+            skip: Option<Entity>,
+        ) -> Builder {
+            let mut result = Builder::default();
+            let mut pending = vec![entity];
+            while let Some(child) = pending.pop() {
+                if Some(child) == skip {
+                    continue;
+                }
+                if let Some(children) = world.get::<Children>(child) {
+                    pending.extend(children.iter());
+                }
+
+                let Some(mesh) = world.get::<Mesh3d>(child).and_then(|h| meshes.get(&h.0)) else {
+                    continue;
+                };
+                let Some(VertexAttributeValues::Float32x3(points)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("positions");
+                };
+                let transform = inverse * world.get::<GlobalTransform>(child).unwrap().affine();
+                let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+                for face in indices.as_chunks::<3>().0 {
+                    result.tri(
+                        face.map(|i| transform.transform_point3(Vec3::from_array(points[i]))),
+                        Vec3::ONE,
+                    );
+                }
+            }
+            result
+        }
+        let base = Look::preview_adjusted(CreatureModel::Human, 22, |v| {
+            *v = Variant {
+                woman: true,
+                build: 0,
+                bust: 2,
+                figure: 2,
+                ..default()
+            }
+        });
+        let mut forearms = Vec::new();
+        let mut padded_hand = None;
+        let mut wearer = None;
+        for padded in [false, true] {
+            let mut equipment = Equipment::default();
+            if padded {
+                equipment.select("padded-gloves").unwrap();
+            }
+            let look = base
+                .clone()
+                .composed(Wardrobe::Commoner, equipment)
+                .unwrap();
+            let body = HumanoidBody::resolve(&look);
+            let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+            let mut propagation = Schedule::default();
+            propagation.add_systems(
+                (
+                    bevy::transform::systems::mark_dirty_trees,
+                    bevy::transform::systems::sync_simple_transforms,
+                    bevy::transform::systems::propagate_parent_transforms,
+                )
+                    .chain(),
+            );
+            propagation.run(&mut world);
+            let hand = rig.joint(J::HandR).unwrap();
+            let inverse = world
+                .get::<GlobalTransform>(hand)
+                .unwrap()
+                .affine()
+                .inverse();
+            forearms.push(surface(
+                &world,
+                &meshes,
+                rig.joint(J::ForeR).unwrap(),
+                inverse,
+                Some(hand),
+            ));
+            if padded {
+                padded_hand = Some(surface(&world, &meshes, hand, inverse, None));
+                wearer = Some(body);
+            }
+        }
+        let hand = padded_hand.unwrap();
+        let body = wearer.unwrap();
+        let mut visible = [0; 2];
+        let mut evidence = Vec::new();
+        for row in 0..3 {
+            for col in 0..3 {
+                // Independent authored quilting stations, in the actual grip frame.
+                let origin = Vec3::new(
+                    0.0,
+                    0.01 * body.arm_length + (0.022 - row as f32 * 0.022) * body.build,
+                    (col as f32 - 1.0) * 0.023 * body.build,
+                );
+                let hand_depth = -hand
+                    .outer_surface(origin, Vec3::NEG_X)
+                    .expect("positive padded hand witness")
+                    .x;
+                let depths: Vec<_> = forearms
+                    .iter()
+                    .map(|arm| arm.outer_surface(origin, Vec3::NEG_X).map(|p| -p.x))
+                    .collect();
+                for (i, depth) in depths.iter().enumerate() {
+                    if depth.is_none_or(|d| hand_depth > d + 0.0001) {
+                        visible[i] += 1;
+                    }
+                }
+                evidence.push((row, col, hand_depth, depths));
+            }
+        }
+        println!(
+            "visible quilting stations: no cuff={}, padded cuff={}, rays={evidence:?}",
+            visible[0], visible[1]
+        );
+        assert!(visible[0] >= 6, "ordinary forearm must expose the quilted back of the hand before testing cuff ownership");
+        assert!(
+            visible[1] >= 6,
+            "assembled padded cuff obscures most back-of-hand quilting"
+        );
+    }
+
+    #[test]
     fn cuff_rings_have_no_internal_cap_centers() {
         for (radius, width, ripple) in [
             (0.045, 0.002, 0.0),
@@ -955,9 +1085,14 @@ mod tests {
                         .is_none(),
                     "cuff must have an open axial bore"
                 );
+                let sample = if appearance == GloveAppearance::Padded {
+                    0.03
+                } else {
+                    0.02
+                };
                 let wall = p
                     .matte
-                    .outer_surface(wrist + Vec3::Y * (0.02 * length), Vec3::X)
+                    .outer_surface(wrist + Vec3::Y * (sample * length), Vec3::X)
                     .expect("wrist wall");
                 assert!(wall.x - wrist.x > 0.037 * build, "clearance around forearm");
                 let (lo, hi) = p.matte.bounds();
@@ -1059,9 +1194,19 @@ mod tests {
                 let top = cuff.matte.bounds().1.y;
                 assert!(top >= 0.075 * length - 0.00001);
                 assert!(top <= 0.075 * length + 0.002 * build);
+                assert!(
+                    cuff.matte.bounds().0.y >= 0.025 * length - 0.002 * build,
+                    "cuff must not cover the middle palm quilting row"
+                );
+                assert!(
+                    cuff.matte
+                        .outer_surface(Vec3::Y * (0.012 * length), Vec3::X)
+                        .is_none(),
+                    "distal handback stays exposed"
+                );
                 let wrist = cuff
                     .matte
-                    .outer_surface(Vec3::Y * (0.005 * length), Vec3::X)
+                    .outer_surface(Vec3::Y * (0.03 * length), Vec3::X)
                     .unwrap();
                 assert!(wrist.x > 0.047 * build && wrist.x < 0.049 * build);
             }
@@ -1105,7 +1250,7 @@ mod tests {
                     }
                 }
                 for row in [5.5f32, 6.5, 7.5] {
-                    let origin = Vec3::Y * (0.025 + (row - 4.0) * 0.050 / 4.0);
+                    let origin = Vec3::Y * (0.045 + (row - 4.0) * 0.030 / 4.0);
                     for direction in [-1.0, 1.0] {
                         let angle = direction * row / 4.0 * TAU / 12.0;
                         let ray = Vec3::new(angle.cos(), 0.0, angle.sin());
@@ -1137,7 +1282,7 @@ mod tests {
             // Above the strap, between stitch intersections and away from rims.
             // The two families must remain visible on both faces of each diamond.
             for row in [5.5f32, 6.5, 7.5] {
-                let y = 0.025 + (row - 4.0) * (0.075 - 0.025) / 4.0;
+                let y = 0.045 + (row - 4.0) * (0.075 - 0.045) / 4.0;
                 let authored_radius = (0.048 + (row - 4.0) * (0.058 - 0.048) / 4.0) * build;
                 for direction in [-1.0, 1.0] {
                     let angle = direction * row / 4.0 * TAU / 12.0;

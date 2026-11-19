@@ -2076,3 +2076,30 @@ and held units. The stronger exact checkpoint and late Store-failure tests remai
 the authority-conservation evidence. Three samples per case make p95 the maximum;
 retain failed rows and physical-file variation rather than treating either as a
 balanced-game or full-private-state proof.
+
+### Bounded explored-map projection reuse
+
+The simulation retains one derived projection entry shared by clones of a Game.
+Its key includes the actor, a non-owning identity of that actor's explored-map
+root, the exact output window and domain, and the ordered physical scene anchors
+inside the projection halo. Changed knowledge or anchors use the original
+projector. Oversized keys are not cached. The entry is not serialized and does
+not retain the explored-map root or wire-salted output. Hits return independent
+result containers and report zero traversal work rather than replaying the cold
+projection's counters; this does not imply zero lookup or output-copy cost.
+
+Historical complete-game comparisons used base a2c08563 and a pinned pre-PR #27
+Rogue-O-Matic bot. Each seed used ABBA order with two baseline and two candidate
+runs. Pooled candidate means versus baseline means were: seed 47, server CPU
+−8.73% and elapsed wall time −1.82%; seed 48, CPU −9.30% and wall time −1.97%.
+These are descriptive n=2-per-variant results, not a statistical significance
+claim or a measurement of the current player-level Python bot API.
+
+The compared runs matched the checked deterministic gameplay projections of
+their complete-game traces. The comparison deliberately excluded opaque random
+identifiers and did not establish byte-for-byte event-stream or complete hidden
+state equality. Focused map, history, checkpoint, release and persistent-process
+contracts supply separate correctness evidence. The historical timing results
+must not be relabeled as measurements of current main or the current bot;
+current-main integration is qualified separately without further performance
+experiments.

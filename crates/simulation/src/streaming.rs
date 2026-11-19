@@ -593,6 +593,8 @@ pub(crate) struct Lifecycle {
     #[serde(skip)]
     pub(crate) scenes: crate::observation::ActorScenes,
     #[serde(skip)]
+    pub(crate) projections: crate::explored_map::ProjectionCache,
+    #[serde(skip)]
     pub(crate) recovery_contexts: crate::recovery_context::RecoveryContexts,
     #[serde(skip)]
     pub(crate) discovery_contexts: crate::discovery::DiscoveryContexts,
@@ -627,6 +629,7 @@ impl Default for Lifecycle {
     fn default() -> Self {
         Self {
             scenes: crate::observation::ActorScenes::default(),
+            projections: crate::explored_map::ProjectionCache::default(),
             recovery_contexts: crate::recovery_context::RecoveryContexts::default(),
             discovery_contexts: crate::discovery::DiscoveryContexts::default(),
             awareness_contexts: Default::default(),

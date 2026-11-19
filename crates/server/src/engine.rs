@@ -4316,6 +4316,10 @@ impl Engine {
                         tor_simulation::IntentionOrigin::Human,
                     )
                     .map_err(|error| match error {
+                        tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::MeleeOutOfReach) => Failure::new(
+                            ErrorCode::InvalidAction,
+                            "You can't reach that target in melee from here. Try from an open adjacent square.",
+                        ),
                         tor_simulation::GameError::ActorBusy => {
                             Failure::new(ErrorCode::ActorBusy, "Intention is unavailable")
                         }

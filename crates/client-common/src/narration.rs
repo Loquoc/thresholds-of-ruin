@@ -225,7 +225,7 @@ pub fn completed_items(before: &Observation, after: &Observation) -> Vec<String>
                 tor_protocol::Action::Read { item } => ("reading", item),
                 tor_protocol::Action::Ignite { item } => ("igniting", item),
                 tor_protocol::Action::Extinguish { item } => ("extinguishing", item),
-                tor_protocol::Action::Zap { item, .. } => ("zapping", item),
+                tor_protocol::Action::Zap { item, .. } => ("zap", item),
                 _ => return None,
             };
             let name = before
@@ -234,7 +234,11 @@ pub fn completed_items(before: &Observation, after: &Observation) -> Vec<String>
                 .chain(&after.inventory)
                 .find(|candidate| candidate.id == *item)
                 .map_or_else(|| "item".into(), |candidate| label(&candidate.name, "item"));
-            Some(format!("You finish {verb} the {name}."))
+            Some(if verb == "zap" {
+                format!("You zap the {name}.")
+            } else {
+                format!("You finish {verb} the {name}.")
+            })
         })
         .chain(
             interactions
@@ -304,7 +308,8 @@ pub fn outcome_lines(outcomes: &OutcomeFacts) -> Vec<Line> {
     });
     facts
         .iter()
-        .filter_map(|fact| match (fact, replaced) {
+        .enumerate()
+        .filter_map(|(index, fact)| match (fact, replaced) {
             (
                 OutcomeFact::OwnAction { event, name, .. },
                 Some(OutcomeFact::OwnWorkChanged { work, .. }),
@@ -351,9 +356,47 @@ pub fn outcome_lines(outcomes: &OutcomeFacts) -> Vec<Line> {
             {
                 None
             }
+            (OutcomeFact::Combat { event, .. }, _)
+                if matches!(
+                    facts.get(index + 1),
+                    Some(OutcomeFact::Combat { event: next, .. })
+                        if redundant_magic_missile_flight(outcomes.self_target, event, next)
+                ) =>
+            {
+                None
+            }
             _ => outcome_line(outcomes, fact),
         })
         .collect()
+}
+
+fn redundant_magic_missile_flight(
+    observer: ActorTarget,
+    event: &CombatEventView,
+    next: &CombatEventView,
+) -> bool {
+    let CombatEventView::Effect {
+        caster: Some(caster),
+        ability: Some(ability),
+        delivery: EffectDelivery::Ray,
+        segments,
+        ..
+    } = event
+    else {
+        return false;
+    };
+    *caster == observer
+        && ability.id == "rogue.wand_magic_missile"
+        && segments.len() == 1
+        && matches!(
+            next,
+            CombatEventView::Ability {
+                caster: Some(source),
+                target: Some(_),
+                ability: result,
+                ..
+            } if source == caster && result.id == ability.id
+        )
 }
 
 fn work_phrase(work: &OutcomeWork) -> String {
@@ -456,6 +499,16 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
                 "You must wait."
             },
         ),
+        OutcomeFact::ItemCompleted {
+            work: ItemWorkKind::Zap,
+            name,
+        } => Line::new(
+            Topic::Finished,
+            format!(
+                "You zap the {}.",
+                label(name.as_deref().unwrap_or(""), "item")
+            ),
+        ),
         OutcomeFact::ItemCompleted { work, name } => {
             let verb = match work {
                 ItemWorkKind::Equip => "equipping",
@@ -553,13 +606,26 @@ fn observation_lines_legacy(
             lines.push(Line::new(Topic::PublicPlan, text));
         }
         if before.tick != after.tick || before.combat != after.combat {
-            lines.extend(combat.events.iter().map(|event| {
-                Line::new(
-                    Topic::Combat(event.clone()),
-                    combat_event(event, before, after),
-                )
-                .with_basic_attack(before, after)
-            }));
+            lines.extend(
+                combat
+                    .events
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, event)| {
+                        if combat.events.get(index + 1).is_some_and(|next| {
+                            redundant_magic_missile_flight(after.self_target, event, next)
+                        }) {
+                            return None;
+                        }
+                        Some(
+                            Line::new(
+                                Topic::Combat(event.clone()),
+                                combat_event(event, before, after),
+                            )
+                            .with_basic_attack(before, after),
+                        )
+                    }),
+            );
             if before.combat.as_ref().is_none_or(|c| {
                 c.hp != combat.hp
                     || c.victory != combat.victory
@@ -672,6 +738,15 @@ fn combat_event_with_names(
                     ""
                 };
                 return format!("{subject} attacks {object}{ordinal}{result}.");
+            }
+            if ability.id == "rogue.wand_magic_missile" {
+                return match outcome {
+                    AbilityOutcome::Applied => format!("The magic missile hits {object}."),
+                    AbilityOutcome::Miss => format!("The magic missile misses {object}."),
+                    AbilityOutcome::Unaffected => {
+                        format!("The magic missile has no effect on {object}.")
+                    }
+                };
             }
             let name = label(&ability.name, "ability");
             match outcome {
@@ -2642,6 +2717,57 @@ mod authoritative_effect_tests {
             ),
             "A cloud briefly appears."
         );
+    }
+
+    #[test]
+    fn magic_missile_names_the_result_and_elides_only_a_matching_flight_line() {
+        let before = crate::test_support::observation();
+        let mut after = before.clone();
+        let target = before.visible_actors[0].id;
+        let ability = crate::test_support::content("rogue.wand_magic_missile");
+        let flight = CombatEventView::Effect {
+            caster: Some(before.self_target),
+            ability: Some(ability.clone()),
+            tick: 12,
+            anchors: vec![],
+            timing: EffectTiming::Instant,
+            presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Bolt),
+            delivery: EffectDelivery::Ray,
+            cue: EffectCue::Neutral,
+            segments: vec![vec![
+                Position { x: 0, y: 0, z: 0 },
+                Position { x: 1, y: 0, z: 0 },
+            ]],
+        };
+        after.combat.as_mut().unwrap().events = vec![flight.clone()];
+        assert!(observation_lines(&before, &after, None)
+            .iter()
+            .any(|line| line.topic == Topic::Combat(flight.clone())));
+
+        for (outcome, verb) in [
+            (AbilityOutcome::Applied, "hits"),
+            (AbilityOutcome::Miss, "misses"),
+            (AbilityOutcome::Unaffected, "has no effect on"),
+        ] {
+            let result = CombatEventView::Ability {
+                caster: Some(before.self_target),
+                target: Some(target),
+                ability: ability.clone(),
+                outcome,
+                strike: Some(0),
+            };
+            after.combat.as_mut().unwrap().events = vec![flight.clone(), result.clone()];
+            let lines = observation_lines(&before, &after, None);
+            assert!(!lines
+                .iter()
+                .any(|line| line.topic == Topic::Combat(flight.clone())));
+            assert!(lines.iter().any(|line| {
+                line.topic == Topic::Combat(result.clone())
+                    && line
+                        .text
+                        .starts_with(&format!("The magic missile {verb} the "))
+            }));
+        }
     }
 
     #[test]

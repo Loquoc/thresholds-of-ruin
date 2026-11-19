@@ -85,7 +85,7 @@ pub(crate) fn finish(game: &mut Game, due: u64) {
     assert!(game.preparation(OWNER).is_none());
 }
 
-fn advance_to(game: &mut Game, until: u64) {
+pub(crate) fn advance_to(game: &mut Game, until: u64) {
     // Drive fractional active time with ordinary Wait work, preserving the
     // owner's captured base period and the scheduler's readiness invariants.
     // Only a wholly frozen/detached scene may advance without a ready actor.

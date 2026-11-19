@@ -656,3 +656,65 @@ fn map_projection_preserves_invalid_observer_and_anatomy_errors() {
         game.observe_event_shared_scene(OWNER).unwrap_err()
     );
 }
+
+#[test]
+fn mobs_and_objects_keep_disguise_after_one_hundred_ticks_and_reconnect() {
+    let mut game = named_fixture(&[]);
+    let location = game.actors[&SUBJECT].location;
+    let spec = crate::ItemSpec::ordinary(
+        "item.test.persisted-hallucination-object".parse().unwrap(),
+        "real object".into(),
+    );
+    let item = game.place_item_stack(71, location, None, 1, spec).unwrap();
+    crate::hallucination_clock::integration_tests::apply(&mut game, 10000);
+    let sample = |game: &Game| {
+        let view = game.observe(OWNER).unwrap();
+        (
+            view.visible_actors
+                .iter()
+                .find(|a| a.id == SUBJECT)
+                .unwrap()
+                .presentation
+                .clone(),
+            view.ground_items
+                .iter()
+                .find(|i| i.id == item)
+                .unwrap()
+                .presentation
+                .clone(),
+        )
+    };
+    let first = sample(&game);
+    assert!(first.0.is_some() && first.1.is_some());
+    let start = game.tick();
+    crate::hallucination_clock::integration_tests::advance_to(&mut game, start + 100);
+    assert_eq!(sample(&game), first, "2d10 cannot reroll before200 ticks");
+    let checkpoint = restore(&game);
+    assert_eq!(sample(&checkpoint), first);
+    assert_eq!(sample(&game), sample(&game));
+    assert_eq!(game, checkpoint);
+}
+
+#[test]
+fn apparent_actor_and_ground_item_with_equal_ids_do_not_share_timing_streams() {
+    let game = named_fixture(&[]);
+    let clock = crate::hallucination_clock::HallucinationCadence::new(
+        1,
+        std::num::NonZeroU64::new(125).unwrap(),
+    );
+    let mut differs = false;
+    for elapsed in (0..10000).step_by(100) {
+        let projected = clock.projected(elapsed).unwrap();
+        let guise = game.hallucination_guise_key(OWNER, SUBJECT, &projected);
+        let creature =
+            game.hallucination_key(OWNER, SUBJECT.0, AppearanceChannel::Creature, &projected);
+        let item = game.hallucination_key(OWNER, SUBJECT.0, AppearanceChannel::Item, &projected);
+        assert_eq!(guise.channel, AppearanceChannel::Item);
+        assert_eq!(guise.phase, creature.phase);
+        differs |= guise.phase != item.phase;
+    }
+    assert!(
+        differs,
+        "actor and item ID namespaces must not share a duration stream"
+    );
+}

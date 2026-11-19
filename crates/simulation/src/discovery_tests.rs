@@ -290,6 +290,10 @@ fn paid_search_always_rolls_once_and_uses_only_outgoing_reserved_tokens() {
     captured.sample(&mut expected);
     paid(&mut game);
     assert_eq!(game.rules_rng, expected, "empty Search still rolls once");
+    assert!(!game.combat_events().iter().any(|event| matches!(
+        event,
+        crate::combat::CombatEvent::Effect { effect } if effect.ability == id("fixture_search")
+    )));
     let creature = game.creature(OWNER).unwrap();
     assert!(!creature
         .conditions()
