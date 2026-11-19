@@ -1168,6 +1168,41 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as session:
         self.assertEqual(first["result"]["status"], "confirmed")
         self.assertGreater(terminal["tick"], first["tick"])
 
+    def test_unknown_scroll_trial_identifies_a_device_at_a_quiet_exit(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        character, = manifest["characters"]
+        character.update(known_identities=[], loadout=[{"archetype": kind, "quantity": 1}
+                         for kind in ("rogue.identify_wand", "rogue.wand_polymorph")])
+        contents["regions"][0].update(actors=[], items=[])
+        manifest["stair_pairs"] = {"exit": {"upper": "1/start", "lower": "2/up"}}
+        contents["regions"].append({"id": 2, "name": "Lower", "size": [5, 5, 2], "chamber": True,
+                                    "anchors": {"up": [2, 2, 0]}})
+        self.server(scenario=write_package(self, contents, "study-scroll"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer, play
+from tor_client_bot import Session
+token = os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(sys.argv[1], token, 1) as game:
+    rows = []
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=3)
+    play(game, player, 4, rows.append)
+    assert rows[0]["reason"] == "study_scroll_at_exit", rows[0]["reason"]
+    assert any(r.get("reason") == "identify" and r["result"]["status"] == "confirmed" for r in rows)
+with Session.connect(sys.argv[1], token, 1) as witness:
+    staff, = witness.observe().devices
+    assert staff.item.identity == "item.wand.wand-polymorph" and staff.charges > 0, staff
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                text=True, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_bot_rechecks_a_corridor_end_before_other_boundaries(self):
         from discovery_package import fixture, write_package
 

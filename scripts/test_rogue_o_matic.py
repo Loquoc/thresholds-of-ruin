@@ -50,6 +50,33 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_unknown_scroll_trial_uses_a_safe_outbound_stair_once_per_appearance(self):
+        scroll = {"id": "scroll", "class": "scroll", "name": "runed scroll", "quantity": 2, "identified": False}
+        ring = {"id": "ring", "class": "ring", "name": "opal ring", "quantity": 1, "identified": False}
+        amulet = {"id": "amulet", "class": "amulet", "name": "Amulet", "quantity": 1, "identified": True,
+                  "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        for depth, down, hp, pack, guarded, expected in (
+            (3, True, 20, [scroll, ring], False, True),
+            (1, True, 20, [scroll, ring], False, False),
+            (3, False, 20, [scroll, ring], False, False),
+            (3, True, 15, [scroll, ring], False, False),
+            (3, True, 20, [scroll], False, False),
+            (3, True, 20, [scroll, ring, amulet], False, False),
+            (3, True, 20, [scroll, ring], True, False),
+        ):
+            with self.subTest(depth=depth, down=down, hp=hp, pack=len(pack), guarded=guarded):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=depth)
+                turn = player_turn([cell("here", down=down)], inventory=pack,
+                                   interactions={"inventory": [{"item": "scroll", "readable": True}]},
+                                   combat={"hp": hp, "max_hp": 20})
+                if guarded:
+                    player.unsafe_stairs[("here", Direction.DOWN)] = 1200
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "study_scroll_at_exit", expected)
+                if expected:
+                    player.admitted(turn, action, reason=reason)
+                    self.assertNotEqual(choose(player, turn)[1], reason)
+
     def test_ring_or_wand_scroll_matches_either_unidentified_category(self):
         for category, should_read in [("ring", True), ("wand", True), ("armor", False)]:
             with self.subTest(category=category):

@@ -35,6 +35,12 @@ and the opposing player's Health fell. Both Magic Missile and Slow use the
 public aiming helper to check intervening bodies and terrain. The bot still
 gives an available escape stair priority.
 
+Starting on floor 3, a healthy outbound player can try an unread scroll at a
+quiet down stair when it carries an unidentified device, ring or potion.
+It remembers appearances already tried and skips guarded stairs. A live
+test started with a concealed scroll and device, followed the paid selection,
+and independently observed the resulting staff identity and charge count.
+
 The stair-retreat test now also covers an exposed approach. When recorded
 incoming damage could kill the player in two hits, the bot can step out of
 contact before approaching the stair. The repeat production run on seed 47

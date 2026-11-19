@@ -77,6 +77,7 @@ class Adventurer:
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
     tried_unknown_scroll: bool = False
     sampled_potions: set[str] = field(default_factory=set)
+    sampled_scrolls: set[str] = field(default_factory=set)
     guarded_supplies: set[str] = field(default_factory=set)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
@@ -231,6 +232,7 @@ class Adventurer:
             )
         if isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None:
             self.tried_unknown_scroll = True
+            self.sampled_scrolls.add(action.item.appearance or action.item.name)
         if (
             isinstance(action, UseItem)
             and action.use is ItemUse.EAT
@@ -544,12 +546,26 @@ class Adventurer:
         if improvement := improve_worn_gear(turn):
             return improvement
         health = turn.health
-        if health and health.current * 5 >= health.maximum * 4 and not self.carrying_objective(turn):
+        can_experiment = bool(health and health.current * 5 >= health.maximum * 4 and not self.carrying_objective(turn))
+        if can_experiment:
             for item in turn.inventory:
                 if (item.identity is None and ItemUse.DRINK in item.uses
                         and (item.appearance or item.name) not in self.sampled_potions):
                     return UseItem(item, ItemUse.DRINK), "test_unknown_potion"
-        return ready_weapon(turn, bow=self.has_arrows(turn))
+        if weapon := ready_weapon(turn, bow=self.has_arrows(turn)):
+            return weapon
+        # An unread scroll might open a paid identification choice or move the player.
+        # Try it while healthy, with something to identify and a usable exit.
+        if (can_experiment and 3 <= self.depth < self.retrieval_depth and turn.cell and turn.cell.stairs_down
+                and self.unsafe_stairs.get((turn.cell.key, Direction.DOWN), 0) <= turn.tick
+                and turn.cell.key not in self.danger_until and not turn.holds and not self.trapped(turn)
+                and not turn.has_condition("rogue.levitation")
+                and any(i.identity is None and i.category in {"wand", "ring", "potion"} for i in turn.inventory)):
+            for item in turn.inventory:
+                if (item.identity is None and ItemUse.READ in item.uses
+                        and (item.appearance or item.name) not in self.sampled_scrolls):
+                    return UseItem(item, ItemUse.READ), "study_scroll_at_exit"
+        return None
 
     @staticmethod
     def has_arrows(turn: Turn) -> bool:

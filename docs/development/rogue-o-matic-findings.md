@@ -56,6 +56,14 @@ an effect and exposes another missing decision about when to use it. The
 stair-retreat control for this comparison stopped with an unknown outcome on
 floor 13, so the pair cannot establish an improvement in survival.
 
+The subsequent clear-ray development cohort ended with a readiness timeout
+on seed 49 and unknown action outcomes on seeds 47 and 42. Seed 47's server
+logged that saving was behind schedule. In a separate small scroll fixture,
+disconnect reported that the save writer had reached sequence 0 and needed
+sequence 6. The fixture passed on retry. Treat these attempts as infrastructure
+or unresolved outcomes when comparing strategies. The messages alone do not
+establish why a particular action failed to return a receipt.
+
 Seed 42 twice escaped an adjacent rattlesnake upstairs and promptly returned
 to its floor. The bot now remembers the return direction for a short time
 after observing arrival at the refuge. A two-floor live encounter verifies
