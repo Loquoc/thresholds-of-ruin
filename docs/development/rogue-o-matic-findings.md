@@ -47,6 +47,15 @@ devices and five scrolls with no admitted scroll use. The fixture verifies
 what the player can do with a known scroll. Finding or discovering such a
 scroll early enough remains a separate campaign problem.
 
+On seed 49 an experimental policy tried previously unread scroll appearances
+from a quiet down stair while healthy, outbound, and carrying an unidentified
+device, ring or potion. Five such reads included two followed by identification
+choices. By floor 17 the player had recognized a staff of polymorph with three
+charges. It died with the staff unused. This verifies an opportunity to learn
+an effect and exposes another missing decision about when to use it. The
+stair-retreat control for this comparison stopped with an unknown outcome on
+floor 13, so the pair cannot establish an improvement in survival.
+
 Seed 42 twice escaped an adjacent rattlesnake upstairs and promptly returned
 to its floor. The bot now remembers the return direction for a short time
 after observing arrival at the refuge. A two-floor live encounter verifies
