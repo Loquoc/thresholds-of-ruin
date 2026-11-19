@@ -240,6 +240,25 @@ class CohortSummaryTests(unittest.TestCase):
             {"from": 2, "to": 1, "before_reserve": 240, "after_reserve": 310},
         ])
 
+    def test_prices_resolved_supply_steps_and_counts_reversals_without_new_terrain(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        rows = [{"floor": 1, "tick": tick, "cell": square, "known_cells": size,
+                 "action": {"type": "move"}, "reason": reason, "nutrition_reserve": reserve,
+                 "result": {"status": "confirmed", "receipt": {"intention": str(tick)}},
+                 "previous_intention_id": str(tick - 100), "previous_intention_phase": "resolved"}
+                for tick, square, size, reason, reserve in [
+                    (0, "a", 9, "seek_supplies", 20), (100, "b", 9, "explore", 18),
+                    (200, "a", 9, "explore", 17), (300, "b", 10, "explore", 16)]]
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "turns.jsonl"
+            log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            _, progress = trace_report(log)
+        self.assertEqual(progress["supply_detours"], {"ticks": 100, "reserve_spent": 2, "resolved_steps": 1})
+        self.assertEqual(progress["reversals_without_new_terrain"], 1)
+
     def test_correlates_search_resolution_with_its_admission_floor(self):
         from pathlib import Path
         import tempfile

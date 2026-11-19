@@ -11,6 +11,44 @@ historical seed results below belong to the revisions named in the text.
 
 The [Python bot API implementation plan](../plans/python-bot-api.md) pairs each proposed API improvement with a Rogue-O-Matic verification case and defines the proposed campaign reliability target.
 
+### Verified in the current production player
+
+The production CLI now collects reachable armor and melee weapons, identifies
+individual pieces and compares their disclosed properties. Live encounters
+checked the final worn armor and primary weapon using a second ordinary
+connection. The bot replaced ring mail with clean plate, kept the mail when
+the plate was cursed, upgraded a mace to a long sword, and replaced adornment
+with searching while retaining protection. Paired decisions on the same map
+checked a short outbound armor detour and immediate ascent with the Amulet.
+
+Two live combat encounters verified pre-contact choices. The bot entered
+a narrow passage before two opponents surrounded it, and the opposing
+player observed Slowed after a dangerous approach. A paired decision with a
+nearby exit used the exit and conserved the charge. In a discretionary-growth
+fixture the production CLI gained a hit die, previewed purchases, and learned
+Rattling Blow. Bundled Rogue allocates its own growth automatically.
+
+Terminal reports count distinct items seen, carried, recognized, assessed
+and worn, plus admitted item uses and activations. The cohort records observed
+supply-detour ticks, reserve decreases and immediate movement reversals
+without newly charted terrain. These counts use player observations.
+
+### Remaining decisions to verify on bundled Rogue
+
+| Decision | Historical precedent and proposed check |
+| --- | --- |
+| When is it worth spending a turn to learn what an item does? | XIV's [scroll routine](https://github.com/neozeed/Rog-O-Matic/blob/main/tactics.c#L205-L309) prepared equipment and an identification target before trying an unknown scroll. Give the Python bot an unknown scroll and an unidentified device at a safe outbound stair, then repeat with a hostile in reach and with the Amulet. Record the effect, what became identifiable, and whether the bot subsequently uses that knowledge. |
+| What makes a loadout better for this encounter? | XIV [ranked armor, weapons and rings](https://github.com/neozeed/Rog-O-Matic/blob/main/arms.c) and [changed what it wore](https://github.com/neozeed/Rog-O-Matic/blob/main/tactics.c#L16-L71). Current weapon scoring estimates damage per unit time. Compare a fast and a slow weapon at different player skill ranks. For rings, verify both the benefit and the nutrition cost of regeneration with and without spare food. |
+| Can the bot reach the escape it chose? | XIV [reasoned about escape routes](https://github.com/neozeed/Rog-O-Matic/blob/main/survival.c). Recreate a wounded player beside a centaur with a stair ahead and a sidestep into safety. Check contact after each resolved move and whether the bot survives to reach the exit. Repeat with the sidestep blocked. |
+| Should the player rest here, move while recovering, or leave? | XIV's [stair routine](https://github.com/neozeed/Rog-O-Matic/blob/main/tactics.c#L466-L495) accounted for food. Compare equal injuries with different food reserves on an already mapped, quiet return route. Measure Health recovered, food spent and distance home, then introduce a pursuer. |
+| Is another supply detour worth its cost? | Compare picking up a ration on the route, leaving the route for an unknown ring, and revisiting food on the way home. Count the paid moves, change in reserve and any eventual use of the item. Compare descent and ascent from identical positions. |
+| Can the player create a ranged attack opportunity? | XIV's [archery search](https://github.com/neozeed/Rog-O-Matic/blob/main/explore.c#L1006-L1106) selected a firing position. Start the bot one move away from a clear shot, then repeat with a blocked escape behind the firing square. Verify the shot, ammunition spent and enemy distance when the player can act again. |
+| Where does the escape route lead after the next move? | XIV [marked doors on loops](https://github.com/neozeed/Rog-O-Matic/blob/main/survival.c#L28-L40) for use in retreat. Offer two corridors with equal immediate clearance, one a known dead end. Verify the turn choice, then obstruct the loop and check whether the bot changes course. |
+
+Use isolated encounters to establish the behavior, then paired full campaigns
+to measure its cost and benefit. A verified equipment upgrade can still occur
+in a losing run.
+
 See the [findings and follow-ups](rogue-o-matic-findings.md) for issues uncovered
 during implementation and campaign testing.
 
@@ -197,18 +235,18 @@ the existing ordinary player disclosures and action interfaces.
 3. Compare policy changes on fixed initial inputs. Use focused cases to test
    decision tradeoffs and complete campaigns to measure victories, Amulet
    acquisition, survival depth, paid searches, and nutrition at floor
-   transitions. Keep seed 42 as the acceptance run and 45 and 46 as held-out
-   runs.
+   transitions. Seeds 42, 47 and 49 are repeatable development cases. Seeds
+   45 and 46 were used in earlier evaluations. The current qualification
+   requires 16 independently verified wins on fresh seeds 71001 through 71020.
 
 ## Reproduce campaigns
 
 With the binding installed in Python 3.11 or newer, pass the built server and a new output
-directory to the cohort runner. Keep the acceptance seed and held-out seeds in
-separate directories.
+directory to the cohort runner. For example, run the development cohort together.
+Use a separate output directory and a frozen candidate for final qualification.
 
 ```sh
-python scripts/rogue_o_matic_cohort.py --server path/to/tor-server --output path/to/acceptance-output 42
-python scripts/rogue_o_matic_cohort.py --server path/to/tor-server --output path/to/heldout-output 45 46
+python scripts/rogue_o_matic_cohort.py --server path/to/tor-server --output path/to/development-output 42 47 49
 ```
 
 Each directory gets a summary and each seed retains its own turn trace, server

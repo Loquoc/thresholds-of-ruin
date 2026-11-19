@@ -17,6 +17,80 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_rejected_training_preview_reopens_before_another_selection(self):
+        from tor_client_bot import Session, TrainingKind, TrainingRefused
+        basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": "4"}
+        def page(value):
+            return {"status": "confirmed", "page": {"basis": basis, "next": None, "entries": [{"value": value}]}}
+        overview = page({"locked": False, "points": {"unspent": "1"}, "starting_skills": []})
+        transport = Mock()
+        transport.advancement.side_effect = [
+            overview, page({"owner": "1", "pool": {"id": "xp", "name": "XP"}, "unspent": 1, "allowed": ["talent"]}),
+            page({"name": "Strike", "selection": {"talent": "strike"}, "form_choices": []}),
+            {"status": "rejected", "code": "invalid_purchase"}, overview,
+            page({"health": {"current": "8", "maximum": "9", "dead": False}}),
+        ]
+        training = Session(transport).training
+        pool, = training.pools()
+        choice, = training.options(TrainingKind.TALENT)
+        with self.assertRaises(TrainingRefused):
+            training.preview(pool, choice)
+        self.assertFalse(training.preview(pool, choice).would_die)
+        self.assertEqual(transport.advancement.call_args_list[-2].args, ("overview",))
+
+    def test_result_recognizes_local_and_server_stale_contexts(self):
+        from tor_client_bot import Result
+        for status, code, expected in [
+            ("stale_observation", None, True), ("rejected", "stale_context", True),
+            ("rejected", "invalid_target", False), ("unknown_outcome", None, False),
+        ]:
+            result = Result.from_reply({"status": status, "code": code})
+            self.assertEqual(result.stale, expected)
+
+    def test_device_offers_preserve_hidden_charges_and_bind_the_aim_to_its_observation(self):
+        from tor_client_bot import Zap, describe_action
+
+        wand = {"id": "device", "name": "ash wand", "identified": False, "quantity": 1, "class": "wand"}
+        target = {"key": "east", "position": {"x": 1, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False}
+        offer = {"item": "device", "zappable": True, "device_activation": "direction", "charges": None}
+        enemy = {"id": "foe", "name": "serpent", "position": target["position"]}
+        view = {"inventory": [wand], "visible_cells": [target], "interactions": {"inventory": [offer]},
+                "visible_actors": [enemy], "self_target": "player"}
+        snap, transport = Mock(), Mock()
+        snap.data.return_value = {"state": {"observation": view}, "readiness": {}}
+        transport.act.return_value = {"status": "confirmed"}
+        old = attached(transport, snap)
+        new = attached(transport, snap)
+        device, = new.devices
+        self.assertIs(device.item, new.inventory[0])
+        self.assertIsNone(device.item.identity)
+        self.assertIsNone(device.charges)
+        with self.assertRaises(ValueError):
+            Zap(device, None)
+        current = new.cell_at((1, 0, 0))
+        self.assertIs(new.submit(Zap(old.devices[0], current)).status, Outcome.STALE)
+        self.assertIs(new.submit(Zap(device, old.cell_at((1, 0, 0)))).status, Outcome.STALE)
+        transport.act.assert_not_called()
+        action = Zap(device, current)
+        self.assertEqual(new.aim_device(device, new.creatures[0]), action)
+        self.assertIsNone(new.aim_device(device, old.creatures[0]))
+        expected = {"type": "zap", "item": "device", "aim": {"kind": "cell", "offset": [1, 0, 0]}}
+        self.assertEqual(describe_action(action), expected)
+        self.assertIs(new.submit(action).status, Outcome.CONFIRMED)
+        transport.act.assert_called_once_with(expected, snap)
+        offer.update(device_activation="self_target", charges="0")
+        self_only = attached(transport, snap).devices[0]
+        self.assertEqual(self_only.charges, 0)
+        self.assertEqual(describe_action(Zap(self_only, None))["aim"], {"kind": "self_target"})
+        with self.assertRaises(ValueError):
+            Zap(self_only, Direction.EAST)
+        offer.update(device_activation="direction_or_self", charges="2")
+        flexible = attached(transport, snap).devices[0]
+        self.assertEqual(describe_action(Zap(flexible, Direction.EAST))["aim"],
+                         {"kind": "direction", "direction": "east"})
+        self.assertEqual(describe_action(Zap(flexible, None))["aim"], {"kind": "self_target"})
+
     def test_readiness_timeout_retains_the_last_observed_turn(self):
         from tor_client_bot import ReadinessTimeout, Session
 

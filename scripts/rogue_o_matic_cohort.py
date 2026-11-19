@@ -15,7 +15,7 @@ from process_harness import Process, ROOT
 from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH
 
 
-POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py")
+POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py", "rogue_gear.py")
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
 
 
@@ -98,6 +98,8 @@ def trace_report(path):
     previous = None
     terminal = None
     pending_searches = {}
+    last_move = None
+    previous_origin = None
     with path.open(encoding="utf-8") as log:
         for line in log:
             if not line.strip():
@@ -109,6 +111,31 @@ def trace_report(path):
                 continue
             if not isinstance(row, dict):
                 continue
+            if row.get("cell") is not None and row.get("known_cells") is not None:
+                detours = progress.setdefault("supply_detours", {"ticks": 0, "reserve_spent": 0, "resolved_steps": 0})
+                progress.setdefault("reversals_without_new_terrain", 0)
+                site = row["floor"], row["known_cells"], row["cell"]
+                if (last_move and last_move["intention"] == row.get("previous_intention_id")
+                        and row.get("previous_intention_phase") == "resolved" and last_move["site"][0] == site[0]
+                        and last_move["site"][2] != site[2]):
+                    if previous_origin == site and last_move["site"][1] == site[1]:
+                        progress["reversals_without_new_terrain"] += 1
+                    previous_origin = last_move["site"]
+                    if last_move["reason"] == "seek_supplies":
+                        detours["resolved_steps"] += 1
+                        detours["ticks"] += row["tick"] - last_move["tick"]
+                        if row.get("nutrition_reserve") is not None and last_move["reserve"] is not None:
+                            detours["reserve_spent"] += max(0, last_move["reserve"] - row["nutrition_reserve"])
+                else:
+                    previous_origin = None
+                last_move = None
+                result = row.get("result", {})
+                intention = result.get("receipt", {}).get("intention")
+                if row.get("action", {}).get("type") == "move" and result.get("status") == "confirmed" and intention:
+                    last_move = {"intention": intention, "site": site, "reason": row.get("reason"),
+                                 "tick": row["tick"], "reserve": row.get("nutrition_reserve")}
+            else:
+                last_move = previous_origin = None
             phase = row.get("previous_intention_phase")
             if phase and (search_floor := pending_searches.pop(row.get("previous_intention_id"), None)) is not None:
                 if phase in {"resolved", "failed"}:

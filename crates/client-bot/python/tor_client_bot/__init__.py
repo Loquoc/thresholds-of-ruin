@@ -16,6 +16,8 @@ from .models import (
     CombatReport,
     Condition,
     Creature,
+    Device,
+    DeviceActivation,
     Direction,
     Door,
     Equip,
@@ -46,6 +48,8 @@ from .models import (
     UseAbility,
     UseItem,
     Wait,
+    Zap,
+    WeaponAttack,
     describe_action,
 )
 
@@ -85,6 +89,8 @@ __all__ = [
     "CombatReport",
     "Condition",
     "Creature",
+    "Device",
+    "DeviceActivation",
     "Direction",
     "Door",
     "Equip",
@@ -120,5 +126,7 @@ __all__ = [
     "UseAbility",
     "UseItem",
     "Wait",
+    "Zap",
+    "WeaponAttack",
     "describe_action",
 ]

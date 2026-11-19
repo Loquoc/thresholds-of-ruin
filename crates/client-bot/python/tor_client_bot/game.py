@@ -24,6 +24,8 @@ from .models import (
     CombatReport,
     Condition,
     Creature,
+    Device,
+    DeviceActivation,
     Direction,
     Door,
     Equip,
@@ -52,6 +54,8 @@ from .models import (
     Unequip,
     UseAbility,
     UseItem,
+    Zap,
+    WeaponAttack,
     _direct_command,
 )
 
@@ -61,7 +65,36 @@ if TYPE_CHECKING:
     from . import _native
 
 
-def _item(row: dict, uses: tuple[ItemUse, ...] = ()) -> Item:
+def _armor_reduction(equipment: dict | None) -> int | None:
+    """Common unconditional reduction against both impact and keen damage."""
+    if equipment is None:
+        return None
+    amounts = {"impact": 0, "keen": 0}
+    for modifier in equipment["modifiers"]:
+        if modifier["id"] not in {"reduction", "signed_reduction"}:
+            continue
+        fields = {field["id"]: field["value"]["value"] for field in modifier["fields"]}
+        category = fields.get("category", {}).get("id")
+        if fields.get("scope") == "always" and category in amounts:
+            amounts[category] += int(fields["amount"])
+    return min(amounts.values())
+
+
+def _weapon_attack(equipment: dict | None) -> WeaponAttack | None:
+    if not equipment or not (attack := equipment.get("attack")):
+        return None
+    damage = float(attack["damage_enchantment"])
+    for component in attack["damage"]["components"]:
+        amount = component["amount"]
+        if amount["type"] == "fixed":
+            damage += amount["value"]
+        else:
+            damage += amount["count"] * (amount["sides"] + 1) / 2 + amount["bonus"]
+    return WeaponAttack(attack["skill"]["id"], attack["bonus"], damage, attack["wind_up"], attack["recovery"])
+
+
+def _item(row: dict, uses: tuple[ItemUse, ...] = (), *, offer: dict | None = None) -> Item:
+    offer = offer or {}
     return Item(
         row["id"],
         row["name"],
@@ -70,6 +103,11 @@ def _item(row: dict, uses: tuple[ItemUse, ...] = ()) -> Item:
         uses,
         row.get("class", "misc"),
         row.get("appearance"),
+        _armor_reduction(offer.get("known_equipment")) if row.get("class") == "armor" else None,
+        offer.get("known_cursed"),
+        _weapon_attack(offer.get("known_equipment")),
+        offer.get("known_equipment") is not None,
+        offer.get("known_protected"),
     )
 
 
@@ -171,6 +209,11 @@ class Turn:
         if combat is None:
             return None
         return Health(int(combat["hp"]), int(combat["max_hp"]))
+
+    @property
+    def hit_dice(self) -> int | None:
+        dice = self._view.get("combat", {}).get("own_stats", {}).get("hit_dice")
+        return None if dice is None else int(dice["total"])
 
     @cached_property
     def visible_cells(self) -> tuple[Cell, ...]:
@@ -393,11 +436,23 @@ class Turn:
         return tuple(creature for creature in self.creatures if creature.hostile)
 
     @cached_property
+    def _creature_cells(self) -> dict[int, tuple[Cell, ...]]:
+        return {id(creature): tuple(self._local_map[at] for at in creature.cells if at in self._local_map)
+                for creature in self.creatures}
+
+    def cells_of(self, creature: Creature) -> tuple[Cell, ...]:
+        """Disclosed terrain cells occupied by this creature in the current picture."""
+        return self._creature_cells.get(id(creature), ())
+
+    @cached_property
+    def _inventory_offers(self) -> dict[str, dict]:
+        return {row["item"]: row for row in self._view.get("interactions", {}).get("inventory", ())}
+
+    @cached_property
     def inventory(self) -> tuple[Item, ...]:
-        offers = {offer["item"]: offer for offer in self._view.get("interactions", {}).get("inventory", ())}
         items = []
         for row in self._view["inventory"]:
-            offer = offers.get(row["id"], {})
+            offer = self._inventory_offers.get(row["id"], {})
             uses = tuple(
                 use
                 for use, field in (
@@ -407,8 +462,26 @@ class Turn:
                 )
                 if offer.get(field)
             )
-            items.append(_item(row, uses))
+            items.append(_item(row, uses, offer=offer))
         return tuple(items)
+
+    @cached_property
+    def devices(self) -> tuple[Device, ...]:
+        """Currently offered devices, with aim modes and charges as disclosed to this player."""
+        devices = []
+        for item in self.inventory:
+            offer = self._inventory_offers.get(item.target, {})
+            if offer.get("zappable") and (mode := offer.get("device_activation")):
+                charges = offer.get("charges")
+                devices.append(Device(item, DeviceActivation(mode), int(charges) if charges is not None else None))
+        return tuple(devices)
+
+    def aim_device(self, device: Device, creature: Creature) -> Zap | None:
+        """Propose a bearing toward the closest visible body cell. The server resolves interception."""
+        if device.activation is DeviceActivation.SELF_TARGET or not any(device is d for d in self.devices):
+            return None
+        offsets = self._aim_offsets(creature)
+        return Zap(device, self._local_map[offsets[0]]) if offsets else None
 
     @cached_property
     def equipment(self) -> tuple[EquipmentSlot, ...]:
@@ -416,20 +489,20 @@ class Turn:
         items = {item.target: item for item in self.inventory}
         worn = {
             offer["equipped_slot"]: items[offer["item"]]
-            for offer in interactions.get("inventory", ())
+            for offer in self._inventory_offers.values()
             if offer.get("equipped_slot") is not None
         }
+        blocked = set(interactions.get("curse_blocked", ()))
         return tuple(
-            EquipmentSlot(index, row["id"], row["name"], worn.get(index))
+            EquipmentSlot(index, row["id"], row["name"], worn.get(index),
+                          index in worn and (worn[index].known_cursed is True or worn[index].target in blocked))
             for index, row in enumerate(interactions.get("slots", ()))
         )
 
     def equip_choices(self) -> Iterator[Equip]:
         """Pair carried gear with compatible equipment slots, including their current occupants."""
-        interaction = self._view.get("interactions", {})
-        offers = {row["item"]: row for row in interaction.get("inventory", ())}
         for item in self.inventory:
-            offer = offers.get(item.target, {})
+            offer = self._inventory_offers.get(item.target, {})
             category = offer.get("slot")
             if category is None or offer.get("equipped_slot") is not None:
                 continue
@@ -616,23 +689,20 @@ class Turn:
                 raise ValueError("Projectile choices did not advance")
             offset = successor
 
+    def _aim_offsets(self, creature: Creature, max_distance: int | None = None) -> list[tuple[int, int, int]]:
+        visible = (
+            cell.offset for cell in self.cells_of(creature)
+            if cell.offset != (0, 0, 0) and (max_distance is None or max(map(abs, cell.offset)) <= max_distance)
+        )
+        return sorted(visible, key=lambda cell: sum(n * n for n in cell))
+
     def ranged_attacks(self, *, max_distance: int | None = None) -> Iterator[Shot]:
         """Aim at disclosed occupied cells, including visible creatures above or below.
 
         Each candidate uses the chosen delivery's exact item and socket. The server
         traces the projectile and resolves collisions. Distance is a policy limit.
         """
-        targets = []
-        for creature in self.creatures:
-            visible = (
-                cell
-                for cell in creature.cells
-                if cell != (0, 0, 0)
-                and cell in self._local_map
-                and (max_distance is None or max(map(abs, cell)) <= max_distance)
-            )
-            for offset in sorted(visible, key=lambda cell: sum(n * n for n in cell)):
-                targets.append((offset, creature))
+        targets = [(offset, creature) for creature in self.creatures for offset in self._aim_offsets(creature, max_distance)]
         if not targets:
             return
         for option in self.projectiles():
@@ -705,6 +775,10 @@ class Turn:
         return {id(obj) for group in (self.inventory, self.creatures, self.abilities) for obj in group}
 
     def _owns_choice(self, action: Action) -> bool:
+        if isinstance(action, Zap):
+            return any(action.device is device for device in self.devices) and (
+                not isinstance(action.target, Cell) or self.cell_at(action.target.offset) is action.target
+            )
         if isinstance(action, Escape):
             return any(action.hold is hold for hold in self.holds)
         if isinstance(action, Unequip):

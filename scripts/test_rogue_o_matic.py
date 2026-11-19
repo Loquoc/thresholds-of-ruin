@@ -50,6 +50,140 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_protects_disclosed_unprotected_armor_and_preserves_scroll_otherwise(self):
+        from tor_client_bot import UseItem, ItemUse
+        body = {"id": "body_armor", "name": "body"}
+        inventory = [
+            {"id": "mail", "identity": "item.armor.ring-mail", "name": "mail", "class": "armor"},
+            {"id": "scroll", "identity": "item.scroll.protect-armor", "name": "lore", "class": "scroll"},
+        ]
+        for item in inventory:
+            item.update(identified=True, quantity=1)
+        for known in (False, True, None):
+            turn = player_turn([cell("stairs", down=True)], inventory=inventory,
+                               interactions={"slots": [body], "inventory": [
+                                   {"item": "mail", "slot": body, "equipped_slot": 0, "known_protected": known},
+                                   {"item": "scroll", "readable": True}]})
+            decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+            self.assertEqual(decision, (UseItem(turn.inventory[1], ItemUse.READ), "protect_armor") if known is False
+                             else (Move(Direction.DOWN), "descend"))
+
+    def test_trial_armor_needs_a_large_known_improvement_or_a_way_to_remove_a_curse(self):
+        from tor_client_bot import Unequip
+        slot = {"id": "body_armor", "name": "Armor"}
+        for candidate, cure, trial in [("plate-mail", False, True), ("scale-mail", False, False),
+                                       ("scale-mail", True, True), ("unrecognized", True, False)]:
+            with self.subTest(candidate=candidate, cure=cure):
+                suits = [{"id": name, "name": name, "class": "armor", "quantity": 1,
+                          "identified": True, "identity": "item.armor." + name} for name in ("ring-mail", candidate)]
+                offers = [{"item": item["id"], "slot": slot, "equipped_slot": 0 if i == 0 else None}
+                          for i, item in enumerate(suits)]
+                if cure:
+                    suits.append({"id": "cure", "class": "scroll", "name": "remove curse", "quantity": 1,
+                                  "identified": True, "identity": "item.scroll.remove-curse"})
+                    offers.append({"item": "cure", "readable": True})
+                turn = player_turn([cell("exit", down=True)], inventory=suits,
+                                   interactions={"slots": [slot], "inventory": offers})
+                self.assertIsNone(turn.inventory[1].physical_reduction)
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action, reason), (Unequip(turn.equipment[0]), "try_armor") if trial else
+                                 (Move(Direction.DOWN), "descend"))
+
+    def test_swaps_redundant_ring_for_slow_digestion(self):
+        from tor_client_bot import Unequip
+        slots = [{"id": "ring", "name": "Finger"}] * 2
+        rings = [{"id": str(i), "name": name, "class": "ring", "quantity": 1, "identified": True,
+                  "identity": "item.ring.ring-" + name} for i, name in enumerate(
+                      ["protection", "protection", "slow-digestion"])]
+        offers = [{"item": item["id"], "slot": slots[0], "equipped_slot": i if i < 2 else None}
+                  for i, item in enumerate(rings)]
+        turn = player_turn([cell("here", down=True)], inventory=rings,
+                           interactions={"slots": slots, "inventory": offers, "curse_blocked": ["0"]})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Unequip(turn.equipment[1]), "change_ring"))
+
+    def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
+        from tor_client_bot import Equip, Unequip
+
+        slot = {"id": "weapon", "name": "Primary"}
+        inventory = [{"id": name, "identity": f"item.weapon.{name}", "name": name,
+                      "quantity": 1, "class": "weapon", "identified": True}
+                     for name in ("mace", "long-sword", "dagger")]
+        def weapon(name, damage, duration):
+            attack = {"skill": {"id": "heavy_weaponry"}, "bonus": 2, "damage_enchantment": 1,
+                      "wind_up": duration, "recovery": 50, "damage": {"components": [
+                          {"amount": {"type": "rolled", "count": 2, "sides": damage, "bonus": 0}}]}}
+            return {"item": name, "slot": slot, "known_equipment": {"attack": attack, "modifiers": []}}
+        offers = [dict(weapon("mace", 3, 50), equipped_slot=0), weapon("long-sword", 6, 50),
+                  weapon("dagger", 8, 300)]
+        def picture():
+            return player_turn([cell("here", down=True)], inventory=inventory,
+                               interactions={"slots": [slot], "inventory": offers})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        turn = picture()
+        self.assertEqual(turn.inventory[1].weapon_attack.mean_damage, 8)
+        self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "change_weapon"))
+        del offers[0]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "equip_melee"))
+        offers[1]["equipped_slot"] = 0
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+
+    def test_nearby_armor_detour_depends_on_retrieval_phase(self):
+        here, nearby = cell("exit", up=True, down=True), cell("mail", 1)
+        armor = {"id": "plate", "identity": "item.armor.plate-mail", "name": "plate",
+                 "quantity": 1, "class": "armor", "identified": True}
+        amulet = {**armor, "id": "prize", "class": "amulet", "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        for pack, decision in [([], (Move(Direction.EAST), "seek_supplies")),
+                               ([amulet], (Move(Direction.UP), "ascend"))]:
+            turn = player_turn([here, nearby], inventory=pack, ground=[{**nearby, "item": armor, "reachable": False}])
+            self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), decision)
+
+    def test_take_corridor_before_two_foes_make_contact(self):
+        def tile(x, y, wall=False):
+            return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}
+        cells = [tile(0, 0), tile(-1, 0), tile(-2, 0), tile(-1, -1, True), tile(-1, 1, True),
+                 tile(2, 0), tile(2, 1)]
+        foes = [{"id": str(i), "name": "troll", "position": c["position"]} for i, c in enumerate(cells[-2:])]
+        turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "take_corridor"))
+        cells[2]["wall"] = True
+        turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
+        self.assertNotEqual(choose(player, turn)[1], "take_corridor")
+
+    def test_player_compares_disclosed_armor_and_respects_blocked_removal(self):
+        from tor_client_bot import Equip, Unequip
+
+        here = cell("stairs", down=True)
+        slot = {"id": "body_armor", "name": "Body"}
+        inventory = [{"id": name, "identity": name, "identified": True, "name": name,
+                      "quantity": 1, "class": "armor"} for name in ("worn", "plate", "cursed", "unknown")]
+        def offer(name, amount):
+            modifiers = [{"id": "reduction", "fields": [
+                {"id": "scope", "value": {"value": "always"}},
+                {"id": "category", "value": {"value": {"id": category}}},
+                {"id": "amount", "value": {"value": str(amount)}},
+            ]} for category in ("impact", "keen")]
+            return {"item": name, "slot": slot, "known_equipment": {"modifiers": modifiers}}
+        offers = [dict(offer("worn", 2), equipped_slot=0), offer("plate", 6),
+                  dict(offer("cursed", 9), known_cursed=True), {"item": "unknown", "slot": slot}]
+        interactions = {"slots": [slot], "inventory": offers}
+        def picture():
+            return player_turn([here], inventory=inventory, interactions=interactions)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        turn = picture()
+        self.assertEqual([i.physical_reduction for i in turn.inventory], [2, 6, 9, None])
+        self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "upgrade_armor"))
+        interactions["curse_blocked"] = ["worn"]
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+        interactions["curse_blocked"] = []
+        del offers[0]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "upgrade_armor"))
+        offers[1]["equipped_slot"] = 0
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+
     def test_bot_extension_uses_test_profile_with_downloaded_binaries(self):
         from pathlib import Path
         from types import SimpleNamespace
@@ -293,7 +427,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
         full = [{**potion, "id": "pack", "quantity": 4}]
         turn = player_turn([cell("here", down=True)], inventory=full, ground=[ground])
-        self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "descend"))
+        self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
+        for category in ("wand", "ring", "scroll", "potion"):
+            with self.subTest(category=category):
+                item = {**potion, "class": category}
+                here, nearby = cell("here", down=True), cell("nearby", 1)
+                stock = [{**item, "id": "stock", "quantity": 5}]
+                turn = player_turn([here, nearby], inventory=stock,
+                                   ground=[{**here, "item": item, "reachable": True}])
+                self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
+                turn = player_turn([here, nearby], inventory=stock,
+                                   ground=[{**nearby, "item": item, "reachable": False}])
+                self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "descend"))
 
     def test_recovers_reachable_arrows_when_carrying_the_bow(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -357,6 +502,31 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([cell("escape", down=True), cell("away", -1), cell("snake", 1)],
                            actors=[snake], hostiles=["snake"])
         self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
+
+    def test_does_not_reverse_an_escape_stair_at_sight_of_a_distant_foe(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
+        snake = {"id": "bite", "name": "dragon", "position": cell("enemy", 1)["position"]}
+        before = player_turn([cell("lower", up=True), cell("enemy", 1)], actors=[snake], hostiles=["bite"])
+        escape, reason = choose(player, before)
+        self.assertEqual((escape, reason), (Move(Direction.UP), "retreat_upstairs"))
+        player.admitted(before, escape, reason=reason)
+        distant = {**snake, "id": "other", "position": cell("foe", 3)["position"]}
+        cells = [cell("upper", down=True), cell("away", -1), cell("foe", 3)]
+        after = player_turn(cells, tick=100, actors=[distant], hostiles=["other"])
+        self.assertNotEqual(choose(player, after)[0], Move(Direction.DOWN))
+        quiet = player_turn(cells, tick=200)
+        self.assertNotEqual(choose(player, quiet)[0], Move(Direction.DOWN))
+        later = player_turn(cells, tick=2000, actors=[distant], hostiles=["other"])
+        self.assertEqual(choose(player, later), (Move(Direction.DOWN), "retreat_downstairs"))
+
+    def test_takes_the_nearby_down_stair_route_away_from_a_draining_pursuer(self):
+        foe = {"id": "poison", "name": "rattlesnake", "position": {"x": 0, "y": -1, "z": 0}}
+        room = [cell("here"), cell("escape", 1, down=True), cell("corridor", -1), cell("up", -2, up=True),
+                {**cell("snake"), "position": foe["position"]}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
+        player.draining_creatures.add("rattlesnake")
+        turn = player_turn(room, actors=[foe], hostiles=["poison"])
+        self.assertEqual(choose(player, turn), (Move(Direction.EAST), "retreat_to_stairs"))
 
     def test_unrelated_up_stair_cannot_confirm_the_expected_landing(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
@@ -482,6 +652,58 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observed_loss["hunter"] = 17
         self.assertEqual(choose(player, turn), (UseItem(turn.inventory[0], ItemUse.READ), "escape_pursuit"))
+
+    def test_uses_a_recognized_escape_wand_on_a_lethal_adjacent_enemy(self):
+        from tor_client_bot import Zap
+
+        foe = {"id": "fang", "name": "rattlesnake", "position": {"x": 1, "y": 0, "z": 0}}
+        item = {"id": "staff", "class": "wand", "name": "displacing staff", "quantity": 1,
+                "identified": True, "identity": "item.wand.wand-teleport-away"}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction", "charges": None}
+        turn = player_turn([cell("here"), cell("snake", 1)], actors=[foe], hostiles=["fang"],
+                           inventory=[item], combat={"hp": 5, "max_hp": 39},
+                           interactions={"inventory": [offer]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss["fang"] = 7
+        action, reason = choose(player, turn)
+        self.assertEqual((action, reason), (Zap(turn.devices[0], turn.cell_at((1, 0, 0))), "displace_threat"))
+        player.admitted(turn, action, reason=reason)
+        self.assertNotIsInstance(player.choose(turn)[0], Zap)
+
+    def test_when_pinned_attacks_the_equally_healthy_foe_blocking_the_down_stair(self):
+        melee = {"id": "basic_melee", "name": "Attack", "cooldown_remaining": "0", "cost": None,
+                 "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        room = [cell("here"), cell("plain", 1), cell("exit", -1, down=True)]
+        enemies = [{"id": name, "name": "rattlesnake", "position": tile["position"]}
+                   for name, tile in zip(["other", "blocker"], room[1:])]
+        turn = player_turn(room, actors=enemies, hostiles=["other", "blocker"], abilities=[melee],
+                           combat={"hp": 7, "max_hp": 42})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
+        action, reason = choose(player, turn)
+        self.assertEqual((reason, action.target.target), ("melee", "blocker"))
+        self.assertEqual(turn.cells_of(action.target), (turn.cell_at((-1, 0, 0)),))
+
+    def test_control_a_dangerous_approach_or_step_to_an_exit(self):
+        from tor_client_bot import Zap
+        here, lane, distant = cell("here"), cell("lane", 1), cell("enemy", 2)
+        foe = {"id": "troll", "name": "dragon", "position": distant["position"]}
+        wand = {"id": "slow", "class": "wand", "identity": "item.wand.wand-slow",
+                "identified": True, "name": "slow staff", "quantity": 1}
+        offer = {"item": "slow", "zappable": True, "device_activation": "direction", "charges": 3}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
+        player.observed_loss_by_name["dragon"] = 7
+        def picture(extra=(), actors=()):
+            return player_turn([here, lane, distant, *extra], actors=[foe, *actors], hostiles=["troll"],
+                               inventory=[wand], interactions={"inventory": [offer]})
+        turn = picture()
+        action, reason = choose(player, turn)
+        self.assertEqual((action, reason), (Zap(turn.devices[0], turn.cell_at((2, 0, 0))), "slow_approach"))
+        exit_turn = picture([cell("escape", -1, up=True)])
+        self.assertEqual(choose(player, exit_turn), (Move(Direction.WEST), "retreat_to_stairs"))
+        blocked = picture(actors=[{"id": "bystander", "name": "friend", "position": lane["position"]}])
+        self.assertNotIsInstance(choose(player, blocked)[0], Zap)
+        player.admitted(turn, action, reason=reason)
+        self.assertNotIsInstance(choose(player, turn)[0], Zap)
 
     def test_weak_player_eats_a_carried_ration_during_a_prolonged_pursuit(self):
         from tor_client_bot import ItemUse, UseItem

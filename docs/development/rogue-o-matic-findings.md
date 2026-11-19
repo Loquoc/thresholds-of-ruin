@@ -1,5 +1,58 @@
 # Rogue-O-Matic findings and follow-ups
 
+The production player picked up and identified plate mail in a live encounter.
+An independent player connection confirmed which armor it wore afterward.
+The clean plate replaced ring mail. A cursed plate with higher disclosed
+reduction stayed in the pack. During the identification exchange the ordinary
+server sometimes returned `rejected` with code `stale_context` after a prompt
+had advanced. Bots can now use `Result.stale` to refresh and choose again for
+both this server reply and a locally expired turn.
+
+Bundled Rogue uses authored growth. Its scheduled skill ranks apply on earning
+hit dice and the player has no purchase decision. Discretionary training tests
+belong to scenarios that offer it, such as Rogue Exploration.
+
+In the seed-47 development campaign, the player carried three recognized
+armor instances and obtained exact protection for none. Recognition and
+instance identification are separate. An armor trial can close that gap.
+The client first observed an unmeasured plate, and after equipping it a
+second connection observed six physical reduction with its curse still
+undisclosed. The policy uses the public base armor values and worst published
+birth penalty when it lacks an identification or remove-curse scroll.
+
+On closer examination, the spare suits on seed 47 were leather and studded
+leather. Keeping the starting ring mail was reasonable. A more consequential
+choice came at 9 Health, after a centaur had dealt 16 damage. The bot moved
+toward the stairs while remaining in contact. An eastward or northeastward
+step would have taken it out of immediate reach. A route to a stair should
+account for the hits the player can survive on the way.
+
+Seed 49 reached floor 18 carrying three unidentified devices, three unknown
+rings and five scrolls without an admitted scroll use. Counting pickups alone
+hid an identification bottleneck. Test safe opportunities to read scrolls,
+record what the player learns from each one, and compare the resulting
+device and ring use on the same seed.
+
+Seed 42 twice escaped an adjacent rattlesnake upstairs and promptly returned
+to its floor. The bot now remembers the return direction for a short time
+after observing arrival at the refuge. A two-floor live encounter verifies
+that its next action resolves without taking it back to the guarded stair.
+In the paired seed-42 runs that change advanced the deepest floor from 8 to
+9 (4,322 and 4,193 submissions respectively). On the later run, the bot fled
+a quagga on floor 9 and arrived back on floor 8 at 6 Health with five visible
+foes. Venomous Bite ended both runs. Choosing between exits also requires
+remembering what was last seen on the far side.
+
+Two exploratory policies produced ordinary action traces but no verified
+terminal result. A seed-47 retreat that preferred breaking dangerous contact
+reached floor 15 (4,738 submissions). A seed-49 policy that sampled unknown
+scrolls at safe stairs read three, reached floor 8, and stopped after 4,604
+submissions. Both reported `unknown_outcome`. Neither counts as a death or a
+win. An interrupted seed-47 control exposed a separate diagnostics problem:
+the native observation refresh raised `UnknownOutcome`, then closing the
+session raised a visual observation timeout. Preserve the original failure
+when reporting cleanup errors. The traces do not establish a server cause.
+
 The entries name the scenario and revision used where available. Earlier
 experiments on `rogue-exploration` need fresh verification against bundled `rogue`.
 Use this page to retain observations that may warrant separate work. Campaign
@@ -69,6 +122,13 @@ Reopening a copy of the save showed the same intention suspended at the same
 tick. Cancellation was confirmed, a wait advanced the clock to 598400 and
 a fresh descent was admitted. The next ready picture was at tick 598500.
 Investigate why the live clock stopped while a ready actor had a queued move.
+
+A fresh diagnostic followed the original policy up to the live stall, then
+used the updated recovery policy. At tick 597000 it matched its admitted
+descent to the queued activity, cancelled it and waited once. The next
+descent at 598400 resolved on floor 12 at 598500. This diagnostic ended at
+the crossing. The bot limits recovery to one cancellation at the same
+stair origin until a crossing is established.
 
 ## A visible stair can be unusable while hovering
 

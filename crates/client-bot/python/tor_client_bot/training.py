@@ -77,12 +77,14 @@ class Training:
         self._connection = connection
         self._preview: PurchasePreview | None = None
         self._opened = False
+        self._overview_basis: tuple | None = None
 
     def _page(self, command: str) -> dict:
         self._preview = None
         reply = self._connection.advancement(command)
         result = Result.from_reply(reply)
         if result.status is not Outcome.CONFIRMED:
+            self._opened = False
             raise TrainingRefused(result)
         page = reply.get("page")
         if page is None:
@@ -92,6 +94,7 @@ class Training:
     def overview(self) -> TrainingOverview:
         page = self._page("overview")
         self._opened = True
+        self._overview_basis = _basis(page)
         row = page["entries"][0]["value"]
         return TrainingOverview(
             row["locked"],
@@ -153,6 +156,10 @@ class Training:
     ) -> PurchasePreview:
         if pool._basis != option._basis:
             raise TrainingRefused(Result(Outcome.STALE, None, "Choose from the same build"))
+        if not self._opened:
+            self.overview()
+            if self._overview_basis != pool._basis:
+                raise TrainingRefused(Result(Outcome.STALE, None, "Choose from the current build"))
         if option.kind not in pool.allowed or pool.available == 0:
             raise ValueError("Choose an available point pool for this purchase")
         if (form is None and option.forms) or (form is not None and form not in option.forms):

@@ -138,6 +138,36 @@ to the expected place, including an adjacent landing beside an occupied stair.
   projectile, launcher when applicable, and aim offset. The server resolves
   reach, obstructions and hits.
 
+### Comparing armor
+
+`turn.equip_choices()` pairs each carried candidate with a compatible slot and
+its current occupant. For armor, `item.physical_reduction` is the lesser of
+the disclosed unconditional reductions against impact and keen damage. A suit
+that reduces each by six reports six. An unidentified instance reports
+`None` even when the player recognizes the kind of armor. Zero is a known
+value. `item.known_cursed` also preserves undisclosed knowledge as `None`.
+`slot.removal_blocked` records a known curse or a reported block on removal.
+Compare the candidate with the occupant before spending an action to unequip.
+
+`item.weapon_attack` gives the disclosed skill, accuracy bonus, mean damage
+before defenses, wind-up ticks and recovery ticks. The bot can weigh sustained
+damage against the cost of committing to a slow strike. `equipment_identified`
+records whether instance statistics were disclosed even for gear without a
+weapon attack. `Result.stale` covers a choice refused locally or returned by
+the server with a stale input context.
+
+### Activating a device
+
+An inventory item and its offered device activation share the same live
+item object. `turn.devices` gives the offered aim mode and the disclosed
+remaining charges. A count of `None` means the player has no measurement.
+For example, `turn.aim_device(device, foe)` proposes aiming at the nearest
+visible cell of that creature. Use `Zap(device, cell)` to choose a specific
+bearing. A direction also supplies
+a bearing. Pass `None` explicitly for an offered self activation. A fresh
+turn requires a fresh device and cell. Admission and a resolved phase can
+both precede an observed dodge, so check the enemy's next position.
+
 ### Two spatial decisions
 
 A collector can pursue the observed position of an item and use the pickup

@@ -137,6 +137,15 @@ class ItemUse(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class WeaponAttack:
+    skill: str
+    accuracy_bonus: int
+    mean_damage: float
+    wind_up: int
+    recovery: int
+
+
+@dataclass(frozen=True, slots=True)
 class Item:
     target: str
     name: str
@@ -145,6 +154,44 @@ class Item:
     uses: tuple[ItemUse, ...]
     category: str
     appearance: str | None = None
+    physical_reduction: int | None = None
+    known_cursed: bool | None = None
+    weapon_attack: WeaponAttack | None = None
+    equipment_identified: bool = False
+    known_protected: bool | None = None
+
+
+class DeviceActivation(str, Enum):
+    DIRECTION = "direction"
+    SELF_TARGET = "self_target"
+    DIRECTION_OR_SELF = "direction_or_self"
+
+
+@dataclass(frozen=True, slots=True)
+class Device:
+    """An offered activation and the remaining charges the player can see."""
+
+    item: Item
+    activation: DeviceActivation
+    charges: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class Zap:
+    """Aim along a direction, toward a visible cell, or at yourself with None."""
+
+    device: Device
+    target: Direction | Cell | None
+
+    def __post_init__(self) -> None:
+        if self.target is not None and not isinstance(self.target, (Direction, Cell)):
+            raise TypeError("Aim at a direction, a visible cell, or yourself with None")
+        if self.target is None and self.device.activation is DeviceActivation.DIRECTION:
+            raise ValueError("This device offers directional aim only")
+        if self.target is not None and self.device.activation is DeviceActivation.SELF_TARGET:
+            raise ValueError("This device offers self aim only")
+        if isinstance(self.target, Cell) and self.target.offset == (0, 0, 0):
+            raise ValueError("Use None for self aim")
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +215,7 @@ class EquipmentSlot:
     kind: str
     name: str
     occupant: Item | None
+    removal_blocked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,6 +471,11 @@ class Result:
     activity: Activity | None = None
     code: str | None = None
 
+    @property
+    def stale(self) -> bool:
+        """The choice was refused because its observation has expired."""
+        return self.status is Outcome.STALE or (self.status is Outcome.REJECTED and self.code == "stale_context")
+
     @classmethod
     def from_reply(cls, reply: Mapping[str, Any]) -> Result:
         receipt = reply.get("receipt", {})
@@ -449,10 +502,11 @@ Action = (
     | ActivityChoice
     | UseAbility
     | Shot
+    | Zap
 )
 
 
-def _direct_command(action: Move | Wait | UseItem | Pickup | Equip | Escape | OpenDoor) -> dict:
+def _direct_command(action: Move | Wait | UseItem | Pickup | Equip | Escape | OpenDoor | Zap) -> dict:
     """These actions use the same operands in the player trace and the submitted command."""
     if isinstance(action, Move):
         return {"type": "move", "direction": action.direction.value}
@@ -468,6 +522,15 @@ def _direct_command(action: Move | Wait | UseItem | Pickup | Equip | Escape | Op
         return {"type": "escape", "hold": action.hold.target}
     if isinstance(action, OpenDoor):
         return {"type": "set_door", "door": action.door.target, "open": True}
+    if isinstance(action, Zap):
+        aim: dict[str, object]
+        if isinstance(action.target, Cell):
+            aim = {"kind": "cell", "offset": list(action.target.offset)}
+        elif isinstance(action.target, Direction):
+            aim = {"kind": "direction", "direction": action.target.value}
+        else:
+            aim = {"kind": "self_target"}
+        return {"type": "zap", "item": action.device.item.target, "aim": aim}
     raise TypeError(f"Unsupported action {action!r}")
 
 

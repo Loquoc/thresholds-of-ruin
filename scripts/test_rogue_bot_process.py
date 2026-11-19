@@ -124,6 +124,43 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         server.stop(save=False)
         self.assertEqual(run.returncode, 0, run.stderr)
 
+    def test_production_bot_spends_an_offered_point_and_learns_rattling_blow(self):
+        import tomllib
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        growth = tomllib.loads((ROOT / "scenarios/rogue-exploration/scenario.toml").read_text(encoding="utf-8"))
+        build = growth["characters"][0]["creature"]
+        for field in ("starting_skills", "hit_dice", "future_growth"):
+            character["creature"][field] = build[field]
+        character["creature"].pop("growth_schedule", None)
+        character.update(loadout=[{"archetype": "rogue.raise_level", "quantity": 1}],
+                         known_identities=["item.potion.raise-level"])
+        contents["regions"][0]["actors"] = []
+        self.server(scenario=write_package(self, contents, "earned-training"))
+        self.install_bot_extension()
+        env = {**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN}
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect",
+                              self.address, "--budget", "8"], cwd=self.directory, env=env,
+                             text=True, capture_output=True, timeout=55)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        *actions, terminal = (json.loads(line) for line in run.stdout.splitlines())
+        self.assertEqual(actions[0]["reason"], "permanent_growth")
+        self.assertIn("earned_training", [row["reason"] for row in actions], (actions, run.stderr))
+        self.assertEqual(terminal["terminal"], "action_budget")
+        code = """
+import os, sys
+from tor_client_bot import Session
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    assert game.training.overview().unspent == 0
+    assert any(a.identity == "rattling_blow" for a in game.observe().abilities)
+"""
+        check = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                               env=env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(check.returncode, 0, check.stderr)
+
     def test_rogue_bot_plays_with_authored_growth(self):
         self.install_bot_extension()
         output = self.directory / "cohort"
@@ -268,6 +305,50 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
 
     def test_bot_routes_away_from_a_foe_toward_a_disclosed_stair(self):
         self.check_safe_stair_route(diagonal=False)
+
+    def test_bot_keeps_the_refuge_after_escaping_a_guarded_stair(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["manifest"]["characters"][0]["loadout"] = []
+        contents["manifest"]["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
+        contents["regions"][0]["actors"] = [
+            {"archetype": "rogue.hobgoblin", "id": 3, "at": [2, 2, 0], "controller": "external",
+             "turn_ticks": 1000000}]
+        contents["regions"].append({"id": 2, "name": "Refuge", "size": [5, 5, 2],
+                                    "chamber": True, "anchors": {"down": [2, 2, 0]}})
+        self.server(scenario=write_package(self, contents, "guarded-stair"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
+token = os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as enemy:
+    turn = game.wait_for_decision()
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=6)
+    player.draining_creatures.add(turn.hostiles[0].name)
+    player.observe(turn)
+    step, reason = player.choose(turn)
+    assert step == Move(Direction.UP) and reason == "retreat_upstairs", (step, reason)
+    result = turn.submit(step)
+    assert result.status is Outcome.CONFIRMED
+    player.admitted(turn, step, result, reason=reason)
+    assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    refuge = game.wait_for_decision()
+    player.observe(refuge)
+    assert player.depth == 5 and refuge.cell.stairs_down
+    step, reason = player.choose(refuge)
+    assert step is not None and step != Move(Direction.DOWN), (step, reason)
+    receipt = refuge.submit(step)
+    assert receipt.status is Outcome.CONFIRMED
+    assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                text=True, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_bot_uses_a_safe_diagonal_to_a_disclosed_stair(self):
         self.check_safe_stair_route(diagonal=True)
@@ -649,6 +730,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         )
         server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.strip(), result.stderr)
         first, second, terminal = (json.loads(line) for line in result.stdout.splitlines())
         self.assertEqual(first["action"]["type"], "eat")
         self.assertEqual(first["result"]["status"], "confirmed")
@@ -864,7 +946,123 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertEqual(terminal["terminal"], "action_budget")
 
 
+    def test_player_identifies_ground_armor_and_replaces_starting_mail(self):
+        self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43)
+
+    def test_outbound_player_detours_for_armor(self):
+        self.check_armor_route(carrying=False)
+
+    def test_returning_player_takes_stairs_past_the_same_armor(self):
+        self.check_armor_route(carrying=True)
+
+    def check_armor_route(self, *, carrying):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character.update(known_identities=["item.amulet.amulet-of-yendor"], loadout=(
+            [{"archetype": "rogue.amulet_of_yendor", "quantity": 1}] if carrying else []))
+        region, = contents["regions"]
+        region.update(actors=[], items=[{"id": 10, "archetype": "rogue.plate_mail", "at": [3, 2, 0]}])
+        contents["manifest"]["stair_pairs"] = {"exit": {"upper": "2/down", "lower": "1/start"}}
+        contents["regions"].append({"id": 2, "name": "Upper", "size": [5, 5, 2],
+                                    "chamber": True, "anchors": {"down": [2, 2, 0]}})
+        self.server(scenario=write_package(self, contents, "armor-route"))
+        self.install_bot_extension()
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect",
+                                 self.address, "--budget", "1"], cwd=self.directory, env={
+                                     **os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        step, terminal = (json.loads(line) for line in result.stdout.splitlines())
+        self.assertEqual(step["reason"], "ascend" if carrying else "seek_supplies")
+        self.assertEqual(step["result"]["status"], "confirmed")
+        self.assertEqual(terminal["previous_intention_phase"], "resolved")
+
+    def test_player_identifies_cursed_ground_plate_and_keeps_starting_mail(self):
+        self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 42, cursed=True)
+
+    def test_player_identifies_ground_long_sword_and_upgrades_primary_weapon(self):
+        self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43)
+
+    def test_player_equips_unmeasured_plate_without_an_identification_scroll(self):
+        self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, identify=False)
+
+    def test_player_protects_an_identified_upgrade_against_rust(self):
+        self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, protect=True)
+
+    def check_ground_gear(self, category, starting, found, seed, *, cursed=False, identify=True, protect=False):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["seed"] = seed
+        archetypes = contents["manifest"]["archetypes"]
+        if not cursed:
+            archetypes[found]["equipment_generation"] = {"kind": "authored"}
+        found_id = archetypes[found]["identity"]
+        expected = archetypes[starting]["identity"] if cursed else found_id
+        character, = contents["manifest"]["characters"]
+        character["known_identities"] = [archetypes[starting]["identity"], found_id, f"item.scroll.identify-{category}"]
+        character["loadout"] = [
+            {"archetype": starting, "quantity": 1, "equipped_slot": 2 if category == "armor" else 0},
+        ]
+        if identify:
+            character["loadout"].append({"archetype": f"rogue.identify_{category}", "quantity": 2})
+        if protect:
+            character["known_identities"].append("item.scroll.protect-armor")
+            character["loadout"].append({"archetype": "rogue.protect_armor", "quantity": 1})
+        contents["regions"][0].update(actors=[], items=[
+            {"id": 10, "at": [1, 2, 0], "archetype": found, "quantity": 1}
+        ])
+        self.server(scenario=write_package(self, contents, "player-armor"))
+        self.install_bot_extension()
+        env = {**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN}
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect",
+                              self.address, "--budget", "15"], cwd=self.directory, env=env,
+                             text=True, capture_output=True, timeout=55)
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        rows = [json.loads(line) for line in run.stdout.splitlines()]
+        actions = [row["action"]["type"] for row in rows if "action" in row]
+        self.assertEqual("identify" in actions, identify)
+        if not identify:
+            self.assertIn("try_armor", [row.get("reason") for row in rows])
+        if protect:
+            self.assertIn("protect_armor", [row.get("reason") for row in rows])
+        equipment = rows[-1]["equipment_opportunities"][category]
+        self.assertEqual(equipment["seen_on_ground"], 1)
+        self.assertEqual(equipment["carried"], 2)
+        self.assertEqual(equipment["worn"], 1 if cursed else 2)
+        check = """
+import os, sys
+from tor_client_bot import Session
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.observe()
+    worn = next(slot.occupant for slot in turn.equipment if slot.kind == sys.argv[4])
+    assert worn and worn.identity == sys.argv[2], (worn, turn.inventory)
+    found = next(item for item in turn.inventory if item.identity == sys.argv[3])
+    if sys.argv[5] == "True":
+        assert found.known_cursed == (worn is not found), found
+    else:
+        assert found.physical_reduction == 6 and found.known_cursed is None, found
+    if sys.argv[6] == "True":
+        assert found.known_protected is True, found
+"""
+        kind = "body_armor" if category == "armor" else "weapon"
+        final = subprocess.run([sys.executable, "-c", check, self.address, expected, found_id, kind, str(identify), str(protect)], cwd=self.directory,
+                               env=env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(final.returncode, 0, f"{final.stderr}\n{[(r.get('reason'), r.get('result')) for r in rows]}")
+        self.assertEqual("unequip" in actions, not cursed)
+        self.assertEqual("equip" in actions, not cursed)
+
     def test_bot_equips_a_renamed_searching_ring(self):
+        self.check_searching_ring(occupied=False)
+
+    def test_bot_replaces_adornment_with_searching_and_keeps_protection(self):
+        self.check_searching_ring(occupied=True)
+
+    def check_searching_ring(self, *, occupied):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -873,20 +1071,33 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         manifest["archetypes"]["rogue.ring_searching"]["name"] = "Discovery band"
         character, = manifest["characters"]
         character["known_identities"] = ["item.ring.ring-searching"]
-        character["loadout"] = [{"archetype": "rogue.ring_searching", "quantity": 1}]
+        character["loadout"] = []
+        if occupied:
+            for slot, name in [(7, "protection"), (8, "adornment")]:
+                archetype = "rogue.ring_" + name
+                character["loadout"].append({"archetype": archetype, "quantity": 1, "equipped_slot": slot})
+                character["known_identities"].append("item.ring.ring-" + name)
+        contents["regions"][0]["items"] = [
+            {"id": 10, "at": [1, 2, 0], "archetype": "rogue.ring_searching", "quantity": 1}
+        ]
         contents["regions"][0]["actors"] = []
         server = self.server(scenario=write_package(self, contents, "rogue-bot-rename-ring"))
         self.install_bot_extension()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
-             "--budget", "1"],
+             "--budget", "3" if occupied else "2"],
             cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory),
                                      "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
         )
         server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        equip, terminal = (json.loads(line) for line in result.stdout.splitlines())
+        pickup, *swaps, equip, terminal = (json.loads(line) for line in result.stdout.splitlines())
+        if occupied:
+            swap, = swaps
+            self.assertEqual((swap["action"]["type"], swap["reason"]), ("unequip", "change_ring"))
+            self.assertEqual(equip["action"]["slot"], 8)
+        self.assertEqual((pickup["action"]["type"], pickup["result"]["status"]), ("take", "confirmed"))
         self.assertEqual((equip["action"]["type"], equip["reason"]), ("equip", "upgrade_equipment"))
         self.assertEqual(equip["result"]["status"], "confirmed")
         self.assertEqual(terminal["terminal"], "action_budget")
@@ -977,7 +1188,68 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_bot_uses_an_offered_wand_to_displace_a_lethal_attacker(self):
+        self.check_control_wand("teleport_away", 2)
+
+    def test_bot_slows_a_dangerous_foe_before_contact(self):
+        self.check_control_wand("slow", 3)
+
+    def check_control_wand(self, wand, enemy_x):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character.update(loadout=[{"archetype": f"rogue.wand_{wand}", "quantity": 1}],
+                         known_identities=[f"item.wand.wand-{wand.replace('_', '-')}"])
+        # Fix the opposed wand check for this displacement witness.
+        species = contents["manifest"]["creatures"]["species"][character["creature"]["species"]]
+        species.setdefault("modifiers", []).append({"scope": "always", "op": {
+            "kind": "add", "stat": {"kind": "attribute", "attribute": "intellect"}, "value": 100}})
+        region, = contents["regions"]
+        region.update(size=[17, 9, 2], actors=[{"archetype": "rogue.hobgoblin", "id": 3,
+                      "at": [enemy_x, 2, 0], "controller": "external", "turn_ticks": 1000000}])
+        self.server(scenario=write_package(self, contents, "escape-device"))
+        self.install_bot_extension()
+        code = """
+import os
+from rogue_player import Adventurer
+from tor_client_bot import Outcome, Session, Wait, Zap
+
+address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(address, token, 1) as game, Session.connect(address, token, 3) as enemy:
+    turn = game.wait_for_decision()
+    foe, = turn.hostiles
+    slowing = os.environ["WAND"] == "slow"
+    assert turn.in_contact(foe) != slowing
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    player.observed_loss[foe.target] = turn.health.current
+    action, reason = player.choose(turn)
+    assert isinstance(action, Zap) and reason == ("slow_approach" if slowing else "displace_threat"), (action, reason)
+    receipt = turn.submit(action)
+    assert receipt.status is Outcome.CONFIRMED, receipt
+    assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    assert after.outcome_of(receipt).value == "resolved"
+    if slowing:
+        assert enemy.observe().has_condition("rogue.slowed")
+    else:
+        assert not any(c.target == foe.target and after.in_contact(c) for c in after.hostiles)
+"""
+        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
+                             env={**os.environ, "WAND": wand, "PYTHONPATH": str(ROOT / "scripts"),
+                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=55)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
     def test_bot_reduces_melee_contacts_in_a_confined_room(self):
+        self.check_outnumbered_move(False)
+
+    def test_bot_enters_a_corridor_before_two_hostiles_reach_it(self):
+        self.check_outnumbered_move(True)
+
+    def check_outnumbered_move(self, approaching):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -989,6 +1261,11 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
                       actors=[{"archetype": "rogue.hobgoblin", "id": actor, "at": point,
                                "controller": "external", "turn_ticks": 1000000}
                               for actor, point in [(3, [2, 1, 0]), (4, [1, 0, 0])]])
+        if approaching:
+            region.update(size=[8, 5, 2], anchors={"start": [3, 2, 0]},
+                          walls=[[2, y, z] for y in (1, 3) for z in range(2)])
+            for actor, y in zip(region["actors"], (2, 3)):
+                actor["at"] = [5, y, 0]
         self.server(scenario=write_package(self, contents, "confined-melee-retreat"))
         self.install_bot_extension()
         code = """
@@ -1003,15 +1280,64 @@ with ExitStack() as stack:
     turn = game.wait_for_decision()
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
-    assert sum(turn.in_contact(foe) for foe in turn.hostiles) == 2
+    approaching = os.environ["APPROACHING"] == "True"
+    assert sum(turn.in_contact(foe) for foe in turn.hostiles) == (0 if approaching else 2)
     step, reason = player.choose(turn)
-    assert isinstance(step, Move) and reason == "retreat", (step, reason)
-    assert sum(turn.in_contact(foe, from_offset=step.direction.offset) for foe in turn.hostiles) == 1
+    assert isinstance(step, Move) and reason == ("take_corridor" if approaching else "retreat"), (step, reason)
+    destination = turn.cell_at(step.direction.offset).key
+    if approaching:
+        assert step.direction.offset == (-1, 0, 0)
+    else:
+        assert sum(turn.in_contact(foe, from_offset=step.direction.offset) for foe in turn.hostiles) == 1
     assert turn.submit(step).status is Outcome.CONFIRMED
     for enemy in (east, north):
         assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     after = game.wait_for_decision()
-    assert sum(after.in_contact(foe) for foe in after.hostiles) == 1
+    assert after.cell.key == destination
+    assert sum(after.in_contact(foe) for foe in after.hostiles) == (0 if approaching else 1)
+"""
+        run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
+                             env={**os.environ, "APPROACHING": str(approaching), "PYTHONPATH": str(ROOT / "scripts"),
+                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=55)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_pinned_bot_attacks_the_opponent_occupying_its_exit(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["characters"][0]["loadout"] = [{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0}]
+        manifest["stair_pairs"] = {"exit": {"upper": "1/down", "lower": "2/up"}}
+        region, = contents["regions"]
+        region.update(size=[3, 1, 2], anchors={"start": [1, 0, 0], "down": [2, 0, 0]},
+                      actors=[{"archetype": "rogue.hobgoblin", "id": i, "at": [x, 0, 0],
+                               "controller": "external", "turn_ticks": 1000000} for i, x in [(3, 0), (4, 2)]])
+        contents["regions"].append({"id": 2, "name": "Landing", "size": [3, 3, 2],
+                                    "chamber": True, "anchors": {"up": [1, 1, 0]}})
+        self.server(scenario=write_package(self, contents, "stair-blocker"))
+        self.install_bot_extension()
+        code = """
+import os
+from contextlib import ExitStack
+from rogue_player import Adventurer
+from tor_client_bot import ActivityPhase, Outcome, Session, Wait
+
+with ExitStack() as clients:
+    game, west, east = [clients.enter_context(Session.connect(os.environ["BOT_TEST_ADDRESS"],
+                        os.environ["TOR_SERVER_TOKEN"], i)) for i in (1, 3, 4)]
+    turn = game.wait_for_decision()
+    assert len(turn.hostiles) == 2 and not turn.walkable_directions
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    action, reason = player.choose(turn)
+    assert reason == "melee" and any(c.stairs_down for c in turn.cells_of(action.target))
+    attack = turn.submit(action)
+    assert attack.status is Outcome.CONFIRMED
+    for foe in (west, east):
+        assert foe.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().outcome_of(attack) is ActivityPhase.RESOLVED
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"),
