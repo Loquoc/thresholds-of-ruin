@@ -210,7 +210,55 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
                   for event in turn["events_since_previous_action"]]
         self.assertTrue(any(event["type"] == "ability" for event in events), events)
 
-    def test_bot_does_not_repeat_projectiles_at_a_stalled_tick_in_bundled_seed_47(self):
+    def test_bot_does_not_repeat_a_failed_throw_at_a_stalled_tick(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        manifest["characters"][0]["loadout"] = [
+            {"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0},
+            {"archetype": "rogue.dart", "quantity": 12},
+        ]
+        contents["regions"][0]["actors"][0].update(archetype="rogue.hobgoblin", at=[4, 2, 0])
+        self.server(scenario=write_package(self, contents, "unfunded-throw"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import ActivityPhase, Outcome, Session, Wait
+
+token = os.environ["TOR_SERVER_TOKEN"]
+with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as enemy:
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    turn = game.wait_for_decision()
+    for attempt in range(12):
+        player.observe(turn)
+        action, reason = player.choose(turn)
+        assert reason == "throw_projectile", (attempt, action, reason)
+        receipt = turn.submit(action)
+        assert receipt.status is Outcome.CONFIRMED, receipt
+        player.admitted(turn, action, receipt, reason=reason)
+        if attempt == 0:
+            assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+        following = game.wait_for_decision()
+        if following.outcome_of(receipt) is ActivityPhase.FAILED:
+            break
+        turn = following
+    assert following.outcome_of(receipt) is ActivityPhase.FAILED, following.finished_activities
+    assert following.tick == turn.tick, (turn.tick, following.tick)
+    player.observe(following)
+    action, reason = player.choose(following)
+    assert action is not None and reason not in {"throw_projectile", "launch_projectile"}, (action, reason)
+    assert following.submit(action).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().tick > following.tick
+"""
+        run = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=45)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_bundled_seed_47_replays_the_bots_decisions_and_projectile_receipts(self):
         self.install_bot_extension()
         output = self.directory / "cohort"
         result = subprocess.run(
@@ -231,9 +279,6 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertTrue(shots, turns)
         ticks = [row["tick"] for row in shots]
         self.assertEqual(len(ticks), len(set(ticks)), shots)
-        failed = {row["previous_intention_id"] for row in turns if row["previous_intention_phase"] == "failed"}
-        self.assertTrue(any(row["reason"] == "throw_projectile" and
-                            row["result"]["receipt"]["intention"] in failed for row in shots))
         # Begin with fresh policy memory and rebuild it from the same observed decisions.
         replay = """
 import json
@@ -769,6 +814,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     memory.visited.update(memory.cells)
     # The only remaining candidate sites are equally far away.
     player.searches.update({key: 3 for key in memory.cells if key not in {east, west}})
+    player.completed_end_searches.update({key: 6 for key in memory.cells if memory.is_dead_end(key)})
     walls = lambda key: {cell.key for cell in memory.adjacent(key) if cell.wall}
     assert len(walls(east)) == 2 and len(walls(west)) == 1
     step, reason = player.choose(turn)
@@ -1442,6 +1488,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert len(walls) == 3
     player.wall_searches.update(walls)
     memory.visited.update(memory.cells)
+    player.completed_end_searches.update({key: 6 for key in memory.cells if key != end and memory.is_dead_end(key)})
     action, reason = player.choose(turn)
     assert (action, reason) == (Move(Direction.EAST), "search"), (action, reason)
     assert turn.submit(action).status is Outcome.CONFIRMED
@@ -1449,12 +1496,15 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert turn.cell.key == end
     player.observe(turn)
     memory.visited.update(memory.cells)
-    action, reason = player.choose(turn)
-    assert isinstance(action, UseAbility) and action.ability.identity == "rogue.search"
-    assert turn.submit(action).status is Outcome.CONFIRMED
-    player.admitted(turn, action)
-    turn = game.wait_for_decision()
-    player.observe(turn)
+    for completed in range(1, 7):
+        action, reason = player.choose(turn)
+        assert isinstance(action, UseAbility) and action.ability.identity == "rogue.search"
+        receipt = turn.submit(action)
+        assert receipt.status is Outcome.CONFIRMED
+        player.admitted(turn, action, receipt)
+        turn = game.wait_for_decision()
+        player.observe(turn)
+        assert player.completed_end_searches[end] == completed
     assert turn.hunger == "nourished"
     memory.visited.update(memory.cells)
     player.wall_searches.update({c.key: 3 for c in memory.cells.values() if c.wall})
