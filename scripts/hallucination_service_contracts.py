@@ -4,7 +4,7 @@ These are Service witnesses, not transport/native-client or durable-store tests.
 """
 import json
 
-from hallucination_package import assert_sample, fixture, initial_items
+from hallucination_package import FIRST_DISGUISE_TICKS, assert_sample, fixture, initial_items
 from process_harness import ProcessTestCase
 from utility_potions_package import condition, deadline, inventory_item, observation
 from utility_potions_service_contracts import UtilityServiceHarness
@@ -125,14 +125,49 @@ class HallucinationServiceContracts(UtilityServiceHarness):
             shifted = [row for row in updates if row["cursor"]["tick"] == "200"]
             self.assertTrue(shifted, "actual unsolicited causal publication is required")
             self.assertTrue(any(row["body"]["visual_changed"] for row in shifted),
-                            "The changed phase must invalidate both attachments' pictures")
-        # The causal boundary changes the phase independently of display demand.
-        # Each attachment can then request its own complete, consistent picture.
+                            "The housekeeping boundary must invalidate both attachments' pictures")
+        # The base clock advances, but age100 is below the minimum disguise
+        # interval. Refresh demand is not itself a cosmetic reroll.
         current = self.snapshot()
-        assert_sample(self, observation(current), 1)
+        assert_sample(self, observation(current), 0)
         self.host.request(case=self.case, connection=follower, request_id="phase-picture",
                           request={"type": "snapshot"})
         refreshed = [row["snapshot"] for row in drain_follower() if row["type"] == "snapshot"]
         self.assertEqual(len(refreshed), 1)
         self.assertEqual(observation(refreshed[0])["tick"], "200")
-        assert_sample(self, observation(refreshed[0]), 1)
+        assert_sample(self, observation(refreshed[0]), 0)
+
+        # Preserve the actual changed-picture witness at the independently
+        # derived first boundary, rather than merely weakening phase-one checks.
+        start = int(observation(first)["tick"])
+        boundary = start + FIRST_DISGUISE_TICKS
+        for target, sample in ((boundary - 100, 0), (boundary, 1)):
+            owner_updates.clear()
+            follower_updates.clear()
+            for _ in range(128):
+                current = self.snapshot()
+                tick = int(observation(current)["tick"])
+                self.assertLessEqual(tick, target, "must inspect the exact boundary")
+                if tick == target:
+                    break
+                for actor, frame in ((1, current), (2, self.snapshot(2))):
+                    if frame["readiness"]["admission"] and observation(frame)["ready"]:
+                        self.request(actor, self.command(frame, {"type": "wait"}))
+                self.assertEqual(self.host.call("step", case=self.case)["status"], "progress")
+                collect(self.drain(1), owner_updates)
+                collect(drain_follower(), follower_updates)
+                self.drain(2)
+            else:
+                self.fail("seeded disguise boundary was not reached")
+            assert_sample(self, observation(current), sample)
+            self.host.request(case=self.case, connection=follower, request_id=f"picture-{target}",
+                              request={"type": "snapshot"})
+            pictures = [row["snapshot"] for row in drain_follower() if row["type"] == "snapshot"]
+            self.assertEqual(len(pictures), 1)
+            self.assertEqual(int(observation(pictures[0])["tick"]), target)
+            assert_sample(self, observation(pictures[0]), sample)
+            if target == boundary:
+                for updates in (owner_updates, follower_updates):
+                    self.assertTrue(any(int(row["cursor"]["tick"]) == boundary
+                                        and row["body"]["visual_changed"] for row in updates),
+                                    "both attachments require actual boundary refresh delivery")
