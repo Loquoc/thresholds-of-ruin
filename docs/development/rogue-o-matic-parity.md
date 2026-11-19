@@ -27,6 +27,16 @@ died on floor 8. Both policies died on floor 3 on seed 52. Separate live
 corridor cases verified six completed searches at a sealed end and opening
 a door immediately after an earlier successful Search.
 
+At `4f40aca5` a player carrying the Amulet can recover a disconnected return
+route. If there is no known walkable path to the upstairs, it searches a wall
+that borders both its reachable area and a remembered passage leading to the
+stair. The policy tries a search site up to three times before exploring
+elsewhere. In a live fixture with a recorded prior view, the player moved
+east toward that wall and completed Search. A separate policy case left a
+southern passage unexplored and confirmed the player took it after exhausting
+the eastern search budget. Whether the wall hides a door is unknown until
+the player discovers one.
+
 At `4626f592` a live encounter placed two hobgoblins within three cells of a
 player carrying two recognized haste potions. The player drank one before
 contact. The following observation showed Hasted and one dose in inventory.
