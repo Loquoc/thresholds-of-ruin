@@ -108,7 +108,10 @@ in a losing run.
    fresh walls first with giving nearby illuminated searches partial credit.
    Record first-descent ticks, remaining nutrition, exit discovery and eventual
    return on several seeds. Repeated searches can reveal a door, so a lower
-   search count alone is insufficient.
+   search count alone is insufficient. Giving partial credit for nearby
+   illuminated searches reduced submissions to 1,031 on seed 49. The bot died
+   on floor 15 and fainted 69 times, compared with 13 in the control. The
+   experimental rule remains outside the production player.
 2. **Make equipment choices respond to the encounter.** XIV's `handlearmor`
    sometimes kept its best suit in the pack to protect it from rust, and
    `ringclass` raised the priority of see-invisible when the player was being
@@ -118,11 +121,12 @@ in a losing run.
    the player. Use bundled Rogue's effects and timing for this comparison.
 3. **Exercise what the player learns.** In scenarios with discretionary
    growth, the bot can buy Rattling Blow or Dislocating Strike. Its melee
-   decision currently asks for the basic attack. Pair an adjacent opponent
-   with a ready learned technique against the same encounter with insufficient
-   Stamina. Verify the chosen action, its cost and the resolved effect. This
-   checks the Python API even in a scenario where the player earns no choice
-   about its growth.
+   decision now requests Rattling Blow when available. A live encounter with
+   a hobgoblin blocking the exit confirmed that a trained player used the
+   technique and an untrained player used basic melee. Both attacks resolved.
+   Replayable API tests cover insufficient Stamina, supplies, reach and
+   cooldown. Dislocating Strike still needs a decision about when pushing the
+   opponent opens an escape.
 4. **Plan where combat will happen.** XIV's `archmonster` searched for a
    firing position and `markcycles` marked doors on escape loops. The Python
    player already takes some corridor positions and checks clear device rays.

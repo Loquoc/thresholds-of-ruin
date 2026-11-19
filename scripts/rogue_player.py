@@ -360,6 +360,8 @@ class Adventurer:
             return injury_priority.get(foe.injury, 3), not opens_exit, foe.distance
 
         for foe in sorted(turn.hostiles, key=attack_order):
+            if attack := turn.attack(foe, technique="rattling_blow"):
+                return attack, "melee"
             if attack := turn.attack(foe):
                 return attack, "melee"
 

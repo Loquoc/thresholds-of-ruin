@@ -133,6 +133,11 @@ to the expected place, including an adjacent landing beside an occupied stair.
   movement after opening a door.
 - `turn.projectiles()` queries usable throwables and compatible launcher/ammunition
   pairs, including when there are no targets in sight.
+- `turn.attack(foe)` proposes the basic attack. Pass an identity such as
+  `turn.attack(foe, technique="rattling_blow")` to request a particular melee
+  technique. It returns `None` if the technique is unavailable, its target
+  is outside contact, or the creature belongs to an earlier observation.
+  Readiness accounts for cooldown, resource costs and identified carried supplies.
 - `turn.ranged_attacks()` finds target cells on visible creatures and pairs
   them with the server's projectile choices. Each shot identifies its target,
   projectile, launcher when applicable, and aim offset. The server resolves

@@ -1479,11 +1479,21 @@ with ExitStack() as stack:
         self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_pinned_bot_attacks_the_opponent_occupying_its_exit(self):
+        self.pinned_melee("basic_melee")
+
+    def test_bot_uses_its_learned_rattling_blow_in_contact(self):
+        self.pinned_melee("rattling_blow")
+
+    def pinned_melee(self, expected):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         manifest = contents["manifest"]
+        if expected == "rattling_blow":
+            build = manifest["characters"][0]["creature"]
+            build["hit_dice"][-1]["purchases"].append(
+                {"pool": "advancement", "selection": {"kind": "talent", "talent": expected}})
         manifest["characters"][0]["loadout"] = [{"archetype": "rogue.mace", "quantity": 1, "equipped_slot": 0}]
         manifest["stair_pairs"] = {"exit": {"upper": "1/down", "lower": "2/up"}}
         region, = contents["regions"]
@@ -1509,15 +1519,18 @@ with ExitStack() as clients:
     player.observe(turn)
     action, reason = player.choose(turn)
     assert reason == "melee" and any(c.stairs_down for c in turn.cells_of(action.target))
+    assert action.ability.identity == os.environ["EXPECTED_MELEE"], (action, turn.abilities)
     attack = turn.submit(action)
     assert attack.status is Outcome.CONFIRMED
     for foe in (west, east):
         assert foe.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     assert game.wait_for_decision().outcome_of(attack) is ActivityPhase.RESOLVED
+    incoming = east.observe().recent_combat.incoming
+    assert any(hit.ability == action.ability.identity for hit in incoming), incoming
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"),
-                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
+                                  "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN, "EXPECTED_MELEE": expected},
                              capture_output=True, text=True, timeout=55)
         self.assertEqual(run.returncode, 0, run.stderr)
 

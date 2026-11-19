@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from functools import cached_property
 from itertools import product
@@ -627,6 +628,10 @@ class Turn:
     def abilities(self) -> tuple[Ability, ...]:
         stats = self._view.get("combat", {}).get("own_stats", {})
         resources = {row["resource"]["id"]: row["available"] for row in stats.get("resources", ())}
+        stock: Counter[str] = Counter()
+        for item in self._view.get("inventory", ()):
+            if item.get("identified") and (supply := item.get("known_supply")):
+                stock[supply["id"]] += int(item["quantity"])
         abilities = []
         for row in stats.get("abilities", ()):
             cost = row["cost"]
@@ -643,7 +648,9 @@ class Turn:
                     row["target_kind"],
                     reach["kind"],
                     reach.get("range"),
-                    affordable and int(row["cooldown_remaining"]) == 0,
+                    affordable and int(row["cooldown_remaining"]) == 0 and all(
+                        stock[cost["supply"]] >= int(cost["quantity"]) for cost in row.get("supply_costs", ())
+                    ),
                 )
             )
         return tuple(abilities)
@@ -652,9 +659,12 @@ class Turn:
     def basic_attack(self) -> Ability | None:
         return next((ability for ability in self.abilities if ability.basic_attack and ability.ready), None)
 
-    def attack(self, creature: Creature) -> UseAbility | None:
-        """Propose the actor's basic attack against a visible creature in contact."""
+    def attack(self, creature: Creature, *, technique: str | None = None) -> UseAbility | None:
+        """Propose a basic attack or a ready actor-targeted melee technique by its identity."""
         ability = self.basic_attack
+        if technique is not None:
+            ability = next((a for a in self.abilities if a.identity == technique and a.ready
+                            and a.target_kind == "actor" and a.reach == "melee"), None)
         if ability is None or not any(creature is other for other in self.creatures):
             return None
         if ability.reach == "melee" and not self.in_contact(creature):

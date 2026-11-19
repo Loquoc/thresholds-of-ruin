@@ -17,6 +17,36 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_named_melee_requires_contact_an_actor_target_and_disclosed_costs(self):
+        actor = {"id": "foe", "name": "opponent", "position": {"x": 1, "y": 0, "z": 0}}
+        technique = {"id": "tech", "name": "Attack", "target_kind": "actor", "reach": {"kind": "melee"},
+                     "basic_attack": False, "cooldown_remaining": 0,
+                     "cost": {"resource": {"id": "stamina"}, "start": 1, "resolution": 1},
+                     "supply_costs": [{"supply": "stone", "quantity": 1}]}
+        basic = dict(technique, id="basic", basic_attack=True, cost=None, supply_costs=[])
+        resource = {"resource": {"id": "stamina"}, "available": 2}
+        stock = {"known_supply": {"id": "stone"}, "quantity": 1, "identified": True}
+        observer = {"id": "me", "name": "player", "position": {"x": 0, "y": 0, "z": 0}}
+        view = {"visible_actors": [observer, actor], "visible_cells": [], "self_target": "me", "inventory": [stock],
+                "combat": {"own_stats": {"abilities": [basic, technique], "resources": [resource]}}}
+        def picture():
+            return Turn({"readiness": {}, "state": {"observation": view}})
+
+        turn = picture()
+        foe, = turn.creatures
+        self.assertEqual(turn.attack(foe).ability.identity, "basic")
+        self.assertEqual(turn.attack(foe, technique="tech").ability.identity, "tech")
+        self.assertIsNone(turn.attack(foe, technique="Attack"))
+        self.assertIsNone(picture().attack(foe, technique="tech"))
+        for row, field, value in ((resource, "available", 1), (stock, "quantity", 0), (stock, "identified", False),
+                                  (technique, "cooldown_remaining", 1), (technique, "target_kind", "self_or_ally"),
+                                  (technique, "reach", {"kind": "projectile"}), (actor["position"], "x", 2)):
+            with self.subTest(field=field):
+                original, row[field] = row[field], value
+                turn = picture()
+                self.assertIsNone(turn.attack(turn.creatures[0], technique="tech"))
+                row[field] = original
+
     def test_cell_illumination_survives_recording_and_unknown_stays_unknown(self):
         import json
         cells = [{"key": str(x), "position": {"x": x, "y": 0, "z": 0}, "wall": False,
