@@ -70,6 +70,47 @@ fn mix(mut value: u64) -> u64 {
     value ^ (value >> 31)
 }
 
+/// Every duration is exactly two independent d10 draws in fixed game ticks.
+pub(crate) const HALLUCINATION_TICK_UNIT: u64 = 100;
+const HALLUCINATION_DURATION_RING: usize = 1024;
+
+/// Pure random-access disguise interval. key.phase is the condition generation
+/// for this duration stream, NOT the resulting catalog selector phase.
+/// The private ring repeats durations only after at least204800 ticks; selector
+/// interval numbers keep increasing, so catalog appearances do not loop with it.
+/// Typical reads stop at the requested interval, without generating the ring.
+/// No game RNG, per-entity state, world membership or query order is involved.
+pub(crate) fn hallucination_interval(key: AppearanceKey, elapsed_ticks: u64) -> u64 {
+    if elapsed_ticks < 2 * HALLUCINATION_TICK_UNIT {
+        return 0;
+    }
+    let mut state = appearance_hash(key) ^ 0x68616c6c5f326431;
+    let mut remaining = elapsed_ticks;
+    let mut durations = [0u16; HALLUCINATION_DURATION_RING];
+    let mut total = 0u64;
+    for (index, duration) in durations.iter_mut().enumerate() {
+        *duration = crate::dice::die(&mut state, 10) + crate::dice::die(&mut state, 10);
+        let ticks = u64::from(*duration) * HALLUCINATION_TICK_UNIT;
+        total += ticks;
+        if remaining < ticks {
+            return index as u64;
+        }
+        remaining -= ticks;
+    }
+    // One complete ring has already been consumed. Both products are bounded
+    // by elapsed/min_duration, including u64::MAX; no per-elapsed-time loop.
+    let completed = 1 + remaining / total;
+    remaining %= total;
+    for (index, duration) in durations.into_iter().enumerate() {
+        let ticks = u64::from(duration) * HALLUCINATION_TICK_UNIT;
+        if remaining < ticks {
+            return completed * HALLUCINATION_DURATION_RING as u64 + index as u64;
+        }
+        remaining -= ticks;
+    }
+    unreachable!("remainder is strictly shorter than the duration ring")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +125,106 @@ mod tests {
         }
     }
 
+    #[test]
+    fn exact_two_d10_intervals_preserve_boundaries_and_random_access() {
+        let k = key();
+        let mut local = appearance_hash(k) ^ 0x68616c6c5f326431;
+        let mut boundary = 0;
+        let mut durations = Vec::new();
+        for interval in 0..1024u64 {
+            let a = crate::dice::die(&mut local, 10);
+            let b = crate::dice::die(&mut local, 10);
+            assert!((1..=10).contains(&a) && (1..=10).contains(&b));
+            let duration = u64::from(a + b) * 100;
+            assert!((200..=2000).contains(&duration));
+            assert_eq!(hallucination_interval(k, boundary), interval);
+            assert_eq!(hallucination_interval(k, boundary + duration - 1), interval);
+            boundary += duration;
+            durations.push(duration);
+        }
+        assert_eq!(hallucination_interval(k, boundary), 1024);
+        assert_eq!(hallucination_interval(k, boundary + durations[0] - 1), 1024);
+        assert_eq!(hallucination_interval(k, boundary + durations[0]), 1025);
+        assert_eq!(
+            hallucination_interval(k, u64::MAX),
+            hallucination_interval(k, u64::MAX)
+        );
+        let span = boundary;
+        let cycles = u64::MAX / span;
+        assert_eq!(hallucination_interval(k, cycles * span), cycles * 1024);
+    }
+
+    #[test]
+    fn disguise_timing_is_private_staggered_and_first_interval_has_full_minimum() {
+        for channel in [
+            AppearanceChannel::Creature,
+            AppearanceChannel::Item,
+            AppearanceChannel::Terrain,
+            AppearanceChannel::MonsterSense,
+        ] {
+            let starts: std::collections::BTreeSet<_> = (1..33)
+                .map(|subject| {
+                    let k = AppearanceKey {
+                        subject,
+                        channel,
+                        ..key()
+                    };
+                    assert_eq!(hallucination_interval(k, 0), 0);
+                    assert_eq!(hallucination_interval(k, 199), 0);
+                    (200..=2000)
+                        .step_by(100)
+                        .find(|t| hallucination_interval(k, *t) == 1)
+                        .unwrap()
+                })
+                .collect();
+            assert!(starts.len() > 5, "subjects must not shift in lockstep");
+        }
+        let schedules = |k| {
+            (0..80)
+                .map(|i| hallucination_interval(k, i * 100))
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(
+            schedules(key()),
+            schedules(AppearanceKey {
+                observer: 9,
+                ..key()
+            })
+        );
+        assert_ne!(
+            schedules(key()),
+            schedules(AppearanceKey { phase: 9, ..key() })
+        );
+    }
+
+    #[test]
+    fn normal_disguise_lookup_does_not_eagerly_generate_duration_ring() {
+        let before = crate::dice::random_word_draws_for_test();
+        assert_eq!(hallucination_interval(key(), 199), 0);
+        assert_eq!(crate::dice::random_word_draws_for_test(), before);
+        hallucination_interval(key(), 85000);
+        // Every interval is >=200 ticks. At most426 intervals plus vanishingly
+        // rare unbiased-rejection draws; exact fixture requires far fewer.
+        assert!(crate::dice::random_word_draws_for_test() - before < 852);
+    }
+
+    #[test]
+    fn duration_stream_matches_independent_two_die_vectors() {
+        // Independently evaluated pairs: (2,9),(1,1),(9,10),(7,7),(9,7),(2,4),(7,9),(7,3).
+        let mut boundary = 0;
+        for (index, duration) in [1100, 200, 1900, 1400, 1600, 600, 1600, 1000]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(hallucination_interval(key(), boundary), index as u64);
+            assert_eq!(
+                hallucination_interval(key(), boundary + duration - 1),
+                index as u64
+            );
+            boundary += duration;
+        }
+        assert_eq!(hallucination_interval(key(), boundary), 8);
+    }
     #[test]
     fn validated_palette_selector_preserves_old_recipe_without_old_public_cap() {
         for count in [1, 2, 26, 75, MAX_PRESENTATION_CHOICES] {

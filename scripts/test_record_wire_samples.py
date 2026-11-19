@@ -1401,13 +1401,13 @@ class HallucinationRecordingContracts(unittest.TestCase):
                "snapshot": {"state": {"observation": view}, "context": {"stream": "unchanged-stream", "epoch": "1"}}}
         source = {stage: copy.deepcopy(raw) for stage in ("visual", "extended", "cured")}
         extended = source["extended"]["snapshot"]["state"]["observation"]
-        extended["tick"] = "200"
-        extended["combat"]["own_stats"]["conditions"][0]["remaining_ticks"] = "161500"
+        extended["tick"] = "1200"
+        extended["combat"]["own_stats"]["conditions"][0]["remaining_ticks"] = "160500"
         extended["visible_actors"][0].update(name="bat", asset="creature.bat")
         extended["ground_items"][0]["presentation"] = {"name": "cedar staff", "asset": "item.wand.staff.cedar",
             "kind": {"kind": "item", "class": "wand"}}
         cured = source["cured"]["snapshot"]["state"]["observation"]
-        cured["tick"] = "300"
+        cured["tick"] = "1300"
         cured["visible_actors"][0].update(name="actual visible peer", asset=None)
         cured["combat"]["own_stats"]["conditions"] = []
         cured["ground_items"][0]["presentation"] = None
@@ -1540,10 +1540,10 @@ class HallucinationRecordingContracts(unittest.TestCase):
             "wrong_extended_peer": lambda s: view(s, "extended")["visible_actors"][0].update(name="emu"),
             "wrong_extended_object": lambda s: view(s, "extended")["ground_items"][0]["presentation"].update(name="arrow"),
             "extended_true_sibling_leak": lambda s: view(s, "extended")["ground_items"][0]["item"].update(asset="item.coin"),
-            "too_small_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="161400"),
-            "too_large_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="170000"),
-            "fractional_turn_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="161501"),
-            "extension_tick_ignored": lambda s: view(s, "extended").update(tick="201"),
+            "too_small_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="160400"),
+            "too_large_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="169000"),
+            "fractional_turn_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="160501"),
+            "extension_tick_ignored": lambda s: view(s, "extended").update(tick="1201"),
             "stale_cured_peer": lambda s: view(s, "cured")["visible_actors"][0].update(name="bat", asset="creature.bat"),
             "zero_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="0"),
             "missing_extension": lambda s: view(s, "extended")["combat"]["own_stats"].update(conditions=[]),

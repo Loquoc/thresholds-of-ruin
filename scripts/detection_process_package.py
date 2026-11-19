@@ -24,6 +24,10 @@ DOSES = {"monsters": (30, "monster_detection", 6), "food": (31, "food_detection"
 VISUAL = {0: ("emu", "creature.bird.emu"), 1: ("bat", "creature.bat")}
 MONSTER_SENSE = {0: ("snake", "creature.serpent.snake"),
                  1: ("leprechaun", "creature.fey.leprechaun")}
+# Seed42, observer1, peer2, hallucination generation1 (detection was applied first).
+# Independently derived from the selector seed and unbiased SplitMix d10 draws.
+FIRST_SENSE_DISGUISE_TICKS = 1200
+FIRST_VISIBLE_DISGUISE_TICKS = 1600
 
 
 def fixture(*, paging=False, mapping=False, certified=True, production=PRODUCTION):
@@ -263,20 +267,22 @@ def rows(pages):
     return [row for page in pages for row in page["records"] if row["record"] == "row"]
 
 
-def assert_monster_sample(test, frame, pages, phase):
+def assert_monster_sample(test, frame, pages, visual_phase, sense_phase=None):
+    if sense_phase is None:
+        sense_phase = visual_phase
     peers = [row for row in frame["state"]["observation"]["visible_actors"]
              if row["id"] != frame["state"]["observation"]["self_target"]]
     test.assertEqual(len({row["id"] for row in peers}), 1)
     for peer in peers:
-        test.assertEqual((peer["name"], peer.get("asset")), VISUAL[phase])
+        test.assertEqual((peer["name"], peer.get("asset")), VISUAL[visual_phase])
         test.assertEqual(peer["description"], "")
         test.assertEqual(peer["appearance_seed"], "p_" + "00" * 32)
     found = rows(pages)
     test.assertEqual(len(found), 1)
-    test.assertEqual(found[0]["mark"], {"kind": "monster", "name": MONSTER_SENSE[phase][0],
-                                        "asset": MONSTER_SENSE[phase][1]})
+    test.assertEqual(found[0]["mark"], {"kind": "monster", "name": MONSTER_SENSE[sense_phase][0],
+                                        "asset": MONSTER_SENSE[sense_phase][1]})
     test.assertNotIn("PRIVATE", json.dumps(pages))
-    test.assertNotEqual(VISUAL[phase], MONSTER_SENSE[phase])
+    test.assertNotEqual(VISUAL[visual_phase], MONSTER_SENSE[sense_phase])
 
 
 def checkpoint_payload(test):

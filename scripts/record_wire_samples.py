@@ -533,6 +533,7 @@ class Recorder(ProcessTestCase):
         server_samples.update({"zz.first_contact_" + key: value for key, value in samples.items()})
 
     def record_hallucination(self, server_samples):
+        from hallucination_package import FIRST_DISGUISE_TICKS
         samples = run_recording_case(hallucination_recording_case(), "hallucination_samples")
         self.assertEqual(set(samples), {"visual", "extended", "cured"})
         observations = {}
@@ -567,7 +568,7 @@ class Recorder(ProcessTestCase):
                 self.assertIsNone(ground["presentation"])
                 self.assertEqual(ground["item"]["name"], "gold coin")
         self.assertEqual(observations["visual"]["tick"], "100")
-        self.assertEqual(observations["extended"]["tick"], "200")
+        self.assertEqual(observations["extended"]["tick"], str(100 + FIRST_DISGUISE_TICKS))
         self.assertIn(deadlines["extended"] - deadlines["visual"], range(80800, 89201, 100))
         for stage, name, asset, object_name, object_asset, cosmetic_class in (
                 ("visual", "emu", "creature.bird.emu", "gold wand", "item.wand.gold", "wand"),

@@ -684,10 +684,10 @@ impl Game {
             return true;
         };
         self.projected_hallucination(id)
-            .map(|c| c.map(|c| c.phase()))
+            .map(|c| c.map(|c| (c.generation(), c.presentation_tick())))
             != before
                 .projected_hallucination(id)
-                .map(|c| c.map(|c| c.phase()))
+                .map(|c| c.map(|c| (c.generation(), c.presentation_tick())))
             || self.actor_scene_witness(id) != before.actor_scene_witness(id)
             || a.location != b.location
             || a.orientation != b.orientation
