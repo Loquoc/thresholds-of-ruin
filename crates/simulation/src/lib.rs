@@ -73,6 +73,8 @@ pub use human_operands::HumanOperandBinding;
 mod actor_creatures;
 mod actor_record;
 mod actor_store;
+mod wizard_inspection;
+pub use wizard_inspection::{WizardItemInstance, WizardTile};
 mod mutation;
 mod mutation_frame;
 pub(crate) use mutation_frame::EntityMutationIdentity;

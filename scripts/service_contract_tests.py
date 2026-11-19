@@ -17,8 +17,15 @@ from service_contract_host import HostError, ServiceHost
 from linked_hold_service_contracts import LinkedHoldServiceContracts as LinkedHoldServiceContracts
 from theft_service_contracts import TheftServiceContracts as TheftServiceContracts
 from utility_potions_service_contracts import UtilityPotionsServiceContracts as UtilityPotionsServiceContracts
-from hallucination_service_contracts import HallucinationServiceContracts as HallucinationServiceContracts
-from wizard_item_service_contracts import WizardItemServiceContracts as WizardItemServiceContracts
+from hallucination_service_contracts import (
+    HallucinationServiceContracts as HallucinationServiceContracts,
+    WizardHallucinationServiceContracts as WizardHallucinationServiceContracts,
+)
+from wizard_item_service_contracts import (
+    WizardAiGiveServiceContracts as WizardAiGiveServiceContracts,
+    WizardItemServiceContracts as WizardItemServiceContracts,
+)
+from wizard_context_service_contracts import WizardContextServiceContracts as WizardContextServiceContracts
 from utility_wands_service_contracts import UtilityWandsServiceContracts as UtilityWandsServiceContracts
 from discovery_service_contracts import (
     DiscoveryServiceContracts as DiscoveryServiceContracts,

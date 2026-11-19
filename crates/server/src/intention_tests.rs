@@ -4370,6 +4370,194 @@ mod finite_supply_publication_tests {
     }
 
     #[test]
+    fn wizard_condition_clear_keeps_paid_readied_reservation_across_restore() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("wizard-reserved-condition.db");
+        let scenario = checked_care_fixture();
+        let actor = ActorId(1);
+        let sim_actor = SimActor(1);
+        let readied = tor_simulation::content_ids::ConditionId::new("readied").unwrap();
+        let mut engine = Engine::open(&path, scenario.clone()).unwrap();
+        let branch = engine.branch().clone();
+        engine.enable_wizard().unwrap();
+        let wizard = |engine: &mut Engine, request: &str, text: &str| {
+            engine.command(
+                "player",
+                "supply-test",
+                actor,
+                request,
+                &branch,
+                Command::Wizard {
+                    display_basis: None,
+                    expected_boundary: engine.causal_boundary(actor).unwrap(),
+                    operation: crate::developer::parse_wizard(text).unwrap(),
+                },
+            )
+        };
+        assert!(wizard(
+            &mut engine,
+            "bad-source",
+            "condition apply 2 readied 300 source 999"
+        )
+        .is_err());
+        wizard(
+            &mut engine,
+            "mob-readied",
+            "condition apply 2 readied 300 source self",
+        )
+        .unwrap();
+        let mob = engine.game.creature(SimActor(2)).unwrap();
+        assert!(mob
+            .conditions()
+            .instances()
+            .any(|row| row.condition == readied && row.source == sim_actor));
+        drop(mob);
+        wizard(&mut engine, "mob-clear", "condition clear 2 readied").unwrap();
+
+        let dose = Command::AdmitIntention {
+            expected_boundary: engine.causal_boundary(actor).unwrap(),
+            action: Action::Drink { item: 11 },
+        };
+        engine
+            .command("player", "supply-test", actor, "dose", &branch, dose)
+            .unwrap();
+        engine.execute_next_intention().unwrap().unwrap();
+        while engine.game.preparation(sim_actor).is_some() {
+            ordinary_wait(&mut engine);
+        }
+        let care = Command::AdmitIntention {
+            expected_boundary: engine.causal_boundary(actor).unwrap(),
+            action: Action::UseAbility {
+                id: tor_simulation::content_ids::AbilityId::new("paid_care").unwrap(),
+                invocation: crate::actions::AbilityInvocation {
+                    aim: crate::actions::AbilityAim::ActorTarget { target: sim_actor },
+                    weapon: crate::actions::WeaponSelection::Default,
+                },
+                supplies: SupplySelection::Explicit {
+                    items: vec![SelectedSupply {
+                        cost_ordinal: 0,
+                        item: 10,
+                    }],
+                },
+            },
+        };
+        engine
+            .command("player", "supply-test", actor, "care", &branch, care)
+            .unwrap();
+        engine.execute_next_intention().unwrap().unwrap();
+        let witness = |engine: &Engine| {
+            let creature = engine.game.creature(sim_actor).unwrap();
+            let current = creature
+                .conditions()
+                .instances()
+                .find(|row| row.condition == readied)
+                .map(|row| (row.generation, row.remaining, row.reserved_by));
+            current
+        };
+        let (generation, remaining, reserved) = witness(&engine).unwrap();
+        assert!(remaining.is_some_and(|ticks| ticks > 0));
+        assert_eq!(reserved, Some(sim_actor));
+        let before_tick = engine.game.tick();
+        let held_costs = engine
+            .game
+            .creature(sim_actor)
+            .unwrap()
+            .costs()
+            .reservations()
+            .clone();
+        assert!(!held_costs.is_empty());
+        let preparation = engine.game.preparation(sim_actor).cloned();
+        wizard(&mut engine, "fill-reserved", "resource fill self stamina").unwrap();
+        assert_eq!(engine.game.tick(), before_tick);
+        assert_eq!(
+            engine
+                .game
+                .creature(sim_actor)
+                .unwrap()
+                .costs()
+                .reservations(),
+            &held_costs
+        );
+        let creature = engine.game.creature(sim_actor).unwrap();
+        assert_eq!(
+            creature.costs().resources().balance(Resource::Stamina),
+            creature.costs().resources().maximum(Resource::Stamina)
+        );
+        drop(creature);
+        assert_eq!(engine.game.preparation(sim_actor), preparation.as_ref());
+        assert_eq!(witness(&engine), Some((generation, remaining, reserved)));
+        wizard(
+            &mut engine,
+            "clear-reserved",
+            "condition clear self readied",
+        )
+        .unwrap();
+        assert_eq!(engine.game.tick(), before_tick);
+        assert_eq!(witness(&engine), Some((generation, Some(0), reserved)));
+        assert_eq!(
+            engine
+                .game
+                .preparation(sim_actor)
+                .unwrap()
+                .plan
+                .tokens()
+                .len(),
+            1
+        );
+
+        let replay = Engine::replay(engine.archive.clone(), None, None).unwrap();
+        assert_eq!(witness(&replay), witness(&engine));
+        assert_eq!(replay.game, engine.game);
+        engine.flush().unwrap();
+        let expected = engine.game.clone();
+        drop(engine);
+        let mut reopened = Engine::open(&path, scenario).unwrap();
+        assert_eq!(reopened.game, expected);
+        assert_eq!(witness(&reopened), Some((generation, Some(0), reserved)));
+        for _ in 0..20 {
+            if reopened.game.preparation(sim_actor).is_none() {
+                break;
+            }
+            ordinary_wait(&mut reopened);
+        }
+        assert!(reopened.game.preparation(sim_actor).is_none());
+        assert_eq!(witness(&reopened), None);
+        assert!(
+            item(&authority(&reopened.game)).is_null(),
+            "paid care still consumes its exact bandage"
+        );
+        let pool = reopened
+            .game
+            .creature(sim_actor)
+            .unwrap()
+            .costs()
+            .resources()
+            .clone();
+        let missing = pool.maximum(Resource::Stamina) - pool.balance(Resource::Stamina);
+        assert!(missing > 0, "ordinary paid care must have spent stamina");
+        let tick = reopened.game.tick();
+        reopened.enable_wizard().unwrap();
+        let result = wizard(&mut reopened, "restore-spent", "resource fill self stamina").unwrap();
+        assert!(
+            matches!(result.entry.content, JournalContent::Wizard {result: WizardResult::ResourceRestored {restored, ..}, ..} if restored == missing)
+        );
+        assert_eq!(reopened.game.tick(), tick);
+        let pool = reopened
+            .game
+            .creature(sim_actor)
+            .unwrap()
+            .costs()
+            .resources()
+            .clone();
+        assert_eq!(
+            pool.balance(Resource::Stamina),
+            pool.maximum(Resource::Stamina)
+        );
+        let replay = Engine::replay(reopened.archive.clone(), None, None).unwrap();
+        assert_eq!(replay.game, reopened.game);
+    }
+
+    #[test]
     fn finite_supply_post_spend_store_failure_restores_items_tokens_resources_rng_and_health() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("post-spend.db");

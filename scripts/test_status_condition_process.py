@@ -563,7 +563,19 @@ class NativeStatusConditionProcesses(StatusConditionHelpers, ProcessTestCase):
         self.server("--checkpoint-interval", 1, scenario=package, wizard=True)
         player, _ = self.client()
         peer, _ = self.client(actor=2)
-        _, _, _, saved = self.paused_work(player, peer)
+        # This owner tests the native inspection boundary, not ordinary casting
+        # or paid-work interruption (retained in StatusConditionProcesses).
+        wizard = self.wizard()
+        self.wizard_command(wizard, f"condition apply 1 {STILLNESS} {DURATIONS[STILLNESS]} source 2")
+        saved = checkpoint(self, player)
+        self.assertEqual(condition(saved)["phase"], "active")
+        self.assertEqual(condition(saved)["source"], 2)
+        self.assertEqual(condition_remaining(saved, STILLNESS), DURATIONS[STILLNESS])
+        self.assertIsNone(combat(self.snapshot(player))["preparation_remaining"])
+        # Ordinary players cannot enter the private diagnostic path.
+        denied = self.wizard_command(player, "creature inspect 1", succeeds=False)
+        self.assertIsNotNone(denied["error"])
+        self.assertEqual(checkpoint(self, player), saved)
         window = self.launch("tor-client-ascii", ["--connect", self.address, "--observe", "--report-frames"],
                              token=WIZARD_TOKEN)
         self.ascii_frame(window, lambda frame: frame["state"] is not None and not frame["busy"])
@@ -594,11 +606,17 @@ class NativeStatusConditionProcesses(StatusConditionHelpers, ProcessTestCase):
         self.assertEqual(checkpoint(self, player), saved)
         closed = self.native_press(window, key, "Escape", "escape")
         self.assertFalse(closed["screen"]["stats"])
-        _, protected = self.expire(player, peer, saved)
+        self.expiry_boundary(player, peer, saved)
+        protected = checkpoint(self, player)
+        self.assertEqual(condition(protected)["phase"], "protection")
+        self.assertEqual(condition(protected)["source"], 2)
+        self.assertEqual(condition_remaining(protected, STILLNESS), 400)
         self.ascii_frame(window, lambda frame: not frame["busy"]
                          and int(frame["state"]["observation"]["tick"]) == protected["tick"])
         description = inspect()
         self.assertIn("Protection against Crystal Pause from actor 2: 400 active ticks remaining", description)
+        self.assertNotIn("Crystal Pause from actor 2:",
+                         description.replace("Protection against Crystal Pause from actor 2: 400 active ticks remaining", ""))
         self.assertEqual(checkpoint(self, player), protected)
 
 

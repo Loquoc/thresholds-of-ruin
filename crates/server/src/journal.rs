@@ -237,9 +237,50 @@ pub enum PurchaseReplacement {
     Expertise { pool: String, expertise: String },
 }
 
+/// Resolve the selected character at execution and replay, not during parsing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WizardActorTarget {
+    Selected {},
+    Actor {
+        #[serde(with = "crate::storage::schema::ActorId")]
+        id: ActorId,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WizardConditionOutcome {
+    Applied,
+    Refreshed,
+    Stacked,
+    Immune,
+    Evicted,
+    Reserved,
+    Unchanged,
+    Cleared,
+    NotActive,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WizardOperation {
+    RestoreResource {
+        target: WizardActorTarget,
+        resource: tor_simulation::resources::Resource,
+        amount: std::num::NonZeroU32,
+    },
+    ApplyCondition {
+        target: WizardActorTarget,
+        condition: tor_simulation::content_ids::ConditionId,
+        ticks: tor_simulation::rules::ConditionTicks,
+        #[serde(deserialize_with = "required_option")]
+        source: Option<WizardActorTarget>,
+    },
+    ClearCondition {
+        target: WizardActorTarget,
+        condition: tor_simulation::content_ids::ConditionId,
+    },
     AdvanceCreature {
         #[serde(with = "crate::storage::schema::ActorId")]
         actor: ActorId,
@@ -333,6 +374,15 @@ pub enum WizardOperation {
         kind: WizardItem,
         position: Position,
     },
+    GiveItem {
+        target: WizardActorTarget,
+        #[serde(deserialize_with = "required_option")]
+        identity: Option<String>,
+        #[serde(deserialize_with = "required_option")]
+        appearance: Option<String>,
+        #[serde(deserialize_with = "required_option")]
+        recipe: Option<String>,
+    },
     SpawnItem {
         position: Position,
         #[serde(deserialize_with = "required_option")]
@@ -367,6 +417,18 @@ pub enum WizardOperation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WizardResult {
+    ResourceRestored {
+        #[serde(with = "crate::storage::schema::ActorId")]
+        actor: ActorId,
+        resource: tor_simulation::resources::Resource,
+        restored: u32,
+    },
+    ConditionChanged {
+        #[serde(with = "crate::storage::schema::ActorId")]
+        actor: ActorId,
+        condition: tor_simulation::content_ids::ConditionId,
+        outcome: WizardConditionOutcome,
+    },
     CreatureAdvanced {
         #[serde(with = "crate::storage::schema::ActorId")]
         actor: ActorId,
@@ -397,6 +459,11 @@ pub enum WizardResult {
     Connected,
     WallSet,
     PlaceHintSet,
+    ItemGiven {
+        #[serde(with = "crate::storage::schema::ActorId")]
+        actor: ActorId,
+        item: u64,
+    },
     ItemPlaced {
         item: u64,
     },

@@ -171,6 +171,23 @@ pub(super) struct PreparedArchetype {
 }
 
 impl PreparedArchetype {
+    fn wizard_item_identity(&self) -> Option<&tor_simulation::ItemIdentity> {
+        self.name.as_ref()?;
+        self.identity.as_ref()
+    }
+
+    fn wizard_item_appearance<'a>(
+        &'a self,
+        identity: &tor_simulation::ItemIdentity,
+        appearances: &'a BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
+    ) -> Option<&'a str> {
+        // An assigned entry without an asset intentionally suppresses the
+        // archetype's identity asset, just as the ordinary item adapter does.
+        appearances
+            .get(identity)
+            .map_or(self.item_asset.as_deref(), |entry| entry.asset.as_deref())
+    }
+
     fn new(
         author: &Archetype,
         manifest: &Manifest,
@@ -635,6 +652,46 @@ impl PreparedDefinitions {
         })
     }
 
+    pub(super) fn wizard_item_catalog(
+        &self,
+        after: Option<&str>,
+        appearances: &BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
+    ) -> Result<super::WizardItemCatalogPage, Failure> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        const LIMIT: usize = 16;
+        if let Some(after) = after {
+            require(
+                self.archetypes
+                    .get(after)
+                    .and_then(PreparedArchetype::wizard_item_identity)
+                    .is_some(),
+                "Unknown wizard item catalog cursor; use an exact recipe from item list",
+            )?;
+        }
+        let mut rows: Vec<_> = self
+            .archetypes
+            .range::<str, _>((after.map_or(Unbounded, Excluded), Unbounded))
+            .filter_map(|(key, definition)| {
+                let identity = definition.wizard_item_identity()?;
+                Some(super::WizardItemCatalogRow {
+                    recipe: key.clone(),
+                    identity: identity.clone(),
+                    appearance: definition
+                        .wizard_item_appearance(identity, appearances)
+                        .map(str::to_owned),
+                })
+            })
+            .take(LIMIT + 1)
+            .collect();
+        let next = if rows.len() > LIMIT {
+            rows.truncate(LIMIT);
+            rows.last().map(|row| row.recipe.clone())
+        } else {
+            None
+        };
+        Ok(super::WizardItemCatalogPage { rows, next })
+    }
+
     /// Resolve only prepared authored items, never sampled instances or raw
     /// appearance pools. BTreeMap order chooses the canonical equivalent alias.
     pub(super) fn wizard_item(
@@ -650,19 +707,13 @@ impl PreparedDefinitions {
             if recipe.is_some_and(|recipe| recipe != key.as_str()) {
                 continue;
             }
-            let Some(candidate) = definition.identity.as_ref() else {
+            let Some(candidate) = definition.wizard_item_identity() else {
                 continue;
             };
-            if definition.name.is_none() || identity.is_some_and(|id| id != candidate) {
+            if identity.is_some_and(|id| id != candidate) {
                 continue;
             }
-            // A mapped entry with no asset is intentional, not a fallback to
-            // the archetype's true identity asset.
-            let asset = appearances
-                .get(candidate)
-                .map_or(definition.item_asset.as_deref(), |entry| {
-                    entry.asset.as_deref()
-                });
+            let asset = definition.wizard_item_appearance(candidate, appearances);
             if appearance.is_some_and(|selector| Some(selector) != asset) {
                 continue;
             }

@@ -2068,7 +2068,11 @@ impl Candidate {
             | WizardOperation::SetBody { actor: id, .. }
             | WizardOperation::SetVelocity { actor: id, .. }
             | WizardOperation::IdentifyItem { actor: id, .. } => vec![actor(id)],
-            WizardOperation::PlaceChamber { .. }
+            WizardOperation::RestoreResource { .. }
+            | WizardOperation::ApplyCondition { .. }
+            | WizardOperation::ClearCondition { .. }
+            | WizardOperation::GiveItem { .. }
+            | WizardOperation::PlaceChamber { .. }
             | WizardOperation::PlaceRoom { .. }
             | WizardOperation::Rewind { .. }
             | WizardOperation::ArenaControl { .. } => vec![],
@@ -5100,6 +5104,12 @@ impl Candidate {
                 .map_err(|_| invalid_archive())?;
         }
         let result = match operation {
+            WizardOperation::RestoreResource { .. } => {
+                crate::wizard_resources::execute(&mut self.game, receipt.actor, operation)?
+            }
+            WizardOperation::ApplyCondition { .. } | WizardOperation::ClearCondition { .. } => {
+                crate::wizard_conditions::execute(&mut self.game, receipt.actor, operation)?
+            }
             WizardOperation::AdvanceCreature { actor, advancement } => {
                 use crate::journal::CreatureAdvancement;
                 let id = SimActor(actor.0);
@@ -5444,32 +5454,13 @@ impl Candidate {
                     .map_err(|_| invalid())?;
                 WizardResult::ItemPlaced { item: item.0 }
             }
-            WizardOperation::SpawnItem {
-                position,
-                identity,
-                appearance,
-                recipe,
-            } => {
-                let regions = regions.as_deref().ok_or_else(invalid)?;
-                let spec = regions
-                    .wizard_item(
-                        identity.as_deref(),
-                        appearance.as_deref(),
-                        recipe.as_deref(),
-                    )
-                    .map_err(|error| Failure::new(ErrorCode::InvalidAction, &error.message))?;
-                if self
-                    .game
-                    .unique_retrieval_policy()
-                    .is_some_and(|policy| policy.item.identity == spec.identity)
-                {
-                    return Err(invalid());
-                }
-                let item = self
-                    .game
-                    .spawn_item_stack(adapt::location(*position), None, 1, spec)
-                    .map_err(|_| invalid())?;
-                WizardResult::ItemPlaced { item: item.0 }
+            WizardOperation::SpawnItem { .. } | WizardOperation::GiveItem { .. } => {
+                crate::wizard_items::execute(
+                    &mut self.game,
+                    regions.as_deref(),
+                    receipt.actor,
+                    operation,
+                )?
             }
             WizardOperation::SpawnCreature {
                 selector,

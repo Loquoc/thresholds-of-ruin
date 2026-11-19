@@ -4,6 +4,207 @@ use crate::wire_adapter::{self, DecodedCommand, DisplayCommand, TargetScope};
 use tor_protocol::ErrorCode;
 
 impl Engine {
+    pub(crate) fn resolve_wizard_at(
+        &self,
+        boundary: &super::PresentationBoundary,
+        actor: ActorId,
+        text: &str,
+    ) -> Result<crate::journal::WizardOperation, Failure> {
+        self.require_wizard_authority()?;
+        if !self.is_current_presentation(boundary) {
+            return Err(Failure::new(
+                ErrorCode::StaleContext,
+                "Refresh the observation before using relative wizard coordinates",
+            ));
+        }
+        let origin = self.wizard_origin_at(boundary, actor)?;
+        crate::developer::parse_wizard_at(text, origin)
+            .map_err(|m| Failure::new(ErrorCode::InvalidRequest, &m))
+    }
+
+    pub(crate) fn wizard_origin_at(
+        &self,
+        boundary: &super::PresentationBoundary,
+        actor: ActorId,
+    ) -> Result<crate::journal::Position, Failure> {
+        self.require_wizard_authority()?;
+        let at = self
+            .presentation_game(boundary)?
+            .wizard_location(tor_simulation::ActorId(actor.0))
+            .ok_or_else(|| {
+                Failure::new(
+                    ErrorCode::InvalidAction,
+                    "Attached actor location is unavailable",
+                )
+            })?;
+        Ok(crate::journal::Position {
+            region: at.region.0,
+            x: at.position.x,
+            y: at.position.y,
+            z: at.position.z,
+        })
+    }
+
+    pub(crate) fn wizard_report_at(
+        &self,
+        boundary: &super::PresentationBoundary,
+        actor: ActorId,
+        query: crate::developer::WizardQuery,
+    ) -> Result<tor_protocol::WizardReport, Failure> {
+        let origin = self.wizard_origin_at(boundary, actor)?;
+        let game = self.presentation_game(boundary)?;
+        let coordinates = |p: crate::journal::Position| {
+            format!("region={} x={} y={} z={}", p.region, p.x, p.y, p.z)
+        };
+        let (title, lines) = match query {
+            crate::developer::WizardQuery::ItemList { after } => {
+                let page = self
+                    .regions
+                    .as_ref()
+                    .ok_or_else(|| {
+                        Failure::new(
+                            ErrorCode::InvalidAction,
+                            "Pinned item catalog is unavailable",
+                        )
+                    })?
+                    .wizard_item_catalog(after.as_deref())
+                    .map_err(|e| Failure::new(ErrorCode::InvalidAction, &e.message))?;
+                let mut lines = Vec::new();
+                for row in page.rows {
+                    lines.push(format!("recipe={}", row.recipe));
+                    lines.push(format!("identity={}", row.identity.as_str()));
+                    lines.push(format!(
+                        "appearance={}",
+                        row.appearance.as_deref().unwrap_or("(none)")
+                    ));
+                }
+                if let Some(next) = page.next {
+                    lines.push(format!("Next: wizard item list after {next}"));
+                } else {
+                    lines.push("End of item catalog.".into());
+                }
+                ("Wizard item catalog", lines)
+            }
+            crate::developer::WizardQuery::ItemInspect { item } => {
+                let value = game.wizard_item_instance(tor_simulation::ItemId(item)).ok_or_else(|| Failure::new(ErrorCode::InvalidAction, "Item must be loaded; use an exact item ID from wizard inspect tile or an item-give receipt"))?;
+                let mut lines = vec![
+                    format!("item={item}"),
+                    format!("recipe={}", value.spec.archetype),
+                    format!("identity={}", value.spec.identity.as_str()),
+                    format!("name={}", value.spec.name),
+                    format!("appearance-name={}", value.spec.appearance),
+                    format!(
+                        "appearance={}",
+                        value.spec.asset.as_deref().unwrap_or("(none)")
+                    ),
+                    format!("quantity={}", value.quantity),
+                    format!(
+                        "charges={}",
+                        value
+                            .charges
+                            .map_or_else(|| "(none)".into(), |n| n.to_string())
+                    ),
+                    format!(
+                        "cursed={} protected={} corrosion={}",
+                        value.cursed, value.protected, value.corrosion
+                    ),
+                    format!(
+                        "armor-penalty={} armor-enchantment={}",
+                        value.armor_penalty, value.armor_enchantment
+                    ),
+                    format!(
+                        "hit-enchantment={} damage-enchantment={} potency={}",
+                        value.hit_enchantment, value.damage_enchantment, value.potency
+                    ),
+                ];
+                if let Some(at) = value.ground {
+                    lines.push(format!(
+                        "ground region={} x={} y={} z={}",
+                        at.region.0, at.position.x, at.position.y, at.position.z
+                    ));
+                }
+                if let Some(actor) = value.carrier {
+                    lines.push(format!("carried-by={}", actor.0));
+                }
+                if let Some((remaining, lit)) = value.fuel {
+                    lines.push(format!("fuel-ticks={remaining} lit={lit}"));
+                }
+                for slot in value.equipped {
+                    lines.push(format!("equipped-slot={slot}"));
+                }
+                ("Wizard item instance", lines)
+            }
+            crate::developer::WizardQuery::Where => (
+                "Wizard location",
+                vec![
+                    format!("actor={}", actor.0),
+                    coordinates(origin),
+                    "Coordinates and offsets are region-local, not screen/world directions.".into(),
+                ],
+            ),
+            crate::developer::WizardQuery::Help { topic } => (
+                "Wizard help",
+                crate::developer::wizard_help(topic.as_deref())
+                    .map_err(|m| Failure::new(ErrorCode::InvalidRequest, &m))?
+                    .lines()
+                    .map(str::to_owned)
+                    .collect(),
+            ),
+            crate::developer::WizardQuery::Tile { position } => {
+                if position.region != origin.region
+                    || [
+                        position.x.abs_diff(origin.x),
+                        position.y.abs_diff(origin.y),
+                        position.z.abs_diff(origin.z),
+                    ]
+                    .into_iter()
+                    .any(|d| d > 8)
+                {
+                    return Err(Failure::new(ErrorCode::InvalidAction, "Inspect a tile within 8 cells of the attached actor in the same region; use wizard where"));
+                }
+                let tile = game
+                    .wizard_tile(tor_world::Location {
+                        region: tor_world::RegionId(position.region),
+                        position: tor_world::Position {
+                            x: position.x,
+                            y: position.y,
+                            z: position.z,
+                        },
+                    })
+                    .ok_or_else(|| {
+                        Failure::new(
+                            ErrorCode::InvalidAction,
+                            "Tile is outside the loaded region; offsets do not cross portals",
+                        )
+                    })?;
+                let mut lines = vec![
+                    coordinates(position),
+                    format!("terrain={}", if tile.wall { "wall" } else { "open" }),
+                ];
+                lines.extend(tile.actors.iter().map(|id| format!("actor={}", id.0)));
+                lines.extend(tile.items.iter().map(|id| format!("item={}", id.0)));
+                if tile.actors_truncated {
+                    lines.push("Actor list truncated at 24 identities.".into());
+                }
+                if tile.items_truncated {
+                    lines.push("Ground-item list truncated at 24 identities.".into());
+                }
+                ("Wizard tile", lines)
+            }
+        };
+        let report = tor_protocol::WizardReport {
+            title: title.into(),
+            lines: lines.into_iter().map(bounded_wizard_line).collect(),
+        };
+        report.validate().map_err(|_| {
+            Failure::new(
+                ErrorCode::InvalidAction,
+                "Wizard report exceeds its bounded format",
+            )
+        })?;
+        Ok(report)
+    }
+
     pub(crate) fn ability_weapon_preview_at(
         &self,
         boundary: &super::PresentationBoundary,
@@ -343,7 +544,8 @@ impl Engine {
                 expected_revision,
                 operation,
             } => Ok(operation.resolve(expected_revision, current_boundary)),
-            DecodedCommand::AbilityWeaponPreview { .. }
+            DecodedCommand::WizardContext { .. }
+            | DecodedCommand::AbilityWeaponPreview { .. }
             | DecodedCommand::ProjectileChoices { .. }
             | DecodedCommand::Advancement { .. }
             | DecodedCommand::CreatureCatalog { .. }
@@ -983,4 +1185,19 @@ mod inspection_query_tests {
             engine.inspect_creature_query(ActorId(1), engine.branch(), u64::MAX, ActorId(999));
         assert_eq!(result.unwrap_err().code, ErrorCode::Unauthorized);
     }
+}
+
+// Author-controlled names are text, never terminal controls. Canonical keys fit
+// the line budget exactly; long display names explicitly end with an ellipsis.
+fn bounded_wizard_line(value: String) -> String {
+    let mut result = String::new();
+    for ch in value.chars() {
+        let printable = if ch.is_control() { ' ' } else { ch };
+        if result.len() + printable.len_utf8() > 253 {
+            result.push_str("...");
+            break;
+        }
+        result.push(printable);
+    }
+    result
 }

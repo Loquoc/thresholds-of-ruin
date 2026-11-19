@@ -25,6 +25,7 @@ enum Frame {
     Waiting(Waiting),
     Resync,
     CreatureCatalog(CreatureCatalogPage),
+    WizardReport(tor_protocol::WizardReport),
     WeaponPreview(AbilityWeaponPreview),
     ProjectileChoices(ProjectileChoicePage),
     SnapshotReply,
@@ -253,6 +254,11 @@ impl Link for Scripted {
                     context: self.reply_context(),
                     request_id: id.clone(),
                     preview: Box::new(preview),
+                },
+                Frame::WizardReport(report) => ServerMessage::WizardReport {
+                    context: self.reply_context(),
+                    request_id: id.clone(),
+                    report: Box::new(report),
                 },
                 Frame::CreatureCatalog(page) => ServerMessage::CreatureCatalog {
                     context: self.reply_context(),
@@ -3521,6 +3527,34 @@ async fn commands_joined_by_commas_and_and_run_in_turn() {
         text,
         "You pick up the copper token. You drop the copper token."
     );
+}
+
+#[tokio::test]
+async fn wizard_report_text_turn_prints_rows_and_finishes_correlated_query() {
+    let mut initial = state();
+    initial.wizard_game = true;
+    let mut link = Scripted::new(initial, |request, _| {
+        assert!(matches!(request, Request::Command {
+            command: Command::Wizard { operation, .. }, ..
+        } if operation == "where"));
+        vec![Frame::WizardReport(tor_protocol::WizardReport {
+            title: "Wizard location".into(),
+            lines: vec!["Actor 1: region 3 cell 1 2 0".into()],
+        })]
+    });
+    link.role = AccessRole::Wizard;
+    let before = link.client.session().clone();
+    let result = Engine::default()
+        .play(&mut link, "wizard where")
+        .await
+        .unwrap();
+    let Outcome::Passage(text) = result else {
+        panic!("wizard report passage: {result:?}")
+    };
+    assert!(text.contains("Wizard location"), "{text}");
+    assert!(text.contains("Actor 1: region 3 cell 1 2 0"), "{text}");
+    assert_eq!(link.sent.len(), 1);
+    assert_eq!(link.client.session().clone(), before);
 }
 
 #[tokio::test]

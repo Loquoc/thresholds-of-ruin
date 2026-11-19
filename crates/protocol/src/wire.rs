@@ -2353,6 +2353,12 @@ pub enum ServerMessage {
         request_id: String,
         page: Box<crate::CreatureCatalogPage>,
     },
+    #[serde(deserialize_with = "crate::wizard_report::read_reply")]
+    WizardReport {
+        context: ReplyContext,
+        request_id: String,
+        report: Box<crate::WizardReport>,
+    },
     #[serde(deserialize_with = "crate::advancement::read_page_reply")]
     AdvancementPage {
         context: ReplyContext,
@@ -2448,6 +2454,7 @@ impl ServerMessage {
             | Self::ChartPage { context, .. }
             | Self::Discoveries { context, .. }
             | Self::CreatureCatalog { context, .. }
+            | Self::WizardReport { context, .. }
             | Self::AdvancementPage { context, .. }
             | Self::Ack { context, .. }
             | Self::History { context, .. }

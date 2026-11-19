@@ -1645,3 +1645,9 @@ fn private_transaction_clocks_reject_missing_duplicate_and_forged_fields() {
 
 #[path = "wizard_item_spawn_tests.rs"]
 mod item_spawning;
+
+#[path = "wizard_condition_tests.rs"]
+mod wizard_conditions;
+
+#[path = "wizard_resource_tests.rs"]
+mod wizard_resources;

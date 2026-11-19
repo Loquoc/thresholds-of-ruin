@@ -179,6 +179,7 @@ server_sample_kinds! {
     History => ("history", None),
     CreatureCatalog => ("creature_catalog", None),
     CreatureInspection => ("creature_inspection", None),
+    WizardReport => ("wizard_report", None),
     CreatureStrikePage => ("creature_strike_page", None),
     AdvancementPage => ("advancement_page", None),
     AbilityWeaponPreview => ("ability_weapon_preview", None),
@@ -221,6 +222,7 @@ fn server_kind(message: &ServerMessage) -> ServerSampleKind {
         ServerMessage::History { .. } => Kind::History,
         ServerMessage::CreatureCatalog { .. } => Kind::CreatureCatalog,
         ServerMessage::CreatureInspection { .. } => Kind::CreatureInspection,
+        ServerMessage::WizardReport { .. } => Kind::WizardReport,
         ServerMessage::CreatureStrikePage { .. } => Kind::CreatureStrikePage,
         ServerMessage::ProjectileChoices { .. } => Kind::ProjectileChoices,
         ServerMessage::AbilityWeaponPreview { .. } => Kind::AbilityWeaponPreview,
@@ -890,5 +892,31 @@ fn recorded_noticed_outcome_has_disclosed_event_time_position() {
             true,
             Position { x: 1, y: 0, z: 0 }
         )]
+    );
+}
+
+#[test]
+fn recorded_scripted_user_message_preserves_text_and_control_segments() {
+    let expected = serde_json::json!({
+        "kind": "user_message", "style": "tutorial",
+        "segments": [{"text": "Something small lies here. Pick it up with "},
+                     {"control": "pick_up"}, {"text": "."}]
+    });
+    let recorded = samples();
+    let facts: Vec<_> = recorded["server"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|sample| {
+            sample
+                .pointer("/update/body/facts/facts")
+                .and_then(Value::as_array)
+        })
+        .flatten()
+        .filter(|fact| fact["kind"] == "user_message")
+        .collect();
+    assert!(
+        facts.contains(&&expected),
+        "recorded scripted tutorial message is missing or changed"
     );
 }

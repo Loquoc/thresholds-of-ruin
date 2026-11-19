@@ -1107,6 +1107,12 @@ class Recorder(ProcessTestCase):
         messages = [json.loads(line).get("message") for line in inspector.transcript if line.startswith("{")]
         server_samples["combat_diagnostics"] = next(message for message in reversed(messages)
             if message and message["type"] == "combat_diagnostics")
+        result = self.command(inspector, {"type": "wizard", "command": "where"})
+        self.assertFalse(result.get("error"), result.get("error"))
+        messages = [json.loads(line).get("message") for line in inspector.transcript if line.startswith("{")]
+        server_samples["wizard_report"] = next(message for message in reversed(messages)
+            if message and message["type"] == "wizard_report")
+        self.assertEqual(server_samples["wizard_report"]["report"]["title"], "Wizard location")
         inspector.stop()
         inspection_server.stop()
         self.save = self.save.parent / "sequence-samples.db"
