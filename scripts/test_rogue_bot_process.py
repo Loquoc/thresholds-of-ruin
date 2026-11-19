@@ -965,6 +965,43 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         self.assertTrue(all(a["previous_intention_phase"] == "resolved" for a in actions[1:]))
         self.assertEqual(terminal["terminal"], "action_budget")
 
+    def test_cli_opens_a_concealed_corridor_door_after_the_search_that_reveals_it(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["manifest"]["characters"][0]["loadout"] = []
+        region, = contents["regions"]
+        region.update(anchors={"start": [3, 2, 0]}, actors=[],
+                      walls=[[3, y, z] for y in (1, 3) for z in range(2)],
+                      doors=[{"id": 1, "at": [4, 2, 0], "height": 2, "open": False,
+                              "concealment": {"dc": 10}}])
+        self.server(scenario=write_package(self, contents, "discover-corridor-door"))
+        self.install_bot_extension()
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
+                              "--budget", "7", "--record-decisions"], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=55)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        rows = list(map(json.loads, run.stdout.splitlines()))
+        first = json.loads(rows[0]["recording"])["state"]["observation"]
+        self.assertFalse(any(c.get("door") for c in first["visible_cells"]))
+        entrance = next(c for c in first["visible_cells"] if c["position"] == {"x": 1, "y": 0, "z": 0})
+        self.assertTrue(entrance["wall"])
+
+        def doors(row):
+            view = json.loads(row["recording"])["state"]["observation"]
+            return [c["door"] for c in view["visible_cells"] if c["key"] == entrance["key"] and c.get("door")]
+
+        reveal = next((i for i, row in enumerate(rows) if doors(row)), None)
+        self.assertIn(reveal, range(1, 6), [row.get("reason") for row in rows])
+        self.assertTrue(all(row["action"].get("id") == "rogue.search" for row in rows[:reveal]))
+        opened = rows[reveal]
+        self.assertEqual(opened["previous_intention_phase"], "resolved")
+        self.assertEqual(opened["action"]["type"], "set_door", opened["reason"])
+        self.assertEqual(rows[reveal + 1]["previous_intention_phase"], "resolved")
+        self.assertTrue(any(d["id"] == opened["action"]["door"] and d["open"] for d in doors(rows[reveal + 1])))
+
     def test_bot_walks_to_a_recognized_slow_digestion_ring_and_wears_it(self):
         self.check_supply_detour("rogue.ring_slow_digestion", ["item.ring.ring-slow-digestion"], "conserve_food")
 

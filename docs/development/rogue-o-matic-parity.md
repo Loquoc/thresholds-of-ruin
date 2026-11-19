@@ -45,6 +45,9 @@ resolved searches. An opening changes that assessment immediately. The player
 can interrupt the search for combat or retrieval, and a failed search leaves
 the remaining count unchanged. In a live corridor fixture it collected gold,
 resolved six searches from the same cell and then resumed exploration.
+In a second live corridor a concealed door initially appeared as a wall.
+Search revealed the door before the sixth attempt. The next decision opened
+it, and the subsequent player observation showed that same door open.
 
 Two live combat encounters verified pre-contact choices. The bot entered
 a narrow passage before two opponents surrounded it, and the opposing

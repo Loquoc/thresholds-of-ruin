@@ -111,6 +111,21 @@ seed-47 control subsequently timed out before announcing an address. Neither
 run gives a terminal gameplay comparison. Preserve both query and shutdown
 errors when diagnosing future interrupted runs.
 
+The completed seed-47 repeat used the same frozen player and bindings for
+both search orders. The control starved on floor 17 after 8,719 actions.
+Searching fresh walls first ended in a melee death on floor 10 after 2,946
+actions. Each run picked up every distinct food item observed within reach
+(five and three respectively), with no observed departure followed by a
+return trip for the same ration. These runs predate the six-search hallway
+rule and the broader pickup policy.
+
+Retreats exposed another cost on floor 15 of the control. After 75 exploration
+moves back into cells the player had retreated from within the previous
+1,200 ticks, its next decision was to retreat toward the stairs again.
+The same trace also contains 96 reentries followed by further exploration.
+Compare choosing a different mapped frontier while the danger memory lasts.
+Keep the original route available when every known path crosses such a cell.
+
 Of the 1,337 Search submissions, 454 were the first at their cell, 448 the
 second and 435 the third. Three searches were immediately followed by opening
 a door, on floors 4, 8 and 17. Each was the first search at its cell. The trace
