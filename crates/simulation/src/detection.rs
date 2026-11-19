@@ -1,6 +1,6 @@
 //! Pure whole-floor census. No query learning, action handles, or resident-only fallback.
 use crate::appearance_catalog::CreatureAppearance;
-use crate::appearance_state::{AppearanceChannel, AppearanceKey};
+use crate::appearance_state::AppearanceChannel;
 use crate::chart::{self, Candidate, Component, Kind, Mark, Row, Unavailable};
 use crate::{ActorId, Game, GameError, ItemClass, ItemLocation};
 use std::sync::Arc;
@@ -167,13 +167,15 @@ impl Game {
                         continue;
                     }
                     let appearance = if let Some(clock) = &hallucination {
-                        let value = self.content.presentation_catalog().creature(AppearanceKey {
-                            seed: self.seed,
-                            observer: observer.0,
-                            subject: id.0,
-                            channel: AppearanceChannel::MonsterSense,
-                            phase: clock.phase(),
-                        });
+                        let value =
+                            self.content
+                                .presentation_catalog()
+                                .creature(self.hallucination_key(
+                                    observer,
+                                    id.0,
+                                    AppearanceChannel::MonsterSense,
+                                    clock,
+                                ));
                         CreatureAppearance {
                             name: value.name,
                             asset: value.asset,

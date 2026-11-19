@@ -1122,3 +1122,26 @@ compact output. The admission-time gameplay witness explicitly requests full
 derived output and retains all of its pre-spend assertions. Both owners belong
 in focused validation for future projection changes, alongside raw-receipt unit
 checks; unrelated streaming/theft passes do not substitute for them.
+
+## Hallucinated disguise duration versus cadence bookkeeping
+
+A shared base-turn phase was passed directly to the appearance selector, causing
+all perceived mobs and objects to reroll on every normal turn. The native first-red
+catalog witness changed its creature at phase one. The corrected contract is an
+independent `(2d10) × 100` active-game-tick interval, not a longer condition lifetime
+or a speed-scaled number of turns. The catalog's original selector recipe remains
+unchanged, preserving historical event fields as final selector indices.
+
+Pure witnesses retain independent literal dice-pair boundaries, exact interval
+endpoints, private staggered streams, full first minimum duration, extreme-age
+bounded access, and lazy ring-generation cost. Live observation checks compare
+both mob and item through a base turn and checkpoint restoration. Unequal base
+periods retain partial age and 100-tick publication boundaries; legacy projectile
+round trips must not reinterpret old selector values. Owner/follower wire tests
+retain literal initial appearances and refresh delivery without treating every
+housekeeping signal as a new disguise. Existing lifetime, hidden-information,
+map-acquisition and replay contracts remain separate required owners.
+
+A passing duration test does not guarantee a different catalog row at each reroll,
+all-pose visual quality, or an unbounded nonrepeating random stream. The documented
+1,024-duration ring eventually reuses durations for exceptionally long conditions.

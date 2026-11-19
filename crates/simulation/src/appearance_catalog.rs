@@ -248,6 +248,48 @@ mod tests {
         }
     }
     #[test]
+    fn hallucinated_creatures_and_objects_hold_their_first_disguise() {
+        let palette = PresentationCatalog::new(
+            (0..32)
+                .map(|i| CreatureAppearance {
+                    name: Arc::from(format!("mob {i}")),
+                    asset: None,
+                })
+                .collect(),
+            (0..32).map(|i| item(&format!("object {i}"))).collect(),
+        )
+        .unwrap();
+        for channel in [
+            AppearanceChannel::Creature,
+            AppearanceChannel::Item,
+            AppearanceChannel::Terrain,
+            AppearanceChannel::MonsterSense,
+        ] {
+            for subject in 1..=32 {
+                let first = AppearanceKey {
+                    channel,
+                    ..key(subject)
+                };
+                for elapsed in [100, 199] {
+                    let later = AppearanceKey {
+                        phase: crate::appearance_state::hallucination_interval(first, elapsed),
+                        ..first
+                    };
+                    assert_eq!(
+                        palette.creature(first),
+                        palette.creature(later),
+                        "creature changed before200 game ticks: {later:?}"
+                    );
+                    assert_eq!(
+                        palette.object(first),
+                        palette.object(later),
+                        "object changed before200 game ticks: {later:?}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
     fn empty_categories_have_neutral_nonidentifying_choices_not_true_subject_fallback() {
         let palette = PresentationCatalog::new(vec![], vec![]).unwrap();
         assert_eq!(palette.creatures.len(), 1);
