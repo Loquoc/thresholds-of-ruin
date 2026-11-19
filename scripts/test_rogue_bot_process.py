@@ -1091,17 +1091,34 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.install_bot_extension()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
-             "--budget", str(2 + int(occupied) + 2 * int(identify))],
+             "--budget", str(8 if identify else 2 + int(occupied))],
             cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory),
                                      "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
         )
-        server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        pickup, *swaps, equip, terminal = (json.loads(line) for line in result.stdout.splitlines())
+        *rows, terminal = (json.loads(line) for line in result.stdout.splitlines())
         if identify:
-            self.assertEqual([row["action"]["type"] for row in swaps], ["read", "identify"])
-            self.assertTrue(all(row["result"]["status"] == "confirmed" for row in swaps))
+            # The prompt can still be visible while an accepted answer resolves.
+            confirmed = [r for r in rows if r["result"]["status"] == "confirmed"]
+            actions = [r["action"]["type"] for r in confirmed]
+            self.assertLess(actions.index("read"), actions.index("identify"), actions)
+            self.assertLess(actions.index("identify"), actions.index("equip"), actions)
+            pickup, equip = confirmed[0], confirmed[actions.index("equip")]
+            check = """
+import os, sys
+from tor_client_bot import Session
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as session:
+    assert any(slot.occupant and slot.occupant.identity == "item.ring.ring-searching"
+               for slot in session.observe().equipment)
+"""
+            check_result = subprocess.run([sys.executable, "-c", check, self.address], cwd=self.directory,
+                                          env={**os.environ, "TOR_SERVER_TOKEN": TOKEN},
+                                          text=True, capture_output=True, timeout=30)
+            self.assertEqual(check_result.returncode, 0, check_result.stderr)
+        else:
+            pickup, *swaps, equip = rows
+        server.stop(save=False)
         if occupied:
             swap, = swaps
             self.assertEqual((swap["action"]["type"], swap["reason"]), ("unequip", "change_ring"))

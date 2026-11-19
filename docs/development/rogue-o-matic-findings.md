@@ -41,6 +41,11 @@ A live regression picked up an unknown searching ring, read the scroll,
 selected the ring from the offered prompt, and equipped it. The pre-fix
 player spent those turns moving. A useful future client disclosure would
 show the eligible classes of a known readable scroll before it is consumed.
+On a fresh seed-49 run with that fix the player died in melee on floor 15
+after 6,293 submissions. It carried one unidentified ring, two unidentified
+devices and five scrolls with no admitted scroll use. The fixture verifies
+what the player can do with a known scroll. Finding or discovering such a
+scroll early enough remains a separate campaign problem.
 
 Seed 42 twice escaped an adjacent rattlesnake upstairs and promptly returned
 to its floor. The bot now remembers the return direction for a short time
@@ -61,6 +66,12 @@ win. An interrupted seed-47 control exposed a separate diagnostics problem:
 the native observation refresh raised `UnknownOutcome`, then closing the
 session raised a visual observation timeout. Preserve the original failure
 when reporting cleanup errors. The traces do not establish a server cause.
+
+A fresh repeat of the seed-47 contact-breaking experiment completed normally:
+death by basic melee after 6,269 submissions, deepest floor 15. The
+corresponding earlier production run reached floor 13. This gives a reason
+to test the maneuver on other maps, particularly where stepping aside can
+take the player away from an immediately usable exit.
 
 The entries name the scenario and revision used where available. Earlier
 experiments on `rogue-exploration` need fresh verification against bundled `rogue`.

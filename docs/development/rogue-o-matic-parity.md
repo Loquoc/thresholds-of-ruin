@@ -33,6 +33,22 @@ and worn, plus admitted item uses and activations. The cohort records observed
 supply-detour ticks, reserve decreases and immediate movement reversals
 without newly charted terrain. These counts use player observations.
 
+On the rebuilt server identified below, the development cohort with gear
+selection, training and pre-contact tactics produced the following results.
+The earlier control used the same seeds, server and campaign budgets. Each
+entry gives the deepest floor and number of submitted actions. All six runs
+ended in death before retrieval.
+
+| Production policy | Seed 42 | Seed 47 | Seed 49 |
+| --- | --- | --- | --- |
+| Earlier weapon control | 11 / 5,926 | 13 / 3,260 | 6 / 2,965 |
+| Gear selection, training and tactics | 8 / 4,322 | 13 / 3,261 | 18 / 9,185 |
+
+The differing outcomes across seeds rule out claiming a general survival
+improvement from these runs. A later paired guarded-stair change took seed
+42 from floor 8 to 9. The [findings log](rogue-o-matic-findings.md) records
+the observed encounters and the separate experimental policies.
+
 ### Remaining decisions to verify on bundled Rogue
 
 | Decision | Historical precedent and proposed check |
