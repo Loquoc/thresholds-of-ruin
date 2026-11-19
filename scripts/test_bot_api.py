@@ -17,6 +17,34 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_floor_map_dead_end_requires_four_observed_sides_and_updates_after_discovery(self):
+        def tile(key, x, y, wall=False):
+            return {"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": wall,
+                    "stairs_up": False, "stairs_down": False}
+
+        cells = [tile("end", 0, 0), tile("west", -1, 0), tile("north", 0, -1, True),
+                 tile("south", 0, 1, True)]
+        memory = FloorMap()
+
+        def observe():
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": cells, "visible_actors": [], "self_target": "me"}}}))
+
+        observe()
+        self.assertFalse(memory.is_dead_end("end"))
+        self.assertFalse(memory.is_dead_end("unknown"))
+        cells.append(tile("east", 1, 0, True))
+        observe()
+        self.assertTrue(memory.is_dead_end("end"))
+        cells[0]["wall"] = True
+        observe()
+        self.assertFalse(memory.is_dead_end("end"))
+        cells[0]["wall"] = False
+        cells[-1]["wall"] = False
+        cells[-1]["door"] = {"id": "door", "reachable": True, "open": False}
+        observe()
+        self.assertFalse(memory.is_dead_end("end"))
+
     def test_named_melee_requires_contact_an_actor_target_and_disclosed_costs(self):
         actor = {"id": "foe", "name": "opponent", "position": {"x": 1, "y": 0, "z": 0}}
         technique = {"id": "tech", "name": "Attack", "target_kind": "actor", "reach": {"kind": "melee"},

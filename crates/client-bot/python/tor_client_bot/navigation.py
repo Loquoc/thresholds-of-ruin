@@ -107,6 +107,14 @@ class FloorMap:
         """Known cardinal neighbors, including walls."""
         return tuple(self.cells[n] for n in self._neighbors.get(key, {}).values())
 
+    def is_dead_end(self, key: str) -> bool:
+        """Whether a mapped floor cell has one passage and three known cardinal walls."""
+        cell = self.cells.get(key)
+        sides = self._neighbors.get(key)
+        if cell is None or cell.wall or sides is None or len(sides) != 4:
+            return False
+        return sum(self.cells[neighbor].wall for neighbor in sides.values()) == 3
+
     def reachable(self, start: str) -> Iterator[tuple[RememberedCell, int]]:
         """Traverse known floor cells in order of distance, ignoring transient occupants."""
         if start not in self.cells or self.cells[start].wall:

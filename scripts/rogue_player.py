@@ -251,7 +251,7 @@ class Adventurer:
             self.sampled_potions.add(action.item.appearance or action.item.name)
         if turn.cell and isinstance(action, UseAbility) and action.ability.identity == "rogue.search":
             self.searches[turn.cell.key] += 1
-            if receipt and self.corridor_end(self.maps[self.depth].adjacent(turn.cell.key)):
+            if receipt and self.maps[self.depth].is_dead_end(turn.cell.key):
                 self.pending_end_search = turn.cell.key, receipt
             self.wall_searches.update(
                 c.key for c in self.maps[self.depth].adjacent(turn.cell.key) if c.wall
@@ -612,15 +612,11 @@ class Adventurer:
     def has_arrows(turn: Turn) -> bool:
         return any(item.identity == "item.weapon.arrow" for item in turn.inventory)
 
-    @staticmethod
-    def corridor_end(neighbors) -> bool:
-        return len(neighbors) == 4 and sum(cell.wall for cell in neighbors) == 3
-
     def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
         here = turn.cell
         if (here is None or here.stairs_up or here.stairs_down or turn.hostiles
                 or self.completed_end_searches[here.key] >= DEAD_END_SEARCHES
-                or not self.corridor_end(memory.adjacent(here.key))):
+                or not memory.is_dead_end(here.key)):
             return None
         ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
         return UseAbility(ability) if ability else None
@@ -637,7 +633,7 @@ class Adventurer:
             attempts = self.searches[site.key]
             neighbors = memory.adjacent(site.key)
             walls = [c for c in neighbors if c.wall]
-            dead_end = self.corridor_end(neighbors) and not (site.stairs_down or site.stairs_up)
+            dead_end = memory.is_dead_end(site.key) and not (site.stairs_down or site.stairs_up)
             if dead_end:
                 remaining = DEAD_END_SEARCHES - self.completed_end_searches[site.key]
                 if remaining <= 0 or turn.hostiles:

@@ -110,6 +110,9 @@ to the expected place, including an adjacent landing beside an occupied stair.
   `memory.adjacent(key)` gives known cardinal neighbors. `memory.reachable(key)`
   yields remembered cells and distances in breadth-first order. `memory.items`
   records what the actor last saw at each cell and refreshes on sight.
+  `memory.is_dead_end(key)` identifies a floor cell with three observed cardinal
+  walls and one known passage. It returns false while a side is unknown and
+  updates when a search reveals a previously concealed door.
   Use `turn.walkable_from(cell)` to evaluate a possible next step within the visible scene.
 - `turn.creatures` groups visible body cells by creature. Each creature has
   a name, distance to its nearest visible cell, and any disclosed affiliation

@@ -119,6 +119,14 @@ actions. Each run picked up every distinct food item observed within reach
 return trip for the same ration. These runs predate the six-search hallway
 rule and the broader pickup policy.
 
+The first difference was action 1,368 on floor 7. Both players had just
+searched, had charted 502 cells and had 1,136 nutrition reserve. The control
+searched the same spot a second time, opened a door on its next action and
+left floor 7 with 1,010 reserve. The experimental player stepped east to
+search a fresh site. Across that floor it spent 259 actions searching and
+374 moving toward search sites, then left with 419 reserve. The control
+spent two actions searching and made no search travel moves on that floor.
+
 Retreats exposed another cost on floor 15 of the control. After 75 exploration
 moves back into cells the player had retreated from within the previous
 1,200 ticks, its next decision was to retreat toward the stairs again.
