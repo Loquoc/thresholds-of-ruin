@@ -134,6 +134,19 @@ The same trace also contains 96 reentries followed by further exploration.
 Compare choosing a different mapped frontier while the danger memory lasts.
 Keep the original route available when every known path crosses such a cell.
 
+The control also reversed a floor-15 stair retreat on the very next action
+and retreated up it again 100 ticks later. A live refuge fixture reproduced
+immediate reentry when the pursuer started two cells away. The player now
+remembers why it crossed the stair even when it escaped before contact.
+The existing danger expiry still allows a later return.
+
+Repeated crossings also changed the food forecast. Floor 13's first descent
+took 81,698 ticks. A revisit took 1,242. Floor 14's first descent took
+10,996 ticks, and one repeat took 100. The player had been replacing the
+exploration estimate with each revisit. A live stair round trip reproduced
+the overwrite (300 ticks became 100). The food forecast now keeps each
+floor's first outbound duration when estimating the cost of unfamiliar floors.
+
 Of the 1,337 Search submissions, 454 were the first at their cell, 448 the
 second and 435 the third. Three searches were immediately followed by opening
 a door, on floors 4, 8 and 17. Each was the first search at its cell. The trace

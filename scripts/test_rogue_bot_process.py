@@ -313,6 +313,12 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         self.check_safe_stair_route(diagonal=False)
 
     def test_bot_keeps_the_refuge_after_escaping_a_guarded_stair(self):
+        self.check_stair_refuge(enemy_x=2)
+
+    def test_bot_keeps_the_refuge_when_it_escaped_before_contact(self):
+        self.check_stair_refuge(enemy_x=3)
+
+    def check_stair_refuge(self, enemy_x):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -320,7 +326,7 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         contents["manifest"]["characters"][0]["loadout"] = []
         contents["manifest"]["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
         contents["regions"][0]["actors"] = [
-            {"archetype": "rogue.hobgoblin", "id": 3, "at": [2, 2, 0], "controller": "external",
+            {"archetype": "rogue.hobgoblin", "id": 3, "at": [enemy_x, 2, 0], "controller": "external",
              "turn_ticks": 1000000}]
         contents["regions"].append({"id": 2, "name": "Refuge", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"down": [2, 2, 0]}})
@@ -354,6 +360,45 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                                 text=True, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_food_forecast_keeps_first_descent_time_after_a_stair_round_trip(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["regions"][0]["actors"] = []
+        contents["manifest"]["stair_pairs"] = {"exit": {"upper": "1/start", "lower": "2/up"}}
+        contents["regions"].append({"id": 2, "name": "Landing", "size": [5, 5, 2],
+                                    "chamber": True, "anchors": {"up": [2, 2, 0]}})
+        self.server(scenario=write_package(self, contents, "revisited-stair"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import ActivityPhase, Direction, Move, Outcome, Session, Wait
+player = Adventurer(26, "item.amulet.amulet-of-yendor")
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    start = turn.tick
+    first = None
+    player.observe(turn)
+    for action in (Wait(), Wait(), Move(Direction.DOWN), Move(Direction.UP), Move(Direction.DOWN)):
+        receipt = turn.submit(action)
+        assert receipt.status is Outcome.CONFIRMED
+        player.admitted(turn, action, receipt)
+        turn = game.wait_for_decision()
+        assert turn.outcome_of(receipt) is ActivityPhase.RESOLVED
+        player.observe(turn)
+        if isinstance(action, Move) and action.direction is Direction.DOWN and first is None:
+            first = turn.tick - start
+            assert player.descent_ticks_by_floor[1] == first
+    assert player.depth == 2
+    assert player.descent_ticks_by_floor[1] == first, (player.descent_ticks_by_floor, first)
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                capture_output=True, text=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_bot_uses_a_safe_diagonal_to_a_disclosed_stair(self):

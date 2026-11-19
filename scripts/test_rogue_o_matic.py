@@ -601,9 +601,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
 
     def test_does_not_reverse_an_escape_stair_at_sight_of_a_distant_foe(self):
+        self.check_escape_landing(1)
+
+    def test_remembers_a_stair_retreat_from_a_foe_outside_contact(self):
+        self.check_escape_landing(2)
+
+    def check_escape_landing(self, distance):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
-        snake = {"id": "bite", "name": "dragon", "position": cell("enemy", 1)["position"]}
-        before = player_turn([cell("lower", up=True), cell("enemy", 1)], actors=[snake], hostiles=["bite"])
+        snake = {"id": "bite", "name": "dragon", "position": cell("enemy", distance)["position"]}
+        before = player_turn([cell("lower", up=True), cell("enemy", distance)], actors=[snake], hostiles=["bite"])
         escape, reason = choose(player, before)
         self.assertEqual((escape, reason), (Move(Direction.UP), "retreat_upstairs"))
         player.admitted(before, escape, reason=reason)

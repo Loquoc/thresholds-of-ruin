@@ -76,7 +76,7 @@ class Adventurer:
     # A floor gets one bounded detour. A confirmed increase in supplies ends it early.
     food_scouts: dict[int, tuple[int, int]] = field(default_factory=dict)
     pending_stair: StairAttempt | None = None
-    fled_contact: bool = False
+    fled_via_stair: bool = False
     unsafe_stairs: dict[tuple[str, Direction], int] = field(default_factory=dict)
     cancelled_stair_origin: str | None = None
     wait_after_cancel: bool = False
@@ -202,7 +202,7 @@ class Adventurer:
             if arrived is None:
                 return
             if arrived:
-                if self.fled_contact:
+                if self.fled_via_stair:
                     reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
                     self.unsafe_stairs[attempt.landing or here.key, reverse] = self.danger_until.get(
                         attempt.origin, turn.tick)
@@ -213,7 +213,8 @@ class Adventurer:
                     distance = previous.distance(attempt.origin, upstairs)
                     if distance is not None:
                         self.ascent_ticks_by_floor[self.depth] = (distance + 1) * (turn.tick - attempt.tick)
-                    self.descent_ticks_by_floor[self.depth] = turn.tick - self.entered_floor_at
+                    # Forecast unfamiliar floors from the first outbound visit.
+                    self.descent_ticks_by_floor.setdefault(self.depth, turn.tick - self.entered_floor_at)
                     self.depth += 1
                 else:
                     self.depth -= 1
@@ -224,7 +225,7 @@ class Adventurer:
                     )
                 self.entered_floor_at = turn.tick
             self.pending_stair = None
-            self.fled_contact = False
+            self.fled_via_stair = False
         self.maps.setdefault(self.depth, FloorMap()).observe(turn)
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
@@ -271,8 +272,7 @@ class Adventurer:
             self.last_shot_tick = turn.tick
         if turn.cell and isinstance(action, Move) and action.direction in (Direction.UP, Direction.DOWN):
             self.pending_stair = turn.stair_attempt(action, receipt)
-            self.fled_contact = reason in {"retreat_upstairs", "retreat_downstairs"} and any(
-                turn.in_contact(foe) for foe in turn.hostiles)
+            self.fled_via_stair = reason in {"retreat_upstairs", "retreat_downstairs"}
 
     def carrying_objective(self, turn: Turn) -> bool:
         return any(item.identity == self.objective for item in turn.inventory)
