@@ -236,6 +236,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             turn = player_turn([here, nearby], inventory=pack, ground=[{**nearby, "item": armor, "reachable": False}])
             self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), decision)
 
+    def test_exploration_continues_to_a_nearby_frontier_before_doubling_back(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        west = player_turn([cell("west"), cell("here", 1)])
+        player.observe(west)
+        player.admitted(west, Move(Direction.EAST), reason="explore")
+        cells = [cell("here"), cell("west", -1), cell("unknown-west", -2),
+                 cell("east", 1), cell("far-east", 2), cell("unknown-east", 3)]
+        turn = player_turn(cells)
+        player.observe(turn)
+        player.maps[player.depth].visited.update({"east", "far-east"})
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "explore"))
+        player.maps[player.depth].visited.add("unknown-east")
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "explore"))
+
     def test_take_corridor_before_two_foes_make_contact(self):
         def tile(x, y, wall=False):
             return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}
@@ -561,6 +575,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([cell("here", down=True)], inventory=[weapon("shortbow")], ground=[ground])
         self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
 
+    def test_collects_visible_spent_arrows_beyond_an_immediate_detour(self):
+        cells = [cell(str(i), i, down=i == 0) for i in range(5)]
+        bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                       "identified": True, "quantity": 12, "class": "weapon"} for name in ("shortbow", "arrow")]
+        ground = [{**cells[-1], "item": {**arrow, "id": "spent", "quantity": 1}, "reachable": False}]
+        turn = player_turn(cells, inventory=[bow, arrow], ground=ground)
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.EAST), "recover_arrows"))
+
     def test_uses_a_ready_contact_attack_instead_of_throwing_a_carried_dart(self):
         from unittest.mock import Mock
         from tor_client_bot import Shot
@@ -589,6 +612,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         slot = {"id": "weapon", "name": "Weapon"}
         offers = [{"item": "shortbow", "slot": slot, "equipped_slot": 0},
                   {"item": "mace", "slot": slot, "equipped_slot": None}]
+        turn = player_turn([cell("here")], actors=[foe], hostiles=["snake"], inventory=inventory,
+                           interactions={"slots": [slot], "inventory": offers})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Unequip(turn.equipment[0]), "change_weapon"))
+
+    def test_readies_a_melee_weapon_when_a_foe_closes_even_with_arrows_left(self):
+        from tor_client_bot import Unequip
+
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                      "identified": True, "quantity": 1} for name in ("shortbow", "mace", "arrow")]
+        slot = {"id": "weapon", "name": "Weapon"}
+        offers = [{"item": "shortbow", "slot": slot, "equipped_slot": 0},
+                  {"item": "mace", "slot": slot, "equipped_slot": None}]
+        foe = {"id": "snake", "name": "snake", "position": cell("snake", 2)["position"]}
         turn = player_turn([cell("here")], actors=[foe], hostiles=["snake"], inventory=inventory,
                            interactions={"slots": [slot], "inventory": offers})
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),

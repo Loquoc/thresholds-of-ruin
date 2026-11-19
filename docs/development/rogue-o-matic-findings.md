@@ -1,5 +1,18 @@
 # Rogue-O-Matic findings and follow-ups
 
+In a recorded seed 45 run the archer took 30 shots, including 18 with a
+hostile in melee contact and the starter mace in inventory. Keeping the
+mace ready for close encounters and drawing the bow at range cleared
+floor 2 on the same seed. With nearby arrow recovery enabled, 27 arrow
+pickups resolved before the run stopped on floor 3.
+
+At tick 37,210 on that floor the server rejected an exploration move west
+with `invalid_action` and the message `Intention is unavailable`. An
+independent run reproduced the same rejection. The saved decision showed
+16/16 Health, no visible hostile, hold, or condition, and west among the
+walkable directions. The destination had no disclosed wall, door or trap.
+The reason for rejection is still unknown.
+
 Recovery used two different food budgets. A short rest in shelter could
 spend food reserved for the return journey, while a player carrying the
 Amulet still budgeted for floors it had already climbed. Short and full

@@ -1795,14 +1795,14 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             region.update(size=[8, 5, 2], anchors={"start": [3, 2, 0]},
                           walls=[[2, y, z] for y in (1, 3) for z in range(2)])
             for actor, y in zip(region["actors"], (2, 3)):
-                actor["at"] = [5, y, 0]
+                actor.update(at=[5, y, 0], turn_ticks=100)
         self.server(scenario=write_package(self, contents, "confined-melee-retreat"))
         self.install_bot_extension()
         code = """
 import os
 from contextlib import ExitStack
 from rogue_player import Adventurer
-from tor_client_bot import Move, Outcome, Session, Wait
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
 
 with ExitStack() as stack:
     game, east, north = [stack.enter_context(Session.connect(os.environ["BOT_TEST_ADDRESS"],
@@ -1819,12 +1819,32 @@ with ExitStack() as stack:
         assert step.direction.offset == (-1, 0, 0)
     else:
         assert sum(turn.in_contact(foe, from_offset=step.direction.offset) for foe in turn.hostiles) == 1
-    assert turn.submit(step).status is Outcome.CONFIRMED
+    receipt = turn.submit(step)
+    assert receipt.status is Outcome.CONFIRMED
+    player.admitted(turn, step, receipt, reason=reason)
     for enemy in (east, north):
         assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
     after = game.wait_for_decision()
     assert after.cell.key == destination
     assert sum(after.in_contact(foe) for foe in after.hostiles) == (0 if approaching else 1)
+    if approaching:
+        player.observe(after)
+        action, reason = player.choose(after)
+        assert isinstance(action, Wait) and reason == "hold_corridor", (action, reason)
+        for _ in range(2):
+            assert after.submit(action).status is Outcome.CONFIRMED
+            assert east.wait_for_decision().submit(Move(Direction.WEST)).status is Outcome.CONFIRMED
+            assert north.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+            after = game.wait_for_decision()
+            player.observe(after)
+            action, reason = player.choose(after)
+            assert after.cell.key == destination
+            if any(after.in_contact(foe) for foe in after.hostiles):
+                break
+            assert reason == "hold_corridor", (action, reason)
+        assert sum(after.in_contact(foe) for foe in after.hostiles) == 1
+        assert reason == "melee", (action, reason)
+        assert after.submit(action).status is Outcome.CONFIRMED
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "APPROACHING": str(approaching), "PYTHONPATH": str(ROOT / "scripts"),

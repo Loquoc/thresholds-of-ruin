@@ -66,6 +66,8 @@ class Adventurer:
     objective: str
     depth: int = 1
     maps: dict[int, FloorMap] = field(default_factory=dict)
+    last_exploration_origin: str | None = None
+    corridor_stand: tuple[str, int] | None = None
     last_shot_tick: int | None = None
     searches: Counter[str] = field(default_factory=Counter)
     completed_end_searches: Counter[str] = field(default_factory=Counter)
@@ -255,6 +257,11 @@ class Adventurer:
             attempted = self.attempted_slow if reason == "slow_approach" else self.attempted_polymorph
             attempted.update(foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
         if isinstance(action, Move) and turn.cell:
+            self.last_exploration_origin = turn.cell.key if reason == "explore" else None
+            self.corridor_stand = None
+            if reason == "take_corridor" and (entrance := turn.cell_at(action.direction.offset)):
+                # Allow pursuers to reach the choke even when the doorway breaks sight.
+                self.corridor_stand = entrance.key, turn.tick + 600
             self.last_retreat_origin = turn.cell.key if reason == "retreat_to_stairs" else None
             if reason in {"retreat", "break_contact"} and turn.health and turn.health.current * 2 < turn.health.maximum:
                 self.recovering_from_pursuit = True
@@ -369,6 +376,12 @@ class Adventurer:
                 for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
                     if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
                         return zap, "elemental_ray"
+
+        if turn.hostiles and self.has_arrows(turn):
+            nearest = min(foe.distance for foe in turn.hostiles)
+            if nearest >= 5 or nearest <= 2:
+                if weapon := ready_weapon(turn, bow=nearest >= 5):
+                    return weapon
 
         if turn.hostiles and turn.tick != self.last_shot_tick:
             can_strike = any(turn.attack(foe) is not None for foe in adjacent)
@@ -643,7 +656,7 @@ class Adventurer:
                 if (item.identity is None and ItemUse.DRINK in item.uses
                         and (item.appearance or item.name) not in self.sampled_potions):
                     return UseItem(item, ItemUse.DRINK), "test_unknown_potion"
-        if weapon := ready_weapon(turn, bow=self.has_arrows(turn)):
+        if weapon := ready_weapon(turn, bow=False):
             return weapon
         # An unread scroll might open a paid identification choice or move the player.
         # Try it while healthy, with something to identify and a usable exit.
@@ -776,6 +789,11 @@ class Adventurer:
         if decision := self.combat(turn):
             return decision
 
+        if self.corridor_stand and turn.hunger not in {"weak", "empty"}:
+            entrance, until = self.corridor_stand
+            if turn.cell.key == entrance and turn.tick < until:
+                return Wait(), "hold_corridor"
+
         memory = self.maps[self.depth]
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
@@ -845,6 +863,11 @@ class Adventurer:
                 return search, "search"
         if action := memory.toward(turn, item_goals):
             return action, "seek_item"
+        if not returning and not hovering and not turn.hostiles and carried["item.weapon.shortbow"]:
+            arrows = {key for key, items in memory.items.items()
+                      if any(item.identity == "item.weapon.arrow" for item in items)}
+            if arrows and (action := memory.toward(turn, arrows, avoid=self.danger_until.keys(), max_steps=6)):
+                return action, "recover_arrows"
         if nearby_loot and (action := memory.toward(turn, nearby_loot, max_steps=2)):
             return action, "seek_supplies"
         if supplies and (action := memory.toward(turn, supplies, max_steps=3)):
@@ -871,6 +894,11 @@ class Adventurer:
                     return Zap(device, None), "light_room"
         avoid = self.danger_until.keys()
         if action := memory.toward_unexplored(turn, avoid=avoid):
+            if isinstance(action, Move) and (next_cell := turn.cell_at(action.direction.offset)):
+                if next_cell.key == self.last_exploration_origin:
+                    alternate = memory.toward(turn, memory.frontier, avoid=avoid | {next_cell.key}, max_steps=3)
+                    if alternate:
+                        return alternate, "explore"
             return action, "explore"
         if avoid:
             # Accept the risk when every remaining route crosses a recent threat.
