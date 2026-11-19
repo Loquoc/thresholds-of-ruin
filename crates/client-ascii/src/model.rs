@@ -1003,6 +1003,26 @@ impl App {
         Ok(())
     }
 
+    pub fn show_wizard_report(&mut self, report: &WizardReport) -> Result<(), String> {
+        if self.role != AccessRole::Wizard {
+            return Err("Wizard report requires wizard authority".into());
+        }
+        report.validate().map_err(|error| error.to_string())?;
+        self.strike_pages.clear();
+        self.strike_sources_open = false;
+        self.strike_detail_open = false;
+        self.inspection_title = "WIZARD REPORT";
+        self.inspection = Some(
+            std::iter::once(&report.title)
+                .chain(&report.lines)
+                .flat_map(|line| crate::messages::word_wrap(line, STATS_WIDTH))
+                .collect(),
+        );
+        self.stats_open = true;
+        self.stats_scroll = 0;
+        Ok(())
+    }
+
     pub fn show_creature_catalog(&mut self, page: &CreatureCatalogPage) -> Result<(), String> {
         if self.role != AccessRole::Wizard {
             return Err("Creature catalog requires wizard authority".into());
@@ -4606,6 +4626,7 @@ impl HelpPage {
                 "F3           Take control of the current character",
                 "#release     Release control",
                 "F7           Wizard tools, including the creature list",
+                "             Enter help or where without the wizard prefix",
             ],
         }
     }

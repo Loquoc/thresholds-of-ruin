@@ -1031,3 +1031,64 @@ mod self_devices;
 
 #[path = "polymorph_session_tests.rs"]
 mod polymorph;
+
+#[test]
+fn private_item_inspection_reads_spent_instance_not_catalog_charge_recipe() {
+    let mut engine = Engine::memory(scenario(false)).unwrap();
+    engine.enable_wizard().unwrap();
+    let mut wire = Wire::new(engine);
+    let wand = wire.take(ItemClass::Wand);
+    wire.act(
+        "inspect-fixture-zap",
+        Action::Zap {
+            item: wand,
+            aim: DeviceAim::Direction {
+                direction: Direction::East,
+            },
+        },
+    );
+    let before = wire.checkpoint();
+    let boundary = wire.service.engine.presentation_boundary();
+    let reports: Vec<_> = [30, 31]
+        .into_iter()
+        .map(|item| {
+            wire.service
+                .engine
+                .wizard_report_at(
+                    &boundary,
+                    OWNER,
+                    crate::developer::WizardQuery::ItemInspect { item },
+                )
+                .unwrap()
+        })
+        .collect();
+    let carried: Vec<_> = reports
+        .iter()
+        .filter(|report| report.lines.contains(&"carried-by=1".into()))
+        .collect();
+    assert_eq!(carried.len(), 1);
+    assert!(carried[0].lines.contains(&"charges=2".into()));
+    assert!(carried[0]
+        .lines
+        .contains(&"identity=item.wand.embers".into()));
+    let ground: Vec<_> = reports
+        .iter()
+        .filter(|report| report.lines.iter().any(|line| line.starts_with("ground ")))
+        .collect();
+    assert_eq!(ground.len(), 1);
+    assert!(ground[0].lines.contains(&"charges=3".into()));
+    assert!(wire
+        .service
+        .engine
+        .wizard_report_at(
+            &boundary,
+            OWNER,
+            crate::developer::WizardQuery::ItemInspect { item: 999999 }
+        )
+        .is_err());
+    assert_eq!(
+        wire.checkpoint(),
+        before,
+        "inspection must not identify, spend, move or journal"
+    );
+}

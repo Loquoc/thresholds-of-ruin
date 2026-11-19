@@ -420,6 +420,7 @@ fn window_loop(
                             app.status.clear();
                         }
                         Event::CreatureCatalog(page) => app.show_creature_catalog(&page)?,
+                        Event::WizardReport(report) => app.show_wizard_report(&report)?,
                         Event::ProjectileChoicesSent(id) => {
                             if let Err(error) = app.bind_projectile_request(&id) {
                                 app.refused(error);

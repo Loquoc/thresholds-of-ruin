@@ -1906,6 +1906,145 @@ async fn creature_catalog_stale_reply_is_discarded_before_recovery_and_fresh_reo
     server.await.unwrap();
 }
 
+fn wizard_report_message(context: ReplyContext, request_id: &str) -> ServerMessage {
+    ServerMessage::WizardReport {
+        context,
+        request_id: request_id.into(),
+        report: Box::new(WizardReport {
+            title: "Wizard location".into(),
+            lines: vec!["Actor 1: region 3 cell 1 2 0".into()],
+        }),
+    }
+}
+
+fn wizard_report_query(connection: &Connection) -> Request {
+    connection.state.command_request(Command::Wizard {
+        expected_revision: connection.state.state().revision,
+        operation: "where".into(),
+    })
+}
+
+#[tokio::test]
+async fn wizard_report_stale_reply_is_discarded_before_recovery_and_fresh_reopen() {
+    let initial = snapshot();
+    let mut stale_context = initial.reply_context();
+    stale_context.revision += 1;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        receive(&mut socket).await;
+        send(
+            &mut socket,
+            ServerMessage::Welcome {
+                protocol: PROTOCOL_VERSION,
+                capabilities: ServerCapabilities::new(MAX_RESPONSE_BYTES as u32, 16),
+                user: "test".into(),
+                actors: vec![ActorId(1)],
+                role: AccessRole::Wizard,
+            },
+        )
+        .await;
+        receive(&mut socket).await;
+        send(
+            &mut socket,
+            ServerMessage::Snapshot {
+                request_id: "attach".into(),
+                snapshot: Box::new(initial.clone()),
+            },
+        )
+        .await;
+        let ClientMessage::Request {
+            request_id,
+            request,
+        } = receive(&mut socket).await
+        else {
+            panic!("first report query");
+        };
+        let Request::Command {
+            command: Command::Wizard { .. },
+            ..
+        } = *request
+        else {
+            panic!("first report query");
+        };
+        send(
+            &mut socket,
+            wizard_report_message(stale_context, &request_id),
+        )
+        .await;
+        let ClientMessage::Request {
+            request_id,
+            request,
+        } = receive(&mut socket).await
+        else {
+            panic!("stale report requires recovery instead of presentation");
+        };
+        let Request::Snapshot = *request else {
+            panic!("stale report requires recovery instead of presentation");
+        };
+        let mut reset = initial;
+        reset.context.epoch += 1;
+        let fresh_context = reset.reply_context();
+        send(
+            &mut socket,
+            ServerMessage::Snapshot {
+                request_id,
+                snapshot: Box::new(reset),
+            },
+        )
+        .await;
+        let ClientMessage::Request {
+            request_id,
+            request,
+        } = receive(&mut socket).await
+        else {
+            panic!("explicit fresh reopen");
+        };
+        let Request::Command {
+            command: Command::Wizard { .. },
+            ..
+        } = *request
+        else {
+            panic!("explicit fresh reopen");
+        };
+        send(
+            &mut socket,
+            wizard_report_message(fresh_context, &request_id),
+        )
+        .await;
+    });
+    let mut client = Connection::connect(address, "test".into(), ActorId(1), "headless")
+        .await
+        .unwrap();
+    let stale_id = client.request(wizard_report_query(&client)).await.unwrap();
+    let mut pending = crate::PendingRequest::new(stale_id);
+    let recovered = client.next().await.unwrap();
+    assert!(matches!(recovered, ServerMessage::Snapshot { .. }));
+    assert!(matches!(
+        pending.observe(&client, &recovered),
+        Some(crate::RequestCompletion::Unknown)
+    ));
+    assert!(client.is_synchronized());
+    let id = client.request(wizard_report_query(&client)).await.unwrap();
+    let message = client.next().await.unwrap();
+    let mut unrelated = crate::PendingRequest::new("unrelated".into());
+    assert!(unrelated.observe(&client, &message).is_none());
+    let mut pending = crate::PendingRequest::new(id.clone());
+    assert!(matches!(
+        pending.observe(&client, &message),
+        Some(crate::RequestCompletion::Reply(
+            crate::ConfirmedReply::Completed
+        ))
+    ));
+    let fresh = serde_json::to_value(message).unwrap();
+    assert_eq!(fresh["type"], "wizard_report");
+    assert_eq!(fresh["request_id"], id);
+    assert_eq!(fresh["report"]["lines"][0], "Actor 1: region 3 cell 1 2 0");
+    server.await.unwrap();
+}
+
 #[tokio::test]
 async fn creature_catalog_rejects_wrong_attachment_actor_and_malformed_payload() {
     for fault in ["actor", "attachment", "entries", "stale-player"] {

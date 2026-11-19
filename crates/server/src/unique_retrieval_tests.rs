@@ -736,6 +736,31 @@ fn wizard_birth_cannot_duplicate_a_reserved_identity_but_may_share_its_display_n
 }
 
 #[test]
+fn wizard_item_give_cannot_mint_reserved_artifact_before_its_authored_depth() {
+    let mut engine = Engine::memory(at_depth(1)).unwrap();
+    engine.enable_wizard().unwrap();
+    let before = engine.diagnostic_copy();
+    let result = engine.command(
+        "player",
+        "wizard-give-test",
+        ActorId(1),
+        "give-objective",
+        &engine.branch().clone(),
+        Command::Wizard {
+            display_basis: None,
+            expected_boundary: engine.causal_boundary(ActorId(1)).unwrap(),
+            operation: crate::developer::parse_wizard(
+                "item give self identity item.amulet.amulet-of-yendor",
+            )
+            .unwrap(),
+        },
+    );
+    assert_eq!(result.unwrap_err().code, ErrorCode::InvalidAction);
+    assert!(retrieval(&engine).item.is_none());
+    exact_equal(&engine, &before);
+}
+
+#[test]
 fn expired_artifact_creation_cannot_alias_a_later_wizard_item_origin() {
     let (mut engine, abandoned) = expired_created_receipt();
     let at = engine.game.observe(SimActor(1)).unwrap().location;

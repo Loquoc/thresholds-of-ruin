@@ -154,6 +154,7 @@ enum RequestReply {
     Palette(PaletteUpdate),
     CreatureInspection(Box<CreatureInspectionView>),
     CreatureCatalog(Box<CreatureCatalogPage>),
+    WizardReport(Box<tor_protocol::WizardReport>),
     StrikePage(Box<CreatureStrikePage>),
     AdvancementPage(Box<AdvancementPage>),
     CombatDiagnostics(Box<tor_protocol::CombatDiagnosticsView>),
@@ -201,6 +202,11 @@ impl RequestReply {
                 context,
                 request_id,
                 page,
+            },
+            Self::WizardReport(report) => ServerMessage::WizardReport {
+                context,
+                request_id,
+                report,
             },
             Self::CreatureCatalog(page) => ServerMessage::CreatureCatalog {
                 context,
@@ -813,14 +819,18 @@ impl Service {
                 branch,
                 command,
             } => {
-                let command = crate::wire_adapter::decode_command(&command)?;
-                if let Some(previous) = self
-                    .engine
-                    .retry_decoded(&user, &frontend, actor, request_id, &branch, &command)?
-                {
-                    return Ok(ProcessedRequest::Reply(RequestReply::Receipt(
-                        self.engine.request_receipt(&previous),
-                    )));
+                let mut command = crate::wire_adapter::decode_command(&command)?;
+                let relative = matches!(&command, crate::wire_adapter::DecodedCommand::WizardContext { text, .. }
+                    if !crate::developer::is_wizard_query(text));
+                if !relative {
+                    if let Some(previous) = self
+                        .engine
+                        .retry_decoded(&user, &frontend, actor, request_id, &branch, &command)?
+                    {
+                        return Ok(ProcessedRequest::Reply(RequestReply::Receipt(
+                            self.engine.request_receipt(&previous),
+                        )));
+                    }
                 }
                 // Ownership and availability can change without an observation
                 // revision. Resolve receipts first, then reject fresh input built
@@ -849,6 +859,62 @@ impl Service {
                         ErrorCode::WrongBranch,
                         "The game branch changed",
                     ));
+                }
+                if let crate::wire_adapter::DecodedCommand::WizardContext {
+                    expected_revision,
+                    text,
+                } = &command
+                {
+                    let boundary = self
+                        .query_presentation(id, *expected_revision)?
+                        .boundary
+                        .clone();
+                    let origin = self.engine.wizard_origin_at(&boundary, actor)?;
+                    let invalid =
+                        |message: String| Failure::new(ErrorCode::InvalidRequest, &message);
+                    if let Some(query) =
+                        crate::developer::parse_wizard_query(text, origin).map_err(invalid)?
+                    {
+                        let report = self.engine.wizard_report_at(&boundary, actor, query)?;
+                        let context = self.reply_context(id).ok_or_else(|| {
+                            Failure::new(ErrorCode::StaleContext, "Input context changed")
+                        })?;
+                        let message = ServerMessage::WizardReport {
+                            context,
+                            request_id: request_id.into(),
+                            report: Box::new(report.clone()),
+                        };
+                        if tor_protocol::encoded_length(
+                            &message,
+                            self.outbound.capabilities().max_response_bytes as usize,
+                        )
+                        .map_err(|_| {
+                            Failure::new(ErrorCode::InvalidAction, "Invalid wizard report")
+                        })?
+                        .is_none()
+                        {
+                            return Err(Failure::new(
+                                ErrorCode::InvalidAction,
+                                "Wizard report exceeds negotiated response budget",
+                            ));
+                        }
+                        return Ok(ProcessedRequest::Reply(RequestReply::WizardReport(
+                            Box::new(report),
+                        )));
+                    }
+                    let operation = self.engine.resolve_wizard_at(&boundary, actor, text)?;
+                    command = crate::wire_adapter::DecodedCommand::Display {
+                        expected_revision: *expected_revision,
+                        operation: crate::wire_adapter::DisplayCommand::Wizard { operation },
+                    };
+                    if let Some(previous) = self
+                        .engine
+                        .retry_decoded(&user, &frontend, actor, request_id, &branch, &command)?
+                    {
+                        return Ok(ProcessedRequest::Reply(RequestReply::Receipt(
+                            self.engine.request_receipt(&previous),
+                        )));
+                    }
                 }
                 if command.requires_control() && self.controllers.get(&actor) != Some(&id) {
                     return Err(Failure::new(
@@ -1231,6 +1297,28 @@ impl Service {
                     // Scheduler controls change ordinary readiness, not world
                     // topology. Preserve streams, preparations and private history.
                     self.action_update(&before_states, None, None)?;
+                    return Ok(ProcessedRequest::Reply(RequestReply::Receipt(
+                        self.engine.request_receipt(&result),
+                    )));
+                }
+                if matches!(
+                    &result.entry.content,
+                    crate::journal::JournalContent::Wizard {
+                        operation: crate::journal::WizardOperation::RestoreResource { .. }
+                            | crate::journal::WizardOperation::ApplyCondition { .. }
+                            | crate::journal::WizardOperation::ClearCondition { .. }
+                            | crate::journal::WizardOperation::GiveItem { .. },
+                        ..
+                    }
+                ) {
+                    // These commands change actor state, not world topology.
+                    // In particular, do not pause other actors or rebroadcast
+                    // the private wizard result as an actor-wide outcome.
+                    self.action_update(&before_states, None, Some(&result))?;
+                    self.intention_update(&result);
+                    if self.clients.contains_key(&id) && self.snapshot(id, "").is_err() {
+                        self.disconnect(id);
+                    }
                     return Ok(ProcessedRequest::Reply(RequestReply::Receipt(
                         self.engine.request_receipt(&result),
                     )));
@@ -5270,6 +5358,91 @@ mod tests {
             )),
             "rewind did not fork: {messages:?}"
         );
+    }
+
+    #[test]
+    fn wizard_condition_publishes_private_receipt_without_resetting_other_streams() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scenarios/rogue-exploration");
+        let scenario = crate::scenario_package::load(&root, 42, Some(1), true).unwrap();
+        let mut engine = Engine::memory(scenario).unwrap();
+        engine.enable_wizard().unwrap();
+        let mut service = Service::new(engine);
+        let mut clients = Vec::new();
+        for (user, role) in [
+            ("wizard", AccessRole::Wizard),
+            ("observer", AccessRole::Spectator),
+        ] {
+            let mut client = service
+                .connect(
+                    &Account {
+                        role,
+                        user: user.into(),
+                        token: "test".into(),
+                        actors: BTreeSet::from([ActorId(1)]),
+                    },
+                    "headless".into(),
+                )
+                .unwrap();
+            while client.messages.try_recv().is_ok() {}
+            service.handle(
+                client.id,
+                "attach".into(),
+                Request::Attach { actor: ActorId(1) },
+            );
+            while client.messages.try_recv().is_ok() {}
+            clients.push(client);
+        }
+        let private = clients[0].id;
+        let observer = clients[1].id;
+        let observer_stream = service.clients[&observer].context.clone();
+        let request = |service: &Service, id| Request::Command {
+            context: service.input_context(id).unwrap(),
+            branch: service.engine.branch().clone(),
+            command: Command::Wizard {
+                expected_revision: service.clients[&id]
+                    .last_observation
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .revision,
+                operation: "condition apply self rogue.frozen 200".into(),
+            },
+        };
+        service.handle(observer, "denied".into(), request(&service, observer));
+        assert!(
+            std::iter::from_fn(|| clients[1].messages.try_recv().ok()).any(|message| matches!(
+                message,
+                ServerMessage::Error {
+                    code: ErrorCode::Unauthorized,
+                    ..
+                }
+            ))
+        );
+        service.autonomous_enabled = true;
+        service.handle(
+            private,
+            "apply-condition".into(),
+            request(&service, private),
+        );
+        assert!(service.autonomous_enabled);
+        assert_eq!(service.clients[&observer].context, observer_stream);
+        let private_messages: Vec<_> =
+            std::iter::from_fn(|| clients[0].messages.try_recv().ok()).collect();
+        assert!(
+            private_messages.iter().any(|message| matches!(message,
+                ServerMessage::Snapshot { snapshot, .. } if snapshot.history.entries.iter().any(|entry|
+                    matches!(&entry.content, HistoryContent::Wizard { summary, .. }
+                        if summary == "Actor 1 condition rogue.frozen: applied."))
+            )),
+            "{private_messages:?}"
+        );
+        let observer_messages: Vec<_> =
+            std::iter::from_fn(|| clients[1].messages.try_recv().ok()).collect();
+        assert!(!observer_messages.iter().any(|message| matches!(message,
+            ServerMessage::Update { update, .. } if matches!(&update.body,
+                UpdateBody::Outcome { event: Some(entry), .. } if matches!(entry.content, HistoryContent::Wizard { .. }))
+        )));
     }
 
     #[test]

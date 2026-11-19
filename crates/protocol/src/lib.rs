@@ -70,6 +70,8 @@ pub use projectile_selection::*;
 pub use public_plan::*;
 mod creature_catalog;
 pub use creature_catalog::*;
+mod wizard_report;
+pub use wizard_report::*;
 mod creature;
 mod creature_inspection;
 pub use creature::*;

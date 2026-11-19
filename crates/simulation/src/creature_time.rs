@@ -247,6 +247,30 @@ impl Game {
         Ok(restored)
     }
 
+    /// Cure the named condition through the same active-time and recovery
+    /// boundary as application. Production removal preserves protection and
+    /// the reservations already owned by paid intentions.
+    pub fn remove_condition(
+        &mut self,
+        actor: ActorId,
+        condition: &crate::content_ids::ConditionId,
+    ) -> Result<bool, GameError> {
+        let mut outcome = self.settled_actor_outcome(actor)?;
+        if !outcome.state.alive() {
+            return Err(GameError::UnknownActor);
+        }
+        let combat = outcome.state.combat.as_mut().ok_or(GameError::Rule(
+            crate::abilities::RuleError::InvalidDefinition,
+        ))?;
+        let context = self.condition_recovery_context(actor, condition)?;
+        let changed = combat
+            .with_recovery_context(context, |creature| creature.remove_condition(condition))
+            .map_err(|_| GameError::Rule(crate::abilities::RuleError::InvalidDefinition))?;
+        let prepared = self.prepare_actor_outcome(outcome)?;
+        self.publish_actor_effect(prepared, false)?;
+        Ok(changed)
+    }
+
     /// Trusted effect application. A causer can be dead or detached; an existing
     /// condition needs neither current reach nor sight of its causer.
     pub fn apply_condition(

@@ -4871,6 +4871,19 @@ impl Package {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct WizardItemCatalogRow {
+    pub(crate) recipe: String,
+    pub(crate) identity: tor_simulation::ItemIdentity,
+    pub(crate) appearance: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct WizardItemCatalogPage {
+    pub(crate) rows: Vec<WizardItemCatalogRow>,
+    pub(crate) next: Option<String>,
+}
+
 /// Whole-package facts for building regions (see [`Package::index`]).
 #[derive(Clone, Debug)]
 pub(crate) struct PackageIndex {
@@ -4977,6 +4990,14 @@ impl PackageIndex {
 
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.definitions.creature_archetypes()
+    }
+
+    pub(crate) fn wizard_item_catalog(
+        &self,
+        after: Option<&str>,
+    ) -> Result<WizardItemCatalogPage, Failure> {
+        self.definitions
+            .wizard_item_catalog(after, &self.appearances)
     }
 
     pub(crate) fn wizard_item(
@@ -5207,6 +5228,15 @@ mod tests {
         let arrow_identity = "item.weapon.arrow";
         let healing = "item.potion.healing";
         let red = "item.potion.red";
+        let catalog = index.wizard_item_catalog(None).unwrap();
+        let aliases = catalog
+            .rows
+            .iter()
+            .filter(|row| row.identity.as_str() == arrow_identity)
+            .map(|row| row.recipe.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(aliases, ["a-arrow", "arrow"]);
+
         let by_identity = index.wizard_item(Some(arrow_identity), None, None).unwrap();
         assert_eq!(by_identity.archetype, "a-arrow");
         assert_eq!(by_identity.identity.as_str(), arrow_identity);
@@ -5260,6 +5290,79 @@ mod tests {
             .unwrap_err()
             .message
             .contains("Ambiguous"));
+    }
+
+    #[test]
+    fn wizard_item_catalog_pages_all_rogue_recipes_with_seeded_assets() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scenarios/rogue-exploration");
+        let package = super::read_package(&root).unwrap();
+        let index = package.index(42).unwrap();
+        let first = index.wizard_item_catalog(None).unwrap();
+        assert_eq!(first.rows.len(), 16);
+        assert_eq!(
+            first.next.as_deref(),
+            first.rows.last().map(|row| row.recipe.as_str())
+        );
+        let second = index.wizard_item_catalog(first.next.as_deref()).unwrap();
+        assert_eq!(second.rows.len(), 16);
+        assert!(first.rows.last().unwrap().recipe < second.rows[0].recipe);
+        assert_eq!(index.wizard_item_catalog(None).unwrap(), first);
+        let mut rows = first.rows;
+        let mut next = first.next;
+        while let Some(cursor) = next {
+            let page = index.wizard_item_catalog(Some(&cursor)).unwrap();
+            assert!((1..=16).contains(&page.rows.len()));
+            rows.extend(page.rows);
+            next = page.next;
+            assert!(rows.len() <= package.manifest.archetypes.len());
+        }
+        let expected: Vec<_> = package
+            .manifest
+            .archetypes
+            .iter()
+            .filter_map(|(key, author)| {
+                (author.identity.is_some() && (author.name.is_some() || !author.forms.is_empty()))
+                    .then_some(key.as_str())
+            })
+            .collect();
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.recipe.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let find = |key| rows.iter().find(|row| row.recipe == key).unwrap();
+        assert_eq!(
+            find("rogue.hallucination").identity.as_str(),
+            "item.potion.hallucination"
+        );
+        assert_eq!(
+            find("rogue.hallucination").appearance.as_deref(),
+            Some("item.potion.saffron")
+        );
+        for (base, generated) in [
+            ("rogue.mace", "rogue.generated_mace"),
+            ("rogue.arrow", "rogue.generated_arrow"),
+            ("rogue.ring_mail", "rogue.generated_ring_mail"),
+        ] {
+            assert_eq!(find(base).identity, find(generated).identity);
+            assert_eq!(find(base).appearance, find(generated).appearance);
+        }
+        assert!(index
+            .wizard_item_catalog(Some("rogue.unknown-recipe"))
+            .is_err());
+        let (creature, _) = index.creature_archetypes().next().unwrap();
+        assert!(index.wizard_item_catalog(Some(creature)).is_err());
+        let exhausted = index
+            .wizard_item_catalog(Some(&rows.last().unwrap().recipe))
+            .unwrap();
+        assert!(exhausted.rows.is_empty() && exhausted.next.is_none());
+        assert_eq!(
+            index.lookups.get(),
+            0,
+            "catalog must not materialize regions"
+        );
     }
 
     #[test]

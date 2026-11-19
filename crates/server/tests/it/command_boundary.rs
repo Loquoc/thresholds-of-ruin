@@ -161,6 +161,13 @@ fn ordinary_commands_preserve_every_payload_at_the_wire_boundary() {
     for wire in commands {
         let backend = tor_server::wire_adapter::decode_command(&wire).unwrap();
         let reconstructed = match backend {
+            DecodedCommand::WizardContext {
+                expected_revision,
+                text,
+            } => Wire::Wizard {
+                expected_revision,
+                operation: text,
+            },
             DecodedCommand::Backend(command) => engine.encode_command(ActorId(1), command).unwrap(),
             DecodedCommand::Display {
                 expected_revision,

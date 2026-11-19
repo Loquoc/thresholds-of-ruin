@@ -730,6 +730,23 @@ impl Game {
         Ok(())
     }
 
+    /// Create an unequipped stack at the loaded owner through ordinary item
+    /// construction without changing the owner's existing item knowledge.
+    pub fn spawn_carried_item_stack(
+        &mut self,
+        owner: ActorId,
+        quantity: u64,
+        spec: ItemSpec,
+    ) -> Result<ItemId, GameError> {
+        let at = self
+            .actors
+            .get(&owner)
+            .filter(|actor| actor.alive())
+            .ok_or(GameError::UnknownActor)?
+            .location;
+        self.spawn_item_stack(at, Some(owner), quantity, spec)
+    }
+
     /// Allocate from the ordinary item namespace, retaining its checked ownership,
     /// quantity, definition and lifecycle validation. No secondary allocator.
     pub fn spawn_item_stack(

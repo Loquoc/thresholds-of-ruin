@@ -573,6 +573,10 @@ impl DisplayCommand {
 /// Normalized request facts before any live target resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DecodedCommand {
+    WizardContext {
+        expected_revision: u64,
+        text: String,
+    },
     ProjectileChoices {
         expected_revision: u64,
         query: p::ProjectileChoiceQuery,
@@ -633,7 +637,8 @@ impl DecodedCommand {
             | Self::ProjectileChoices { .. }
             | Self::Advancement { .. }
             | Self::AbilityWeaponPreview { .. } => true,
-            Self::CreatureCatalog { .. }
+            Self::WizardContext { .. }
+            | Self::CreatureCatalog { .. }
             | Self::CreatureInspection { .. }
             | Self::CombatDiagnostics { .. }
             | Self::StrikeInspection { .. } => false,
@@ -737,6 +742,9 @@ impl DecodedCommand {
                 expected_revision, ..
             }
             | Self::Advancement {
+                expected_revision, ..
+            }
+            | Self::WizardContext {
                 expected_revision, ..
             }
             | Self::CreatureCatalog {
@@ -899,6 +907,20 @@ pub fn decode_command(command: &tor_protocol::Command) -> Result<DecodedCommand,
                 operation,
             });
         }
+        if matches!(words.first(), Some(&"where" | &"help" | &"inspect"))
+            || matches!(words.as_slice(), ["item", "list" | "inspect", ..])
+            || matches!(
+                words.as_slice(),
+                ["item", "spawn" | "token" | "tablet", "here", ..]
+                    | ["creature", "spawn", _, "here", ..]
+                    | ["teleport" | "actor", _, "here", ..]
+            )
+        {
+            return Ok(DecodedCommand::WizardContext {
+                expected_revision: *expected_revision,
+                text: operation.clone(),
+            });
+        }
         if words.starts_with(&["creature", "list"]) {
             let usage = || {
                 crate::Failure::new(
@@ -977,8 +999,8 @@ pub fn decode_command(command: &tor_protocol::Command) -> Result<DecodedCommand,
         } => DecodedCommand::Display {
             expected_revision: *expected_revision,
             operation: DisplayCommand::Wizard {
-                operation: crate::developer::parse_wizard(operation).map_err(|_| {
-                    crate::Failure::new(p::ErrorCode::InvalidRequest, "Invalid developer command")
+                operation: crate::developer::parse_wizard(operation).map_err(|message| {
+                    crate::Failure::new(p::ErrorCode::InvalidRequest, &message)
                 })?,
             },
         },
@@ -1099,6 +1121,19 @@ pub fn disclose_entry(
         },
         JournalContent::Wizard { result, .. } => Content::Wizard {
             summary: match result {
+                WizardResult::ResourceRestored {
+                    actor,
+                    resource,
+                    restored,
+                } => format!("Restored {restored} {resource:?} to actor {}.", actor.0),
+                WizardResult::ItemGiven { actor, item } => {
+                    format!("Gave item {item} to actor {}.", actor.0)
+                }
+                WizardResult::ConditionChanged {
+                    actor,
+                    condition,
+                    outcome,
+                } => crate::wizard_conditions::summary(*actor, condition, *outcome),
                 WizardResult::CreatureSpawned {
                     actor,
                     selector,
@@ -1652,5 +1687,32 @@ mod display_basis_tests {
             !decoded.matches(&saved, &scope),
             "backend causal guard is not a display request"
         );
+    }
+}
+
+#[cfg(test)]
+mod wizard_context_tests {
+    use super::*;
+    #[test]
+    fn here_only_changes_retry_semantics_in_a_position_slot() {
+        let decode = |text: &str| {
+            decode_command(&p::Command::Wizard {
+                expected_revision: 1,
+                operation: text.into(),
+            })
+            .unwrap()
+        };
+        for text in ["room 1 2 3 4 stay here", "creature spawn here 1 2 3 0"] {
+            assert!(matches!(decode(text), DecodedCommand::Display { .. }));
+        }
+        for text in [
+            "where",
+            "help item",
+            "inspect tile here",
+            "item spawn here recipe rogue.mace",
+            "creature spawn rat here",
+        ] {
+            assert!(matches!(decode(text), DecodedCommand::WizardContext { .. }));
+        }
     }
 }

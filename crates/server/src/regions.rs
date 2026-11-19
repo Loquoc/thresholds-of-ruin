@@ -270,6 +270,12 @@ impl Regions {
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.index.creature_archetypes()
     }
+    pub(crate) fn wizard_item_catalog(
+        &self,
+        after: Option<&str>,
+    ) -> Result<crate::scenario_package::WizardItemCatalogPage, Failure> {
+        self.index.wizard_item_catalog(after)
+    }
     pub(crate) fn wizard_item(
         &self,
         identity: Option<&str>,
