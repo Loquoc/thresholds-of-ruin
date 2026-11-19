@@ -474,6 +474,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             player.admitted(turn, action)
         self.assertIsNone(player.search(turn, memory, returning=False))
 
+    def test_mapped_room_with_only_an_entrance_gets_a_second_bounded_wall_search(self):
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        cells = [cell("entrance", up=True)]
+        for x, y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cells.append({**cell(f"wall-{x}-{y}"), "wall": True, "position": {"x": x, "y": y, "z": 0}})
+        turn = player_turn(cells, abilities=[ability])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.observe(turn)
+        for _ in range(6):
+            action, reason = player.choose(turn)
+            self.assertEqual(reason, "search")
+            player.admitted(turn, action)
+        self.assertEqual(player.choose(turn), (None, "no_disclosed_route"))
+
     def test_equivalent_search_sites_are_ranked_independently_of_opaque_cell_keys(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
@@ -1661,6 +1676,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "reposition_to_recover"))
         player.danger_until["cleared"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
+
+    def test_explores_away_from_recent_danger_when_another_route_exists(self):
+        turn = player_turn([cell("here"), cell("east", 1), cell("west", -1)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        first, reason = player.choose(turn)
+        self.assertEqual(reason, "explore")
+        danger = turn.cell_at(first.direction.offset).key
+        player.danger_until[danger] = 1200
+        other, reason = player.choose(turn)
+        self.assertEqual(reason, "explore")
+        self.assertNotEqual(other, first)
+        player.maps[1].visited.add(turn.cell_at(other.direction.offset).key)
+        self.assertEqual(player.choose(turn), (first, "explore"))
 
     def test_recovery_moves_after_an_unseen_attack_without_a_visible_enemy(self):
         data = state([cell("exposed"), cell("cleared", -1), cell("unknown", 1)])

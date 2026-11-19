@@ -320,6 +320,12 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
 
 
     def test_bot_reports_navigation_when_a_room_has_no_disclosed_exit(self):
+        self.check_sealed_room(after_descent=False)
+
+    def test_bot_searches_a_sealed_landing_again_before_reporting_no_route(self):
+        self.check_sealed_room(after_descent=True)
+
+    def check_sealed_room(self, *, after_descent):
         from discovery_package import write_package
         from rogue_o_matic_cohort import trace_report
         from utility_potions_package import fixture
@@ -329,6 +335,11 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         region, = contents["regions"]
         region["actors"] = []
         region["walls"] = [[x, y, z] for x, y in ((0, 2), (2, 2), (1, 1), (1, 3)) for z in range(2)]
+        if after_descent:
+            contents["manifest"]["stair_pairs"] = {"landing": {"upper": "1/start", "lower": "2/up"}}
+            contents["regions"].append({"id": 2, "name": "Sealed landing", "size": [7, 5, 2],
+                                        "chamber": True, "anchors": {"up": [1, 2, 0]},
+                                        "walls": region.pop("walls")})
         server = self.server(scenario=write_package(self, contents, "rogue-bot-no-route"))
         self.install_bot_extension()
         result = subprocess.run(
@@ -343,16 +354,19 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         turns = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(turns[-1]["terminal"], "no_disclosed_route")
         navigation = turns[-1]["navigation"]
-        self.assertEqual((navigation["floor"], navigation["visited_cells"]), (1, 1))
+        depth = 2 if after_descent else 1
+        self.assertEqual((navigation["floor"], navigation["visited_cells"]), (depth, 1))
         self.assertEqual(navigation["known_down_stairs"], 0)
         searches = sum(row["action"].get("id") == "rogue.search" for row in turns[:-1])
         self.assertEqual(navigation["searches_admitted"], searches)
         self.assertGreater(searches, 0)
+        if after_descent:
+            self.assertEqual(searches, 6)
         trace = self.directory / "trace.jsonl"
         trace.write_text(result.stdout, encoding="utf-8")
         _, progress = trace_report(trace)
-        self.assertEqual(progress["floors"]["1"]["searches_resolved"], searches)
-        self.assertEqual(progress["floors"]["1"]["searches_failed"], 0)
+        self.assertEqual(progress["floors"][str(depth)]["searches_resolved"], searches)
+        self.assertEqual(progress["floors"][str(depth)]["searches_failed"], 0)
 
     def test_bot_routes_away_from_a_foe_toward_a_disclosed_stair(self):
         self.check_safe_stair_route(diagonal=False)
@@ -744,6 +758,40 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         )
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_exploration_takes_another_passage_after_a_recent_threat(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["manifest"]["characters"][0]["loadout"] = []
+        contents["regions"][0].update(actors=[], anchors={"start": [3, 2, 0]})
+        self.server(scenario=write_package(self, contents, "two-exploration-routes"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Move, Outcome, Session
+
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    ordinary, reason = player.choose(turn)
+    assert isinstance(ordinary, Move) and reason == "explore", (ordinary, reason)
+    dangerous = turn.cell_at(ordinary.direction.offset).key
+    player.danger_until[dangerous] = turn.tick + 1200
+    alternative, reason = player.choose(turn)
+    assert isinstance(alternative, Move) and reason == "explore", (alternative, reason)
+    destination = turn.cell_at(alternative.direction.offset).key
+    assert destination != dangerous
+    assert turn.submit(alternative).status is Outcome.CONFIRMED
+    assert game.wait_for_decision().cell.key == destination
+"""
+        run = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=45)
+        self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_bot_can_open_distance_with_a_clear_diagonal(self):
         from discovery_package import write_package

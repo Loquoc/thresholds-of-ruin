@@ -1,5 +1,40 @@
 # Rogue-O-Matic findings and follow-ups
 
+On development seed 47, the policy at `b2fe496b` died on floor 2 after
+320 actions. Preferring exploration routes that avoided recently threatened
+cells reached floor 10 on the same seed. The bot then reported
+`no_disclosed_route` at tick 156,970, after visiting 15 cells and
+submitting 36 searches on that floor. It still had 980 nutrition reserve at
+its last decision.
+
+An ordinary player resumed a copy of that save with fresh bot map memory.
+After 36 more resolved searches it observed a closed door, opened it at tick
+164,558, and eventually mapped 174 cells. Failed searches had left the
+entrance looking like a wall. The bot now makes a second bounded pass over
+ordinary walls when it has found only the upstairs and exhausted exploration,
+its first search pass and its available fallback items. The separate limit
+of six completed searches at a corridor end still applies.
+
+With the second pass enabled from a fresh seed-47 save, the bot made 36
+additional Search submissions after the former stopping point. It opened
+the door at tick 162,396 with 924 reserve and reached floor 11 at tick
+266,440. On seed 49, the danger-aware exploration policy reached floor 8
+and starved. On floors 2 and 3 it repeatedly returned to the same guarded
+landing, including eight consecutive descents immediately followed by
+retreats. This is a separate cost from time spent searching.
+
+The seed-47 second-pass run reached floor 16 and stalled after 5,949
+actions. The server admitted an aimed teleport-away wand activation against
+an adjacent nymph. At tick 622,870 the receipt was `started`, with 28 of 60
+Health and 258 reserve. On a copy of the save, a fresh player connection
+observed the same intention paused with 68 preparation ticks remaining. The
+server confirmed Resume, but the next decision timed out at the same tick.
+The original save journal ends with autonomous intention 16498 admitted for
+actor 132 at that tick, after the player's wand activation started.
+The expected outcome is either a resolved or failed activation followed by a
+decision. The reason time stopped remains open. Classify this run as a
+readiness timeout.
+
 The production player picked up and identified plate mail in a live encounter.
 An independent player connection confirmed which armor it wore afterward.
 The clean plate replaced ring mail. A cursed plate with higher disclosed

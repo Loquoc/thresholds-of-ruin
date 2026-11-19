@@ -622,7 +622,7 @@ class Adventurer:
         return UseAbility(ability) if ability else None
 
     def search(self, turn: Turn, memory: FloorMap, returning: bool, *,
-               allow_unseen: bool = True) -> tuple[Action, str] | None:
+               allow_unseen: bool = True, wall_limit: int = 3) -> tuple[Action, str] | None:
         if returning and (action := self.search_dead_end(turn, memory)):
             return action, "search"
         ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
@@ -641,10 +641,10 @@ class Adventurer:
                 untested = walls
                 value = remaining * len(walls)
             else:
-                if attempts >= 4:
+                if attempts >= wall_limit + 1:
                     continue
-                untested = [c for c in walls if attempts < 3 and self.wall_searches[c.key] < 3]
-                value = sum(3 - self.wall_searches[c.key] for c in untested)
+                untested = [c for c in walls if attempts < wall_limit and self.wall_searches[c.key] < wall_limit]
+                value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
             if not untested and (not allow_unseen or len(neighbors) == 4):
                 continue
             near_exit = returning and any(
@@ -824,13 +824,17 @@ class Adventurer:
                 if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
                         and device.charges != 0):
                     return Zap(device, None), "light_room"
-        if action := memory.toward(turn, memory.frontier):
+        frontier = memory.frontier
+        avoid = self.danger_until.keys()
+        if action := memory.toward(turn, frontier, avoid=avoid):
             return action, "explore"
-        unvisited = {
-            key for key, cell in memory.cells.items() if not cell.wall and key not in memory.visited
-        }
-        if action := memory.toward(turn, unvisited):
+        unvisited = {key for key, cell in memory.cells.items() if not cell.wall and key not in memory.visited}
+        if action := memory.toward(turn, unvisited, avoid=avoid):
             return action, "explore"
+        if avoid:
+            # Accept the risk when every remaining route crosses a recent threat.
+            if action := memory.toward(turn, frontier) or memory.toward(turn, unvisited):
+                return action, "explore"
         fallback = None
         if returning and any(cell.stairs_up for cell in memory.cells.values()):
             for item in turn.inventory:
@@ -842,9 +846,14 @@ class Adventurer:
                 if item.identity is None and ItemUse.READ in item.uses:
                     fallback = UseItem(item, ItemUse.READ), "test_unknown_magic"
                     break
-        return self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback or (
-            None, "no_disclosed_route"
-        )
+        if decision := self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback:
+            return decision
+        if (not returning and not turn.hostiles and any(c.stairs_up for c in memory.cells.values())
+                and not any(c.stairs_down for c in memory.cells.values())):
+            # A failed Search leaves concealed doors looking like ordinary walls.
+            if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
+                return decision
+        return None, "no_disclosed_route"
 
 
 def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], None],
