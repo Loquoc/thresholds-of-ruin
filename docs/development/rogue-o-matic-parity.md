@@ -38,6 +38,20 @@ the player saw both items, walked east and collected the gold. The longer
 seed-49 run stopped on floor 3 at action 987 with an unknown outcome and a
 save-backlog error on close.
 
+At `09f7c908` the production player follows a remembered objective on a
+quiet floor. In a policy fixture, it moved east toward the last Amulet
+sighting even with a visible ration to the west. Seeing the alcove empty
+cleared the sighting and the player then went west. In a live encounter
+the player approached two identically named items and acquired the one
+with the configured objective identity.
+
+At `7ab36da2` an Amulet carrier facing an ordinary hostile uses available
+upstairs underfoot. It also considers an adjacent stair using the same
+contact and damage checks as a one-step retreat to the downstairs. In
+the live encounter an adjacent hobgoblin was present when the carrier
+chose to ascend. The next observation showed the upper landing and the
+Amulet still in inventory.
+
 At `4f40aca5` a player carrying the Amulet can recover a disconnected return
 route. If there is no known walkable path to the upstairs, it searches a wall
 that borders both its reachable area and a remembered passage leading to the
