@@ -1986,6 +1986,7 @@ impl Candidate {
             | WizardOperation::SetPlaceHint { position, .. }
             | WizardOperation::SetWall { position, .. }
             | WizardOperation::PlaceItem { position, .. }
+            | WizardOperation::SpawnItem { position, .. }
             | WizardOperation::SpawnActor { position, .. }
             | WizardOperation::SpawnCreature { position, .. } => vec![Some(at(position))],
             WizardOperation::ConnectPortal { from, to, .. }
@@ -5366,6 +5367,33 @@ impl Candidate {
                 let item = self
                     .game
                     .place_item(adapt::location(*position), identity, name.into())
+                    .map_err(|_| invalid())?;
+                WizardResult::ItemPlaced { item: item.0 }
+            }
+            WizardOperation::SpawnItem {
+                position,
+                identity,
+                appearance,
+                recipe,
+            } => {
+                let regions = regions.as_deref().ok_or_else(invalid)?;
+                let spec = regions
+                    .wizard_item(
+                        identity.as_deref(),
+                        appearance.as_deref(),
+                        recipe.as_deref(),
+                    )
+                    .map_err(|error| Failure::new(ErrorCode::InvalidAction, &error.message))?;
+                if self
+                    .game
+                    .unique_retrieval_policy()
+                    .is_some_and(|policy| policy.item.identity == spec.identity)
+                {
+                    return Err(invalid());
+                }
+                let item = self
+                    .game
+                    .spawn_item_stack(adapt::location(*position), None, 1, spec)
                     .map_err(|_| invalid())?;
                 WizardResult::ItemPlaced { item: item.0 }
             }

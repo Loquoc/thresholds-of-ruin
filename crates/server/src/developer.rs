@@ -14,7 +14,7 @@ pub fn parse_wizard(text: &str) -> Result<WizardOperation, String> {
         return serde_json::from_str(text).map_err(|_| "Invalid developer command".into());
     }
     let words: Vec<_> = text.split_whitespace().collect();
-    let usage = "Wizard commands: wizard creature list [depth <N>] [after <selector>]; wizard creature spawn <selector> <region> <x> <y> <z> [depth <N>]; wizard creature add-hd <actor> <racial|class-id>; wizard creature train <actor> <hit-die> <skill>; wizard creature attribute <actor> <hit-die> <attribute>; wizard creature talent <actor> <hit-die> <talent>; wizard creature replace <actor> <hit-die> <purchase> refund|<pool> <skill|talent> <id>; wizard creature template <actor> <template> <on|off>; wizard creature remove-hd <actor>; wizard arena pause|resume|step [actions]; wizard identify <actor> <item>; wizard chamber <id> <width> <depth> <height> <name>; wizard door <region> <x> <y> <z> <open|closed>; wizard item <token|tablet> <region> <x> <y> <z>; wizard actor <turn-ticks> <region> <x> <y> <z>; wizard teleport <actor> <region> <x> <y> <z>; wizard rewind <initial|entry-id>; wizard room <id> <width> <depth> <height> <name>; wizard connect <from-region> <x> <y> <z> <direction> <to-region> <x> <y> <z> <quarter-turns>; wizard place <region> <x> <y> <z> <on|off>; wizard wall <region> <x> <y> <z> <open|closed>";
+    let usage = "Wizard commands: wizard creature list [depth <N>] [after <selector>]; wizard creature spawn <selector> <region> <x> <y> <z> [depth <N>]; wizard creature add-hd <actor> <racial|class-id>; wizard creature train <actor> <hit-die> <skill>; wizard creature attribute <actor> <hit-die> <attribute>; wizard creature talent <actor> <hit-die> <talent>; wizard creature replace <actor> <hit-die> <purchase> refund|<pool> <skill|talent> <id>; wizard creature template <actor> <template> <on|off>; wizard creature remove-hd <actor>; wizard arena pause|resume|step [actions]; wizard identify <actor> <item>; wizard chamber <id> <width> <depth> <height> <name>; wizard door <region> <x> <y> <z> <open|closed>; wizard item spawn <region> <x> <y> <z> identity <id>|appearance <id> [appearance <id>|identity <id>]; wizard item <token|tablet> <region> <x> <y> <z>; wizard actor <turn-ticks> <region> <x> <y> <z>; wizard teleport <actor> <region> <x> <y> <z>; wizard rewind <initial|entry-id>; wizard room <id> <width> <depth> <height> <name>; wizard connect <from-region> <x> <y> <z> <direction> <to-region> <x> <y> <z> <quarter-turns>; wizard place <region> <x> <y> <z> <on|off>; wizard wall <region> <x> <y> <z> <open|closed>";
     let owner = |text: &str| -> Result<u64, String> {
         text.parse::<u64>()
             .ok()
@@ -266,6 +266,41 @@ pub fn parse_wizard(text: &str) -> Result<WizardOperation, String> {
             actor: tor_protocol::ActorId(actor.parse().map_err(|_| usage)?),
             item: item.parse().map_err(|_| usage)?,
         },
+        ["item", "spawn", r, x, y, z, selectors @ ..] => {
+            let mut identity = None;
+            let mut appearance = None;
+            let mut recipe = None;
+            if selectors.is_empty() || selectors.len() % 2 != 0 {
+                return Err(usage.into());
+            }
+            for pair in selectors.as_chunks::<2>().0 {
+                let value = pair[1];
+                if if pair[0] == "recipe" {
+                    value.len() > 80 || !crate::wizard_creatures::valid_selector(value)
+                } else {
+                    !tor_simulation::content_ids::valid_id(value)
+                        || !value.contains('.')
+                        || (pair[0] == "identity" && value.split('.').count() < 3)
+                } {
+                    return Err(usage.into());
+                }
+                let slot = match pair[0] {
+                    "identity" => &mut identity,
+                    "appearance" => &mut appearance,
+                    "recipe" => &mut recipe,
+                    _ => return Err(usage.into()),
+                };
+                if slot.replace(value.to_owned()).is_some() {
+                    return Err(usage.into());
+                }
+            }
+            WizardOperation::SpawnItem {
+                position: position(&[r, x, y, z])?,
+                identity,
+                appearance,
+                recipe,
+            }
+        }
         ["item", kind, r, x, y, z] => WizardOperation::PlaceItem {
             kind: match *kind {
                 "token" => WizardItem::Token,
@@ -503,5 +538,48 @@ mod named_creature_tests {
             serde_json::from_value::<WizardOperation>(encoded).unwrap(),
             operation
         );
+    }
+}
+
+#[cfg(test)]
+mod item_spawn_tests {
+    use super::*;
+
+    #[test]
+    fn authored_item_selectors_parse_without_weakening_legacy_commands() {
+        for tail in [
+            "recipe rogue.generated_mace",
+            "recipe rogue.mace identity item.weapon.mace appearance item.weapon.mace",
+            "identity item.potion.hallucination",
+            "appearance item.potion.red",
+            "identity item.potion.hallucination appearance item.potion.red",
+            "appearance item.potion.red identity item.potion.hallucination",
+        ] {
+            let operation = parse_wizard(&format!("item spawn 1 2 3 0 {tail}")).unwrap();
+            let value = serde_json::to_value(&operation).unwrap();
+            assert_eq!(value["type"], "spawn_item");
+            assert_eq!(value["position"]["x"], 2);
+            assert_eq!(
+                serde_json::from_value::<WizardOperation>(value).unwrap(),
+                operation
+            );
+        }
+        for tail in [
+            "",
+            "identity",
+            "identity potion",
+            "appearance red",
+            "identity item.potion.hallucination identity item.potion.healing",
+            "appearance item.potion.red junk",
+            "quantity 2",
+            "recipe rogue.mace recipe rogue.generated_mace",
+        ] {
+            assert!(
+                parse_wizard(&format!("item spawn 1 2 3 0 {tail}")).is_err(),
+                "{tail}"
+            );
+        }
+        assert!(parse_wizard("item token 1 2 3 0").is_ok());
+        assert!(parse_wizard("item tablet 1 2 3 0").is_ok());
     }
 }

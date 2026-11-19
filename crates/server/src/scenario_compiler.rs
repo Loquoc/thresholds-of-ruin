@@ -645,6 +645,51 @@ impl PreparedDefinitions {
         })
     }
 
+    /// Resolve only prepared authored items, never sampled instances or raw
+    /// appearance pools. BTreeMap order chooses the canonical equivalent alias.
+    pub(super) fn wizard_item(
+        &self,
+        identity: Option<&tor_simulation::ItemIdentity>,
+        appearance: Option<&str>,
+        recipe: Option<&str>,
+        seed: u64,
+        appearances: &BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
+    ) -> Result<tor_simulation::ItemSpec, Failure> {
+        let mut selected: Option<tor_simulation::ItemSpec> = None;
+        for (key, definition) in &self.archetypes {
+            if recipe.is_some_and(|recipe| recipe != key.as_str()) {
+                continue;
+            }
+            let Some(candidate) = definition.identity.as_ref() else {
+                continue;
+            };
+            if definition.name.is_none() || identity.is_some_and(|id| id != candidate) {
+                continue;
+            }
+            // A mapped entry with no asset is intentional, not a fallback to
+            // the archetype's true identity asset.
+            let asset = appearances
+                .get(candidate)
+                .map_or(definition.item_asset.as_deref(), |entry| {
+                    entry.asset.as_deref()
+                });
+            if appearance.is_some_and(|selector| Some(selector) != asset) {
+                continue;
+            }
+            let mut spec = self.population_item(key, 1, seed, appearances)?;
+            if let Some(prior) = &selected {
+                spec.archetype.clone_from(&prior.archetype);
+                require(
+                    &spec == prior,
+                    "Ambiguous wizard item; specify an exact recipe",
+                )?;
+            } else {
+                selected = Some(spec);
+            }
+        }
+        selected.ok_or_else(|| fail("No authored item matches the wizard item selectors"))
+    }
+
     /// Resolve a catalog item through the ordinary item-definition adapter.
     /// The zero authoring ID is only a resolver sentinel, never an entity allocation.
     pub fn population_item(
