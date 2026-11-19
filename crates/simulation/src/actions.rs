@@ -886,7 +886,7 @@ impl Game {
             .ok_or(GameError::Schedule(crate::ScheduleError::TimeExhausted))?;
 
         let ordinary_movement = match action {
-            Action::Move(direction) if !matches!(kind, OutcomeKind::Escaped { .. }) => {
+            Action::Move(direction) if !matches!(kind, OutcomeKind::Escaped) => {
                 Some(direction)
             }
             _ => None,

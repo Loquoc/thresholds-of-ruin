@@ -292,7 +292,7 @@ impl Game {
                     |_, keys| Some(FactSubject::Waited { at: keys.cell? }),
                 );
             }
-            OutcomeKind::Escaped { .. } => {
+            OutcomeKind::Escaped => {
                 self.note_hook(
                     HookKind::Escaped,
                     Some(actor),

@@ -144,7 +144,6 @@ fn scenario(case: &Case, background: usize, seed: u64) -> Result<Scenario> {
     let mut manifest: Manifest =
         toml::from_str(include_str!("../../../scenarios/two-room/scenario.toml"))?;
     manifest.id = "finite-claim-benchmark".into();
-    manifest.objective = None;
     manifest.characters.truncate(1);
     // The source scenario has a two-cell body. Every workload actor explicitly
     // uses the same one-cell body, including the selected character.

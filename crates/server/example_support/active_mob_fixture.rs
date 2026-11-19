@@ -27,7 +27,20 @@ pub fn make(root: &Path) -> Result<Scenario, Box<dyn std::error::Error>> {
     let mut package = (**template.package.as_ref().ok_or("missing package")?).clone();
     package.manifest.id = "active-mobs-v1".into();
     package.manifest.version = "1.0".into();
-    package.manifest.objective = None;
+    // Keep the workload going: drop the script's win hooks and keep its
+    // death defeat.
+    let scripting = package
+        .manifest
+        .scripting
+        .as_mut()
+        .ok_or("missing scripting")?;
+    scripting.hooks.retain(|hook| {
+        !matches!(
+            hook.on,
+            tor_simulation::scripting::HookKind::Moved
+                | tor_simulation::scripting::HookKind::ItemTaken
+        )
+    });
     package.manifest.factions = BTreeMap::from([
         ("red".into(), BTreeSet::from(["blue".into()])),
         ("blue".into(), BTreeSet::from(["red".into()])),

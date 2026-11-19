@@ -19,10 +19,13 @@ fn at(x: i32) -> Location {
 type Reply =
     dyn Fn(ScriptView<'_>, &HookCall<'_>) -> Result<Vec<ScriptEffect>, FailureReason> + Send + Sync;
 
+/// One recorded call: handler, tick, facts and boundary.
+type Call = (HandlerId, u64, Vec<HookFact>, u8);
+
 /// Records every call; answers with a closure.
 struct FakeHost {
     reply: Box<Reply>,
-    calls: Mutex<Vec<(HandlerId, u64, Vec<HookFact>, u8)>>,
+    calls: Mutex<Vec<Call>>,
 }
 
 impl HookHost for FakeHost {

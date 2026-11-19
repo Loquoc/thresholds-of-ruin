@@ -14,7 +14,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for sample in 0..3 {
                 let directory = tempfile::tempdir()?;
                 let mut package = (**template.package.as_ref().unwrap()).clone();
-                package.manifest.objective = None;
+                // Keep the workload going: drop the script's win hooks and keep
+                // its death defeat.
+                let scripting = package.manifest.scripting.as_mut().unwrap();
+                scripting.hooks.retain(|hook| {
+                    !matches!(
+                        hook.on,
+                        tor_simulation::scripting::HookKind::Moved
+                            | tor_simulation::scripting::HookKind::ItemTaken
+                    )
+                });
                 let hero_species = package.manifest.characters[0]
                     .creature
                     .as_ref()
