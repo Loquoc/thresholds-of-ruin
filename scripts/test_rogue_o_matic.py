@@ -795,6 +795,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(policy.depth, 2)
         self.assertIn("paired", policy.maps[2].visited)
 
+    def test_follows_the_last_amulet_sighting_until_its_cell_is_seen_empty(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=26)
+        passage = [cell("here"), cell("west", -1), cell("west-end", -2), cell("east", 1)]
+        alcove = cell("alcove", 2)
+        amulet = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                  "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        food = {**passage[2], "item": ration, "reachable": False}
+        sighting = {**alcove, "item": amulet, "reachable": False}
+        player.observe(player_turn([*passage, alcove], ground=[sighting]))
+        hidden = player_turn(passage, ground=[food])
+        self.assertEqual(choose(player, hidden), (Move(Direction.EAST), "seek_objective"))
+        empty = player_turn([*passage, alcove], ground=[food])
+        self.assertEqual(choose(player, empty), (Move(Direction.WEST), "seek_item"))
+
     def test_retrieves_amulet_and_returns_through_known_stairs(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         item = {"identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET, "id": "disclosed-amulet",

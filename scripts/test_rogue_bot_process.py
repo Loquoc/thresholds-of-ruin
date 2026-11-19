@@ -1125,17 +1125,17 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             manifest["archetypes"][archetype] = {
                 "class": "amulet", "name": "Copper seal", "identity": canonical,
             }
-        manifest["characters"][0]["known_identities"].append(canonical)
+            manifest["characters"][0]["known_identities"].append(canonical)
         region, = contents["regions"]
         region.update(doors=[], traps=[], items=[
-            {"id": 10, "at": [1, 2, 0], "archetype": "fixture.lookalike", "quantity": 1},
-            {"id": 11, "at": [1, 2, 0], "archetype": "fixture.target", "quantity": 1},
+            {"id": 10, "at": [4, 2, 0], "archetype": "fixture.lookalike", "quantity": 1},
+            {"id": 11, "at": [4, 2, 0], "archetype": "fixture.target", "quantity": 1},
         ])
         server = self.server(scenario=write_package(self, contents, "rogue-bot-canonical-objective"))
         self.install_bot_extension()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
-             "--objective-identity", identity, "--retrieval-depth", "1", "--budget", "2"],
+             "--objective-identity", identity, "--retrieval-depth", "1", "--budget", "5"],
             cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory),
                                      "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
@@ -1143,7 +1143,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         turns = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertEqual(turns[0]["action"]["type"], "take")
+        self.assertEqual(turns[0]["reason"], "seek_objective")
+        self.assertTrue(any(row.get("action", {}).get("type") == "take" for row in turns))
         self.assertEqual(turns[0]["result"]["status"], "confirmed")
         self.assertTrue(turns[-1]["amulet_acquired"], turns)
 

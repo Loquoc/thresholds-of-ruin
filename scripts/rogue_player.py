@@ -964,6 +964,11 @@ class Adventurer:
                 wanted |= item.identity == "item.weapon.spear" and not carried[item.identity]
             if wanted and ground.cell:
                 item_goals.add(ground.cell.key)
+        if not returning and not hovering and not turn.hostiles and not self.trapped(turn):
+            objective_cells = {key for key, items in memory.items.items()
+                               if any(item.identity == self.objective for item in items)}
+            if objective_cells and (step := memory.toward(turn, objective_cells, avoid=self.danger_until.keys())):
+                return step, "seek_objective"
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
         if self.trapped(turn):
