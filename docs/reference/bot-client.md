@@ -41,7 +41,7 @@ from tor_client_bot import ActivityChoice, Direction, Move, Outcome, Session, Wa
 
 
 def choose(turn):
-    if prompt := turn.identification:
+    if turn.needs_identification and (prompt := turn.identification):
         return prompt.select(next(iter(prompt.items), None))
     if turn.can_resume:
         return ActivityChoice.RESUME
@@ -263,6 +263,12 @@ an author can respond to a miss or a drop in health even when the caster and
 ability are unknown. A policy can save a `CombatJournal()` and call
 `journal.read(turn).incoming` each time it observes to consume each streamed
 event once. `report.records()` preserves the disclosed events for a trace.
+
+Use `report.outgoing` to see what happened to the targets of your own abilities,
+including self-targeted abilities. Each entry gives the disclosed target handle,
+ability ID, outcome, and strike index. Undisclosed fields are `None`. For example,
+a wand action can resolve even when the observed outcome is `AbilityOutcome.UNAFFECTED`.
+Use the journal when each effect should influence the bot's memory only once.
 
 ## Character advancement
 

@@ -9,6 +9,23 @@ verified that the player picked up the Amulet, waited for a Health point
 with food available, and climbed when the remaining travel cost consumed
 the rest budget.
 
+On the next three development runs, the wounded player reversed a food
+scouting move to walk back toward the stairs for recovery. Counting consecutive
+move pairs that returned to the same cell, seeds 49 and 47 had 111 and 37
+such reversals respectively. Seed 42 had none. On seed 49, resting in place
+when affordable and otherwise following the food scout reduced those reversals
+from 111 to one. It still died of injury on floor 15 after 6,340 actions,
+with reserve at −47 on its last decision. The control died on the same floor
+with 216 reserve. In particular the variant spent 196 actions resting on
+floor 12, compared with none in the control.
+
+The current player can also recover while advancing along a known safe
+stretch of the active food route. It rests before entering an unexplored or
+recently dangerous cell when the budget permits. In a live underfunded
+descent it took damage after leaving the stair, followed an already visited
+step even with enough reserve to rest, gained Health while walking, collected
+a ration and then turned back toward the stair.
+
 On development seed 49 at `843d00f8`, floor 15 had 31 sequences where
 the player took a step toward the stairs and immediately moved back to
 shelter to recover. It could afford the next point of Health even when its
@@ -40,6 +57,26 @@ The same target later landed all three attacks in the terminal observation
 at tick 617,267. The staff still had two charges. The bot had remembered
 the attempted target as soon as the server admitted the action. That
 memory prevented a second attempt regardless of the observed effect.
+
+The player now reads its own ability outcomes from the combat journal. It
+permits one more polymorph attempt on the same still-dangerous target after
+a disclosed unaffected result, using a staff with known remaining charges.
+A real griffin resisted twice. Both casts resolved, the staff spent two
+charges, the griffin kept its hit dice, and the player chose another action
+with charges still available. On a matched seed-49 development run the first
+cast was again resisted at tick 609,823. The retry took effect at tick 609,923.
+The transformed target and another creature both landed blows in the terminal
+observation at tick 609,985. The player died 66 actions earlier than the
+one-cast control. Spending a second charge in this encounter did not improve
+survival.
+
+The budget-only comparison with contact polymorph (before the retry change)
+ended after 6,189 actions on floor 15 of seed 49. The last decision had 216
+nutrition reserve. At tick 652,200 the player observed an applied polymorph.
+Six ticks later the same target landed both fatal melee strikes. An applied
+polymorph establishes that the effect occurred. The target's subsequent
+combat behavior still matters when deciding whether the player can stay in
+contact.
 
 In the seed-49 landing recording the player climbed back upstairs at tick
 70,262 with 25 of 26 Health. The only visible hostile was a rattlesnake
@@ -98,7 +135,13 @@ The clean plate replaced ring mail. A cursed plate with higher disclosed
 reduction stayed in the pack. During the identification exchange the ordinary
 server sometimes returned `rejected` with code `stale_context` after a prompt
 had advanced. Bots can now use `Result.stale` to refresh and choose again for
-both this server reply and a locally expired turn.
+both this server reply and a locally expired turn. In the resisted-polymorph
+fixture, immediately after a confirmed identification selection,
+`wait_for_decision()` also returned the old prompt at tick 100. The following
+observation disclosed the staff's six remaining charges. The receipt was
+queued, and the server had already closed admission for a second action.
+The SDK now checks admission before returning a prompt as a decision.
+A live test uses the next decision directly to aim the identified staff.
 
 Bundled Rogue uses authored growth. Its scheduled skill ranks apply on earning
 hit dice and the player has no purchase decision. Discretionary training tests
@@ -359,6 +402,21 @@ descent to the queued activity, cancelled it and waited once. The next
 descent at 598400 resolved on floor 12 at 598500. This diagnostic ended at
 the crossing. The bot limits recovery to one cancellation at the same
 stair origin until a crossing is established.
+
+## Teleport-away preparation stalled on floor 16
+
+On development seed 47, the server admitted a teleport-away wand action at
+tick 622,838. At tick 622,870 the player received no further decision before
+the readiness deadline. The last observed activity phase was started. The
+server was still running when the harness cleaned up.
+
+A server reopened on a SQLite backup showed the same tick, 28 Health, an
+adjacent nymph, a paused action with 68 preparation ticks remaining, and a
+resume choice. On a second independent backup the server confirmed resume
+but still failed to advance beyond tick 622,870 within three seconds.
+Investigate which actor or scheduler event prevents preparation from
+advancing. A charged device and an admitted action alone do not establish
+that the displacement took effect.
 
 ## A visible stair can be unusable while hovering
 

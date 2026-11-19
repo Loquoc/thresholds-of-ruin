@@ -850,6 +850,39 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.admitted(turn, action, reason=reason)
                     self.assertNotEqual(choose(player, turn)[1], reason)
 
+    def test_only_a_witnessed_resisted_polymorph_permits_one_measured_retry(self):
+        from tor_client_bot import CombatReport
+
+        cells = [cell("here"), cell("enemy", 1)]
+        wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph", "identified": True,
+                "quantity": 1, "name": "staff"}
+        foe = {"id": "hunter", "name": "griffin", "position": cells[1]["position"]}
+        own_cast = {"type": "ability", "caster": "player", "target": "hunter",
+                    "ability": {"id": "rogue.wand_polymorph"}, "outcome": "unaffected"}
+        for fields, charges, retry in [
+            ({}, 3, True), ({}, None, False), ({"caster": "other"}, 3, False),
+            ({"target": "other"}, 3, False), ({"outcome": "applied"}, 3, False),
+            ({"ability": None}, 3, False),
+        ]:
+            with self.subTest(fields=fields, charges=charges):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                turn = player_turn(cells, actors=[foe], inventory=[wand],
+                                   interactions={"inventory": [{"item": "staff", "zappable": True,
+                                     "device_activation": "direction_or_self", "charges": charges}]},
+                                   combat={"actors": [{"actor": "hunter", "hostile": True, "injury": "healthy"}]})
+                player.observed_loss_by_name["griffin"] = 10
+                action, reason = choose(player, turn)
+                self.assertEqual(reason, "polymorph_threat")
+                player.admitted(turn, action, reason=reason)
+                report = CombatReport("player", ({**own_cast, **fields},))
+                player.observe(turn, report)
+                action, reason = player.choose(turn)
+                self.assertEqual(reason == "polymorph_threat", retry)
+                if retry:
+                    player.admitted(turn, action, reason=reason)
+                    player.observe(turn, report)
+                    self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
+
     def test_polymorph_targets_the_lethal_troll_while_another_foe_is_in_contact(self):
         wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
                 "identified": True, "name": "staff of polymorph", "quantity": 1}
@@ -1844,6 +1877,39 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        inventory=[relic] if carrying else [],
                                        stats={"nutrition": dict(nutrition, reserve=reserve)})
                     self.assertEqual(choose(player, turn)[0], Move(expected))
+
+    def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
+        stats = {"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100,
+                                     "stopped": False},
+                 "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+                               "hunger": "nourished", "elapsed": 0}}
+        player.ascent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = 1000, 0
+        for tick, expected in [(100, (Move(Direction.EAST), "scout_for_food")),
+                               (1000, (Move(Direction.WEST), "recover_en_route"))]:
+            with self.subTest(tick=tick):
+                turn = player_turn(cells, tick=tick, combat={"hp": 6}, stats=stats)
+                player.observe(turn)
+                player.maps[3].visited.add("stairs")
+                self.assertEqual(player.choose(turn), expected)
+
+    def test_recovers_along_a_visited_food_route_when_rest_is_also_affordable(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        cells = [cell("here"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]
+        stats = {"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100,
+                                     "stopped": False},
+                 "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
+                               "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
+        player.descent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = 1000, 0
+        turn = player_turn(cells, tick=100, combat={"hp": 6}, stats=stats)
+        player.observe(turn)
+        player.maps[3].visited.update({"stairs", "passage"})
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        player.danger_until["passage"] = 900
+        self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
     def test_scouts_for_food_before_an_underfunded_descent(self):
         data = state([cell("stairs", down=True), cell("frontier", 1)])

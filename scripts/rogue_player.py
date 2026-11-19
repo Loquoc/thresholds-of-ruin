@@ -93,6 +93,7 @@ class Adventurer:
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
     attempted_polymorph: set[str] = field(default_factory=set)
+    resisted_polymorph: set[str] = field(default_factory=set)
     attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
     draining_creatures: set[str] = field(default_factory=set)
@@ -161,6 +162,12 @@ class Adventurer:
         loss = self.previous_health - health.current if health and self.previous_health is not None else 0
         self.previous_health = health.current if health else None
         report = turn.recent_combat if combat is None else combat
+        for effect in report.outgoing:
+            target = effect.target
+            if (target is not None and target in self.attempted_polymorph and target not in self.resisted_polymorph
+                    and effect.ability == "rogue.wand_polymorph" and effect.outcome is AbilityOutcome.UNAFFECTED):
+                self.attempted_polymorph.remove(target)
+                self.resisted_polymorph.add(target)
         incoming = report.incoming
         losses = turn.restorable_losses
         lasting_injury = losses and self.previous_losses and losses.increased_since(self.previous_losses)
@@ -452,6 +459,7 @@ class Adventurer:
                     continue
                 if reason == "polymorph_threat" and (
                     foe.target in self.attempted_polymorph or foe.injury is not Injury.HEALTHY or damage < health
+                    or (foe.target in self.resisted_polymorph and device.charges is None)
                 ):
                     continue
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
@@ -576,10 +584,14 @@ class Adventurer:
             if turn.cell.key in self.danger_until:
                 if action := memory.toward(turn, memory.visited - self.danger_until.keys()):
                     return action, "reposition_to_recover"
-            action = memory.toward(turn, stairs)
+            # Recover along the food route while scouting away from the stairs.
+            food_route = None
+            if not returning and self.depth in self.food_scouts:
+                food_route = self.provision(turn, memory, returning)
+            action = food_route[0] if food_route else memory.toward(turn, stairs)
             if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
                 if (cell.key in memory.visited or cell.key in stairs) and cell.key not in self.danger_until:
-                    return action, "recover_en_route"
+                    return food_route or (action, "recover_en_route")
                 if (cell.key in self.danger_until and turn.cell.key not in self.danger_until
                         and can_afford_recovery(1)):
                     # Stay in shelter while a single point of recovery is still affordable.
@@ -734,7 +746,7 @@ class Adventurer:
         return None, "readiness_timeout"
 
     def choose(self, turn: Turn) -> tuple[Action | None, str]:
-        if prompt := turn.identification:
+        if turn.needs_identification and (prompt := turn.identification):
             unknown = next((item for item in prompt.items if needs_identification(item)), None)
             return prompt.select(unknown), "identify"
         if turn.can_resume:

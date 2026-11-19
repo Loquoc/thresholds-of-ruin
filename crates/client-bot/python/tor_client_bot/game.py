@@ -202,7 +202,8 @@ class Turn:
 
     @property
     def needs_identification(self) -> bool:
-        return bool(self._view.get("interactions", {}).get("identification"))
+        """Whether the server is accepting an answer to the disclosed prompt."""
+        return bool(self._readiness.get("admission") and self._view.get("interactions", {}).get("identification"))
 
     @cached_property
     def health(self) -> Health | None:

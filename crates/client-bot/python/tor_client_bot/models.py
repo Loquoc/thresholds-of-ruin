@@ -410,6 +410,14 @@ class IncomingAbility:
     strike: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class OutgoingAbility:
+    target: str | None
+    ability: str | None
+    outcome: AbilityOutcome
+    strike: int | None
+
+
 class CombatReport:
     """Combat witnessed by the player over one observation interval."""
 
@@ -433,6 +441,19 @@ class CombatReport:
             and self._observer is not None
             and event.get("target") == self._observer
             and event.get("caster") != self._observer
+        )
+
+    @property
+    def outgoing(self) -> tuple[OutgoingAbility, ...]:
+        """This observer's ability outcomes, including self-targeted abilities, in observation order."""
+        return tuple(
+            OutgoingAbility(
+                event.get("target"), (event.get("ability") or {}).get("id"),
+                AbilityOutcome(event["outcome"]), event.get("strike"),
+            )
+            for event in self._events
+            if self._observer is not None and event.get("caster") == self._observer
+            and event["type"] in {"ability", "anonymous_ability"}
         )
 
     def records(self) -> list[dict]:

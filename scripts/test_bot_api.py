@@ -202,6 +202,25 @@ class BotApiTests(unittest.TestCase):
                          {"kind": "direction", "direction": "east"})
         self.assertEqual(describe_action(Zap(flexible, None))["aim"], {"kind": "self_target"})
 
+    def test_wait_for_decision_skips_a_prompt_while_its_answer_is_queued(self):
+        from tor_client_bot import Session
+
+        def snapshot(choice, admission):
+            snap = Mock()
+            snap.data.return_value = {
+                "readiness": {"admission": admission},
+                "state": {"observation": {"tick": 100, "ready": False, "inventory": [], "interactions": {
+                    "identification": {"choice": choice, "items": []},
+                }}},
+            }
+            return snap
+
+        transport = Mock()
+        transport.observe.side_effect = [snapshot("answered", False), snapshot("next", True)]
+        turn = Session(transport).wait_for_decision()
+        self.assertEqual(turn.identification.choice, "next")
+        self.assertTrue(turn.needs_identification)
+
     def test_readiness_timeout_retains_the_last_observed_turn(self):
         from tor_client_bot import ReadinessTimeout, Session
 
@@ -348,6 +367,28 @@ class BotApiTests(unittest.TestCase):
         )
         self.assertEqual(journal.read(Turn(data)).incoming, ())
         self.assertEqual(journal.read(Turn({**data, "stream": "two"})).incoming, report.incoming)
+
+    def test_outgoing_abilities_preserve_disclosure_order_and_journal_cursor(self):
+        from tor_client_bot import AbilityOutcome, CombatJournal
+
+        rows = [
+            {"type": "ability", "caster": "me", "target": "troll", "ability": {"id": "polymorph"},
+             "outcome": "unaffected", "strike": 0},
+            {"type": "anonymous_ability", "caster": "me", "target": None, "outcome": "miss"},
+            {"type": "ability", "caster": "me", "target": "me", "ability": {"id": "mend"}, "outcome": "applied"},
+            {"type": "unseen_ability", "target": "me", "outcome": "miss"},
+            {"type": "ability", "caster": "other", "target": "troll", "outcome": "applied"},
+        ]
+        data = {"state": {"observation": {"self_target": "me"}}, "readiness": {}, "stream": "one",
+                "combat_updates": [{"cursor": {"sequence": "1"}, "events": rows}]}
+        journal = CombatJournal()
+        effects = journal.read(Turn(data)).outgoing
+        self.assertEqual([(e.target, e.ability, e.outcome, e.strike) for e in effects], [
+            ("troll", "polymorph", AbilityOutcome.UNAFFECTED, 0), (None, None, AbilityOutcome.MISS, None),
+            ("me", "mend", AbilityOutcome.APPLIED, None),
+        ])
+        self.assertEqual(journal.read(Turn(data)).outgoing, ())
+        self.assertEqual(CombatJournal().read(Turn({**data, "state": {"observation": {}}})).outgoing, ())
 
     def test_activity_lookup_tracks_phase_only_for_receipts_from_same_actor_and_branch(self):
         from tor_client_bot import ActivityPhase, Result
