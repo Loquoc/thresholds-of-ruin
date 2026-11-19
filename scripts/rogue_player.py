@@ -21,6 +21,7 @@ from tor_client_bot import (
     Escape,
     FloorMap,
     Injury,
+    Item,
     ItemUse,
     Move,
     Outcome,
@@ -92,6 +93,8 @@ class Adventurer:
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
     tried_unknown_scroll: bool = False
     sampled_potions: set[str] = field(default_factory=set)
+    pending_scroll_trial: tuple[Result, str] | None = None
+    stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
     sampled_scrolls: set[str] = field(default_factory=set)
     sampled_wands: set[str] = field(default_factory=set)
     guarded_supplies: set[str] = field(default_factory=set)
@@ -245,6 +248,9 @@ class Adventurer:
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
+        if reason == "cancel_stalled_scroll" and self.pending_scroll_trial:
+            self.stalled_scrolls.add((self.depth, self.pending_scroll_trial[1]))
+        self.pending_scroll_trial = None
         if reason == "cancel_stalled_stair" and self.pending_stair:
             self.cancelled_stair_origin = self.pending_stair.origin
             self.wait_after_cancel = True
@@ -285,6 +291,8 @@ class Adventurer:
                 if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3
             })
         if isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None:
+            if receipt and reason in {"test_unknown_magic", "study_scroll_at_exit"}:
+                self.pending_scroll_trial = receipt, action.item.target
             self.tried_unknown_scroll = True
             self.sampled_scrolls.add(action.item.appearance or action.item.name)
         if (
@@ -414,7 +422,7 @@ class Adventurer:
 
         if lethal and not self.tried_unknown_scroll:
             for item in turn.inventory:
-                if item.identity is None and ItemUse.READ in item.uses:
+                if self.can_try_scroll(item):
                     return UseItem(item, ItemUse.READ), "test_unknown_magic"
 
         if turn.hostiles and not self.has_arrows(turn):
@@ -736,7 +744,7 @@ class Adventurer:
                 and not turn.has_condition("rogue.levitation")
                 and any(i.identity is None and i.category in {"wand", "ring", "potion"} for i in turn.inventory)):
             for item in turn.inventory:
-                if (item.identity is None and ItemUse.READ in item.uses
+                if (self.can_try_scroll(item)
                         and (item.appearance or item.name) not in self.sampled_scrolls):
                     return UseItem(item, ItemUse.READ), "study_scroll_at_exit"
         return None
@@ -857,10 +865,18 @@ class Adventurer:
                 return step, "scout_for_food"
         return None
 
+    def can_try_scroll(self, item: Item) -> bool:
+        return (item.identity is None and ItemUse.READ in item.uses
+                and (self.depth, item.target) not in self.stalled_scrolls)
+
     def stalled(self, turn: Turn, previous: Result | None) -> tuple[Action | None, str]:
+        if (previous is None or not turn.can_cancel or len(turn.activities) != 1
+                or turn.outcome_of(previous) is not ActivityPhase.QUEUED):
+            return None, "readiness_timeout"
+        if self.pending_scroll_trial and self.pending_scroll_trial[0] == previous:
+            return ActivityChoice.CANCEL, "cancel_stalled_scroll"
         stair = self.pending_stair
-        if (stair and previous and stair.receipt == previous and stair.origin != self.cancelled_stair_origin
-                and turn.can_cancel and len(turn.activities) == 1 and turn.outcome_of(previous) is ActivityPhase.QUEUED):
+        if stair and stair.receipt == previous and stair.origin != self.cancelled_stair_origin:
             return ActivityChoice.CANCEL, "cancel_stalled_stair"
         return None, "readiness_timeout"
 
@@ -1009,7 +1025,7 @@ class Adventurer:
                     break
         if fallback is None:
             for item in turn.inventory:
-                if item.identity is None and ItemUse.READ in item.uses:
+                if self.can_try_scroll(item):
                     fallback = UseItem(item, ItemUse.READ), "test_unknown_magic"
                     break
         if decision := self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback:

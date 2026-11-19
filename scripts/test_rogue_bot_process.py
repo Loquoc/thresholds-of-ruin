@@ -2458,9 +2458,11 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     action, reason = policy.choose(turn)
     if os.environ["BOT_TEST_UNKNOWN_SCROLLS"] == "1":
         assert isinstance(action, UseItem) and action.use is ItemUse.READ and reason == "test_unknown_magic"
-        assert turn.submit(action).status is Outcome.CONFIRMED
-        policy.admitted(turn, action)
+        read = turn.submit(action)
+        assert read.status is Outcome.CONFIRMED
+        policy.admitted(turn, action, read, reason=reason)
         turn = player.wait_for_decision()
+        assert policy.stalled(turn, read)[0] is None
         policy.observe(turn)
         assert any(item.category == "scroll" and item.identity is None for item in turn.inventory)
         action, reason = policy.choose(turn)

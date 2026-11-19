@@ -1217,6 +1217,32 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual((report["previous_intention_id"], report["previous_intention_phase"]), ("down", "started"))
         self.assertFalse(Turn.replay(report["recording"]).can_act)
 
+    def test_cancelled_scroll_trial_preserves_other_scroll_choices(self):
+        import json
+        from tor_client_bot import ActivityChoice, Result
+
+        scrolls = [{"id": name, "name": name, "class": "scroll", "identified": False, "quantity": 1}
+                   for name in ("MIR VEL", "NAR")]
+        turn = player_turn([cell("here")], inventory=scrolls, interactions={
+            "inventory": [{"item": s["id"], "readable": True} for s in scrolls]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        action, reason = choose(player, turn)
+        self.assertEqual((action.item.target, reason), ("MIR VEL", "test_unknown_magic"))
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        player.admitted(turn, action, result, reason=reason)
+        picture = json.loads(turn.recording())
+        picture.update(can_cancel=True, readiness={"admission": False})
+        for phase, intention in (("started", "read"), ("queued", "other")):
+            stalled = Turn({**picture, "intentions": [dict(receipt, phase=phase, intention=intention)]})
+            self.assertEqual(player.stalled(stalled, result), (None, "readiness_timeout"))
+        stalled = Turn({**picture, "intentions": [receipt]})
+        cancel, reason = player.stalled(stalled, result)
+        self.assertEqual((cancel, reason), (ActivityChoice.CANCEL, "cancel_stalled_scroll"))
+        player.admitted(stalled, cancel, reason=reason)
+        action, reason = choose(player, turn)
+        self.assertEqual((action.item.target, reason), ("NAR", "test_unknown_magic"))
+
     def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
         import json
         from tor_client_bot import ActivityChoice, Result

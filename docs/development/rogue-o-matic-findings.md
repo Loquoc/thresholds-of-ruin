@@ -1256,3 +1256,21 @@ repeat searches elsewhere. The live fixture verified that the bot
 walked to the favored boundary and completed Search. The fixture
 does not establish that a secret door exists in a particular wall
 or in seed 49's disconnected return route.
+
+### An admitted scroll read remains queued on floor 17
+
+With bot revision `4f40aca5`, development seed 42 stopped after 5,465
+actions. The player had 62/62 Health and 807 food reserve. Search resolved,
+then Read on the unidentified scroll titled MIR VEL was admitted at tick
+573075. On a copy of the save, cancelling preserved the item and a Wait
+advanced time to 573175. A fresh Read on the same item remained queued at
+that tick for the eight-second observation window. Investigate the server
+scheduler and the read resolution path. The cause remains open.
+
+The bot now cancels its own queued experimental read when readiness times
+out and the player is offered cancellation. It remembers the affected
+item on that floor. On a copy with fresh bot map memory it kept the scroll
+and took four exploration steps to tick 573743. Session close reported a
+save lag of 14 journal entries. Verify the steps in the live observation
+stream when reproducing. Retire the workaround once the server reliably
+resolves the read or reports a recoverable failure.
