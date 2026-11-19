@@ -30,10 +30,11 @@ fn certified_package(up: &str) -> Package {
         parsed.is_ok(),
         "valid explicit source certificate rejected: {parsed:?}"
     );
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         parsed.unwrap(),
         base.region_defs().unwrap(),
         &base.rules_source,
+        base.scripts.clone(),
     )
     .unwrap();
     package
@@ -155,10 +156,11 @@ fn supplied_partial_foreign_and_duplicate_frames_fail_source_validation() {
     for frames in frames {
         let mut manifest = serde_json::to_value(&good.manifest).unwrap();
         manifest["spatial_scopes"]["study"]["mapping"]["room_frames"] = frames;
-        let invalid = Package::from_parts(
+        let invalid = Package::from_parts_scripted(
             serde_json::from_value(manifest).unwrap(),
             good.region_defs().unwrap(),
             &good.rules_source,
+            good.scripts.clone(),
         )
         .unwrap();
         // Reconstructing the package preserves source integrity: this failure

@@ -26,6 +26,7 @@ pub enum Event {
     Discoveries(Vec<ItemDiscoveryView>),
     CreatureInspection(Box<CreatureInspectionView>),
     CreatureCatalog(Box<CreatureCatalogPage>),
+    WizardReport(Box<WizardReport>),
     ProjectileChoicesSent(String),
     ProjectileChoices {
         context: ReplyContext,
@@ -560,6 +561,7 @@ fn present(message: ServerMessage, tx: &SyncSender<Event>) -> Result<(), Error> 
         }
         ServerMessage::Discoveries { rows, .. } => publish(tx, Event::Discoveries(rows)),
         ServerMessage::CreatureCatalog { page, .. } => publish(tx, Event::CreatureCatalog(page)),
+        ServerMessage::WizardReport { report, .. } => publish(tx, Event::WizardReport(report)),
         ServerMessage::CombatDiagnostics { report, .. } => {
             publish(tx, Event::CombatDiagnostics(report))
         }

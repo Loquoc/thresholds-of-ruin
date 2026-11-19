@@ -9,7 +9,8 @@ from process_harness import ProcessTestCase, WIZARD_TOKEN, content_ids, creature
 class CreatureLifecycleProcesses(ProcessTestCase):
     def test_losing_a_free_grant_cancels_work_and_survives_restart_and_rewind(self):
         package = creature_package(self, "free-grant-lifecycle", hostile=True,
-                                   abilities=("fixture_stamina_strike",), extra_abilities=("fixture_focus_fear",))
+                                   abilities=("fixture_stamina_strike",), extra_abilities=("fixture_focus_fear",),
+                                   outcome="elimination")
         rules_path = package / "rules.toml"
         rules = tomllib.loads(rules_path.read_text(encoding="utf-8"))
         next(ability for ability in rules["abilities"] if ability["id"] == "fixture_focus_fear").pop("cost")

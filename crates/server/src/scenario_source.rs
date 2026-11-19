@@ -737,48 +737,6 @@ extra_connections = [0, 1]
     }
 
     #[test]
-    fn modular_root_objective_spans_require_matching_original_source() {
-        for (declaration, reference, message) in [
-            (
-                "objective = { anchor = \"1/missing\", disclosed = true, continue_play = false }",
-                "\"1/missing\"",
-                "Invalid objective anchor reference",
-            ),
-            (
-                "objective = { anchor = \"1/start\", item = 999, disclosed = true, continue_play = false }",
-                "999",
-                "Invalid objective item reference",
-            ),
-        ] {
-            let (root, _) = checked_module("namespace = \"demo\"\n");
-            let path = root.path().join("scenario.toml");
-            let original = std::fs::read_to_string(&path).unwrap();
-            let authored = format!("{original}\n{declaration}\n");
-            std::fs::write(&path, &authored).unwrap();
-            let package = read_package(root.path()).unwrap();
-            assert!(package.manifest_text.is_none());
-            let line = authored
-                .lines()
-                .position(|line| line == declaration)
-                .unwrap()
-                + 1;
-            let column = declaration.find(reference).unwrap() + 1;
-            assert_eq!(
-                package.check().unwrap_err().message,
-                format!("scenario.toml:{line}:{column}: objective: {message}")
-            );
-
-            // Retain the pinned definition, but do not attach coordinates to a
-            // changed or unavailable authoring file, even if its value still matches.
-            std::fs::write(&path, format!("# inserted after resolution\n{authored}")).unwrap();
-            let without_span = format!("scenario.toml: objective: {message}");
-            assert_eq!(package.check().unwrap_err().message, without_span);
-            std::fs::remove_file(&path).unwrap();
-            assert_eq!(package.check().unwrap_err().message, without_span);
-        }
-    }
-
-    #[test]
     fn module_semantic_origins_use_verified_source_and_never_guess_changed_spans() {
         for catalog in ["archetypes", "items"] {
             let (root, package) = checked_module(&format!(

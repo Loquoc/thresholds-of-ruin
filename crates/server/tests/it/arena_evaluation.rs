@@ -15,10 +15,11 @@ fn scenario(actions: u64, ticks: u64) -> Scenario {
     arena.actions = actions;
     arena.ticks = ticks;
     scenario.package = Some(std::sync::Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -189,10 +190,11 @@ fn arena_health_accounting_separates_natural_recovery_from_damage_and_healing() 
         }
     }
     scenario.package = Some(std::sync::Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &toml::to_string(&document).unwrap(),
+            package.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -253,10 +255,11 @@ fn funded_ranged_positioning_reopens_exact_actor_states_and_next_decision() {
     manifest.arena.as_mut().unwrap().control = ArenaControl::AllAi;
     manifest.arena.as_mut().unwrap().start_paused = false;
     scenario.package = Some(std::sync::Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -436,10 +439,11 @@ items = [{ id = 100, at = [7,2,0], archetype = "eval_gold", quantity = 7 }]
     manifest.arena.as_mut().unwrap().control = ArenaControl::AllAi;
     manifest.arena.as_mut().unwrap().start_paused = false;
     scenario.package = Some(std::sync::Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap(),
     ));

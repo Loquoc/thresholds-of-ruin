@@ -4,6 +4,7 @@
 #[cfg(test)]
 #[path = "../../test_support/checkpoint_json.rs"]
 mod checkpoint_fixture;
+mod defeat;
 
 mod abilities;
 mod ability_targets;

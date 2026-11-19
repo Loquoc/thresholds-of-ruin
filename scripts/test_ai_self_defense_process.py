@@ -16,7 +16,8 @@ class AiSelfDefenseProcesses(ProcessTestCase):
     def package(self, name):
         package = creature_package(self, name, hostile=True,
                                    abilities=("probe_defense",),
-                                   ability_aliases={"probe_defense": ("basic_melee", "Probe Defense")})
+                                   ability_aliases={"probe_defense": ("basic_melee", "Probe Defense")},
+                                   outcome="elimination")
         rules_path = package / "rules.toml"
         rules = tomllib.loads(rules_path.read_text(encoding="utf-8"))
         # Keep both actual payments observable throughout this 300-tick

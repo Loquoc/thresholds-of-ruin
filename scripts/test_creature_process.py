@@ -270,7 +270,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         self.assertDisclosedInspectionEqual(inspect(), source)
 
     def test_all_ai_arena_stops_at_exact_tick_and_survives_server_restart(self):
-        package = creature_package(self, "arena")
+        package = creature_package(self, "arena", outcome="elimination")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         source = source.replace('characters = [{ ', 'characters = [{ unselected = "ai", ai = "practice", ')
@@ -295,7 +295,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         import json
         import sqlite3
         from checkpoint_payload import decode_checkpoint_payload
-        package = creature_package(self, "remote-arena", abilities=())
+        package = creature_package(self, "remote-arena", abilities=(), outcome="elimination")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         source = source.replace('characters = [{ ', 'characters = [{ unselected = "ai", ai = "practice", ')
@@ -372,7 +372,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         self.assertEqual(actors["2"]["ready_at"], 100)
 
     def test_manual_arena_survivors_continue_after_selected_death_and_restart(self):
-        package = creature_package(self, "arena-selected-death")
+        package = creature_package(self, "arena-selected-death", outcome="elimination")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         source = source.replace('archetypes = { ', 'archetypes = { poison = { class = "potion", identity = "item.potion.fixture.poison", name = "test poison", consumable = { effects = [{ kind = "damage", damage = { kind = "components", components = [{ category = "vital", amount = { kind = "fixed", amount = 100000 } }] } }] } }, ')
@@ -467,7 +467,7 @@ class CreatureAbilityProcesses(ProcessTestCase):
         self.assertEqual(resolved[0]["target"], target)
 
     def test_wizard_arena_steps_preserve_paid_preparation_across_restart(self):
-        package = creature_package(self, "arena-step", hostile=True, abilities=("fixture_focus_fear",))
+        package = creature_package(self, "arena-step", hostile=True, abilities=("fixture_focus_fear",), outcome="elimination")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         source = source.replace('characters = [{ ', 'characters = [{ unselected = "ai", ai = "practice", ')

@@ -261,7 +261,7 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(
                 dir.join("scenario.toml"),
-                format!("format = 37\nid = \"{id}\"\nversion = \"1.0\"\n"),
+                format!("format = 38\nid = \"{id}\"\nversion = \"1.0\"\n"),
             )
             .unwrap();
         }

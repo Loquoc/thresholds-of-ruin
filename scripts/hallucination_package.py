@@ -9,6 +9,12 @@ import copy
 from utility_potions_package import fixture as utility_fixture
 
 
+# Independently derived from the documented seed42/observer1/generation0
+# duration stream: peer2 Creature dice (2, 9), item40 Item dice (5, 6).
+# Both first intervals happen to be 1100 ticks; later intervals diverge.
+FIRST_DISGUISE_TICKS = 1100
+
+
 def fixture():
     result = utility_fixture()
     manifest = result["manifest"]

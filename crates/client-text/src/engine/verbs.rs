@@ -965,26 +965,17 @@ fn what_now(scene: &Scene) -> String {
     text
 }
 
-/// The run's objective, as the character would put it.
+/// The scenario's current goal, with controls named as this client's commands.
 pub fn objective_text(state: &StateView) -> Option<String> {
     let c = state.observation.combat.as_ref()?;
     if c.dead || c.victory {
         return None;
     }
-    Some(objective_phrase(c.objective?).to_owned())
-}
-
-/// An objective as the character would put it.
-pub fn objective_phrase(kind: ObjectiveKind) -> &'static str {
-    match kind {
-        ObjectiveKind::RetrieveAndReturn => {
-            "Find what you came for and carry it back out through the exit."
-        }
-        ObjectiveKind::RetrieveAndExit => {
-            "Find what you came for and carry it up through the surface exit."
-        }
-        ObjectiveKind::ReachExit => "Find your way to the exit.",
-    }
+    let goal = c.goal.as_ref()?;
+    Some(tor_client_common::narration::goal_text(
+        &goal.segments,
+        &crate::controls::command,
+    ))
 }
 
 /// Answers to questions about the game, and remarks that change nothing.
@@ -1096,7 +1087,15 @@ fn toward_something(direction: Direction, scene: &Scene) -> Option<Interpretatio
         .filter(that_way)
         .find(|r| r.name == "exit")
     {
-        let key = scene.state.observation.combat.as_ref()?.exit.clone()?;
+        let key = scene
+            .state
+            .observation
+            .combat
+            .as_ref()?
+            .goal
+            .as_ref()?
+            .cell
+            .clone()?;
         let _ = exit;
         return Some(goal(Goal::Visit {
             destination: key,
@@ -1586,7 +1585,17 @@ fn bare(np: &NounPhrase) -> String {
 fn exit<'s>(np: &NounPhrase, scene: &'s Scene) -> Option<&'s str> {
     matches!(bare(np).as_str(), "exit" | "way out")
         .then_some(())
-        .and(scene.state.observation.combat.as_ref()?.exit.as_deref())
+        .and(
+            scene
+                .state
+                .observation
+                .combat
+                .as_ref()?
+                .goal
+                .as_ref()?
+                .cell
+                .as_deref(),
+        )
 }
 
 /// Where the character began, when the phrase asks for it: `go to start`,

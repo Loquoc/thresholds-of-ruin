@@ -40,6 +40,85 @@ pub enum Topic {
     Status,
     /// Readiness changed: the observer can act again, or must wait.
     Pacing,
+    /// Server-authored tutorial, hint or narration text. The line's text names
+    /// controls neutrally; a client with key bindings re-renders the segments
+    /// with [`user_message_text`].
+    UserMessage {
+        style: UserMessageStyle,
+        segments: Vec<UserMessageSegment>,
+    },
+}
+
+/// A client's own name for each control it offers, such as `,` or `take`.
+/// Messages never carry a key, so the server can't claim a binding.
+pub trait ControlNames {
+    fn control_name(&self, control: ControlHint) -> String;
+}
+
+impl<F: Fn(ControlHint) -> String> ControlNames for F {
+    fn control_name(&self, control: ControlHint) -> String {
+        self(control)
+    }
+}
+
+/// Client-neutral wording for a control, used only where no client names it.
+pub fn neutral_control_name(control: ControlHint) -> String {
+    let words = match control {
+        ControlHint::Move => "move",
+        ControlHint::Wait => "wait",
+        ControlHint::Search => "search",
+        ControlHint::PickUp => "pick up",
+        ControlHint::Inventory => "inventory",
+        ControlHint::Equip => "equip",
+        ControlHint::Drink => "drink",
+        ControlHint::Read => "read",
+        ControlHint::Zap => "zap",
+        ControlHint::Throw => "throw",
+        ControlHint::Travel => "travel",
+        ControlHint::Look => "look",
+        ControlHint::OpenDoor => "open door",
+        ControlHint::Rest => "rest",
+        ControlHint::Save => "save",
+        ControlHint::Help => "help",
+    };
+    format!("[{words}]")
+}
+
+/// A server message as reported by clients without keys of their own
+/// (headless, bot): neutral `text`, plus raw `segments` whose closed control
+/// ids automation maps onto its own inputs.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct UserMessageView {
+    pub style: UserMessageStyle,
+    pub text: String,
+    pub segments: Vec<UserMessageSegment>,
+}
+
+/// The server messages among narrated lines, in order.
+pub fn user_messages(lines: &[Line]) -> Vec<UserMessageView> {
+    lines
+        .iter()
+        .filter_map(|line| match &line.topic {
+            Topic::UserMessage { style, segments } => Some(UserMessageView {
+                style: *style,
+                text: line.text.clone(),
+                segments: segments.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One message's text with each control named by `names`. Text segments are
+/// kept verbatim apart from removing any control characters.
+pub fn user_message_text(segments: &[UserMessageSegment], names: &dyn ControlNames) -> String {
+    segments
+        .iter()
+        .map(|segment| match segment {
+            UserMessageSegment::Text(text) => text.chars().filter(|c| !c.is_control()).collect(),
+            UserMessageSegment::Control(control) => names.control_name(*control),
+        })
+        .collect()
 }
 
 /// One narrated sentence and what it reports.
@@ -354,7 +433,15 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
             .map_or_else(|| "figure".into(), |entry| label(&entry.name, "figure"))
     };
     let mut line = match fact {
-        OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => return None,
+        // Goals are standing state: clients show them, not the common log.
+        OutcomeFact::Injured { .. } | OutcomeFact::Goal { .. } => return None,
+        OutcomeFact::UserMessage { style, segments } => Line::new(
+            Topic::UserMessage {
+                style: *style,
+                segments: segments.clone(),
+            },
+            user_message_text(segments, &neutral_control_name),
+        ),
         OutcomeFact::OwnWorkChanged { work, change, .. } => {
             let subject = work_phrase(work);
             let text = match change {
@@ -695,15 +782,9 @@ fn combat_event_with_names(
     }
 }
 
-/// The objective as a sentence.
-pub fn objective(kind: ObjectiveKind) -> &'static str {
-    match kind {
-        ObjectiveKind::RetrieveAndReturn => "Retrieve the objective item and return to the exit.",
-        ObjectiveKind::RetrieveAndExit => {
-            "Retrieve the objective item, then carry it up through the surface exit."
-        }
-        ObjectiveKind::ReachExit => "Reach the exit.",
-    }
+/// The scenario's current goal, with each control named by `names`.
+pub fn goal_text(segments: &[UserMessageSegment], names: &dyn ControlNames) -> String {
+    user_message_text(segments, names)
 }
 
 /// A figure's disclosed visible equipment, as display names in the server's
@@ -953,7 +1034,6 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
                     OutcomeNameFallback::Item => "item",
                     OutcomeNameFallback::Object => "object",
                     OutcomeNameFallback::Stairs => "stairs",
-                    OutcomeNameFallback::ObjectiveItem => "objective item",
                     OutcomeNameFallback::Door => "door",
                 },
             )
@@ -961,10 +1041,7 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
     };
     match event {
         Event::EscapeStarted { .. } => "You begin trying to escape a hold.".into(),
-        Event::Escaped { .. } => format!(
-            "You leave the dungeon with the {}.",
-            named().unwrap_or_else(|| "objective item".into())
-        ),
+        Event::Escaped {} => "You take the way out.".into(),
         Event::ItemStarted { action } => {
             let Some((work, _)) = ItemWorkKind::from_action(action) else {
                 return "You begin preparing.".into();
@@ -1037,17 +1114,7 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
 fn action_legacy(event: &Event, view: &Observation) -> String {
     match event {
         Event::EscapeStarted { .. } => "You begin trying to escape a hold.".into(),
-        Event::Escaped { item } => {
-            let name = view
-                .inventory
-                .iter()
-                .find(|candidate| candidate.id == *item)
-                .map_or_else(
-                    || "objective item".into(),
-                    |candidate| label(&candidate.name, "objective item"),
-                );
-            format!("You leave the dungeon with the {name}.")
-        }
+        Event::Escaped {} => "You take the way out.".into(),
         Event::ItemStarted { action } => {
             let (verb, item) = match action {
                 tor_protocol::Action::Equip { item, .. } => ("equip", item),
@@ -1366,16 +1433,18 @@ mod tests {
         }];
         let mut after = before.clone();
         after.combat.as_mut().unwrap().actors[0].injury = Injury::Wounded;
-        after.combat.as_mut().unwrap().objective = Some(ObjectiveKind::ReachExit);
+        let goal = vec![UserMessageSegment::Text("Reach the exit.".into())];
+        after.combat.as_mut().unwrap().goal = Some(tor_protocol::GoalView {
+            segments: goal.clone(),
+            cell: None,
+        });
         let facts = OutcomeFacts::capture(&before, &after, None);
         facts.validate_at(after.tick).unwrap();
         assert!(facts.facts.contains(&OutcomeFact::Injured {
             actor,
             injury: Injury::Wounded
         }));
-        assert!(facts.facts.contains(&OutcomeFact::Objective {
-            objective: ObjectiveKind::ReachExit
-        }));
+        assert!(facts.facts.contains(&OutcomeFact::Goal { segments: goal }));
         assert_eq!(
             outcome_lines(&facts),
             observation_lines_legacy(&before, &after, None)
@@ -1398,7 +1467,66 @@ mod tests {
         assert!(!repeat
             .facts
             .iter()
-            .any(|fact| matches!(fact, OutcomeFact::Objective { .. })));
+            .any(|fact| matches!(fact, OutcomeFact::Goal { .. })));
+    }
+
+    #[test]
+    fn user_message_names_controls_through_the_client_and_keeps_text_verbatim() {
+        let segments = vec![
+            UserMessageSegment::Text("Press ".into()),
+            UserMessageSegment::Control(ControlHint::PickUp),
+            UserMessageSegment::Text(" to take it, then ".into()),
+            UserMessageSegment::Control(ControlHint::OpenDoor),
+            UserMessageSegment::Text(".".into()),
+        ];
+        let facts = OutcomeFacts {
+            self_target: ActorTarget::from_digest([1; 32]),
+            status: None,
+            actor_names: vec![],
+            facts: vec![OutcomeFact::UserMessage {
+                style: UserMessageStyle::Tutorial,
+                segments: segments.clone(),
+            }],
+        };
+        facts.validate().unwrap();
+        // Without a client binding the line names controls neutrally.
+        assert_eq!(
+            outcome_lines(&facts),
+            [Line::new(
+                Topic::UserMessage {
+                    style: UserMessageStyle::Tutorial,
+                    segments: segments.clone(),
+                },
+                "Press [pick up] to take it, then [open door]."
+            )]
+        );
+        // A client's own names replace every control; nothing else changes.
+        let keys = |control: ControlHint| match control {
+            ControlHint::PickUp => "`,`".to_owned(),
+            ControlHint::OpenDoor => "`o`".to_owned(),
+            other => panic!("unexpected control {other:?}"),
+        };
+        assert_eq!(
+            user_message_text(&segments, &keys),
+            "Press `,` to take it, then `o`."
+        );
+        let mixed = OutcomeFacts {
+            facts: vec![OutcomeFact::Displaced, facts.facts[0].clone()],
+            ..facts.clone()
+        };
+        assert_eq!(
+            serde_json::to_value(user_messages(&outcome_lines(&mixed))).unwrap(),
+            serde_json::json!([{
+                "style": "tutorial",
+                "text": "Press [pick up] to take it, then [open door].",
+                "segments": [{"text": "Press "}, {"control": "pick_up"},
+                    {"text": " to take it, then "}, {"control": "open_door"}, {"text": "."}],
+            }])
+        );
+        for &control in ControlHint::ALL {
+            let name = neutral_control_name(control);
+            assert!(name.starts_with('[') && name.ends_with(']') && name.len() > 2);
+        }
     }
 
     #[test]
@@ -1502,7 +1630,7 @@ mod tests {
                         result: item,
                         quantity: 2,
                     },
-                    Event::Escaped { item },
+                    Event::Escaped {},
                     Event::ItemStarted {
                         action: Action::Ignite { item },
                     },
@@ -1767,41 +1895,10 @@ mod tests {
     }
 
     #[test]
-    fn intentional_retrieval_exit_names_only_the_disclosed_carried_item() {
+    fn taking_the_exit_claims_nothing_about_an_item_or_a_victory() {
         assert_eq!(
-            objective(ObjectiveKind::RetrieveAndExit),
-            "Retrieve the objective item, then carry it up through the surface exit."
-        );
-        let mut view = observation();
-        let item = ItemTarget::from_digest([7; 32]);
-        let event = Event::Escaped { item };
-        assert_eq!(
-            action(&event, &view),
-            "You leave the dungeon with the objective item."
-        );
-        view.inventory.push(ItemView {
-            corpse: None,
-            class: Default::default(),
-            asset: None,
-            quantity: 1,
-            appearance: String::new(),
-            identified: true,
-            identity: "item.misc.fixture".parse().unwrap(),
-            knowledge: Default::default(),
-            id: item,
-            name: "Amulet\nof Yendor".into(),
-            description: String::new(),
-            known_currency: None,
-            known_supply: None,
-        });
-        assert_eq!(
-            action(&event, &view),
-            "You leave the dungeon with the Amuletof Yendor."
-        );
-        view.inventory[0].id = ItemTarget::from_digest([8; 32]);
-        assert_eq!(
-            action(&event, &view),
-            "You leave the dungeon with the objective item."
+            action(&Event::Escaped {}, &observation()),
+            "You take the way out."
         );
     }
 
@@ -1989,7 +2086,16 @@ mod tests {
             }),
             "You starved to death."
         );
-        assert_eq!(objective(ObjectiveKind::ReachExit), "Reach the exit.");
+        assert_eq!(
+            goal_text(
+                &[
+                    UserMessageSegment::Text("Use ".into()),
+                    UserMessageSegment::Control(ControlHint::OpenDoor),
+                ],
+                &neutral_control_name
+            ),
+            "Use [open door]"
+        );
         assert_eq!(injury(Injury::BadlyWounded), "badly wounded");
     }
 
@@ -2018,8 +2124,7 @@ mod tests {
                 recovery_remaining: 0,
                 actors: vec![],
                 events: vec![],
-                objective: None,
-                exit: None,
+                goal: None,
                 victory: !dead,
                 dead,
                 terminal: true,
@@ -2070,8 +2175,7 @@ mod tests {
                     cause: DeathCause::Injury,
                 },
             ],
-            objective: None,
-            exit: None,
+            goal: None,
             victory: false,
             dead: false,
             terminal: false,

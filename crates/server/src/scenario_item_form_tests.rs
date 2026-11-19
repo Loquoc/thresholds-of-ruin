@@ -85,10 +85,11 @@ fn fixture() -> Package {
     other.forms[0].name = "wand of another effect".into();
     other.forms[1].name = "staff of another effect".into();
     manifest.archetypes.insert("other".into(), other);
-    Package::from_parts(
+    Package::from_parts_scripted(
         manifest,
         source.region_defs().unwrap(),
         &source.rules_source,
+        source.scripts.clone(),
     )
     .unwrap()
 }
@@ -247,10 +248,11 @@ fn form_vocabulary_is_bounded_named_and_identity_policy_is_exact() {
             "order" => forms.reverse(),
             _ => unreachable!(),
         }
-        let invalid = Package::from_parts(
+        let invalid = Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap();
         assert!(
@@ -308,10 +310,11 @@ fn unselected_bad_form_and_cross_form_pool_leaks_reject_for_every_seed() {
             }
             _ => unreachable!(),
         }
-        let invalid = Package::from_parts(
+        let invalid = Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap();
         for seed in [0, 1, 42] {
@@ -368,10 +371,11 @@ fn seeded_public_name_asset_pairs_survive_source_free_reopening() {
             );
         }
     }
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         manifest,
         original.region_defs().unwrap(),
         &original.rules_source,
+        original.scripts.clone(),
     )
     .unwrap();
     let encoded = crate::storage::schema::scenario::encode_content_package(&package).unwrap();

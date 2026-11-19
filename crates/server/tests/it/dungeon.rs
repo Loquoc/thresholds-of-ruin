@@ -323,14 +323,13 @@ fn optional_starting_ai_keeps_inventory_and_higher_id_human_gets_input_boundary(
                 .item(tor_simulation::ItemId(100))));
     let view = engine.state(ActorId(7)).unwrap().observation;
     assert!(view.combat.as_ref().unwrap().victory);
-    assert!(view.combat.as_ref().unwrap().objective.is_none());
-    // An undisclosed objective discloses no exit either.
-    assert!(view.combat.as_ref().unwrap().exit.is_none());
+    // This package's outcome script sets no goal, so none is disclosed.
+    assert!(view.combat.as_ref().unwrap().goal.is_none());
     assert!(!view.combat.as_ref().unwrap().terminal);
 }
 
 #[test]
-fn a_disclosed_objective_names_its_exit_cell_by_key() {
+fn a_scripted_goal_names_its_exit_cell_by_key() {
     let root = support::package("dungeon-loop");
     let engine = Engine::memory(scenario_package::load(&root, 42, None, false).unwrap()).unwrap();
     let view = engine.state(ActorId(1)).unwrap().observation;
@@ -340,7 +339,14 @@ fn a_disclosed_objective_names_its_exit_cell_by_key() {
         .iter()
         .find(|c| c.position == Position { x: 0, y: 0, z: 0 })
         .unwrap();
-    let exit = view.combat.as_ref().unwrap().exit.clone().unwrap();
+    let goal = view.combat.as_ref().unwrap().goal.clone().unwrap();
+    assert_eq!(
+        goal.segments,
+        [tor_protocol::UserMessageSegment::Text(
+            "Bring the dawn seal back to the exit.".into()
+        )]
+    );
+    let exit = goal.cell.unwrap();
     assert_eq!(exit, here.key);
     assert!(engine.travel_route(ActorId(1), &exit).is_ok());
 }

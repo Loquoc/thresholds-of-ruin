@@ -304,10 +304,11 @@ fn replacement_with_health_work_survives_checkpoint_tail_journal_retry_and_rewin
         package.rules_source
     );
     scenario.package = Some(Arc::new(
-        crate::scenario_package::Package::from_parts(
+        crate::scenario_package::Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &rules,
+            package.scripts.clone(),
         )
         .unwrap(),
     ));

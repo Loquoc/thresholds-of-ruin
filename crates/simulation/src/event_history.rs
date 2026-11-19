@@ -430,9 +430,17 @@ impl Game {
         };
         let mut observers = BTreeMap::new();
         for observer in origin.origin.spatial.as_ref().ok_or_else(invalid)?.keys() {
-            let phase = self
-                .projected_hallucination(*observer)?
-                .map(|clock| clock.phase());
+            let phase = self.projected_hallucination(*observer)?.map(|clock| {
+                // The retained slot is the final catalog selector phase.
+                // Do not reinterpret legacy events as elapsed game ticks.
+                self.hallucination_key(
+                    *observer,
+                    released.knowledge_source.0,
+                    crate::appearance_state::AppearanceChannel::Item,
+                    &clock,
+                )
+                .phase
+            });
             observers.insert(*observer, phase);
         }
         Ok(crate::combat::EffectObjectOrigin {
@@ -965,6 +973,7 @@ impl Game {
         mut event: CombatEvent,
         mut origin: Option<EventOrigin>,
     ) -> Result<(), GameError> {
+        self.note_event_hooks(&event);
         if let CombatEvent::Resolved {
             outcome,
             source_disclosure,

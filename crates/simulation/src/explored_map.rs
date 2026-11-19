@@ -1,7 +1,9 @@
 //! Last-disclosed appearance and witnessed placement, never movement authority.
 //! Projection receives saved knowledge and a disclosed scene, not a World.
+mod projection_cache;
 use crate::navigation_map::{RegionKey, RegionMap};
 use crate::{ActorId, Game, GameError, ItemClass};
+pub(crate) use projection_cache::ProjectionCache;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tor_world::{Direction, Location, Position, RegionId, Shared, SightCell};
@@ -682,10 +684,10 @@ impl Game {
             return true;
         };
         self.projected_hallucination(id)
-            .map(|c| c.map(|c| c.phase()))
+            .map(|c| c.map(|c| (c.generation(), c.presentation_tick())))
             != before
                 .projected_hallucination(id)
-                .map(|c| c.map(|c| c.phase()))
+                .map(|c| c.map(|c| (c.generation(), c.presentation_tick())))
             || self.actor_scene_witness(id) != before.actor_scene_witness(id)
             || a.location != b.location
             || a.orientation != b.orientation
@@ -1359,7 +1361,21 @@ impl Projection<'_> {
     }
 }
 
+#[cfg(test)]
+thread_local! { static PROJECTION_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+fn projection_calls() -> usize {
+    PROJECTION_CALLS.with(std::cell::Cell::get)
+}
+#[cfg(test)]
+fn reset_projection_calls() {
+    PROJECTION_CALLS.with(|n| n.set(0));
+}
+#[cfg(test)]
+mod projection_cache_tests;
+
 impl ExploredMap {
+    #[cfg(test)]
     fn project(&self, scene: &[SightCell], window: MapWindow) -> Result<MapProjection, GameError> {
         self.project_region(scene, window, window)
     }
@@ -1370,6 +1386,8 @@ impl ExploredMap {
         window: MapWindow,
         domain: MapWindow,
     ) -> Result<MapProjection, GameError> {
+        #[cfg(test)]
+        PROJECTION_CALLS.with(|n| n.set(n.get() + 1));
         let halo = window
             .projection_halo(domain)
             .ok_or(GameError::InvalidLocation)?;
@@ -1435,10 +1453,13 @@ impl Game {
         if !self.actors.contains_key(&actor) {
             return Err(GameError::UnknownActor);
         }
-        match self.explored_maps.get(&actor) {
-            Some(map) => map.project(scene, window),
-            None => ExploredMap::default().project(scene, window),
-        }
+        self.lifecycle.projections.project(
+            actor,
+            self.explored_maps.get(&actor),
+            scene,
+            window,
+            window,
+        )
     }
 
     /// Project a subwindow using the containing domain's current scene anchors
@@ -1459,10 +1480,13 @@ impl Game {
         if !self.actors.contains_key(&actor) {
             return Err(GameError::UnknownActor);
         }
-        match self.explored_maps.get(&actor) {
-            Some(map) => map.project_region(scene, window, domain),
-            None => ExploredMap::default().project_region(scene, window, domain),
-        }
+        self.lifecycle.projections.project(
+            actor,
+            self.explored_maps.get(&actor),
+            scene,
+            window,
+            domain,
+        )
     }
 }
 

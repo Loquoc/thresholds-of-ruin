@@ -37,13 +37,8 @@ fn game_with_build(build: tor_simulation::creatures::CreatureBuild) -> Game {
         )
         .unwrap();
     }
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        Default::default(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), Default::default())
+        .unwrap();
     game
 }
 fn request(game: &Game, actor: ActorId) -> Value {

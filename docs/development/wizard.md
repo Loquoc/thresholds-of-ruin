@@ -11,8 +11,8 @@ enter the command without the leading `wizard`, then press Enter to submit or
 Esc to cancel. For example, `creature inspect 2` opens a scrollable private report.
 [Geometry setup](../architecture/geometry.md) includes room placement, rotated passages,
 wall terrain and explicit vertical links. See [arena tools](arena.md) for controlled encounters, combat capture,
-paired evaluation and search. Minimal `item` placement still supports only its
-listed kinds and ground placement; it is not a general item-property editor.
+paired evaluation and search. Legacy `item token|tablet` placement remains available. Authored-item spawning
+uses the pinned scenario catalog; it is not a general item-property editor.
 
 ## Start or promote a wizard game
 
@@ -45,6 +45,82 @@ Restart without `--wizard` and without `TOR_WIZARD_TOKEN` to disable privileged
 access. The save remains a wizard game and both frontends continue showing it.
 The trusted library equivalent is `Engine::enable_wizard()` before constructing
 the service; session accounts must separately have `AccessRole::Wizard`.
+
+## Position, tile inspection and help
+
+Use the text client's `wizard` prefix, or omit that prefix in the ASCII F7
+editor:
+
+```text
+wizard where
+wizard inspect tile here
+wizard inspect tile here offset +1 -2 +0
+wizard inspect tile 1 3 2 0
+wizard help item
+```
+
+`where` reports the attached actor's authoritative region and coordinates.
+Tile inspection is limited to eight cells from that actor in the same region
+and reports at most 24 actors and 24 items. Use it to check a setup location
+before spawning or teleporting. These are private wizard reports, not game chat
+or history entries. Reading them does not advance time or load remote regions.
+For the headless client, send `{"type":"wizard","command":"where"}` through its
+input interface; the reply is a private `wizard_report`.
+
+Use `here` in place of the four absolute position fields for authored item
+spawn, creature spawn, teleport, legacy token/tablet placement, or legacy actor
+placement:
+
+```text
+wizard item spawn here recipe rogue.mace
+wizard creature spawn rat here offset +1 +0 +0
+wizard teleport 2 here offset +0 -1 +0
+```
+
+The optional offset takes exactly three explicitly signed values: X, Y and Z.
+These are region-local axes, not screen directions or global world coordinates.
+Offsets never cross portals or map into another region; use absolute
+coordinates for another region. Journal entries store the resolved absolute
+position. If a relative command's request context becomes stale, the server
+rejects it before resolving `here` again, so a retry cannot apply a second
+mutation at the actor's new position. Existing absolute-command retry behavior
+is unchanged.
+
+## Authored item spawning
+
+Create one item on a walkable ground cell (region, x, y, z):
+
+```text
+wizard item spawn 1 3 2 0 identity item.potion.hallucination
+wizard item spawn 1 3 2 0 appearance item.potion.saffron
+wizard item spawn 1 3 2 0 identity item.potion.hallucination appearance item.potion.saffron
+wizard item spawn 1 3 2 0 recipe rogue.mace
+wizard item spawn 1 3 2 0 recipe rogue.generated_mace identity item.weapon.mace appearance item.weapon.mace
+```
+
+The identity example requires the Rogue item catalog. Appearance is the dotted
+**asset ID**, not a display label; the saffron-potion examples use seed 42 in the stock Rogue catalog and succeed only if that
+asset is assigned to the requested identity in this game's seeded allocation.
+Selectors can be supplied in any order. Identity-only retains its assigned
+appearance and physical form. Appearance-only must resolve uniquely; supplying
+both is a conjunction, never an override of the game's identity/appearance map.
+Equivalent authored aliases collapse, but distinct recipes sharing the selected
+identity or asset are rejected as ambiguous, even if both dotted names match.
+Use `recipe` with the exact authored item archetype key to select the desired
+birth policy: `rogue.mace` has the starter +1/+1 enchantments, while
+`rogue.generated_mace` uses the ordinary random loot policy. The same distinction
+exists for `rogue.arrow`/`rogue.generated_arrow` and
+`rogue.ring_mail`/`rogue.generated_ring_mail`. Recipe alone is sufficient; any
+identity or appearance supplied alongside it must still match. There is no
+silent default between different birth policies. Missing, unknown, mismatched or
+ambiguous selectors and invalid cells do not spawn or consume item-generation
+randomness. Reserved unique-retrieval artifacts cannot be duplicated this way.
+
+Placement uses ordinary item construction, including authored device charges,
+equipment generation and fuel. It does not advance game time, carry/equip the
+item, identify it, or teach any player its identity. Existing wizard credentials,
+private journal history, permanent wizard marking, save and rewind apply.
+In the ASCII F7 editor omit the leading `wizard`.
 
 ## Named creature spawning
 
@@ -266,3 +342,84 @@ rewind, branch history, spawned actor scheduling, control transfer, denied
 inputs, and marked save/resume with privileged access disabled. These tests run
 in debug/release on Windows and Linux with the existing desktop/Xvfb CI
 configuration.
+
+
+## Give an authored item
+
+```text
+wizard item give self identity item.potion.hallucination
+wizard item give 42 recipe rogue.mace
+```
+
+Give uses the same exact identity, seeded appearance and recipe selectors as
+item spawn. It creates one ordinary stack directly in the live, loaded
+recipient's inventory without equipping it or teaching its identity.
+Existing knowledge still applies. The reserved retrieval artifact cannot be
+given. No time advances and no ground pickup is simulated. Invalid targets
+or selectors do not consume item IDs or change the save. The result is
+private to the wizard and the entry participates in replay and rewind.
+
+## Actor conditions
+
+```text
+wizard condition apply self rogue.frozen 200
+wizard condition apply 42 readied 300 source self
+wizard condition clear 42 readied
+```
+
+Targets are `self` (the selected character) or a live, loaded actor's private
+wizard ID. Commands do not wake, load or take control of a mob. The optional
+source must also be live and loaded; if omitted it is the target. It matters
+for source-scoped conditions. Use exact condition IDs from the active ruleset.
+The duration is positive **actor-active ticks**, subject to the normal duration
+limit and condition timing policy. Applying and clearing do not advance time.
+
+Apply respects ordinary immunity, stacking, eviction and reservations. Clear
+removes active applications of the named condition across sources, not other
+conditions, any protection already in effect, or a token already held by paid
+work. For example, removing Rogue Frozen starts its ordinary 400 active-tick
+protection, so immediately applying it again reports immunity. The result
+reports the actual lifecycle outcome. Successful commands are private wizard
+journal entries and follow ordinary save, replay and rewind behavior.
+
+### Item catalog and actual instance inspection
+
+`wizard item list` privately lists up to 16 authored item recipes with each
+true dotted identity and its current seed-allocated appearance asset. Follow the
+printed `wizard item list after <recipe-key>` command for the next page. Recipe
+keys stay distinct, including starter/generated equipment and equivalent aliases;
+the list does not roll an item or change anyone's discoveries.
+
+`wizard item inspect <item-id>` reads an **actual loaded instance**, not a new
+catalog recipe. Obtain its exact numeric ID from `wizard inspect tile ...` or a
+private item-give receipt. It shows recipe/true identity, name and allocated
+appearance, quantity, remaining charges, current curse/protection/corrosion and
+equipment modifiers, ground location or carrier, equipped slots, and portable
+fuel when present. Inspecting does not identify the item to its owner, spend a
+charge, move it, or add history. Missing/unloaded IDs reject rather than loading
+regions or guessing from an ordinary opaque item handle. Long display names are
+safely shortened; canonical IDs remain exact. Reports use the same private,
+contextual `wizard_report` channel as `where`; F7 omits the `wizard` prefix and
+headless uses `{"type":"wizard","command":"item inspect 40"}` (40 is only an
+example ID, not a universal item).
+
+### Bounded resource restoration
+
+Use `wizard resource restore <self|actor-id> <stamina|focus|mana> <amount>` to
+add a positive integer amount, or `wizard resource fill <self|actor-id>
+<stamina|focus|mana>` to restore that pool to its existing capacity. Amounts fit
+an unsigned 32-bit integer; excess is discarded and the private receipt reports
+the amount actually restored. Target selection matches condition and item-give
+commands, including other loaded, living mobs.
+
+This deliberately uses the normal resource-restoration transaction, not a saved
+field edit: it preserves capacities, held action-cost reservations and in-flight
+preparations. Saturation clears recovery fraction just as ordinary restoration
+does. It neither advances world time nor changes item discovery. Missing/dead
+actors and invalid operands reject atomically. `self` remains tied to the
+receipt's selected actor for deterministic replay; ordinary retry/rewind applies.
+
+There is no arbitrary balance setter, draining, health kill/revive, or nutrition
+policy/reset command in this slice. Health and nutrition are distinct lifecycle
+systems, not aliases for the three resource pools. In F7 omit `wizard`; headless
+uses e.g. `{"type":"wizard","command":"resource restore self stamina 5"}`.

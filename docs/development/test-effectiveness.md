@@ -236,6 +236,31 @@ The sleeve review did not establish a new hole or a continuous-joint cloth fix.
 These are retained limitations of those reviews, not newly verified failures or
 claims that later work has resolved them.
 
+### Short-garment posed fit, November 18
+
+The unchanged native short-skirt/tasset owner reproduced the existing thigh
+crossing defect: all three resting layer cases cleared, but six walk/strike
+cases contained 1,507 crossing triangle pairs. These are samples of the existing
+root cause, not 1,507 distinct defects. A shared, instance-owned thigh-following
+field reduced those sampled crossings to zero without changing joint poses.
+Matched front, quarter and rear captures retained the skirt silhouette. The
+first candidate lifted cloth through the belt; an upper-attachment regression
+and matched rerender rejected that version before pinning the attachment band.
+The authored front slit remains, rather than deleting or closing panels to hide
+contact. Ordinary construction, layering, ownership, immutable-rest restoration,
+scene remapping, topology and shared-material controls accompany the change.
+Robes, long garments, aprons and separately fitted Orc/Troll hip decorations
+retain their existing owners; the bestiary Red Arcanist stays on its fitted robe.
+
+This is focused native geometry and sampled image evidence, not continuous
+collision certification, a full native suite or hosted CI qualification. Existing
+cloak and belt issues outside this slice remain unresolved. Initial OpenGL
+capture failed its depth shader; software Vulkan produced one image before the
+process was killed. Extending the existing software DX12 frame wait to software
+Vulkan passed a first-red backend-selection regression and completed the matched
+capture runs. Hardware/backend exclusion controls remain. No hardware timing or
+performance improvement is claimed from that capture fix.
+
 ## Fixtures, tooling and evidence integrity
 
 ### Performance evidence locations
@@ -907,7 +932,7 @@ public-state/profile invariants and work counts. Paired median changes relative 
 nor prove zero overhead, whole-game throughput or tail latency. The changed wall
 cases intentionally choose different actions and are not timing-equivalence
 controls. Rules 70 has a genuine current-writer golden, current certificates and
-explicit prior-rules rejection; archive 71 and protocol 72 are unchanged. All
+explicit prior-rules rejection; that change left the archive and protocol formats unchanged. All
 prior fixture bytes and historical earned-route outcomes remain preserved.
 
 ## Repeated autonomous Flytrap hold coverage
@@ -1052,6 +1077,88 @@ reaction suppression: awareness and authored fear/control effects still run.
 Native presentation retains its actual-window test and required hosted check;
 a headless replay is not a substitute for that boundary.
 
+
+## Scenario hooks (scripting milestone 1, 2026-11-18)
+
+Two production defects and one class of stale pins, counted by root cause:
+
+- **Once-binding mask (production, simulation).** A fake-host unit test of a
+  `once` binding found that retiring the binding left its hook kind's mask
+  bit set, so later sites kept building facts for a kind nobody heard. The
+  invocation now refreshes the mask whenever it retires a binding. One method
+  failed; it now owns the regression.
+- **Unconfigured scripted runs (production, server).** The tutorial
+  walkthrough integration test failed with only the run-start and timer
+  lessons delivered. A package configured its adventure run, and so its
+  character set, only for creature-built characters, an objective or a unique
+  retrieval. In a scripted package without those, every actor fact failed
+  the default character filter and `ctx:win` had no run to end. Scripted
+  packages now always configure a run. Engine-level work counters (sites
+  checked, facts noted) and the installed bindings localized it. The same
+  walkthrough also showed that a character without a creature build has no
+  combat view, so clients cannot see a scripted victory; that was tutorial
+  content, fixed by giving its character a build. One method, one root cause.
+- **Stale version pins (stale tests, expected with the format change).**
+  Protocol 73, save format 72, scenario format 38 and validator
+  `tor-scenario-52` failed the explicit pin and golden tests until the
+  protocol 73 wire samples and the save format 72 scenario golden were
+  recorded and the pins updated. These are deliberate first-red pins, not defects.
+
+Not counted: a bulk `format = 37` replacement that also rewrote one literal
+in the new v46 baseline test was an authoring slip caught by that test before
+publication.
+
+## Scripted outcomes (2026-11-18)
+
+Moving every victory and defeat into scripts exposed two defects, counted by
+root cause:
+
+- **Goals on unentered regions (production, simulation).** The amulet process
+  test, replayed by the wire recorder, found Rogue's opening goal missing: its
+  root invocation was rejected because goal validation required the cell to
+  be in a declared region, and the surface exit's floor is not declared while
+  the hero starts on floor 26. A goal's cell is disclosed only by key until
+  seen, so the check was wrong and is removed; the retrieval engine test now
+  asserts the opening goal and its exit cell. One method, one root cause.
+- **Run-start victory (package scripts).** `dungeon-characters`' integration
+  test found the companion's start-of-run victory missing: the old objective
+  was checked when the run was configured, but the first outcome script only
+  checked moves and pickups. Seal and companion scripts now also check every
+  character at `run_started`. One method, one root cause.
+
+Not counted: about two hundred test fixtures that rebuilt or rewrote scripted
+packages without their scripts, and tests asserting the removed built-in
+outcomes, were stale fixtures for the deliberate behavior change.
+
+The first hosted run of PR #32 found three more defects in Python package
+tools, counted by root cause:
+
+- **Silently dropped outcome scripts (tooling).** Eight package builders
+  rebuild a Rogue, arena or fixture manifest without its `scripting`, so
+  `copy_declared` copied nothing and their packages lost the death defeat the
+  engine used to provide. The corrosion-ray process test caught it: the run
+  continued past the player's death to tick 300 instead of ending at 242.
+  Those generators now apply the canonical death script, and `copy_declared`
+  refuses a manifest that declares no scripts. One failing method; the guard
+  has its own unit test.
+- **Activation candidates without scripts (tooling).** The Rogue activation
+  candidate snapshot read only the manifest, ruleset and modules, so every
+  candidate package failed validation for a missing `scripts/outcome.luau`.
+  It now retains and writes the declared scripts. Fourteen methods across the
+  activation and earned-route process tests, one root cause.
+- **Stale scenario format (tooling).** The format 38 bump missed the arena
+  matrix generator and one Rogue bot fixture, which still wrote format 37.
+  Every curated arena, search, starter-study and evaluation package failed
+  validation. About fifteen methods, one root cause.
+
+Not counted as defects: service-contract and wizard fixtures that copied a
+scripted manifest without its scripts; amulet tests whose limit tables kept a
+renamed method's old name, or that asserted the removed escape item and text;
+the objective validation tests; and the independent 3D lock, which lacked the
+Luau crates (the same setup failure as the rusqlite update below). The
+benchmark examples, which still cleared the removed objective, were caught
+locally by the performance comparison's release build, before CI.
+
 ## Independent client dependency locks
 
 The November 18 rusqlite update changed the server manifest and root lock but
@@ -1060,3 +1167,171 @@ build caught this before launching a client: one build/setup root cause, not a
 gameplay failure. Refreshing only rusqlite and libsqlite3-sys in the independent
 lock restores resolution. Dependency updates shared through path dependencies
 must account for both locks; the normal 3D build remains the boundary witness.
+
+
+### Concurrent actor input-boundary refusals
+
+The live venomous-bite learning driver observed the player before submitting a
+snake action. Windows release CI exposed the resulting shared-boundary race:
+the server returned `rejected/stale_context` where the driver allowed only local
+`stale_observation`. This is one driver-oracle root cause, not a persistence or
+combat defect. Both explicitly stale outcomes now permit a fresh observation;
+other refusals and unknown outcomes still fail. The same live witness still
+requires actual lasting strength loss and learned identification of the
+rattlesnake, so a run with only stale refusals cannot pass.
+
+
+### Redundant acknowledgement diagnostics in finite theft recovery
+
+Windows release CI reached the orc arm's final recovery checkpoint after 35
+requests and 2,468 actor ticks, but its transcript exceeded the 16 MiB arm guard
+by 25,208 bytes. This was a diagnostic-volume failure before the final saved-loot
+assertion, not evidence that loot recovery failed. Raw ACK response snapshots
+accounted for about 2.2 MB of that arm's output without changing shared client
+state. Opt-in compact-background output now omits only their repeated derived
+snapshot, retaining exact raw receipts, all ready/error boundaries, and every
+observation/lifecycle update. The output guard, finite action limits and all
+ownership/recovery assertions remain unchanged. Owning headless projection tests
+cover receipt preservation, omitted construction and retained state boundaries;
+actual process qualification remains a separate witness.
+
+
+The ACK projection change initially missed two downstream process owners: the
+headless projection allowlist and a Bind Wounds witness that deliberately checks
+stock, HP and cooldown at the queued ACK. Hosted CI exposed both fixture
+mismatches. The headless owner now also requires real admitted ACK identity in
+compact output. The admission-time gameplay witness explicitly requests full
+derived output and retains all of its pre-spend assertions. Both owners belong
+in focused validation for future projection changes, alongside raw-receipt unit
+checks; unrelated streaming/theft passes do not substitute for them.
+
+## Hallucinated disguise duration versus cadence bookkeeping
+
+A shared base-turn phase was passed directly to the appearance selector, causing
+all perceived mobs and objects to reroll on every normal turn. The native first-red
+catalog witness changed its creature at phase one. The corrected contract is an
+independent `(2d10) × 100` active-game-tick interval, not a longer condition lifetime
+or a speed-scaled number of turns. The catalog's original selector recipe remains
+unchanged, preserving historical event fields as final selector indices.
+
+Pure witnesses retain independent literal dice-pair boundaries, exact interval
+endpoints, private staggered streams, full first minimum duration, extreme-age
+bounded access, and lazy ring-generation cost. Live observation checks compare
+both mob and item through a base turn and checkpoint restoration. Unequal base
+periods retain partial age and 100-tick publication boundaries; legacy projectile
+round trips must not reinterpret old selector values. Owner/follower wire tests
+retain literal initial appearances and refresh delivery without treating every
+housekeeping signal as a new disguise. Existing lifetime, hidden-information,
+map-acquisition and replay contracts remain separate required owners.
+
+PR #31's first hosted selected run exposed one stale cadence-oracle root cause
+across five Python methods: the Service follower witness, headless and Text
+cadence/reopen, monster-detection refresh, and acquired-map/paid history. They
+still expected the old phase-one bat after only 100 active ticks. The revised
+witnesses preserve the initial appearance at that age and demand a changed
+picture at independently derived seeded interval boundaries; detection's private
+channel remains distinct, and acquired history retains its actual earlier
+sample. This is test maintenance, not an additional production defect or five
+separate gameplay bugs. Native focused coverage had not exercised these Python
+consumer owners; their final execution remains required evidence.
+
+A passing duration test does not guarantee a different catalog row at each reroll,
+all-pose visual quality, or an unbounded nonrepeating random stream. The documented
+1,024-duration ring eventually reuses durations for exceptionally long conditions.
+
+## Authored wizard item selection
+
+Authored item spawning has an independent encoded-Service first-red witness:
+a correctly authenticated wizard's identity selector was rejected as an unknown
+command before implementation. That is an intentional new-feature boundary,
+not a discovered gameplay regression. Selector tests distinguish identity,
+allocated appearance and their conjunction, collapse truly equivalent aliases,
+and reject shared-asset or mechanically different recipe ambiguity. Engine
+witnesses retain normal charges, location, unchanged knowledge, atomic rejection,
+checkpoint/replay and rewind. The Service owner separately checks player and
+spectator rejection, private wizard history and real potion consumption; mere
+creation of a correctly named object would not satisfy its effect assertion.
+
+Acceptance audit exposed one local feature gap: Rogue starter and generated
+mace, arrow and ring mail share both identity and appearance but have different
+birth policies. Rejecting ambiguity was correct, but neither dotted selector
+could reach those recipes. An explicit authored `recipe` selector now closes
+that gap without guessing a default or overriding allocated appearance. The
+encoded first-red rejects `recipe rogue.mace` at the old parser. Resolver tests
+cover all three pairs and retain mismatch/ambiguity rejection; recipe-specific
+engine coverage preserves charges, knowledge, checkpoint/replay and rewind.
+
+## Private wizard context and relative placement
+
+Contextual wizard reports have separate bounded wire/client owners and encoded
+Service witnesses. They expose backend IDs and region-local coordinates only to
+an authenticated wizard, without ordinary observation fields, action admission,
+journal entries or broadcasts. Nearby inspection is restricted to the attached
+actor's region and an eight-cell radius with capped identity lists.
+
+Review of the initial implementation caught two pre-publication boundary errors:
+a literal `here` outside a position slot must not change absolute-command retry
+semantics, and a retained presentation can remain valid for a frozen read while
+being too old for a new relative mutation. Exact-slot parser and authoritative
+boundary regressions cover both. Relative requests resolve to absolute journal
+operations; stale contextual retries reject rather than readmit from a later
+location. Native checkpoint/replay/rewind witnesses and Service no-second-spawn
+assertions remain distinct from client display/correlation coverage.
+
+The first encoded-Service run found fixture/oracle errors in two new methods,
+not production failures: chamber shells include x=-1; offset syntax/range errors
+are more precise than a generic usage line; and every explicit snapshot request
+issues a new presentation revision. Corrected tests first prove the shell tile
+and a no-query snapshot increment, then assert the outside tile and the exact
+same single snapshot increment after queries. Complete observation, readiness,
+cursor, history and peer-output checks remain unchanged. Reusing a mutation
+receipt ID for a read query still rejects with RequestConflict.
+
+Item catalog/instance inspection extends the same private report path. An exact
+retained pre-extension Service host accepts existing location queries and rejects
+the new `item list` and `item inspect` requests at the intended unsupported-command
+boundary. Catalog tests retain exact seeded allocation, separate recipe aliases,
+and gap-free bounded pagination without generating items. Instance tests distinguish
+remaining device charges after ordinary use from the catalog's original charge
+recipe, and preserve location/ownership, discovery and checkpoint state across reads.
+
+Resource setup is intentionally a positive restoration transaction for stamina,
+focus and mana, never a raw balance/health/nutrition field setter. The retained
+old Service host accepts existing context queries and rejects `resource restore`
+as unsupported (feature first-red). New witnesses separately cover full-capacity
+clamping, positive restoration after ordinary paid work, exact held resource and
+condition reservations/preparation preservation, and deterministic replay/rewind.
+Dead-actor denial shares the normal loaded/alive selector and restoration guards;
+missing-target atomicity is tested separately, not claimed as a direct death test.
+
+The combined resource checkpoint exposed one fixture lifecycle error in the paid
+care restoration witness: reopening a save deliberately does not retain wizard
+authority. Its later wizard restore correctly rejected with Unauthorized. The
+fixture now explicitly enables wizard mode on that reopened engine before the
+privileged request; ordinary completion, exact spent amount, reservations and
+replay assertions remain intact (one failing method, no production change).
+
+The first combined encoded run found two additional fixture/oracle mistakes:
+this seeded invisibility device is a staff, not a wand; and obtaining the ordinary
+player role frame itself issues a snapshot revision. The name oracle now matches
+the authored seeded staff, and role frames are obtained before the independent
+revision control. All charge, identity, ownership, observation, history and denial
+checks remain; neither failure required a production change (two methods).
+
+The wizard test adoption audit found one stale protocol coverage owner: the
+exhaustive `ServerMessage` taxonomy in `protocol/tests/it/samples.rs` omitted
+`WizardReport`, and the current wire corpus/recorder did not cover its kind.
+The test match, required-kind list and recorder now include it, with one sample
+captured from the unchanged production Service encoder. Existing wire samples
+remain unchanged; this was a test coverage defect, not a production wire change.
+
+The v73/Luau integration merge was textually clean but its active corpus lacked
+WizardReport. The required-kind test failed at that exact boundary. The verified
+report sample now resides in v73, leaving v72 byte-identical to merged main;
+existing v73 scripted-message samples remain unchanged. Independent omission
+controls detect the missing WizardReport kind and missing tutorial text/control
+fact, then the restored corpus passes. The AI Give fixture also inherited an
+external outcome-script declaration without supplying script sources; like the
+upstream catalog fixture, it now removes only that unused scripting declaration.
+Its tactical rules and existing medicine/knowledge setup are unchanged. Exact
+integrated Service runtime remains a hosted qualification, not a local claim.

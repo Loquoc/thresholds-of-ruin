@@ -30,10 +30,11 @@ fn quiet_rogue() -> Scenario {
         .resolved_rules_source
         .as_deref()
         .unwrap_or(&original.rules_source);
-    let package = crate::scenario_package::Package::from_parts(
+    let package = crate::scenario_package::Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         original.region_defs().unwrap(),
         rules,
+        original.scripts.clone(),
     )
     .unwrap();
     assert_eq!(

@@ -43,9 +43,9 @@ pub(super) fn plugins() -> PluginGroupBuilder {
         .add(compiler_log)
 }
 
-// Software DX12 can submit frames faster than it executes them, retaining
-// per-frame bind groups until the adapter runs out of resources. Hardware
-// adapters and other backends retain Bevy's normal pipelined rendering.
+// Software DX12 and Vulkan can submit frames faster than they execute them,
+// retaining per-frame bind groups until the adapter runs out of resources.
+// Hardware adapters and other backends retain normal pipelined rendering.
 struct SoftwareFramePacingPlugin;
 impl Plugin for SoftwareFramePacingPlugin {
     fn build(&self, app: &mut App) {
@@ -55,7 +55,7 @@ impl Plugin for SoftwareFramePacingPlugin {
 }
 
 fn needs_frame_wait(device_type: DeviceType, backend: Backend) -> bool {
-    device_type == DeviceType::Cpu && backend == Backend::Dx12
+    device_type == DeviceType::Cpu && matches!(backend, Backend::Dx12 | Backend::Vulkan)
 }
 
 fn wait_for_software_frame(device: Res<RenderDevice>, adapter: Res<RenderAdapterInfo>) {
@@ -183,7 +183,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn software_frame_wait_applies_only_to_cpu_dx12() {
+    fn software_vulkan_frames_are_bounded_before_next_submission() {
+        assert!(needs_frame_wait(DeviceType::Cpu, Backend::Vulkan));
+    }
+
+    #[test]
+    fn software_frame_wait_is_limited_to_cpu_dx12_and_vulkan() {
         for device in [
             DeviceType::Cpu,
             DeviceType::IntegratedGpu,
@@ -201,7 +206,7 @@ mod tests {
             ] {
                 assert_eq!(
                     needs_frame_wait(device, backend),
-                    device == DeviceType::Cpu && backend == Backend::Dx12
+                    device == DeviceType::Cpu && matches!(backend, Backend::Dx12 | Backend::Vulkan)
                 );
             }
         }

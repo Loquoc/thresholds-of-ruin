@@ -55,7 +55,7 @@ fn personal_state(stats: OwnStats) -> StateView {
         "interactions":null,"motion":null,"combat":{
             "hp":"9","max_hp":"10","own_stats":stats,"preparation_remaining":null,
             "preparation_active":false,"sequence":null,"public_plan":null,
-            "recovery_remaining":"0","actors":[],"events":[],"objective":null,
+            "recovery_remaining":"0","actors":[],"events":[],
             "victory":false,"dead":false,"terminal":false}}}))
     .unwrap()
 }

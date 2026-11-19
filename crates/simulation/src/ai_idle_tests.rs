@@ -612,7 +612,6 @@ fn frozen_and_detached_idle_actors_keep_history_without_taking_turns() {
         game.configure_run(
             ActorId(1),
             std::collections::BTreeSet::from([ActorId(1)]),
-            None,
             Default::default(),
         )
         .unwrap();

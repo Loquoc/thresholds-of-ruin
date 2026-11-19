@@ -10,7 +10,7 @@ fn record() -> Value {
 }
 fn combat(record: Value) -> Value {
     json!({"hp":"10","max_hp":"10","preparation_remaining":null,"preparation_active":false,
-        "sequence":null,"recovery_remaining":"0","actors":[],"events":[],"objective":null,
+        "sequence":null,"recovery_remaining":"0","actors":[],"events":[],
         "victory":false,"dead":false,"terminal":false,"public_plan":record})
 }
 fn state(record: Value) -> StateView {

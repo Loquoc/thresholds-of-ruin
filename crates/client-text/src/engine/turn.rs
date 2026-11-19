@@ -481,6 +481,10 @@ impl Reader<'_> {
                     crate::safe(message).trim_end_matches('.')
                 )));
             }
+            ServerMessage::WizardReport { report, .. } => {
+                self.pages.push(report.title.clone());
+                self.pages.extend(report.lines.iter().cloned());
+            }
             ServerMessage::CreatureCatalog { page, .. } => {
                 match tor_client_common::creature_catalog::lines(page) {
                     Ok(rows) => self.pages.extend(rows),
@@ -614,7 +618,8 @@ async fn settle(
             ServerMessage::Snapshot { request_id, .. } if *request_id == id => {
                 return Ok(Settled::Done);
             }
-            ServerMessage::CreatureCatalog { request_id, .. }
+            ServerMessage::WizardReport { request_id, .. }
+            | ServerMessage::CreatureCatalog { request_id, .. }
             | ServerMessage::CreatureInspection { request_id, .. }
             | ServerMessage::CreatureStrikePage { request_id, .. }
             | ServerMessage::AdvancementPage { request_id, .. }

@@ -270,6 +270,20 @@ impl Regions {
     pub(crate) fn creature_archetypes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.index.creature_archetypes()
     }
+    pub(crate) fn wizard_item_catalog(
+        &self,
+        after: Option<&str>,
+    ) -> Result<crate::scenario_package::WizardItemCatalogPage, Failure> {
+        self.index.wizard_item_catalog(after)
+    }
+    pub(crate) fn wizard_item(
+        &self,
+        identity: Option<&str>,
+        appearance: Option<&str>,
+        recipe: Option<&str>,
+    ) -> Result<tor_simulation::ItemSpec, Failure> {
+        self.index.wizard_item(identity, appearance, recipe)
+    }
     pub(crate) fn standalone_creature(
         &self,
         id: &str,
@@ -958,8 +972,13 @@ mod declaration_error_tests {
         recipe.actors.as_mut().unwrap().count = [10, 10];
         recipe.items = None;
         let package = Arc::new(
-            Package::from_parts(source.manifest.clone(), definitions, &source.rules_source)
-                .unwrap(),
+            Package::from_parts_scripted(
+                source.manifest.clone(),
+                definitions,
+                &source.rules_source,
+                source.scripts.clone(),
+            )
+            .unwrap(),
         );
         let mut regions = Regions::new(package, 42, Streaming::default()).unwrap();
         let expected = regions

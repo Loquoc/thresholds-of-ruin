@@ -247,6 +247,30 @@ impl Game {
         Ok(restored)
     }
 
+    /// Cure the named condition through the same active-time and recovery
+    /// boundary as application. Production removal preserves protection and
+    /// the reservations already owned by paid intentions.
+    pub fn remove_condition(
+        &mut self,
+        actor: ActorId,
+        condition: &crate::content_ids::ConditionId,
+    ) -> Result<bool, GameError> {
+        let mut outcome = self.settled_actor_outcome(actor)?;
+        if !outcome.state.alive() {
+            return Err(GameError::UnknownActor);
+        }
+        let combat = outcome.state.combat.as_mut().ok_or(GameError::Rule(
+            crate::abilities::RuleError::InvalidDefinition,
+        ))?;
+        let context = self.condition_recovery_context(actor, condition)?;
+        let changed = combat
+            .with_recovery_context(context, |creature| creature.remove_condition(condition))
+            .map_err(|_| GameError::Rule(crate::abilities::RuleError::InvalidDefinition))?;
+        let prepared = self.prepare_actor_outcome(outcome)?;
+        self.publish_actor_effect(prepared, false)?;
+        Ok(changed)
+    }
+
     /// Trusted effect application. A causer can be dead or detached; an existing
     /// condition needs neither current reach nor sight of its causer.
     pub fn apply_condition(
@@ -1021,6 +1045,43 @@ mod tests {
             },
         )
         .unwrap();
+        // Elimination is the scenario script's decision. This host ends the
+        // arena for "left" when a participant dies, as the elimination script
+        // does here, so the death found while stopping at the deadline still
+        // takes precedence over the tick limit.
+        struct Eliminate;
+        impl crate::scripting::HookHost for Eliminate {
+            fn dispatch(
+                &self,
+                view: crate::scripting::ScriptView<'_>,
+                _call: crate::scripting::HookCall<'_>,
+                _budget: &mut crate::scripting::WorkBudget,
+            ) -> Result<crate::scripting::HookOutput, crate::scripting::FailureReason> {
+                Ok(crate::scripting::HookOutput {
+                    effects: vec![crate::scripting::ScriptEffect::StopArena {
+                        winner: Some("left".into()),
+                    }],
+                    rng: view.state().rng(),
+                })
+            }
+        }
+        game.install_scripts(crate::scripting::ScriptSetup {
+            handlers: 1,
+            schema: Default::default(),
+            bindings: vec![crate::scripting::Binding {
+                kind: crate::scripting::HookKind::Died,
+                key: crate::scripting::FilterKey::Any,
+                actors: crate::scripting::ActorClass::Any,
+                handler: crate::scripting::HandlerId(0),
+                owner: None,
+                once: false,
+            }],
+            defaults: vec![],
+        })
+        .unwrap();
+        game.set_hook_host(crate::scripting::HookPort::new(std::sync::Arc::new(
+            Eliminate,
+        )));
         game.tick = 10;
         for actor in [ActorId(1), ActorId(2)] {
             game.actors.get_mut(&actor).unwrap().ready_at = 10;
@@ -1037,6 +1098,7 @@ mod tests {
         );
         assert!(!game.alive(ActorId(2)));
         assert!(game.arena_state_valid());
+        assert_eq!(game.take_script_report().dispatches.len(), 1);
         let mut shared = crate::checkpoint::SharedState::default();
         let snapshot = game.checkpoint(&mut shared);
         let restored = Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();

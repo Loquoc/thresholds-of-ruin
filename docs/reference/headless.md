@@ -126,22 +126,33 @@ Every stdout line is a JSON frame containing:
   the whole palette itself after a missed revision, and once for each asset an
   observation names that the palette lacks; the answer arrives as an `update`
   or `response` frame like any other message.
+- `narration`: on an outcome update, the shared narration sentences for its
+  facts; otherwise empty.
+- `user_messages`: on an outcome update, each server-authored tutorial, hint or
+  narration message as `style`, `text` and `segments`; otherwise empty. The
+  headless client has no keys, so `text` names each control neutrally in
+  brackets (`[pick up]`) and `segments` keeps the closed control ids
+  (`{"control":"pick_up"}`) for automation to map onto its own inputs.
 - `message`: the received protocol message, or null. History query pages and
   accepted action results are available here; no hidden state is added.
 - `error`: an input/request error on `ready`, otherwise null.
 
 For long diagnostic runs, `--compact-background` is an explicit opt-in. Raw
-`map_page`, `palette` and `waiting` messages still appear unchanged in `message`,
+`map_page`, `palette`, `waiting` and `ack` messages still appear unchanged in `message`,
 with `type`, `error`, `map_hydration` and `state_omitted: true`. Only their repeated
 derived attachment fields are not constructed: `state`, `branch`, `cursor`, `role`,
 `has_control`, `readiness`, `input_context`, `history`, `intentions`, `travel`,
 `memory`, `palette`, `advancement`, `advancement_page`, `synchronized`,
-`capabilities`, `observation_base` and `narration`. Absence means no derived
+`capabilities`, `observation_base`, `narration` and `user_messages`. Absence means no derived
 snapshot was printed, never empty state. Consumers must read the raw message or
 wait for a complete frame rather than clear their state. Every `ready` frame, observation and lifecycle update,
 snapshot, protocol error and local error remains complete. Default output is
 unchanged; this option can be combined with `--omit-memory`. It changes neither
 map hydration nor server traffic and does not remove any raw message or error.
+Acknowledgements validate the receipt actor and complete a pending request but do
+not apply an observation or lifecycle update to the shared client state. Their
+raw request identity and receipt (including admission/operation identity) remain
+present; the following `ready` boundary still carries complete derived state.
 
 Private strike inspection is available to wizard accounts through the ordinary
 `request` command envelope. After `wizard creature inspect <actor-id>`, use

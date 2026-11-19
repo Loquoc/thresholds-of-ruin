@@ -804,7 +804,7 @@ fn features(view: &dyn super::scenery::ScenicView) -> Vec<Referent> {
         .observation
         .combat
         .as_ref()
-        .and_then(|c| c.exit.as_ref())
+        .and_then(|c| c.goal.as_ref()?.cell.as_ref())
         .and_then(|key| {
             state
                 .observation

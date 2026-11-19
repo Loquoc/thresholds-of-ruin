@@ -3280,13 +3280,8 @@ mod tests {
                 crate::test_creatures::species(),
             );
             crate::test_creatures::injure(&mut game, protagonist, 29).unwrap();
-            game.configure_run(
-                protagonist,
-                BTreeSet::from([protagonist]),
-                None,
-                BTreeMap::new(),
-            )
-            .unwrap();
+            game.configure_run(protagonist, BTreeSet::from([protagonist]), BTreeMap::new())
+                .unwrap();
             game.set_actor_velocity(protagonist, [4096, 4096, 0])
                 .unwrap();
             game.set_wall(at(2, 0, 5), true).unwrap();
@@ -3311,8 +3306,8 @@ mod tests {
             assert_eq!(game.actors[&protagonist].location, at(2, 0, 4));
             assert!(!game.alive(protagonist));
             assert!(
-                game.run_outcome().terminal,
-                "death must exercise the terminal early-return path"
+                !game.run_outcome().terminal,
+                "death is a fact for scripts, never a defeat by itself"
             );
             assert_eq!(
                 game.actors[&mover].location,

@@ -14,10 +14,11 @@ fn growth_fixture(start: u32, base: usize) -> Scenario {
     stage["bands"][0]["depth"]["minimum"] = json!(start + 1);
     stage["depth_growth"] = json!({"kind":"racial_after","depth":26});
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).expect("racial depth policy is valid authoring"),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -220,11 +221,14 @@ fn depth_growth_source_rejects_invalid_policy_and_unbuilt_actor_before_entry() {
         let mut bad = source.clone();
         bad["floor_activation"]["profiles"]["baseline"]["stages"][2]["depth_growth"] = policy;
         if let Ok(manifest) = serde_json::from_value(bad) {
-            assert!(
-                Package::from_parts(manifest, vec![], &original.rules_source)
-                    .and_then(|package| package.check())
-                    .is_err()
-            );
+            assert!(Package::from_parts_scripted(
+                manifest,
+                vec![],
+                &original.rules_source,
+                original.scripts.clone()
+            )
+            .and_then(|package| package.check())
+            .is_err());
         }
     }
     // A plain actor is still a valid Fixed population prototype. The same
@@ -238,10 +242,11 @@ fn depth_growth_source_rejects_invalid_policy_and_unbuilt_actor_before_entry() {
         }
         let mut scenario = scenario.clone();
         scenario.package = Some(Arc::new(
-            Package::from_parts(
+            Package::from_parts_scripted(
                 serde_json::from_value(source).unwrap(),
                 vec![],
                 &original.rules_source,
+                original.scripts.clone(),
             )
             .unwrap(),
         ));
@@ -272,7 +277,8 @@ fn rogue_tail_entry_fixture(depth: u32, port: &str) -> Scenario {
         regions: 0,
         workload_version: None,
         package: Some(Arc::new(
-            Package::from_parts(
+            Package::from_parts_at(
+                &root,
                 manifest,
                 vec![],
                 include_str!("../../../scenarios/rogue-exploration/rules.toml"),
@@ -382,10 +388,11 @@ fn rogue_mixed_tail_sampled_jabberwock_at_268_refuses_whole_entry_and_replays() 
     *cutoff = json!(27);
     let mut control_scenario = scenario.clone();
     control_scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));

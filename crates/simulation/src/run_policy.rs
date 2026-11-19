@@ -1,17 +1,12 @@
 //! Run-specific policy. The action and damage kernels call these hooks without
 //! branching on adventure or arena state.
-use crate::{
-    arena::ArenaRun,
-    combat::{Objective, RunOutcome},
-    ActorId, Game, GameError,
-};
+use crate::{arena::ArenaRun, combat::RunOutcome, ActorId, Game, GameError};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdventureRun {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub objective: Option<Objective>,
+    /// Decided only by scenario scripts; the engine never ends a run itself.
     pub outcome: RunOutcome,
 }
 
@@ -55,12 +50,6 @@ impl RunMode {
             },
         }
     }
-    pub fn objective(&self) -> Option<&Objective> {
-        match self {
-            Self::Adventure(run) => run.objective.as_ref(),
-            Self::Arena(_) => None,
-        }
-    }
     pub fn arena(&self) -> Option<&ArenaRun> {
         match self {
             Self::Adventure(_) => None,
@@ -92,10 +81,8 @@ impl RunMode {
             return;
         }
         match self {
-            Self::Adventure(run) => {
-                run.outcome.deceased = Some(actor);
-                run.outcome.terminal = true;
-            }
+            // Death is a fact scripts react to, not a defeat by itself.
+            Self::Adventure(run) => run.outcome.deceased = Some(actor),
             Self::Arena(run) => {
                 run.deceased = Some(actor);
             }
@@ -144,44 +131,14 @@ impl Game {
             return false;
         }
         match &self.combat.run {
-            RunMode::Adventure(run) => {
-                run.objective.as_ref().is_none_or(|objective| {
-                    self.world.knows(objective.anchor)
-                        && objective
-                            .item
-                            .is_none_or(|id| id.0 > 0 && id.0 < self.next_item_id)
-                }) && (run.outcome.deceased.is_none() || run.outcome.terminal)
-            }
+            RunMode::Adventure(_) => true,
             RunMode::Arena(_) => self.arena_state_valid(),
         }
     }
+    /// Adventures end only through scripts; arenas still stop at their limits.
     pub(crate) fn check_run_policy(&mut self) -> Result<(), GameError> {
         match &self.combat.run {
-            RunMode::Adventure(run) => {
-                if run.outcome.terminal || run.outcome.victor.is_some() {
-                    return Ok(());
-                }
-                let Some(objective) = &run.objective else {
-                    return Ok(());
-                };
-                let winner = self.combat.characters.iter().copied().find(|id| {
-                    self.alive(*id)
-                        && self.actors[id].location == objective.anchor
-                        && objective.item.is_none_or(|item| {
-                            self.items.get(&item).is_some_and(|item| {
-                                item.location == crate::ItemLocation::Carried(*id)
-                            })
-                        })
-                });
-                if let Some(winner) = winner {
-                    let terminal = !objective.continue_play;
-                    if let RunMode::Adventure(run) = &mut self.combat.run {
-                        run.outcome.victor = Some(winner);
-                        run.outcome.terminal = terminal;
-                    }
-                }
-                Ok(())
-            }
+            RunMode::Adventure(_) => Ok(()),
             RunMode::Arena(_) => self.check_arena_policy(),
         }
     }
@@ -198,7 +155,8 @@ mod tests {
         for policy in [&mut adventure, &mut arena] {
             policy.on_death(ActorId(1), Some(ActorId(1)));
         }
-        assert!(adventure.outcome().terminal);
+        assert!(!adventure.outcome().terminal, "death alone ends no run");
+        assert_eq!(adventure.outcome().deceased, Some(ActorId(1)));
         assert!(!arena.outcome().terminal);
         assert_eq!(arena.outcome().deceased, Some(ActorId(1)));
     }

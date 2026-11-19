@@ -12,10 +12,11 @@ fn scenario() -> Scenario {
     arena.start_paused = true;
     arena.control = tor_server::scenario_package::ArenaControl::AllAi;
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap(),
     ));

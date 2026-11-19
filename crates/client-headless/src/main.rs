@@ -28,12 +28,13 @@ impl DiagnosticOutput {
         // Background transport is still emitted verbatim. Only the repeated
         // derived snapshot is omitted, and the absence is explicit. Every
         // observation/lifecycle update, ready result and error stays complete.
+        // ACKs carry their exact raw receipt but do not mutate ClientState.
         if self.compact_background
             && fields["type"] != "ready"
             && fields["error"].is_null()
             && matches!(
                 fields["message"]["type"].as_str(),
-                Some("map_page" | "palette" | "waiting")
+                Some("map_page" | "palette" | "waiting" | "ack")
             )
         {
             return serde_json::json!({
@@ -360,9 +361,13 @@ fn emit(
         fields["cursor"] = serde_json::json!(connection.state.cursor());
         fields["has_control"] = serde_json::json!(connection.state.has_control());
         fields["readiness"] = serde_json::json!(connection.state.readiness());
-        fields["narration"] = serde_json::json!(if matches!(message, Some(ServerMessage::Update { update }) if matches!(update.body, UpdateBody::Outcome { .. })) {
+        let outcome = matches!(message, Some(ServerMessage::Update { update }) if matches!(update.body, UpdateBody::Outcome { .. }));
+        fields["narration"] = serde_json::json!(if outcome {
             connection.state.narration()
         } else { &[] });
+        fields["user_messages"] = serde_json::json!(if outcome {
+            tor_client_common::narration::user_messages(connection.state.narration_lines())
+        } else { Vec::new() });
         fields["input_context"] = serde_json::json!(connection.state.input_context());
         fields["history"] = serde_json::json!(connection.state.history());
         fields["travel"] = serde_json::json!(connection.state.travel());
@@ -488,6 +493,9 @@ mod tests {
             serde_json::json!({"type":"map_page", "request_id":"map-test", "page":{"cells":[{"key":"known", "description":"raw map payload"}]}}),
             serde_json::json!({"type":"palette", "assets":["raw-asset"]}),
             serde_json::json!({"type":"waiting", "on":"others"}),
+            serde_json::json!({"type":"ack", "request_id":"admitted-action", "receipt":{
+                "type":"admitted", "actor":"1", "branch":"first", "intention":"7",
+                "entry_id":"entry-7", "phase":"queued"}}),
         ] {
             let mut fields = retained_diagnostic_fields(&state);
             fields["message"] = message.clone();
@@ -534,10 +542,15 @@ mod tests {
                 assert_eq!(compact, full);
             }
         }
-        for kind in ["ready", "response"] {
+        for (kind, message_type) in [
+            ("ready", "map_page"),
+            ("response", "map_page"),
+            ("ready", "ack"),
+            ("response", "ack"),
+        ] {
             let mut fields = retained_diagnostic_fields(&state);
             fields["type"] = kind.into();
-            fields["message"] = serde_json::json!({"type":"map_page"});
+            fields["message"] = serde_json::json!({"type":message_type});
             if kind == "response" {
                 fields["error"] = "local failure".into();
             }
@@ -560,7 +573,8 @@ mod tests {
                 for kind in ["ready", "response", "update"] {
                     for error in [None, Some("local failure")] {
                         for message_type in [
-                            "map_page", "palette", "waiting", "snapshot", "update", "error", "none",
+                            "map_page", "palette", "waiting", "ack", "snapshot", "update", "error",
+                            "none",
                         ] {
                             let message = if message_type == "none" {
                                 serde_json::Value::Null
@@ -581,7 +595,8 @@ mod tests {
                             let compact = compact_background
                                 && kind != "ready"
                                 && error.is_none()
-                                && ["map_page", "palette", "waiting"].contains(&message_type);
+                                && ["map_page", "palette", "waiting", "ack"]
+                                    .contains(&message_type);
                             assert_eq!(calls, usize::from(!compact), "{kind} {error:?} {message_type} compact={compact_background} omit_memory={omit_memory}");
                             assert_eq!(actual["message"], message);
                             assert_eq!(actual["type"], kind);

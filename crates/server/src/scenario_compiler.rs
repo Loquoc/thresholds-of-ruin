@@ -171,6 +171,23 @@ pub(super) struct PreparedArchetype {
 }
 
 impl PreparedArchetype {
+    fn wizard_item_identity(&self) -> Option<&tor_simulation::ItemIdentity> {
+        self.name.as_ref()?;
+        self.identity.as_ref()
+    }
+
+    fn wizard_item_appearance<'a>(
+        &'a self,
+        identity: &tor_simulation::ItemIdentity,
+        appearances: &'a BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
+    ) -> Option<&'a str> {
+        // An assigned entry without an asset intentionally suppresses the
+        // archetype's identity asset, just as the ordinary item adapter does.
+        appearances
+            .get(identity)
+            .map_or(self.item_asset.as_deref(), |entry| entry.asset.as_deref())
+    }
+
     fn new(
         author: &Archetype,
         manifest: &Manifest,
@@ -336,7 +353,6 @@ pub(super) struct PreparedDefinitions {
     pub characters: Vec<PreparedCharacter>,
     ai_profiles: BTreeMap<String, Arc<super::AiProfile>>,
     omitted: BTreeSet<u64>,
-    pub objective_item: Option<u64>,
 }
 
 /// Prepare ordinary recoverable ammunition before any creature build captures
@@ -378,7 +394,6 @@ fn compile_trap_ammunition(
         characters: vec![],
         ai_profiles: BTreeMap::new(),
         omitted: BTreeSet::new(),
-        objective_item: None,
     };
     let ammunition = definitions
         .archetypes
@@ -452,13 +467,6 @@ impl PreparedDefinitions {
                 .characters
                 .iter()
                 .map(|author| {
-                    require(
-                        manifest.objective.is_none() || author.creature.is_some(),
-                        "Objectives require declared creature builds",
-                    )
-                    .map_err(|failure| {
-                        super::diagnostics::Origin::Character(author.id).context(failure)
-                    })?;
                     Ok(PreparedCharacter {
                         id: author.id,
                         anchor: author.anchor.clone(),
@@ -532,7 +540,6 @@ impl PreparedDefinitions {
             characters,
             ai_profiles,
             omitted,
-            objective_item: manifest.objective.as_ref().and_then(|o| o.item),
         })
     }
 
@@ -643,6 +650,85 @@ impl PreparedDefinitions {
             velocity: author.velocity,
             asset: inherited.actor_asset.as_deref().map(Cow::Borrowed),
         })
+    }
+
+    pub(super) fn wizard_item_catalog(
+        &self,
+        after: Option<&str>,
+        appearances: &BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
+    ) -> Result<super::WizardItemCatalogPage, Failure> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        const LIMIT: usize = 16;
+        if let Some(after) = after {
+            require(
+                self.archetypes
+                    .get(after)
+                    .and_then(PreparedArchetype::wizard_item_identity)
+                    .is_some(),
+                "Unknown wizard item catalog cursor; use an exact recipe from item list",
+            )?;
+        }
+        let mut rows: Vec<_> = self
+            .archetypes
+            .range::<str, _>((after.map_or(Unbounded, Excluded), Unbounded))
+            .filter_map(|(key, definition)| {
+                let identity = definition.wizard_item_identity()?;
+                Some(super::WizardItemCatalogRow {
+                    recipe: key.clone(),
+                    identity: identity.clone(),
+                    appearance: definition
+                        .wizard_item_appearance(identity, appearances)
+                        .map(str::to_owned),
+                })
+            })
+            .take(LIMIT + 1)
+            .collect();
+        let next = if rows.len() > LIMIT {
+            rows.truncate(LIMIT);
+            rows.last().map(|row| row.recipe.clone())
+        } else {
+            None
+        };
+        Ok(super::WizardItemCatalogPage { rows, next })
+    }
+
+    /// Resolve only prepared authored items, never sampled instances or raw
+    /// appearance pools. BTreeMap order chooses the canonical equivalent alias.
+    pub(super) fn wizard_item(
+        &self,
+        identity: Option<&tor_simulation::ItemIdentity>,
+        appearance: Option<&str>,
+        recipe: Option<&str>,
+        seed: u64,
+        appearances: &BTreeMap<tor_simulation::ItemIdentity, AppearanceEntry>,
+    ) -> Result<tor_simulation::ItemSpec, Failure> {
+        let mut selected: Option<tor_simulation::ItemSpec> = None;
+        for (key, definition) in &self.archetypes {
+            if recipe.is_some_and(|recipe| recipe != key.as_str()) {
+                continue;
+            }
+            let Some(candidate) = definition.wizard_item_identity() else {
+                continue;
+            };
+            if identity.is_some_and(|id| id != candidate) {
+                continue;
+            }
+            let asset = definition.wizard_item_appearance(candidate, appearances);
+            if appearance.is_some_and(|selector| Some(selector) != asset) {
+                continue;
+            }
+            let mut spec = self.population_item(key, 1, seed, appearances)?;
+            if let Some(prior) = &selected {
+                spec.archetype.clone_from(&prior.archetype);
+                require(
+                    &spec == prior,
+                    "Ambiguous wizard item; specify an exact recipe",
+                )?;
+            } else {
+                selected = Some(spec);
+            }
+        }
+        selected.ok_or_else(|| fail("No authored item matches the wizard item selectors"))
     }
 
     /// Resolve a catalog item through the ordinary item-definition adapter.
@@ -803,10 +889,6 @@ impl PreparedDefinitions {
         let appearance_asset =
             assigned.map_or_else(|| inherited.item_asset.clone(), |entry| entry.asset.clone());
         let stackable = author.stackable.unwrap_or(inherited.stackable);
-        require(
-            self.objective_item != Some(author.id) || !stackable,
-            "Objective item instances must be non-stackable",
-        )?;
         let mut properties = inherited.properties.clone();
         properties.extend(author.properties.clone());
         let spec = tor_simulation::ItemSpec {
@@ -946,7 +1028,13 @@ mod tests {
             }))
             .unwrap(),
         );
-        super::super::Package::from_parts(manifest, regions, &template.rules_source).unwrap()
+        super::super::Package::from_parts_scripted(
+            manifest,
+            regions,
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1021,10 +1109,11 @@ mod tests {
         let actor = regions[0].actors.pop().unwrap();
         assert_eq!(actor.id, 2);
         regions[1].actors.push(actor);
-        let package = super::super::Package::from_parts(
+        let package = super::super::Package::from_parts_scripted(
             template.manifest.clone(),
             regions,
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap();
         let mut scenario = crate::Scenario::two_room(42);
@@ -1059,10 +1148,11 @@ mod tests {
         let template = arena_package();
         let mut manifest = template.manifest.clone();
         manifest.arena.as_mut().unwrap().control = super::super::ArenaControl::Manual;
-        let package = super::super::Package::from_parts(
+        let package = super::super::Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap();
         let mut game = package.build(42, true).unwrap();
@@ -1098,10 +1188,11 @@ mod tests {
                 6 => manifest.characters[0].creature = None,
                 _ => unreachable!(),
             }
-            let result = super::super::Package::from_parts(
+            let result = super::super::Package::from_parts_scripted(
                 manifest,
                 template.region_defs().unwrap(),
                 &template.rules_source,
+                template.scripts.clone(),
             )
             .and_then(|package| package.build(42, true));
             assert!(result.is_err(), "invalid arena case {case}");
@@ -1203,8 +1294,13 @@ mod tests {
             )
             .unwrap(),
         );
-        let package =
-            super::super::Package::from_parts(manifest, regions, &template.rules_source).unwrap();
+        let package = super::super::Package::from_parts_scripted(
+            manifest,
+            regions,
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         let first = package.build(42, true).unwrap();
         let second = package.build(42, true).unwrap();
         let mut shared = tor_simulation::checkpoint::SharedState::default();
@@ -1399,12 +1495,6 @@ mod tests {
         manifest.factions.insert("other".into(), Default::default());
         assert!(super::PreparedDefinitions::new(&manifest, 1).is_err());
         manifest.factions.clear();
-        manifest.objective = Some(super::super::Objective {
-            anchor: "1/start".into(),
-            item: None,
-            disclosed: false,
-            continue_play: true,
-        });
         let prepared = super::PreparedDefinitions::new(&manifest, 1).unwrap();
         assert!(prepared.characters[0].creature.recipe.is_some());
 
@@ -1767,43 +1857,5 @@ mod tests {
         let ordinary = prepared.archetype(&None).unwrap();
         assert!(ordinary.recipe.is_none() && ordinary.body.is_none() && !ordinary.stackable);
         assert!(prepared.archetype(&Some("missing".into())).is_err());
-    }
-
-    #[test]
-    fn objectives_do_not_invent_creature_builds() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
-        let mut manifest = super::super::read_package(&root).unwrap().manifest;
-        assert!(
-            PreparedDefinitions::new(&manifest, 1).unwrap().characters[0]
-                .creature
-                .recipe
-                .is_none()
-        );
-        manifest.objective = Some(super::super::Objective {
-            anchor: "1/start".into(),
-            item: Some(7),
-            disclosed: true,
-            continue_play: false,
-        });
-        let error = PreparedDefinitions::new(&manifest, 1).unwrap_err();
-        assert!(error.message.contains("character 1"));
-        assert!(error
-            .message
-            .contains("Objectives require declared creature builds"));
-        let owned = creature_manifest();
-        manifest.creatures = owned.creatures;
-        manifest.characters[0].creature = owned.characters[0].creature.clone();
-        let prepared = PreparedDefinitions::new(&manifest, 1).unwrap();
-        assert_eq!(prepared.objective_item, Some(7));
-        assert_eq!(
-            prepared.characters[0]
-                .creature
-                .recipe
-                .as_ref()
-                .unwrap()
-                .identity()
-                .name,
-            "test creature"
-        );
     }
 }

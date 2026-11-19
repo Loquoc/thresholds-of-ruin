@@ -1047,6 +1047,60 @@ impl Kit<'_, '_, '_> {
         e
     }
 
+    /// Detach mutable garment geometry from the appearance cache. Materials
+    /// remain shared, and CPU positions stay available after render extraction.
+    fn make_meshes_private(&mut self, model: &mut Model) {
+        for (handle, _) in &mut model.0 {
+            let mut private = super::retained_mesh(self.meshes, handle).clone();
+            private.asset_usage |= bevy::asset::RenderAssetUsages::MAIN_WORLD;
+            *handle = self.meshes.add(private);
+        }
+    }
+
+    /// Mutable short garments own meshes, while their materials stay cached.
+    fn short_garment(
+        &mut self,
+        parent: Entity,
+        kind: Drape,
+        part: &str,
+        proportion: Vec3,
+        build: impl FnOnce(&mut Parts),
+    ) -> Entity {
+        let mut model = self.part(part, build);
+        self.make_meshes_private(&mut model);
+        let entity = self
+            .commands
+            .spawn((Transform::IDENTITY, Visibility::default()))
+            .id();
+        self.commands.entity(entity).with_children(|p| {
+            for (mesh, material) in &model.0 {
+                p.spawn((
+                    Mesh3d(mesh.clone()),
+                    MeshMaterial3d(material.clone()),
+                    Transform::from_scale(proportion),
+                    bevy::render::primitives::Aabb {
+                        center: bevy::math::Vec3A::new(0.0, -0.3, 0.0),
+                        half_extents: bevy::math::Vec3A::splat(2.0),
+                    },
+                    crate::picking::LooseBounds,
+                ));
+            }
+        });
+        self.commands.entity(parent).add_child(entity);
+        for (mesh, _) in &model.0 {
+            self.rig
+                .short_garments
+                .push(super::skirt_motion::Panel::new(
+                    entity,
+                    mesh.clone(),
+                    proportion,
+                    self.meshes,
+                ));
+        }
+        self.rig.drapes.push((entity, kind));
+        entity
+    }
+
     fn attach(
         &mut self,
         parent: Entity,
@@ -1116,6 +1170,7 @@ pub fn spawn(
             scale: look.scale,
             robe: None,
             aprons: Vec::new(),
+            short_garments: Vec::new(),
             apron_contacts: Vec::new(),
             cloaks: Vec::new(),
             hair: None,

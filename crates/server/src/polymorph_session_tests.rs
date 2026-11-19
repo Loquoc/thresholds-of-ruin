@@ -62,17 +62,23 @@ fn source(root: &Path, blocked: bool) -> crate::Scenario {
         {"id":30,"at":[1,2,0],"archetype":"ember"}
     ]);
     regions[0] = serde_json::from_value(region).unwrap();
-    let checked =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let checked = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     // A real positive compiler/build gate precedes the negative blocked/rejected
     // gameplay witness. A fixture setup failure is not a regression success.
     checked.check().unwrap();
     checked.build(42, false).unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         &rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();

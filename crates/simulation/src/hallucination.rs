@@ -35,6 +35,32 @@ impl Game {
             phase,
         }
     }
+    /// Convert elapsed condition-active ticks to a private per-subject selector.
+    /// Historical event fields already contain final selectors; never pass them here.
+    pub(crate) fn hallucination_key(
+        &self,
+        observer: ActorId,
+        subject: u64,
+        channel: AppearanceChannel,
+        clock: &crate::hallucination_clock::HallucinationCadence,
+    ) -> AppearanceKey {
+        let stream = self.presentation_key(observer, subject, channel, clock.generation());
+        let phase = crate::appearance_state::hallucination_interval(stream, clock.elapsed_ticks());
+        self.presentation_key(observer, subject, channel, phase)
+    }
+    fn hallucination_guise_key(
+        &self,
+        observer: ActorId,
+        subject: ActorId,
+        clock: &crate::hallucination_clock::HallucinationCadence,
+    ) -> AppearanceKey {
+        // A disguised actor still owns a creature timing stream. Item IDs live
+        // in a separate namespace, even when their numeric values coincide.
+        let mut key =
+            self.hallucination_key(observer, subject.0, AppearanceChannel::Creature, clock);
+        key.channel = AppearanceChannel::Item;
+        key
+    }
     pub(crate) fn cosmetic_object(
         &self,
         observer: ActorId,
@@ -59,12 +85,7 @@ impl Game {
             return Ok(None);
         };
         Ok(Some(self.content.presentation_catalog().creature(
-            self.presentation_key(
-                observer,
-                subject.0,
-                AppearanceChannel::Creature,
-                clock.phase(),
-            ),
+            self.hallucination_key(observer, subject.0, AppearanceChannel::Creature, &clock),
         )))
     }
     fn genuinely_sees_guise(
@@ -104,7 +125,7 @@ impl Game {
         let eyes = sight.iter().map(|cell| cell.location).collect();
         self.apply_hallucinated_map_fields(
             observer,
-            clock.phase(),
+            &clock,
             &eyes,
             &mut view.visible_cells,
             &mut view.ground_items,
@@ -116,7 +137,7 @@ impl Game {
     fn apply_hallucinated_map_fields(
         &self,
         observer: ActorId,
-        phase: u64,
+        clock: &crate::hallucination_clock::HallucinationCadence,
         eyes: &BTreeSet<Location>,
         visible_cells: &mut tor_world::Shared<Vec<crate::CellView>>,
         ground_items: &mut [crate::GroundItemView],
@@ -126,8 +147,9 @@ impl Game {
             if !eyes.contains(&item.location) {
                 continue;
             }
-            item.presentation =
-                Some(self.cosmetic_object(observer, item.id.0, AppearanceChannel::Item, phase));
+            item.presentation = Some(self.content.presentation_catalog().object(
+                self.hallucination_key(observer, item.id.0, AppearanceChannel::Item, clock),
+            ));
             item.identity = crate::ItemClass::Misc.unknown_identity();
             item.knowledge = crate::ItemKnowledge::default();
             item.name = "object".into();
@@ -147,11 +169,13 @@ impl Game {
                 && !cell.wall
                 && disclosed_stairs.contains(&cell.location)
             {
-                cell.object_presentation = Some(self.cosmetic_object(
-                    observer,
-                    terrain_subject(cell.location),
-                    AppearanceChannel::Terrain,
-                    phase,
+                cell.object_presentation = Some(self.content.presentation_catalog().object(
+                    self.hallucination_key(
+                        observer,
+                        terrain_subject(cell.location),
+                        AppearanceChannel::Terrain,
+                        clock,
+                    ),
                 ));
             }
         }
@@ -166,18 +190,16 @@ impl Game {
         let Some(clock) = self.projected_hallucination(observer)? else {
             return Ok(());
         };
-        let phase = clock.phase();
         let eyes: BTreeSet<_> = sight.iter().map(|cell| cell.location).collect();
         for object in &mut view.apparent_objects {
             if !self.genuinely_sees_guise(observer, object.subject, &eyes) {
                 continue;
             }
-            object.presentation = Some(self.cosmetic_object(
-                observer,
-                object.subject.0,
-                AppearanceChannel::Item,
-                phase,
-            ));
+            object.presentation = Some(
+                self.content
+                    .presentation_catalog()
+                    .object(self.hallucination_guise_key(observer, object.subject, &clock)),
+            );
             object.appearance.name = "object".into();
             object.appearance.description.clear();
             object.appearance.asset = None;
@@ -195,7 +217,7 @@ impl Game {
         }
         self.apply_hallucinated_map_fields(
             observer,
-            phase,
+            &clock,
             &eyes,
             &mut view.visible_cells,
             &mut view.ground_items,

@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":72,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":73,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -544,7 +544,7 @@ a picture; it is not a narration trigger.
 
 Ordered `outcome` updates carry compact disclosed `facts`, required nullable
 `event`, and `visual_changed`. Facts include own-action names, discoveries, sight
-changes, item outcomes, combat receipts, injury/objective changes and pacing/status
+changes, item outcomes, combat receipts, injury and goal changes and pacing/status
 facts. Raw disclosed names and semantic values are rendered into prose by clients,
 not the server. Required nullable `facts.status` is the complete current owner
 combat/terminal/preparation/recovery status, independent of whether a narration
@@ -558,6 +558,20 @@ the disclosed kind and name of the work, and a replacement admission identity
 when a new action took its place. A client can combine that fact with the new
 action's start in the same update. Work names use the actor's disclosed
 inventory or their authored ability name.
+
+A `user_message` fact carries server-authored text for the player:
+`{"kind":"user_message","style":"tutorial","segments":[{"text":"Press "},{"control":"pick_up"},{"text":" to take it."}]}`.
+`style` is `tutorial`, `hint` or `narration`. Each segment is exactly one of
+`{"text": …}` or `{"control": …}`. Controls come from a closed vocabulary:
+`move`, `wait`, `search`, `pick_up`, `inventory`, `equip`, `drink`, `read`,
+`zap`, `throw`, `travel`, `look`, `open_door`, `rest`, `save` and `help`
+(`ControlHint::from_id` and `id` give the same stable spellings). The message
+never names a key; each client shows its own binding for the control, and a
+client without a distinct presentation for a style shows the text plainly.
+A message has 1 to 32 segments. Each text segment is 1 to 512 bytes, the text
+segments total at most 2,048 bytes, no text contains control characters, and the
+message must have a control or some non-whitespace text. Unknown styles, controls,
+segment kinds and fields are rejected. The message grants no input permission.
 
 Every admitted outcome remains ordered even when pictures are coalesced. Repeated
 visual requests must not repeat narration. Internal event-batch identity separates
@@ -1444,9 +1458,10 @@ composition against the summary by source identity, exact label and count.
 Attack actions carry a disclosed opaque actor target reference. Movement never implicitly
 attacks. Combat observations carry own HP, preparation/recovery, qualitative
 visible-actor injury (`healthy`, `wounded`, `badly_wounded`, `near_death`) and
-hostility, the objective's kind when enabled (`retrieve_and_return` or
-`reach_exit`) with `exit`, the opaque key of the cell where it's met (the cell
-itself is disclosed only when seen), and durable victory/death status.
+hostility, the scenario script's current `goal` when one is set (`segments`
+of text and controls, like a user message, and an optional opaque `cell` key;
+the cell itself is disclosed only when seen), and durable victory/death status.
+Victory and run end come only from scenario scripts.
 
 They also carry `events`: what the action the view follows did, as far as the
 observer knows. An `ability` names its disclosed technique, optional `caster` and

@@ -21,13 +21,8 @@ pub(super) fn retrieval_game() -> Game {
         .unwrap();
     game.configure_scenario_policy(ScenarioCapabilities::default(), Some(protagonist))
         .unwrap();
-    game.configure_run(
-        protagonist,
-        BTreeSet::from([protagonist]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(protagonist, BTreeSet::from([protagonist]), BTreeMap::new())
+        .unwrap();
     game.configure_population(PopulationPlan {
         protagonist,
         carried_item_pools: BTreeMap::new(),
@@ -150,7 +145,7 @@ fn initial_deep_entry_is_once_only_and_observation_does_nothing() {
     assert_eq!(game, before);
 }
 #[test]
-fn intentional_surface_up_requires_exact_item_and_never_wins_by_position() {
+fn the_surface_exit_never_ends_the_run_by_itself() {
     let mut game = retrieval_game();
     let mut decoy = ItemSpec::ordinary(
         "item.test.amulet-of-yendor".parse().unwrap(),
@@ -170,12 +165,11 @@ fn intentional_surface_up_requires_exact_item_and_never_wins_by_position() {
     .unwrap();
     game.act(ActorId(1), Action::Wait).unwrap();
     assert!(!game.run_outcome().terminal);
-    let before = game.clone();
-    assert_eq!(
-        game.act(ActorId(1), Action::Move(Direction::Up)),
-        Err(GameError::ExitItemRequired)
-    );
-    assert_eq!(game, before, "missing bound item is a zero-time refusal");
+    // Without the artifact the exit is still an ordinary turn; scenario
+    // scripts decide what leaving means.
+    let outcome = game.act(ActorId(1), Action::Move(Direction::Up)).unwrap();
+    assert_eq!(outcome.kind, crate::OutcomeKind::Escaped);
+    assert!(!game.run_outcome().terminal);
     game.teleport(ActorId(1), at(2, 0, 1)).unwrap();
     let artifact = game
         .unique_retrieval_state()
@@ -192,13 +186,13 @@ fn intentional_surface_up_requires_exact_item_and_never_wins_by_position() {
     assert!(!game.run_outcome().terminal);
     let tick = game.tick();
     game.act(ActorId(1), Action::Move(Direction::Up)).unwrap();
-    assert_eq!(game.run_outcome().victor, Some(ActorId(1)));
-    assert!(game.run_outcome().terminal);
     assert_eq!(
-        game.tick(),
-        tick,
-        "accepted exit has no dungeon recovery tick"
+        game.run_outcome().victor,
+        None,
+        "only scripts declare a victory"
     );
+    assert!(!game.run_outcome().terminal);
+    assert!(game.tick() > tick, "the exit takes an ordinary turn");
 }
 #[test]
 fn late_artifact_allocation_failure_discards_population_and_entry() {
@@ -538,10 +532,12 @@ fn queued_terminal_up_uses_an_endpoint_guard_and_executes_without_a_landing() {
         "terminal queue must be valid before execution and restore"
     );
     let execution = game.execute_next_intention().unwrap();
-    assert!(
-        matches!(execution.outcome.unwrap().kind, crate::OutcomeKind::Escaped { item: escaped } if escaped == item)
-    );
-    assert_eq!(game.run_outcome().victor, Some(ActorId(1)));
+    assert_eq!(execution.outcome.unwrap().kind, crate::OutcomeKind::Escaped);
+    assert_eq!(game.run_outcome().victor, None);
+    assert!(matches!(
+        game.items[&item].location,
+        ItemLocation::Carried(_)
+    ));
 }
 #[test]
 fn diagonal_supported_ground_cannot_cross_unsupported_side_cells() {
@@ -656,37 +652,42 @@ fn queued_terminal_exit_round_trips_and_rechecks_stale_endpoint_and_ownership() 
         restored.execute_next_intention(),
         queued.clone().execute_next_intention()
     );
-    assert!(restored.run_outcome().terminal);
-    for moved_actor in [false, true] {
-        let mut stale = queued.clone();
-        let expected = if moved_actor {
-            stale.actors.get_mut(&ActorId(1)).unwrap().location = at(1, 2, 1);
-            GameError::InvalidLocation
-        } else {
-            stale
-                .items
-                .edit(item, |entry| {
-                    entry.location = ItemLocation::Ground(at(1, 1, 1))
-                })
-                .unwrap();
-            GameError::ExitItemRequired
-        };
-        let mut restored = checkpoint_round_trip(&stale);
-        let tick = restored.tick();
-        let inventory = restored.items.clone();
-        assert_eq!(
-            restored.execute_next_intention().unwrap().outcome,
-            Err(expected)
-        );
-        assert_eq!(restored.tick(), tick);
-        assert_eq!(restored.items, inventory);
-        assert!(!restored.run_outcome().terminal);
-        assert!(restored.pending_intention(ActorId(1)).is_none());
-    }
+    assert!(!restored.run_outcome().terminal);
+    // Leaving the endpoint makes the queued exit stale. Where the artifact
+    // is no longer matters: the exit itself does not check it.
+    let mut stale = queued.clone();
+    stale.actors.get_mut(&ActorId(1)).unwrap().location = at(1, 2, 1);
+    let mut restored = checkpoint_round_trip(&stale);
+    let tick = restored.tick();
+    let inventory = restored.items.clone();
+    assert_eq!(
+        restored.execute_next_intention().unwrap().outcome,
+        Err(GameError::InvalidLocation)
+    );
+    assert_eq!(restored.tick(), tick);
+    assert_eq!(restored.items, inventory);
+    assert!(restored.pending_intention(ActorId(1)).is_none());
+    let mut dropped = queued.clone();
+    dropped
+        .items
+        .edit(item, |entry| {
+            entry.location = ItemLocation::Ground(at(1, 1, 1))
+        })
+        .unwrap();
+    let mut restored = checkpoint_round_trip(&dropped);
+    assert_eq!(
+        restored
+            .execute_next_intention()
+            .unwrap()
+            .outcome
+            .unwrap()
+            .kind,
+        crate::OutcomeKind::Escaped
+    );
 }
 
 #[test]
-fn queued_terminal_context_is_required_and_rejects_forged_item_or_endpoint() {
+fn queued_terminal_context_is_required_and_rejects_a_forged_endpoint_or_item() {
     use crate::checkpoint::{SharedState, Snapshot};
     let (mut game, _) = carried_at_surface();
     game.admit_intention(
@@ -705,13 +706,16 @@ fn queued_terminal_context_is_required_and_rejects_forged_item_or_endpoint() {
     assert!(serde_json::from_value::<(Snapshot, SharedState)>(missing).is_err());
     for replacement in [
         serde_json::Value::Null,
+        // The context binds no item any more; a stray item field is unknown.
         serde_json::json!({"at":at(1, 1, 1),"direction":"Up","item":99}),
-        serde_json::json!({"at":at(1, 2, 1),"direction":"Up","item":1}),
+        serde_json::json!({"at":at(1, 2, 1),"direction":"Up"}),
     ] {
         let mut bad = value.clone();
         bad[1]["intentions"]["entries"][0]["terminal_exit_context"] = replacement;
-        let (snapshot, shared) = serde_json::from_value(bad).unwrap();
-        assert!(Game::restore_checkpoint(snapshot, &shared, game.content.clone()).is_err());
+        // Rejected either while decoding or while restoring.
+        if let Ok((snapshot, shared)) = serde_json::from_value::<(Snapshot, SharedState)>(bad) {
+            assert!(Game::restore_checkpoint(snapshot, &shared, game.content.clone()).is_err());
+        }
     }
 }
 
@@ -840,7 +844,7 @@ fn rewind_restores_branch_state_without_reusing_abandoned_item_identity() {
 }
 
 #[test]
-fn ordinary_take_drop_preserves_identity_and_requires_explicit_terminal_up() {
+fn ordinary_take_drop_preserves_identity_and_the_exit_never_ends_the_run() {
     let mut game = retrieval_game();
     game.teleport(ActorId(1), at(2, 0, 1)).unwrap();
     let item = game.unique_retrieval_state().unwrap().item.unwrap();
@@ -866,12 +870,8 @@ fn ordinary_take_drop_preserves_identity_and_requires_explicit_terminal_up() {
     )
     .unwrap();
     assert!(!game.run_outcome().terminal);
-    let before = game.clone();
-    assert_eq!(
-        game.act(ActorId(1), Action::Move(Direction::Up)),
-        Err(GameError::ExitItemRequired)
-    );
-    assert_eq!(game, before);
+    game.act(ActorId(1), Action::Move(Direction::Up)).unwrap();
+    assert!(!game.run_outcome().terminal);
     game.act(
         ActorId(1),
         Action::Take {
@@ -887,7 +887,7 @@ fn ordinary_take_drop_preserves_identity_and_requires_explicit_terminal_up() {
     assert_eq!(game.items.len(), 1);
     assert_eq!(game.next_item_id, item.0 + 1);
     game.act(ActorId(1), Action::Move(Direction::Up)).unwrap();
-    assert!(game.run_outcome().terminal);
+    assert!(!game.run_outcome().terminal, "only scripts end the run");
 }
 
 #[test]
@@ -996,16 +996,12 @@ fn cancelling_preparation_with_terminal_up_uses_the_same_atomic_ownership_check(
         }
         let before = game.clone();
         let result = game.cancel_intention_with_step(ActorId(1), intention, Some(Direction::Up));
-        if carried {
-            result.unwrap();
-            assert_eq!(game.run_outcome().victor, Some(ActorId(1)));
-            assert!(game.preparation(ActorId(1)).is_none());
-            assert_eq!(game.tick(), before.tick());
-            assert_eq!(game.health(target), before.health(target));
-        } else {
-            assert_eq!(result, Err(GameError::ExitItemRequired));
-            assert_eq!(game, before);
-        }
+        // Carried or not, cancelling into the exit releases the preparation
+        // and takes the exit; only scripts give it a meaning.
+        result.unwrap();
+        assert_eq!(game.run_outcome().victor, None);
+        assert!(game.preparation(ActorId(1)).is_none());
+        assert_eq!(game.health(target), before.health(target));
     }
 }
 #[test]
@@ -1111,13 +1107,8 @@ fn host_teleport_preserves_an_entry_from_cancel_released_preload_continuation() 
     }
     game.configure_scenario_policy(ScenarioCapabilities::default(), Some(ActorId(1)))
         .unwrap();
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+        .unwrap();
     game.configure_population(PopulationPlan {
         protagonist: ActorId(1),
         carried_item_pools: BTreeMap::new(),
@@ -1292,11 +1283,11 @@ fn host_action_preserves_entries_until_the_next_owning_transaction() {
 }
 
 #[test]
-fn accepted_terminal_up_stops_scheduled_attack_recovery_and_hunger_work() {
+fn an_unscripted_exit_is_an_ordinary_turn_for_attacks_recovery_and_hunger() {
     use crate::creatures::{Content, CreatureBuild};
     use crate::nutrition::NutritionRequirement;
     use crate::rules::{Modifier, ModifierOp, Ruleset, Scope, Stat};
-    let (mut game, item) = carried_at_surface();
+    let (mut game, _) = carried_at_surface();
     let mut species = crate::test_creatures::species();
     species.melee =
         crate::test_creatures::natural_melee(100, 60, crate::combat::DamageType::Impact, 4);
@@ -1382,21 +1373,18 @@ fn accepted_terminal_up_stops_scheduled_attack_recovery_and_hunger_work() {
         before.creature(ActorId(1)).unwrap().nutrition()
     );
 
+    // Without a script the exit decides nothing: time passes exactly as it
+    // does for a wait of the same length.
     let outcome = game.act(ActorId(1), Action::Move(Direction::Up)).unwrap();
-    assert_eq!(outcome.kind, crate::OutcomeKind::Escaped { item });
-    assert_eq!((outcome.at_tick, outcome.next_tick), (50, 50));
-    assert!(outcome.next_actor.is_none());
-    assert!(game.run_outcome().terminal);
-    assert_eq!(game.tick(), before.tick());
+    assert_eq!(outcome.kind, crate::OutcomeKind::Escaped);
+    assert!(!game.run_outcome().terminal);
+    assert_eq!(game.tick(), waiting.tick());
+    assert_eq!(game.preparation(enemy), waiting.preparation(enemy));
+    assert_eq!(game.health(enemy), waiting.health(enemy));
     assert_eq!(
-        game.actors[&ActorId(1)].ready_at,
-        before.actors[&ActorId(1)].ready_at
+        game.creature(ActorId(1)).unwrap().nutrition(),
+        waiting.creature(ActorId(1)).unwrap().nutrition()
     );
-    assert_eq!(game.actors[&enemy], before.actors[&enemy]);
-    assert_eq!(game.creature(ActorId(1)), before.creature(ActorId(1)));
-    assert_eq!(game.preparation(enemy), before.preparation(enemy));
-    assert_eq!(game.rules_rng, before.rules_rng);
-    assert!(game.combat_events().is_empty());
 }
 
 #[test]

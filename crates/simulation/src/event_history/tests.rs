@@ -2467,6 +2467,22 @@ fn frozen_projectile_appearance_is_observer_specific_without_live_item_lookup() 
     );
     // Serialization cannot silently overwrite one observer's captured phase.
     let encoded = serde_json::to_string(&object).unwrap();
+    let restored: crate::combat::EffectObjectOrigin = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(restored.observers[&ActorId(2)], Some(4));
+    assert_eq!(
+        game.effect_object_presentation(ActorId(2), &restored),
+        Some(
+            game.content
+                .presentation_catalog()
+                .object(crate::appearance_state::AppearanceKey {
+                    seed: game.seed,
+                    observer: 2,
+                    subject: 999,
+                    channel: crate::appearance_state::AppearanceChannel::Item,
+                    phase: 4,
+                },)
+        )
+    );
     let duplicate = encoded.replace("\"2\":4", "\"2\":4,\"2\":5");
     assert_ne!(duplicate, encoded);
     assert!(serde_json::from_str::<crate::combat::EffectObjectOrigin>(&duplicate).is_err());

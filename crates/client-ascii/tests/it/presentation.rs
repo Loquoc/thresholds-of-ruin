@@ -8,8 +8,7 @@ fn creature_snapshot() -> Snapshot {
     let mut snapshot = state().reset_snapshot().unwrap();
     Arc::make_mut(&mut snapshot.state).observation.combat = Some(serde_json::from_value(serde_json::json!({
         "public_plan":null,"hp": "7", "max_hp": "12", "sequence":null,"preparation_remaining": null, "preparation_active": false,
-        "recovery_remaining": "0", "actors": [], "events": [], "objective": null,
-        "victory": false, "dead": false, "terminal": false,
+        "recovery_remaining": "0", "actors": [], "events": [], "victory": false, "dead": false, "terminal": false,
         "own_stats": {
                 "nutrition":{"kind":"exempt"}, "conditions":[],
                 "restorable_losses":{"hit_dice":"0","attributes":{"strength":0,"speed":0,"intellect":0,"willpower":0,"awareness":0,"presence":0},"maximum_health":0},
@@ -1623,8 +1622,7 @@ fn configurable_bump_attacks_use_disclosed_hostility_only() {
                 injury: Injury::Healthy,
             }],
             events: vec![],
-            objective: None,
-            exit: None,
+            goal: None,
             victory: false,
             dead: false,
             terminal: false,
@@ -2397,6 +2395,38 @@ fn stats_screen_displays_restorable_losses_without_changing_state() {
         .iter()
         .any(|line| line.contains("Restorable losses: Strength 1, maximum Health 2")));
     assert_eq!(app.state.as_ref().unwrap().session().clone(), before);
+}
+
+#[test]
+fn wizard_report_is_private_scrollable_and_cleared_by_replacement() {
+    let snapshot = creature_snapshot();
+    let report = tor_protocol::WizardReport {
+        title: "Inspect tile".into(),
+        lines: (0..64).map(|id| format!("Item {id}")).collect(),
+    };
+    let mut app = App::new();
+    app.set_state(ClientState::from_snapshot(snapshot.clone()).unwrap());
+    for role in [AccessRole::Player, AccessRole::Spectator] {
+        app.role = role;
+        assert!(app.show_wizard_report(&report).is_err());
+        assert!(!app.stats_open);
+    }
+    app.role = AccessRole::Wizard;
+    app.show_wizard_report(&report).unwrap();
+    assert_eq!(app.stats_title(), "WIZARD REPORT");
+    assert!(app.stats_open);
+    assert!(app
+        .stats_rows()
+        .iter()
+        .any(|line| line.contains("Inspect tile")));
+    for _ in 0..200 {
+        app.input(Input::Key { key: Key::Down });
+    }
+    assert!(app.stats_scroll > 0);
+    let mut reset = snapshot;
+    reset.context.epoch += 1;
+    app.replace_snapshot(reset).unwrap();
+    assert!(!app.has_inspection());
 }
 
 #[test]

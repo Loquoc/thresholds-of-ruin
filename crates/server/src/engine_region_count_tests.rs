@@ -33,7 +33,13 @@ fn scenario(max_depth: u32, authored: bool) -> Scenario {
     } else {
         vec![]
     };
-    let package = Package::from_parts(manifest, definitions, &template.rules_source).unwrap();
+    let package = Package::from_parts_scripted(
+        manifest,
+        definitions,
+        &template.rules_source,
+        template.scripts.clone(),
+    )
+    .unwrap();
     Scenario {
         seed: 42,
         actors: vec![],

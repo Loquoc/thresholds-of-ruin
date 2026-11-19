@@ -59,8 +59,9 @@ fn game(build: CreatureBuild, turns: [u64; 2]) -> Game {
         )
         .unwrap();
     }
-    game.configure_run(DRIVER, BTreeSet::from([DRIVER]), None, Default::default())
+    game.configure_run(DRIVER, BTreeSet::from([DRIVER]), Default::default())
         .unwrap();
+    super::defeat::lose_on_death(&mut game, DRIVER);
     game.add_default_reference_points().unwrap();
     game.refresh_navigation();
     game
@@ -704,6 +705,8 @@ fn terminal_physics_credits_cooldowns_only_to_the_actual_death_tick() {
         DRIVER,
         json!([{"ability": "spark_lance_fire", "remaining": 100}]),
     );
+    // Seeding restores a checkpoint, and hosts are never saved.
+    super::defeat::reattach(&mut game);
     game.teleport(
         DRIVER,
         Location {

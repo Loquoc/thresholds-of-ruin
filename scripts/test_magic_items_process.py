@@ -24,7 +24,7 @@ from growth_catalog_package import prepare as prepare_imported_growth
 from hallucination_catalog_package import prepare as prepare_imported_hallucination
 import detection_process_package as detection
 import polymorph_process_package as polymorph
-from hallucination_package import assert_sample as assert_hallucination_sample, initial_items as hallucination_initial_items
+from hallucination_package import FIRST_DISGUISE_TICKS, assert_sample as assert_hallucination_sample, initial_items as hallucination_initial_items
 from utility_potions_package import condition as hallucination_condition, deadline as hallucination_deadline, inventory_item as hallucination_item
 
 
@@ -1076,7 +1076,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertIsNone(self.act(probe, {"type": "drink", "item": ids["hallucination"]})["error"])
         second = self.advance(probe, [peer])
         self.assertEqual(observation(second)["tick"], "200")
-        assert_hallucination_sample(self, observation(second), 1)
+        assert_hallucination_sample(self, observation(second), 0)
         extension = hallucination_deadline(second, "rogue.hallucinating") - hallucination_deadline(first, "rogue.hallucinating")
         self.assertIn(extension, range(80800, 89201, 100))
         saved = checkpoint(self, probe)
@@ -1084,9 +1084,18 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(next_clock["generation"], clock["generation"])
         self.assertEqual((next_clock["phase"], next_clock["period"], next_clock["remaining_to_shift"]), (1, 100, 100))
         self.assertNotEqual(saved["rules_rng"], saved_first["rules_rng"])
-        second = self.snapshot(probe)
-        self.hallucination_samples["extended"] = self.hallucination_snapshot_sample(probe, second)
-        remembered = self.hallucination_memory(probe, second)
+        before_redraw = int(observation(first)["tick"]) + FIRST_DISGUISE_TICKS - 100
+        unchanged = self.hallucination_wait_until(probe, peer, before_redraw)
+        assert_hallucination_sample(self, observation(unchanged), 0)
+        shifted = self.hallucination_wait_until(probe, peer, before_redraw + 100)
+        assert_hallucination_sample(self, observation(shifted), 1)
+        shifted_saved = checkpoint(self, probe)
+        self.assertEqual(shifted_saved["rules_rng"], saved["rules_rng"])
+        self.assertEqual(shifted_saved["actors"]["1"]["hallucination"]["generation"], clock["generation"])
+        saved = shifted_saved
+        shifted = self.snapshot(probe)
+        self.hallucination_samples["extended"] = self.hallucination_snapshot_sample(probe, shifted)
+        remembered = self.hallucination_memory(probe, shifted)
         probe.stop(save=False)
         peer.stop(save=False)
         server.stop(save=False)
@@ -2025,13 +2034,25 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
             _, _, repeat = self.detection_pages(owner, "monsters")
             self.assertEqual(detection.historical_payload(repeat), detection.historical_payload(first_chart))
         self.assertEqual(detection.raw_checkpoint(self, owner), saved, "chart reads create no paid/save mutation")
-        self.assertIsNone(self.act(owner, {"type": "wait"})["error"])
-        shifted = self.advance(owner, [peer])
-        self.assertEqual(int(observation(shifted)["tick"]) - int(observation(hallucinating)["tick"]), 100)
-        phase1, _, next_chart = self.detection_pages(owner, "monsters")
-        detection.assert_monster_sample(self, phase1, next_chart, 1)
-        self.assertEqual({row["id"] for row in observation(phase1)["visible_actors"]
-                          if row["id"] != observation(phase1)["self_target"]}, actual)
+        start = int(observation(hallucinating)["tick"])
+        self.assertEqual(checkpoint(self, owner)["actors"]["1"]["hallucination"]["generation"], 1)
+        self.hallucination_wait_until(owner, peer, start + 100)
+        stable, _, stable_chart = self.detection_pages(owner, "monsters")
+        detection.assert_monster_sample(self, stable, stable_chart, 0)
+        self.hallucination_wait_until(owner, peer, start + detection.FIRST_SENSE_DISGUISE_TICKS - 100)
+        stable, _, stable_chart = self.detection_pages(owner, "monsters")
+        detection.assert_monster_sample(self, stable, stable_chart, 0)
+        self.hallucination_wait_until(owner, peer, start + detection.FIRST_SENSE_DISGUISE_TICKS)
+        sense_changed, _, next_chart = self.detection_pages(owner, "monsters")
+        detection.assert_monster_sample(self, sense_changed, next_chart, 0, 1)
+        self.hallucination_wait_until(owner, peer, start + detection.FIRST_VISIBLE_DISGUISE_TICKS - 100)
+        stable, _, stable_chart = self.detection_pages(owner, "monsters")
+        detection.assert_monster_sample(self, stable, stable_chart, 0, 1)
+        self.hallucination_wait_until(owner, peer, start + detection.FIRST_VISIBLE_DISGUISE_TICKS)
+        visible_changed, _, next_chart = self.detection_pages(owner, "monsters")
+        detection.assert_monster_sample(self, visible_changed, next_chart, 1)
+        self.assertEqual({row["id"] for row in observation(visible_changed)["visible_actors"]
+                          if row["id"] != observation(visible_changed)["self_target"]}, actual)
         # A subsequent ordinary paid no-draw Wait materializes a fresh writer
         # checkpoint, catching illicit chart-read RNG consumption as well.
         shifted_saved = detection.raw_checkpoint(self, owner)
@@ -2250,6 +2271,23 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         return {key: value for key, value in cells[0].items()
                 if key not in ("last_seen_tick", "last_seen_revision")}
 
+    def hallucination_wait_until(self, owner, peer, tick, *, text=None):
+        """Advance ordinary 100-tick owner/peer decisions to an exact boundary."""
+        frame = self.snapshot(owner)
+        start = int(observation(frame)["tick"])
+        self.assertIn(tick - start, range(0, 2001, 100))
+        for expected in range(start + 100, tick + 1, 100):
+            if text is None:
+                self.assertIsNone(self.act(owner, {"type": "wait"})["error"])
+            else:
+                self.send(text, "wait")
+            frame = self.advance(owner, [peer],
+                lambda value: settled(value) and int(observation(value)["tick"]) >= expected)
+            self.assertEqual(int(observation(frame)["tick"]), expected)
+            if text is not None:
+                text.until(lambda line: line == "> ")
+        return frame
+
     def hallucination_snapshot_sample(self, probe, frame):
         messages = [json.loads(line).get("message") for line in probe.transcript if line.startswith("{")]
         sample = next(message for message in reversed(messages) if message and message["type"] == "snapshot")
@@ -2322,7 +2360,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.hallucination_adventure_begin(text, probe, first, ids["hallucination"])
         second = self.hallucination_adventure_finish(text, probe, peer)
         self.assertEqual(observation(second)["tick"], "200")
-        assert_hallucination_sample(self, observation(second), 1)
+        assert_hallucination_sample(self, observation(second), 0)
         extension = hallucination_deadline(second, "rogue.hallucinating") - hallucination_deadline(first, "rogue.hallucinating")
         self.assertIn(extension, range(80800, 89201, 100))
         saved = checkpoint(self, probe)
@@ -2330,9 +2368,18 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(next_clock["generation"], clock["generation"])
         self.assertEqual((next_clock["phase"], next_clock["period"], next_clock["remaining_to_shift"]), (1, 100, 100))
         self.assertNotEqual(saved["rules_rng"], saved_first["rules_rng"])
-        second = self.snapshot(probe)
-        self.hallucination_samples["extended"] = self.hallucination_snapshot_sample(probe, second)
-        remembered = self.hallucination_memory(probe, second)
+        before_redraw = int(observation(first)["tick"]) + FIRST_DISGUISE_TICKS - 100
+        unchanged = self.hallucination_wait_until(probe, peer, before_redraw, text=text)
+        assert_hallucination_sample(self, observation(unchanged), 0)
+        shifted = self.hallucination_wait_until(probe, peer, before_redraw + 100, text=text)
+        assert_hallucination_sample(self, observation(shifted), 1)
+        shifted_saved = checkpoint(self, probe)
+        self.assertEqual(shifted_saved["rules_rng"], saved["rules_rng"])
+        self.assertEqual(shifted_saved["actors"]["1"]["hallucination"]["generation"], clock["generation"])
+        saved = shifted_saved
+        shifted = self.snapshot(probe)
+        self.hallucination_samples["extended"] = self.hallucination_snapshot_sample(probe, shifted)
+        remembered = self.hallucination_memory(probe, shifted)
         text.stop(save=False)
         probe.stop(save=False)
         peer.stop(save=False)
@@ -2404,7 +2451,7 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
             "invocation": {"aim": {"kind": "actor_target", "target": target}, "weapon": {"kind": "default"}}})["error"])
         acquired = self.advance(owner, [peer])
         plan = observation(acquired)["combat"]["public_plan"]
-        self.assertEqual((plan["observed_at"], plan["subject_name"]), ("200", "bat"))
+        self.assertEqual((plan["observed_at"], plan["subject_name"]), ("200", "emu"))
         remembered = self.hallucination_memory(owner, acquired)
         self.assertTrue(any(row["item"]["presentation"] is not None for row in remembered["ground_items"]))
         door, = {cell["door"]["id"] for cell in observation(acquired)["visible_cells"] if cell.get("door")}
@@ -2413,6 +2460,13 @@ actors = [{ id = 2, at = [1, 3, 0], turn_ticks = 100, controller = "external", c
         self.assertEqual(observation(hidden)["ground_items"], [])
         self.assertNotIn(remembered["key"], {cell["key"] for cell in observation(hidden)["visible_cells"]})
         self.assertEqual(self.hallucination_memory(owner, hidden), remembered)
+        # Advance past the exact redraw while the source is hidden; paid
+        # history and map memory must retain the captured initial guise.
+        shifted = self.hallucination_wait_until(owner, peer,
+            int(observation(first)["tick"]) + FIRST_DISGUISE_TICKS)
+        self.assertEqual(observation(shifted)["ground_items"], [])
+        self.assertEqual(observation(shifted)["combat"]["public_plan"], plan)
+        self.assertEqual(self.hallucination_memory(owner, shifted), remembered)
         cured = self.hallucination_drink(owner, peer, ids["extra"])
         self.assertIsNone(hallucination_condition(cured, "rogue.hallucinating"))
         self.assertEqual(observation(cured)["ground_items"], [])

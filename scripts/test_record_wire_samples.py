@@ -32,10 +32,11 @@ def read_fixture(output):
 ESCAPE_SAMPLE = {
     "type": "snapshot", "request_id": "exact-response-request",
     "snapshot": {"state": {"observation": {
-        "combat": {"objective": "retrieve_and_exit", "victory": True, "terminal": True},
+        "combat": {"goal": {"segments": [{"text": "Climb out with the Amulet."}]},
+                   "victory": True, "terminal": True},
         "inventory": [{"id": "exact-opaque-item", "name": "Amulet of Yendor"}],
     }}, "history": {"entries": [{"content": {"type": "action", "event": {
-        "type": "escaped", "item": "exact-opaque-item"}}}]}, "cursor": "exact-cursor"},
+        "type": "escaped"}}}]}, "cursor": "exact-cursor"},
 }
 
 
@@ -373,10 +374,14 @@ class CompleteRecordingContracts(unittest.TestCase):
         }}, "history": []}
         escaped = copy.deepcopy(before)
         escaped["state"]["observation"]["combat"].update(victory=True, terminal=True)
-        escaped["history"] = [{"content": {"type": "action", "event": {
-            "type": "escaped", "item": "exact-item"}}}]
+        escaped["history"] = [{"content": {"type": "action", "event": {"type": "escaped"}}}]
         case.assert_escape(before, escaped, "exact-item")
-        for changed in ("tick", "identity", "duplicate_event", "victory", "terminal", "dead", "location"):
+        # An earlier climb without the Amulet is an ordinary escape too.
+        earlier = copy.deepcopy(escaped)
+        earlier["history"] *= 2
+        case.assert_escape(before, earlier, "exact-item")
+        for changed in ("tick", "identity", "item_event", "later_action", "victory", "terminal", "dead",
+                        "location"):
             with self.subTest(changed=changed):
                 invalid = copy.deepcopy(escaped)
                 view = invalid["state"]["observation"]
@@ -384,8 +389,10 @@ class CompleteRecordingContracts(unittest.TestCase):
                     view["tick"] = "1100"
                 elif changed == "identity":
                     view["inventory"][0]["id"] = "another-item"
-                elif changed == "duplicate_event":
-                    invalid["history"] *= 2
+                elif changed == "item_event":
+                    invalid["history"][0]["content"]["event"]["item"] = "exact-item"
+                elif changed == "later_action":
+                    invalid["history"].append({"content": {"type": "action", "event": {"type": "waited"}}})
                 elif changed == "location":
                     view["visible_cells"][0]["key"] = "fabricated-destination"
                 else:
@@ -402,7 +409,7 @@ class CompleteRecordingContracts(unittest.TestCase):
                 (384, 40000, 64 * 1024 * 1024, 240),
             "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
                 (256, 25000, 48 * 1024 * 1024, 180),
-            "test_native_surface_exit_explains_what_is_needed_before_retrieval":
+            "test_native_surface_exit_without_the_amulet_is_a_scripted_hint_not_a_win":
                 (16, 1000, 8 * 1024 * 1024, 60),
         }
         self.assertEqual(case.limits, expected)
@@ -1401,13 +1408,13 @@ class HallucinationRecordingContracts(unittest.TestCase):
                "snapshot": {"state": {"observation": view}, "context": {"stream": "unchanged-stream", "epoch": "1"}}}
         source = {stage: copy.deepcopy(raw) for stage in ("visual", "extended", "cured")}
         extended = source["extended"]["snapshot"]["state"]["observation"]
-        extended["tick"] = "200"
-        extended["combat"]["own_stats"]["conditions"][0]["remaining_ticks"] = "161500"
+        extended["tick"] = "1200"
+        extended["combat"]["own_stats"]["conditions"][0]["remaining_ticks"] = "160500"
         extended["visible_actors"][0].update(name="bat", asset="creature.bat")
         extended["ground_items"][0]["presentation"] = {"name": "cedar staff", "asset": "item.wand.staff.cedar",
             "kind": {"kind": "item", "class": "wand"}}
         cured = source["cured"]["snapshot"]["state"]["observation"]
-        cured["tick"] = "300"
+        cured["tick"] = "1300"
         cured["visible_actors"][0].update(name="actual visible peer", asset=None)
         cured["combat"]["own_stats"]["conditions"] = []
         cured["ground_items"][0]["presentation"] = None
@@ -1540,10 +1547,10 @@ class HallucinationRecordingContracts(unittest.TestCase):
             "wrong_extended_peer": lambda s: view(s, "extended")["visible_actors"][0].update(name="emu"),
             "wrong_extended_object": lambda s: view(s, "extended")["ground_items"][0]["presentation"].update(name="arrow"),
             "extended_true_sibling_leak": lambda s: view(s, "extended")["ground_items"][0]["item"].update(asset="item.coin"),
-            "too_small_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="161400"),
-            "too_large_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="170000"),
-            "fractional_turn_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="161501"),
-            "extension_tick_ignored": lambda s: view(s, "extended").update(tick="201"),
+            "too_small_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="160400"),
+            "too_large_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="169000"),
+            "fractional_turn_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="160501"),
+            "extension_tick_ignored": lambda s: view(s, "extended").update(tick="1201"),
             "stale_cured_peer": lambda s: view(s, "cured")["visible_actors"][0].update(name="bat", asset="creature.bat"),
             "zero_extension": lambda s: view(s, "extended")["combat"]["own_stats"]["conditions"][0].update(remaining_ticks="0"),
             "missing_extension": lambda s: view(s, "extended")["combat"]["own_stats"].update(conditions=[]),

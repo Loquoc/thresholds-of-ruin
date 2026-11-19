@@ -593,6 +593,8 @@ pub(crate) struct Lifecycle {
     #[serde(skip)]
     pub(crate) scenes: crate::observation::ActorScenes,
     #[serde(skip)]
+    pub(crate) projections: crate::explored_map::ProjectionCache,
+    #[serde(skip)]
     pub(crate) recovery_contexts: crate::recovery_context::RecoveryContexts,
     #[serde(skip)]
     pub(crate) discovery_contexts: crate::discovery::DiscoveryContexts,
@@ -627,6 +629,7 @@ impl Default for Lifecycle {
     fn default() -> Self {
         Self {
             scenes: crate::observation::ActorScenes::default(),
+            projections: crate::explored_map::ProjectionCache::default(),
             recovery_contexts: crate::recovery_context::RecoveryContexts::default(),
             discovery_contexts: crate::discovery::DiscoveryContexts::default(),
             awareness_contexts: Default::default(),
@@ -902,6 +905,7 @@ impl Game {
             self.actors.set_timer_active(id, false);
         }
         self.lifecycle.frozen.insert(region);
+        self.shift_script_timers(region, true);
         Ok(())
     }
 
@@ -910,6 +914,7 @@ impl Game {
         for id in self.actors_in(region) {
             self.thaw_actor(id)?;
         }
+        self.shift_script_timers(region, false);
         Ok(())
     }
 
@@ -2871,7 +2876,7 @@ mod tests {
             doors: false,
         };
         game.configure_ai(watcher, profile).unwrap();
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.add_default_reference_points().unwrap();
         game.actors.get_mut(&watcher).unwrap().behavior.engagement =
@@ -2915,7 +2920,7 @@ mod tests {
         );
         game.configure_ai(explorer, crate::ai::AiProfile::default())
             .unwrap();
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.add_default_reference_points().unwrap();
         let goal = at(6, 5);
@@ -3037,7 +3042,7 @@ mod tests {
             "neutral",
             crate::test_creatures::species(),
         );
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.actors.get_mut(&watcher).unwrap().behavior.engagement =
             Some(crate::behavior::Engagement {
@@ -3073,7 +3078,7 @@ mod tests {
         let other = game
             .spawn_actor(at(4, 5), NonZeroU64::new(100).unwrap())
             .unwrap();
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.add_default_reference_points().unwrap();
         let mut records = MemoryRecords::default();

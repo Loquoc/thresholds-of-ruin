@@ -198,7 +198,13 @@ mod tests {
         for region in &mut regions {
             region.items.clear();
         }
-        let package = Package::from_parts(source, regions, &template.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            source,
+            regions,
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         package.check().unwrap();
         package
     }
@@ -268,10 +274,11 @@ mod tests {
         // This is a new authored negative, not corruption of pinned metadata.
         // Reconstruct its source receipt so the existing physical-class rule,
         // rather than an earlier integrity guard, owns the rejection.
-        let negative = Package::from_parts(
+        let negative = Package::from_parts_scripted(
             invalid,
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap();
         let failure = negative.check().unwrap_err();
@@ -319,10 +326,11 @@ mod tests {
         creature.creature.as_mut().unwrap().name = long_name.clone();
         // Repin the legitimately edited authored fixture through its normal
         // constructor; never weaken the production content-integrity check.
-        let package = Package::from_parts(
+        let package = Package::from_parts_scripted(
             authored,
             original.region_defs().unwrap(),
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap();
         package.check().unwrap();
@@ -360,10 +368,11 @@ mod tests {
             || None,
         )
         .unwrap();
-        let retained = Package::from_parts(
+        let retained = Package::from_parts_scripted(
             package.manifest.clone(),
             package.region_defs().unwrap(),
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap();
         assert_eq!(

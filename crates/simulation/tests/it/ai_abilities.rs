@@ -102,7 +102,6 @@ fn fixture(
     game.configure_run(
         human,
         BTreeSet::from([human]),
-        None,
         BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
     )
     .unwrap();

@@ -1,11 +1,10 @@
-format = 37
+format = 38
 id = "dungeon-death"
 version = "1.0"
 ruleset = "rules.toml"
 default_character = 1
 factions = { delvers = ["ruin"], ruin = ["delvers"] }
 ai_profiles = { tactical = { care = true, equipment = true, loot = true, flee_percent = 0 } }
-objective = { anchor = "1/exit", item = 100, disclosed = true, continue_play = false }
 characters = [{ id = 1, anchor = "1/exit", turn_ticks = 100, creature = { corpse_identity = "item.corpse.persona.delver", species = "delver", name = "delver", faction = "delvers", binding = "intellect", hit_dice = [{ source = "racial", purchases = [] }], starting_skills = ["deception", "persuasion"], restoration = "choose_again", nutrition = { kind = "exempt" } } }]
 
 # Synthetic one-HD fixture subjects leave advancement points unspent.
@@ -23,3 +22,25 @@ kind = "humanoid"
 attributes = { strength = 0, speed = 0, intellect = 0, willpower = 0, awareness = 0, presence = 0 }
 melee = { skill = "heavy_weaponry", bonus = 100, wind_up = 20, recovery = 80, strikes = [{ offset = 0, check = { actor = "user", skill = { kind = "selected_weapon" }, against = { kind = "defense", defense = "physical" } }, on_success = [{ kind = "damage", damage = { kind = "components", components = [{ category = "keen", amount = { kind = "fixed", amount = 10 } }] } }], on_failure = [], descriptors = [], riders = [] }] }
 modifiers = [{ scope = "always", op = { kind = "add", stat = { kind = "health" }, value = 12 } }]
+
+[scripting]
+scripts = ["scripts/outcome.luau"]
+
+[[scripting.hooks]]
+on = "run_started"
+handler = "outcome.start"
+
+[[scripting.hooks]]
+on = "moved"
+anchor = "1/exit"
+handler = "outcome.check"
+
+[[scripting.hooks]]
+on = "item_taken"
+item = 100
+handler = "outcome.check"
+
+[[scripting.hooks]]
+on = "died"
+actor = "selected"
+handler = "outcome.died"

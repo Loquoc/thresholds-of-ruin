@@ -19,10 +19,11 @@ pub(super) const fn resolve(appearance: GloveAppearance) -> GloveRecipe {
             [(0.0, 0.045), (0.035, 0.044), (0.105, 0.064)],
             0.001,
         ),
-        // Padded gloves end near the wrist rather than becoming a gauntlet.
+        // Leave the assembled middle palm-quilting row exposed. The lip and
+        // radial fit stay fixed; only the lower cuff moves toward the forearm.
         GloveAppearance::Padded => (
             Vec3::new(0.23, 0.29, 0.39),
-            [(0.0, 0.047), (0.025, 0.048), (0.075, 0.058)],
+            [(0.025, 0.047), (0.045, 0.048), (0.075, 0.058)],
             0.003,
         ),
         GloveAppearance::Riding => (
@@ -48,9 +49,9 @@ pub(super) const fn resolve(appearance: GloveAppearance) -> GloveRecipe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Frozen pre-extraction authored values, independent of production resolve.
+    // Independent authored defaults; other styles retain their original bits.
     #[test]
-    fn defaults_and_scaled_openings_preserve_original_bits() {
+    fn authored_defaults_and_scaled_openings_match_independent_values() {
         let original = [
             (
                 GloveAppearance::Old,
@@ -61,7 +62,7 @@ mod tests {
             (
                 GloveAppearance::Padded,
                 [0.23, 0.29, 0.39],
-                [(0.0, 0.047), (0.025, 0.048), (0.075, 0.058)],
+                [(0.025, 0.047), (0.045, 0.048), (0.075, 0.058)],
                 0.003,
             ),
             (

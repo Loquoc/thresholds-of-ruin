@@ -17,7 +17,15 @@ from service_contract_host import HostError, ServiceHost
 from linked_hold_service_contracts import LinkedHoldServiceContracts as LinkedHoldServiceContracts
 from theft_service_contracts import TheftServiceContracts as TheftServiceContracts
 from utility_potions_service_contracts import UtilityPotionsServiceContracts as UtilityPotionsServiceContracts
-from hallucination_service_contracts import HallucinationServiceContracts as HallucinationServiceContracts
+from hallucination_service_contracts import (
+    HallucinationServiceContracts as HallucinationServiceContracts,
+    WizardHallucinationServiceContracts as WizardHallucinationServiceContracts,
+)
+from wizard_item_service_contracts import (
+    WizardAiGiveServiceContracts as WizardAiGiveServiceContracts,
+    WizardItemServiceContracts as WizardItemServiceContracts,
+)
+from wizard_context_service_contracts import WizardContextServiceContracts as WizardContextServiceContracts
 from utility_wands_service_contracts import UtilityWandsServiceContracts as UtilityWandsServiceContracts
 from discovery_service_contracts import (
     DiscoveryServiceContracts as DiscoveryServiceContracts,
@@ -30,6 +38,8 @@ ROOT = Path(__file__).resolve().parent.parent
 def catalog_fixture(extras=40):
     manifest = tomllib.loads((ROOT / "scenarios/tests/generated-filler/scenario.toml").read_text(encoding="utf-8"))
     manifest["characters"][0]["creature"] = None
+    # Service create takes no script sources; catalog contracts decide no outcome.
+    manifest.pop("scripting", None)
     for index in range(extras):
         manifest["archetypes"][f"rat_{index:02}"] = copy.deepcopy(manifest["archetypes"]["rat"])
     return {"manifest": manifest, "regions": [tomllib.loads(

@@ -79,8 +79,7 @@ fn same_combat(before: Option<&CombatView>, after: Option<&CombatView>) -> bool 
                 sequence,
                 actors,
                 events: _,
-                objective,
-                exit,
+                goal,
                 victory,
                 dead,
                 terminal,
@@ -93,8 +92,7 @@ fn same_combat(before: Option<&CombatView>, after: Option<&CombatView>) -> bool 
                 && recovery_remaining == &after.recovery_remaining
                 && sequence == &after.sequence
                 && actors == &after.actors
-                && objective == &after.objective
-                && exit == &after.exit
+                && goal == &after.goal
                 && victory == &after.victory
                 && dead == &after.dead
                 && terminal == &after.terminal

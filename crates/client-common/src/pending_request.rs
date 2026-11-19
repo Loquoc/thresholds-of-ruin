@@ -69,6 +69,7 @@ impl PendingRequest {
             | ServerMessage::Snapshot { request_id, .. }
             | ServerMessage::History { request_id, .. }
             | ServerMessage::CreatureCatalog { request_id, .. }
+            | ServerMessage::WizardReport { request_id, .. }
             | ServerMessage::CreatureInspection { request_id, .. }
             | ServerMessage::CreatureStrikePage { request_id, .. }
             | ServerMessage::AdvancementPage { request_id, .. }

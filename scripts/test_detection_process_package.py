@@ -48,6 +48,9 @@ class DetectionProcessHelperContracts(unittest.TestCase):
                    and node.func.attr == "adventure"]
         phase_zero, = [node.lineno for node in calls if isinstance(node.func, ast.Attribute)
                        and node.func.attr == "assert_monster_sample"
+                       and len(node.args) == 4
+                       and isinstance(node.args[1], ast.Name) and node.args[1].id == "phase0"
+                       and isinstance(node.args[2], ast.Name) and node.args[2].id == "first_chart"
                        and isinstance(node.args[-1], ast.Constant) and node.args[-1].value == 0]
         commands = [node.lineno for node in calls if isinstance(node.func, ast.Attribute)
                     and node.func.attr == "say"]

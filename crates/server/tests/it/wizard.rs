@@ -536,10 +536,11 @@ fn arena_step_retry_checkpoint_and_rewind_preserve_original_paid_work() {
     arena.start_paused = true;
     arena.control = tor_server::scenario_package::ArenaControl::AllAi;
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -636,10 +637,11 @@ fn creature_latest_hd_removal_is_owned_atomic_retryable_and_reversible() {
     let mut manifest = template.manifest.clone();
     manifest.arena.as_mut().unwrap().start_paused = true;
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -763,10 +765,11 @@ fn stopped_arena_rejects_hit_die_mutation_without_changing_its_result() {
     arena.control = tor_server::scenario_package::ArenaControl::AllAi;
     arena.actions = 1;
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -858,10 +861,11 @@ fn wizard_templates_use_authored_definitions_and_preserve_replay_retry_and_confl
         );
     }
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -1037,10 +1041,11 @@ fn creature_advancement_is_owned_atomic_retryable_and_persistent() {
         .unwrap(),
     );
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &toml::to_string(&rules).unwrap(),
+            package.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -1245,10 +1250,11 @@ fn privileged_creature_inspection_is_authorized_readonly_and_reconstructed() {
     }))
     .unwrap()];
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &toml::to_string(&rules).unwrap(),
+            package.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -1380,10 +1386,11 @@ fn purchase_replacement_is_privileged_atomic_idempotent_and_replayed() {
         })).unwrap());
     }
     scenario.package = Some(std::sync::Arc::new(
-        tor_server::scenario_package::Package::from_parts(
+        tor_server::scenario_package::Package::from_parts_scripted(
             manifest,
             package.region_defs().unwrap(),
             &toml::to_string(&rules).unwrap(),
+            package.scripts.clone(),
         )
         .unwrap(),
     ));

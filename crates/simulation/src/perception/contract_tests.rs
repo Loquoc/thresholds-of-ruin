@@ -468,7 +468,6 @@ fn configure_guise_ai(game: &mut Game, known_foe: bool) {
     game.configure_run(
         OWNER,
         BTreeSet::from([OWNER]),
-        None,
         if known_foe {
             BTreeMap::from([(
                 "private affiliation".into(),
@@ -1119,7 +1118,6 @@ fn item_preparation_keeps_known_threat_reference_domains_separate() {
         game.configure_run(
             OWNER,
             [OWNER].into(),
-            None,
             [(
                 "private affiliation".into(),
                 ["private affiliation".into()].into(),

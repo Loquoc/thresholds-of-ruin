@@ -36,7 +36,8 @@ fn fixture_with_seed(allow_stairs: bool, foes: u64, seed: u64) -> Game {
     manifest.stair_pairs.clear();
     manifest.floor_activation = None;
     manifest.unique_retrieval = None;
-    manifest.objective = None;
+    // Its outcome script names the retrieval exit; this fixture has none.
+    manifest.scripting = None;
     let regions = vec![
         serde_json::from_value(json!({
             "id":1,"name":"Hobgoblin room","size":[17,9,2],

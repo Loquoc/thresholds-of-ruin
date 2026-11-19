@@ -910,8 +910,7 @@ fn condition_and_inventory_are_told_without_numbers_beyond_hp() {
         recovery_remaining: 3,
         actors: vec![],
         events: vec![],
-        objective: None,
-        exit: None,
+        goal: None,
         victory: false,
         dead: false,
         terminal: false,
@@ -1225,8 +1224,7 @@ fn things_and_figures_are_told_in_sentences() {
         serde_json::from_value(serde_json::json!({
             "public_plan":null,"hp": "10", "max_hp": "10", "dead": false, "victory": false, "terminal": false,
             "sequence":null,"preparation_remaining": null, "preparation_active": false,
-            "recovery_remaining": "0", "events": [], "objective": null,
-            "actors": [{"actor": super::actor_target(50), "hostile": true, "allied": false, "injury": "badly_wounded"}]
+            "recovery_remaining": "0", "events": [], "actors": [{"actor": super::actor_target(50), "hostile": true, "allied": false, "injury": "badly_wounded"}]
         }))
         .unwrap(),
     );
@@ -1263,7 +1261,8 @@ fn look_leaves_the_objective_to_status() {
         serde_json::from_value(serde_json::json!({
             "public_plan":null,"hp": "7", "max_hp": "10", "dead": false, "victory": false, "terminal": false,
             "sequence":null,"preparation_remaining": null, "preparation_active": false,
-            "recovery_remaining": "0", "events": [], "objective": "reach_exit", "actors": []
+            "recovery_remaining": "0", "events": [], "actors": [],
+            "goal": {"segments": [{"text": "Find your way to the exit."}], "cell": null}
         }))
         .unwrap(),
     );
@@ -1425,15 +1424,16 @@ fn a_walk_follows_a_passage_and_stops_where_it_opens_out() {
 }
 
 #[test]
-fn intentional_retrieval_exit_requires_up_and_does_not_invent_a_landing() {
+fn a_goal_exit_upstairs_does_not_invent_a_landing() {
     let mut s = state();
     s.observation.visible_cells[0].stairs_up = true;
     s.observation.combat = Some(
         serde_json::from_value(serde_json::json!({
             "public_plan":null,"hp":"10","max_hp":"10","dead":false,"victory":false,"terminal":false,
             "sequence":null,"preparation_remaining":null,"preparation_active":false,
-            "recovery_remaining":"0","events":[],"objective":"retrieve_and_exit",
-            "exit":"cell-0","actors":[]
+            "recovery_remaining":"0","events":[],
+            "goal":{"segments":[{"text":"Carry the amulet up through the surface exit."}],"cell":"cell-0"},
+            "actors":[]
         }))
         .unwrap(),
     );
@@ -1459,8 +1459,8 @@ fn intentional_retrieval_exit_requires_up_and_does_not_invent_a_landing() {
             direction: Direction::Up
         }]
     );
-    assert!(describe(&s).contains("carry it up through the surface exit"));
-    assert!(said("objective", &s).contains("carry it up through the surface exit"));
+    assert!(describe(&s).contains("Carry the amulet up through the surface exit"));
+    assert!(said("objective", &s).contains("Carry the amulet up through the surface exit"));
     let palette = Palette::default();
     let scene = Scene::new(&s, &palette);
     assert_eq!(
@@ -1469,8 +1469,16 @@ fn intentional_retrieval_exit_requires_up_and_does_not_invent_a_landing() {
     );
     assert!(!s.observation.combat.as_ref().unwrap().victory);
 
-    // An ordinary disclosed stair retains its actual visible landing.
-    s.observation.combat.as_mut().unwrap().objective = Some(ObjectiveKind::ReachExit);
+    // An ordinary disclosed stair, away from the goal's cell, retains its
+    // actual visible landing.
+    s.observation
+        .combat
+        .as_mut()
+        .unwrap()
+        .goal
+        .as_mut()
+        .unwrap()
+        .cell = Some("cell-3".into());
     let ordinary = tor_client_text::engine::place::survey(&s);
     assert_eq!(
         ordinary
@@ -1491,8 +1499,9 @@ fn a_disclosed_exit_is_described_and_can_be_gone_to() {
         serde_json::from_value(serde_json::json!({
             "public_plan":null,"hp": "10", "max_hp": "10", "dead": false, "victory": false, "terminal": false,
             "sequence":null,"preparation_remaining": null, "preparation_active": false,
-            "recovery_remaining": "0", "events": [], "objective": "reach_exit",
-            "exit": "cell-3", "actors": []
+            "recovery_remaining": "0", "events": [],
+            "goal": {"segments": [{"text": "Find your way to the exit."}], "cell": "cell-3"},
+            "actors": []
         }))
         .unwrap(),
     );
@@ -1512,7 +1521,14 @@ fn a_disclosed_exit_is_described_and_can_be_gone_to() {
             "{line}"
         );
     }
-    s.observation.combat.as_mut().unwrap().exit = Some("cell-0".into());
+    s.observation
+        .combat
+        .as_mut()
+        .unwrap()
+        .goal
+        .as_mut()
+        .unwrap()
+        .cell = Some("cell-0".into());
     assert_eq!(said("go to exit", &s), "You're already at the exit.");
     assert!(describe(&s).contains("You are standing at the exit."));
 }

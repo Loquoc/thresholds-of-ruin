@@ -16,10 +16,11 @@ pub(super) fn carrier_fixture(minimum: u32) -> Scenario {
     stage["bands"][0]["choices"][0]["carried_loot"] =
         json!({"version":1,"pool":"supplies","chance":{"numerator":1,"denominator":1}});
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));

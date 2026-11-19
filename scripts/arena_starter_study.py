@@ -13,6 +13,7 @@ from pathlib import Path
 from arena_evaluation import digest, files, seed, timeout_seconds, write_json
 from arena_matrix import REQUIRED_HD_LEVELS, STARTER_FAMILIES, encounter, recipe, toml_source
 from ruleset_sources import resolve_with_dependencies
+from outcome_scripts import apply
 
 FORMAT = "tor-arena-starter-study-v1"
 WARRIORS = tuple(name for name in STARTER_FAMILIES if name.startswith("warrior_"))
@@ -162,6 +163,7 @@ def create_study(output, compiler, ruleset, seeds=DEFAULT_SEEDS, timeout=30, cas
             (package / "regions").mkdir(parents=True)
             manifest, region = study_encounter(identity, variant, orientation, "rules.toml")
             (package / "rules.toml").write_bytes(materialized)
+            apply(manifest, package, "elimination")
             for path, document in (("scenario.toml", manifest), ("regions/1.toml", region)):
                 (package / path).write_text(toml_source(document), encoding="utf-8", newline="\n")
             result = subprocess.run([str(compiler), "validate", str(package)], capture_output=True,
