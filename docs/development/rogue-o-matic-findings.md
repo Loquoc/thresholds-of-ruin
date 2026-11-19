@@ -1,5 +1,14 @@
 # Rogue-O-Matic findings and follow-ups
 
+Recovery used two different food budgets. A short rest in shelter could
+spend food reserved for the return journey, while a player carrying the
+Amulet still budgeted for floors it had already climbed. Short and full
+rests now both reserve the estimated travel time. On the ascent this
+includes the current floor and shallower floors. A live two-floor fixture
+verified that the player picked up the Amulet, waited for a Health point
+with food available, and climbed when the remaining travel cost consumed
+the rest budget.
+
 On development seed 49 at `843d00f8`, floor 15 had 31 sequences where
 the player took a step toward the stairs and immediately moved back to
 shelter to recover. It could afford the next point of Health even when its
@@ -23,6 +32,14 @@ resolved and reduced a lethal opponent's hit dice in contact.
 In the fresh seed-49 run with both changes, the player cast polymorph on
 floor 15 at tick 598,078. The activation resolved. This run died of injury
 on floor 15 after 6,398 actions with zero reserve at its last decision.
+
+Keeping the previous recovery policy and changing only contact polymorph
+produced a different outcome. On seed 49 the cast resolved on floor 15 at
+tick 609,723, but the combat event reported the target was unaffected.
+The same target later landed all three attacks in the terminal observation
+at tick 617,267. The staff still had two charges. The bot had remembered
+the attempted target as soon as the server admitted the action. That
+memory prevented a second attempt regardless of the observed effect.
 
 In the seed-49 landing recording the player climbed back upstairs at tick
 70,262 with 25 of 26 Health. The only visible hostile was a rattlesnake

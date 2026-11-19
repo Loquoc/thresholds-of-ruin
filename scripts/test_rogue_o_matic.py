@@ -1916,18 +1916,38 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
         room = [cell("shelter"), cell("hall", 1), cell("exit", 2, down=True)]
-        for reserve, expected in [(15, (Wait(), "recover")), (5, (Move(Direction.EAST), "seek_stairs"))]:
-            with self.subTest(reserve=reserve):
+        for reserve, travel_ticks, expected in [
+            (15, 400, (Wait(), "recover")),
+            (15, 500, (Move(Direction.EAST), "seek_stairs")),
+            (5, 0, (Move(Direction.EAST), "seek_stairs")),
+        ]:
+            with self.subTest(reserve=reserve, travel_ticks=travel_ticks):
                 turn = player_turn(room, combat={"hp": "5", "max_hp": "10"}, stats={
                     "nutrition": {"kind": "required", "reserve": reserve, "maximum": 1300, "unit_ticks": 100,
                                   "elapsed": 0, "hunger": "nourished"},
                     "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
                                         "reset_percent": 100, "stopped": False}})
-                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
                 player.observe(turn)
-                player.maps[1].visited.add("hall")
+                player.maps[2].visited.add("hall")
+                player.ascent_ticks_by_floor[1] = travel_ticks
                 player.danger_until["hall"] = 1200
                 self.assertEqual(player.choose(turn), expected)
+
+    def test_return_recovery_budgets_only_the_floors_still_ahead(self):
+        turn = player_turn([cell("stairs", up=True)],
+                           inventory=[{"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                                       "class": "amulet", "identified": True, "quantity": 1}],
+                           combat={"hp": 6, "max_hp": 10}, stats={
+                               "nutrition": {"kind": "required", "reserve": 40, "maximum": 1300, "unit_ticks": 100,
+                                             "elapsed": 0, "hunger": "nourished"},
+                               "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                                   "reset_percent": 100, "stopped": False}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.ascent_ticks_by_floor.update({1: 500, 2: 500, 3: 9000})
+        self.assertEqual(choose(player, turn), (Wait(), "recover"))
+        player.ascent_ticks_by_floor[1] = 1500
+        self.assertEqual(player.choose(turn), (Move(Direction.UP), "ascend"))
 
     def test_recovery_preserves_food_for_previously_mapped_floors(self):
         item = {"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET}

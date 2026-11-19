@@ -563,10 +563,14 @@ class Adventurer:
             key for key, cell in memory.cells.items() if (cell.stairs_up if returning else cell.stairs_down)
         }
         reserve = turn.nutrition
+        rest_budget = reserve.ticks_until_empty if reserve else None
+        if rest_budget is not None and stairs:
+            rest_budget -= sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
+                               if not returning or floor <= self.depth)
 
-        def can_afford_recovery(points: int, travel_ticks: int = 0) -> bool:
+        def can_afford_recovery(points: int) -> bool:
             ticks = clock.ticks_to_regain(points)
-            return ticks is not None and (reserve is None or reserve.ticks_until_empty > ticks + travel_ticks)
+            return ticks is not None and (rest_budget is None or ticks < rest_budget)
 
         if not self.trapped(turn):
             if turn.cell.key in self.danger_until:
@@ -580,8 +584,7 @@ class Adventurer:
                         and can_afford_recovery(1)):
                     # Stay in shelter while a single point of recovery is still affordable.
                     return Wait(), "recover"
-        return_trip = sum(self.ascent_ticks_by_floor.values()) if stairs else 0
-        if can_afford_recovery(missing, return_trip):
+        if can_afford_recovery(missing):
             return Wait(), "recover"
         return None
 

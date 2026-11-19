@@ -1966,6 +1966,9 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
             region["anchors"]["down"] = [3, 2, 0]
             contents["regions"].append({"id": 2, "name": "Lower floor", "size": [5, 5, 2],
                                         "chamber": True, "anchors": {"up": [2, 2, 0]}})
+            if not food_limited:
+                contents["regions"][-1]["items"] = [
+                    {"id": 15, "archetype": "rogue.amulet_of_yendor", "at": [2, 2, 0]}]
         server = self.server(scenario=write_package(self, contents, "rogue-bot-recover-en-route"))
         self.install_bot_extension()
         code = """
@@ -2014,6 +2017,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             hall = turn.cell_at(east.direction.offset).key
             player.danger_until[hall] = turn.tick + 100
             player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+            assert player.choose(turn) == (east, "seek_stairs")
+            player.ascent_ticks_by_floor[2] -= turn.recovery.ticks_to_regain(1) + 1
             action, reason = player.choose(turn)
             assert (action, reason) == (Wait(), "recover"), (action, reason)
             sheltered = submit(turn, action)
@@ -2035,6 +2040,13 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         landing = submit(turn, action)
         assert landing.cell.stairs_up
         if not limited:
+            action, reason = player.choose(landing)
+            assert reason == "take", (action, reason)
+            landing = submit(landing, action)
+            assert player.carrying_objective(landing)
+            # The spent route below the player exceeds all remaining food.
+            player.ascent_ticks_by_floor = {1: 100, player.depth + 1: landing.nutrition.ticks_until_empty}
+            assert player.choose(landing) == (Wait(), "recover")
             start_hp = landing.health.current
             delay = landing.recovery.ticks_to_regain(1)
             assert delay is not None and delay > 0 and start_hp < landing.health.maximum
@@ -2043,6 +2055,10 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
                 assert landing.health.current == start_hp
                 landing = submit(landing, Wait())
             assert landing.health.current == start_hp + 1
+            player.ascent_ticks_by_floor[1] = landing.nutrition.ticks_until_empty
+            action, reason = player.choose(landing)
+            assert (action, reason) == (Move(Direction.UP), "ascend")
+            assert submit(landing, action).cell.stairs_down
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
