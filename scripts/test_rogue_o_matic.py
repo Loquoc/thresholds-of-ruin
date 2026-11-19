@@ -164,6 +164,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Unequip(turn.equipment[1]), "change_ring"))
 
+    def test_unseen_attack_uses_a_free_sight_ring_and_keeps_a_spare_dose(self):
+        from tor_client_bot import describe_action
+
+        ring = {"id": "band", "class": "ring", "quantity": 1, "identified": True, "name": "sight ring",
+                "identity": "item.ring.ring-see-invisible"}
+        dose = {"id": "dose", "class": "potion", "quantity": 1, "identified": True, "name": "sight potion",
+                "identity": "item.potion.see-invisible"}
+        slot = {"id": "ring", "name": "Finger"}
+        for equipped, cursed, expected in [(None, False, "equip"), (0, False, "move"), (None, True, "drink")]:
+            with self.subTest(equipped=equipped, cursed=cursed):
+                offers = [{"item": "band", "slot": slot, "equipped_slot": equipped, "known_cursed": cursed},
+                          {"item": "dose", "drinkable": True}]
+                turn = player_turn([{**cell("here"), "lit": True}, cell("west", -1)], inventory=[ring, dose],
+                                   interactions={"slots": [slot], "inventory": offers})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.last_unseen_attack = "here", 0
+                action, _ = choose(player, turn)
+                self.assertEqual(describe_action(action)["type"], expected)
+
     def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
         from tor_client_bot import Equip, Unequip
 

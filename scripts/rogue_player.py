@@ -368,9 +368,17 @@ class Adventurer:
         if self.last_unseen_attack and not turn.hostiles:
             origin, tick = self.last_unseen_attack
             if tick <= turn.tick < tick + 400:
-                for item in turn.inventory:
-                    if ItemUse.DRINK in item.uses and item.identity == "item.potion.see-invisible":
-                        return UseItem(item, ItemUse.DRINK), "reveal_attacker"
+                sight_ring = "item.ring.ring-see-invisible"
+                wearing_sight = any(slot.occupant and slot.occupant.identity == sight_ring for slot in turn.equipment)
+                if (not wearing_sight and not turn.has_condition("rogue.see_invisible")
+                        and not turn.has_condition("rogue.blindness")):
+                    for choice in turn.equip_choices():
+                        if (choice.item.identity == sight_ring and not choice.item.known_cursed
+                                and choice.slot.occupant is None):
+                            return choice, "reveal_attacker"
+                    for item in turn.inventory:
+                        if ItemUse.DRINK in item.uses and item.identity == "item.potion.see-invisible":
+                            return UseItem(item, ItemUse.DRINK), "reveal_attacker"
                 if not turn.holds and not self.trapped(turn):
                     for direction in turn.walkable_directions:
                         offset = direction.offset

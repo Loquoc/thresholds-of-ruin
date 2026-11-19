@@ -103,6 +103,14 @@ gives its last observed cell, category, quantity and any disclosed identity.
 A live pickup followed by eating verifies that the reachable item disappears
 from the next decision. Resuming an activity can leave reachable food in place.
 
+The seed-49 known-food-only experiment stopped on floor 4. The projectile
+choice query reported an interruption. Closing the same session then reported
+that the save writer had reached revision 5,209 against a requested 8,936.
+The run ended with a client error and a server cleanup timeout. The paired
+seed-47 control subsequently timed out before announcing an address. Neither
+run gives a terminal gameplay comparison. Preserve both query and shutdown
+errors when diagnosing future interrupted runs.
+
 Of the 1,337 Search submissions, 454 were the first at their cell, 448 the
 second and 435 the third. Three searches were immediately followed by opening
 a door, on floors 4, 8 and 17. Each was the first search at its cell. The trace

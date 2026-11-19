@@ -21,6 +21,12 @@ the plate was cursed, upgraded a mace to a long sword, and replaced adornment
 with searching while retaining protection. Paired decisions on the same map
 checked a short outbound armor detour and immediate ascent with the Amulet.
 
+After an unseen attack the player can equip a recognized see-invisible ring
+in a free slot. In a live encounter it started with both the ring and a
+recognized see-invisible potion. The phantom became visible, the ring was
+worn and the potion remained in the pack. A separate run with only the
+potion verified that the player drank it and saw the phantom.
+
 Two live combat encounters verified pre-contact choices. The bot entered
 a narrow passage before two opponents surrounded it, and the opposing
 player observed Slowed after a dangerous approach. A paired decision with a

@@ -1587,15 +1587,18 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_bot_moves_when_an_invisible_enemy_attacks(self):
-        self.check_unseen_attack(use_sight=False)
+        self.check_unseen_attack()
 
     def test_bot_reveals_an_invisible_attacker_with_a_known_potion(self):
-        self.check_unseen_attack(use_sight=True)
+        self.check_unseen_attack(sight="potion")
+
+    def test_bot_equips_a_sight_ring_to_reveal_an_invisible_attacker(self):
+        self.check_unseen_attack(sight="ring")
 
     def test_cohort_attributes_a_live_unseen_attack_as_the_cause_of_death(self):
-        self.check_unseen_attack(use_sight=False, let_die=True)
+        self.check_unseen_attack(let_die=True)
 
-    def check_unseen_attack(self, *, use_sight, let_die=False):
+    def check_unseen_attack(self, *, sight="", let_die=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1603,9 +1606,13 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
         region, = contents["regions"]
         region["actors"][0].update(at=[2, 2, 0], turn_ticks=100)
         character = contents["manifest"]["characters"][0]
-        character["loadout"] = [{"archetype": "rogue.see_invisible", "quantity": 1}] if use_sight else []
-        if use_sight:
+        character["loadout"] = []
+        if sight:
+            character["loadout"].append({"archetype": "rogue.see_invisible", "quantity": 1})
             character["known_identities"].append("item.potion.see-invisible")
+        if sight == "ring":
+            character["loadout"].append({"archetype": "rogue.ring_see_invisible", "quantity": 1})
+            character["known_identities"].append("item.ring.ring-see-invisible")
         server = self.server(scenario=write_package(self, contents, "rogue-bot-unseen-attack"))
         self.install_bot_extension()
         code = """
@@ -1613,7 +1620,7 @@ import os
 import time
 from rogue_player import Adventurer
 from rogue_o_matic_cohort import death_cause
-from tor_client_bot import CombatJournal, Move, Outcome, Session, UseItem, Wait
+from tor_client_bot import CombatJournal, Equip, Move, Outcome, Session, UseItem, Wait
 
 address, token = os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(address, token, 1) as player, Session.connect(address, token, 3) as phantom:
@@ -1646,8 +1653,10 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     assert all(c.name != "phantom" for c in turn.creatures)
     start = turn.cell.key
     step, reason = policy.choose(turn)
-    use_sight = os.environ["BOT_TEST_SIGHT"] == "1"
-    if use_sight:
+    sight = os.environ["BOT_TEST_SIGHT"]
+    if sight == "ring":
+        assert isinstance(step, Equip) and step.item.identity == "item.ring.ring-see-invisible", (step, reason)
+    elif sight:
         assert isinstance(step, UseItem) and reason == "reveal_attacker", (step, reason)
     else:
         assert isinstance(step, Move) and reason == "evade_unseen_attack", (step, reason)
@@ -1655,9 +1664,9 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
     policy.admitted(turn, step)
     for _ in range(150):
         after = player.observe()
-        if use_sight and any(c.name == "phantom" for c in after.creatures):
+        if sight and any(c.name == "phantom" for c in after.creatures):
             break
-        if not use_sight and after.can_act and after.cell.key != start:
+        if not sight and after.can_act and after.cell.key != start:
             break
         opponent = phantom.observe()
         if opponent.can_act:
@@ -1666,7 +1675,10 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         time.sleep(0.02)
     else:
         raise AssertionError(("Unseen attack response did not settle", reason, after.tick))
-    if use_sight:
+    if sight == "ring":
+        assert any(s.occupant and s.occupant.identity == step.item.identity for s in after.equipment)
+        assert any(i.identity == "item.potion.see-invisible" for i in after.inventory)
+    elif sight:
         assert any(effect.identity == "rogue.see_invisible" and effect.active for effect in after.conditions)
     else:
         assert not any(event.unseen for event in after.recent_combat.incoming)
@@ -1678,7 +1690,7 @@ with Session.connect(address, token, 1) as player, Session.connect(address, toke
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN,
-                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_SIGHT": str(int(use_sight)),
+                 "BOT_TEST_ADDRESS": self.address, "BOT_TEST_SIGHT": sight,
                  "BOT_TEST_UNSEEN_DEATH": str(int(let_die))},
             text=True, capture_output=True, timeout=55,
         )
