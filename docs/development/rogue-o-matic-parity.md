@@ -100,6 +100,43 @@ Use isolated encounters to establish the behavior, then paired full campaigns
 to measure its cost and benefit. A verified equipment upgrade can still occur
 in a losing run.
 
+### What the historical comparison suggests doing next
+
+1. **Account for the cost of finding the exit.** On development seed 49 the
+   quiet-scroll control submitted 1,337 searches from 454 positions and made
+   824 moves toward search positions. It died on floor 17. Compare searching
+   fresh walls first with giving nearby illuminated searches partial credit.
+   Record first-descent ticks, remaining nutrition, exit discovery and eventual
+   return on several seeds. Repeated searches can reveal a door, so a lower
+   search count alone is insufficient.
+2. **Make equipment choices respond to the encounter.** XIV's `handlearmor`
+   sometimes kept its best suit in the pack to protect it from rust, and
+   `ringclass` raised the priority of see-invisible when the player was being
+   stalked. The Python player can upgrade and protect armor and can change
+   rings. Give it the same inventory twice, changing only the observed threat.
+   Check whether the new loadout helps before the cost of changing it exposes
+   the player. Use bundled Rogue's effects and timing for this comparison.
+3. **Exercise what the player learns.** In scenarios with discretionary
+   growth, the bot can buy Rattling Blow or Dislocating Strike. Its melee
+   decision currently asks for the basic attack. Pair an adjacent opponent
+   with a ready learned technique against the same encounter with insufficient
+   Stamina. Verify the chosen action, its cost and the resolved effect. This
+   checks the Python API even in a scenario where the player earns no choice
+   about its growth.
+4. **Plan where combat will happen.** XIV's `archmonster` searched for a
+   firing position and `markcycles` marked doors on escape loops. The Python
+   player already takes some corridor positions and checks clear device rays.
+   Test a one-step setup that yields a shot and leaves a retreat, then close
+   that retreat. Check where both creatures stand when control returns.
+
+For supplies, distinguish three opportunities in campaign traces: picking
+up an item already in reach, making a short detour, and returning later.
+The current wand stock threshold applies to detours. A healthy player can
+still pick up another reachable wand. Rations are already pickup targets,
+but combat decisions run first and remembered rations can later become forage
+targets. Measure how often a later trip could have been avoided with a safe
+earlier pickup, including the paid pickup turn and the cost of the detour.
+
 See the [findings and follow-ups](rogue-o-matic-findings.md) for issues uncovered
 during implementation and campaign testing.
 
