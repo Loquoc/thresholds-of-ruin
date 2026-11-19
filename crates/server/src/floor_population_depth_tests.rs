@@ -21,10 +21,11 @@ fn weighted_fixture() -> Scenario {
             {"archetype":"rat","weight":1},{"archetype":"other_rat","weight":3}]}
     ]);
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));

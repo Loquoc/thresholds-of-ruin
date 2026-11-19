@@ -704,13 +704,8 @@ mod tests {
         } else {
             Default::default()
         };
-        game.configure_run(
-            OWNER,
-            std::collections::BTreeSet::from([OWNER]),
-            None,
-            hostility,
-        )
-        .unwrap();
+        game.configure_run(OWNER, std::collections::BTreeSet::from([OWNER]), hostility)
+            .unwrap();
         game.configure_ai(SUBJECT, crate::ai::AiProfile::default())
             .unwrap();
         game

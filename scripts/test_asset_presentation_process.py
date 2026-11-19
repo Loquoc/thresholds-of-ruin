@@ -14,6 +14,7 @@ import unittest
 from arena_matrix import toml_source
 from stream_relay import StreamRelay
 from process_harness import ProcessTestCase, ROOT, SPECTATOR_TOKEN, non_graphical
+from outcome_scripts import apply
 
 
 def prepare(test):
@@ -23,7 +24,8 @@ def prepare(test):
     manifest = package / "scenario.toml"
     document = tomllib.loads(manifest.read_text(encoding="utf-8"))
     document["id"] = "asset-presentation"
-    del document["objective"]
+    # Presentation only: keep the death outcome, drop the seal goal.
+    apply(document, package, "death")
     document["themes"] = ["presentation"]
     document["assets"] = {"presentation": ["creature.equine.quagga", "item.amulet"]}
     manifest.write_text(toml_source(document), encoding="utf-8", newline="\n")

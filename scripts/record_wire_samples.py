@@ -418,6 +418,43 @@ class ObserverDoorRecordingCase(ProcessTestCase):
         self.door_sample = copy.deepcopy(candidates[0])
 
 
+def user_message_outcomes(lines):
+    """Raw outcome updates carrying script user messages, in arrival order."""
+    found = []
+    for line in lines:
+        if not line.startswith("{"):
+            continue
+        message = json.loads(line).get("message") or {}
+        body = message.get("update", {}).get("body", {})
+        if body.get("type") == "outcome" and any(
+                fact["kind"] == "user_message" for fact in body["facts"]["facts"]):
+            found.append(message)
+    return found
+
+
+class TutorialRecordingCase(ProcessTestCase):
+    """The scripted tutorial's opening lessons and one lesson caused by play."""
+    def runTest(self):
+        self.server(scenario="tutorial", seed=None)
+        player, initial = self.client()
+        self.assertFalse(initial["state"]["wizard_game"])
+        opening = user_message_outcomes(player.transcript)
+        self.assertEqual(len(opening), 1, "opening lessons arrive once, after the snapshot")
+        self.assertEqual([fact["style"] for fact in opening[0]["update"]["body"]["facts"]["facts"]],
+                         ["tutorial", "hint"])
+        start = len(player.transcript)
+        for _ in range(2):
+            self.assertIsNone(self.act(player, {"type": "move", "direction": "east"})["error"])
+        caused = user_message_outcomes(player.transcript[start:])
+        self.assertEqual(len(caused), 1, "stepping onto the token cell gives one lesson")
+        facts = [fact for fact in caused[0]["update"]["body"]["facts"]["facts"]
+                 if fact["kind"] == "user_message"]
+        self.assertEqual(facts, [{"kind": "user_message", "style": "tutorial", "segments": [
+            {"text": "Something small lies here. Pick it up with "}, {"control": "pick_up"},
+            {"text": "."}]}])
+        self.tutorial_sample = copy.deepcopy(caused[0])
+
+
 class Recorder(ProcessTestCase):
     def record_observer_door(self, server_samples):
         server_samples["zz.observer_door_position"] = run_recording_case(
@@ -1184,6 +1221,8 @@ class Recorder(ProcessTestCase):
         self.record_scare_crumble(server_samples)
         self.record_noticed(server_samples)
         self.record_observer_door(server_samples)
+        server_samples["zz.user_message"] = run_recording_case(
+            TutorialRecordingCase(), "tutorial_sample")
         server_samples["zz.work_replacement"] = run_recording_case(
             work_replacement_recording_case(), "work_replacement_sample",
         )

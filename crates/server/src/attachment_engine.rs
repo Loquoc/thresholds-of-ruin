@@ -118,6 +118,7 @@ impl Engine {
             action_resolution: ActionResolution::Unchanged,
             activations: Vec::new(),
             retrievals: Vec::new(),
+            hooks: None,
         };
         let copied = self.admit(&record, &Candidate::capture(self), None)?;
         self.mark_saved(copied);

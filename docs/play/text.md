@@ -323,6 +323,14 @@ journey keeps its purpose and explains why it stopped. If a new creature appears
 on the arrival step, the client does not perform the intended follow-up merely
 because the destination was reached.
 
+Scenario messages from the server close the passage, each on its own line:
+`Tutorial: Type "take" to pick it up.`, `Hint: "help" lists every command.`, or
+plain text for narration and any other style. The server names a control, never
+a command, so the message always shows the words this client accepts: a
+direction such as "north" to move, "wait", "search", "take", "inventory",
+"wear", "drink", "read", "zap", "throw", "go to", "look", "open", "rest", "save"
+and "help".
+
 The prompt waits for the authoritative execution and input boundary, rather than
 returning on request admission. A timed attack's ready observation alone does not
 finish the turn: its stopped execution and current input permissions must arrive

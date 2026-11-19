@@ -31,6 +31,8 @@ ROOT = Path(__file__).resolve().parent.parent
 def catalog_fixture(extras=40):
     manifest = tomllib.loads((ROOT / "scenarios/tests/generated-filler/scenario.toml").read_text(encoding="utf-8"))
     manifest["characters"][0]["creature"] = None
+    # Service create takes no script sources; catalog contracts decide no outcome.
+    manifest.pop("scripting", None)
     for index in range(extras):
         manifest["archetypes"][f"rat_{index:02}"] = copy.deepcopy(manifest["archetypes"]["rat"])
     return {"manifest": manifest, "regions": [tomllib.loads(

@@ -23,13 +23,8 @@ fn fixture() -> Game {
     .unwrap();
     game.set_region_light(RegionId(77), true).unwrap();
     game.teleport(OWNER, at(2, 1)).unwrap();
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+        .unwrap();
     game.configure_ai(OWNER, AiProfile::default()).unwrap();
     game.refresh_navigation();
     let view = game.observe(OWNER).unwrap();
@@ -466,13 +461,8 @@ fn erratic_exploration_fixture(denominator: u16) -> Game {
     .unwrap();
     game.set_region_light(RegionId(77), true).unwrap();
     game.teleport(OWNER, at(2, 1)).unwrap();
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+        .unwrap();
     game.configure_ai(OWNER, AiProfile::default()).unwrap();
     game.refresh_navigation();
     game.combat

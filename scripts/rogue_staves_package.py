@@ -11,6 +11,7 @@ import subprocess
 import tomllib
 
 from arena_matrix import toml_source
+from outcome_scripts import copy_declared
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION = ROOT / "scenarios/rogue-exploration"
@@ -73,6 +74,7 @@ def prepare(test):
     for module in manifest["modules"]:
         shutil.copy2(PRODUCTION / module, package / module)
     shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+    copy_declared(manifest, package, ROOT / "scenarios/tests/magic-items")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
     for relative in (*manifest["modules"], "rules.toml"):

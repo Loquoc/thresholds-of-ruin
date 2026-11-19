@@ -479,7 +479,9 @@ mod intention_admission_tests {
             .join("../../scenarios/tests/dungeon-loop");
         let template = crate::scenario_package::load(&source, 42, None, false).unwrap();
         let mut package = (**template.package.as_ref().unwrap()).clone();
-        package.manifest.objective = None;
+        // Without its outcome script the run never ends by itself.
+        package.manifest.scripting = None;
+        package.scripts.clear();
         let hero = package.manifest.characters[0]
             .creature
             .as_ref()
@@ -540,11 +542,12 @@ mod intention_admission_tests {
                 },
             });
         let directory = tempfile::tempdir().unwrap();
-        crate::scenario_package::write_package(
+        crate::scenario_package::write_package_scripted(
             directory.path(),
             &package.manifest,
             &regions,
             &package.rules_source,
+            &package.scripts,
         )
         .unwrap();
         crate::scenario_package::validate(directory.path()).unwrap();
@@ -2229,6 +2232,13 @@ mod intention_admission_tests {
             directory.path().join("rules.toml"),
         )
         .unwrap();
+        // The package's outcome script travels with its manifest.
+        std::fs::create_dir(directory.path().join("scripts")).unwrap();
+        std::fs::copy(
+            source.join("scripts/outcome.luau"),
+            directory.path().join("scripts/outcome.luau"),
+        )
+        .unwrap();
         let mut manifest: toml::Value =
             toml::from_str(&std::fs::read_to_string(source.join("scenario.toml")).unwrap())
                 .unwrap();
@@ -2700,10 +2710,11 @@ mod intention_admission_tests {
         let mut manifest = source.manifest.clone();
         manifest.creatures = definitions.creatures.clone();
         scenario.package = Some(std::sync::Arc::new(
-            crate::scenario_package::Package::from_parts(
+            crate::scenario_package::Package::from_parts_scripted(
                 manifest,
                 source.region_defs().unwrap(),
                 &source.rules_source,
+                source.scripts.clone(),
             )
             .unwrap(),
         ));

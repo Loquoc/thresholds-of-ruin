@@ -49,7 +49,9 @@ def fixture():
         "ai": {"priority": 0, "hostile": True, "minimum_resource_percent": 0, "range_preference": "any"}})
     # Service create accepts a resolved Manifest, not module/preset authoring.
     manifest.pop("modules")
-    manifest.update(id="theft-service", objective=None, unique_retrieval=None,
+    # Service create takes no script sources; this contract decides no outcome.
+    manifest.pop("scripting", None)
+    manifest.update(id="theft-service", unique_retrieval=None,
         archetypes={**{name: copy.deepcopy(actors[name]) for name in names[1:]},
             **{name: copy.deepcopy(items["items"][name]) for name in ("rogue.gold", "rogue.restore_strength")}},
         appearance_pools=items["appearance_pools"])

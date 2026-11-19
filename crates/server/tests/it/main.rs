@@ -52,5 +52,6 @@ mod public_plan_effect_codec;
 mod public_plan_observation;
 mod rogue_chill;
 mod rogue_roster;
+mod scripting;
 
 mod survival_diagnostics;

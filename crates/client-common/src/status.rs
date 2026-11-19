@@ -96,11 +96,14 @@ pub fn lines(state: &ClientState, activities: &[&str]) -> [String; 2] {
         first.push(place.to_owned());
     }
     let mut first = first.join("  ");
-    if let Some(objective) = o.combat.as_ref().and_then(|c| c.objective) {
+    if let Some(goal) = o.combat.as_ref().and_then(|c| c.goal.as_ref()) {
         if !first.is_empty() {
             first.push_str("   ");
         }
-        first.push_str(crate::narration::objective(objective));
+        first.push_str(&crate::narration::goal_text(
+            &goal.segments,
+            &crate::narration::neutral_control_name,
+        ));
     }
     let mut second = Vec::new();
     if let Some(combat) = &o.combat {

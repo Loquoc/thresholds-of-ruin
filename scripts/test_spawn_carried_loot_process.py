@@ -9,6 +9,7 @@ from arena_matrix import toml_source
 from process_harness import ProcessTestCase, ROOT, SPECTATOR_TOKEN, explore_to_stairs, settle_rogue_action, underfoot
 from rogue_roster_package import encounter_sources, unrelated_fallback
 from status_condition_package import checkpoint
+from outcome_scripts import apply
 
 
 def view(frame):
@@ -94,6 +95,9 @@ class SpawnCarriedLootProcesses(ProcessTestCase):
                 manifest["archetypes"]["tonic"]["appearance_pool"] = "stock_doses"
             # No known_identities are granted. The positive item is openly
             # authored; the otherwise identical negative is concealed.
+        # The selected character's death ends the run, as it did before
+        # outcomes moved into scripts.
+        apply(manifest, package, "death")
         (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
         result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                 text=True, capture_output=True, encoding="utf-8", timeout=30)

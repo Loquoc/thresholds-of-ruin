@@ -108,7 +108,14 @@ pub enum Beat {
     Victory {
         terminal: bool,
     },
-    Objective(ObjectiveKind),
+    /// The scenario's new goal, with controls named as this client's commands.
+    Goal(String),
+    /// Server-authored tutorial, hint or narration text, with controls
+    /// already named as this client's commands. Told on its own line.
+    UserMessage {
+        style: UserMessageStyle,
+        text: String,
+    },
     /// A journey ended.
     Journey {
         phase: TravelPhase,
@@ -213,11 +220,12 @@ impl Chronicler {
             OutcomeFact::Injured { .. } => 5,
             OutcomeFact::PublicPlan { .. } => 6,
             OutcomeFact::Status { .. } => 7,
-            OutcomeFact::Objective { .. } => 8,
+            OutcomeFact::Goal { .. } => 8,
             OutcomeFact::Noticed { .. } => 9,
             OutcomeFact::LostSight { .. } => 10,
             OutcomeFact::DoorChanged { .. } => 11,
             OutcomeFact::Pacing { .. } => 12,
+            OutcomeFact::UserMessage { .. } => 13,
         });
         let mut beats = Vec::new();
         for fact in ordered {
@@ -229,8 +237,21 @@ impl Chronicler {
                     });
                     continue;
                 }
-                OutcomeFact::Objective { objective } => {
-                    beats.push(Beat::Objective(*objective));
+                OutcomeFact::Goal { segments } => {
+                    beats.push(Beat::Goal(tor_client_common::narration::goal_text(
+                        segments,
+                        &crate::controls::command,
+                    )));
+                    continue;
+                }
+                OutcomeFact::UserMessage { style, segments } => {
+                    beats.push(Beat::UserMessage {
+                        style: *style,
+                        text: tor_client_common::narration::user_message_text(
+                            segments,
+                            &crate::controls::command,
+                        ),
+                    });
                     continue;
                 }
                 _ => {}
@@ -369,7 +390,9 @@ impl Chronicler {
                     beats.push(Beat::ItemFinished(line.text))
                 }
                 OutcomeFact::Pacing { .. } => {}
-                OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => unreachable!(),
+                OutcomeFact::Injured { .. }
+                | OutcomeFact::Goal { .. }
+                | OutcomeFact::UserMessage { .. } => unreachable!(),
             }
         }
         self.status = facts.status.clone();
@@ -566,9 +589,13 @@ impl Chronicler {
                     terminal: combat.terminal,
                 });
             }
-            if let Some(objective) = combat.objective {
-                if old.is_none_or(|c| c.objective.is_none()) {
-                    beats.push(Beat::Objective(objective));
+            if let Some(goal) = &combat.goal {
+                if old.is_none_or(|c| c.goal.as_ref().map(|g| &g.segments) != Some(&goal.segments))
+                {
+                    beats.push(Beat::Goal(tor_client_common::narration::goal_text(
+                        &goal.segments,
+                        &crate::controls::command,
+                    )));
                 }
             }
         }
@@ -903,6 +930,58 @@ mod tests {
     }
 
     #[test]
+    fn user_messages_are_told_on_their_own_line_with_text_commands() {
+        let facts = OutcomeFacts {
+            self_target: view().observation.self_target,
+            status: None,
+            actor_names: vec![],
+            facts: vec![
+                OutcomeFact::UserMessage {
+                    style: UserMessageStyle::Tutorial,
+                    segments: vec![
+                        UserMessageSegment::Text("Type ".into()),
+                        UserMessageSegment::Control(ControlHint::PickUp),
+                        UserMessageSegment::Text(" to pick it up, or ".into()),
+                        UserMessageSegment::Control(ControlHint::Move),
+                        UserMessageSegment::Text(" to walk on.".into()),
+                    ],
+                },
+                OutcomeFact::Displaced,
+                OutcomeFact::UserMessage {
+                    style: UserMessageStyle::Narration,
+                    segments: vec![UserMessageSegment::Text("The wind drops.".into())],
+                },
+                OutcomeFact::UserMessage {
+                    style: UserMessageStyle::Hint,
+                    segments: vec![
+                        UserMessageSegment::Control(ControlHint::Help),
+                        UserMessageSegment::Text(" lists every command.".into()),
+                    ],
+                },
+            ],
+        };
+        facts.validate().unwrap();
+        let beats = Chronicler::default().outcome(&facts, &Palette::default());
+        let passage = super::super::narrate::compose(&super::super::narrate::Record {
+            entries: vec![super::super::narrate::Entry::Beats(beats)],
+        });
+        let lines: Vec<_> = passage.lines().collect();
+        assert_eq!(lines.len(), 4, "{passage}");
+        assert!(lines[0].to_lowercase().contains("moved against your will"));
+        assert_eq!(
+            &lines[1..],
+            [
+                r#"Tutorial: Type "take" to pick it up, or a direction such as "north" to walk on."#,
+                "The wind drops.",
+                r#"Hint: "help" lists every command."#,
+            ]
+        );
+        for &control in ControlHint::ALL {
+            assert!(!crate::controls::command(control).is_empty());
+        }
+    }
+
+    #[test]
     fn ordered_outcomes_narrate_without_refreshing_the_visual_view() {
         let before = view();
         let mut after = before.clone();
@@ -974,7 +1053,12 @@ mod tests {
         combat.preparation_active = true;
         combat.hp = 40;
         combat.victory = true;
-        combat.objective = Some(ObjectiveKind::RetrieveAndReturn);
+        combat.goal = Some(tor_protocol::GoalView {
+            segments: vec![tor_protocol::UserMessageSegment::Text(
+                "Bring the seal back to the exit.".into(),
+            )],
+            cell: None,
+        });
         let facts = OutcomeFacts::capture(&before.observation, &after.observation, None);
         let expected = Chronicler::default().observe(&before, &after, None, &Palette::default());
         let mut current = Chronicler::default();
@@ -990,7 +1074,7 @@ mod tests {
                 Beat::SequenceStatus(_),
                 Beat::Hp { .. },
                 Beat::Victory { .. },
-                Beat::Objective(_),
+                Beat::Goal(_),
             ]
         ));
     }
@@ -1009,7 +1093,7 @@ mod tests {
                 "position":{"x":2,"y":0,"z":0}}],
             "combat":{"public_plan":null,"hp":"50","max_hp":"50","sequence":null,"preparation_remaining":null,
                 "preparation_active":false,"recovery_remaining":"0","actors":[],
-                "events":[],"objective":null,"victory":false,"dead":false,
+                "events":[],"victory":false,"dead":false,
                 "terminal":false}}}))
         .unwrap()
     }

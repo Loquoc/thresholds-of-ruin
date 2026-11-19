@@ -27,6 +27,7 @@ workspace = true
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 sha1 = "0.11"
 tor-simulation.workspace = true
+tor-scripting.workspace = true
 tor-protocol.workspace = true
 tor-world.workspace = true
 serde.workspace = true

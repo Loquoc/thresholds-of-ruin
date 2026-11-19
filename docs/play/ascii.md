@@ -24,7 +24,8 @@ strike navigation; reopen the report after a stale-source error. See [wizard too
   appear on the row below them.
 - **Map** (the window's width). One map for every height; see [the map](#the-map).
 - **Status lines** (bottom). Disclosed Strength, Speed, Intellect, Willpower,
-  Awareness, Presence and hit dice, followed by your place/name and objective.
+  Awareness, Presence and hit dice, followed by your place/name and the
+  scenario's current goal.
   The next two rows show health, Stamina (`Stm`), Focus (`Foc`), Mana, identified
   gold carried, time in ticks and conditions such as Recovering, Attack paused,
   Travelling or Running. Resource balances are current/maximum; `[-n]` marks
@@ -65,6 +66,15 @@ says what's underfoot ("You see here a sword.", "There is a staircase down
 here."). A creature is announced when it first comes into sight and again
 only after at least 1,000 ticks out of sight, measured from its latest disclosed
 departure rather than the previous arrival. A journey that stops short says why.
+
+Scenario messages from the server appear in the same area, in order with
+everything else. A tutorial reads `Tutorial: Press ',' to pick it up.` and a
+hint `Hint: '_' travels to a known place.`; narration and any other style are
+shown as plain text. The server names a control, never a key, so the message
+always shows this client's own key: a direction key (`hjklyubn`) to move, `.`
+to wait or rest, `s` search, `,` pick up, `i` inventory, `w`, `W` or `P` equip,
+`q` drink, `r` read, `z` zap, `t` throw, `_` travel, `;` look, `o` open a door,
+`S` save and `?` help.
 
 When a turn's messages need more than three rows, the last row ends with
 `--More--`. Your next key shows the next rows and does nothing else, so no
@@ -335,18 +345,17 @@ aren't implemented:
 - **Scenario appearance overrides.** The common asset vocabulary supplies
   glyphs and colours. Scenario-specific glyph/colour overrides, including
   Rogue's letter assignments, need the later palette-extension design.
-- **Objective item.** The client has no disclosed marker identifying which
-  carried or visible item the objective requires.
+- **Goal items.** The client has no disclosed marker identifying which
+  carried or visible item a goal concerns; only its text says so.
 - **Travel nearby.** Travel to a visible cell without a known route is
   refused; NetHack's travel moves as close as it can.
 - **Stair landings.** Abstract stair landings arrive as ordinary cells far
   below or above; the client hides them by height. A flag on landing
   occurrences would make that exact.
 
-The protocol already supplies an opaque exit cell key for a disclosed objective
-(text uses it for `go to exit`). A dedicated ASCII exit command or map marker
-would be a client presentation improvement, not missing exit support in the
-protocol.
+The protocol already supplies an opaque cell key for a goal that has one (text
+uses it for `go to exit`). A dedicated ASCII command or map marker for it would
+be a client presentation improvement, not missing support in the protocol.
 
 ## Switch between clients and resume
 

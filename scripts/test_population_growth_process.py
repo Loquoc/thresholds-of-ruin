@@ -10,6 +10,7 @@ from contextlib import closing
 from arena_matrix import toml_source
 from checkpoint_payload import crc32c, decode_checkpoint_payload
 from process_harness import ProcessTestCase, explore_to_stairs, underfoot
+from outcome_scripts import ROGUE_EXPLORATION, copy_declared
 from process_work_budget import ProcessWorkBudget
 from rogue_roster_package import PRODUCTION, encounter_sources, unrelated_fallback
 
@@ -94,7 +95,6 @@ class PopulationGrowthProcesses(ProcessTestCase):
         manifest["id"] = "population-growth"
         manifest["characters"] = [{"id": 1, "anchor": f"dungeon/{start}/up", "turn_ticks": 100}]
         manifest["default_character"] = 1
-        manifest.pop("objective", None)
         manifest.pop("arena", None)
         manifest["procedural_worlds"]["dungeon"]["grid"] = [1, 1]
         manifest["floor_activation"] = {
@@ -128,6 +128,7 @@ class PopulationGrowthProcesses(ProcessTestCase):
         for module in manifest["modules"]:
             shutil.copy2(PRODUCTION / module, package / module)
         shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+        copy_declared(manifest, package, ROGUE_EXPLORATION)
         (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
         result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                 text=True, capture_output=True, encoding="utf-8", timeout=60)

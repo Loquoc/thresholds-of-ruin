@@ -8,10 +8,11 @@ fn scenario_with(mut change: impl FnMut(&mut Value)) -> Scenario {
     source["floor_activation"]["profiles"]["baseline"]["stages"][2]["count"] = json!([0, 0]);
     change(&mut source);
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));

@@ -154,6 +154,10 @@ pub struct Snapshot {
     floor_activation: Option<PopulationSnapshot>,
     #[serde(deserialize_with = "crate::bounded::required_option")]
     unique_retrieval: Option<RetrievalSnapshot>,
+    /// Scenario script values, omitted for unscripted games so their saves are
+    /// unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    script: Option<crate::scripting::ScriptState>,
 }
 
 fn read_events<'de, D: serde::Deserializer<'de>>(
@@ -1159,6 +1163,7 @@ impl Game {
                     entries: state.entries.clone(),
                 }
             }),
+            script: self.script.clone(),
             lifecycle: (!self.lifecycle.is_empty()).then(|| {
                 let lifecycles = &mut shared.lifecycles;
                 lifecycles
@@ -1297,6 +1302,10 @@ impl Game {
             trap_resolution: None,
             body_return_finalization: Default::default(),
             host_region_continuation: false,
+            hook_mask: snapshot.script.as_ref().map_or(0, |state| state.mask()),
+            script: snapshot.script,
+            hook_port: Default::default(),
+            script_report: Default::default(),
             lifecycle: match snapshot.lifecycle {
                 None => Lifecycle::default(),
                 // An empty state is always omitted, so encodings stay unique.

@@ -1,0 +1,8 @@
+id = 1
+name = "Practice hall"
+size = [12, 3, 1]
+chamber = true
+walls = [[6, 0, 0], [6, 2, 0]]
+anchors = { "start" = [1, 1, 0], "token" = [3, 1, 0], "door" = [5, 1, 0], "exit" = [11, 1, 0] }
+doors = [{ "id" = 1, "at" = [6, 1, 0], "open" = false }]
+items = [{ "id" = 1, "at" = [3, 1, 0], "archetype" = "token" }]

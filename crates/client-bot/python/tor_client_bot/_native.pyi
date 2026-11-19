@@ -9,7 +9,21 @@ class ActionResult(TypedDict, total=False):
     message: str
     page: dict[str, Any] | None
 
+class UserMessageSegment(TypedDict, total=False):
+    # Exactly one key: literal text, or a closed control id the bot maps itself.
+    text: str
+    control: Literal["move", "wait", "search", "pick_up", "inventory", "equip", "drink",
+                     "read", "zap", "throw", "travel", "look", "open_door", "rest",
+                     "save", "help"]
+
+class UserMessage(TypedDict):
+    style: Literal["tutorial", "hint", "narration"]
+    # Controls named neutrally, for example "[pick up]".
+    text: str
+    segments: list[UserMessageSegment]
+
 class Observation:
+    # Includes "user_messages": list[UserMessage] from the latest outcome.
     def data(self) -> dict[str, Any]: ...
 
 class Session:

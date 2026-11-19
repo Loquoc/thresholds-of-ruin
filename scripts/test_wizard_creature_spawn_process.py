@@ -7,6 +7,7 @@ import tomllib
 import unittest
 
 from arena_matrix import toml_source
+from outcome_scripts import copy_declared
 from process_harness import (ProcessTestCase, ROOT, WIZARD_TOKEN, SPECTATOR_TOKEN,
                              ascii_stats_viewport_text, non_graphical)
 
@@ -43,6 +44,7 @@ class WizardCreatureSpawnProcesses(ProcessTestCase):
             'id = 1\nname = "Spawn hall"\nsize = [20, 5, 1]\nanchors = { start = [2, 2, 0] }\n',
             encoding="utf-8", newline="\n")
         shutil.copy2(source_root / "rules.toml", package / "rules.toml")
+        copy_declared(source, package, source_root)
         result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
             capture_output=True, text=True, encoding="utf-8", timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)

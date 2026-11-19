@@ -20,8 +20,8 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **72**, save format **71**, scenario format **37**,
-ruleset **`interactions-v72`**, scenario validator **`tor-scenario-51`**.
+**Current formats:** protocol **73**, save format **72**, scenario format **38**,
+ruleset **`interactions-v72`**, scenario validator **`tor-scenario-52`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
 not only saves containing affected AI. Wire and physical save formats need not
@@ -32,7 +32,7 @@ and retains the existing archive format. See [AI](reference/ai.md). Current priv
 creature records include explicit Health-roll policy, stable HD/purchase ownership,
 body snapshots and pending-return state; authored content can register body forms.
 
-Independent compiled inputs are RulesInput **27**, ContentPackage **34** and
+Independent compiled inputs are RulesInput **27**, ContentPackage **35** and
 RegionInput **10**. Physical TORB/TORJ/TORR framing is **6**, TORC **1**; rooms **2**,
 grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 **`tor-arena-run-v6`**. Other guides link here instead of duplicating version lists.
@@ -94,8 +94,15 @@ Acknowledgement, execution, visual freshness and durability are separate facts.
 - Saves retain canonical content and procedural sources, but uncopied unvisited
   authored inputs may still require their exact immutable compiled bundle.
   Portable export/import and historical-format migration are not implemented.
-- Runtime scripting and language selection remain undecided. Declarative recipe
-  support is not an executable script runtime.
+- [Scenario scripting](reference/scripting.md) is in its first milestone: Luau
+  handlers react to run start, movement, doors, items, waiting, attacks, deaths,
+  first region visits, scenario exits and timers, with messages, goals,
+  variables, bindings, doors, ground items, teleports, run ends and arena
+  results as effects. The engine decides no outcome: every victory, defeat and
+  arena winner comes from a package's outcome script; only arena tick and
+  action limits stop runs on their own. Creature spawning, locks,
+  wizard-operation hooks and actor commands are not implemented. The cascade
+  depth (4) is provisional.
 - Performance closure remains open. Sharing and lower operation counts do not
   prove constant-world latency; history/actor scaling, persistence tails and
   presentation-held state need measured acceptance. Preserve negative evidence.
@@ -150,7 +157,7 @@ Earlier numerical campaign receipts are historical, not new balance qualificatio
 - Authored language/description/places and optional disclosed-view bots, without
   giving clients hidden world authority.
 - Portable export, recovery/distribution and future remote/multiplayer policy.
-- [Scripting](plans/scripting.md), [presentation](plans/presentation.md), optional
+- Further [scripting](plans/scripting.md) hooks and effects, [presentation](plans/presentation.md), optional
   3D/art work and temporary form decisions, each with explicit scope and approval.
 
 Planning approval does not authorize a new implementation milestone or a breaking

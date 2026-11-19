@@ -11,6 +11,7 @@ import subprocess
 from arena_matrix import recipe, toml_source
 from rogue_activation_candidate import CARRIER_STOCK, DEPTH_GROWTH, VAMPIRE_POOL
 from rogue_roster_package import PRODUCTION, encounter, encounter_sources
+from outcome_scripts import apply
 
 
 VAMPIRE = "rogue.vampire"
@@ -39,6 +40,9 @@ def vampire_package(test, *, character=1, carried_ration=False, opponent="vampir
     for module in manifest["modules"]:
         shutil.copy2(PRODUCTION / module, package / module)
     shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+    # The selected character's death ends the run, as it did before
+    # outcomes moved into scripts.
+    apply(manifest, package, "death")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
     result = subprocess.run([test.bin / ("tor-scenario" + test.suffix), "validate", package],
@@ -67,7 +71,6 @@ def generated_carrier_manifest(species="vampire"):
     character.update(anchor=f"dungeon/{depth}/up", creature=creature)
     manifest["characters"] = [character]
     manifest["default_character"] = 1
-    manifest.pop("objective", None)
     manifest["generation_recipes"] = {"tiny": {"kind": "grid_rooms", "version": 1,
         "room_width": [4, 4], "room_height": [3, 3], "extra_connections": [0, 0]}}
     manifest["procedural_worlds"] = {"dungeon": {"kind": "grid_chain", "version": 1,
@@ -91,6 +94,9 @@ def generated_carrier_package(test, species="vampire"):
     for module in manifest["modules"]:
         shutil.copy2(PRODUCTION / module, package / module)
     shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+    # The selected character's death ends the run, as it did before
+    # outcomes moved into scripts.
+    apply(manifest, package, "death")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     result = subprocess.run([test.bin / ("tor-scenario" + test.suffix), "validate", package],
                             capture_output=True, text=True, encoding="utf-8", timeout=30)

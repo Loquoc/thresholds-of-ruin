@@ -491,8 +491,7 @@ fn state() -> StateView {
             {"presentation":null,"supply_reachable":false,"reachable":false,"item":{"known_currency":null,"known_supply":null,"quantity":"1","class":"misc","appearance":"item","identified":true,"identity":"item.misc.fixture","knowledge":tor_protocol::ItemKnowledge::default(),"id":super::item_target(2),"name":"stone tablet","description":"A weathered slab of stone."},"position":{"x":6,"y":0,"z":0}}
         ],"inventory":[],"charts":[],"linked_holds":[],"public_effects":[],"visible_actors":[],
         "combat":{"own_stats":tor_client_common::test_support::stats(),"public_plan":null,"hp":"50","max_hp":"50","sequence":null,"preparation_remaining":null,"preparation_active":false,
-            "recovery_remaining":"0","actors":[],"events":[],"objective":null,
-            "victory":false,"dead":false,"terminal":false}}})).unwrap()
+            "recovery_remaining":"0","actors":[],"events":[],"victory":false,"dead":false,"terminal":false}}})).unwrap()
 }
 
 /// The view after walking `steps` cells east.

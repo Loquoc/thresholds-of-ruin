@@ -32,13 +32,14 @@ fn source_package(portal: bool, trapdoor: bool) -> Package {
     }
     let second = json!({"id":2,"name":"Other source scope","size":[3,3,2],"chamber":true,
         "anchors":{"entry":[0,2,0],"landing":[1,1,1],"other_landing":[2,1,1]}});
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         vec![
             serde_json::from_value(first).unwrap(),
             serde_json::from_value(second).unwrap(),
         ],
         &base.rules_source,
+        base.scripts.clone(),
     )
     .unwrap();
     package

@@ -1,5 +1,5 @@
 //! Deterministic combat values. These are authoritative rules, never wire views.
-use crate::{ActorId, Game, GameError, ItemId};
+use crate::{ActorId, Game, GameError};
 pub(crate) mod contact;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -150,15 +150,6 @@ fn read_input_boundaries<'de, D: serde::Deserializer<'de>>(
     deserializer.deserialize_map(Boundaries)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Objective {
-    pub anchor: tor_world::Location,
-    pub item: Option<ItemId>,
-    pub disclosed: bool,
-    pub continue_play: bool,
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunOutcome {
@@ -197,9 +188,8 @@ pub struct CombatView {
     pub actors: Vec<(ActorId, bool, bool, Injury)>,
     /// What the action this view follows did, as far as the observer knows.
     pub events: Vec<DisclosedCombatEvent>,
-    pub objective: Option<ObjectiveKind>,
-    /// Where the objective is met, when the objective is disclosed.
-    pub exit: Option<tor_world::Location>,
+    /// What the scenario's scripts currently ask of this observer.
+    pub goal: Option<crate::scripting::Goal>,
     pub victory: bool,
     pub dead: bool,
     pub terminal: bool,
@@ -225,15 +215,6 @@ impl Injury {
             Self::Wounded
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ObjectiveKind {
-    /// Bring the objective item back to the exit.
-    RetrieveAndReturn,
-    /// Retrieve the bound item, then deliberately use the upward surface exit.
-    RetrieveAndExit,
-    ReachExit,
 }
 
 /// Historical upper bound on naming the source of a resolved activity.
@@ -687,34 +668,11 @@ impl Game {
                 .and_then(|p| p.sequence_view(self.actor_clock(id))),
             actors,
             events,
-            objective: self
-                .unique_retrieval_policy()
-                .filter(|policy| policy.protagonist == id)
-                .map(|_| ObjectiveKind::RetrieveAndExit)
-                .or_else(|| {
-                    self.combat
-                        .run
-                        .objective()
-                        .filter(|o| o.disclosed)
-                        .map(|o| {
-                            if o.item.is_some() {
-                                ObjectiveKind::RetrieveAndReturn
-                            } else {
-                                ObjectiveKind::ReachExit
-                            }
-                        })
-                }),
-            exit: self
-                .unique_retrieval_policy()
-                .filter(|policy| policy.protagonist == id)
-                .map(|policy| policy.exit.at)
-                .or_else(|| {
-                    self.combat
-                        .run
-                        .objective()
-                        .filter(|o| o.disclosed)
-                        .map(|o| o.anchor)
-                }),
+            goal: self
+                .script
+                .as_ref()
+                .and_then(|script| script.goal(id))
+                .cloned(),
             victory: self.run_outcome().victor.is_some(),
             dead: creature.health().dead(),
             terminal: self.run_outcome().terminal,
@@ -724,11 +682,9 @@ impl Game {
         &mut self,
         selected: ActorId,
         characters: BTreeSet<ActorId>,
-        objective: Option<Objective>,
         hostility: BTreeMap<String, BTreeSet<String>>,
     ) -> Result<(), GameError> {
         let run = crate::run_policy::RunMode::Adventure(crate::run_policy::AdventureRun {
-            objective,
             outcome: RunOutcome::default(),
         });
         self.configure_run_policy(selected, characters, hostility, run)

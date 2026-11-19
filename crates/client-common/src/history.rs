@@ -24,7 +24,7 @@ pub fn text(entry: &HistoryEntry) -> String {
         HistoryContent::Wizard { summary, .. } => summary.clone(),
         HistoryContent::Action { event, .. } => match event.as_ref() {
             Event::Moved { direction } => format!("Moved {}.", direction_name(*direction)),
-            Event::Escaped { .. } => "Escaped with the objective item.".into(),
+            Event::Escaped {} => "Took the way out.".into(),
             Event::Crumbled { quantity, .. } => {
                 if *quantity == 1 {
                     "An item crumbled during pickup.".into()

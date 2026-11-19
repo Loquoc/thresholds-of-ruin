@@ -174,7 +174,7 @@ fn projectile_stack_package(root: &Path) -> Scenario {
     )
     .unwrap();
     std::fs::write(root.join("scenario.toml"), r#"
-format = 37
+format = 38
 id = "projectile-stack-identity"
 version = "1.0"
 ruleset = "rules.toml"
@@ -459,7 +459,7 @@ fn projectile_take_drop_merges_publish_fresh_disclosed_identity_and_survive_retr
 }
 
 #[test]
-fn package_validation_rejects_bad_counts_properties_and_objective_stacks() {
+fn package_validation_rejects_bad_counts_and_properties() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/items");
     let manifest = std::fs::read_to_string(root.join("scenario.toml")).unwrap();
     let regions = std::fs::read_to_string(root.join("regions/1.toml")).unwrap();
@@ -467,10 +467,18 @@ fn package_validation_rejects_bad_counts_properties_and_objective_stacks() {
     std::fs::create_dir(dir.path().join("regions")).unwrap();
     std::fs::copy(root.join("rules.toml"), dir.path().join("rules.toml")).unwrap();
     for (m, r) in [
-        (manifest.clone(), regions.replacen("quantity = 10", "quantity = 0", 1)),
-        (manifest.replacen("stackable = true", "stackable = false", 1), regions.clone()),
-        (manifest.replace("default_character = 1", "default_character = 1\nobjective = { anchor = \"1/start\", item = 10, disclosed = true, continue_play = false }"), regions.clone()),
-        (manifest.clone(), regions.replace("quality = \"fine\"", "\"\" = \"fine\"")),
+        (
+            manifest.clone(),
+            regions.replacen("quantity = 10", "quantity = 0", 1),
+        ),
+        (
+            manifest.replacen("stackable = true", "stackable = false", 1),
+            regions.clone(),
+        ),
+        (
+            manifest.clone(),
+            regions.replace("quality = \"fine\"", "\"\" = \"fine\""),
+        ),
     ] {
         std::fs::write(dir.path().join("scenario.toml"), m).unwrap();
         std::fs::write(dir.path().join("regions/1.toml"), r).unwrap();

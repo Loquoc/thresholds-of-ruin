@@ -317,7 +317,6 @@ fn public_run_and_arena_control_publish_expiry_death_before_reopen() {
             game.configure_run(
                 ActorId(1),
                 BTreeSet::from([ActorId(1), ActorId(2)]),
-                None,
                 BTreeMap::from([
                     ("left".into(), BTreeSet::from(["right".into()])),
                     ("right".into(), BTreeSet::from(["left".into()])),

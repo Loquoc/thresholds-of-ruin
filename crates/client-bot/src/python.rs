@@ -23,6 +23,12 @@ fn encode_observation(state: &ClientState, diagnostics: bool) -> serde_json::Res
     let mut fields = serializer.serialize_map(None)?;
     fields.serialize_entry("state", state.state())?;
     fields.serialize_entry("readiness", &state.readiness())?;
+    // Script messages are player-facing: the bot has no keys, so it gets
+    // neutral text plus closed control ids to map.
+    fields.serialize_entry(
+        "user_messages",
+        &tor_client_common::narration::user_messages(state.narration_lines()),
+    )?;
     if diagnostics {
         let memory: Vec<_> = state.map_memory().map(|cell| cell.appearance()).collect();
         fields.serialize_entry("memory", &memory)?;

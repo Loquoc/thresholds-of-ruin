@@ -11,7 +11,6 @@ pub(super) enum Origin<'a> {
     Manifest,
     Faction(&'a str),
     Character(u64),
-    Objective,
     StairPair {
         file: &'a str,
         id: &'a str,
@@ -51,7 +50,6 @@ impl Origin<'_> {
             Self::Manifest => source("scenario.toml"),
             Self::Faction(name) => format!("{}: faction {name:?}", source("scenario.toml")),
             Self::Archetype { file, name, .. } => format!("{}: archetype {name:?}", source(file)),
-            Self::Objective => format!("{}: objective", source("scenario.toml")),
             Self::StairPair { file, id } => format!("{}: stair pair {id:?}", source(file)),
             Self::Character(id) => format!("{}: character {id}", source("scenario.toml")),
             Self::Region { file, id } => format!("{}: region {id}", source(file)),
@@ -69,7 +67,6 @@ impl Origin<'_> {
         match self {
             Self::Manifest => ("Scenario", "scenario"),
             Self::Faction(_) => ("Faction", "faction"),
-            Self::Objective => ("Objective", "objective"),
             Self::StairPair { .. } => ("Stair pair", "stair pair"),
             Self::Character(_) => ("Character", "character"),
             Self::Archetype { .. } => ("Archetype", "archetype"),
@@ -102,7 +99,7 @@ impl Origin<'_> {
         expected: ReferenceValue<'_>,
     ) -> Failure {
         let selection = match self {
-            Self::Manifest | Self::Objective => Selection::Document,
+            Self::Manifest => Selection::Document,
             Self::Faction(name) => Selection::Declaration("factions", Declaration::Name(name)),
             Self::StairPair { id, .. } => {
                 Selection::Declaration("stair_pairs", Declaration::Name(id))

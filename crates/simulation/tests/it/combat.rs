@@ -6,7 +6,7 @@ use tor_simulation::{
     abilities::OutcomeStatus,
     attacks::MeleeAttack,
     attributes::{Attributes, ManaBinding, Skill},
-    combat::{DamageType, DisclosedCombatEvent, Injury, Objective},
+    combat::{DamageType, DisclosedCombatEvent, Injury},
     content_ids::SpeciesId,
     creatures::{CreatureBuild, Species},
     damage::{DamageComponent, DamageSpec},
@@ -100,13 +100,13 @@ fn duel_with_subjects(subjects: [Species; 2], factions: [&str; 2]) -> Game {
     game.configure_run(
         ActorId(1),
         BTreeSet::from([ActorId(1)]),
-        None,
         BTreeMap::from([
             ("a".into(), BTreeSet::from(["b".into()])),
             ("b".into(), BTreeSet::from(["a".into()])),
         ]),
     )
     .unwrap();
+    super::defeat::lose_on_death(&mut game, ActorId(1));
     game.refresh_navigation();
     game
 }
@@ -290,41 +290,6 @@ fn queued_autonomous_execution_matches_recorded_action_validation_and_restoratio
     )
     .unwrap();
     assert_eq!(game, restored);
-}
-
-#[test]
-fn any_starting_character_can_win_but_mobs_cannot() {
-    let mut game = duel();
-    let objective = Objective {
-        anchor: at(2, 1, 0),
-        item: None,
-        disclosed: false,
-        continue_play: true,
-    };
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        Some(objective.clone()),
-        BTreeMap::new(),
-    )
-    .unwrap();
-    assert!(game.run_outcome().victor.is_none());
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1), ActorId(2)]),
-        Some(objective),
-        BTreeMap::new(),
-    )
-    .unwrap();
-    assert_eq!(game.run_outcome().victor, Some(ActorId(2)));
-    assert!(!game.run_outcome().terminal);
-    assert!(game
-        .observe(ActorId(1))
-        .unwrap()
-        .combat
-        .unwrap()
-        .objective
-        .is_none());
 }
 
 #[test]

@@ -36,7 +36,7 @@ fn scenario() -> crate::Scenario {
     ] {
         manifest[key] = json!({});
     }
-    for key in ["floor_activation", "unique_retrieval", "objective"] {
+    for key in ["floor_activation", "unique_retrieval", "scripting"] {
         manifest[key] = Value::Null;
     }
     assert_eq!(

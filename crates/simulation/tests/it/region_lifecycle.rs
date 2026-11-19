@@ -5,11 +5,9 @@ use std::{
     num::NonZeroU64,
 };
 use tor_simulation::{
-    ai::AiProfile,
-    checkpoint::SharedState,
-    combat::{DamageType, Objective},
-    Action, ActorId, BodySpec, Game, ItemId, MemoryRecords, ReferencePoint, ReferenceTarget,
-    RegionState, RegionTransition, TransitionError,
+    ai::AiProfile, checkpoint::SharedState, combat::DamageType, Action, ActorId, BodySpec, Game,
+    ItemId, MemoryRecords, ReferencePoint, ReferenceTarget, RegionState, RegionTransition,
+    TransitionError,
 };
 use tor_world::{Direction, Extent, Location, Passage, Position, Region, RegionId, World};
 
@@ -116,7 +114,7 @@ fn run(game: &mut Game, player: ActorId, hostility: &[(&str, &str)]) {
             map
         },
     );
-    game.configure_run(player, BTreeSet::from([player]), None, hostility)
+    game.configure_run(player, BTreeSet::from([player]), hostility)
         .unwrap();
     game.refresh_navigation();
     game.add_default_reference_points().unwrap();
@@ -703,25 +701,18 @@ fn detaching_and_reattaching_equals_only_freezing() {
         Some(keeper),
     )
     .unwrap();
-    let relic = game
-        .place_authored_item(
-            62,
-            at(4, 8, 2),
-            "item.test.relic".parse().unwrap(),
-            "relic".into(),
-            None,
-        )
-        .unwrap();
+    game.place_authored_item(
+        62,
+        at(4, 8, 2),
+        "item.test.relic".parse().unwrap(),
+        "relic".into(),
+        None,
+    )
+    .unwrap();
     game.place_authored_door(70, at(4, 5, 1), false, 1).unwrap();
     game.configure_run(
         player,
         BTreeSet::from([player]),
-        Some(Objective {
-            anchor: at(1, 0, 1),
-            item: Some(relic),
-            disclosed: false,
-            continue_play: false,
-        }),
         BTreeMap::from([
             ("hunter".into(), BTreeSet::from(["prey".into()])),
             ("prey".into(), BTreeSet::from(["hunter".into()])),
@@ -755,8 +746,8 @@ fn detaching_and_reattaching_equals_only_freezing() {
 
     step(&mut frozen, 5);
     step(&mut detached, 5);
-    // Knowledge references into detached regions (the objective item, AI
-    // memory, navigation) stay valid through a save round trip.
+    // Knowledge references into detached regions (items, AI memory,
+    // navigation) stay valid through a save round trip.
     // Restoring reads no records; they're checked when they attach.
     let restored = round_trip(&detached);
     assert_eq!(restored, detached);
@@ -791,7 +782,7 @@ fn empty_lifecycle_state_is_omitted_and_preserves_identity_allocation() {
 
     let (mut plain, player) = corridor();
     plain
-        .configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        .configure_run(player, BTreeSet::from([player]), BTreeMap::new())
         .unwrap();
     let mut shared = SharedState::default();
     let snapshot = serde_json::to_string(&plain.checkpoint(&mut shared)).unwrap();
@@ -922,7 +913,7 @@ fn shaft() -> (Game, ActorId, ActorId) {
             ticks(100),
         )
         .unwrap();
-    game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+    game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
         .unwrap();
     game.add_default_reference_points().unwrap();
     (game, player, faller)

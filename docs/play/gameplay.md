@@ -4,7 +4,9 @@ The ordinary launch default is the authored
 [`scenarios/first-dungeon`](../../scenarios/first-dungeon/scenario.toml) adventure:
 explore five chambers, survive their inhabitants, recover the **dawn seal**, and
 return to the entrance. The main route has a shortcut between the Broken gallery
-and Ember hall. The objective is disclosed, and this scenario ends on victory.
+and Ember hall. The package's [outcome script](../../scenarios/first-dungeon/scripts/outcome.luau)
+shows that goal, ends the run when you stand on the entrance carrying the seal,
+and ends it when your character dies.
 
 Choose [text](text.md) or [ASCII](ascii.md); both control the same backend rules
 and can hand control to one another. No client controls simulation time by its
@@ -52,8 +54,8 @@ a promise that this adventure contains it.
 - Travel uses only known routes. Newly seen actors, positive HP loss and stale
   obstacles can stop it; travel never attacks or opens a door automatically.
 - Pick up the seal and return to the starting entrance. Text `go to exit` uses
-  the disclosed objective exit. Completing the objective is checked at committed
-  action/physics boundaries and need not advance the clock.
+  the goal's disclosed cell. The script checks your arrival and pickups at the
+  committed boundary of the action that made them.
 
 Preparation and recovery matter. Attacks prepare, recheck their target at
 resolution, then recover. Damage that actually reduces HP can interrupt
@@ -107,11 +109,11 @@ See [movement and doors](../reference/movement.md).
 
 Death drops inventory and a non-stackable corpse at the actor's base cell,
 removes the actor from living occupancy/scheduling, and retains its identity for
-history. Death of the selected human character ends the adventure and freezes
-simulation time. The final disclosed view, history and save remain available.
-A living starting character may satisfy a scenario objective, including an
-optional AI-controlled starting companion; ordinary monsters cannot win.
-Scenarios can choose continued play after victory, though this dungeon does not.
+history. The engine ends no run by itself: this dungeon's script loses the run
+when the selected character dies, which freezes simulation time. The final
+disclosed view, history and save remain available. A script can let any
+character win, including an AI-controlled starting companion, and can record a
+victory while play continues, though this dungeon does not.
 
 Accepted actions are saved asynchronously. Use explicit save or normal client
 exit for a durability barrier. A crash may lose recent acknowledged play;
@@ -122,7 +124,7 @@ control loss/recovery suspends human preparation. See
 ## Content, mechanics and verification
 
 The [scenario reference](../reference/scenario-packages.md) explains how other packages
-choose characters, rules, factions and objectives. The [status page](../status.md)
+choose characters, rules, factions and outcome scripts. The [status page](../status.md)
 separates implemented capabilities from future content and mechanics. This page
 is a guide to the default adventure, not an inventory of every engine feature.
 

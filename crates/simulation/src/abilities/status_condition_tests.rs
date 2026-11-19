@@ -1220,13 +1220,8 @@ fn detached_selected_configuration_resolves_pending_eligibility_before_live_admi
         "known detached eligibility must match its immutable actor record"
     );
     assert_eq!(corrupt, before);
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), BTreeMap::new())
+        .unwrap();
     assert_eq!(
         game.combat.input_boundaries.get(&ActorId(1)),
         Some(&InputEligibility::Pending)

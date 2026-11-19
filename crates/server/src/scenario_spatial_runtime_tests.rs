@@ -55,7 +55,8 @@ pub(crate) fn package() -> Package {
     let mut manifest = serde_json::to_value(resolved.manifest).unwrap();
     manifest["spatial_scopes"] = serde_json::json!({"study":{"members":[1],"rooms":{"1":[{"region":1,"min":[0,0,0],"max":[6,4,1]}]},"passages":[],"doorways":[]}});
     let region:RegionDef=serde_json::from_value(serde_json::json!({"id":1,"name":"Source audit","size":[7,5,2],"chamber":true,"anchors":{"start":[1,2,0]}})).unwrap();
-    let package = Package::from_parts(
+    let package = Package::from_parts_at(
+        &root,
         serde_json::from_value(manifest).unwrap(),
         vec![region],
         &rules,
@@ -107,7 +108,13 @@ fn canonical_authored_source_rejects_missing_primary_and_foreign_volume_before_i
         } else {
             scope.rooms.get_mut(&1).unwrap()[0].max[0] = 5;
         }
-        let invalid = Package::from_parts(manifest, regions.clone(), &rules).unwrap();
+        let invalid = Package::from_parts_scripted(
+            manifest,
+            regions.clone(),
+            &rules,
+            package.scripts.clone(),
+        )
+        .unwrap();
         assert!(invalid.check().is_err());
     }
 }
@@ -148,7 +155,9 @@ fn canonical_authored_surface_uses_actual_directed_portal_destination() {
     // A distinct explicit scope remains a distinct scope; physical geometry is
     // still authoritative for the open mouth's illumination face.
     manifest.spatial_scopes.insert("neighbor".into(),serde_json::from_value(serde_json::json!({"members":[2],"rooms":{"1":[{"region":2,"min":[0,0,0],"max":[2,2,1]}]},"passages":[],"doorways":[]})).unwrap());
-    let package = Package::from_parts(manifest, regions, &base.rules_source).unwrap();
+    let package =
+        Package::from_parts_scripted(manifest, regions, &base.rules_source, base.scripts.clone())
+            .unwrap();
     package.check().unwrap();
     let index = package.index(42).unwrap();
     let first = index.region(&package, 1).unwrap();
@@ -191,7 +200,9 @@ fn canonical_foreign_solid_face_is_surface_only_and_source_certified() {
         )
         .unwrap(),
     );
-    let package = Package::from_parts(manifest, regions, &base.rules_source).unwrap();
+    let package =
+        Package::from_parts_scripted(manifest, regions, &base.rules_source, base.scripts.clone())
+            .unwrap();
     package.check().unwrap();
     let scope = package
         .compile_authored_spatial("study", 42, &mut 0, &mut 0)

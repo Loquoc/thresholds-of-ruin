@@ -55,7 +55,7 @@ fn history_actions_preserve_the_tagged_wire_shape_and_validate_event_payload() {
 
 #[test]
 fn current_wire_protocol_revision_is_explicitly_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 72);
+    assert_eq!(PROTOCOL_VERSION, 73);
 }
 
 #[test]
@@ -339,8 +339,8 @@ fn combat_facts_are_data_not_prose() {
         ]
     );
     assert_eq!(
-        serde_json::to_string(&(Injury::BadlyWounded, ObjectiveKind::RetrieveAndReturn)).unwrap(),
-        r#"["badly_wounded","retrieve_and_return"]"#
+        serde_json::to_string(&Injury::BadlyWounded).unwrap(),
+        r#""badly_wounded""#
     );
     // Prose fields are gone, and unknown event fields are refused.
     assert!(serde_json::from_str::<CombatEventView>(
@@ -412,7 +412,7 @@ fn protocol_22_says_whose_move_it_is_where_the_exit_is_and_where_names_came_from
     // Every place says where its name came from.
     assert!(serde_json::from_str::<PlaceView>(r#"{"key":"k","name":"n"}"#).is_err());
 
-    let combat = |exit: Option<&str>| CombatView {
+    let combat = |cell: Option<&str>| CombatView {
         own_stats: None,
         public_plan: None,
         hp: 1,
@@ -423,20 +423,26 @@ fn protocol_22_says_whose_move_it_is_where_the_exit_is_and_where_names_came_from
         recovery_remaining: 0,
         actors: vec![],
         events: vec![],
-        objective: Some(ObjectiveKind::ReachExit),
-        exit: exit.map(str::to_owned),
+        goal: Some(GoalView {
+            segments: vec![UserMessageSegment::Text("Find the exit.".into())],
+            cell: cell.map(str::to_owned),
+        }),
         victory: false,
         dead: false,
         terminal: false,
     };
     let with = serde_json::to_value(combat(Some("exit-cell"))).unwrap();
-    assert_eq!(with["exit"], "exit-cell");
+    assert_eq!(with["goal"]["cell"], "exit-cell");
     let without = serde_json::to_value(combat(None)).unwrap();
-    assert!(without.get("exit").is_none());
+    assert!(without["goal"].get("cell").is_none());
     assert_eq!(
-        serde_json::from_value::<CombatView>(without).unwrap(),
+        serde_json::from_value::<CombatView>(without.clone()).unwrap(),
         combat(None)
     );
+    // A goal is a presentable bounded message, like any user message.
+    let mut blank = without;
+    blank["goal"]["segments"] = serde_json::json!([{"text": "   "}]);
+    assert!(serde_json::from_value::<CombatView>(blank).is_err());
 }
 
 #[test]
@@ -528,7 +534,7 @@ fn immediate_completion_is_distinct_from_admitted_gameplay() {
 #[test]
 fn readiness_is_required_and_does_not_accept_extra_authority() {
     let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v72.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v73.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");

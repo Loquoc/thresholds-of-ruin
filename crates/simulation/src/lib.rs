@@ -66,6 +66,7 @@ pub mod abilities;
 pub mod action_duration;
 mod actions;
 mod input_basis;
+pub mod scripting;
 pub use input_basis::InputBasis;
 mod human_operands;
 pub use human_operands::HumanOperandBinding;
@@ -498,13 +499,15 @@ pub enum GameError {
     Blocked,
     /// No distinction between unknown, hidden, carried, and out-of-reach items.
     ItemUnavailable,
-    ExitItemRequired,
+
     InvalidQuantity,
     DoorUnavailable,
     IdentityExhausted,
     ActorBusy,
     /// The scenario disables owner advancement choices.
     AdvancementLocked,
+    /// Script setup was invalid or repeated.
+    Script,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -569,9 +572,8 @@ pub enum OutcomeKind {
         result: ItemId,
         quantity: u64,
     },
-    Escaped {
-        item: ItemId,
-    },
+    /// The actor took the scenario's exit; scripts decide what it means.
+    Escaped,
     Waited,
 }
 
@@ -740,6 +742,14 @@ pub struct Game {
     trap_resolution: Option<traps::TrapResolution>,
     body_return_finalization: polymorph::BodyReturnFinalization,
     host_region_continuation: bool,
+    /// Persisted scenario script values; `None` for unscripted games.
+    script: Option<scripting::ScriptState>,
+    /// Derived bit per bound hook kind; zero makes every fact site one branch.
+    hook_mask: u64,
+    /// The installed runtime. Not state: ignored by equality and checkpoints.
+    hook_port: scripting::HookPort,
+    /// Boundary outputs for the host; drained after each transaction.
+    script_report: scripting::ReportSlot,
 }
 impl Clone for Game {
     fn clone(&self) -> Self {
@@ -782,6 +792,10 @@ impl Clone for Game {
             trap_resolution: self.trap_resolution.clone(),
             body_return_finalization: self.body_return_finalization.clone(),
             host_region_continuation: self.host_region_continuation,
+            script: self.script.clone(),
+            hook_mask: self.hook_mask,
+            hook_port: self.hook_port.clone(),
+            script_report: self.script_report.clone(),
         }
     }
 }
@@ -961,6 +975,10 @@ impl Game {
             trap_resolution: None,
             body_return_finalization: Default::default(),
             host_region_continuation: false,
+            script: None,
+            hook_mask: 0,
+            hook_port: Default::default(),
+            script_report: Default::default(),
         }
     }
 

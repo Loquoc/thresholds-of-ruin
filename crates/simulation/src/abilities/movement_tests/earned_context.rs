@@ -146,7 +146,6 @@ fn context_growth_game_with_rules(
     game.configure_run(
         ActorId(1),
         [ActorId(1)].into(),
-        None,
         BTreeMap::from([("owner".into(), BTreeSet::from(["foe".into()]))]),
     )
     .unwrap();

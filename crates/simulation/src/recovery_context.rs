@@ -410,7 +410,6 @@ mod tests {
         game.configure_run(
             ActorId(1),
             BTreeSet::from([ActorId(1)]),
-            None,
             BTreeMap::from([
                 ("hero".into(), BTreeSet::from(["foe".into()])),
                 ("foe".into(), BTreeSet::from(["hero".into()])),

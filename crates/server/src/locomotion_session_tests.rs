@@ -82,8 +82,14 @@ fn scenario(suppressed: bool) -> crate::Scenario {
     .unwrap();
     rules.constants.default_abilities.push(hover.id.clone());
     rules.abilities.push(hover);
-    let package =
-        Package::from_parts(manifest, vec![region], &toml::to_string(&rules).unwrap()).unwrap();
+    let package = Package::from_parts_at(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scenarios/tests/interactions"),
+        manifest,
+        vec![region],
+        &toml::to_string(&rules).unwrap(),
+    )
+    .unwrap();
     crate::Scenario {
         actors: vec![],
         regions: 1,

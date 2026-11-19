@@ -63,7 +63,6 @@ fn recovery_translation_game() -> crate::Game {
     game.configure_run(
         crate::ActorId(1),
         [crate::ActorId(1)].into(),
-        None,
         [
             ("hero".into(), ["foe".into()].into()),
             ("foe".into(), ["hero".into()].into()),

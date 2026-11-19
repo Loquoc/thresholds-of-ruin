@@ -37,10 +37,11 @@ fn fixture(equipped: bool) -> Package {
         "actors":[{"id":2,"at":[4,2,0],"creature":target,
                     "controller":"ai","ai":"watcher"}]}))
     .unwrap();
-    Package::from_parts(
+    Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         vec![region],
         &original.rules_source,
+        original.scripts.clone(),
     )
     .unwrap()
 }

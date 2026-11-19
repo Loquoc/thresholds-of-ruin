@@ -90,7 +90,6 @@ impl Corridor {
         game.configure_run(
             threat,
             BTreeSet::from([threat]),
-            None,
             BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
         )
         .unwrap();

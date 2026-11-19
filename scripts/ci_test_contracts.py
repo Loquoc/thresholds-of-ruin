@@ -144,6 +144,7 @@ REVIEWED_OWNERS = {
     'test_measure_bind_wounds': ('BindWoundsRunner', 'BindWoundsValidation'),
     'test_nutrition_process': ('FloorActivationCheckpointHelperTests', 'NutritionAsciiProcesses', 'NutritionProcesses', 'PendingMealSynchronizationTests'),
     'test_nutrition_trigger_process': ('NutritionTriggerNativeProcesses', 'NutritionTriggerProcesses', 'RogueNutritionProcesses'),
+    'test_outcome_scripts': ('OutcomeScripts',),
     'test_paired_stairs_process': ('PairedStairsAsciiProcess', 'PairedStairsProcess'),
     'test_parallel_tests': ('Durations', 'Execution', 'Planning', 'WorkerFailures'),
     'test_perf_compare': ('CaseParsing', 'Changes', 'ComparisonOwnership', 'Extraction', 'Formatting', 'Pooling', 'Processes', 'Scheduling', 'BuildRouting'),

@@ -25,7 +25,7 @@ fn scenario(with_other: bool) -> crate::Scenario {
         let rules = std::fs::read_to_string(root.join("rules.toml")).unwrap();
         let rules = resolve_rules_source(&rules, "rules.toml").unwrap().source;
         scenario.package = Some(Arc::new(
-            Package::from_parts(source.manifest.clone(), regions, &rules).unwrap(),
+            Package::from_parts_at(&root, source.manifest.clone(), regions, &rules).unwrap(),
         ));
     }
     scenario
@@ -546,7 +546,13 @@ fn equipment_scenario() -> crate::Scenario {
     let rules = std::fs::read_to_string(root.join("rules.toml")).unwrap();
     let rules = resolve_rules_source(&rules, "rules.toml").unwrap().source;
     scenario.package = Some(Arc::new(
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap(),
+        Package::from_parts_at(
+            &root,
+            serde_json::from_value(manifest).unwrap(),
+            regions,
+            &rules,
+        )
+        .unwrap(),
     ));
     scenario
 }
@@ -855,7 +861,13 @@ value = { id = "fixture.control", family = "fixture.control", lifecycle = "timed
 "#);
     let rules = resolve_rules_source(&rules, "rules.toml").unwrap().source;
     scenario.package = Some(Arc::new(
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap(),
+        Package::from_parts_at(
+            &root,
+            serde_json::from_value(manifest).unwrap(),
+            regions,
+            &rules,
+        )
+        .unwrap(),
     ));
     scenario
 }

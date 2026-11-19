@@ -43,8 +43,8 @@ impl Package {
             "Retrieval protagonist must be the selected declared character",
         )?;
         require(
-            self.manifest.objective.is_none() && self.manifest.arena.is_none(),
-            "Unique retrieval cannot combine with another run objective",
+            self.manifest.arena.is_none(),
+            "Unique retrieval cannot run in an arena",
         )?;
         require(
             self.manifest.procedural_worlds.contains_key(&policy.family)

@@ -1274,7 +1274,7 @@ class CreatureInspectionProcesses(ProcessTestCase):
         from arena_matrix import toml_source
         # Isolate the natural source from production talent/loadout changes.
         # Author the complete table rather than depending on TOML line layout.
-        package = creature_package(self, "mixed-natural-arena", hostile=True, abilities=())
+        package = creature_package(self, "mixed-natural-arena", hostile=True, abilities=(), outcome="elimination")
         manifest_path = package / "scenario.toml"
         manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["arena"] = {"participants": [1, 2], "control": "all_ai", "start_paused": True,

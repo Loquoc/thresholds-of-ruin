@@ -355,12 +355,15 @@ def binaries():
 def creature_package(test, name, *, hostile=False,
                      abilities=("fixture_stamina_strike", "fixture_mana_bolt", "fixture_focus_fear"),
                      ability_aliases=None, extra_abilities=(), target_x=2, controlled_target=False, idle_behavior="explore",
-                     memory_ticks=1000):
+                     memory_ticks=1000, outcome="death"):
     """Construct a transport fixture; fixed-contact probes may opt into idle Wait.
 
     This is the shared human species policy, not external target control.
     Default Explore, contact memory and the autonomous scheduler remain unchanged.
     Nonreactive practice targets may explicitly set memory_ticks=0.
+    `outcome` names the outcome script the package carries: "death" loses
+    the run when the trainee dies, "elimination" suits callers that turn the
+    package into an arena, and None leaves outcomes to the caller.
     """
     if idle_behavior not in ("explore", "wait"):
         raise ValueError("Creature fixture idle behavior must be explore or wait")
@@ -417,6 +420,9 @@ def creature_package(test, name, *, hostile=False,
                'starting_skills = ["athletics", "lore"], restoration = "authored", nutrition = { kind = "exempt" }, '
                'hit_dice = [{ source = "racial" }] }\n')
     region.write_text(source, encoding="utf-8", newline="\n")
+    if outcome is not None:
+        from outcome_scripts import add_outcome_script
+        add_outcome_script(package, outcome)
     result = subprocess.run([test.bin / ("tor-scenario" + test.suffix), "validate", package],
                             capture_output=True, text=True, encoding="utf-8", timeout=15)
     test.assertEqual(result.returncode, 0, result.stderr)

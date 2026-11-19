@@ -579,7 +579,13 @@ fn generated_variant(secret_chance: Option<u32>, maze: bool) -> Package {
         });
     }
     crate::generation_recipe::check_layout(recipe, [32, 32, 2]).unwrap();
-    let result = Package::from_parts(manifest, vec![], &baseline.rules_source).unwrap();
+    let result = Package::from_parts_scripted(
+        manifest,
+        vec![],
+        &baseline.rules_source,
+        baseline.scripts.clone(),
+    )
+    .unwrap();
     result.check().unwrap();
     result
 }
@@ -859,7 +865,8 @@ fn validated_authored_package_supports_explicit_typed_scope_above_sixty_four_mem
             .unwrap()
         })
         .collect();
-    let package = Package::from_parts(
+    let package = Package::from_parts_at(
+        &root,
         serde_json::from_value(manifest).unwrap(),
         definitions,
         &rules,
