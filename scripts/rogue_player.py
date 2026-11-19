@@ -257,6 +257,10 @@ class Adventurer:
             attempted = self.attempted_slow if reason == "slow_approach" else self.attempted_polymorph
             attempted.update(foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
         if isinstance(action, Move) and turn.cell:
+            if reason == "seek_stairs" and self.depth in self.food_scouts:
+                deadline, stock = self.food_scouts[self.depth]
+                if turn.tick < deadline:
+                    self.food_scouts[self.depth] = turn.tick, stock
             self.last_exploration_origin = turn.cell.key if reason == "explore" else None
             self.corridor_stand = None
             if reason == "take_corridor" and (entrance := turn.cell_at(action.direction.offset)):

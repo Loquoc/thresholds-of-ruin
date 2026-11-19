@@ -1968,6 +1968,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.maps[3].visited.add("stairs")
                 self.assertEqual(player.choose(turn), expected)
 
+    def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.ascent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = 1000, 0
+        cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
+        turn = player_turn(cells, tick=100, stats={"nutrition": {
+            "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+            "hunger": "nourished", "elapsed": 0}})
+        player.observe(turn)
+        player.maps[3].visited.add("stairs")
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        player.admitted(turn, Move(Direction.WEST), reason="seek_stairs")
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "seek_stairs"))
+
     def test_recovers_along_a_visited_food_route_when_rest_is_also_affordable(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         cells = [cell("here"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]
