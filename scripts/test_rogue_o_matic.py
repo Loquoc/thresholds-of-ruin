@@ -644,6 +644,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         policy.observe(later)
         self.assertNotEqual(policy.combat(later), (Move(Direction.WEST), "retreat_to_stairs"))
 
+    def test_outnumbered_player_steps_onto_nearby_downstairs_then_descends(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        for on_stair in (False, True):
+            cells = [cell("exit" if on_stair else "here", down=on_stair), cell("hall", -1)]
+            if not on_stair:
+                cells.append(cell("exit", 1, down=True))
+            actors = []
+            for x, name in enumerate(("emu", "hobgoblin")):
+                square = cell(name, x - int(on_stair))
+                square["position"]["y"] = 1
+                cells.append(square)
+                actors.append({"id": name, "name": name, "position": square["position"]})
+            turn = player_turn(cells, actors=actors, hostiles=["emu", "hobgoblin"],
+                               combat={"hp": "19", "max_hp": "19"})
+            expected = (Move(Direction.DOWN), "retreat_downstairs") if on_stair else (
+                Move(Direction.EAST), "retreat_to_stairs")
+            self.assertEqual(choose(player, turn), expected)
+
     def test_uses_down_stair_underfoot_to_escape_a_known_draining_creature(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
         policy.draining_creatures.add("rattlesnake")

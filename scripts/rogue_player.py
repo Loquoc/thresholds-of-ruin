@@ -353,7 +353,7 @@ class Adventurer:
 
         if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
             return decision
-        if escape := self.retreat_to_stairs(turn):
+        if escape := self.retreat_to_stairs(turn, pressed=injured or surrounded or two_hit_threat):
             return escape
         if not adjacent and sum(foe.distance <= 3 for foe in turn.hostiles) >= 2:
             if step := self.take_corridor(turn):
@@ -522,10 +522,26 @@ class Adventurer:
         return {key for key in self.maps[self.depth].stairs(direction)
                 if self.unsafe_stairs.get((key, direction), 0) <= turn.tick}
 
-    def retreat_to_stairs(self, turn: Turn) -> tuple[Action, str] | None:
-        if not turn.hostiles or self.depth <= 1 or self.trapped(turn) or turn.holds:
+    def retreat_to_stairs(self, turn: Turn, *, pressed: bool = False) -> tuple[Action, str] | None:
+        if not turn.hostiles or self.trapped(turn) or turn.holds:
             return None
         if turn.has_condition("rogue.levitation"):
+            return None
+        can_descend = self.depth < self.retrieval_depth and not self.carrying_objective(turn)
+        downstairs = self.safe_stairs(turn, Direction.DOWN) if can_descend else set()
+        if downstairs and (pressed or self.recovering_from_pursuit):
+            if turn.cell and turn.cell.key in downstairs:
+                return Move(Direction.DOWN), "retreat_downstairs"
+            contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
+            for direction in turn.walkable_directions:
+                cell = turn.cell_at(direction.offset)
+                if cell is None or cell.key not in downstairs or cell.trap:
+                    continue
+                threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
+                exposure = sum(self.damage_estimate(foe) for foe in threats)
+                if not threats or (turn.health and len(threats) <= contacts and 2 * exposure < turn.health.current):
+                    return Move(direction), "retreat_to_stairs"
+        if self.depth <= 1:
             return None
         dangerous = any(
             foe.name.casefold() in {"griffin", "dragon", "jabberwock", "wraith"}
@@ -538,9 +554,7 @@ class Adventurer:
         exits = self.safe_stairs(turn, Direction.UP)
         if turn.cell and turn.cell.key in exits:
             return Move(Direction.UP), "retreat_upstairs"
-        can_descend = dangerous and self.depth < self.retrieval_depth and not self.carrying_objective(turn)
-        if can_descend:
-            downstairs = self.safe_stairs(turn, Direction.DOWN)
+        if dangerous and downstairs:
             if turn.cell and turn.cell.key in downstairs:
                 return Move(Direction.DOWN), "retreat_downstairs"
             exits.update(downstairs)

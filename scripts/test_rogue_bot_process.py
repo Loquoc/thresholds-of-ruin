@@ -530,6 +530,54 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     def test_bot_routes_away_from_a_foe_toward_a_disclosed_stair(self):
         self.check_safe_stair_route(diagonal=False)
 
+    def test_outnumbered_bot_takes_nearby_downstairs(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        contents["manifest"]["characters"][0]["loadout"] = []
+        contents["manifest"]["stair_pairs"] = {"escape": {"upper": "1/down", "lower": "2/up"}}
+        room, = contents["regions"]
+        room["anchors"].update(start=[2, 2, 0], down=[3, 2, 0])
+        room["actors"] = [
+            {"archetype": species, "id": number, "at": [x, 3, 0],
+             "controller": "external", "turn_ticks": 1000000}
+            for number, x, species in ((3, 2, "rogue.emu"), (4, 3, "rogue.hobgoblin"))
+        ]
+        contents["regions"].append({"id": 2, "name": "Landing", "size": [5, 5, 2],
+                                    "chamber": True, "anchors": {"up": [2, 2, 0]}})
+        self.server(scenario=write_package(self, contents, "outnumbered-descent"))
+        self.install_bot_extension()
+        code = """
+from contextlib import ExitStack
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Direction, Move, Outcome, Session, Wait
+
+with ExitStack() as stack:
+    game, emu, hobgoblin = [stack.enter_context(Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], i))
+                             for i in (1, 3, 4)]
+    player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=2)
+    for direction, expected in ((Direction.EAST, "retreat_to_stairs"), (Direction.DOWN, "retreat_downstairs")):
+        turn = game.wait_for_decision()
+        player.observe(turn)
+        action, reason = player.choose(turn)
+        assert (action, reason) == (Move(direction), expected), (action, reason)
+        receipt = turn.submit(action)
+        assert receipt.status is Outcome.CONFIRMED
+        player.admitted(turn, action, receipt, reason=reason)
+        if direction == Direction.EAST:
+            for enemy in (emu, hobgoblin):
+                assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    landing = game.wait_for_decision()
+    player.observe(landing)
+    assert player.depth == 3 and landing.cell.stairs_up
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                text=True, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_bot_keeps_the_refuge_after_escaping_a_guarded_stair(self):
         self.check_stair_refuge(enemy_x=2, expect_escape=True)
 
