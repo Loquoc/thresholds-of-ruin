@@ -1130,6 +1130,35 @@ Not counted: about two hundred test fixtures that rebuilt or rewrote scripted
 packages without their scripts, and tests asserting the removed built-in
 outcomes, were stale fixtures for the deliberate behavior change.
 
+The first hosted run of PR #32 found three more defects in Python package
+tools, counted by root cause:
+
+- **Silently dropped outcome scripts (tooling).** Eight package builders
+  rebuild a Rogue, arena or fixture manifest without its `scripting`, so
+  `copy_declared` copied nothing and their packages lost the death defeat the
+  engine used to provide. The corrosion-ray process test caught it: the run
+  continued past the player's death to tick 300 instead of ending at 242.
+  Those generators now apply the canonical death script, and `copy_declared`
+  refuses a manifest that declares no scripts. One failing method; the guard
+  has its own unit test.
+- **Activation candidates without scripts (tooling).** The Rogue activation
+  candidate snapshot read only the manifest, ruleset and modules, so every
+  candidate package failed validation for a missing `scripts/outcome.luau`.
+  It now retains and writes the declared scripts. Fourteen methods across the
+  activation and earned-route process tests, one root cause.
+- **Stale scenario format (tooling).** The format 38 bump missed the arena
+  matrix generator and one Rogue bot fixture, which still wrote format 37.
+  Every curated arena, search, starter-study and evaluation package failed
+  validation. About fifteen methods, one root cause.
+
+Not counted as defects: service-contract and wizard fixtures that copied a
+scripted manifest without its scripts; amulet tests whose limit tables kept a
+renamed method's old name, or that asserted the removed escape item and text;
+the objective validation tests; and the independent 3D lock, which lacked the
+Luau crates (the same setup failure as the rusqlite update below). The
+benchmark examples, which still cleared the removed objective, were caught
+locally by the performance comparison's release build, before CI.
+
 ## Independent client dependency locks
 
 The November 18 rusqlite update changed the server manifest and root lock but

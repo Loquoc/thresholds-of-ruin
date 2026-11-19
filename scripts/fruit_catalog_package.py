@@ -10,7 +10,7 @@ import tomllib
 
 from arena_matrix import toml_source
 from process_harness import ROOT
-from outcome_scripts import copy_declared
+from outcome_scripts import apply
 
 PRODUCTION = ROOT / "scenarios/rogue-exploration"
 
@@ -36,7 +36,9 @@ def prepare(test):
     for module in manifest["modules"]:
         shutil.copy2(PRODUCTION / module, package / module)
     shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
-    copy_declared(manifest, package, PRODUCTION)
+    # The selected character's death ends the run, as it did before
+    # outcomes moved into scripts.
+    apply(manifest, package, "death")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
     for name in (*manifest["modules"], "rules.toml"):

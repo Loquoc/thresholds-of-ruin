@@ -592,3 +592,24 @@ fn declared_remote_character_roots_resume_and_traverse_the_selected_bounded_clos
         assert_eq!(reopened.state(ActorId(selected)).unwrap(), traveled);
     }
 }
+
+#[test]
+fn a_script_hook_on_an_unknown_anchor_is_rejected() {
+    // Outcome scripts bind exits through hook anchors, which replace the
+    // removed objective anchor and must name a real anchor.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/first-dungeon");
+    let temp = tempfile::tempdir().unwrap();
+    support::copy_package(&root, temp.path());
+    scenario_package::validate(temp.path()).unwrap();
+    edit(
+        temp.path(),
+        "scenario.toml",
+        "anchor = \"1/exit\"\nhandler = \"outcome.check\"",
+        "anchor = \"1/missing\"\nhandler = \"outcome.check\"",
+    );
+    let error = scenario_package::validate(temp.path()).unwrap_err();
+    assert!(
+        error.message.contains("unknown anchor 1/missing"),
+        "{error}"
+    );
+}

@@ -65,7 +65,12 @@ def apply(manifest, package, kind):
 def copy_declared(manifest, package, source):
     """Copy the scripts a manifest dictionary declares from its `source`
     package, for generators that rewrite a scripted production manifest."""
-    for relative in manifest.get("scripting", {}).get("scripts", []):
+    scripts = manifest.get("scripting", {}).get("scripts", [])
+    if not scripts:
+        # A manifest rebuilt from selected keys dropped its scripting; copying
+        # nothing would silently remove the package's outcome.
+        raise ValueError("The manifest declares no scripts to copy")
+    for relative in scripts:
         target = Path(package) / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((Path(source) / relative).read_bytes())

@@ -181,27 +181,25 @@ class ScenarioPackageProcesses(ProcessTestCase):
                 self.assertEqual(before, {p.relative_to(package): p.read_bytes()
                                           for p in package.rglob("*") if p.is_file()})
 
-    def test_objectives_require_declared_builds_and_report_immediate_victory(self):
-        package = self.directory / "immediate-objective"
+    def test_a_run_started_script_victory_is_immediate_and_survives_restart(self):
+        # The engine decides no outcome; a package script can win at once.
+        package = self.directory / "immediate-victory"
         shutil.copytree(ROOT / "scenarios/two-room", package)
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
-        source += '\nobjective = { anchor = "1/start", disclosed = true, continue_play = false }\n'
-        manifest.write_text(source, encoding="utf-8", newline="\n")
-        before = {p.relative_to(package): p.read_bytes() for p in package.rglob("*") if p.is_file()}
-        result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
-                                capture_output=True, text=True, encoding="utf-8", timeout=15)
-        self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("character 1", result.stderr)
-        self.assertIn("Objectives require declared creature builds", result.stderr)
-        self.assertEqual(before, {p.relative_to(package): p.read_bytes()
-                                  for p in package.rglob("*") if p.is_file()})
         build = ('creature = { species = "figure", name = "figure", corpse_identity = "item.corpse.fixture.figure", faction = "neutral", '
                  'binding = "intellect", starting_skills = ["heavy_weaponry", "athletics"], restoration = "choose_again", nutrition = { kind = "exempt" }, hit_dice = [{ source = "racial" }] }, ')
         source = source.replace('characters = [{ ', 'characters = [{ ' + build, 1)
         definitions = (ROOT / "scenarios/tests/interactions/scenario.toml").read_text(encoding="utf-8")
-        source += '\n[creatures.species.figure]\n' + definitions.split('[creatures.species.figure]\n', 1)[1]
+        figure = definitions.split("[creatures.species.figure]\n", 1)[1].split("\n[", 1)[0]
+        source += "\n[creatures.species.figure]\n" + figure + "\n"
+        source += ('\n[scripting]\nscripts = ["scripts/outcome.luau"]\n\n'
+                   '[[scripting.hooks]]\non = "run_started"\nhandler = "outcome.start"\n')
         manifest.write_text(source, encoding="utf-8", newline="\n")
+        (package / "scripts").mkdir()
+        (package / "scripts/outcome.luau").write_text(
+            "local outcome = {}\n\nfunction outcome.start(ctx, facts)\n    ctx:win()\nend\n\nreturn outcome\n",
+            encoding="utf-8", newline="\n")
         result = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],
                                 capture_output=True, text=True, encoding="utf-8", timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -259,8 +257,6 @@ class ScenarioPackageProcesses(ProcessTestCase):
         cases = [
             ("portal", "two-room", "regions/1.toml", '"to" = "2/landing"', '"to" = "2/missing"', '"2/missing"', "portal anchor"),
             ("known-identity", "tests/items", "scenario.toml", 'known_identities = ["item.potion.healing"]', 'known_identities = ["item.potion.healing", "item.potion.missing"]', '"item.potion.missing"', "initial item identity"),
-            ("objective-anchor", "first-dungeon", "scenario.toml", 'objective = { anchor = "1/exit"', 'objective = { anchor = "1/missing"', '"1/missing"', "objective anchor"),
-            ("objective-item", "first-dungeon", "scenario.toml", 'item = 100', 'item = 999', '999', "objective"),
             ("zone", "two-room", "regions/1.toml", 'zone = "entry"', 'zone = "missing"', '"missing"', "zone"),
             ("generated-actor", "tests/generated-filler", "regions/2.toml", 'archetypes = ["rat"]', 'archetypes = ["rat", "missing"]', '"missing"', "archetype"),
             ("generated-item", "tests/generated-filler", "regions/2.toml", 'archetypes = ["coin"]', 'archetypes = ["coin", "missing"]', '"missing"', "archetype"),

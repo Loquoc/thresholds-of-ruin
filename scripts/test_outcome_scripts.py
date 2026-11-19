@@ -48,6 +48,16 @@ class OutcomeScripts(unittest.TestCase):
         with self.assertRaises(ValueError):
             outcome_scripts.script("victory")
 
+    def test_copy_declared_refuses_a_manifest_that_lost_its_scripting(self):
+        # Copying nothing would silently remove the package's outcome.
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ValueError):
+                outcome_scripts.copy_declared({"format": 38}, directory, SCENARIOS / "rogue")
+            manifest = tomllib.loads((SCENARIOS / "rogue/scenario.toml").read_text(encoding="utf-8"))
+            outcome_scripts.copy_declared(manifest, directory, SCENARIOS / "rogue")
+            self.assertEqual((Path(directory) / "scripts/outcome.luau").read_text(encoding="utf-8"),
+                             script("rogue"))
+
 
 if __name__ == "__main__":
     unittest.main()

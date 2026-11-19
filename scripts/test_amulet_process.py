@@ -48,7 +48,7 @@ class AmuletProcesses(ProcessTestCase):
             (384, 40000, 64 * 1024 * 1024, 240),
         "test_native_up_escapes_only_from_the_disclosed_surface_endpoint":
             (256, 25000, 48 * 1024 * 1024, 180),
-        "test_native_surface_exit_explains_what_is_needed_before_retrieval":
+        "test_native_surface_exit_without_the_amulet_is_a_scripted_hint_not_a_win":
             (16, 1000, 8 * 1024 * 1024, 60),
     }
 
@@ -533,8 +533,9 @@ class AmuletProcesses(ProcessTestCase):
             native("Shift_L", False)
         # Climbing is an ordinary turn; Rogue's outcome script only says what
         # is missing, and the run goes on.
-        told = " ".join(refused["messages"]["turn"])
-        self.assertIn("You need the Amulet of Yendor to leave the dungeon.", told)
+        told = refused["messages"]["turn"]
+        self.assertIn("You take the way out.", told)
+        self.assertIn("Hint: You need the Amulet of Yendor to leave the dungeon.", told)
         self.assertFalse(observation(refused)["combat"]["victory"])
         self.assertFalse(observation(refused)["combat"]["terminal"])
 
@@ -578,7 +579,8 @@ class AmuletProcesses(ProcessTestCase):
                                        and observation(frame)["combat"]["terminal"] and not frame["busy"])
         self.assert_escape(initial, escaped, identity)
         shown = " ".join(escaped["messages"]["shown"])
-        self.assertIn("You leave the dungeon with the " + AMULET + ".", shown)
+        # The climb itself is ordinary; the script's win ends the run.
+        self.assertIn("You take the way out.", shown)
         self.assertIn("Victory! This run has ended.", shown)
         window.stop()
         server.stop(save=False)
