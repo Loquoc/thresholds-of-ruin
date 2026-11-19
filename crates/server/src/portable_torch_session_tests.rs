@@ -24,14 +24,20 @@ fn torch_source(root: &Path, with_other: bool) -> crate::Scenario {
         {"id":41,"at":[1,2,0],"archetype":"torch","carried_by":1}
     ]);
     regions[0] = serde_json::from_value(region).unwrap();
-    let checked =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let checked = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     checked.check().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         &rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();
@@ -375,10 +381,11 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
     ] {
         let mut manifest = original.clone();
         manifest["archetypes"]["torch"][field] = value;
-        let result = Package::from_parts(
+        let result = Package::from_parts_scripted(
             serde_json::from_value(manifest).unwrap(),
             source.region_defs().unwrap(),
             &rules,
+            source.scripts.clone(),
         )
         .and_then(|package| package.check());
         assert!(result.is_err(), "invalid torch {field}");
@@ -386,10 +393,11 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
     let mut aliases = original.clone();
     aliases["archetypes"]["torch"]["identity"] = json!("item.tool.shared-torch");
     aliases["archetypes"]["torch_alias"] = aliases["archetypes"]["torch"].clone();
-    Package::from_parts(
+    Package::from_parts_scripted(
         serde_json::from_value(aliases.clone()).unwrap(),
         source.region_defs().unwrap(),
         &rules,
+        source.scripts.clone(),
     )
     .unwrap()
     .check()
@@ -398,10 +406,11 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
         let mut mismatch = aliases.clone();
         mismatch["archetypes"]["torch_alias"]["held_light"][field] = value;
         assert!(
-            Package::from_parts(
+            Package::from_parts_scripted(
                 serde_json::from_value(mismatch).unwrap(),
                 source.region_defs().unwrap(),
-                &rules
+                &rules,
+                source.scripts.clone()
             )
             .and_then(|package| package.check())
             .is_err(),
@@ -411,10 +420,11 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
     let mut mismatch = aliases;
     mismatch["archetypes"]["torch_alias"]["held_light"] = Value::Null;
     assert!(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(mismatch).unwrap(),
             source.region_defs().unwrap(),
-            &rules
+            &rules,
+            source.scripts.clone()
         )
         .and_then(|package| package.check())
         .is_err(),
@@ -429,24 +439,36 @@ fn portable_torch_source_requires_single_tool_and_real_hand_equipment() {
         region["items"][0]["carried_by"] = json!(carried_by);
         region["items"][0]["quantity"] = json!(1);
         regions[0] = serde_json::from_value(region.clone()).unwrap();
-        Package::from_parts(source.manifest.clone(), regions.clone(), &rules)
-            .unwrap()
-            .build(42, false)
-            .unwrap();
+        Package::from_parts_scripted(
+            source.manifest.clone(),
+            regions.clone(),
+            &rules,
+            source.scripts.clone(),
+        )
+        .unwrap()
+        .build(42, false)
+        .unwrap();
         region["items"][0]["quantity"] = json!(2);
         regions[0] = serde_json::from_value(region).unwrap();
-        let invalid = Package::from_parts(source.manifest.clone(), regions, &rules).unwrap();
+        let invalid = Package::from_parts_scripted(
+            source.manifest.clone(),
+            regions,
+            &rules,
+            source.scripts.clone(),
+        )
+        .unwrap();
         assert!(invalid.build(42, false).is_err());
         if carried_by.is_some() {
             // Keep the original invalid carried payload and prove the supported
             // public source checker rejects it too; torch_source already passed
             // this checker with the otherwise identical unit-quantity source.
             let invalid_source = tempfile::tempdir().unwrap();
-            crate::scenario_package::write_package(
+            crate::scenario_package::write_package_scripted(
                 invalid_source.path(),
                 &invalid.manifest,
                 &invalid.region_defs().unwrap(),
                 &rules,
+                &invalid.scripts,
             )
             .unwrap();
             assert!(crate::scenario_package::check(invalid_source.path()).is_err());
@@ -512,14 +534,20 @@ fn blind_portal_torch_source(root: &Path, cold_frontier: bool) -> crate::Scenari
     } else {
         regions.push(serde_json::from_value(remote).unwrap());
     }
-    let checked =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let checked = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     checked.check().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         &rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();

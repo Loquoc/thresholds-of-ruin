@@ -7,7 +7,7 @@ fn package() -> Package {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/rogue-exploration");
     let source = resolve_source(&root).unwrap();
     let rules = std::fs::read_to_string(root.join(&source.manifest.ruleset)).unwrap();
-    let package = Package::from_parts(source.manifest, vec![], &rules).unwrap();
+    let package = Package::from_parts_at(&root, source.manifest, vec![], &rules).unwrap();
     package.check().unwrap();
     package
 }
@@ -59,7 +59,13 @@ fn personal_name_changes_do_not_replace_species_detection_authority() {
         .as_mut()
         .unwrap()
         .name = "PRIVATE individual emu".into();
-    let edited = Package::from_parts(manifest, vec![], &original.rules_source).unwrap();
+    let edited = Package::from_parts_scripted(
+        manifest,
+        vec![],
+        &original.rules_source,
+        original.scripts.clone(),
+    )
+    .unwrap();
     edited.check().unwrap();
     let content = edited.content().unwrap();
     for (id, name, asset) in [
@@ -128,7 +134,13 @@ fn saved_species_metadata_is_required_nullable_and_nested_tuple_is_closed() {
         .get_mut("rogue.human")
         .unwrap()
         .detection_appearance = None;
-    let unnamed = Package::from_parts(manifest, vec![], &package.rules_source).unwrap();
+    let unnamed = Package::from_parts_scripted(
+        manifest,
+        vec![],
+        &package.rules_source,
+        package.scripts.clone(),
+    )
+    .unwrap();
     unnamed.check().unwrap();
     let bytes = crate::storage::schema::scenario::encode_content_package(&unnamed).unwrap();
     let saved: Value = serde_json::from_slice(&bytes).unwrap();

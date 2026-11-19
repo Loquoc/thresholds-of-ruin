@@ -18,6 +18,7 @@ from arena_evaluation import digest, files, participant_contract, seed, timeout_
 from arena_matrix import REQUIRED_HD_LEVELS, encounter, toml_source
 from rogue_roster_package import PLAYABLE_SPECIES, SPECIES
 from ruleset_sources import resolve_with_dependencies
+from outcome_scripts import apply
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION = "scenarios/rogue-exploration/"
@@ -261,6 +262,7 @@ def create_study(output, compiler, seeds=DEFAULT_SEEDS, timeout=30, case_ids=Non
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(snapshot[PRODUCTION + module])
                 (package / "rules.toml").write_text(toml_source(rules), encoding="utf-8", newline="\n")
+                apply(manifest, package, "elimination")
                 for path, document in (("scenario.toml", manifest), ("regions/1.toml", region)):
                     (package / path).write_text(toml_source(document), encoding="utf-8", newline="\n")
                 result = subprocess.run([str(compiler), "validate", str(package)], capture_output=True,

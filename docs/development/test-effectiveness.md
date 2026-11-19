@@ -1062,3 +1062,25 @@ Two production defects and one class of stale pins, counted by root cause:
 Not counted: a bulk `format = 37` replacement that also rewrote one literal
 in the new v46 baseline test was an authoring slip caught by that test before
 publication.
+
+## Scripted outcomes (2026-11-18)
+
+Moving every victory and defeat into scripts exposed two defects, counted by
+root cause:
+
+- **Goals on unentered regions (production, simulation).** The amulet process
+  test, replayed by the wire recorder, found Rogue's opening goal missing: its
+  root invocation was rejected because goal validation required the cell to
+  be in a declared region, and the surface exit's floor is not declared while
+  the hero starts on floor 26. A goal's cell is disclosed only by key until
+  seen, so the check was wrong and is removed; the retrieval engine test now
+  asserts the opening goal and its exit cell. One method, one root cause.
+- **Run-start victory (package scripts).** `dungeon-characters`' integration
+  test found the companion's start-of-run victory missing: the old objective
+  was checked when the run was configured, but the first outcome script only
+  checked moves and pickups. Seal and companion scripts now also check every
+  character at `run_started`. One method, one root cause.
+
+Not counted: about two hundred test fixtures that rebuilt or rewrote scripted
+packages without their scripts, and tests asserting the removed built-in
+outcomes, were stale fixtures for the deliberate behavior change.

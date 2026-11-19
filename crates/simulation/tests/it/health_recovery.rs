@@ -75,13 +75,8 @@ fn game(build: CreatureBuild) -> Game {
         )
         .unwrap();
     }
-    game.configure_run(
-        ActorId(1),
-        BTreeSet::from([ActorId(1)]),
-        None,
-        Default::default(),
-    )
-    .unwrap();
+    game.configure_run(ActorId(1), BTreeSet::from([ActorId(1)]), Default::default())
+        .unwrap();
     game.add_default_reference_points().unwrap();
     game.refresh_navigation();
     game

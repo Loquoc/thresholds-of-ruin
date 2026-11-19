@@ -56,3 +56,8 @@ once = true
 on = "moved"
 anchor = "1/exit"
 handler = "lessons.exit"
+
+[[scripting.hooks]]
+on = "died"
+actor = "selected"
+handler = "lessons.died"

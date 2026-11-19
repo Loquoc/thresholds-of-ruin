@@ -96,11 +96,13 @@ Acknowledgement, execution, visual freshness and durability are separate facts.
   Portable export/import and historical-format migration are not implemented.
 - [Scenario scripting](reference/scripting.md) is in its first milestone: Luau
   handlers react to run start, movement, doors, items, waiting, attacks, deaths,
-  first region visits and timers, with messages, variables, bindings, doors,
-  ground items, teleports and run ends as effects. Creature spawning, locks,
+  first region visits, scenario exits and timers, with messages, goals,
+  variables, bindings, doors, ground items, teleports, run ends and arena
+  results as effects. The engine decides no outcome: every victory, defeat and
+  arena winner comes from a package's outcome script; only arena tick and
+  action limits stop runs on their own. Creature spawning, locks,
   wizard-operation hooks and actor commands are not implemented. The cascade
-  depth (4) is provisional. Script messages are journaled; delivering them to
-  clients needs protocol 73 user messages.
+  depth (4) is provisional.
 - Performance closure remains open. Sharing and lower operation counts do not
   prove constant-world latency; history/actor scaling, persistence tails and
   presentation-held state need measured acceptance. Preserve negative evidence.

@@ -420,8 +420,6 @@ struct Manifest {
     appearance_pools: BTreeMap<String, source::AppearancePool>,
     #[serde(with = "mapped")]
     characters: Vec<source::Character>,
-    #[serde(with = "mapped")]
-    objective: Option<source::Objective>,
     assets: BTreeMap<String, Vec<String>>,
     #[serde(with = "mapped")]
     terrain: Option<source::TerrainAssets>,
@@ -1028,15 +1026,6 @@ struct Character {
     unselected: String,
     ai: Option<String>,
     asset: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(remote = "source::Objective", deny_unknown_fields)]
-struct Objective {
-    anchor: String,
-    item: Option<u64>,
-    disclosed: bool,
-    continue_play: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -4379,7 +4368,6 @@ remote!(
     RelocationPolicy => source::RelocationPolicy,
     ItemClass => crate::scenario_package::ItemClass,
     Character => source::Character,
-    Objective => source::Objective,
     DiceExpr => source::DiceExpr,
     AmountExpr => source::AmountExpr,
     DamageComponentExpr => source::DamageComponentExpr,
@@ -6115,10 +6103,11 @@ mod tests {
         manifest
             .generation_recipes
             .insert("optional".into(), preset.to_recipe().unwrap());
-        let mut package = source::Package::from_parts(
+        let mut package = source::Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap();
         package.check().unwrap();
@@ -8574,8 +8563,13 @@ mod nutrition_schema_tests {
             assert_eq!(meal["archetype"], "test_meal");
             assert_eq!(meal["quantity"], 2);
             assert!(meal.get("edible").is_none());
-            let package =
-                source::Package::from_parts(manifest, regions, &template.rules_source).unwrap();
+            let package = source::Package::from_parts_scripted(
+                manifest,
+                regions,
+                &template.rules_source,
+                template.scripts.clone(),
+            )
+            .unwrap();
             let encoded = encode_content_package(&package).unwrap();
             let restored = decode_content_package(&encoded).unwrap();
             assert_eq!(encode_content_package(&restored).unwrap(), encoded);

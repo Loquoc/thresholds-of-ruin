@@ -46,12 +46,12 @@ pub const MAX_EFFECTS_PER_CALL: usize = 256;
 pub const MAX_TEXT_BYTES: usize = 512;
 pub const MAX_MESSAGE_SEGMENTS: usize = 32;
 pub const MAX_NAME_BYTES: usize = 64;
+/// Actors that can hold a goal at once.
+pub const MAX_GOALS: usize = 1024;
 
 /// One documented boundary a binding can react to. The discriminant is the
 /// mask bit, so the enum must stay below 64 variants.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum HookKind {
@@ -131,21 +131,15 @@ impl HookKind {
 
 /// A host-validated index into the package's bindable handlers. Saves store
 /// this stable identity, never a closure or interpreter object.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct HandlerId(pub u32);
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BindingId(pub u64);
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TimerId(pub u64);
 
@@ -197,15 +191,39 @@ pub struct HookFact {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum FactSubject {
     None,
-    Moved { from: Location, to: Location },
-    Door { at: Location, open: bool },
-    Item { item: ItemId, identity: ItemIdentity, quantity: u64, at: Location },
-    Waited { at: Location },
-    Attack { target: ActorId },
-    Death { at: Option<Location> },
-    Region { region: RegionId },
-    Timer { timer: TimerId, arg: i64 },
-    Escaped { at: Location },
+    Moved {
+        from: Location,
+        to: Location,
+    },
+    Door {
+        at: Location,
+        open: bool,
+    },
+    Item {
+        item: ItemId,
+        identity: ItemIdentity,
+        quantity: u64,
+        at: Location,
+    },
+    Waited {
+        at: Location,
+    },
+    Attack {
+        target: ActorId,
+    },
+    Death {
+        at: Option<Location>,
+    },
+    Region {
+        region: RegionId,
+    },
+    Timer {
+        timer: TimerId,
+        arg: i64,
+    },
+    Escaped {
+        at: Location,
+    },
 }
 
 /// The filter keys one fact offers, borrowed from the game so noting a fact
@@ -385,10 +403,34 @@ pub enum ScriptEffect {
         actor: ActorId,
         to: Location,
     },
+    /// `terminal: false` records a victory and lets play continue.
     EndRun {
         end: RunEnd,
         actor: Option<ActorId>,
+        terminal: bool,
     },
+    /// End an arena; `None` means nobody won.
+    StopArena {
+        winner: Option<String>,
+    },
+    /// What the scenario asks of its audience, shown until changed. The cell
+    /// is disclosed by identity and seen only when the observer sees it.
+    SetGoal {
+        audience: Audience,
+        segments: Vec<MessageSegment>,
+        cell: Option<Location>,
+    },
+    ClearGoal {
+        audience: Audience,
+    },
+}
+
+/// A character's current goal, declared by scripts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Goal {
+    pub segments: Vec<MessageSegment>,
+    pub cell: Option<Location>,
 }
 
 impl ScriptEffect {
@@ -402,12 +444,15 @@ impl ScriptEffect {
             | Self::StartTimer { .. }
             | Self::CancelTimer { .. }
             | Self::Bind { .. }
-            | Self::Unbind { .. } => false,
+            | Self::Unbind { .. }
+            | Self::SetGoal { .. }
+            | Self::ClearGoal { .. } => false,
             Self::SetDoor { .. }
             | Self::PlaceItem { .. }
             | Self::RemoveItem { .. }
             | Self::Teleport { .. }
-            | Self::EndRun { .. } => true,
+            | Self::EndRun { .. }
+            | Self::StopArena { .. } => true,
         }
     }
 }
@@ -465,6 +510,31 @@ pub struct ScriptReport {
     pub messages: Vec<ScriptMessage>,
     pub dispatches: Vec<DispatchRecord>,
     pub failures: Vec<ScriptFailure>,
+}
+
+/// Where a game holds its report until the host drains it. The report is
+/// output, not game state, so game equality ignores it (as it ignores the
+/// installed host); replay compares reports through the host's journal.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ReportSlot(pub(crate) ScriptReport);
+
+impl PartialEq for ReportSlot {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for ReportSlot {}
+
+impl std::ops::Deref for ReportSlot {
+    type Target = ScriptReport;
+    fn deref(&self) -> &ScriptReport {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for ReportSlot {
+    fn deref_mut(&mut self) -> &mut ScriptReport {
+        &mut self.0
+    }
 }
 
 impl ScriptReport {

@@ -390,7 +390,8 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
             .map_or_else(|| "figure".into(), |entry| label(&entry.name, "figure"))
     };
     let mut line = match fact {
-        OutcomeFact::Injured { .. } | OutcomeFact::Objective { .. } => return None,
+        // Goals are standing state: clients show them, not the common log.
+        OutcomeFact::Injured { .. } | OutcomeFact::Goal { .. } => return None,
         OutcomeFact::UserMessage { style, segments } => Line::new(
             Topic::UserMessage {
                 style: *style,
@@ -706,15 +707,9 @@ fn combat_event_with_names(
     }
 }
 
-/// The objective as a sentence.
-pub fn objective(kind: ObjectiveKind) -> &'static str {
-    match kind {
-        ObjectiveKind::RetrieveAndReturn => "Retrieve the objective item and return to the exit.",
-        ObjectiveKind::RetrieveAndExit => {
-            "Retrieve the objective item, then carry it up through the surface exit."
-        }
-        ObjectiveKind::ReachExit => "Reach the exit.",
-    }
+/// The scenario's current goal, with each control named by `names`.
+pub fn goal_text(segments: &[UserMessageSegment], names: &dyn ControlNames) -> String {
+    user_message_text(segments, names)
 }
 
 /// A figure's disclosed visible equipment, as display names in the server's
@@ -964,7 +959,6 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
                     OutcomeNameFallback::Item => "item",
                     OutcomeNameFallback::Object => "object",
                     OutcomeNameFallback::Stairs => "stairs",
-                    OutcomeNameFallback::ObjectiveItem => "objective item",
                     OutcomeNameFallback::Door => "door",
                 },
             )
@@ -972,10 +966,7 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
     };
     match event {
         Event::EscapeStarted { .. } => "You begin trying to escape a hold.".into(),
-        Event::Escaped { .. } => format!(
-            "You leave the dungeon with the {}.",
-            named().unwrap_or_else(|| "objective item".into())
-        ),
+        Event::Escaped {} => "You take the way out.".into(),
         Event::ItemStarted { action } => {
             let Some((work, _)) = ItemWorkKind::from_action(action) else {
                 return "You begin preparing.".into();
@@ -1048,17 +1039,7 @@ fn action_with_name(event: &Event, name: Option<&OutcomeName>) -> String {
 fn action_legacy(event: &Event, view: &Observation) -> String {
     match event {
         Event::EscapeStarted { .. } => "You begin trying to escape a hold.".into(),
-        Event::Escaped { item } => {
-            let name = view
-                .inventory
-                .iter()
-                .find(|candidate| candidate.id == *item)
-                .map_or_else(
-                    || "objective item".into(),
-                    |candidate| label(&candidate.name, "objective item"),
-                );
-            format!("You leave the dungeon with the {name}.")
-        }
+        Event::Escaped {} => "You take the way out.".into(),
         Event::ItemStarted { action } => {
             let (verb, item) = match action {
                 tor_protocol::Action::Equip { item, .. } => ("equip", item),
@@ -1377,16 +1358,18 @@ mod tests {
         }];
         let mut after = before.clone();
         after.combat.as_mut().unwrap().actors[0].injury = Injury::Wounded;
-        after.combat.as_mut().unwrap().objective = Some(ObjectiveKind::ReachExit);
+        let goal = vec![UserMessageSegment::Text("Reach the exit.".into())];
+        after.combat.as_mut().unwrap().goal = Some(tor_protocol::GoalView {
+            segments: goal.clone(),
+            cell: None,
+        });
         let facts = OutcomeFacts::capture(&before, &after, None);
         facts.validate_at(after.tick).unwrap();
         assert!(facts.facts.contains(&OutcomeFact::Injured {
             actor,
             injury: Injury::Wounded
         }));
-        assert!(facts.facts.contains(&OutcomeFact::Objective {
-            objective: ObjectiveKind::ReachExit
-        }));
+        assert!(facts.facts.contains(&OutcomeFact::Goal { segments: goal }));
         assert_eq!(
             outcome_lines(&facts),
             observation_lines_legacy(&before, &after, None)
@@ -1409,7 +1392,7 @@ mod tests {
         assert!(!repeat
             .facts
             .iter()
-            .any(|fact| matches!(fact, OutcomeFact::Objective { .. })));
+            .any(|fact| matches!(fact, OutcomeFact::Goal { .. })));
     }
 
     #[test]
@@ -1572,7 +1555,7 @@ mod tests {
                         result: item,
                         quantity: 2,
                     },
-                    Event::Escaped { item },
+                    Event::Escaped {},
                     Event::ItemStarted {
                         action: Action::Ignite { item },
                     },
@@ -1837,41 +1820,10 @@ mod tests {
     }
 
     #[test]
-    fn intentional_retrieval_exit_names_only_the_disclosed_carried_item() {
+    fn taking_the_exit_claims_nothing_about_an_item_or_a_victory() {
         assert_eq!(
-            objective(ObjectiveKind::RetrieveAndExit),
-            "Retrieve the objective item, then carry it up through the surface exit."
-        );
-        let mut view = observation();
-        let item = ItemTarget::from_digest([7; 32]);
-        let event = Event::Escaped { item };
-        assert_eq!(
-            action(&event, &view),
-            "You leave the dungeon with the objective item."
-        );
-        view.inventory.push(ItemView {
-            corpse: None,
-            class: Default::default(),
-            asset: None,
-            quantity: 1,
-            appearance: String::new(),
-            identified: true,
-            identity: "item.misc.fixture".parse().unwrap(),
-            knowledge: Default::default(),
-            id: item,
-            name: "Amulet\nof Yendor".into(),
-            description: String::new(),
-            known_currency: None,
-            known_supply: None,
-        });
-        assert_eq!(
-            action(&event, &view),
-            "You leave the dungeon with the Amuletof Yendor."
-        );
-        view.inventory[0].id = ItemTarget::from_digest([8; 32]);
-        assert_eq!(
-            action(&event, &view),
-            "You leave the dungeon with the objective item."
+            action(&Event::Escaped {}, &observation()),
+            "You take the way out."
         );
     }
 
@@ -2059,7 +2011,16 @@ mod tests {
             }),
             "You starved to death."
         );
-        assert_eq!(objective(ObjectiveKind::ReachExit), "Reach the exit.");
+        assert_eq!(
+            goal_text(
+                &[
+                    UserMessageSegment::Text("Use ".into()),
+                    UserMessageSegment::Control(ControlHint::OpenDoor),
+                ],
+                &neutral_control_name
+            ),
+            "Use [open door]"
+        );
         assert_eq!(injury(Injury::BadlyWounded), "badly wounded");
     }
 
@@ -2088,8 +2049,7 @@ mod tests {
                 recovery_remaining: 0,
                 actors: vec![],
                 events: vec![],
-                objective: None,
-                exit: None,
+                goal: None,
                 victory: !dead,
                 dead,
                 terminal: true,
@@ -2140,8 +2100,7 @@ mod tests {
                     cause: DeathCause::Injury,
                 },
             ],
-            objective: None,
-            exit: None,
+            goal: None,
             victory: false,
             dead: false,
             terminal: false,

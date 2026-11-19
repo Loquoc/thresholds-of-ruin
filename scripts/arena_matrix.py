@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import tomllib
 from ruleset_sources import resolve_with_dependencies
+from outcome_scripts import apply
 
 # Named point-by-point inputs are shared by the diagnostic matrix and the
 # paired starter study. No engine path branches on these class or family IDs.
@@ -184,6 +185,7 @@ def create_matrix(output, compiler, ruleset, seeds, *, families=None, levels=Non
                     manifest, region = encounter(family, hd, variant == "candidate",
                                                  orientation == "mirrored", "rules.toml")
                     (package / "rules.toml").write_bytes(rules_source)
+                    apply(manifest, package, "elimination")
                     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
                     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
                     result = subprocess.run([str(compiler), "validate", str(package)], capture_output=True,

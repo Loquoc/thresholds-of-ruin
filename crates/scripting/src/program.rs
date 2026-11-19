@@ -84,16 +84,16 @@ impl Program {
                 message: format!("at most {MAX_MODULES} scripts"),
             });
         }
-        let compiler = Compiler::new()
-            .set_optimization_level(1)
-            .set_debug_level(1);
+        let compiler = Compiler::new().set_optimization_level(1).set_debug_level(1);
         let lua = crate::sandbox().map_err(CompileError::runtime)?;
         let remaining = Arc::new(AtomicU64::new(0));
         let meter = remaining.clone();
         lua.set_interrupt(move |_| {
             let left = meter.load(Ordering::Relaxed);
             if left == 0 {
-                return Err(mlua::Error::runtime("module top level exceeds its work budget"));
+                return Err(mlua::Error::runtime(
+                    "module top level exceeds its work budget",
+                ));
             }
             meter.store(left - 1, Ordering::Relaxed);
             Ok(VmState::Continue)
@@ -180,7 +180,9 @@ impl Program {
     }
 
     pub fn handler_name(&self, id: HandlerId) -> Option<&str> {
-        self.handlers.get(id.0 as usize).map(|(name, _, _)| name.as_str())
+        self.handlers
+            .get(id.0 as usize)
+            .map(|(name, _, _)| name.as_str())
     }
 
     pub(crate) fn handler(&self, id: HandlerId) -> Option<(usize, &str)> {

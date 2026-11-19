@@ -6,7 +6,7 @@
   "current_scenario_format": 38,
   "current_snapshot": "rogue-earned-baseline-v46",
   "format": 1,
-  "only_transformation": "Scenario format 37 to 38 only. All other package bytes remain unchanged. This receipt records source bytes only; compiler validation and route qualification are pending. Format 38 adds optional scenario scripting, which this package does not use; historical outcomes are not requalified.",
+  "only_transformation": "Scenario format 37 to 38, plus the Rogue outcome script: scenario.toml appends its [scripting] hooks and scripts/outcome.luau is the production rogue-exploration script, because the engine no longer decides victory or defeat. All other package bytes remain unchanged. This receipt records source bytes only; compiler validation and route qualification are pending. Historical outcomes are not requalified.",
   "previous_package_inputs": {
     "catalog/actors.toml": "640d7dcbf6c6859c2219e7ad341ba9ea1eb8698bf13eef58cd08ef28caccbe43",
     "catalog/creatures.toml": "43460a6543e04413d4eab64c05a66ce8f9b45ac2b6fb06cf39714b81ab0557e2",

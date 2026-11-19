@@ -63,10 +63,10 @@ mod item_knowledge;
 pub use item_knowledge::{BucStatus, ItemKnowledge, KnownEnchantments, KnownItemCondition};
 
 pub mod abilities;
-pub mod scripting;
 pub mod action_duration;
 mod actions;
 mod input_basis;
+pub mod scripting;
 pub use input_basis::InputBasis;
 mod human_operands;
 pub use human_operands::HumanOperandBinding;
@@ -499,7 +499,7 @@ pub enum GameError {
     Blocked,
     /// No distinction between unknown, hidden, carried, and out-of-reach items.
     ItemUnavailable,
-    ExitItemRequired,
+
     InvalidQuantity,
     DoorUnavailable,
     IdentityExhausted,
@@ -572,9 +572,8 @@ pub enum OutcomeKind {
         result: ItemId,
         quantity: u64,
     },
-    Escaped {
-        item: ItemId,
-    },
+    /// The actor took the scenario's exit; scripts decide what it means.
+    Escaped,
     Waited,
 }
 
@@ -750,7 +749,7 @@ pub struct Game {
     /// The installed runtime. Not state: ignored by equality and checkpoints.
     hook_port: scripting::HookPort,
     /// Boundary outputs for the host; drained after each transaction.
-    script_report: scripting::ScriptReport,
+    script_report: scripting::ReportSlot,
 }
 impl Clone for Game {
     fn clone(&self) -> Self {

@@ -153,11 +153,12 @@ fn lighting_survives_eviction_checkpoint_journal_replay_and_rewind() {
         lit: true,
     }];
     let authored = directory.path().join("package");
-    scenario_package::write_package(
+    scenario_package::write_package_scripted(
         &authored,
         &package.manifest,
         &regions,
         &package.rules_source,
+        &package.scripts,
     )
     .unwrap();
     scenario_package::validate(&authored).unwrap();
@@ -615,11 +616,12 @@ fn development_save_pins_unvisited_authored_inputs_before_sources_disappear() {
     let directory = tempfile::tempdir().unwrap();
     let authored = directory.path().join("development");
     let template = corridor().package.unwrap();
-    scenario_package::write_package(
+    scenario_package::write_package_scripted(
         &authored,
         &template.manifest,
         &template.region_defs().unwrap(),
         &template.rules_source,
+        &template.scripts,
     )
     .unwrap();
     let mut scenario = scenario_package::load(&authored, 5, None, true).unwrap();

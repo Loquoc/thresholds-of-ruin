@@ -6,8 +6,8 @@ use std::num::NonZeroU64;
 use tor_simulation::creatures::{Content, ScenarioCatalog};
 use tor_simulation::rules::{Ruleset, DEFAULT_RULESET_TOML};
 use tor_simulation::scripting::{
-    ActorClass, Binding, FailureReason, FilterKey, HookKind, HookPort, MessageSegment,
-    ScopeKind, ScriptSetup, Value, ValueType, VarScope, VariableSchema,
+    ActorClass, Binding, FailureReason, FilterKey, HookKind, HookPort, MessageSegment, ScopeKind,
+    ScriptSetup, Value, ValueType, VarScope, VariableSchema,
 };
 use tor_simulation::{Action, ActorId, Game};
 use tor_world::{Direction, Position, RegionId};
@@ -46,13 +46,8 @@ fn game(script: &str, bindings: &[(&str, HookKind, FilterKey)]) -> (Game, ActorI
     let actor = game
         .spawn_actor(at(1), NonZeroU64::new(100).unwrap())
         .unwrap();
-    game.configure_run(
-        actor,
-        BTreeSet::from([actor]),
-        None,
-        BTreeMap::new(),
-    )
-    .unwrap();
+    game.configure_run(actor, BTreeSet::from([actor]), BTreeMap::new())
+        .unwrap();
     game.install_scripts(ScriptSetup {
         handlers: program.handler_count(),
         schema: VariableSchema {
@@ -81,13 +76,18 @@ fn game(script: &str, bindings: &[(&str, HookKind, FilterKey)]) -> (Game, ActorI
 }
 
 fn steps(game: &Game) -> Option<&Value> {
-    game.script_state().unwrap().var(VarScope::Scenario, "steps")
+    game.script_state()
+        .unwrap()
+        .var(VarScope::Scenario, "steps")
 }
 
 #[test]
 fn compile_enumerates_sorted_handlers_and_rejects_bad_modules() {
     let program = Program::compile(&[
-        source("doors", "return { pull = function() end, close = function() end }"),
+        source(
+            "doors",
+            "return { pull = function() end, close = function() end }",
+        ),
         source("eggs", "local m = {} function m.hatch() end return m"),
     ])
     .unwrap();
@@ -116,15 +116,29 @@ fn compile_enumerates_sorted_handlers_and_rejects_bad_modules() {
 fn the_sandbox_exposes_no_io_clock_reflection_or_unseeded_randomness() {
     let lua = sandbox().unwrap();
     for global in [
-        "os", "io", "debug", "require", "load", "loadstring", "dofile", "getfenv", "setfenv",
-        "collectgarbage", "gcinfo", "print", "coroutine",
+        "os",
+        "io",
+        "debug",
+        "require",
+        "load",
+        "loadstring",
+        "dofile",
+        "getfenv",
+        "setfenv",
+        "collectgarbage",
+        "gcinfo",
+        "print",
+        "coroutine",
     ] {
         let value: mlua::Value = lua.globals().get(global).unwrap();
         assert!(value.is_nil(), "{global} must be absent");
     }
     let random: mlua::Value = lua.load("return math.random").eval().unwrap();
     assert!(random.is_nil());
-    assert!(lua.load("math.pi = 3").exec().is_err(), "libraries are read-only");
+    assert!(
+        lua.load("math.pi = 3").exec().is_err(),
+        "libraries are read-only"
+    );
     assert!(lua.load("string.rep = nil").exec().is_err());
 }
 
@@ -149,7 +163,9 @@ fn a_handler_reads_facts_and_its_effects_apply() {
     game.act(actor, Action::Move(Direction::East)).unwrap();
     assert_eq!(steps(&game), Some(&Value::Int(42)));
     assert_eq!(
-        game.script_state().unwrap().var(VarScope::Actor(actor), "note"),
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Actor(actor), "note"),
         Some(&Value::Text("arrived".into()))
     );
     let report = game.take_script_report();
@@ -297,7 +313,10 @@ fn script_randomness_is_seeded_replayable_and_rejected_roots_keep_no_draws() {
         b.act(actor, Action::Move(Direction::East)).unwrap();
     }
     assert_eq!(steps(&a), steps(&b));
-    assert_eq!(a.script_state().unwrap().rng(), b.script_state().unwrap().rng());
+    assert_eq!(
+        a.script_state().unwrap().rng(),
+        b.script_state().unwrap().rng()
+    );
     assert_eq!(a.take_script_report(), b.take_script_report());
 
     let (mut c, actor, _) = game(

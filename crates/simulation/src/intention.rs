@@ -103,14 +103,13 @@ impl MovementContext {
     }
 }
 
-/// An intentional terminal action has an endpoint and exact bound item,
-/// never a fabricated movement destination. Ownership is rechecked at execution.
+/// An intentional terminal action has an endpoint, never a fabricated
+/// movement destination. It is rechecked at execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TerminalExitContext {
     at: tor_world::Location,
     direction: tor_world::Direction,
-    item: crate::ItemId,
 }
 impl<'de> Deserialize<'de> for TerminalExitContext {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -120,20 +119,14 @@ impl<'de> Deserialize<'de> for TerminalExitContext {
             #[serde(deserialize_with = "crate::bounded::location")]
             at: tor_world::Location,
             direction: tor_world::Direction,
-            item: crate::ItemId,
         }
         let fields: Fields = crate::bounded::named_map(d)?;
-        if fields.at.region.0 == 0
-            || fields.direction != tor_world::Direction::Up
-            || fields.item.0 == 0
-            || fields.item.0 == u64::MAX
-        {
+        if fields.at.region.0 == 0 || fields.direction != tor_world::Direction::Up {
             return Err(serde::de::Error::custom("invalid terminal exit context"));
         }
         Ok(Self {
             at: fields.at,
             direction: fields.direction,
-            item: fields.item,
         })
     }
 }
@@ -141,9 +134,6 @@ impl TerminalExitContext {
     fn policy_matches(self, game: &Game, actor: ActorId, action: &Action) -> bool {
         matches!(action, Action::Move(direction) if *direction == self.direction)
             && game.is_terminal_exit(actor, self.at, self.direction)
-            && game
-                .unique_retrieval_state()
-                .is_some_and(|state| state.item == Some(self.item))
     }
     fn live_matches(self, game: &Game, actor: ActorId, action: &Action) -> bool {
         self.policy_matches(game, actor, action)
@@ -453,11 +443,10 @@ impl Game {
         if self.bear_trap_struggle(actor) {
             return None;
         }
-        let item = self.prepare_terminal_escape(actor, *direction).ok()?;
+        self.prepare_terminal_escape(actor, *direction).ok()?;
         Some(TerminalExitContext {
             at: self.actors.get(&actor)?.location,
             direction: *direction,
-            item,
         })
     }
 
@@ -1950,7 +1939,6 @@ mod tests {
         game.configure_run(
             hero,
             BTreeSet::from([hero]),
-            None,
             BTreeMap::from([("foe".into(), BTreeSet::from(["hero".into()]))]),
         )
         .unwrap();

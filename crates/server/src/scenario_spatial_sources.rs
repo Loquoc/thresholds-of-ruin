@@ -1177,7 +1177,7 @@ mod optional_mapping_source_tests {
         });
         let region: RegionDef =
             toml::from_str(&std::fs::read_to_string(root.join("regions/1.toml")).unwrap()).unwrap();
-        let package = Package::from_parts(manifest, vec![region], &rules).unwrap();
+        let package = Package::from_parts_at(&root, manifest, vec![region], &rules).unwrap();
         package.check().unwrap();
         assert!(
             !spatial_effect_enabled(&package).unwrap(),

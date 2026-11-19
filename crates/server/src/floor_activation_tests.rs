@@ -57,7 +57,7 @@ fn fixture_with_activation(activation: bool) -> Scenario {
     source["ai_profiles"] = json!({});
     source["archetypes"] =
         json!({"marker":{"name":"activation marker","identity":"item.misc.marker"}});
-    source["objective"] = Value::Null;
+    source["scripting"] = Value::Null;
     source["unique_retrieval"] = Value::Null;
     source["arena"] = Value::Null;
     // Deliberately no Amulet, hunger policy, difficulty bands, or wandering.
@@ -134,10 +134,11 @@ fn single_member_foe_fixture(activation: bool) -> Scenario {
                 "choices":[{"archetype":"rat","weight":1}]}]
             }));
     }
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(source).unwrap(),
         vec![],
         &original.rules_source,
+        original.scripts.clone(),
     )
     .unwrap();
     scenario.package = Some(Arc::new(package));
@@ -161,10 +162,11 @@ fn multi_member_foe_fixture(activation: bool) -> Scenario {
         stages[2]["count"] = json!([16, 16]);
     }
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -1094,10 +1096,11 @@ fn checkpoint_rejects_expired_population_item_receipt_using_starting_kit_identit
         "loadout":[kit_item.clone(), kit_item.clone(), kit_item.clone(), kit_item]
     }));
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &package.rules_source,
+            package.scripts.clone(),
         )
         .unwrap(),
     ));

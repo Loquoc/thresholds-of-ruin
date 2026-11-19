@@ -408,8 +408,9 @@ fn wall_impact_damages_only_the_moving_actor_and_can_end_the_run_at_contact() {
     game.apply_effects(id, &[super::abilities::damage(7, DamageType::Vital)])
         .unwrap();
     assert_eq!(game.health(id), Some((1, 8)));
-    game.configure_run(id, BTreeSet::from([id]), None, BTreeMap::new())
+    game.configure_run(id, BTreeSet::from([id]), BTreeMap::new())
         .unwrap();
+    super::defeat::lose_on_death(&mut game, id);
     game.set_actor_velocity(id, [4096, 0, 0]).unwrap();
     game.act(id, Action::Wait).unwrap();
     assert_eq!(game.health(id), Some((0, 8)));

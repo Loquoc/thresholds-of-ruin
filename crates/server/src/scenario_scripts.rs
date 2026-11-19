@@ -23,7 +23,6 @@ use tor_world::RegionId;
 /// All of a package's scripts together.
 pub(crate) const MAX_TOTAL_SCRIPT_BYTES: usize = 512 * 1024;
 
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScriptingManifest {
@@ -78,8 +77,10 @@ pub struct HookDecl {
     pub anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<u64>,
+    /// An actor id, or `"selected"` for the run's selected character, which
+    /// is resolved when the scripts are installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actor: Option<u64>,
+    pub actor: Option<ActorFilter>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -88,6 +89,19 @@ pub struct HookDecl {
     pub actors: Option<ActorClass>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub once: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ActorFilter {
+    Id(u64),
+    Named(NamedActor),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NamedActor {
+    Selected,
 }
 
 /// The validated program and, per seed, the runtime games share. A runtime
@@ -250,7 +264,7 @@ pub(crate) fn compile(
                 .map_err(|_| fail(format!("{}: invalid item identity", place())))?;
         }
         // The key's shape is enough to check what the kind accepts.
-        let shape = key_shape(hook);
+        let shape = key_shape(hook, 0);
         require(
             hook.on.accepts(&shape),
             format!("{}: {:?} hooks cannot use this filter", place(), hook.on),
@@ -259,7 +273,7 @@ pub(crate) fn compile(
     Ok(Some(program))
 }
 
-fn key_shape(hook: &HookDecl) -> FilterKey {
+fn key_shape(hook: &HookDecl, selected: u64) -> FilterKey {
     if hook.anchor.is_some() {
         FilterKey::Cell(tor_world::Location {
             region: RegionId(0),
@@ -268,7 +282,10 @@ fn key_shape(hook: &HookDecl) -> FilterKey {
     } else if let Some(region) = hook.region {
         FilterKey::Region(RegionId(region))
     } else if let Some(actor) = hook.actor {
-        FilterKey::Actor(ActorId(actor))
+        FilterKey::Actor(ActorId(match actor {
+            ActorFilter::Id(id) => id,
+            ActorFilter::Named(NamedActor::Selected) => selected,
+        }))
     } else if let Some(item) = hook.item {
         FilterKey::Item(ItemId(item))
     } else if let Some(identity) = &hook.identity {
@@ -328,12 +345,25 @@ impl Package {
         self.script_program().map(|_| ())
     }
 
+    /// Named places scripts can use: every package anchor and, for a unique
+    /// retrieval, its exit endpoint.
+    fn script_anchors(&self, seed: u64) -> Result<BTreeMap<String, tor_world::Location>, Failure> {
+        let mut anchors = self.anchors(seed)?;
+        if let Some(policy) = &self.manifest.unique_retrieval {
+            let mut resolved = anchors.clone();
+            let exit =
+                self.character_anchor(self.selected, seed, &policy.exit_anchor, &mut resolved)?;
+            anchors.insert(policy.exit_anchor.clone(), exit);
+        }
+        Ok(anchors)
+    }
+
     /// Anchors that every hook names must exist for this seed.
     pub(crate) fn check_script_anchors(&self, seed: u64) -> Result<(), Failure> {
         let Some(scripting) = &self.manifest.scripting else {
             return Ok(());
         };
-        let anchors = self.anchors(seed)?;
+        let anchors = self.script_anchors(seed)?;
         for hook in &scripting.hooks {
             if let Some(anchor) = &hook.anchor {
                 require(
@@ -357,7 +387,7 @@ impl Package {
         }
         drop(cache);
         let config = RuntimeConfig {
-            anchors: self.anchors(seed)?,
+            anchors: self.script_anchors(seed)?,
             // The protocol's closed control vocabulary; clients name their
             // own bindings.
             controls: tor_protocol::ControlHint::ALL
@@ -386,7 +416,7 @@ impl Package {
             .scripting
             .as_ref()
             .ok_or_else(|| fail("Scripts without a [scripting] table"))?;
-        let anchors = self.anchors(seed)?;
+        let anchors = self.script_anchors(seed)?;
         let mut bindings = Vec::with_capacity(scripting.hooks.len());
         for hook in &scripting.hooks {
             let key = match &hook.anchor {
@@ -396,7 +426,7 @@ impl Package {
                         hook.handler
                     ))
                 })?),
-                None => key_shape(hook),
+                None => key_shape(hook, self.selected),
             };
             bindings.push(Binding {
                 kind: hook.on,
@@ -446,4 +476,3 @@ impl Package {
         }
     }
 }
-

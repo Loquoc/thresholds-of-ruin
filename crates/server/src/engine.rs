@@ -1203,8 +1203,8 @@ pub(crate) fn user_message_facts(
     report: &tor_simulation::scripting::ScriptReport,
     actor: ActorId,
 ) -> Vec<tor_protocol::OutcomeFact> {
-    use tor_protocol::{ControlHint, UserMessageSegment, UserMessageStyle};
-    use tor_simulation::scripting::{MessageSegment, MessageStyle};
+    use tor_protocol::UserMessageStyle;
+    use tor_simulation::scripting::MessageStyle;
     report
         .messages
         .iter()
@@ -1215,18 +1215,8 @@ pub(crate) fn user_message_facts(
                 MessageStyle::Hint => UserMessageStyle::Hint,
                 MessageStyle::Narration => UserMessageStyle::Narration,
             };
-            let segments = message
-                .segments
-                .iter()
-                .map(|segment| match segment {
-                    MessageSegment::Text(text) => Some(UserMessageSegment::Text(text.clone())),
-                    MessageSegment::Control(id) => {
-                        ControlHint::from_id(id).map(UserMessageSegment::Control)
-                    }
-                })
-                .collect::<Option<Vec<_>>>()?;
-            tor_protocol::valid_user_message(&segments)
-                .then_some(tor_protocol::OutcomeFact::UserMessage { style, segments })
+            let segments = adapt::message_segments(&message.segments)?;
+            Some(tor_protocol::OutcomeFact::UserMessage { style, segments })
         })
         .collect()
 }
@@ -4326,10 +4316,6 @@ impl Engine {
                         tor_simulation::IntentionOrigin::Human,
                     )
                     .map_err(|error| match error {
-                        tor_simulation::GameError::ExitItemRequired => Failure::new(
-                            ErrorCode::InvalidAction,
-                            "You need the objective item to leave through the surface exit",
-                        ),
                         tor_simulation::GameError::ActorBusy => {
                             Failure::new(ErrorCode::ActorBusy, "Intention is unavailable")
                         }
@@ -5830,7 +5816,9 @@ mod frozen_plan_profile_tests {
             }))
             .unwrap(),
         );
-        let package = Package::from_parts(
+        let package = Package::from_parts_at(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scenarios/tests/interactions"),
             manifest,
             vec![region],
             tor_simulation::rules::DEFAULT_RULESET_TOML,
@@ -6315,4 +6303,3 @@ mod semantic_capture_tests {
         ));
     }
 }
-

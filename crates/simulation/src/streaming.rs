@@ -2873,7 +2873,7 @@ mod tests {
             doors: false,
         };
         game.configure_ai(watcher, profile).unwrap();
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.add_default_reference_points().unwrap();
         game.actors.get_mut(&watcher).unwrap().behavior.engagement =
@@ -2917,7 +2917,7 @@ mod tests {
         );
         game.configure_ai(explorer, crate::ai::AiProfile::default())
             .unwrap();
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.add_default_reference_points().unwrap();
         let goal = at(6, 5);
@@ -3039,7 +3039,7 @@ mod tests {
             "neutral",
             crate::test_creatures::species(),
         );
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.actors.get_mut(&watcher).unwrap().behavior.engagement =
             Some(crate::behavior::Engagement {
@@ -3075,7 +3075,7 @@ mod tests {
         let other = game
             .spawn_actor(at(4, 5), NonZeroU64::new(100).unwrap())
             .unwrap();
-        game.configure_run(player, BTreeSet::from([player]), None, BTreeMap::new())
+        game.configure_run(player, BTreeSet::from([player]), BTreeMap::new())
             .unwrap();
         game.add_default_reference_points().unwrap();
         let mut records = MemoryRecords::default();

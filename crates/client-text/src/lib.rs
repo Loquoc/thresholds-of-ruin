@@ -735,10 +735,9 @@ pub fn describe(state: &StateView) -> String {
                 .as_ref()
                 .map(tor_client_common::public_plan::line),
         );
-        lines.extend(
-            c.objective
-                .map(|o| tor_client_common::narration::objective(o).to_owned()),
-        );
+        lines.extend(c.goal.as_ref().map(|goal| {
+            tor_client_common::narration::goal_text(&goal.segments, &crate::controls::command)
+        }));
     }
     for item in &o.ground_items {
         lines.push(format!(

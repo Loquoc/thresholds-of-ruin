@@ -730,10 +730,9 @@ fn status_lines(state: &dyn ScenicView, objective: bool) -> Vec<String> {
             lines.push("Victory! You may keep exploring.".into());
         }
         if objective {
-            lines.extend(
-                c.objective
-                    .map(|o| crate::engine::verbs::objective_phrase(o).to_owned()),
-            );
+            lines.extend(c.goal.as_ref().map(|goal| {
+                tor_client_common::narration::goal_text(&goal.segments, &crate::controls::command)
+            }));
         }
     }
     if state.current().wizard_game {
@@ -789,9 +788,17 @@ pub fn brief_place_with(
     lines.join("\n")
 }
 
-/// Where the objective's exit is, when it's in sight.
+/// Where the goal's cell is, when it's in sight.
 fn exit_sentence(state: &dyn ScenicView) -> Option<String> {
-    let key = state.current().observation.combat.as_ref()?.exit.as_ref()?;
+    let key = state
+        .current()
+        .observation
+        .combat
+        .as_ref()?
+        .goal
+        .as_ref()?
+        .cell
+        .as_ref()?;
     let cell = state
         .current()
         .observation

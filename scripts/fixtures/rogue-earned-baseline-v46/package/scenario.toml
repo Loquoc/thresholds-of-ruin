@@ -123,3 +123,20 @@ kind = "items"
 count = [1, 1]
 bands = [{ depth = { kind = "open", minimum = 1 }, choices = [{ archetype = "rogue.ration", weight = 1 }] }]
 quantity = 1
+
+[scripting]
+scripts = ["scripts/outcome.luau"]
+
+[[scripting.hooks]]
+on = "run_started"
+handler = "outcome.start"
+
+[[scripting.hooks]]
+on = "escaped"
+actor = "selected"
+handler = "outcome.escaped"
+
+[[scripting.hooks]]
+on = "died"
+actor = "selected"
+handler = "outcome.died"

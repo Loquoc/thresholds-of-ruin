@@ -9,6 +9,7 @@ import subprocess
 import sys
 from process_harness import ProcessTestCase, ROOT
 from ruleset_sources import load_rules
+from outcome_scripts import apply
 
 
 class ArenaEvaluationProcesses(ProcessTestCase):
@@ -162,6 +163,7 @@ class ArenaEvaluationProcesses(ProcessTestCase):
                 positions = [region["anchors"]["start"], region["actors"][0]["at"]]
                 region["walls"] = [[x, y, 0] for x in range(9) for y in range(5)
                                    if [x, y, 0] not in positions]
+                apply(manifest, package, "elimination")
                 for name, document in [("scenario.toml", manifest), ("rules.toml", rules), ("regions/1.toml", region)]:
                     (package / name).write_text(toml_source(document), encoding="utf-8", newline="\n")
                 validation = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],

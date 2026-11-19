@@ -207,10 +207,16 @@ fn invalid_references_geometry_versions_and_unsupported_mechanics_have_diagnosti
     {
         let (file, text, expected) = (
             "scenario.toml",
-            "\nobjective = { anchor = \"1/start\", disclosed = true, continue_play = false }\n",
-            "victory",
+            "\n[scripting]\nscripts = [\"scripts/outcome.luau\"]\n\n[[scripting.hooks]]\non = \"run_started\"\nhandler = \"outcome.start\"\n",
+            "a script can win at the run's start",
         );
         let temp = copied_package();
+        std::fs::create_dir_all(temp.path().join("scripts")).unwrap();
+        std::fs::write(
+            temp.path().join("scripts/outcome.luau"),
+            "local outcome = {}\nfunction outcome.start(ctx, facts)\n    ctx:win(ctx:selected())\nend\nreturn outcome\n",
+        )
+        .unwrap();
         let path = temp.path().join(file);
         let mut data = std::fs::read_to_string(&path).unwrap();
         data.push_str(text);

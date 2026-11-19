@@ -48,10 +48,14 @@ fn owner(value: &LuaValue) -> mlua::Result<Option<Owner>> {
             } else if text.starts_with("region:") {
                 Ok(Some(Owner::Region(values::region(value)?)))
             } else {
-                Err(mlua::Error::runtime("owner must be an actor, item or region id"))
+                Err(mlua::Error::runtime(
+                    "owner must be an actor, item or region id",
+                ))
             }
         }
-        _ => Err(mlua::Error::runtime("owner must be an actor, item or region id")),
+        _ => Err(mlua::Error::runtime(
+            "owner must be an actor, item or region id",
+        )),
     }
 }
 
@@ -82,12 +86,19 @@ fn from_lua(value: &LuaValue) -> mlua::Result<Value> {
         LuaValue::Boolean(b) => Value::Bool(*b),
         LuaValue::Integer(_) | LuaValue::Number(_) => Value::Int(values::integer(value, "value")?),
         LuaValue::String(_) => Value::Text(values::text(value, "value")?),
-        _ => return Err(mlua::Error::runtime("variables hold booleans, numbers or strings")),
+        _ => {
+            return Err(mlua::Error::runtime(
+                "variables hold booleans, numbers or strings",
+            ))
+        }
     })
 }
 
 /// Split `{control:id}` placeholders out of message text.
-fn segments(text: &str, controls: &std::collections::BTreeSet<String>) -> mlua::Result<Vec<MessageSegment>> {
+fn segments(
+    text: &str,
+    controls: &std::collections::BTreeSet<String>,
+) -> mlua::Result<Vec<MessageSegment>> {
     let mut out = Vec::new();
     let mut rest = text;
     while let Some(start) = rest.find("{control:") {
@@ -117,6 +128,13 @@ fn segments(text: &str, controls: &std::collections::BTreeSet<String>) -> mlua::
         ));
     }
     Ok(out)
+}
+
+fn optional_actor(value: &LuaValue) -> mlua::Result<Option<tor_simulation::ActorId>> {
+    match value {
+        LuaValue::Nil => Ok(None),
+        value => values::actor(value).map(Some),
+    }
 }
 
 fn array(lua: &Lua, items: impl IntoIterator<Item = String>) -> mlua::Result<Table> {
@@ -208,10 +226,23 @@ pub(crate) fn invoke(
             query()?;
             array(lua, view.characters().map(|actor| id("actor", actor.0)))
         });
+        method!("selected", |_lua, _a| {
+            query()?;
+            Ok(view.selected().map(|actor| id("actor", actor.0)))
+        });
+        method!("faction", |_lua, a| {
+            query()?;
+            Ok(view.faction(values::actor(&arg(&a, 0))?).map(str::to_owned))
+        });
         method!("actors_at", |lua, a| {
             query()?;
             let at = values::parse_cell(&arg(&a, 0))?;
-            array(lua, view.actors_at(at).into_iter().map(|actor| id("actor", actor.0)))
+            array(
+                lua,
+                view.actors_at(at)
+                    .into_iter()
+                    .map(|actor| id("actor", actor.0)),
+            )
         });
         method!("health", |lua, a| {
             query()?;
@@ -226,12 +257,20 @@ pub(crate) fn invoke(
         method!("carried", |lua, a| {
             query()?;
             let actor = values::actor(&arg(&a, 0))?;
-            array(lua, view.carried(actor).into_iter().map(|item| id("item", item.0)))
+            array(
+                lua,
+                view.carried(actor)
+                    .into_iter()
+                    .map(|item| id("item", item.0)),
+            )
         });
         method!("items_at", |lua, a| {
             query()?;
             let at = values::parse_cell(&arg(&a, 0))?;
-            array(lua, view.items_at(at).into_iter().map(|item| id("item", item.0)))
+            array(
+                lua,
+                view.items_at(at).into_iter().map(|item| id("item", item.0)),
+            )
         });
         method!("item_identity", |_lua, a| {
             query()?;
@@ -413,20 +452,69 @@ pub(crate) fn invoke(
             })
         });
         method!("win", |_lua, a| {
-            let actor = match arg(&a, 0) {
-                LuaValue::Nil => None,
-                value => Some(values::actor(&value)?),
+            let actor = optional_actor(&arg(&a, 0))?;
+            let continuing = match arg(&a, 1) {
+                LuaValue::Nil => false,
+                LuaValue::Table(options) => match options.get::<LuaValue>("continue")? {
+                    LuaValue::Nil => false,
+                    LuaValue::Boolean(continuing) => continuing,
+                    _ => return Err(mlua::Error::runtime("continue must be a boolean")),
+                },
+                _ => return Err(mlua::Error::runtime("win options must be a table")),
             };
             effect(ScriptEffect::EndRun {
                 end: RunEnd::Victory,
                 actor,
+                terminal: !continuing,
             })
         });
-        method!("lose", |_lua, _a| {
+        method!("lose", |_lua, a| {
             effect(ScriptEffect::EndRun {
                 end: RunEnd::Defeat,
-                actor: None,
+                actor: optional_actor(&arg(&a, 0))?,
+                terminal: true,
             })
+        });
+        method!("end_arena", |_lua, a| {
+            let winner = match arg(&a, 0) {
+                LuaValue::Nil => None,
+                value => Some(values::text(&value, "winner")?),
+            };
+            effect(ScriptEffect::StopArena { winner })
+        });
+        method!("set_goal", |_lua, a| {
+            let text = values::text(&arg(&a, 0), "goal")?;
+            let (audience, cell) = match arg(&a, 1) {
+                LuaValue::Nil => (Audience::Characters, None),
+                LuaValue::Table(options) => {
+                    let audience = match options.get::<LuaValue>("to")? {
+                        LuaValue::Nil => Audience::Characters,
+                        value => Audience::Actor(values::actor(&value)?),
+                    };
+                    let cell = match options.get::<LuaValue>("cell")? {
+                        LuaValue::Nil => None,
+                        value => Some(values::parse_cell(&value)?),
+                    };
+                    (audience, cell)
+                }
+                _ => return Err(mlua::Error::runtime("goal options must be a table")),
+            };
+            effect(ScriptEffect::SetGoal {
+                audience,
+                segments: segments(&text, &config.controls)?,
+                cell,
+            })
+        });
+        method!("clear_goal", |_lua, a| {
+            let audience = match arg(&a, 0) {
+                LuaValue::Nil => Audience::Characters,
+                LuaValue::Table(options) => match options.get::<LuaValue>("to")? {
+                    LuaValue::Nil => Audience::Characters,
+                    value => Audience::Actor(values::actor(&value)?),
+                },
+                _ => return Err(mlua::Error::runtime("clear_goal options must be a table")),
+            };
+            effect(ScriptEffect::ClearGoal { audience })
         });
         ctx.set_readonly(true);
 
@@ -466,7 +554,11 @@ fn parse_binding(spec: &Table, program: &Program) -> mlua::Result<Binding> {
         keys.push(FilterKey::Cell(values::parse_cell(&value)?));
     }
     for (field, parse) in [
-        ("region", (|v: &LuaValue| values::region(v).map(FilterKey::Region)) as fn(&LuaValue) -> mlua::Result<FilterKey>),
+        (
+            "region",
+            (|v: &LuaValue| values::region(v).map(FilterKey::Region))
+                as fn(&LuaValue) -> mlua::Result<FilterKey>,
+        ),
         ("actor", |v| values::actor(v).map(FilterKey::Actor)),
         ("item", |v| values::item(v).map(FilterKey::Item)),
     ] {
@@ -487,7 +579,9 @@ fn parse_binding(spec: &Table, program: &Program) -> mlua::Result<Binding> {
     }
     let key = keys.pop().unwrap_or(FilterKey::Any);
     if !kind.accepts(&key) {
-        return Err(mlua::Error::runtime(format!("{on} cannot be filtered that way")));
+        return Err(mlua::Error::runtime(format!(
+            "{on} cannot be filtered that way"
+        )));
     }
     let actors = match spec.get::<LuaValue>("actors")? {
         LuaValue::Nil => ActorClass::Character,

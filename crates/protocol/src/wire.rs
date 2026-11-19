@@ -1188,11 +1188,9 @@ pub struct CombatView {
     /// What the action this view follows did, as far as the observer knows.
     /// Clients write their own prose from these.
     pub events: Vec<CombatEventView>,
-    pub objective: Option<ObjectiveKind>,
-    /// The key of the cell where the objective is met, sent with the
-    /// objective. The cell itself is disclosed only when it's seen.
+    /// What the scenario's scripts currently ask of this observer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exit: Option<String>,
+    pub goal: Option<GoalView>,
     pub victory: bool,
     pub dead: bool,
     pub terminal: bool,
@@ -1219,14 +1217,19 @@ impl<'de> Deserialize<'de> for CombatView {
             recovery_remaining: u64,
             actors: Vec<CombatActorView>,
             events: Vec<CombatEventView>,
-            objective: Option<ObjectiveKind>,
             #[serde(default)]
-            exit: Option<String>,
+            goal: Option<GoalView>,
             victory: bool,
             dead: bool,
             terminal: bool,
         }
         let f: Fields = crate::bounded::named_map(d)?;
+        if f.goal
+            .as_ref()
+            .is_some_and(|goal| !crate::valid_user_message(&goal.segments))
+        {
+            return Err(serde::de::Error::custom("invalid goal"));
+        }
         Ok(Self {
             own_stats: f.own_stats,
             hp: f.hp,
@@ -1238,8 +1241,7 @@ impl<'de> Deserialize<'de> for CombatView {
             recovery_remaining: f.recovery_remaining,
             actors: f.actors,
             events: f.events,
-            objective: f.objective,
-            exit: f.exit,
+            goal: f.goal,
             victory: f.victory,
             dead: f.dead,
             terminal: f.terminal,
@@ -1286,14 +1288,17 @@ pub enum Injury {
     NearDeath,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ObjectiveKind {
-    /// Bring the objective item back to the exit.
-    RetrieveAndReturn,
-    /// Carry the unique objective item through an intentional surface exit.
-    RetrieveAndExit,
-    ReachExit,
+/// A goal the scenario's scripts set for the observer: text whose controls
+/// the client names, and optionally the cell it concerns.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GoalView {
+    #[serde(deserialize_with = "crate::user_message::read_segments")]
+    pub segments: Vec<crate::UserMessageSegment>,
+    /// The key of the goal's cell. The cell itself is disclosed only when
+    /// it is seen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<String>,
 }
 
 /// Authoritative delivery geometry, not a particular visual animation.
@@ -1948,10 +1953,10 @@ pub enum Event {
     Moved {
         direction: Direction,
     },
-    /// The actor deliberately left through its terminal objective endpoint.
-    Escaped {
-        item: ItemTarget,
-    },
+    /// The actor deliberately took the scenario's exit, such as climbing out
+    /// of the dungeon. Scripts decide what that means. An empty struct, so a
+    /// stray field such as the old `item` is refused.
+    Escaped {},
     Crumbled {
         item: ItemTarget,
         #[serde(with = "crate::integers::unsigned")]

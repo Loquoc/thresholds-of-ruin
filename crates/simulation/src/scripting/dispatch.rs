@@ -2,10 +2,10 @@
 
 use super::state::{PendingFact, Timer, TimerClock};
 use super::{
-    ActorClass, Audience, Binding, FactKeys, FactSubject, FailureReason, HandlerId, HookFact,
-    HookKind, Owner, RunEnd, ScriptEffect, ScriptFailure, ScriptMessage,
-    ScriptReport, ScriptSetup, ScriptState, ScriptView, DispatchRecord, MAX_CASCADE_DEPTH,
-    MAX_EFFECTS_PER_CALL, MAX_PENDING_FACTS, MAX_TEXT_BYTES,
+    ActorClass, Audience, Binding, DispatchRecord, FactKeys, FactSubject, FailureReason, HandlerId,
+    HookFact, HookKind, Owner, RunEnd, ScriptEffect, ScriptFailure, ScriptMessage, ScriptReport,
+    ScriptSetup, ScriptState, ScriptView, MAX_CASCADE_DEPTH, MAX_EFFECTS_PER_CALL,
+    MAX_PENDING_FACTS, MAX_TEXT_BYTES,
 };
 use crate::{ActorId, Game, GameError, ItemLocation, OutcomeKind};
 use std::sync::Arc;
@@ -83,7 +83,11 @@ impl HookPort {
 }
 impl std::fmt::Debug for HookPort {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(if self.0.is_some() { "HookPort(installed)" } else { "HookPort(none)" })
+        f.write_str(if self.0.is_some() {
+            "HookPort(installed)"
+        } else {
+            "HookPort(none)"
+        })
     }
 }
 impl PartialEq for HookPort {
@@ -134,7 +138,7 @@ impl Game {
 
     /// Messages, handler calls and rejected roots since the last drain.
     pub fn take_script_report(&mut self) -> ScriptReport {
-        std::mem::take(&mut self.script_report)
+        std::mem::take(&mut self.script_report.0)
     }
 
     /// Note `run_started` and dispatch it. Hosts call this once for a new game
@@ -240,9 +244,7 @@ impl Game {
             Owner::Actor(actor) => self.actors.get(&actor).map(|a| a.location.region),
             Owner::Item(item) => self.items.get(&item).and_then(|item| match item.location {
                 ItemLocation::Ground(at) => Some(at.region),
-                ItemLocation::Carried(actor) => {
-                    self.actors.get(&actor).map(|a| a.location.region)
-                }
+                ItemLocation::Carried(actor) => self.actors.get(&actor).map(|a| a.location.region),
             }),
         }
     }
@@ -264,13 +266,22 @@ impl Game {
                     HookKind::DoorChanged,
                     Some(actor),
                     |game| game.world.door_location(door).map(FactKeys::at),
-                    |_, keys| Some(FactSubject::Door { at: keys.cell?, open }),
+                    |_, keys| {
+                        Some(FactSubject::Door {
+                            at: keys.cell?,
+                            open,
+                        })
+                    },
                 );
             }
-            OutcomeKind::Taken { result, quantity, .. } => {
+            OutcomeKind::Taken {
+                result, quantity, ..
+            } => {
                 self.note_item_hook(HookKind::ItemTaken, actor, result, quantity);
             }
-            OutcomeKind::Dropped { result, quantity, .. } => {
+            OutcomeKind::Dropped {
+                result, quantity, ..
+            } => {
                 self.note_item_hook(HookKind::ItemDropped, actor, result, quantity);
             }
             OutcomeKind::Waited => {
@@ -454,21 +465,34 @@ impl Game {
     fn fire_due_timers(&mut self) {
         let tick = self.tick;
         let fired = self.script.as_mut().expect("scripted").take_due(tick);
-        for (timer, Timer { handler, owner, arg, .. }) in fired {
+        for (
+            timer,
+            Timer {
+                handler,
+                owner,
+                arg,
+                ..
+            },
+        ) in fired
+        {
             if !self.owner_exists(owner) {
                 continue;
             }
             crate::diagnostics::hook_fact_noted();
-            self.script.as_mut().expect("scripted").pending.push(PendingFact {
-                handler,
-                binding: None,
-                fact: HookFact {
-                    kind: HookKind::Timer,
-                    tick,
-                    actor: None,
-                    subject: FactSubject::Timer { timer, arg },
-                },
-            });
+            self.script
+                .as_mut()
+                .expect("scripted")
+                .pending
+                .push(PendingFact {
+                    handler,
+                    binding: None,
+                    fact: HookFact {
+                        kind: HookKind::Timer,
+                        tick,
+                        actor: None,
+                        subject: FactSubject::Timer { timer, arg },
+                    },
+                });
         }
     }
 
@@ -499,7 +523,11 @@ impl Game {
             self.hook_mask = state.mask();
         }
         let facts: Vec<HookFact> = batch.into_iter().map(|pending| pending.fact).collect();
-        let host = self.hook_port.0.clone().ok_or(fail(FailureReason::NoHost))?;
+        let host = self
+            .hook_port
+            .0
+            .clone()
+            .ok_or(fail(FailureReason::NoHost))?;
         crate::diagnostics::hook_handler_called();
         let before = budget.remaining;
         let output = host
@@ -596,7 +624,9 @@ impl Game {
                 }
                 let frozen = owner
                     .and_then(|owner| self.owner_region(owner))
-                    .is_some_and(|region| self.region_state(region) == Some(crate::streaming::RegionState::Frozen));
+                    .is_some_and(|region| {
+                        self.region_state(region) == Some(crate::streaming::RegionState::Frozen)
+                    });
                 let clock = if frozen {
                     TimerClock::Frozen { remaining: *after }
                 } else {
@@ -648,13 +678,11 @@ impl Game {
             ScriptEffect::RemoveItem { item } => {
                 let removable = self.items.get(item).is_some_and(|stock| {
                     matches!(stock.location, ItemLocation::Ground(_)) && stock.holds.is_empty()
-                }) && self
-                    .unique_retrieval_policy()
-                    .is_none_or(|policy| {
-                        self.items
-                            .get(item)
-                            .is_some_and(|stock| stock.spec.identity != policy.item.identity)
-                    });
+                }) && self.unique_retrieval_policy().is_none_or(|policy| {
+                    self.items
+                        .get(item)
+                        .is_some_and(|stock| stock.spec.identity != policy.item.identity)
+                });
                 if !removable {
                     return Err("item cannot be removed");
                 }
@@ -667,16 +695,56 @@ impl Game {
                     .map(|a| a.location)
                     .ok_or("unknown actor")?;
                 let first = !self.actors[actor].visited.contains(&to.region);
-                self.teleport(*actor, *to).map_err(|_| "destination unavailable")?;
+                self.teleport(*actor, *to)
+                    .map_err(|_| "destination unavailable")?;
                 let (actor, to) = (*actor, *to);
                 self.note_moved(actor, from, to);
                 if first {
                     self.note_first_visit(actor, to.region);
                 }
             }
-            ScriptEffect::EndRun { end, actor } => self.script_end_run(*end, *actor)?,
+            ScriptEffect::EndRun {
+                end,
+                actor,
+                terminal,
+            } => self.script_end_run(*end, *actor, *terminal)?,
+            ScriptEffect::StopArena { winner } => self.script_stop_arena(winner.clone())?,
+            ScriptEffect::SetGoal {
+                audience,
+                segments,
+                cell,
+            } => {
+                if !super::valid_message(segments) {
+                    return Err("invalid goal");
+                }
+                // A goal's cell may lie in a region nobody has entered yet,
+                // such as Rogue's surface exit seen from floor 26. Clients
+                // learn only its opaque key until the character sees it.
+                let goal = super::Goal {
+                    segments: segments.clone(),
+                    cell: *cell,
+                };
+                for actor in self.goal_audience(*audience)? {
+                    self.script_mut()
+                        .set_goal(actor, goal.clone())
+                        .ok_or("too many goals")?;
+                }
+            }
+            ScriptEffect::ClearGoal { audience } => {
+                for actor in self.goal_audience(*audience)? {
+                    self.script_mut().clear_goal(actor);
+                }
+            }
         }
         Ok(())
+    }
+
+    fn goal_audience(&self, audience: Audience) -> Result<Vec<ActorId>, &'static str> {
+        match audience {
+            Audience::Actor(actor) if self.actors.contains_key(&actor) => Ok(vec![actor]),
+            Audience::Actor(_) => Err("unknown goal audience"),
+            Audience::Characters => Ok(self.combat.characters.iter().copied().collect()),
+        }
     }
 
     fn script_mut(&mut self) -> &mut ScriptState {
@@ -724,28 +792,34 @@ impl Game {
         Ok(())
     }
 
-    fn script_end_run(&mut self, end: RunEnd, actor: Option<ActorId>) -> Result<(), &'static str> {
+    fn script_end_run(
+        &mut self,
+        end: RunEnd,
+        actor: Option<ActorId>,
+        terminal: bool,
+    ) -> Result<(), &'static str> {
         if let Some(actor) = actor {
             if !self.combat.characters.contains(&actor) {
                 return Err("run end names a non-character");
             }
         }
+        let first = self.combat.characters.iter().next().copied();
         let crate::run_policy::RunMode::Adventure(run) = &mut self.combat.run else {
-            return Err("arena runs end by their own policy");
+            return Err("arenas end with end_arena");
         };
         if run.outcome.terminal {
             return Ok(());
         }
         match end {
+            // A continuing victory keeps its first victor; play goes on until
+            // a later terminal end.
             RunEnd::Victory => {
-                let victor = actor
-                    .or_else(|| self.combat.characters.iter().next().copied())
-                    .ok_or("no character to win")?;
-                run.outcome.victor = Some(victor);
+                let victor = actor.or(first).ok_or("no character to win")?;
+                run.outcome.victor.get_or_insert(victor);
+                run.outcome.terminal = terminal;
             }
-            RunEnd::Defeat => {}
+            RunEnd::Defeat => run.outcome.terminal = true,
         }
-        run.outcome.terminal = true;
         Ok(())
     }
 }
@@ -754,7 +828,10 @@ impl Game {
 fn group(pending: Vec<PendingFact>) -> Vec<(HandlerId, Vec<PendingFact>)> {
     let mut groups: Vec<(HandlerId, Vec<PendingFact>)> = Vec::new();
     for fact in pending {
-        match groups.iter_mut().find(|(handler, _)| *handler == fact.handler) {
+        match groups
+            .iter_mut()
+            .find(|(handler, _)| *handler == fact.handler)
+        {
             Some((_, batch)) => batch.push(fact),
             None => groups.push((fact.handler, vec![fact])),
         }

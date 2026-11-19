@@ -72,15 +72,17 @@ fn self_device_source(root: &Path, with_other: bool, condition: bool) -> crate::
     manifest["archetypes"]["ember"]["device"]["discovery"] = json!("never");
     let manifest = serde_json::from_value(manifest).unwrap();
     let regions = source.region_defs().unwrap();
-    let checked = Package::from_parts(manifest, regions, &rules).unwrap();
+    let checked =
+        Package::from_parts_scripted(manifest, regions, &rules, source.scripts.clone()).unwrap();
     checked.check().unwrap();
     // Use the ordinary source writer so deletion below is real filesystem
     // absence, not only replacement of an in-memory Scenario argument.
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         &rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();
@@ -577,14 +579,20 @@ fn on_use_self_condition_identifies_only_on_completion_and_other_owner_remains_u
     peer_item["at"] = json!([5, 2, 0]);
     regions[0] = serde_json::from_value(region).unwrap();
     let rules = toml::to_string(package.rules().unwrap().document()).unwrap();
-    let package =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let package = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        package.scripts.clone(),
+    )
+    .unwrap();
     package.check().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root.path(),
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root.path()).unwrap();
@@ -798,18 +806,20 @@ fn late_store_rejection_rolls_back_self_effect_charge_and_on_use_identity() {
     let mut manifest = serde_json::to_value(&package.manifest).unwrap();
     manifest["archetypes"]["ember"]["device"]["discovery"] = json!("on_use");
     let rules = toml::to_string(package.rules().unwrap().document()).unwrap();
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         package.region_defs().unwrap(),
         &rules,
+        package.scripts.clone(),
     )
     .unwrap();
     package.check().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         &root,
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     let fixture = crate::scenario_package::load(&root, 42, None, true).unwrap();
@@ -988,7 +998,7 @@ fn imported_nothing_source(root: &Path) -> crate::Scenario {
     ] {
         manifest[key] = json!({});
     }
-    for key in ["floor_activation", "unique_retrieval", "objective"] {
+    for key in ["floor_activation", "unique_retrieval", "scripting"] {
         manifest[key] = Value::Null;
     }
     assert_eq!(manifest["archetypes"], original_items);
@@ -1001,7 +1011,8 @@ fn imported_nothing_source(root: &Path) -> crate::Scenario {
         ]
     }))
     .unwrap();
-    let checked = Package::from_parts(
+    let checked = Package::from_parts_at(
+        &production_root,
         serde_json::from_value(manifest).unwrap(),
         vec![region],
         &rules,
@@ -1018,11 +1029,12 @@ fn imported_nothing_source(root: &Path) -> crate::Scenario {
             .consume_turns,
         1
     );
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         &rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();
@@ -1183,14 +1195,20 @@ fn authored_room_light_source(root: &Path, passage: bool) -> crate::Scenario {
     // item before testing the actual paid device. No synthetic item injection.
     region["items"] = json!([{"id":30,"at":[1,2,0],"archetype":"ember","carried_by":1}]);
     regions[0] = serde_json::from_value(region).unwrap();
-    let checked =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let checked = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     checked.check().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &checked.manifest,
         &checked.region_defs().unwrap(),
         &rules,
+        &checked.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();
@@ -1360,14 +1378,22 @@ fn enabled_room_light_requires_metadata_but_unused_import_does_not() {
     let mut manifest = source.manifest.clone();
     manifest.spatial_scopes.clear();
     let regions = source.region_defs().unwrap();
-    let enabled = Package::from_parts(manifest.clone(), regions.clone(), &rules).unwrap();
+    let enabled = Package::from_parts_scripted(
+        manifest.clone(),
+        regions.clone(),
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     assert!(
         enabled.check().is_err(),
         "actually reachable RoomLight needs canonical metadata"
     );
     let mut unused_regions = regions;
     unused_regions[0].items.clear();
-    let unused = Package::from_parts(manifest, unused_regions, &rules).unwrap();
+    let unused =
+        Package::from_parts_scripted(manifest, unused_regions, &rules, source.scripts.clone())
+            .unwrap();
     unused.check().unwrap();
     assert!(unused
         .manifest
@@ -1465,19 +1491,21 @@ fn managed_remote_room_light(foreign_face: bool, connected: bool) {
     } else {
         definitions.push(serde_json::from_value(remote_definition).unwrap());
     }
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         definitions,
         &rules,
+        source.scripts.clone(),
     )
     .unwrap();
     package.check().unwrap();
     assert!(package.manifest.floor_activation.is_none());
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         &root,
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     crate::scenario_package::check(&root).unwrap();
@@ -1759,13 +1787,25 @@ fn paid_generated_room_light(maze: bool) {
     manifest["generation_recipes"] = json!({"room":recipe});
     manifest["procedural_worlds"] = json!({"dungeon":{"kind":"grid_chain","version":1,"base_region":1,"grid":[2,1],"size":[32,32,2],"recipe":"room","domain":{"kind":"open","max_depth":2}}});
     let rules = toml::to_string(source.rules().unwrap().document()).unwrap();
-    let package =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), vec![], &rules).unwrap();
+    let package = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        vec![],
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     package.check().unwrap();
     // The baseline wrote an authored region file. Do not let that stale file
     // collide with the genuine procedural family in the on-disk validator.
     std::fs::remove_dir_all(&root).unwrap();
-    crate::scenario_package::write_package(&root, &package.manifest, &[], &rules).unwrap();
+    crate::scenario_package::write_package_scripted(
+        &root,
+        &package.manifest,
+        &[],
+        &rules,
+        &package.scripts,
+    )
+    .unwrap();
     crate::scenario_package::check(&root).unwrap();
     let scenario = crate::scenario_package::load(&root, 42, None, true).unwrap();
     let mut wire = Wire::new(Engine::open(&path, scenario).unwrap());
@@ -1884,10 +1924,11 @@ fn drain_life_source(root: &Path, health: u64, caster: [i32; 3], targets: bool) 
     };
     definitions[0] = serde_json::from_value(region).unwrap();
     let rules_text = toml::to_string(rules.document()).unwrap();
-    let checked = Package::from_parts(
+    let checked = Package::from_parts_scripted(
         serde_json::from_value(manifest).unwrap(),
         definitions,
         &rules_text,
+        source.scripts.clone(),
     )
     .unwrap();
     checked.check().unwrap();
@@ -2096,15 +2137,21 @@ fn managed_drain_life_zero_share_alerts_remote_frozen_actor_without_waking_or_di
         )
         .unwrap(),
     );
-    let package =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let package = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     package.check().unwrap();
     assert!(package.manifest.floor_activation.is_none());
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         &root,
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     crate::scenario_package::check(&root).unwrap();
@@ -2468,14 +2515,20 @@ fn hidden_drain_observations(count: u64) -> (Value, Value, Value, Value) {
     region["lighting"] = json!([]);
     region["actors"]=json!((0..count).map(|i|json!({"id":i+2,"at":[5,if i==0 {1}else{3},0],"turn_ticks":100,"controller":"external","creature":creature})).collect::<Vec<_>>());
     regions[0] = serde_json::from_value(region).unwrap();
-    let package =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let package = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     package.check().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         &root,
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     crate::scenario_package::check(&root).unwrap();
@@ -2725,16 +2778,22 @@ fn first_contact_chain_source(root: &Path, noncombat: bool, ordinary: bool) -> c
         }
         regions.push(serde_json::from_value(value).unwrap());
     }
-    let package =
-        Package::from_parts(serde_json::from_value(manifest).unwrap(), regions, &rules).unwrap();
+    let package = Package::from_parts_scripted(
+        serde_json::from_value(manifest).unwrap(),
+        regions,
+        &rules,
+        source.scripts.clone(),
+    )
+    .unwrap();
     package.check().unwrap();
     assert!(package.manifest.floor_activation.is_none());
     assert!(package.manifest.spatial_scopes.is_empty());
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         root,
         &package.manifest,
         &package.region_defs().unwrap(),
         &rules,
+        &package.scripts,
     )
     .unwrap();
     crate::scenario_package::check(root).unwrap();

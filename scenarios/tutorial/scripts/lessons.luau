@@ -50,4 +50,9 @@ function lessons.exit(ctx, facts)
     end
 end
 
+function lessons.died(ctx, facts)
+    ctx:message("You died. Every run ends when its hero does.", { style = "narration" })
+    ctx:lose(facts[1].actor)
+end
+
 return lessons

@@ -801,12 +801,13 @@ impl Game {
                     actor.action_duration_ticks(actor.turn_ticks.get())?,
                 )
             }
-            Action::Move(direction) if self.is_terminal_exit(id, actor.location, direction) => (
-                OutcomeKind::Escaped {
-                    item: self.prepare_terminal_escape(id, direction)?,
-                },
-                0,
-            ),
+            Action::Move(direction) if self.is_terminal_exit(id, actor.location, direction) => {
+                self.prepare_terminal_escape(id, direction)?;
+                (
+                    OutcomeKind::Escaped,
+                    actor.action_duration_ticks(actor.turn_ticks.get())?,
+                )
+            }
             Action::Move(direction) => {
                 let mut destination = self.actor_translation(id, direction);
                 if let Some((landing, orientation)) = (destination.is_none()
@@ -912,10 +913,8 @@ impl Game {
         let _diagnostic_span = crate::diagnostics::spans::span("action_effect");
         let id = prepared.actor;
         let kind = prepared.kind.clone();
-        if let OutcomeKind::Escaped { item } = kind {
-            if self.prepare_terminal_escape(id, tor_world::Direction::Up)? != item {
-                return Err(GameError::ItemUnavailable);
-            }
+        if let OutcomeKind::Escaped = kind {
+            self.prepare_terminal_escape(id, tor_world::Direction::Up)?;
         }
         if let OutcomeKind::GrowthSourceChosen { basis, source } = &kind {
             let (_, outcome) = self.prepare_player_growth_source(id, basis, source)?;
@@ -1019,7 +1018,7 @@ impl Game {
                 self.touch_readied_ambush(subject, id)?;
             }
             OutcomeKind::Moved { .. } => {}
-            OutcomeKind::Escaped { item } => self.commit_terminal_escape(id, item)?,
+            OutcomeKind::Escaped => {}
             OutcomeKind::Taken { .. }
             | OutcomeKind::Dropped { .. }
             | OutcomeKind::Crumbled { .. } => {}
@@ -1047,7 +1046,7 @@ impl Game {
             .ok_or(GameError::UnknownActor)?
             .ready_at = ready_at;
         self.note_action_hooks(id, &kind);
-        if !matches!(kind, OutcomeKind::Escaped { .. }) && !self.region_transition_pending() {
+        if !self.region_transition_pending() {
             self.resolve_preparations()?;
             self.settle_script_hooks()?;
             self.check_run_policy()?;
@@ -1091,16 +1090,21 @@ impl Game {
                 self.resolve_preparations()?;
                 self.settle_script_hooks()?;
                 self.check_run_policy()?;
-            } else if self.next_script_timer_tick().is_some_and(|due| due <= self.tick) {
+            } else if self
+                .next_script_timer_tick()
+                .is_some_and(|due| due <= self.tick)
+            {
                 self.settle_script_hooks()?;
                 self.check_run_policy()?;
             }
             if self.next_actor().map_or_else(
                 // Timer wakes do not create a controller decision. When
                 // everyone is preparing, continue to the next completion.
-                || self.next_attack_tick().is_none()
-                    && self.next_creature_event_tick().is_none()
-                    && self.next_script_timer_tick().is_none(),
+                || {
+                    self.next_attack_tick().is_none()
+                        && self.next_creature_event_tick().is_none()
+                        && self.next_script_timer_tick().is_none()
+                },
                 |id| self.actors[&id].ready_at <= self.tick,
             ) {
                 break;

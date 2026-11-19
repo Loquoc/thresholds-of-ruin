@@ -1,14 +1,13 @@
 //! Persisted script values and the derived binding index.
 
 use super::{
-    ActorClass, BindingId, FactKeys, FilterKey, HandlerId, HookFact, HookKind, Owner, ScopeKind,
-    TimerId,
-    Value, ValueType, VarScope, MAX_BINDINGS, MAX_NAME_BYTES, MAX_PENDING_FACTS, MAX_TEXT_BYTES,
-    MAX_TIMERS, MAX_VARIABLES,
+    ActorClass, BindingId, FactKeys, FilterKey, Goal, HandlerId, HookFact, HookKind, Owner,
+    ScopeKind, TimerId, Value, ValueType, VarScope, MAX_BINDINGS, MAX_GOALS, MAX_NAME_BYTES,
+    MAX_PENDING_FACTS, MAX_TEXT_BYTES, MAX_TIMERS, MAX_VARIABLES,
 };
+use crate::{ActorId, ItemId, ItemIdentity};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use crate::{ActorId, ItemId, ItemIdentity};
 use tor_world::{Location, RegionId, Shared};
 
 /// A subscription: plain data keyed by a stable identity.
@@ -216,6 +215,7 @@ pub struct ScriptState {
     pub(crate) bindings: Shared<BTreeMap<BindingId, Binding>>,
     pub(crate) timers: Shared<BTreeMap<TimerId, Timer>>,
     pub(crate) vars: Shared<BTreeMap<(VarScope, String), Value>>,
+    pub(crate) goals: Shared<BTreeMap<ActorId, Goal>>,
     pub(crate) rng: u64,
     pub(crate) next_binding: u64,
     pub(crate) next_timer: u64,
@@ -232,12 +232,13 @@ pub struct ScriptState {
 impl Serialize for ScriptState {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("ScriptState", 9)?;
+        let mut s = serializer.serialize_struct("ScriptState", 10)?;
         s.serialize_field("handlers", &self.handlers)?;
         s.serialize_field("schema", &*self.schema)?;
         s.serialize_field("bindings", &self.bindings.iter().collect::<Vec<_>>())?;
         s.serialize_field("timers", &self.timers.iter().collect::<Vec<_>>())?;
         s.serialize_field("vars", &self.vars.iter().collect::<Vec<_>>())?;
+        s.serialize_field("goals", &self.goals.iter().collect::<Vec<_>>())?;
         s.serialize_field("rng", &self.rng)?;
         s.serialize_field("next_binding", &self.next_binding)?;
         s.serialize_field("next_timer", &self.next_timer)?;
@@ -256,6 +257,7 @@ impl<'de> Deserialize<'de> for ScriptState {
             bindings: Vec<(BindingId, Binding)>,
             timers: Vec<(TimerId, Timer)>,
             vars: Vec<((VarScope, String), Value)>,
+            goals: Vec<(ActorId, Goal)>,
             rng: u64,
             next_binding: u64,
             next_timer: u64,
@@ -266,24 +268,28 @@ impl<'de> Deserialize<'de> for ScriptState {
         if f.bindings.len() > MAX_BINDINGS
             || f.timers.len() > MAX_TIMERS
             || f.vars.len() > MAX_VARIABLES
+            || f.goals.len() > MAX_GOALS
             || f.pending.len() > MAX_PENDING_FACTS
         {
             return Err(invalid("capacity"));
         }
         if !strictly_ordered(f.bindings.iter().map(|(id, _)| id.0))
-            || f.bindings.iter().any(|(id, b)| id.0 >= f.next_binding || !b.valid(f.handlers))
+            || f.bindings
+                .iter()
+                .any(|(id, b)| id.0 >= f.next_binding || !b.valid(f.handlers))
         {
             return Err(invalid("binding"));
         }
         if !strictly_ordered(f.timers.iter().map(|(id, _)| id.0))
-            || f.timers.iter().any(|(id, t)| id.0 >= f.next_timer || t.handler.0 >= f.handlers)
+            || f.timers
+                .iter()
+                .any(|(id, t)| id.0 >= f.next_timer || t.handler.0 >= f.handlers)
         {
             return Err(invalid("timer"));
         }
         let bindings: BTreeMap<_, _> = f.bindings.into_iter().collect();
         let timers: BTreeMap<_, _> = f.timers.into_iter().collect();
-        if f
-            .schema
+        if f.schema
             .variables
             .keys()
             .any(|name| !super::bounded_name(name) || name.len() > MAX_NAME_BYTES)
@@ -298,16 +304,21 @@ impl<'de> Deserialize<'de> for ScriptState {
                 return Err(invalid("variable"));
             }
         }
-        if f
-            .pending
-            .iter()
-            .any(|pending| {
-                pending.handler.0 >= f.handlers
-                    || pending.binding.is_some_and(|id| {
-                        bindings.get(&id).is_none_or(|b| b.handler != pending.handler)
-                    })
-            })
+        if !strictly_ordered(f.goals.iter().map(|(actor, _)| actor.0))
+            || f.goals
+                .iter()
+                .any(|(_, goal)| !super::valid_message(&goal.segments))
         {
+            return Err(invalid("goal"));
+        }
+        if f.pending.iter().any(|pending| {
+            pending.handler.0 >= f.handlers
+                || pending.binding.is_some_and(|id| {
+                    bindings
+                        .get(&id)
+                        .is_none_or(|b| b.handler != pending.handler)
+                })
+        }) {
             return Err(invalid("pending fact"));
         }
         let mut state = ScriptState {
@@ -316,6 +327,7 @@ impl<'de> Deserialize<'de> for ScriptState {
             bindings: Shared::new(bindings),
             timers: Shared::new(timers),
             vars: Shared::new(vars),
+            goals: Shared::new(f.goals.into_iter().collect()),
             rng: f.rng,
             next_binding: f.next_binding,
             next_timer: f.next_timer,
@@ -347,6 +359,7 @@ impl ScriptState {
             bindings: Shared::default(),
             timers: Shared::default(),
             vars: Shared::default(),
+            goals: Shared::default(),
             // A dedicated stream: script draws never touch rules randomness.
             rng: crate::dice::random_word_at(seed ^ 0x746f_722d_7363_7269, 1),
             next_binding: 1,
@@ -404,6 +417,9 @@ impl ScriptState {
     pub fn rng(&self) -> u64 {
         self.rng
     }
+    pub fn goal(&self, actor: ActorId) -> Option<&Goal> {
+        self.goals.get(&actor)
+    }
     pub fn next_binding(&self) -> BindingId {
         BindingId(self.next_binding)
     }
@@ -453,6 +469,18 @@ impl ScriptState {
         }
         self.vars.remove(&(scope, name));
         Some(())
+    }
+
+    pub(crate) fn set_goal(&mut self, actor: ActorId, goal: Goal) -> Option<()> {
+        if !self.goals.contains_key(&actor) && self.goals.len() >= MAX_GOALS {
+            return None;
+        }
+        self.goals.insert(actor, goal);
+        Some(())
+    }
+
+    pub(crate) fn clear_goal(&mut self, actor: ActorId) {
+        self.goals.remove(&actor);
     }
 
     pub(crate) fn start_timer(&mut self, id: TimerId, timer: Timer) -> Option<()> {

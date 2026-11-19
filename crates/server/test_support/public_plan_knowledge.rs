@@ -254,8 +254,13 @@ fn streaming_observer_scenario() -> Scenario {
     inert.portals.clear();
     regions.extend([gallery, inert]);
     scenario.package = Some(Arc::new(
-        crate::scenario_package::Package::from_parts(manifest, regions, &package.rules_source)
-            .unwrap(),
+        crate::scenario_package::Package::from_parts_scripted(
+            manifest,
+            regions,
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap(),
     ));
     scenario.streaming = Some(crate::Streaming {
         active_radius: 0,
@@ -515,8 +520,13 @@ fn private_work_scenario() -> Scenario {
     clock.creature.as_mut().unwrap().name = "clock figure".into();
     regions[0].actors.push(clock);
     scenario.package = Some(Arc::new(
-        crate::scenario_package::Package::from_parts(manifest, regions, &package.rules_source)
-            .unwrap(),
+        crate::scenario_package::Package::from_parts_scripted(
+            manifest,
+            regions,
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap(),
     ));
     scenario
 }

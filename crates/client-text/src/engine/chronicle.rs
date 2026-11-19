@@ -108,7 +108,8 @@ pub enum Beat {
     Victory {
         terminal: bool,
     },
-    Objective(ObjectiveKind),
+    /// The scenario's new goal, with controls named as this client's commands.
+    Goal(String),
     /// Server-authored tutorial, hint or narration text, with controls
     /// already named as this client's commands. Told on its own line.
     UserMessage {
@@ -219,7 +220,7 @@ impl Chronicler {
             OutcomeFact::Injured { .. } => 5,
             OutcomeFact::PublicPlan { .. } => 6,
             OutcomeFact::Status { .. } => 7,
-            OutcomeFact::Objective { .. } => 8,
+            OutcomeFact::Goal { .. } => 8,
             OutcomeFact::Noticed { .. } => 9,
             OutcomeFact::LostSight { .. } => 10,
             OutcomeFact::DoorChanged { .. } => 11,
@@ -236,8 +237,11 @@ impl Chronicler {
                     });
                     continue;
                 }
-                OutcomeFact::Objective { objective } => {
-                    beats.push(Beat::Objective(*objective));
+                OutcomeFact::Goal { segments } => {
+                    beats.push(Beat::Goal(tor_client_common::narration::goal_text(
+                        segments,
+                        &crate::controls::command,
+                    )));
                     continue;
                 }
                 OutcomeFact::UserMessage { style, segments } => {
@@ -387,7 +391,7 @@ impl Chronicler {
                 }
                 OutcomeFact::Pacing { .. } => {}
                 OutcomeFact::Injured { .. }
-                | OutcomeFact::Objective { .. }
+                | OutcomeFact::Goal { .. }
                 | OutcomeFact::UserMessage { .. } => unreachable!(),
             }
         }
@@ -585,9 +589,13 @@ impl Chronicler {
                     terminal: combat.terminal,
                 });
             }
-            if let Some(objective) = combat.objective {
-                if old.is_none_or(|c| c.objective.is_none()) {
-                    beats.push(Beat::Objective(objective));
+            if let Some(goal) = &combat.goal {
+                if old.is_none_or(|c| c.goal.as_ref().map(|g| &g.segments) != Some(&goal.segments))
+                {
+                    beats.push(Beat::Goal(tor_client_common::narration::goal_text(
+                        &goal.segments,
+                        &crate::controls::command,
+                    )));
                 }
             }
         }
@@ -1045,7 +1053,12 @@ mod tests {
         combat.preparation_active = true;
         combat.hp = 40;
         combat.victory = true;
-        combat.objective = Some(ObjectiveKind::RetrieveAndReturn);
+        combat.goal = Some(tor_protocol::GoalView {
+            segments: vec![tor_protocol::UserMessageSegment::Text(
+                "Bring the seal back to the exit.".into(),
+            )],
+            cell: None,
+        });
         let facts = OutcomeFacts::capture(&before.observation, &after.observation, None);
         let expected = Chronicler::default().observe(&before, &after, None, &Palette::default());
         let mut current = Chronicler::default();
@@ -1061,7 +1074,7 @@ mod tests {
                 Beat::SequenceStatus(_),
                 Beat::Hp { .. },
                 Beat::Victory { .. },
-                Beat::Objective(_),
+                Beat::Goal(_),
             ]
         ));
     }

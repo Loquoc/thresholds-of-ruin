@@ -324,44 +324,6 @@ fn drinking_consumes_at_completion_and_identifies_only_observable_effects() {
 }
 
 #[test]
-fn consumed_objective_remains_unmet_and_its_checkpoint_is_valid() {
-    let (mut game, actor, _) = fixture(true);
-    let mut spec = ItemSpec::ordinary(
-        "item.test.objective-potion".parse().unwrap(),
-        "objective potion".into(),
-    );
-    spec.class = ItemClass::Potion;
-    spec.consumable = Some(ConsumableSpec {
-        descriptors: vec![],
-        discovery: tor_simulation::ItemDiscovery::SelfEffect,
-        effects: vec![Effect::Heal {
-            amount: AmountExpr::Fixed { amount: 1 },
-        }],
-    });
-    game.place_item_stack(20, at(1), Some(actor), 1, spec)
-        .unwrap();
-    game.configure_run(
-        actor,
-        std::collections::BTreeSet::from([actor]),
-        Some(tor_simulation::combat::Objective {
-            anchor: at(4),
-            item: Some(ItemId(20)),
-            continue_play: false,
-            disclosed: true,
-        }),
-        BTreeMap::new(),
-    )
-    .unwrap();
-    drink(&mut game, actor, ItemId(20));
-    finish(&mut game, actor);
-    assert!(game.observe(actor).unwrap().inventory.is_empty());
-    let mut shared = SharedState::default();
-    let snapshot = game.checkpoint(&mut shared);
-    assert!(Game::restore_checkpoint(snapshot, &shared, game.content().clone()).is_ok());
-    assert!(!game.observe(actor).unwrap().combat.unwrap().victory);
-}
-
-#[test]
 fn invalid_effect_sequence_is_atomic_and_lethal_sequence_never_revives() {
     let (mut game, actor, _) = fixture(true);
     let before = game.clone();
@@ -529,7 +491,6 @@ fn newly_visible_hostility_pauses_work_but_resume_accepts_the_existing_threat() 
     game.configure_run(
         actor,
         std::collections::BTreeSet::from([actor]),
-        None,
         BTreeMap::from([(
             "neutral".into(),
             std::collections::BTreeSet::from(["enemy".into()]),

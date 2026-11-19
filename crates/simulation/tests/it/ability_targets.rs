@@ -408,7 +408,6 @@ fn phase5_supportive_selector_rejects_either_hostility_direction_and_same_factio
         game.configure_run(
             actor,
             BTreeSet::from([actor]),
-            None,
             BTreeMap::from([(edge.0.into(), BTreeSet::from([edge.1.into()]))]),
         )
         .unwrap();
@@ -596,7 +595,6 @@ fn phase5_supportive_target_is_rechecked_at_queued_start_and_resolution() {
         game.configure_run(
             actor,
             BTreeSet::from([actor]),
-            None,
             BTreeMap::from([("neutral".into(), BTreeSet::from(["neutral".into()]))]),
         )
         .unwrap();

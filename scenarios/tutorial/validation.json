@@ -5,14 +5,14 @@
   "ruleset_dependencies": {
     "interactions-v72": "78ca10a7744b853cf9603b0d2d5bcd13b6f8ca304bbb43b71d9dacd97fc357e1"
   },
-  "content_hash": "21c8ded0dbdd4419bac4f51babbf0cd909453c55a4f73aab33d3e07d0769a4d3",
+  "content_hash": "a148b10250207d53d433df2fea35d09ef6951ab121e04e3a827e7d38cf4f586b",
   "files": {
     "index.json": "9c436206c90fae5255abe50c5290384c9ef520060987bc0a7fddd377380b1783",
     "rules.toml": "c1e418e4c8de1a933c66fe33d5c2e1946737ad6a0645d89286e859ae1bae6e6c",
-    "scenario.toml": "b0a335ccc7b22032589402a2caa0a00dfe1b564a01900535671851284882f513",
-    "scripts/lessons.luau": "fc162ff4206791e078b8e35ae9c6dba45965fa37553123e12e14192259cb3f14"
+    "scenario.toml": "455912cf35500d0b804f282873331c801046599bd76f0dd40dc0b1737f490b67",
+    "scripts/lessons.luau": "4387b9daf3a12b374e4ea4cc791a5a34a3ce2d320720af9254d4f763d06453fc"
   },
   "regions": 1,
-  "model_hash": "36045f49e0ff3a33b2f427cfa094d12eb75cd02308048a5f33cdfb3511d7e969",
+  "model_hash": "780ab7fbb49aadf907df850a374c639d0ec9e4b47be5e94640106dea46db9b5b",
   "coverage": "all authored regions and character starts; descriptor structural bounds; deterministic sampled groups at seeds 0, 1, 42 under explicit work budget; no all-seed or winnability proof"
 }

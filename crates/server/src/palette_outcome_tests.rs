@@ -51,11 +51,12 @@ fn fixture() -> (tempfile::TempDir, Service, Connection, BTreeSet<String>) {
         );
     }
     let directory = tempfile::tempdir().unwrap();
-    crate::scenario_package::write_package(
+    crate::scenario_package::write_package_scripted(
         directory.path(),
         &manifest,
         &regions,
         &package.rules_source,
+        &package.scripts,
     )
     .unwrap();
     let mut scenario = crate::scenario_package::load(directory.path(), 5, None, true).unwrap();

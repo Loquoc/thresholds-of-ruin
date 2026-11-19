@@ -16,7 +16,9 @@ pub struct ScriptView<'a> {
 
 impl std::fmt::Debug for ScriptView<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ScriptView").field("tick", &self.game.tick).finish()
+        f.debug_struct("ScriptView")
+            .field("tick", &self.game.tick)
+            .finish()
     }
 }
 
@@ -42,6 +44,19 @@ impl<'a> ScriptView<'a> {
     }
     pub fn characters(&self) -> impl Iterator<Item = ActorId> + 'a {
         self.game.combat.characters.iter().copied()
+    }
+    /// The run's selected character, when a run is configured.
+    pub fn selected(&self) -> Option<ActorId> {
+        self.game.combat.selected
+    }
+    /// An actor's faction, when it has a creature build.
+    pub fn faction(&self, actor: ActorId) -> Option<&'a str> {
+        let combat = self.game.actors.get(&actor)?.combat.as_ref()?;
+        Some(combat.identity.faction.as_str())
+    }
+    /// The actor's current scripted goal.
+    pub fn goal(&self, actor: ActorId) -> Option<&'a super::Goal> {
+        self.state.goal(actor)
     }
     pub fn actor_location(&self, actor: ActorId) -> Option<Location> {
         self.game.actors.get(&actor).map(|actor| actor.location)

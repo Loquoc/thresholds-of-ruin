@@ -10,7 +10,8 @@ from process_harness import creature_package, resource
 class CreatureTemplateProcesses(ProcessTestCase):
     def test_template_grant_loss_cancels_paid_work_and_round_trips_restart_rewind(self):
         package = creature_package(self, "template-arena", hostile=True,
-                                   abilities=("fixture_stamina_strike",), extra_abilities=("fixture_focus_fear",))
+                                   abilities=("fixture_stamina_strike",), extra_abilities=("fixture_focus_fear",),
+                                   outcome="elimination")
         manifest = package / "scenario.toml"
         source = manifest.read_text(encoding="utf-8")
         source = source.replace('characters = [{ ',

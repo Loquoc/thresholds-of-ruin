@@ -43,11 +43,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             item.archetype = Some(format!("identity-{}", id % identities));
             regions[0].items.push(item);
         }
-        scenario_package::write_package(
+        scenario_package::write_package_scripted(
             directory.path(),
             &package.manifest,
             &regions,
             &package.rules_source,
+            &package.scripts,
         )?;
         scenario_package::validate(directory.path())?;
         for sample in 0..20 {

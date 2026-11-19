@@ -15,6 +15,7 @@ from unittest.mock import patch
 from rogue_test_support import disclosed_frames, ordered_combat_events
 from arena_matrix import toml_source
 from stream_relay import StreamRelay
+from outcome_scripts import apply
 from process_harness import (
     ProcessTestCase, ROOT, ascii_input_completion, headless_fight_completion, non_graphical,
 )
@@ -65,7 +66,8 @@ class AsciiMessageProcesses(ProcessTestCase):
         manifest = package / "scenario.toml"
         document = tomllib.loads(manifest.read_text(encoding="utf-8"))
         document["id"] = "ascii-message-combat"
-        del document["objective"]
+        # The replaced chamber has no seal: keep only the death outcome.
+        apply(document, package, "death")
         manifest.write_text(toml_source(document), encoding="utf-8", newline="\n")
         for region in (package / "regions").glob("*.toml"):
             region.unlink()

@@ -15,7 +15,8 @@ fn scenario(xeroc: bool) -> crate::Scenario {
     let production = resolve_source(&root).unwrap();
     let source = std::fs::read_to_string(root.join(&production.manifest.ruleset)).unwrap();
     // Compile through the authored package boundary before adding fixture probes.
-    let package = Package::from_parts(production.manifest.clone(), vec![], &source).unwrap();
+    let package =
+        Package::from_parts_at(&root, production.manifest.clone(), vec![], &source).unwrap();
     let mut rules = package.rules().unwrap().document().clone();
     let mut manifest = serde_json::to_value(production.manifest).unwrap();
     let production_subjects = ["rogue.phantom", "rogue.xeroc"].map(|id| {
@@ -105,7 +106,7 @@ fn scenario(xeroc: bool) -> crate::Scenario {
     ] {
         manifest[key] = json!({});
     }
-    for key in ["floor_activation", "unique_retrieval", "objective"] {
+    for key in ["floor_activation", "unique_retrieval", "scripting"] {
         manifest[key] = Value::Null;
     }
     for (index, id) in ["rogue.phantom", "rogue.xeroc"].into_iter().enumerate() {

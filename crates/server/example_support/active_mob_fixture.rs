@@ -138,7 +138,13 @@ pub fn make(root: &Path) -> Result<Scenario, Box<dyn std::error::Error>> {
             .collect();
         regions.push(region);
     }
-    scenario_package::write_package(root, &package.manifest, &regions, &package.rules_source)?;
+    scenario_package::write_package_scripted(
+        root,
+        &package.manifest,
+        &regions,
+        &package.rules_source,
+        &package.scripts,
+    )?;
     scenario_package::validate(root)?;
     let mut scenario = scenario_package::load(root, SEED, None, false)?;
     // This is deliberately an all-active stress case, not a large catalog with

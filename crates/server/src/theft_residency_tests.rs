@@ -61,8 +61,13 @@ fn scenario() -> Scenario {
          "bands":[{"depth":{"kind":"open","minimum":1},
             "choices":[{"archetype":"marker","weight":1}]}]}
     ]}}});
-    let package =
-        Package::from_parts(serde_json::from_value(source).unwrap(), vec![], &rules).unwrap();
+    let package = Package::from_parts_at(
+        &root,
+        serde_json::from_value(source).unwrap(),
+        vec![],
+        &rules,
+    )
+    .unwrap();
     Scenario {
         seed: 42,
         actors: vec![],

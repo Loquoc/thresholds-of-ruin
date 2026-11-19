@@ -1546,10 +1546,11 @@ mod tests {
     fn changed(package: &Package, edit: impl FnOnce(&mut Value)) -> Result<Package, Failure> {
         let mut value = serde_json::to_value(&package.manifest).unwrap();
         edit(&mut value);
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(value).map_err(|error| fail(error.to_string()))?,
             vec![],
             &package.rules_source,
+            package.scripts.clone(),
         )
     }
 
@@ -2453,7 +2454,13 @@ choices = [{ archetype = "marker", weight = 1, quantity = 1 }]
         // A plan has an initial marker; scratch records have no such allocation.
         let mut plain = package.manifest.clone();
         plain.floor_activation = None;
-        let plain = Package::from_parts(plain, vec![], &package.rules_source).unwrap();
+        let plain = Package::from_parts_scripted(
+            plain,
+            vec![],
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap();
         assert_eq!(
             first.records,
             plain
@@ -2501,7 +2508,13 @@ choices = [{ archetype = "marker", weight = 1, quantity = 1 }]
             "items":[{"id":item_id,"at":[1,1,0],"archetype":"marker"}]
         }))
         .unwrap();
-        Package::from_parts(package.manifest, vec![region], &package.rules_source).unwrap()
+        Package::from_parts_scripted(
+            package.manifest,
+            vec![region],
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap()
     }
 
     #[test]

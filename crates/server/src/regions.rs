@@ -958,8 +958,13 @@ mod declaration_error_tests {
         recipe.actors.as_mut().unwrap().count = [10, 10];
         recipe.items = None;
         let package = Arc::new(
-            Package::from_parts(source.manifest.clone(), definitions, &source.rules_source)
-                .unwrap(),
+            Package::from_parts_scripted(
+                source.manifest.clone(),
+                definitions,
+                &source.rules_source,
+                source.scripts.clone(),
+            )
+            .unwrap(),
         );
         let mut regions = Regions::new(package, 42, Streaming::default()).unwrap();
         let expected = regions

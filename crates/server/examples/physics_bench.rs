@@ -63,11 +63,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         item
                     })
                     .collect();
-                scenario_package::write_package(
+                scenario_package::write_package_scripted(
                     directory.path(),
                     &package.manifest,
                     &regions,
                     &package.rules_source,
+                    &package.scripts,
                 )?;
                 scenario_package::validate(directory.path())?;
                 let scenario = scenario_package::load(directory.path(), 42, None, false)?;

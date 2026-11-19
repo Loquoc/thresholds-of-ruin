@@ -16,9 +16,8 @@ fn at(x: i32) -> Location {
     }
 }
 
-type Reply = dyn Fn(ScriptView<'_>, &HookCall<'_>) -> Result<Vec<ScriptEffect>, FailureReason>
-    + Send
-    + Sync;
+type Reply =
+    dyn Fn(ScriptView<'_>, &HookCall<'_>) -> Result<Vec<ScriptEffect>, FailureReason> + Send + Sync;
 
 /// Records every call; answers with a closure.
 struct FakeHost {
@@ -50,7 +49,12 @@ impl HookHost for FakeHost {
     }
 }
 
-fn host(reply: impl Fn(ScriptView<'_>, &HookCall<'_>) -> Result<Vec<ScriptEffect>, FailureReason> + Send + Sync + 'static) -> Arc<FakeHost> {
+fn host(
+    reply: impl Fn(ScriptView<'_>, &HookCall<'_>) -> Result<Vec<ScriptEffect>, FailureReason>
+        + Send
+        + Sync
+        + 'static,
+) -> Arc<FakeHost> {
     Arc::new(FakeHost {
         reply: Box::new(reply),
         calls: Mutex::new(Vec::new()),
@@ -83,7 +87,7 @@ fn scripted(bindings: Vec<Binding>, host: Option<Arc<FakeHost>>) -> (Game, Actor
     let actor = game
         .spawn_actor(at(1), NonZeroU64::new(100).unwrap())
         .unwrap();
-    game.configure_run(actor, BTreeSet::from([actor]), None, BTreeMap::new())
+    game.configure_run(actor, BTreeSet::from([actor]), BTreeMap::new())
         .unwrap();
     game.install_scripts(ScriptSetup {
         handlers: 4,
@@ -131,7 +135,10 @@ fn unscripted_games_never_build_facts_or_call_a_host() {
     assert_eq!(game.hook_mask, 0);
     let snapshot = game.checkpoint(&mut SharedState::default());
     let json = serde_json::to_value(&snapshot).unwrap();
-    assert!(json.get("script").is_none(), "unscripted saves are unchanged");
+    assert!(
+        json.get("script").is_none(),
+        "unscripted saves are unchanged"
+    );
 }
 
 #[test]
@@ -197,9 +204,14 @@ fn roots_without_world_effects_never_clone_the_game() {
     game.settle_script_hooks().unwrap();
     let after = crate::diagnostics::work_counts();
     assert_eq!(fake.calls.lock().unwrap().len(), 1);
-    assert_eq!(after.game_clones, before.game_clones, "messages and variables need no checkpoint");
     assert_eq!(
-        game.script_state().unwrap().var(VarScope::Scenario, "count"),
+        after.game_clones, before.game_clones,
+        "messages and variables need no checkpoint"
+    );
+    assert_eq!(
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Scenario, "count"),
         Some(&Value::Int(1))
     );
 }
@@ -226,9 +238,18 @@ fn a_world_effect_checkpoints_once_and_a_rejected_root_restores_it() {
     let fake = host(move |_, _| {
         Ok(vec![
             set_count(3),
-            ScriptEffect::SetDoor { at: door, open: false },
-            ScriptEffect::SetDoor { at: door, open: true },
-            ScriptEffect::Teleport { actor: ActorId(999), to: at(1) },
+            ScriptEffect::SetDoor {
+                at: door,
+                open: false,
+            },
+            ScriptEffect::SetDoor {
+                at: door,
+                open: true,
+            },
+            ScriptEffect::Teleport {
+                actor: ActorId(999),
+                to: at(1),
+            },
         ])
     });
     game.set_hook_host(HookPort::new(fake));
@@ -239,7 +260,12 @@ fn a_world_effect_checkpoints_once_and_a_rejected_root_restores_it() {
     let after = crate::diagnostics::work_counts();
     assert_eq!(after.game_clones - before.game_clones, 1);
     assert_eq!(game.world.door(door).unwrap().open, open);
-    assert_eq!(game.script_state().unwrap().var(VarScope::Scenario, "count"), None);
+    assert_eq!(
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Scenario, "count"),
+        None
+    );
     let report = game.take_script_report();
     assert_eq!(report.failures.len(), 1);
     assert!(report.messages.is_empty() && report.dispatches.is_empty());
@@ -278,7 +304,10 @@ fn a_failed_root_changes_nothing_and_its_siblings_still_apply() {
     assert_eq!(report.messages.len(), 1);
     assert_eq!(report.failures.len(), 1);
     assert_eq!(report.failures[0].handler, HandlerId(1));
-    assert_eq!(report.failures[0].reason, FailureReason::Error("boom".into()));
+    assert_eq!(
+        report.failures[0].reason,
+        FailureReason::Error("boom".into())
+    );
 }
 
 #[test]
@@ -295,13 +324,12 @@ fn an_invariant_violation_rejects_every_effect_of_its_root() {
             },
         ])
     });
-    let (mut game, actor) = scripted(
-        vec![bind(HookKind::Moved, FilterKey::Any, 0)],
-        Some(fake),
-    );
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
     game.act(actor, Action::Move(Direction::East)).unwrap();
     assert_eq!(
-        game.script_state().unwrap().var(VarScope::Scenario, "count"),
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Scenario, "count"),
         Some(&Value::Int(0))
     );
     let report = game.take_script_report();
@@ -327,10 +355,8 @@ fn undeclared_or_mistyped_variables_are_invariant_violations() {
         },
     ] {
         let fake = host(move |_, _| Ok(vec![effect.clone()]));
-        let (mut game, actor) = scripted(
-            vec![bind(HookKind::Moved, FilterKey::Any, 0)],
-            Some(fake),
-        );
+        let (mut game, actor) =
+            scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
         game.act(actor, Action::Move(Direction::East)).unwrap();
         assert_eq!(game.take_script_report().failures.len(), 1);
     }
@@ -362,7 +388,10 @@ fn scripts_bind_at_runtime_and_once_bindings_retire_themselves() {
     game.act(actor, Action::Move(Direction::East)).unwrap();
     let handlers: Vec<u32> = fake.calls.lock().unwrap().iter().map(|c| c.0 .0).collect();
     assert_eq!(handlers, vec![0, 1], "retired bindings never fire again");
-    assert_eq!(game.hook_mask, 0, "no live bindings leave every site one branch");
+    assert_eq!(
+        game.hook_mask, 0,
+        "no live bindings leave every site one branch"
+    );
 }
 
 #[test]
@@ -373,13 +402,14 @@ fn a_mispredicted_identity_is_rejected() {
             binding: bind(HookKind::Waited, FilterKey::Any, 0),
         }])
     });
-    let (mut game, actor) = scripted(
-        vec![bind(HookKind::Moved, FilterKey::Any, 0)],
-        Some(fake),
-    );
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
     game.act(actor, Action::Move(Direction::East)).unwrap();
     assert_eq!(game.take_script_report().failures.len(), 1);
-    assert!(game.script_state().unwrap().binding(BindingId(99)).is_none());
+    assert!(game
+        .script_state()
+        .unwrap()
+        .binding(BindingId(99))
+        .is_none());
 }
 
 #[test]
@@ -404,7 +434,9 @@ fn cascades_are_bounded_and_a_runaway_cascade_changes_nothing() {
     );
     assert_eq!(game.actors[&actor].location, at(2), "no teleport survives");
     assert_eq!(
-        game.script_state().unwrap().var(VarScope::Scenario, "count"),
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Scenario, "count"),
         Some(&Value::Int(0))
     );
 }
@@ -423,14 +455,13 @@ fn a_bounded_cascade_applies_with_its_root() {
             Ok(vec![set_count(i64::from(call.depth))])
         }
     });
-    let (mut game, actor) = scripted(
-        vec![bind(HookKind::Moved, FilterKey::Any, 0)],
-        Some(fake),
-    );
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
     game.act(actor, Action::Move(Direction::East)).unwrap();
     assert_eq!(game.actors[&actor].location, at(3));
     assert_eq!(
-        game.script_state().unwrap().var(VarScope::Scenario, "count"),
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Scenario, "count"),
         Some(&Value::Int(1))
     );
     let depths: Vec<u8> = game
@@ -445,10 +476,7 @@ fn a_bounded_cascade_applies_with_its_root() {
 #[test]
 fn exhausting_the_budget_rejects_the_root() {
     let fake = host(|_, _| Err(FailureReason::Budget));
-    let (mut game, actor) = scripted(
-        vec![bind(HookKind::Moved, FilterKey::Any, 0)],
-        Some(fake),
-    );
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
     game.act(actor, Action::Move(Direction::East)).unwrap();
     assert_eq!(
         game.take_script_report().failures[0].reason,
@@ -492,7 +520,9 @@ fn timers_fire_at_their_due_tick_and_wake_the_scheduler() {
     let timer = calls.iter().find(|c| c.0 == HandlerId(2)).expect("fired");
     assert_eq!(timer.1, 250, "a timer fires at exactly its due tick");
     assert_eq!(
-        game.script_state().unwrap().var(VarScope::Scenario, "count"),
+        game.script_state()
+            .unwrap()
+            .var(VarScope::Scenario, "count"),
         Some(&Value::Int(5))
     );
     assert_eq!(game.next_script_timer_tick(), None);
@@ -516,7 +546,14 @@ fn timers_freeze_with_their_owner_region_and_resume_without_catch_up() {
     game.tick = 100;
     game.shift_script_timers(RegionId(1), true);
     assert_eq!(game.next_script_timer_tick(), None);
-    assert_eq!(game.script_state().unwrap().timer(TimerId(1)).unwrap().clock, state::TimerClock::Frozen { remaining: 200 });
+    assert_eq!(
+        game.script_state()
+            .unwrap()
+            .timer(TimerId(1))
+            .unwrap()
+            .clock,
+        state::TimerClock::Frozen { remaining: 200 }
+    );
     game.tick = 1_000;
     game.shift_script_timers(RegionId(1), false);
     assert_eq!(game.next_script_timer_tick(), Some(1_200));
@@ -529,7 +566,7 @@ fn scenario_authority_opens_doors_no_actor_can_reach() {
     let actor = game
         .spawn_actor(at(1), NonZeroU64::new(100).unwrap())
         .unwrap();
-    game.configure_run(actor, BTreeSet::from([actor]), None, BTreeMap::new())
+    game.configure_run(actor, BTreeSet::from([actor]), BTreeMap::new())
         .unwrap();
     game.install_scripts(ScriptSetup {
         handlers: 2,
@@ -565,6 +602,7 @@ fn end_run_sets_a_terminal_victory() {
         Ok(vec![ScriptEffect::EndRun {
             end: RunEnd::Victory,
             actor: Some(ActorId(1)),
+            terminal: true,
         }])
     });
     let (mut game, actor) = scripted(
@@ -608,7 +646,10 @@ fn script_state_survives_checkpoint_and_rebuilds_its_index() {
         Game::restore_checkpoint(snapshot, &shared, crate::test_creatures::content()).unwrap();
     assert_eq!(restored, game);
     assert_eq!(restored.hook_mask, game.hook_mask);
-    assert_eq!(restored.next_script_timer_tick(), game.next_script_timer_tick());
+    assert_eq!(
+        restored.next_script_timer_tick(),
+        game.next_script_timer_tick()
+    );
     // The restored game needs its host again; then it behaves identically.
     restored.set_hook_host(HookPort::new(fake.clone()));
     game.act(actor, Action::Wait).unwrap();
@@ -636,7 +677,164 @@ fn script_random_is_exact_and_rejects_a_zero_bound() {
     assert!(draws.iter().all(|&d| d < 6));
     assert_eq!(
         draws,
-        (0..32).map(|_| script_random(&mut b, 6).unwrap()).collect::<Vec<_>>()
+        (0..32)
+            .map(|_| script_random(&mut b, 6).unwrap())
+            .collect::<Vec<_>>()
     );
     assert_eq!(script_random(&mut a, 0), None);
+}
+
+fn end_run(end: RunEnd, terminal: bool) -> ScriptEffect {
+    ScriptEffect::EndRun {
+        end,
+        actor: Some(ActorId(1)),
+        terminal,
+    }
+}
+
+#[test]
+fn a_continuing_victory_keeps_playing_until_a_terminal_end() {
+    let replies = std::sync::Mutex::new(vec![
+        vec![end_run(RunEnd::Victory, false)],
+        vec![end_run(RunEnd::Defeat, true)],
+    ]);
+    let fake = host(move |_, _| Ok(replies.lock().unwrap().remove(0)));
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    assert_eq!(game.run_outcome().victor, Some(actor));
+    assert!(!game.run_outcome().terminal);
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    assert_eq!(
+        game.run_outcome().victor,
+        Some(actor),
+        "the first victor stays"
+    );
+    assert!(game.run_outcome().terminal);
+}
+
+#[test]
+fn goals_reach_their_audience_persist_and_clear() {
+    let replies = std::sync::Mutex::new(vec![
+        vec![ScriptEffect::SetGoal {
+            audience: Audience::Characters,
+            segments: vec![MessageSegment::Text("Find the exit.".into())],
+            cell: Some(at(3)),
+        }],
+        vec![ScriptEffect::ClearGoal {
+            audience: Audience::Actor(ActorId(1)),
+        }],
+    ]);
+    let fake = host(move |_, _| Ok(replies.lock().unwrap().remove(0)));
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    let goal = game.script_state().unwrap().goal(actor).cloned().unwrap();
+    assert_eq!(goal.cell, Some(at(3)));
+    let mut shared = SharedState::default();
+    let snapshot = game.checkpoint(&mut shared);
+    let restored = Game::restore_checkpoint(snapshot, &shared, game.content().clone()).unwrap();
+    assert_eq!(restored.script_state().unwrap().goal(actor), Some(&goal));
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    assert!(game.script_state().unwrap().goal(actor).is_none());
+}
+
+#[test]
+fn an_invalid_goal_rejects_its_root() {
+    let fake = host(|_, _| {
+        Ok(vec![ScriptEffect::SetGoal {
+            audience: Audience::Actor(ActorId(404)),
+            segments: vec![MessageSegment::Text("Nobody".into())],
+            cell: None,
+        }])
+    });
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    assert!(game.script_state().unwrap().goal(actor).is_none());
+    assert_eq!(game.take_script_report().failures.len(), 1);
+}
+
+#[test]
+fn taking_the_exit_is_a_fact_scripts_hear() {
+    let fake = host(|_, _| Ok(vec![]));
+    let (mut game, actor) = scripted(
+        vec![bind(HookKind::Escaped, FilterKey::Any, 0)],
+        Some(fake.clone()),
+    );
+    game.note_action_hooks(actor, &crate::OutcomeKind::Escaped);
+    game.settle_script_hooks().unwrap();
+    let calls = fake.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].2[0].subject, FactSubject::Escaped { at: at(1) });
+}
+
+fn arena_game() -> (Game, ActorId, ActorId) {
+    let mut game = Game::two_room(42, crate::test_creatures::content());
+    let left = game
+        .spawn_actor(at(1), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    let right = game
+        .spawn_actor(at(3), NonZeroU64::new(100).unwrap())
+        .unwrap();
+    for (actor, faction) in [(left, "left"), (right, "right")] {
+        crate::test_creatures::configure(
+            &mut game,
+            actor,
+            faction,
+            crate::test_creatures::species(),
+        );
+    }
+    game.configure_arena_run(left, BTreeSet::from([left, right]), BTreeMap::new())
+        .unwrap();
+    game.install_scripts(ScriptSetup {
+        handlers: 1,
+        schema: schema(),
+        bindings: vec![Binding {
+            actors: ActorClass::Any,
+            ..bind(HookKind::Moved, FilterKey::Any, 0)
+        }],
+        defaults: vec![],
+    })
+    .unwrap();
+    (game, left, right)
+}
+
+#[test]
+fn scripts_end_arenas_with_a_participant_faction_only() {
+    for (winner, accepted) in [(Some("left"), true), (None, true), (Some("nobody"), false)] {
+        let (mut game, left, _) = arena_game();
+        let winner = winner.map(str::to_owned);
+        let reply = winner.clone();
+        game.set_hook_host(HookPort::new(host(move |_, _| {
+            Ok(vec![ScriptEffect::StopArena {
+                winner: reply.clone(),
+            }])
+        })));
+        game.note_moved(left, at(1), at(2));
+        game.settle_script_hooks().unwrap();
+        let stop = game.arena_run().unwrap().stop().cloned();
+        if accepted {
+            assert_eq!(stop, Some(crate::arena::ArenaStop::Elimination { winner }));
+            assert!(game.run_outcome().terminal);
+        } else {
+            assert_eq!(stop, None);
+            assert_eq!(game.take_script_report().failures.len(), 1);
+        }
+    }
+}
+
+#[test]
+fn adventure_effects_are_rejected_in_arenas_and_arena_effects_in_adventures() {
+    let (mut game, left, _) = arena_game();
+    game.set_hook_host(HookPort::new(host(|_, _| {
+        Ok(vec![end_run(RunEnd::Victory, true)])
+    })));
+    game.note_moved(left, at(1), at(2));
+    game.settle_script_hooks().unwrap();
+    assert!(game.arena_run().unwrap().stop().is_none());
+    assert_eq!(game.take_script_report().failures.len(), 1);
+
+    let fake = host(|_, _| Ok(vec![ScriptEffect::StopArena { winner: None }]));
+    let (mut game, actor) = scripted(vec![bind(HookKind::Moved, FilterKey::Any, 0)], Some(fake));
+    game.act(actor, Action::Move(Direction::East)).unwrap();
+    assert!(!game.run_outcome().terminal);
+    assert_eq!(game.take_script_report().failures.len(), 1);
 }

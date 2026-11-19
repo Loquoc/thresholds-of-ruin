@@ -2,8 +2,15 @@
 
 A scenario package can carry [Luau](https://luau.org) scripts that react to
 what happens in play. Scripts are the scenario's own authority: they can show
-players messages, open doors, place and remove items, move actors and end the
-run. The [tutorial package](../../scenarios/tutorial) is a complete example.
+players messages and goals, open doors, place and remove items, move actors,
+and decide how a run ends. The [tutorial package](../../scenarios/tutorial) is
+a complete example.
+
+**The engine decides no outcome.** There is no built-in victory, defeat or
+arena winner. A character's death, reaching a cell or leaving the dungeon are
+facts; a package's scripts turn them into a win or a loss (see
+[Outcomes](#outcomes-and-goals)). Arena tick and action limits still stop an
+arena, because they bound unattended runs rather than decide who won.
 
 Scripts are optional. A package without a `[scripting]` table behaves exactly
 as before and pays one bit test per possible hook site (see
@@ -34,7 +41,8 @@ once = true
   `text`). Only scenario variables take a `default`.
 - `hooks` are the initial bindings. Each names one kind (`on`), one handler and
   at most one filter. A filter is one of `anchor` (a `region/name` anchor),
-  `region`, `actor`, `item` or `identity` (an item identity). `actors` chooses
+  `region`, `actor` (an id, or `"selected"` for the run's selected character),
+  `item` or `identity` (an item identity). `actors` chooses
   whose facts are heard: `character` (the default), `creature` or `any`.
   `once = true` retires the binding after the first invocation that hears it
   succeeds.
@@ -56,6 +64,7 @@ so an edited script makes the certificate stale.
 | `attack_resolved` | `actor`, `target` | `actor` |
 | `died` | `actor`, `at` | `anchor`, `region`, `actor` |
 | `region_first_visit` | `actor`, `region` | `anchor`, `region`, `actor` |
+| `escaped` | `actor`, `at` | `anchor`, `region`, `actor` |
 | `timer` | `timer`, `arg` | not bindable; a timer calls its own handler |
 
 Every fact also carries `kind` and `tick`. Cells are read-only tables
@@ -83,7 +92,8 @@ due.
 ### Queries
 
 `ctx:tick()`, `ctx:anchor(name)`, `ctx:location(actor)`, `ctx:alive(actor)`,
-`ctx:is_character(actor)`, `ctx:characters()`, `ctx:actors_at(cell)`,
+`ctx:is_character(actor)`, `ctx:characters()`, `ctx:selected()`,
+`ctx:faction(actor)`, `ctx:actors_at(cell)`,
 `ctx:health(actor)`, `ctx:carried(actor)`, `ctx:items_at(cell)`,
 `ctx:item_identity(item)`, `ctx:door_open(cell)`, `ctx:var(name, scope?)`,
 `ctx:timer_remaining(timer)` and `ctx:random(n)` (a uniform draw from 1 to
@@ -103,7 +113,9 @@ handler returns.
 | `ctx:set_door(cell, open)` | Open or close a door, with no actor needed |
 | `ctx:place_item(identity, name, cell)`, `ctx:remove_item(item)` | Items on the ground |
 | `ctx:teleport(actor, cell)` | Move an actor |
-| `ctx:win(actor?)`, `ctx:lose()` | End an adventure run |
+| `ctx:win(actor?, { continue? })`, `ctx:lose(actor?)` | Win or lose an adventure run; `continue = true` records the victory and keeps playing |
+| `ctx:end_arena(faction?)` | End an arena with a participant faction as winner, or nobody |
+| `ctx:set_goal(text, { cell?, to? })`, `ctx:clear_goal({ to? })` | The goal clients show; `to` is an actor, otherwise every character |
 
 `{control:<id>}` in a message names a control by meaning. Each client shows
 its own key or command for it. The ids are `move`, `wait`, `search`,
@@ -118,6 +130,34 @@ the stated limits hold.
 An owned binding or timer (`owner = actor:…`, `item:…` or `region:…`) goes
 away with its owner. A timer owned by a frozen region keeps its remaining time
 and resumes when the region thaws; it never catches up.
+
+## Outcomes and goals
+
+Runs end only through scripts:
+
+- **Death.** A character's death is recorded, and its `died` fact reaches
+  scripts. A package whose run should end on death binds
+  `died, actor = "selected"` and calls `ctx:lose`. Without such a script the
+  hero's death leaves the run waiting with nobody to act.
+- **Victory.** `ctx:win` ends the run, or with `continue = true` records the
+  victory and lets play go on until a later terminal end.
+- **Arenas.** `ctx:end_arena` names the winning faction. The shipped
+  elimination script ends an arena when at most one faction still has a
+  living participant. An elimination found at a limit stop still wins over
+  the limit.
+- **Exits.** Taking a scenario exit, such as Rogue's level-1 up-stairs, is an
+  ordinary turn noted as an `escaped` fact. Rogue's script wins when the hero
+  carries the Amulet and otherwise only says what is missing.
+
+A **goal** is what clients show as the current task, with controls named in
+each client's own words. Its optional cell is disclosed by identity only;
+clients see the cell itself when the character does. A goal is persisted
+script state, so it survives saves and rewinds.
+
+Small outcome scripts for common cases live in each package. For example,
+`scenarios/first-dungeon/scripts/outcome.luau` wins by bringing an item back
+to the exit; `scripts/outcome_scripts/` holds the canonical death and
+elimination scripts that generated test packages copy.
 
 ## Rejection
 
@@ -153,12 +193,20 @@ Wizard operations do not fire hooks.
 
 ## Performance
 
-- Every hook site tests one bit of a per-kind mask before doing any work. A
-  fact is built only for a kind some binding listens to.
+- Every hook site tests one bit of a per-kind mask before doing any work,
+  and an unscripted game's mask is zero. A fact is built only for a kind
+  some binding listens to.
 - A subscribed fact is matched through a per-kind index keyed by its filter
   (anchor cell, region, actor, item, identity), so the cost does not depend
   on how many bindings or regions exist.
 - Facts are batched per handler and boundary, and timers are scheduled like
   creature events. An idle script costs nothing.
-- Work counters `hook_sites_checked`, `hook_facts_noted` and
-  `hook_handler_calls` make this measurable.
+- A root invocation snapshots copy-on-write script state; it copies the game
+  only before its first effect that changes the world. A handler that only
+  sends messages or sets variables never copies the game.
+- Outcome scripts bind narrowly: death on the selected character, objectives
+  on their exit cell and item. Luau runs only on the events that can change
+  the outcome, which is less work than the built-in objective check it
+  replaced, which ran at every action and tick.
+- Work counters `hook_lookups`, `hook_facts_noted` and `hook_handler_calls`
+  make this measurable; an unscripted game records none of them.

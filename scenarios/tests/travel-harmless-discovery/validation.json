@@ -12,6 +12,6 @@
     "scenario.toml": "b495f8f1a69e99a5c185c5af650cadb4170a888f84095bc1ef459f29015c5c22"
   },
   "regions": 3,
-  "model_hash": "0ebd4cde5d58e155e8c763be8590fcae68315a6f39141cf652d4bc8f7f0bd5b2",
+  "model_hash": "1ce09459bec5c6989c1ba63cbe4dcbcb8017f3e6696a33e01767d71c8e5c162f",
   "coverage": "all authored regions and character starts; descriptor structural bounds; deterministic sampled groups at seeds 0, 1, 42 under explicit work budget; no all-seed or winnability proof"
 }

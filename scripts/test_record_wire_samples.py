@@ -32,10 +32,11 @@ def read_fixture(output):
 ESCAPE_SAMPLE = {
     "type": "snapshot", "request_id": "exact-response-request",
     "snapshot": {"state": {"observation": {
-        "combat": {"objective": "retrieve_and_exit", "victory": True, "terminal": True},
+        "combat": {"goal": {"segments": [{"text": "Climb out with the Amulet."}]},
+                   "victory": True, "terminal": True},
         "inventory": [{"id": "exact-opaque-item", "name": "Amulet of Yendor"}],
     }}, "history": {"entries": [{"content": {"type": "action", "event": {
-        "type": "escaped", "item": "exact-opaque-item"}}}]}, "cursor": "exact-cursor"},
+        "type": "escaped"}}}]}, "cursor": "exact-cursor"},
 }
 
 

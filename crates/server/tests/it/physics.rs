@@ -225,11 +225,12 @@ fn unsettled_physics_refreshes_navigation_only_when_its_inputs_change() {
         velocity: None,
     });
     let directory = tempfile::tempdir().unwrap();
-    scenario_package::write_package(
+    scenario_package::write_package_scripted(
         directory.path(),
         &package.manifest,
         &regions,
         &package.rules_source,
+        &package.scripts,
     )
     .unwrap();
     scenario_package::validate(directory.path()).unwrap();
@@ -303,8 +304,14 @@ fn translating_an_unchanged_visible_chart_does_not_refresh_navigation() {
     let mut manifest = package.manifest.clone();
     manifest.characters[0].body = None;
     let directory = tempfile::tempdir().unwrap();
-    scenario_package::write_package(directory.path(), &manifest, &regions, &package.rules_source)
-        .unwrap();
+    scenario_package::write_package_scripted(
+        directory.path(),
+        &manifest,
+        &regions,
+        &package.rules_source,
+        &package.scripts,
+    )
+    .unwrap();
     scenario_package::validate(directory.path()).unwrap();
     let mut engine =
         Engine::memory(scenario_package::load(directory.path(), 42, None, false).unwrap()).unwrap();

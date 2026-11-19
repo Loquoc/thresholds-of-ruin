@@ -2365,7 +2365,7 @@ class RouteResumeHardeningTests(unittest.TestCase):
         self.assertIn('compiler and route qualification pending', source['reference'])
         self.assertIn('source bytes only', transition['only_transformation'])
 
-    def test_current_baseline_v46_changes_only_required_scenario_format(self):
+    def test_current_baseline_v46_changes_only_scenario_format_and_scripted_outcome(self):
         from process_harness import ROOT
         import hashlib
         from arena_evaluation import files
@@ -2383,12 +2383,19 @@ class RouteResumeHardeningTests(unittest.TestCase):
             self.assertEqual(transition['previous_' + key], prior[key])
         self.assertEqual(files(previous / 'package'), prior['package_inputs'])
         self.assertEqual(files(snapshot / 'package'), source['package_inputs'])
-        self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']))
-        for name in source['package_inputs']:
+        # The engine no longer decides outcomes, so the snapshot gains Rogue's
+        # production outcome script and the hooks that bind it.
+        script = 'scripts/outcome.luau'
+        self.assertEqual(set(source['package_inputs']), set(prior['package_inputs']) | {script})
+        self.assertEqual((snapshot / 'package' / script).read_bytes(),
+                         (ROOT / 'scenarios/rogue-exploration' / script).read_bytes())
+        for name in prior['package_inputs']:
             current = (snapshot / 'package' / name).read_bytes()
             if name == 'scenario.toml':
                 self.assertEqual(current.count(b'format = 38'), 1)
                 current = current.replace(b'format = 38', b'format = 37', 1)
+                current, scripting = current.split(b'\n[scripting]\n', 1)
+                self.assertIn(b'handler = "outcome.escaped"', scripting)
             self.assertEqual(current, (previous / 'package' / name).read_bytes(), name)
         self.assertEqual(source['rules_dependencies'], prior['rules_dependencies'])
         self.assertEqual(transition['current_rules_dependencies'], source['rules_dependencies'])

@@ -174,28 +174,14 @@ impl Game {
         Ok(())
     }
 
-    fn arena_elimination(&self) -> Option<ArenaStop> {
-        let mut teams = BTreeSet::new();
-        let mut surviving = BTreeSet::new();
-        for id in &self.combat.characters {
-            // Missing/detached participants are not evidence of death. Loading
-            // pins belong to the arena recipe/engine, not this result query.
-            let actor = self.actors.get(id)?;
-            let combat = actor.combat.as_ref()?;
-            teams.insert(combat.identity.faction.as_str());
-            if actor.alive() {
-                surviving.insert(combat.identity.faction.as_str());
-            }
-        }
-        if surviving.is_empty() {
-            Some(ArenaStop::Elimination { winner: None })
-        } else if teams.len() > 1 && surviving.len() == 1 {
-            Some(ArenaStop::Elimination {
-                winner: surviving.first().map(|team| (*team).to_owned()),
-            })
-        } else {
-            None
-        }
+    /// Factions of the arena's participants, for validating a scripted winner.
+    fn arena_factions(&self) -> BTreeSet<&str> {
+        self.combat
+            .characters
+            .iter()
+            .filter_map(|id| self.actors.get(id)?.combat.as_ref())
+            .map(|combat| combat.identity.faction.as_str())
+            .collect()
     }
 
     pub(crate) fn arena_state_valid(&self) -> bool {
@@ -213,46 +199,71 @@ impl Game {
         {
             return false;
         }
-        let elimination = self.arena_elimination();
         match run.stop() {
-            None => {
-                run.actions < run.limits.actions && self.tick < deadline && elimination.is_none()
-            }
+            None => run.actions < run.limits.actions && self.tick < deadline,
             Some(ArenaStop::ActionLimit) => {
-                run.actions == run.limits.actions && self.tick <= deadline && elimination.is_none()
+                run.actions == run.limits.actions && self.tick <= deadline
             }
-            Some(ArenaStop::TickLimit) => {
-                self.tick == deadline && run.actions < run.limits.actions && elimination.is_none()
-            }
-            Some(reason @ ArenaStop::Elimination { .. }) => elimination.as_ref() == Some(reason),
+            Some(ArenaStop::TickLimit) => self.tick == deadline && run.actions < run.limits.actions,
+            // Scripts decide eliminations; a winner must be a participant faction.
+            Some(ArenaStop::Elimination { winner }) => winner
+                .as_deref()
+                .is_none_or(|winner| self.arena_factions().contains(winner)),
         }
     }
 
+    /// Stop at the arena's tick or action limit. These bound unattended runs;
+    /// they are not outcomes, which scripts decide.
     pub(crate) fn check_arena_policy(&mut self) -> Result<(), crate::GameError> {
         let Some(run) = self.combat.run.arena().filter(|run| run.stop().is_none()) else {
             return Ok(());
         };
-        let reason = self.arena_elimination().or_else(|| {
-            if run.actions >= run.limits.actions {
-                Some(ArenaStop::ActionLimit)
-            } else if run.deadline().is_some_and(|deadline| self.tick >= deadline) {
-                Some(ArenaStop::TickLimit)
-            } else {
-                None
-            }
-        });
-        let Some(reason) = reason else {
+        let reason = if run.actions >= run.limits.actions {
+            ArenaStop::ActionLimit
+        } else if run.deadline().is_some_and(|deadline| self.tick >= deadline) {
+            ArenaStop::TickLimit
+        } else {
             return Ok(());
         };
+        self.stop_arena(reason)?;
+        // Stopping settles creature time, which can kill a participant. Its
+        // death still reaches scripts, so an elimination keeps precedence.
+        self.settle_script_hooks()
+    }
+
+    /// A script's elimination result. It takes precedence over a limit stop
+    /// reached at the same boundary, as eliminations always have.
+    pub(crate) fn script_stop_arena(&mut self, winner: Option<String>) -> Result<(), &'static str> {
+        let run = self
+            .combat
+            .run
+            .arena()
+            .ok_or("only arenas end with a winner faction")?;
+        if matches!(run.stop(), Some(ArenaStop::Elimination { .. })) {
+            return Err("the arena already ended");
+        }
+        if winner
+            .as_deref()
+            .is_some_and(|winner| !self.arena_factions().contains(winner))
+        {
+            return Err("the winner is not a participant faction");
+        }
+        let limited = run.stop().is_some();
+        let reason = ArenaStop::Elimination { winner };
+        if limited {
+            self.combat.run.arena_mut().expect("arena").progress =
+                ArenaProgress::Stopped { reason };
+            return Ok(());
+        }
+        self.stop_arena(reason)
+            .map_err(|_| "the arena cannot stop now")
+    }
+
+    /// Stop the arena and settle every participant's pending work.
+    fn stop_arena(&mut self, reason: ArenaStop) -> Result<(), crate::GameError> {
         let run = self.combat.run.arena_mut().expect("active arena");
         run.progress = ArenaProgress::Stopped { reason };
         self.settle_creature_time()?;
-        // Settling expiring maximum-health modifiers can kill a participant.
-        // Elimination has precedence even when discovered at the final deadline.
-        if let Some(reason) = self.arena_elimination() {
-            self.combat.run.arena_mut().expect("stopped arena").progress =
-                ArenaProgress::Stopped { reason };
-        }
         let actors: Vec<_> = self.actors.keys().copied().collect();
         for actor in actors {
             let mut outcome = self.actor_outcome(actor)?;

@@ -880,14 +880,7 @@ fn tell(teller: &mut Teller, beats: &[Beat]) {
             Beat::Victory { terminal: false } => {
                 teller.say("you have achieved your goal, and may keep exploring")
             }
-            Beat::Objective(kind) => {
-                let goal = super::verbs::objective_phrase(*kind);
-                let mut goal = goal.to_owned();
-                if let Some(first) = goal.get(..1) {
-                    goal.replace_range(..1, &first.to_lowercase());
-                }
-                teller.say(format!("your task is to {}", goal.trim_end_matches('.')));
-            }
+            Beat::Goal(text) => teller.alone(format!("Your goal: {text}")),
             Beat::UserMessage { style, text } => teller.alone(match style {
                 UserMessageStyle::Tutorial => format!("Tutorial: {text}"),
                 UserMessageStyle::Hint => format!("Hint: {text}"),

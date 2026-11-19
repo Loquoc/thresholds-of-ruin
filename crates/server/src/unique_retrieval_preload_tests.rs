@@ -58,10 +58,11 @@ fn preload_fixture() -> (Scenario, u64, u64) {
             "portals":[{"at":[4,6,0],"direction":"south","to":"1/remote"}],
             "actors":[{"id":3,"at":[4,5,0],"turn_ticks":10,"controller":"ai","ai":"idle","creature":creature}]})).unwrap(),
     ];
-    let package = Package::from_parts(
+    let package = Package::from_parts_scripted(
         serde_json::from_value(source).unwrap(),
         regions,
         &toml::to_string(&rules).unwrap(),
+        original.scripts.clone(),
     )
     .unwrap();
     let family = &package.manifest.procedural_worlds["dungeon"];

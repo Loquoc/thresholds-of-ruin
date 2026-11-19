@@ -244,7 +244,6 @@ fn successful_private_recognition_does_not_notify_or_activate_a_readied_predator
     game.configure_run(
         OWNER,
         BTreeSet::from([OWNER]),
-        None,
         BTreeMap::from([(
             "private affiliation".into(),
             BTreeSet::from(["private affiliation".into()]),

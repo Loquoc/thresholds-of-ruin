@@ -73,7 +73,6 @@ pub enum OutcomeNameFallback {
     Item,
     Object,
     Stairs,
-    ObjectiveItem,
     Door,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,8 +279,10 @@ pub enum OutcomeFact {
         actor: ActorTarget,
         injury: Injury,
     },
-    Objective {
-        objective: ObjectiveKind,
+    /// The observer's scripted goal changed to this text.
+    Goal {
+        #[serde(deserialize_with = "crate::user_message::read_segments")]
+        segments: Vec<UserMessageSegment>,
     },
     /// Server-authored tutorial, hint or narration text. Controls are named
     /// by the client; the message grants no input permission.
@@ -402,7 +403,8 @@ pub struct OutcomeCombat {
     pub public_plan: Option<PublicPlanObservationView>,
     pub actors: Vec<CombatActorView>,
     pub events: Vec<CombatEventView>,
-    pub objective: Option<ObjectiveKind>,
+    /// The goal's text; its cell alone changing is no outcome.
+    pub goal: Option<Vec<UserMessageSegment>>,
 }
 
 impl From<&Observation> for OutcomeObservation {
@@ -487,7 +489,7 @@ impl From<&Observation> for OutcomeObservation {
                 public_plan: combat.public_plan.clone(),
                 actors: combat.actors.clone(),
                 events: combat.events.clone(),
-                objective: combat.objective,
+                goal: combat.goal.as_ref().map(|goal| goal.segments.clone()),
             }),
         }
     }
@@ -527,7 +529,6 @@ pub fn outcome_action_name(event: &Event, view: &Observation) -> Option<OutcomeN
             })
     };
     match event {
-        Event::Escaped { item } => inventory(*item, OutcomeNameFallback::ObjectiveItem),
         Event::ItemStarted { action } => ItemWorkKind::from_action(action)
             .and_then(|(_, item)| inventory(item, OutcomeNameFallback::Item)),
         Event::Taken { result, .. } => inventory(*result, OutcomeNameFallback::Item),
@@ -560,7 +561,6 @@ fn compact_action_name(event: &Event, view: &OutcomeObservation) -> Option<Outco
             })
     };
     match event {
-        Event::Escaped { item } => inventory(*item, OutcomeNameFallback::ObjectiveItem),
         Event::ItemStarted { action } => ItemWorkKind::from_action(action)
             .and_then(|(_, item)| inventory(item, OutcomeNameFallback::Item)),
         Event::Taken { result, .. } => inventory(*result, OutcomeNameFallback::Item),
@@ -965,13 +965,17 @@ impl OutcomeFacts {
                 }
             }
         }
-        if let Some(objective) = after.combat.as_ref().and_then(|combat| combat.objective) {
-            if before
-                .combat
-                .as_ref()
-                .is_none_or(|old| old.objective.is_none())
-            {
-                facts.push(OutcomeFact::Objective { objective });
+        // A new or changed goal is told once; its cell alone changing is not.
+        if let Some(goal) = after
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.goal.as_ref())
+        {
+            let before_goal = before.combat.as_ref().and_then(|old| old.goal.as_ref());
+            if before_goal != Some(goal) {
+                facts.push(OutcomeFact::Goal {
+                    segments: goal.clone(),
+                });
             }
         }
         let actor_names = referenced
@@ -1113,7 +1117,7 @@ impl OutcomeFacts {
                 OutcomeFact::Status { status } if !status.valid() => {
                     return Err(InvalidState::InvalidCombat);
                 }
-                OutcomeFact::UserMessage { segments, .. }
+                OutcomeFact::UserMessage { segments, .. } | OutcomeFact::Goal { segments }
                     if !crate::valid_user_message(segments) =>
                 {
                     return Err(InvalidState::InvalidPresentation);
@@ -1175,8 +1179,7 @@ impl OutcomeFacts {
                         recovery_remaining,
                         actors,
                         events: _,
-                        objective,
-                        exit,
+                        goal,
                         victory,
                         dead,
                         terminal,
@@ -1189,8 +1192,7 @@ impl OutcomeFacts {
                         && sequence == &b.sequence
                         && recovery_remaining == &b.recovery_remaining
                         && actors == &b.actors
-                        && objective == &b.objective
-                        && exit == &b.exit
+                        && goal == &b.goal
                         && victory == &b.victory
                         && dead == &b.dead
                         && terminal == &b.terminal
@@ -1294,8 +1296,7 @@ mod tests {
                 recovery_remaining: 0,
                 actors: vec![],
                 events: vec![],
-                objective: None,
-                exit: None,
+                goal: None,
                 victory: false,
                 dead: false,
                 terminal: false,
@@ -1651,8 +1652,13 @@ mod tests {
                 target: None,
                 outcome: AbilityOutcome::Applied,
             });
+        let goal = |cell: &str| crate::GoalView {
+            segments: vec![crate::UserMessageSegment::Text("Leave.".into())],
+            cell: Some(cell.into()),
+        };
+        before.combat.as_mut().unwrap().goal = Some(goal("old-exit"));
         let mut after = before.clone();
-        after.combat.as_mut().unwrap().exit = Some("new-exit".into());
+        after.combat.as_mut().unwrap().goal = Some(goal("new-exit"));
         assert_eq!(
             OutcomeObservation::from(&before),
             OutcomeObservation::from(&after)

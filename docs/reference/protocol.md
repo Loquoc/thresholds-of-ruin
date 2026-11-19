@@ -544,7 +544,7 @@ a picture; it is not a narration trigger.
 
 Ordered `outcome` updates carry compact disclosed `facts`, required nullable
 `event`, and `visual_changed`. Facts include own-action names, discoveries, sight
-changes, item outcomes, combat receipts, injury/objective changes and pacing/status
+changes, item outcomes, combat receipts, injury and goal changes and pacing/status
 facts. Raw disclosed names and semantic values are rendered into prose by clients,
 not the server. Required nullable `facts.status` is the complete current owner
 combat/terminal/preparation/recovery status, independent of whether a narration
@@ -1458,9 +1458,10 @@ composition against the summary by source identity, exact label and count.
 Attack actions carry a disclosed opaque actor target reference. Movement never implicitly
 attacks. Combat observations carry own HP, preparation/recovery, qualitative
 visible-actor injury (`healthy`, `wounded`, `badly_wounded`, `near_death`) and
-hostility, the objective's kind when enabled (`retrieve_and_return` or
-`reach_exit`) with `exit`, the opaque key of the cell where it's met (the cell
-itself is disclosed only when seen), and durable victory/death status.
+hostility, the scenario script's current `goal` when one is set (`segments`
+of text and controls, like a user message, and an optional opaque `cell` key;
+the cell itself is disclosed only when seen), and durable victory/death status.
+Victory and run end come only from scenario scripts.
 
 They also carry `events`: what the action the view follows did, as far as the
 observer knows. An `ability` names its disclosed technique, optional `caster` and

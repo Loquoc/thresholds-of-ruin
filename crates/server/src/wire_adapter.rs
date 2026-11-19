@@ -1191,9 +1191,7 @@ pub fn disclose_entry(
                     result: scope.item(s::ItemId(*result)),
                     quantity: *quantity,
                 },
-                Event::Escaped { item } => VisibleEvent::Escaped {
-                    item: scope.item(s::ItemId(*item)),
-                },
+                Event::Escaped => VisibleEvent::Escaped {},
                 Event::Waited => VisibleEvent::Waited,
             }),
         },
@@ -1490,11 +1488,10 @@ mod retrieval_event_tests {
     use super::*;
 
     #[test]
-    fn intentional_escape_saves_exact_identity_and_discloses_only_the_scoped_target() {
-        let id = s::ItemId(9_007_199_254_740_993);
-        let event = crate::adapt::event(s::OutcomeKind::Escaped { item: id });
+    fn an_intentional_escape_is_a_private_action_without_an_item() {
+        let event = crate::adapt::event(s::OutcomeKind::Escaped);
         let stored = serde_json::to_value(&event).unwrap();
-        assert_eq!(stored, serde_json::json!({"type":"escaped","item":id.0}));
+        assert_eq!(stored, serde_json::json!({"type":"escaped"}));
         let decoded: crate::journal::Event =
             crate::storage::codec::strict(&serde_json::to_vec(&event).unwrap()).unwrap();
         assert_eq!(decoded, event);
@@ -1529,17 +1526,10 @@ mod retrieval_event_tests {
         let p::HistoryContent::Action { event, .. } = disclosed.content else {
             panic!("terminal escape must remain an action");
         };
-        let p::Event::Escaped { item } = *event else {
-            panic!("terminal escape must remain distinct from movement");
-        };
-        assert_eq!(item, scope.item(id));
-        assert_ne!(
-            item,
-            TargetScope::new(uuid::Uuid::nil(), s::ActorId(2)).item(id)
+        assert!(
+            matches!(*event, p::Event::Escaped {}),
+            "terminal escape must remain distinct from movement"
         );
-        assert!(!serde_json::to_string(&item)
-            .unwrap()
-            .contains(&id.0.to_string()));
     }
 }
 

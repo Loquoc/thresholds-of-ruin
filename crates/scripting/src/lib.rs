@@ -182,8 +182,14 @@ impl HookHost for Runtime {
             .program
             .handler(call.handler)
             .ok_or_else(|| FailureReason::Error("unknown handler".into()))?;
-        let inner = self.inner.lock().unwrap_or_else(|poison| poison.into_inner());
-        inner.meter.remaining.store(budget.remaining, Ordering::Relaxed);
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        inner
+            .meter
+            .remaining
+            .store(budget.remaining, Ordering::Relaxed);
         inner.meter.exhausted.store(false, Ordering::Relaxed);
         let result = context::invoke(
             &inner.lua,

@@ -10,6 +10,7 @@ import tomllib
 
 from arena_matrix import toml_source
 from process_harness import ROOT
+from outcome_scripts import ROGUE_EXPLORATION, copy_declared
 
 PRODUCTION = ROOT / "scenarios/rogue-exploration"
 SPECIES = ("bat", "kestrel", "venus_flytrap", "griffin", "emu", "snake", "rattlesnake", "hobgoblin", "zombie", "quagga", "centaur", "yeti", "troll", "wraith",
@@ -65,6 +66,7 @@ def roster_package(test, species, *, character=1, autonomous=False, height=2, pr
     for module in manifest["modules"]:
         shutil.copy2(production / module, package / module)
     shutil.copy2(production / "rules.toml", package / "rules.toml")
+    copy_declared(manifest, package, ROGUE_EXPLORATION)
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
     compiler = test.bin / ("tor-scenario" + test.suffix)

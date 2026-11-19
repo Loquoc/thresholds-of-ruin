@@ -33,6 +33,7 @@ import unittest
 
 from arena_matrix import toml_source
 from process_harness import ProcessTestCase
+from outcome_scripts import ROGUE_EXPLORATION, copy_declared
 from process_work_budget import ProcessWorkBudget
 from rogue_roster_package import PRODUCTION, encounter_sources
 from scalar_wire import u64
@@ -85,6 +86,7 @@ def perception_package(test, species, arm, *, turn_ticks=25, cancellation=False)
     for module in manifest["modules"]:
         shutil.copy2(PRODUCTION / module, package / module)
     shutil.copy2(PRODUCTION / "rules.toml", package / "rules.toml")
+    copy_declared(manifest, package, ROGUE_EXPLORATION)
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
     for relative in (*manifest["modules"], "rules.toml"):
@@ -155,6 +157,7 @@ class RoguePerceptionProcesses(ProcessTestCase):
         for module in manifest["modules"]:
             shutil.copy2(production/module,package/module)
         shutil.copy2(production/"rules.toml",package/"rules.toml")
+        copy_declared(manifest, package, ROGUE_EXPLORATION)
         (package/"scenario.toml").write_text(toml_source(manifest),encoding="utf-8")
         (package/"regions/1.toml").write_text(toml_source(region),encoding="utf-8")
         validated = subprocess.run([self.bin/("tor-scenario"+self.suffix),"validate",package],
@@ -282,6 +285,7 @@ class RoguePerceptionProcesses(ProcessTestCase):
         for module in manifest["modules"]:
             shutil.copy2(production / module, package / module)
         shutil.copy2(production / "rules.toml", package / "rules.toml")
+        copy_declared(manifest, package, ROGUE_EXPLORATION)
         (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8")
         (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8")
         validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],

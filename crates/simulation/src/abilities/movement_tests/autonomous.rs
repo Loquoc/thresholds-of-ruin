@@ -25,7 +25,6 @@ fn autonomous_retreat_selects_a_typed_self_step_and_keeps_ordinary_turn_identity
     game.configure_run(
         crate::ActorId(1),
         [crate::ActorId(1)].into(),
-        None,
         [("foe".into(), ["hero".into()].into())].into(),
     )
     .unwrap();
@@ -110,7 +109,6 @@ fn retreat_fixture() -> (crate::Game, crate::ActorId, crate::ActorId) {
     game.configure_run(
         crate::ActorId(1),
         [crate::ActorId(1)].into(),
-        None,
         [("foe".into(), ["hero".into()].into())].into(),
     )
     .unwrap();

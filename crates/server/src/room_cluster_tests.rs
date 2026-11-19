@@ -14,10 +14,11 @@ fn cluster_fixture(minimum: u32) -> Scenario {
         "actor_bands":[{"depth":{"kind":"open","minimum":minimum+1},"choices":actor["bands"][0]["choices"]}]
     }]);
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -78,10 +79,11 @@ fn generated_cluster_admits_tall_creatures_but_rejects_blocked_birth_height() {
             "eye":[0,0,0],"mass":80
         });
         scenario.package = Some(Arc::new(
-            Package::from_parts(
+            Package::from_parts_scripted(
                 serde_json::from_value(source).unwrap(),
                 vec![],
                 &original.rules_source,
+                original.scripts.clone(),
             )
             .unwrap(),
         ));
@@ -120,10 +122,11 @@ fn generated_cluster_uses_next_depth_for_ordinary_racial_builds() {
         .unwrap()
         .len();
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -238,10 +241,11 @@ fn cluster_authoring_rejects_bad_counts_depth_chance_ai_and_unreachable_choices(
             _ => unreachable!(),
         }
         assert!(
-            Package::from_parts(
+            Package::from_parts_scripted(
                 serde_json::from_value(bad).unwrap(),
                 vec![],
-                &original.rules_source
+                &original.rules_source,
+                original.scripts.clone()
             )
             .and_then(|package| package.check())
             .is_err(),
@@ -263,10 +267,11 @@ fn expired_abandoned_cluster_still_binds_selected_room_area_and_full_footprint()
     source["archetypes"]["rat"]["body"] =
         json!({"cells":[[0,0,0],[0,0,1],[1,0,0]],"eye":[0,0,0],"mass":80});
     scenario.package = Some(Arc::new(
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap(),
     ));
@@ -421,10 +426,11 @@ fn cluster_item_pool_cannot_bypass_reserved_retrieval_even_with_zero_chance() {
         "minimum_depth":26,"archetype":"amulet","exit_anchor":"dungeon/1/up"
     });
     let candidate = |source| {
-        Package::from_parts(
+        Package::from_parts_scripted(
             serde_json::from_value(source).unwrap(),
             vec![],
             &original.rules_source,
+            original.scripts.clone(),
         )
         .unwrap()
     };
@@ -465,7 +471,13 @@ fn room_cluster_item_actor_and_carried_roots_require_spatial_scope() {
         "id":10000000,"name":"unscoped source witness","size":[7,5,2]
     }))
     .unwrap();
-    let mut base = Package::from_parts(manifest, vec![unscoped], &original.rules_source).unwrap();
+    let mut base = Package::from_parts_scripted(
+        manifest,
+        vec![unscoped],
+        &original.rules_source,
+        original.scripts.clone(),
+    )
+    .unwrap();
     let mut document = base.rules().unwrap().document().clone();
     let mut light = document
         .abilities

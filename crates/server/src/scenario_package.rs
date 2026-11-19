@@ -53,9 +53,11 @@ pub(crate) use spatial_sources::unroot_live_rogue_supplement;
 mod rules_source;
 #[path = "scenario_scripts.rs"]
 mod scripts;
-pub use scripts::{DefaultValue, HookDecl, ScriptingManifest, VariableDecl};
 pub use artifact::export;
 pub use rules_source::{resolve_rules_source, ResolvedRules};
+pub use scripts::{
+    ActorFilter, DefaultValue, HookDecl, NamedActor, ScriptingManifest, VariableDecl,
+};
 #[path = "scenario_source.rs"]
 mod source;
 pub use authoring::{
@@ -185,7 +187,6 @@ pub struct Manifest {
     #[serde(default)]
     pub appearance_pools: BTreeMap<String, AppearancePool>,
     pub characters: Vec<Character>,
-    pub objective: Option<Objective>,
     /// The asset identifiers each theme may need: a client near a region
     /// with that theme gets them in its palette. See
     /// `docs/reference/protocol.md#asset-palettes`.
@@ -450,14 +451,6 @@ fn hundred() -> u64 {
 }
 fn omit() -> String {
     "omit".into()
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Objective {
-    pub anchor: String,
-    pub item: Option<u64>,
-    pub disclosed: bool,
-    pub continue_play: bool,
 }
 /// A place hint: a position, or a position and the name the character
 /// learns on seeing it (`{ at = [3,2,0], name = "Threshold" }`).
@@ -2067,6 +2060,37 @@ impl Package {
         regions: Vec<RegionDef>,
         rules_source: &str,
     ) -> Result<Self, Failure> {
+        Self::from_parts_scripted(manifest, regions, rules_source, BTreeMap::new())
+    }
+
+    /// The script text a package directory's manifest declares, for tools
+    /// and tests that rebuild a scripted package in memory.
+    pub fn package_scripts(
+        root: &Path,
+        manifest: &Manifest,
+    ) -> Result<BTreeMap<String, String>, Failure> {
+        scripts::read_scripts(root, manifest)
+    }
+
+    /// [`Package::from_parts`] for a manifest derived from the package at
+    /// `root`, pinning the scripts that directory holds.
+    pub fn from_parts_at(
+        root: &Path,
+        manifest: Manifest,
+        regions: Vec<RegionDef>,
+        rules_source: &str,
+    ) -> Result<Self, Failure> {
+        let scripts = scripts::read_scripts(root, &manifest)?;
+        Self::from_parts_scripted(manifest, regions, rules_source, scripts)
+    }
+
+    /// [`Package::from_parts`] with pinned script text by package path.
+    pub fn from_parts_scripted(
+        manifest: Manifest,
+        regions: Vec<RegionDef>,
+        rules_source: &str,
+        scripts: BTreeMap<String, String>,
+    ) -> Result<Self, Failure> {
         let manifest_text = toml::to_string(&manifest).map_err(|e| fail(e.to_string()))?;
         let mut index = Vec::new();
         let mut texts = BTreeMap::new();
@@ -2087,7 +2111,7 @@ impl Package {
             manifest,
             &manifest_text,
             rules_source,
-            BTreeMap::new(),
+            scripts,
             RegionIndex { regions: index },
             RegionSources::with(None, texts),
             None,
@@ -2228,6 +2252,25 @@ pub fn write_package(
     regions: &[RegionDef],
     rules_source: &str,
 ) -> Result<(), Failure> {
+    write_package_scripted(out, manifest, regions, rules_source, &BTreeMap::new())
+}
+
+/// [`write_package`] plus the manifest's script files, by package path.
+pub fn write_package_scripted(
+    out: &Path,
+    manifest: &Manifest,
+    regions: &[RegionDef],
+    rules_source: &str,
+    scripts: &BTreeMap<String, String>,
+) -> Result<(), Failure> {
+    for (relative, text) in scripts {
+        require(scripts::valid_script_path(relative), "Invalid script path")?;
+        let path = out.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| fail(e.to_string()))?;
+        }
+        std::fs::write(path, text).map_err(|e| fail(e.to_string()))?;
+    }
     require(valid_rules_path(&manifest.ruleset), "Invalid ruleset path")?;
     parse_rules(rules_source, &manifest.ruleset)?;
     let io = |e: std::io::Error| fail(e.to_string());
@@ -2639,7 +2682,13 @@ fn corridor(
         }
         regions.push(hall);
     }
-    write_package(out, &source.manifest, &regions, &source.rules_source)?;
+    write_package_scripted(
+        out,
+        &source.manifest,
+        &regions,
+        &source.rules_source,
+        &source.scripts,
+    )?;
     load(out, seed, None, true)
 }
 
@@ -2878,9 +2927,8 @@ impl Package {
                     && !participants.is_empty()
                     && participants.len() <= 256
                     && participants.len() == arena.participants.len()
-                    && participants.contains(&self.selected)
-                    && self.manifest.objective.is_none(),
-                "Invalid arena limits, participants or objective",
+                    && participants.contains(&self.selected),
+                "Invalid arena limits or participants",
             )?;
             if let Some(floor) = &arena.floor {
                 require(
@@ -3176,7 +3224,8 @@ impl Package {
                 "Invalid archetype",
             )?;
         }
-        let anchors = self.anchors(0)?;
+        // Resolving every anchor validates their names and uniqueness.
+        self.anchors(0)?;
         for c in &self.manifest.characters {
             // Validate the root structurally before any generated coordinates
             // are needed, so compiler work budgets precede carving.
@@ -3209,35 +3258,6 @@ impl Package {
                         ),
                     )?;
                 }
-            }
-        }
-        if let Some(objective) = &self.manifest.objective {
-            require(
-                anchors.contains_key(&objective.anchor),
-                "Invalid objective anchor reference",
-            )
-            .map_err(|failure| {
-                Origin::Objective.reference_path(
-                    failure,
-                    self.diagnostic_source("scenario.toml").as_deref(),
-                    &[
-                        PathSegment::Field("objective"),
-                        PathSegment::Field("anchor"),
-                    ],
-                    ReferenceValue::Text(&objective.anchor),
-                )
-            })?;
-            if let Some(item) = objective.item {
-                require(item_ids.contains(&item), "Invalid objective item reference").map_err(
-                    |failure| {
-                        Origin::Objective.reference_path(
-                            failure,
-                            self.diagnostic_source("scenario.toml").as_deref(),
-                            &[PathSegment::Field("objective"), PathSegment::Field("item")],
-                            ReferenceValue::Id(item),
-                        )
-                    },
-                )?;
             }
         }
         self.validate_spatial_sources()?;
@@ -4179,7 +4199,7 @@ impl Package {
         let (actors, items, doors) = index.ceilings;
         game.reserve_identities(actors, items, doors);
         // Only regions the run refers to are declared now: where its
-        // characters and client-controlled actors start, and its objective.
+        // characters and client-controlled actors start.
         // Transitions declare the rest as they're needed.
         let mut needed = BTreeSet::new();
         for c in &self.manifest.characters {
@@ -4195,26 +4215,6 @@ impl Package {
         for r in &self.index.regions {
             if r.actors.iter().any(|a| a.external) {
                 needed.insert(r.id);
-            }
-        }
-        if let Some(o) = &self.manifest.objective {
-            require(
-                !self.boundary_anchor(&o.anchor),
-                "Objectives cannot use structural boundary anchors",
-            )?;
-            let at = index
-                .anchors
-                .get(&o.anchor)
-                .ok_or_else(|| fail("Missing objective anchor"))?;
-            needed.insert(at.region.0);
-            if let Some(item) = o.item {
-                let holder = self
-                    .index
-                    .regions
-                    .iter()
-                    .find(|r| r.items.iter().any(|i| i.id == item))
-                    .ok_or_else(|| fail("Missing objective item"))?;
-                needed.insert(holder.id);
             }
         }
         for region in needed {
@@ -4826,22 +4826,11 @@ impl Package {
             .characters
             .iter()
             .any(|c| c.creature.is_some())
-            || self.manifest.objective.is_some()
             || self.manifest.unique_retrieval.is_some()
             // Scripts address characters and end runs, so a scripted package
             // is always a configured adventure run.
             || self.manifest.scripting.is_some()
         {
-            let objective =
-                self.manifest
-                    .objective
-                    .as_ref()
-                    .map(|o| tor_simulation::combat::Objective {
-                        anchor: index.anchors[&o.anchor],
-                        item: o.item.map(tor_simulation::ItemId),
-                        disclosed: o.disclosed,
-                        continue_play: o.continue_play,
-                    });
             let characters = index
                 .definitions
                 .characters
@@ -4852,7 +4841,6 @@ impl Package {
             game.configure_run(
                 tor_simulation::ActorId(self.selected),
                 characters,
-                objective,
                 self.manifest.factions.clone(),
             )
             .map_err(|_| fail("Invalid run configuration"))?;
@@ -5544,7 +5532,13 @@ mod tests {
                 zone: None,
             },
         );
-        Package::from_parts(manifest, vec![], &template.rules_source).unwrap()
+        Package::from_parts_scripted(
+            manifest,
+            vec![],
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -5991,8 +5985,13 @@ mod tests {
             .unwrap();
         recipe.stages.drain(6..8);
         recipe.version = 3;
-        let discovery =
-            Package::from_parts(discovery_manifest, vec![], &package.rules_source).unwrap();
+        let discovery = Package::from_parts_scripted(
+            discovery_manifest,
+            vec![],
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap();
         discovery.check().unwrap();
         let production_recipe = &discovery.manifest.generation_recipes["exploration"];
         let geometry_recipe = &geometry.manifest.generation_recipes["exploration"];
@@ -6161,10 +6160,15 @@ mod tests {
     fn generated_trap_effects_require_declared_slots_and_sleep_conditions() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/rogue-exploration");
         let template = read_package(&root).unwrap();
-        Package::from_parts(template.manifest.clone(), vec![], &template.rules_source)
-            .unwrap()
-            .check()
-            .expect("valid production discovery fixture");
+        Package::from_parts_scripted(
+            template.manifest.clone(),
+            vec![],
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap()
+        .check()
+        .expect("valid production discovery fixture");
         for missing_slot in [true, false] {
             let mut manifest = template.manifest.clone();
             let recipe = manifest.generation_recipes.get_mut("exploration").unwrap();
@@ -6183,7 +6187,13 @@ mod tests {
             }
             // Rebuild the authored input and its identity together: rejection
             // must reach effect validation, not a stale certificate mismatch.
-            let package = Package::from_parts(manifest, vec![], &template.rules_source).unwrap();
+            let package = Package::from_parts_scripted(
+                manifest,
+                vec![],
+                &template.rules_source,
+                template.scripts.clone(),
+            )
+            .unwrap();
             let error = package.check().unwrap_err();
             assert!(
                 error.message.contains(
@@ -6276,7 +6286,13 @@ mod tests {
             });
             let mut manifest = template.manifest.clone();
             manifest.characters[0].anchor = format!("caves/{depth}/up");
-            let package = Package::from_parts(manifest, vec![], &template.rules_source).unwrap();
+            let package = Package::from_parts_scripted(
+                manifest,
+                vec![],
+                &template.rules_source,
+                template.scripts.clone(),
+            )
+            .unwrap();
             package.check().unwrap();
             for seed in [0, 42] {
                 let index = package.index(seed).unwrap();
@@ -6332,7 +6348,13 @@ mod tests {
         ] {
             let mut manifest = template.manifest.clone();
             manifest.characters[0].anchor = anchor.into();
-            let package = Package::from_parts(manifest, vec![], &template.rules_source).unwrap();
+            let package = Package::from_parts_scripted(
+                manifest,
+                vec![],
+                &template.rules_source,
+                template.scripts.clone(),
+            )
+            .unwrap();
             let error = package.check().unwrap_err();
             assert!(
                 error.message.contains("character 1"),
@@ -6345,11 +6367,23 @@ mod tests {
         manifest.procedural_worlds.get_mut("caves").unwrap().domain =
             crate::procedural_world::Domain::Finite { count: 26 };
         manifest.characters[0].anchor = "caves/last/down".into();
-        let finite = Package::from_parts(manifest.clone(), vec![], &template.rules_source).unwrap();
+        let finite = Package::from_parts_scripted(
+            manifest.clone(),
+            vec![],
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         finite.check().unwrap();
         assert_eq!(finite.build(42, false).unwrap().loaded_regions().count(), 4);
         manifest.characters[0].anchor = "caves/27/up".into();
-        let outside = Package::from_parts(manifest, vec![], &template.rules_source).unwrap();
+        let outside = Package::from_parts_scripted(
+            manifest,
+            vec![],
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         assert!(outside.check().is_err());
     }
 
@@ -6390,7 +6424,14 @@ mod tests {
             })
             .collect();
         let directory = tempfile::tempdir().unwrap();
-        write_package(directory.path(), &manifest, &[], &template.rules_source).unwrap();
+        write_package_scripted(
+            directory.path(),
+            &manifest,
+            &[],
+            &template.rules_source,
+            &template.scripts,
+        )
+        .unwrap();
         let error = checked_package(directory.path()).unwrap_err();
         assert!(
             error.message.contains("sampled-cell budget"),
@@ -6430,7 +6471,13 @@ mod tests {
             omitted.id = 3;
             omitted.anchor = "caves/999999/up".into();
             manifest.characters.push(omitted);
-            let package = Package::from_parts(manifest, vec![], &template.rules_source).unwrap();
+            let package = Package::from_parts_scripted(
+                manifest,
+                vec![],
+                &template.rules_source,
+                template.scripts.clone(),
+            )
+            .unwrap();
             package.check().unwrap();
             let index = package.index(42).unwrap();
             assert_eq!(index.homes.keys().copied().collect::<Vec<_>>(), vec![1, 2]);
@@ -6513,10 +6560,11 @@ mod tests {
                 width: 1,
                 height: 1,
             }];
-            let package = Package::from_parts(
+            let package = Package::from_parts_scripted(
                 template.manifest.clone(),
                 vec![room],
                 &template.rules_source,
+                template.scripts.clone(),
             )
             .unwrap();
             let error = package.check().unwrap_err();
@@ -6557,8 +6605,13 @@ mod tests {
         let mut chamber = room.clone();
         chamber.id = 1001;
         chamber.name = "Chamber".into();
-        let package =
-            Package::from_parts(manifest, vec![room, chamber], &template.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            manifest,
+            vec![room, chamber],
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         for seed in [0, 1, 42] {
             let catalog =
                 crate::region_streaming::RegionCatalog::from_package_seed(&package, seed).unwrap();
@@ -6674,8 +6727,13 @@ mod tests {
             .manifest
             .procedural_worlds
             .insert("tower".into(), second);
-        let package =
-            Package::from_parts(package.manifest.clone(), vec![], &package.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            package.manifest.clone(),
+            vec![],
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .unwrap();
         package.check().unwrap();
         for seed in [0, 1, 42] {
             for (id, family) in &package.manifest.procedural_worlds {
@@ -6759,7 +6817,14 @@ mod tests {
             })
             .collect();
         let temp = tempfile::tempdir().unwrap();
-        write_package(temp.path(), &manifest, &definitions, &template.rules_source).unwrap();
+        write_package_scripted(
+            temp.path(),
+            &manifest,
+            &definitions,
+            &template.rules_source,
+            &template.scripts,
+        )
+        .unwrap();
         let error = checked_package(temp.path()).unwrap_err();
         assert!(
             error.message.contains("aggregate cell-work budget"),
@@ -6779,11 +6844,12 @@ mod tests {
         authored.anchors.clear();
         authored.walls = vec![[i32::MAX, 0, 0]];
         let temp = tempfile::tempdir().unwrap();
-        write_package(
+        write_package_scripted(
             temp.path(),
             &template.manifest,
             &[authored],
             &template.rules_source,
+            &template.scripts,
         )
         .unwrap();
         assert!(checked_package(temp.path()).is_err());
@@ -6933,7 +6999,14 @@ mod tests {
             );
             let temp = tempfile::tempdir().unwrap();
             let definitions = template.region_defs().unwrap();
-            write_package(temp.path(), &manifest, &definitions, &template.rules_source).unwrap();
+            write_package_scripted(
+                temp.path(),
+                &manifest,
+                &definitions,
+                &template.rules_source,
+                &template.scripts,
+            )
+            .unwrap();
             let package = read_package(temp.path()).unwrap();
             assert!(package.build(42, false).is_err());
         }
@@ -7038,10 +7111,11 @@ mod tests {
             );
         }
         let make = |manifest| {
-            Package::from_parts(
+            Package::from_parts_scripted(
                 manifest,
                 template.region_defs().unwrap(),
                 &template.rules_source,
+                template.scripts.clone(),
             )
             .unwrap()
         };
@@ -7246,6 +7320,7 @@ mod tests {
                 "directory",
                 "manifest",
                 "rules_document",
+                "scripts",
                 "selected",
                 "validated"
             ]
@@ -7275,10 +7350,11 @@ mod tests {
             .find(|c| c.id == 1)
             .unwrap()
             .anchor = "2/west".into();
-        let package = Package::from_parts(
+        let package = Package::from_parts_scripted(
             manifest,
             template.region_defs().unwrap(),
             &template.rules_source,
+            template.scripts.clone(),
         )
         .unwrap();
         let index = package.index(42).unwrap();
@@ -7311,11 +7387,15 @@ mod tests {
             .certificate
             .ruleset_dependencies
             .insert(RULESET.into(), source_digest("prior shared rules revision"));
-        package.certificate.model_hash = model_hash(
-            &package.manifest,
-            &package.index,
-            &package.certificate.ruleset_hash,
-            &package.certificate.ruleset_dependencies,
+        package.certificate.model_hash = scripted_model_hash(
+            model_hash(
+                &package.manifest,
+                &package.index,
+                &package.certificate.ruleset_hash,
+                &package.certificate.ruleset_dependencies,
+            )
+            .unwrap(),
+            &scripts::digests(&package.scripts),
         )
         .unwrap();
         package.certificate.content_hash = digest(
@@ -7375,11 +7455,12 @@ value = 13
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
         let template = read_package(&root).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        write_package(
+        write_package_scripted(
             directory.path(),
             &template.manifest,
             &template.region_defs().unwrap(),
             &template.rules_source,
+            &template.scripts,
         )
         .unwrap();
         let certificate = validate(directory.path()).unwrap();
@@ -7429,11 +7510,12 @@ value = 13
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/two-room");
         let template = read_package(&root).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        write_package(
+        write_package_scripted(
             directory.path(),
             &template.manifest,
             &template.region_defs().unwrap(),
             &template.rules_source,
+            &template.scripts,
         )
         .unwrap();
         let paths: Vec<_> = std::iter::once(directory.path().join("scenario.toml"))
@@ -7495,11 +7577,12 @@ value = 13
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scenarios/tests/generated-filler");
         let template = read_package(&root).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        write_package(
+        write_package_scripted(
             directory.path(),
             &template.manifest,
             &template.region_defs().unwrap(),
             &template.rules_source,
+            &template.scripts,
         )
         .unwrap();
         let before = read_package(directory.path()).unwrap();
@@ -7558,8 +7641,13 @@ value = 13
         }))
         .unwrap();
         regions[0].actors.push(actor.clone());
-        let package =
-            Package::from_parts(manifest.clone(), regions.clone(), &template.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            manifest.clone(),
+            regions.clone(),
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         let failure = package.build(42, true).unwrap_err();
         assert_eq!(failure.code, tor_protocol::ErrorCode::InvalidAction);
         assert!(failure.message.starts_with("regions/1.toml:"));
@@ -7571,8 +7659,13 @@ value = 13
             .insert("careful".into(), AiProfile::general());
         actor.ai = Some("careful".into());
         *regions[0].actors.last_mut().unwrap() = actor;
-        let package =
-            Package::from_parts(manifest.clone(), regions.clone(), &template.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            manifest.clone(),
+            regions.clone(),
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         let failure = package.build(42, true).unwrap_err();
         assert_eq!(failure.code, tor_protocol::ErrorCode::InvalidAction);
         assert_eq!(
@@ -7613,7 +7706,13 @@ value = 13
                     op: crate::creature_authoring::Op::Perception { value },
                 });
         }
-        let package = Package::from_parts(manifest, regions, &template.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            manifest,
+            regions,
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         let game = package.build(42, true).unwrap();
         let mut shared = tor_simulation::checkpoint::SharedState::default();
         let snapshot = game.checkpoint(&mut shared);
@@ -7702,9 +7801,14 @@ value = 13
         );
         actor.controller = "external".into();
         *regions[0].actors.last_mut().unwrap() = actor;
-        let failure = Package::from_parts(package.manifest.clone(), regions, &package.rules_source)
-            .and_then(|package| package.build(42, true))
-            .unwrap_err();
+        let failure = Package::from_parts_scripted(
+            package.manifest.clone(),
+            regions,
+            &package.rules_source,
+            package.scripts.clone(),
+        )
+        .and_then(|package| package.build(42, true))
+        .unwrap_err();
         assert!(
             failure
                 .message
@@ -7861,7 +7965,13 @@ value = 13
             .creatures
             .compile(template.rules().unwrap())
             .unwrap();
-        let package = Package::from_parts(manifest, regions, &template.rules_source).unwrap();
+        let package = Package::from_parts_scripted(
+            manifest,
+            regions,
+            &template.rules_source,
+            template.scripts.clone(),
+        )
+        .unwrap();
         let game = package.build(42, true).unwrap();
         // Expected explicit recipes share the actual immutable package palette.
         // Keep the full build comparison, including Content; a native neutral

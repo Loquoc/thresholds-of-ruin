@@ -12,6 +12,7 @@ import unittest
 from arena_matrix import toml_source
 from process_harness import ProcessTestCase, ROOT, underfoot
 from rogue_roster_study import encounter_sources, source_cases, study_encounter
+from outcome_scripts import copy_declared
 
 
 class RogueStarterChillProcesses(ProcessTestCase):
@@ -39,6 +40,7 @@ class RogueStarterChillProcesses(ProcessTestCase):
             self.assertEqual((production / "catalog" / name).read_bytes(),
                              (package / "catalog" / name).read_bytes())
         shutil.copy2(production / "rules.toml", package / "rules.toml")
+        copy_declared(manifest, package, production)
         (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
         (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")
         validated = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", package],

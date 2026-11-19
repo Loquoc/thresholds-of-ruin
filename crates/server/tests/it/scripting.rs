@@ -28,11 +28,13 @@ fn messages(archive: &Value) -> Vec<String> {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|segment| match (segment.get("text"), segment.get("control")) {
-                    (Some(text), _) => text.as_str().unwrap().to_owned(),
-                    (_, Some(control)) => format!("<{}>", control.as_str().unwrap()),
-                    _ => panic!("unknown segment {segment}"),
-                })
+                .map(
+                    |segment| match (segment.get("text"), segment.get("control")) {
+                        (Some(text), _) => text.as_str().unwrap().to_owned(),
+                        (_, Some(control)) => format!("<{}>", control.as_str().unwrap()),
+                        _ => panic!("unknown segment {segment}"),
+                    },
+                )
                 .collect::<String>()
         })
         .collect()
@@ -81,7 +83,14 @@ fn tutorial_lessons_follow_play_and_replay_exactly() {
     let path = dir.path().join("tutorial.json");
     let mut engine = Engine::open(&path, support::load("tutorial", 7)).unwrap();
     step(&mut engine, Direction::East, 2);
-    act(&mut engine, Action::Take { item: 1, quantity: None }).unwrap();
+    act(
+        &mut engine,
+        Action::Take {
+            item: 1,
+            quantity: None,
+        },
+    )
+    .unwrap();
     step(&mut engine, Direction::East, 2);
     assert!(!victory(&engine));
     open_door(&mut engine);
@@ -156,21 +165,30 @@ fn certificates_pin_script_text_and_validation_rejects_broken_scripts() {
     let text = std::fs::read_to_string(&script).unwrap();
     std::fs::write(&script, text.replace("Welcome", "Hello")).unwrap();
     let stale = scenario_package::load(&package, 0, None, false);
-    assert!(stale.is_err(), "an edited script makes the certificate stale");
+    assert!(
+        stale.is_err(),
+        "an edited script makes the certificate stale"
+    );
     // Revalidating the edited package succeeds; a broken one is refused.
     scenario_package::validate(&package).unwrap();
     std::fs::write(&script, "return {").unwrap();
-    let error = scenario_package::validate(&package).unwrap_err().to_string();
+    let error = scenario_package::validate(&package)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("lessons"), "{error}");
     std::fs::write(&script, &text).unwrap();
     let manifest = package.join("scenario.toml");
     let manifest_text = std::fs::read_to_string(&manifest).unwrap();
     std::fs::write(
         &manifest,
-        manifest_text.replace("handler = \"lessons.exit\"", "handler = \"lessons.missing\""),
+        manifest_text.replace(
+            "handler = \"lessons.exit\"",
+            "handler = \"lessons.missing\"",
+        ),
     )
     .unwrap();
-    let error = scenario_package::validate(&package).unwrap_err().to_string();
+    let error = scenario_package::validate(&package)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("unknown handler"), "{error}");
 }
-
