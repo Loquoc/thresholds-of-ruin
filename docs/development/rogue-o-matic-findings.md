@@ -1,5 +1,29 @@
 # Rogue-O-Matic findings and follow-ups
 
+On development seed 49 at `843d00f8`, floor 15 had 31 sequences where
+the player took a step toward the stairs and immediately moved back to
+shelter to recover. It could afford the next point of Health even when its
+food budget ruled out a full rest. A live two-floor fixture verified that
+it waited in shelter, resumed travel after the danger expired, and gained
+one Health at the first decision after its predicted recovery deadline.
+On the same seed, changing recovery alone removed all 31 such reversals.
+The bot spent 759 actions recovering on floor 15, compared with 233 before.
+It died of injury there after 6,442 actions with reserve at −103 on its
+last decision. Avoiding a reversal alone did not solve the food problem.
+
+An independent seed-49 rerun reproduced the floor-15 death at tick
+639,697. Three turns before death the player had 13 Health. A healthy troll
+two cells away had previously caused 19 Health loss, and the player could
+aim a charged polymorph staff at its visible body along a clear ray.
+An adjacent aquator caused the bot to skip all devices for approaching
+enemies. The troll was still a valid target after entering contact.
+Replaying each of the final three decisions independently now selects the
+troll for polymorph. A live encounter separately verified that the cast
+resolved and reduced a lethal opponent's hit dice in contact.
+In the fresh seed-49 run with both changes, the player cast polymorph on
+floor 15 at tick 598,078. The activation resolved. This run died of injury
+on floor 15 after 6,398 actions with zero reserve at its last decision.
+
 In the seed-49 landing recording the player climbed back upstairs at tick
 70,262 with 25 of 26 Health. The only visible hostile was a rattlesnake
 nine cells away. Earlier attacks had taught the player that rattlesnakes

@@ -850,6 +850,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.admitted(turn, action, reason=reason)
                     self.assertNotEqual(choose(player, turn)[1], reason)
 
+    def test_polymorph_targets_the_lethal_troll_while_another_foe_is_in_contact(self):
+        wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
+                "identified": True, "name": "staff of polymorph", "quantity": 1}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction_or_self", "charges": 3}
+        for distance in (1, 2):
+            with self.subTest(distance=distance):
+                cells = [cell("aquator", -1), cell("here"), cell("lane", 1), cell("beyond", 2)]
+                foes = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                        for name, x in (("aquator", -1), ("troll", distance))]
+                combat = {"hp": "13", "max_hp": "56", "actors": [
+                    {"actor": f["id"], "hostile": True, "injury": "healthy"} for f in foes]}
+                turn = player_turn(cells, actors=foes, inventory=[wand],
+                                   interactions={"inventory": [offer]}, combat=combat)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss_by_name["troll"] = 19
+                action, reason = choose(player, turn)
+                self.assertEqual(reason, "polymorph_threat")
+                self.assertEqual(action.target, turn.cell_at((distance, 0, 0)))
+
     def test_weak_player_eats_a_carried_ration_during_a_prolonged_pursuit(self):
         from tor_client_bot import ItemUse, UseItem
 
@@ -1894,6 +1913,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("scroll", "find_return_route"))
         self.assertEqual(choose(player, picture([cell("here"), cell("frontier", 1)])), (Move(Direction.EAST), "explore"))
+
+    def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
+        room = [cell("shelter"), cell("hall", 1), cell("exit", 2, down=True)]
+        for reserve, expected in [(15, (Wait(), "recover")), (5, (Move(Direction.EAST), "seek_stairs"))]:
+            with self.subTest(reserve=reserve):
+                turn = player_turn(room, combat={"hp": "5", "max_hp": "10"}, stats={
+                    "nutrition": {"kind": "required", "reserve": reserve, "maximum": 1300, "unit_ticks": 100,
+                                  "elapsed": 0, "hunger": "nourished"},
+                    "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                        "reset_percent": 100, "stopped": False}})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                player.maps[1].visited.add("hall")
+                player.danger_until["hall"] = 1200
+                self.assertEqual(player.choose(turn), expected)
 
     def test_recovery_preserves_food_for_previously_mapped_floors(self):
         item = {"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET}

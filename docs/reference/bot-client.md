@@ -233,7 +233,11 @@ the foe as close or moves closer. Against several enemies, count
 to find a step that leaves fewer opponents in melee reach.
 
 The `turn.health` and `turn.recovery` properties describe current health
-and its recovery clock. `turn.restorable_losses` exposes lasting losses
+and its recovery clock. For an injured player, `turn.recovery.ticks_to_regain(2)`
+estimates how many active ticks two Health points would take at the current
+rate, including progress already earned. A stopped clock gives `None` for a
+positive amount. Fresh damage can change the estimate.
+`turn.restorable_losses` exposes lasting losses
 such as strength, hit dice, or maximum health. For instance, a policy
 can save a restore-strength potion until `turn.restorable_losses.strength`
 is positive. These properties return `None` when the player lacks the

@@ -1595,6 +1595,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_polymorphs_a_dangerous_approaching_foe(self):
         self.check_control_wand("polymorph", 3)
 
+    def test_bot_polymorphs_a_lethal_foe_in_contact(self):
+        self.check_control_wand("polymorph", 2)
+
     def check_control_wand(self, wand, enemy_x):
         from discovery_package import write_package
         from utility_potions_package import fixture
@@ -1623,7 +1626,7 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     turn = game.wait_for_decision()
     foe, = turn.hostiles
     wand = os.environ["WAND"]
-    assert turn.in_contact(foe) == (wand == "teleport_away")
+    assert turn.in_contact(foe) == (os.environ["CONTACT"] == "1")
     before = enemy.observe()
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
@@ -1649,7 +1652,8 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
         assert not any(c.target == foe.target and after.in_contact(c) for c in after.hostiles)
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
-                             env={**os.environ, "WAND": wand, "PYTHONPATH": str(ROOT / "scripts"),
+                             env={**os.environ, "WAND": wand, "CONTACT": str(int(enemy_x == 2)),
+                                  "PYTHONPATH": str(ROOT / "scripts"),
                                   "BOT_TEST_ADDRESS": self.address, "TOR_SERVER_TOKEN": TOKEN},
                              capture_output=True, text=True, timeout=55)
         self.assertEqual(run.returncode, 0, run.stderr)
@@ -2006,6 +2010,16 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert after.recovery.elapsed_ticks > before
         assert (after.cell.key == origin) == (not limited)
     else:
+        if not limited:
+            hall = turn.cell_at(east.direction.offset).key
+            player.danger_until[hall] = turn.tick + 100
+            player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
+            action, reason = player.choose(turn)
+            assert (action, reason) == (Wait(), "recover"), (action, reason)
+            sheltered = submit(turn, action)
+            assert sheltered.cell.key == turn.cell.key and hall not in player.danger_until
+            turn = sheltered
+            player.ascent_ticks_by_floor.clear()
         for _ in range(2):
             if not limited:
                 assert player.choose(turn) == (east, "recover_en_route")
@@ -2018,7 +2032,17 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
             player.ascent_ticks_by_floor[2] = turn.nutrition.ticks_until_empty
         action, reason = player.choose(turn)
         assert (action, reason) == (Move(Direction.DOWN), "descend"), (action, reason)
-        assert submit(turn, action).cell.stairs_up
+        landing = submit(turn, action)
+        assert landing.cell.stairs_up
+        if not limited:
+            start_hp = landing.health.current
+            delay = landing.recovery.ticks_to_regain(1)
+            assert delay is not None and delay > 0 and start_hp < landing.health.maximum
+            due = landing.tick + delay
+            while landing.tick < due:
+                assert landing.health.current == start_hp
+                landing = submit(landing, Wait())
+            assert landing.health.current == start_hp + 1
 """
         result = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,

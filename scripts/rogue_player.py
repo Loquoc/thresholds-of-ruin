@@ -14,6 +14,7 @@ from tor_client_bot import (
     ActivityPhase,
     CombatReport,
     Cell,
+    Device,
     DeviceActivation,
     Direction,
     Creature,
@@ -50,7 +51,7 @@ from rogue_gear import (
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
 LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
 DEAD_END_SEARCHES = 6
-APPROACH_DEVICES = (
+CONTROL_DEVICES = (
     ("item.wand.wand-slow", "slow_approach"),
     ("item.wand.wand-polymorph", "polymorph_threat"),
     ("item.wand.wand-magic-missile", "magic_missile"),
@@ -288,6 +289,11 @@ class Adventurer:
         # Allow one closing step before a creature can strike in contact.
         return foe.distance <= 2 and foe.name in self.draining_creatures
 
+    def can_spend_charge(self, device: Device) -> bool:
+        if device.charges is None:
+            return device.item.target not in self.tried_unmeasured_devices
+        return device.charges > 0
+
     def combat(self, turn: Turn) -> tuple[Action, str] | None:
         health = turn.health
         injured = health is not None and health.current * 2 < health.maximum
@@ -317,18 +323,19 @@ class Adventurer:
         if adjacent and (two_hit_threat or injured or surrounded):
             foe = max(adjacent, key=self.damage_estimate)
             for device in turn.devices:
-                if (device.item.identity != "item.wand.wand-teleport-away" or device.charges == 0
-                        or (device.charges is None and device.item.target in self.tried_unmeasured_devices)):
+                if device.item.identity != "item.wand.wand-teleport-away" or not self.can_spend_charge(device):
                     continue
                 if zap := turn.aim_device(device, foe):
                     return zap, "displace_threat"
 
+        if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
+            return decision
         if escape := self.retreat_to_stairs(turn):
             return escape
         if not adjacent and sum(foe.distance <= 3 for foe in turn.hostiles) >= 2:
             if step := self.take_corridor(turn):
                 return step, "take_corridor"
-        if turn.hostiles and not adjacent and health and (decision := self.counter_approach(turn, health.current)):
+        if turn.hostiles and not adjacent and health and (decision := self.counter_threat(turn, health.current)):
             return decision
 
         if (
@@ -428,15 +435,16 @@ class Adventurer:
                 return Move(direction)
         return None
 
-    def counter_approach(self, turn: Turn, health: int) -> tuple[Zap, str] | None:
-        devices = [(device, reason) for identity, reason in APPROACH_DEVICES for device in turn.devices
-                   if device.item.identity == identity and device.charges != 0
-                   and (device.charges is not None or device.item.target not in self.tried_unmeasured_devices)]
+    def counter_threat(self, turn: Turn, health: int, *, in_melee: bool = False) -> tuple[Zap, str] | None:
+        devices = [(device, reason) for identity, reason in CONTROL_DEVICES
+                   if not in_melee or reason == "polymorph_threat"
+                   for device in turn.devices
+                   if device.item.identity == identity and self.can_spend_charge(device)]
         if not devices:
             return None
         for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
             damage = self.damage_estimate(foe)
-            if (not 2 <= foe.distance <= 3 or
+            if (foe.distance > 3 or
                     (2 * damage < health and foe.name not in self.draining_creatures)):
                 continue
             for device, reason in devices:
@@ -554,6 +562,12 @@ class Adventurer:
         stairs = {
             key for key, cell in memory.cells.items() if (cell.stairs_up if returning else cell.stairs_down)
         }
+        reserve = turn.nutrition
+
+        def can_afford_recovery(points: int, travel_ticks: int = 0) -> bool:
+            ticks = clock.ticks_to_regain(points)
+            return ticks is not None and (reserve is None or reserve.ticks_until_empty > ticks + travel_ticks)
+
         if not self.trapped(turn):
             if turn.cell.key in self.danger_until:
                 if action := memory.toward(turn, memory.visited - self.danger_until.keys()):
@@ -562,10 +576,12 @@ class Adventurer:
             if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
                 if (cell.key in memory.visited or cell.key in stairs) and cell.key not in self.danger_until:
                     return action, "recover_en_route"
-        waiting = missing * clock.period_ticks - clock.elapsed_ticks
-        reserve = turn.nutrition
+                if (cell.key in self.danger_until and turn.cell.key not in self.danger_until
+                        and can_afford_recovery(1)):
+                    # Stay in shelter while a single point of recovery is still affordable.
+                    return Wait(), "recover"
         return_trip = sum(self.ascent_ticks_by_floor.values()) if stairs else 0
-        if reserve is None or reserve.ticks_until_empty > waiting + return_trip:
+        if can_afford_recovery(missing, return_trip):
             return Wait(), "recover"
         return None
 

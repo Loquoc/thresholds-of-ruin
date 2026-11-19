@@ -17,6 +17,18 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_recovery_estimate_accounts_for_elapsed_ticks_and_a_stopped_clock(self):
+        from tor_client_bot import Recovery
+
+        running = Recovery(period_ticks=1000, elapsed_ticks=250, stopped=False, reset_percent=100)
+        paused = Recovery(period_ticks=1000, elapsed_ticks=250, stopped=True, reset_percent=100)
+        self.assertEqual(running.ticks_to_regain(1), 750)
+        self.assertEqual(running.ticks_to_regain(3), 2750)
+        self.assertEqual(paused.ticks_to_regain(0), 0)
+        self.assertIsNone(paused.ticks_to_regain(1))
+        with self.assertRaises(ValueError):
+            running.ticks_to_regain(-1)
+
     def test_floor_map_dead_end_requires_four_observed_sides_and_updates_after_discovery(self):
         def tile(key, x, y, wall=False):
             return {"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": wall,

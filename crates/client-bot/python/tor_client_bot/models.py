@@ -318,6 +318,16 @@ class Recovery:
     stopped: bool
     reset_percent: int
 
+    def ticks_to_regain(self, points: int) -> int | None:
+        """Estimate active ticks for this many missing Health at the observed rate."""
+        if points < 0:
+            raise ValueError("points must be nonnegative")
+        if points == 0:
+            return 0
+        if self.stopped:
+            return None
+        return points * self.period_ticks - self.elapsed_ticks
+
 
 @dataclass(frozen=True, slots=True)
 class Condition:
