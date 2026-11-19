@@ -1357,6 +1357,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_damages_a_dangerous_foe_with_a_known_magic_missile(self):
         self.check_control_wand("magic_missile", 3)
 
+    def test_bot_polymorphs_a_dangerous_approaching_foe(self):
+        self.check_control_wand("polymorph", 3)
+
     def check_control_wand(self, wand, enemy_x):
         from discovery_package import write_package
         from utility_potions_package import fixture
@@ -1370,7 +1373,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         species.setdefault("modifiers", []).append({"scope": "always", "op": {
             "kind": "add", "stat": {"kind": "attribute", "attribute": "intellect"}, "value": 100}})
         region, = contents["regions"]
-        region.update(size=[17, 9, 2], actors=[{"archetype": "rogue.hobgoblin", "id": 3,
+        species_id = "rogue.griffin" if wand == "polymorph" else "rogue.hobgoblin"
+        region.update(size=[17, 9, 2], actors=[{"archetype": species_id, "id": 3,
                       "at": [enemy_x, 2, 0], "controller": "external", "turn_ticks": 1000000}])
         self.server(scenario=write_package(self, contents, "escape-device"))
         self.install_bot_extension()
@@ -1385,12 +1389,13 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     foe, = turn.hostiles
     wand = os.environ["WAND"]
     assert turn.in_contact(foe) == (wand == "teleport_away")
-    before_health = enemy.observe().health.current
+    before = enemy.observe()
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
     player.observed_loss[foe.target] = turn.health.current
     action, reason = player.choose(turn)
-    expected = {"slow": "slow_approach", "teleport_away": "displace_threat", "magic_missile": "magic_missile"}
+    expected = {"slow": "slow_approach", "teleport_away": "displace_threat",
+                "magic_missile": "magic_missile", "polymorph": "polymorph_threat"}
     assert isinstance(action, Zap) and reason == expected[wand], (action, reason)
     receipt = turn.submit(action)
     assert receipt.status is Outcome.CONFIRMED, receipt
@@ -1400,7 +1405,11 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
     if wand == "slow":
         assert enemy.observe().has_condition("rogue.slowed")
     elif wand == "magic_missile":
-        assert enemy.observe().health.current < before_health
+        assert enemy.observe().health.current < before.health.current
+    elif wand == "polymorph":
+        changed = enemy.observe()
+        assert changed.hit_dice is not None and before.hit_dice is not None
+        assert changed.hit_dice < before.hit_dice, (changed.hit_dice, before.hit_dice)
     else:
         assert not any(c.target == foe.target and after.in_contact(c) for c in after.hostiles)
 """

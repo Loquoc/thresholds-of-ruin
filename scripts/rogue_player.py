@@ -48,6 +48,11 @@ from rogue_gear import (
 
 
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
+APPROACH_DEVICES = (
+    ("item.wand.wand-slow", "slow_approach"),
+    ("item.wand.wand-polymorph", "polymorph_threat"),
+    ("item.wand.wand-magic-missile", "magic_missile"),
+)
 
 
 @dataclass
@@ -82,6 +87,7 @@ class Adventurer:
     guarded_supplies: set[str] = field(default_factory=set)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
+    attempted_polymorph: set[str] = field(default_factory=set)
     attempted_room_light: set[int] = field(default_factory=set)
     previous_losses: RestorableLosses | None = None
     draining_creatures: set[str] = field(default_factory=set)
@@ -223,8 +229,9 @@ class Adventurer:
             self.tried_unmeasured_devices.add(action.device.item.target)
         if isinstance(action, Zap) and reason == "light_room":
             self.attempted_room_light.add(self.depth)
-        if reason == "slow_approach" and isinstance(action, Zap) and isinstance(action.target, Cell):
-            self.attempted_slow.update(foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
+        if reason in {"slow_approach", "polymorph_threat"} and isinstance(action, Zap) and isinstance(action.target, Cell):
+            attempted = self.attempted_slow if reason == "slow_approach" else self.attempted_polymorph
+            attempted.update(foe.target for foe in turn.hostiles if action.target in turn.cells_of(foe))
         if isinstance(action, Move) and turn.cell:
             self.last_retreat_origin = turn.cell.key if reason == "retreat_to_stairs" else None
             if reason in {"retreat", "break_contact"} and turn.health and turn.health.current * 2 < turn.health.maximum:
@@ -395,19 +402,22 @@ class Adventurer:
         return None
 
     def counter_approach(self, turn: Turn, health: int) -> tuple[Zap, str] | None:
-        effects = {"item.wand.wand-slow": "slow_approach", "item.wand.wand-magic-missile": "magic_missile"}
-        devices = [(device, effects[device.item.identity]) for device in turn.devices
-                   if device.item.identity in effects and device.charges != 0 and
-                   (device.charges is not None or device.item.target not in self.tried_unmeasured_devices)]
+        devices = [(device, reason) for identity, reason in APPROACH_DEVICES for device in turn.devices
+                   if device.item.identity == identity and device.charges != 0
+                   and (device.charges is not None or device.item.target not in self.tried_unmeasured_devices)]
         if not devices:
             return None
-        devices.sort(key=lambda pair: pair[1] != "slow_approach")
         for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
+            damage = self.damage_estimate(foe)
             if (not 2 <= foe.distance <= 3 or
-                    (2 * self.damage_estimate(foe) < health and foe.name not in self.draining_creatures)):
+                    (2 * damage < health and foe.name not in self.draining_creatures)):
                 continue
             for device, reason in devices:
                 if reason == "slow_approach" and foe.target in self.attempted_slow:
+                    continue
+                if reason == "polymorph_threat" and (
+                    foe.target in self.attempted_polymorph or foe.injury is not Injury.HEALTHY or damage < health
+                ):
                     continue
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason

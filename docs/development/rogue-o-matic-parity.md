@@ -54,6 +54,15 @@ a remembered route to the stairs, opened a closed door while staying in the
 same cell, and saw the door open after the intention resolved. Opening a door
 uses the player's current position when estimating exposure to the pursuer.
 
+When an uninjured enemy is approaching and its previously observed damage
+could exhaust the player's current Health, the bot can aim a known Polymorph
+device. It checks the line of fire and tries the effect at most once on that
+target. A live test supplied that threat history for a griffin, observed the
+charged action resolve, and used the griffin's ordinary player connection to
+confirm its new body had fewer hit dice. The scenario can choose different
+replacement bodies. The test establishes the decision and this particular
+outcome; other encounters still need campaign evidence.
+
 Terminal reports count distinct items seen, carried, recognized, assessed
 and worn, plus admitted item uses and activations. The cohort records observed
 supply-detour ticks, reserve decreases and immediate movement reversals

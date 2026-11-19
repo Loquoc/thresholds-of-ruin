@@ -767,6 +767,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, action, reason=reason)
         self.assertNotIsInstance(choose(player, turn)[0], Zap)
 
+    def test_polymorph_is_reserved_for_a_dangerous_uninjured_approach(self):
+        wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
+                "identified": True, "name": "staff of polymorph", "quantity": 1}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction_or_self", "charges": 3}
+        cells = [cell("here"), cell("lane", 1), cell("foe", 2)]
+        foe = {"id": "hunter", "name": "griffin", "position": cells[-1]["position"]}
+        for damage, injury, expected in [(10, "healthy", True), (5, "healthy", False), (10, "near_death", False)]:
+            with self.subTest(damage=damage, injury=injury):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss_by_name["griffin"] = damage
+                turn = player_turn(cells, actors=[foe], inventory=[wand], interactions={"inventory": [offer]},
+                                   combat={"actors": [{"actor": "hunter", "hostile": True, "injury": injury}]})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "polymorph_threat", expected)
+                if expected:
+                    self.assertEqual(action.target, turn.cell_at((2, 0, 0)))
+                    player.admitted(turn, action, reason=reason)
+                    self.assertNotEqual(choose(player, turn)[1], reason)
+
     def test_weak_player_eats_a_carried_ration_during_a_prolonged_pursuit(self):
         from tor_client_bot import ItemUse, UseItem
 
