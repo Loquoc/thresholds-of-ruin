@@ -211,8 +211,11 @@ def play(seed, server_path, scenario, actor, budget, timeout, output, retrieval_
 def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth,
                    objective_identity, policy_path, record_decisions):
     try:
-        line = server.until(lambda text: text.startswith("{") and '"address"' in text)
+        line = server.until(lambda text: text.startswith("{") and '"address"' in text, include_transcript=False)
         address = json.loads(line)["address"]
+    except (AssertionError, ValueError, KeyError) as error:
+        return {"terminal": "server_startup_error", "startup_error": str(error), "actions": 0}
+    try:
         with trace.open("w", encoding="utf-8") as log, trace.with_name("bot.stderr").open("w", encoding="utf-8") as errors:
             result = subprocess.run(
                 [sys.executable, str(policy_path), "--connect", address,
@@ -288,7 +291,8 @@ def main():
         summary = write_summary(output, inputs, rows)
     print(json.dumps(summary))
     return int(any(row.get("server_cleanup") or row["terminal"] in
-                   {"client_error", "wall_timeout", "readiness_timeout"} for row in rows))
+                   {"client_error", "server_startup_error", "unknown_outcome", "wall_timeout", "readiness_timeout"}
+                   for row in rows))
 
 
 if __name__ == "__main__":

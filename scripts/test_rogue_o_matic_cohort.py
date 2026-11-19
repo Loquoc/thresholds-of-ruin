@@ -7,6 +7,28 @@ from rogue_o_matic_cohort import summarize
 
 
 class CohortSummaryTests(unittest.TestCase):
+    def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
+        from pathlib import Path
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scenario.toml").write_text("id = 'fixture'\n", encoding="utf-8")
+            output = root / "campaign"
+            # Python exits immediately on the server's --listen argument.
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name("rogue_o_matic_cohort.py")),
+                                     "--server", sys.executable, "--scenario", str(root), "--output", str(output),
+                                     "47", "49"], capture_output=True, text=True, timeout=40)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["runs"], 2, result.stderr)
+            self.assertEqual([(r["seed"], r["terminal"]) for r in report["results"]],
+                             [(47, "server_startup_error"), (49, "server_startup_error")])
+            self.assertEqual(report["victories"], 0)
+            self.assertEqual(report["deaths_by_cause"], {})
+
     def test_shutdown_timeout_preserves_the_observed_campaign_result(self):
         import subprocess
         import tempfile
@@ -118,16 +140,20 @@ class CohortSummaryTests(unittest.TestCase):
                     "--output", str(root / "output"), "50"]
             result = {"seed": 50, "terminal": "readiness_timeout", "max_depth": 11}
             def play(*_):
-                initial = json.loads((root / "output/summary.json").read_text(encoding="utf-8"))
+                initial = json.loads((output / "summary.json").read_text(encoding="utf-8"))
                 self.assertEqual(initial["inputs"]["seeds"], [50])
                 self.assertEqual(initial["results"], [])
                 return result
 
-            with patch("sys.argv", args), patch("rogue_o_matic_cohort.play", side_effect=play), \
-                    redirect_stdout(StringIO()):
-                self.assertEqual(main(), 1)
-            summary = json.loads((root / "output/summary.json").read_text(encoding="utf-8"))
-            self.assertEqual(summary["results"], [result])
+            for terminal in ("readiness_timeout", "unknown_outcome"):
+                result["terminal"] = terminal
+                output = root / terminal
+                args[-2] = str(output)
+                with self.subTest(terminal=terminal), patch("sys.argv", args), \
+                        patch("rogue_o_matic_cohort.play", side_effect=play), redirect_stdout(StringIO()):
+                    self.assertEqual(main(), 1)
+                summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+                self.assertEqual(summary["results"], [result])
 
     def test_counts_victory_and_distinguishes_disclosed_and_undisclosed_deaths(self):
         rows = [
