@@ -795,6 +795,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(policy.depth, 2)
         self.assertIn("paired", policy.maps[2].visited)
 
+    def test_carries_the_amulet_past_an_ordinary_enemy_to_nearby_upstairs(self):
+        amulet = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                  "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        foe = {"id": "orc", "name": "orc", "position": cell("orc", -1)["position"]}
+        strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
+                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        for here, exit_cell, expected in [
+            (cell("here", up=True), cell("east", 1), (Move(Direction.UP), "retreat_upstairs")),
+            (cell("here"), cell("east", 1, up=True), (Move(Direction.EAST), "retreat_to_stairs")),
+        ]:
+            turn = player_turn([here, cell("west", -1), exit_cell], actors=[foe], hostiles=["orc"],
+                               inventory=[amulet], abilities=[strike])
+            self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), expected)
+
     def test_follows_the_last_amulet_sighting_until_its_cell_is_seen_empty(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=26)
         passage = [cell("here"), cell("west", -1), cell("west-end", -2), cell("east", 1)]

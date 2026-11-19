@@ -587,12 +587,18 @@ with ExitStack() as stack:
     def test_bot_keeps_exploring_the_landing_while_the_drainer_is_distant(self):
         self.check_stair_refuge(enemy_x=5, expect_escape=False)
 
-    def check_stair_refuge(self, enemy_x, *, expect_escape):
+    def test_amulet_carrier_ascends_instead_of_fighting_an_ordinary_enemy(self):
+        self.check_stair_refuge(enemy_x=2, expect_escape=True, carrying=True)
+
+    def check_stair_refuge(self, enemy_x, *, expect_escape, carrying=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
-        contents["manifest"]["characters"][0]["loadout"] = []
+        character, = contents["manifest"]["characters"]
+        character["loadout"] = [{"archetype": "rogue.amulet_of_yendor", "quantity": 1}] if carrying else []
+        if carrying:
+            character["known_identities"].append("item.amulet.amulet-of-yendor")
         contents["manifest"]["stair_pairs"] = {"escape": {"upper": "2/down", "lower": "1/start"}}
         contents["regions"][0]["actors"] = [
             {"archetype": "rogue.hobgoblin", "id": 3, "at": [enemy_x, 2, 0], "controller": "external",
@@ -609,7 +615,10 @@ token = os.environ["TOR_SERVER_TOKEN"]
 with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1], token, 3) as enemy:
     turn = game.wait_for_decision()
     player = Adventurer(26, "item.amulet.amulet-of-yendor", depth=6)
-    player.draining_creatures.add(turn.hostiles[0].name)
+    if sys.argv[3] == "carrying":
+        assert player.carrying_objective(turn) and turn.in_contact(turn.hostiles[0])
+    else:
+        player.draining_creatures.add(turn.hostiles[0].name)
     player.observe(turn)
     step, reason = player.choose(turn)
     if sys.argv[2] == "explore":
@@ -628,6 +637,9 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     refuge = game.wait_for_decision()
     player.observe(refuge)
     assert player.depth == 5 and refuge.cell.stairs_down
+    if sys.argv[3] == "carrying":
+        assert player.carrying_objective(refuge)
+        sys.exit(0)
     step, reason = player.choose(refuge)
     assert step is not None and step != Move(Direction.DOWN), (step, reason)
     receipt = refuge.submit(step)
@@ -635,7 +647,8 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
     assert game.wait_for_decision().outcome_of(receipt).value == "resolved"
 """
         expected = "escape" if expect_escape else "explore"
-        result = subprocess.run([sys.executable, "-c", code, self.address, expected], cwd=self.directory,
+        result = subprocess.run([sys.executable, "-c", code, self.address, expected,
+                                 "carrying" if carrying else "outbound"], cwd=self.directory,
                                 env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
                                 text=True, capture_output=True, timeout=45)
         self.assertEqual(result.returncode, 0, result.stderr)

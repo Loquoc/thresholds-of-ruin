@@ -564,15 +564,19 @@ class Adventurer:
             return None
         if turn.has_condition("rogue.levitation"):
             return None
-        can_descend = self.depth < self.retrieval_depth and not self.carrying_objective(turn)
+        returning = self.carrying_objective(turn)
+        can_descend = self.depth < self.retrieval_depth and not returning
         downstairs = self.safe_stairs(turn, Direction.DOWN) if can_descend else set()
-        if downstairs and (pressed or self.recovering_from_pursuit):
-            if turn.cell and turn.cell.key in downstairs:
+        onward = self.safe_stairs(turn, Direction.UP) if returning else downstairs
+        if onward and (returning or pressed or self.recovering_from_pursuit):
+            if turn.cell and turn.cell.key in onward:
+                if returning:
+                    return Move(Direction.UP), "retreat_upstairs"
                 return Move(Direction.DOWN), "retreat_downstairs"
             contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
             for direction in turn.walkable_directions:
                 cell = turn.cell_at(direction.offset)
-                if cell is None or cell.key not in downstairs or cell.trap:
+                if cell is None or cell.key not in onward or cell.trap:
                     continue
                 threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
                 exposure = sum(self.damage_estimate(foe) for foe in threats)
