@@ -1796,6 +1796,49 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     def test_bot_uses_an_offered_wand_to_displace_a_lethal_attacker(self):
         self.check_control_wand("teleport_away", 2)
 
+    def test_bot_uses_one_haste_dose_before_a_group_closes(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        character, = contents["manifest"]["characters"]
+        character.update(loadout=[{"archetype": "rogue.haste", "quantity": 2}],
+                         known_identities=["item.potion.haste"])
+        room, = contents["regions"]
+        room["actors"] = [{"id": number, "archetype": "rogue.hobgoblin", "at": [4, y, 0],
+                           "controller": "external", "turn_ticks": 1000000} for number, y in ((3, 1), (4, 3))]
+        self.server(scenario=write_package(self, contents, "haste-before-contact"))
+        self.install_bot_extension()
+        code = """
+from contextlib import ExitStack
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import ItemUse, Outcome, Session, UseItem, Wait
+
+with ExitStack() as stack:
+    game, first, second = [stack.enter_context(Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], i))
+                           for i in (1, 3, 4)]
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    before = game.wait_for_decision()
+    player.observe(before)
+    action, reason = player.choose(before)
+    assert isinstance(action, UseItem) and action.use is ItemUse.DRINK and reason == "combat_haste", (action, reason)
+    receipt = before.submit(action)
+    assert receipt.status is Outcome.CONFIRMED
+    player.admitted(before, action, receipt, reason=reason)
+    for enemy in (first, second):
+        assert enemy.wait_for_decision().submit(Wait()).status is Outcome.CONFIRMED
+    after = game.wait_for_decision()
+    player.observe(after)
+    assert after.has_condition("rogue.hasted")
+    assert sum(i.quantity for i in after.inventory if i.identity == "item.potion.haste") == 1
+    assert player.choose(after)[1] != "combat_haste"
+"""
+        result = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                                capture_output=True, text=True, timeout=55)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_bot_slows_a_dangerous_foe_before_contact(self):
         self.check_control_wand("slow", 3)
 

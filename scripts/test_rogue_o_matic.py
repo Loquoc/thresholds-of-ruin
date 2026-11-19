@@ -50,6 +50,23 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
+        potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",
+                  "quantity": 2, "identified": True, "class": "potion"}
+        enemies = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                   for name, x in (("emu", 3), ("orc", -3))]
+        for condition, count, expected in ((None, 2, True), (None, 1, False),
+                                           ("rogue.hasted", 2, False), ("rogue.haste_exhaustion", 2, False)):
+            with self.subTest(condition=condition, count=count):
+                foes = enemies[:count]
+                conditions = [{"condition": {"id": condition, "name": condition},
+                               "phase": "active", "remaining_ticks": 300}] if condition else []
+                turn = player_turn([cell("here")], actors=foes, hostiles=[f["id"] for f in foes],
+                                   stats={"conditions": conditions}, inventory=[potion],
+                                   interactions={"inventory": [{"item": "dose", "drinkable": True}]})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                self.assertEqual(choose(player, turn)[1] == "combat_haste", expected)
+
     def test_uses_room_light_only_in_disclosed_darkness_and_remembers_an_unlit_passage(self):
         from tor_client_bot import Zap
         wand = {"id": "light", "name": "staff of light", "identity": "item.wand.wand-light",

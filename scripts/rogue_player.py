@@ -358,11 +358,18 @@ class Adventurer:
             return decision
         if escape := self.retreat_to_stairs(turn, pressed=injured or surrounded or two_hit_threat):
             return escape
-        if not adjacent and sum(foe.distance <= 3 for foe in turn.hostiles) >= 2:
+        approaching_group = not adjacent and sum(turn.distance_to(foe) <= 3 for foe in turn.hostiles) >= 2
+        if approaching_group:
             if step := self.take_corridor(turn):
                 return step, "take_corridor"
         if turn.hostiles and not adjacent and health and (decision := self.counter_threat(turn, health.current)):
             return decision
+
+        if (approaching_group and health and not injured and not turn.has_condition("rogue.hasted")
+                and not turn.has_condition("rogue.haste_exhaustion")):
+            for item in turn.inventory:
+                if item.identity == "item.potion.haste" and ItemUse.DRINK in item.uses:
+                    return UseItem(item, ItemUse.DRINK), "combat_haste"
 
         if (
             turn.hostiles
