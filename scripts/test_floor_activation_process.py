@@ -127,7 +127,7 @@ bands = [{ depth = { kind = "open", minimum = 3 }, choices = [{ archetype = "mar
         shutil.rmtree(package)
 
         server = self.server("--checkpoint-interval", 64, scenario=unrelated_fallback(self), seed=None)
-        player, resumed = self.client(omit_memory=True)
+        player, resumed = self.client(omit_memory=True, compact_background=True)
         self.assertDisclosedStateEqual(resumed["state"], before["state"])
         self.assertEqual(resumed["history"], before["history"])
         self.assertEqual(self.private_receipts(), second)
