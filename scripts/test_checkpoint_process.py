@@ -396,14 +396,18 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
         self.assertEqual(validation.returncode, 0, validation.stderr)
         server = self.server("--checkpoint-interval", 32, "--save-target-ms", 3600000,
             "--save-max-ms", 7200000, "--save-idle-ms", 0, scenario=package)
-        player, _ = self.client(compact_background=True)
-        for index in range(132):
-            completed = self.act(player, {"type": "wait"})
-            self.assertIsNone(completed["error"])
-            if (index + 1) % 32 == 0:
-                # A queued SaveBehind reply is not durable completion. Use the
-                # ordinary explicit-save barrier before reading a checkpoint.
+        # Drive the long workload through the real text client. A headless
+        # diagnostic picture for every AI event can overwhelm its output pipe.
+        driver, _ = self.text_client()
+        for count in range(1, 132):
+            self.assertIn("Time passes.", driver.command("wait"))
+            if count % 32 == 0:
                 self.flush_save()
+        driver.stop()
+        player, initial = self.client()
+        self.assertEqual(initial["state"]["observation"]["tick"], "13100")
+        completed = self.act(player, {"type": "wait"})
+        self.assertIsNone(completed["error"])
         completed = self.settled_waits(player, completed, 132)
         self.flush_save()
         checkpoint = self.read_checkpoint()
