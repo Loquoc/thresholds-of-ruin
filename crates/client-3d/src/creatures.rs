@@ -1462,12 +1462,43 @@ struct WalkFoot {
     settled: bool,
 }
 
+#[derive(Clone, Copy)]
+struct StrikeEntryFoot {
+    ankle: Vec3,
+    sole: Quat,
+    planted: bool,
+}
+
+#[derive(Clone, Copy)]
+struct StrikeEntry {
+    rig: Entity,
+    time: f32,
+    root: Vec3,
+    feet: [StrikeEntryFoot; 2],
+}
+
+#[derive(Clone, Copy)]
+struct StrikeEntryTransfer {
+    seed: StrikeEntry,
+    cue_time: f32,
+}
+
+impl StrikeEntryTransfer {
+    fn admit(seed: StrikeEntry, cue_time: f32) -> Option<Self> {
+        const MAX_SEED_AGE_SECS: f32 = 0.08;
+        (0.0..=MAX_SEED_AGE_SECS)
+            .contains(&(cue_time - seed.time))
+            .then_some(Self { seed, cue_time })
+    }
+}
+
 #[derive(Default)]
 struct WalkContacts {
     rig: Option<Entity>,
     feet: [Option<WalkFoot>; 4],
     blend: f32,
     settle: Option<f32>,
+    strike_entry: Option<StrikeEntry>,
 }
 
 #[derive(Component)]
@@ -1477,6 +1508,7 @@ pub struct Anim {
     walk: f32,
     speed: f32,
     contacts: WalkContacts,
+    strike_entry: Option<StrikeEntryTransfer>,
     last: Vec3,
     time: f32,
     seed: f32,
@@ -1507,6 +1539,7 @@ impl Anim {
             walk: 0.0,
             speed: 0.0,
             contacts: WalkContacts::default(),
+            strike_entry: None,
             last: at,
             time: 0.0,
             seed: rand(seed, 2) * 10.0,
@@ -1533,6 +1566,14 @@ impl Anim {
     }
 
     pub fn act(&mut self, action: Move) {
+        self.strike_entry = if action == Move::Strike && self.action.is_none() {
+            self.contacts
+                .strike_entry
+                .take()
+                .and_then(|seed| StrikeEntryTransfer::admit(seed, self.time))
+        } else {
+            None
+        };
         self.contacts = WalkContacts::default();
         self.action = Some((action, 0.0));
     }
@@ -1569,6 +1610,8 @@ mod rogue_tests;
 mod skirt_motion;
 #[cfg(test)]
 mod soft_tests;
+#[cfg(test)]
+mod strike_entry_tests;
 mod visual_contact;
 
 pub use animation::{animate, soften, Boredom, WalkingCarriage, BORED_AFTER};

@@ -3,30 +3,17 @@ use super::geometry::{snake_segment_radius, BIRD_ANKLE, SNAKE};
 use super::*;
 
 mod carriage;
+mod curves;
+mod foot_trajectory;
 pub use carriage::WalkingCarriage;
+pub(super) use curves::ease;
+use curves::envelope;
+use foot_trajectory::beast_step;
 mod publication;
 mod rogue;
 
 // ---------------------------------------------------------------------------
 // Posing.
-
-pub(super) fn ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-/// Rise from 0 to 1 over [a, b], hold, then fall back over [c, d].
-fn envelope(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
-    if t < a || t > d {
-        0.0
-    } else if t < b {
-        ease((t - a) / (b - a))
-    } else if t < c {
-        1.0
-    } else {
-        1.0 - ease((t - c) / (d - c))
-    }
-}
 
 fn fwd(a: f32) -> Quat {
     Quat::from_rotation_x(-a)
@@ -375,6 +362,13 @@ fn present_pose(
     }
     let started = profile.as_ref().map(|_| std::time::Instant::now());
     let pose = pose(rig, anim, fun, dt, supported, moving);
+    if dt > 0.0 {
+        anim.contacts.strike_entry = if supported && moving {
+            strike_entry_from_walk(&pose, rig, anim)
+        } else {
+            None
+        };
+    }
     for j in 0..JOINTS {
         if let Some(e) = rig.joints[j] {
             if let Ok(mut transform) = joints.get_mut(e) {
@@ -592,6 +586,9 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
         .action
         .filter(|_| a.dead.is_none())
         .map_or((None, 0.0), |(m, t)| (Some(m), t));
+    if m != Some(Move::Strike) || !valid_strike_entry(rig, a, t) {
+        a.strike_entry = None;
+    }
     // At rest each creature idles in its own way, fading out as it moves or acts.
     // Fidgets belong to rest. Normal travelling speeds already have a full
     // gait even though speed is normalized against a much faster run.
@@ -899,6 +896,118 @@ fn posed_ankle(p: &Pose, rig: &Rig, leg: WalkLeg) -> Vec3 {
                 + p.off[leg.shin as usize]
                 + p.rot[leg.shin as usize]
                     * (rig.rest[leg.foot as usize] + p.off[leg.foot as usize]))
+}
+
+const ACTION_SUPPORT_IN: f32 = 0.08;
+const STRIKE_ENTRY_RELEASE_SECS: f32 = 0.16;
+
+fn strike_entry_release(elapsed: f32, planted: bool) -> f32 {
+    // Let the free foot reach the action path first. Delay the old stance
+    // crossover a little, but retain an interior sample even at 50 ms.
+    let (start, end) = if planted {
+        (0.015, STRIKE_ENTRY_RELEASE_SECS)
+    } else {
+        (0.0, 0.115)
+    };
+    ease((elapsed - start) / (end - start))
+}
+
+fn strike_entry_from_walk(p: &Pose, rig: &Rig, a: &Anim) -> Option<StrikeEntry> {
+    if rig.style != Style::Hero
+        || rig.plan != Plan::Biped
+        || a.action.is_some()
+        || a.contacts.blend != 1.0
+        || a.contacts.settle.is_some()
+        || a.hurt.is_some()
+        || a.dodge.is_some()
+        || a.fallen > 0.0
+    {
+        return None;
+    }
+    let lift = rig.joint(J::Lift)?;
+    if a.contacts.rig != Some(lift) {
+        return None;
+    }
+    let [Some(left), Some(right), ..] = walk_legs(rig, a) else {
+        return None;
+    };
+    let [Some(left_contact), Some(right_contact), ..] = a.contacts.feet else {
+        return None;
+    };
+    let facing = Quat::from_rotation_y(a.yaw);
+    let feet = [(left, left_contact), (right, right_contact)].map(|(leg, contact)| {
+        let chain = biped_sole_parent(p, leg.thigh, leg.shin);
+        StrikeEntryFoot {
+            // Save the actual presented swing pose, not its last ground anchor.
+            ankle: a.last + facing * posed_ankle(p, rig, leg) * rig.scale,
+            sole: facing * chain * p.rot[leg.foot as usize],
+            planted: contact.phase.rem_euclid(1.0) < leg.stance,
+        }
+    });
+    feet.iter().any(|foot| foot.planted).then_some(StrikeEntry {
+        rig: lift,
+        time: a.time,
+        root: a.last,
+        feet,
+    })
+}
+
+fn valid_strike_entry(rig: &Rig, a: &Anim, phase: f32) -> bool {
+    a.strike_entry.is_some_and(|transfer| {
+        let elapsed = phase * Move::Strike.duration();
+        let since_cue = a.time - transfer.cue_time;
+        let moved = a.last - transfer.seed.root;
+        (0.0..STRIKE_ENTRY_RELEASE_SECS).contains(&elapsed)
+            && rig.style == Style::Hero
+            && rig.joint(J::Lift) == Some(transfer.seed.rig)
+            // The cue may be applied after this presentation step. The
+            // phase owns easing; the clock only rejects a pinned stale cue.
+            && (0.0..=STRIKE_ENTRY_RELEASE_SECS + 0.05).contains(&since_cue)
+            && moved.y.abs() <= 0.001
+            && moved.with_y(0.0).length_squared() <= 0.25
+            && a.hurt.is_none()
+            && a.dodge.is_none()
+            && a.fallen == 0.0
+    })
+}
+
+fn biped_sole_parent(p: &Pose, thigh: J, shin: J) -> Quat {
+    p.rot[J::Lift as usize] * p.rot[J::Hips as usize] * p.rot[thigh as usize] * p.rot[shin as usize]
+}
+
+/// Hand off the solved feet, not live walking. The ordinary action still
+/// owns the destinations and their clearance; only the initial world-pose
+/// contribution has a longer release, converging before impact.
+fn strike_entry_contacts(
+    p: &mut Pose,
+    rig: &Rig,
+    a: &Anim,
+    seed: StrikeEntry,
+    planned: &[Vec3; 2],
+    elapsed: f32,
+) {
+    let facing = Quat::from_rotation_y(a.yaw).inverse();
+    let legs = walk_legs(rig, a);
+    let releases = seed
+        .feet
+        .map(|foot| strike_entry_release(elapsed, foot.planted));
+    let mut contacts = *planned;
+    for (i, foot) in seed.feet.into_iter().enumerate() {
+        let carried = facing * (foot.ankle - a.last) / rig.scale;
+        let carried = if foot.planted {
+            legs[i].map_or(carried, |leg| reachable_walk_contact(p, rig, leg, carried))
+        } else {
+            carried
+        };
+        contacts[i] = carried.lerp(planned[i], releases[i]);
+    }
+    fit_biped_support(p, rig, &contacts, 1.0);
+    solve_biped_contacts(p, rig, &contacts, 1.0);
+    for (i, (leg, shin, foot)) in BIPED_LEGS.into_iter().enumerate() {
+        let parent = biped_sole_parent(p, leg, shin);
+        let carried = parent.inverse() * facing * seed.feet[i].sole;
+        p.rot[foot as usize] = carried.slerp(p.rot[foot as usize], releases[i]);
+    }
 }
 
 /// Support holds a world point. Swing releases it along a clear arc and
@@ -1260,12 +1369,43 @@ fn limit_caster_support(p: &mut Pose, rig: &Rig, contacts: &[Vec3; 2]) {
     }
 }
 
+const HERO_STRIKE_LEAD_RETURN: (f32, f32) = (0.715, 0.895);
+const HERO_STRIKE_REAR_PICKUP: f32 = 0.92;
+
 /// A lead step has an explicit landing and a separate recovery pickup. Its
 /// planted middle never follows the moving pelvis, and it returns exactly home.
-fn action_step(t: f32, impact: f32) -> (f32, f32) {
+fn action_step(t: f32, impact: f32, staged_recovery: bool) -> (f32, f32) {
     let land = (impact - 0.08).max(0.14);
-    let recover = (impact + 0.38).clamp(0.78, 0.86);
-    contact_step(t, 0.035, land, recover, 0.985)
+    let (recover, end) = if staged_recovery {
+        HERO_STRIKE_LEAD_RETURN
+    } else {
+        ((impact + 0.38).clamp(0.78, 0.86), 0.985)
+    };
+    contact_step(t, 0.035, land, recover, end)
+}
+
+fn hero_strike_rear_phase(t: f32) -> Option<f32> {
+    (HERO_STRIKE_REAR_PICKUP..1.0)
+        .contains(&t)
+        .then(|| (t - HERO_STRIKE_REAR_PICKUP) / (1.0 - HERO_STRIKE_REAR_PICKUP))
+}
+
+fn hero_strike_rear_lift(phase: f32) -> f32 {
+    // A short relief arc over the existing horizontal return.
+    0.065 * (PI * phase).sin().powi(2)
+}
+
+fn level_strike_rear_sole(p: &mut Pose, phase: f32) {
+    let (leg, shin, foot) = BIPED_LEGS[1];
+    // Use the same solved-chain counter-rotation as grounded support. Keep
+    // the sole level through the middle of pickup, then ease back to the
+    // authored free pose instead of letting the blend tip the toes down.
+    let chain = p.rot[J::Lift as usize]
+        * p.rot[J::Hips as usize]
+        * p.rot[leg as usize]
+        * p.rot[shin as usize];
+    let level = envelope(phase, 0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0);
+    p.rot[foot as usize] = p.rot[foot as usize].slerp(chain.inverse(), level);
 }
 
 fn contact_step(t: f32, start: f32, land: f32, recover: f32, end: f32) -> (f32, f32) {
@@ -1370,7 +1510,7 @@ fn mend_contacts(p: &mut Pose, rig: &Rig, t: f32, weight: f32) -> ([Vec3; 2], f3
 }
 
 fn grounded_action(p: &mut Pose, rig: &Rig, a: &Anim, m: Move, t: f32) {
-    let weight = envelope(t, 0.0, 0.08, 0.92, 1.0);
+    let weight = envelope(t, 0.0, ACTION_SUPPORT_IN, 0.92, 1.0);
     if a.speed > 0.0 {
         grounded_walk(p, rig, a);
     }
@@ -1423,7 +1563,10 @@ fn grounded_action(p: &mut Pose, rig: &Rig, a: &Anim, m: Move, t: f32) {
         _ => (0, 0.0),
     };
     let mut planned = biped_rest_contacts(rig);
-    let (advance, pickup) = action_step(t, m.impact());
+    // Stage only the Hero's normal strike. Finish the lead return after
+    // impact, before allowing the rear foot to leave its support.
+    let staged_recovery = m == Move::Strike && rig.style == Style::Hero;
+    let (advance, pickup) = action_step(t, m.impact(), staged_recovery);
     let (leg, shin, foot) = BIPED_LEGS[lead];
     let length = rig.rest[shin as usize].length() + rig.rest[foot as usize].length();
     let family = if rig.style == Style::Zombie { 0.8 } else { 1.0 };
@@ -1437,12 +1580,27 @@ fn grounded_action(p: &mut Pose, rig: &Rig, a: &Anim, m: Move, t: f32) {
         let side = rig.rest[leg as usize].x.signum();
         planned[lead] += Vec3::new(side * 0.016 * advance, clearance * pickup, stride * advance);
     }
-    let contacts = [
+    if let Some(transfer) = a.strike_entry.filter(|_| m == Move::Strike) {
+        strike_entry_contacts(p, rig, a, transfer.seed, &planned, t * m.duration());
+        return;
+    }
+    let mut contacts = [
         walking[0].lerp(planned[0], weight),
         walking[1].lerp(planned[1], weight),
     ];
+    let rear_pickup = if staged_recovery {
+        hero_strike_rear_phase(t)
+    } else {
+        None
+    };
+    if let Some(phase) = rear_pickup {
+        contacts[1].y += hero_strike_rear_lift(phase);
+    }
     fit_biped_support(p, rig, &contacts, weight);
     solve_biped_contacts(p, rig, &contacts, weight);
+    if let Some(phase) = rear_pickup {
+        level_strike_rear_sole(p, phase);
+    }
 }
 
 /// Seconds without the player's touch before the cast starts to play.
@@ -2444,22 +2602,6 @@ fn biped_pose(
     }
 }
 
-/// A foot stays in support for most of a step, then clears the ground on
-/// a shorter return arc. Its backwards speed agrees on both sides of contact.
-fn beast_step(phase: f32, stance: f32, span: f32, clearance: f32) -> (f32, f32) {
-    let phase = phase.rem_euclid(1.0);
-    if phase < stance {
-        (span * (0.5 - phase / stance), 0.0)
-    } else {
-        let t = (phase - stance) / (1.0 - stance);
-        let carry = -span * (1.0 - stance) / stance * t * (1.0 - t) * (1.0 - 2.0 * t);
-        (
-            span * (ease(t) - 0.5) + carry,
-            clearance * (PI * t).sin().powi(2),
-        )
-    }
-}
-
 /// Solve an animal ankle against its contact target in the lift frame, then
 /// turn the terminal foot against the actual chain so its sole stays level.
 /// The two bone lengths and ankle-to-sole profile come from the original mesh.
@@ -3257,6 +3399,163 @@ pub fn soften(
 mod support_tests {
     use super::*;
     use crate::creatures::rogue_tests::spawn_one;
+
+    #[test]
+    fn strike_entry_admits_a_fresh_pose_and_releases_before_impact() {
+        let (_, rig, _, _) = spawn_one(&Look::of(CreatureModel::Human, 22));
+        let mut anim = Anim::new(22, Vec3::ZERO);
+        anim.yaw = 0.0;
+        anim.time = 1.0;
+        anim.speed = 0.16;
+        for (phase, planted_index) in [(0.3, 0), (0.8, 1)] {
+            anim.contacts = WalkContacts::default();
+            anim.action = None;
+            anim.walk = phase * TAU / biped_gait(rig.style).cadence;
+            for _ in 0..8 {
+                let _ = pose(&rig, &mut anim, 0.0, 0.02, true, true);
+            }
+            let walk = pose(&rig, &mut anim, 0.0, 0.02, true, true);
+            let seed = strike_entry_from_walk(&walk, &rig, &anim).expect("qualified walk");
+            assert!(seed.feet[planted_index].planted);
+            assert!(!seed.feet[1 - planted_index].planted);
+            let legs = walk_legs(&rig, &anim);
+            for (i, leg) in legs.iter().take(2).enumerate() {
+                let leg = leg.unwrap();
+                assert_eq!(
+                    seed.feet[i].ankle,
+                    posed_ankle(&walk, &rig, leg) * rig.scale
+                );
+            }
+            anim.contacts.strike_entry = Some(seed);
+            anim.act(Move::Strike);
+            assert!(anim.contacts.rig.is_none());
+            assert!(valid_strike_entry(&rig, &anim, 0.0));
+            let transfer = anim.strike_entry.unwrap();
+            anim.strike_entry = Some(StrikeEntryTransfer {
+                seed: StrikeEntry {
+                    rig: Entity::PLACEHOLDER,
+                    ..seed
+                },
+                ..transfer
+            });
+            assert!(!valid_strike_entry(&rig, &anim, 0.0));
+            anim.strike_entry = Some(transfer);
+            anim.last.y += 0.1;
+            assert!(!valid_strike_entry(&rig, &anim, 0.0));
+            anim.last.y -= 0.1;
+            anim.time = seed.time + 0.10;
+            assert!(valid_strike_entry(
+                &rig,
+                &anim,
+                0.10 / Move::Strike.duration()
+            ));
+            anim.time = seed.time + 0.25;
+            assert!(!valid_strike_entry(&rig, &anim, 0.0));
+            anim.time = seed.time;
+            anim.action = Some((Move::Strike, 0.17 / Move::Strike.duration()));
+            let _ = pose(&rig, &mut anim, 0.0, 0.0, false, false);
+            assert!(anim.strike_entry.is_none());
+
+            anim.action = None;
+            anim.contacts.strike_entry = Some(seed);
+            anim.time = seed.time + 0.10;
+            anim.act(Move::Strike);
+            assert!(
+                anim.strike_entry.is_none(),
+                "freshness is tested at the cue"
+            );
+        }
+        anim.contacts.strike_entry = None;
+        anim.action = None;
+        anim.act(Move::Strike);
+        assert!(
+            anim.strike_entry.is_none(),
+            "stationary action needs no carry"
+        );
+    }
+
+    #[test]
+    fn moving_strike_entry_can_release_over_multiple_capped_steps() {
+        let max_step = 0.05;
+        assert!(max_step / Move::Strike.duration() > ACTION_SUPPORT_IN);
+        assert!(STRIKE_ENTRY_RELEASE_SECS < Move::Strike.impact() * Move::Strike.duration());
+        assert!(strike_entry_release(max_step, true) < strike_entry_release(max_step, false));
+        for planted in [true, false] {
+            assert_eq!(strike_entry_release(0.0, planted), 0.0);
+            assert_eq!(
+                strike_entry_release(STRIKE_ENTRY_RELEASE_SECS, planted),
+                1.0
+            );
+            for step in [0.02, max_step] {
+                let mut previous = 0.0;
+                for frame in 1..=8 {
+                    let next = strike_entry_release(step * frame as f32, planted);
+                    assert!(next >= previous && next - previous < 0.65);
+                    if frame == 1 {
+                        assert!(0.0 < next && next < 0.5);
+                    }
+                    previous = next;
+                }
+                assert_eq!(previous, 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn hero_strike_stages_recovery_without_changing_impact() {
+        let impact = Move::Strike.impact();
+        assert_eq!(Move::Strike.duration(), 0.62);
+        for step in 0..=1000 {
+            let t = step as f32 / 1000.0;
+            let (advance, lead_lift) = action_step(t, impact, true);
+            let rear_lift = hero_strike_rear_phase(t).map_or(0.0, hero_strike_rear_lift);
+            if t <= 0.715 {
+                assert_eq!((advance, lead_lift), action_step(t, impact, false));
+            }
+            if rear_lift > 0.0 {
+                assert_eq!((advance, lead_lift), (0.0, 0.0));
+            }
+        }
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            22,
+            Some(Variant {
+                woman: true,
+                build: 0,
+                figure: 2,
+                ..Variant::default()
+            }),
+        );
+        let (_, rig, _, _) = spawn_one(&look);
+        let mut anim = Anim::new(22, Vec3::ZERO);
+        anim.rest = 0.0;
+        let legs = walk_legs(&rig, &anim);
+        let legs = [legs[0].unwrap(), legs[1].unwrap()];
+        let rest = biped_rest_contacts(&rig);
+        let ankle = |anim: &mut Anim, t| {
+            anim.action = Some((Move::Strike, t));
+            let posed = pose(&rig, anim, 0.0, 0.0, false, false);
+            legs.map(|leg| posed_ankle(&posed, &rig, leg))
+        };
+        let landed = ankle(&mut anim, 0.905);
+        assert!(landed[0].distance(rest[0]) < 0.001, "{landed:?}");
+        assert!(landed[1].distance(rest[1]) < 0.001, "{landed:?}");
+        let pickup = ankle(&mut anim, 0.945);
+        assert!((pickup[0].y - rest[0].y).abs() < 0.004, "{pickup:?}");
+        assert!(pickup[1].y > rest[1].y + 0.008, "{pickup:?}");
+        anim.action = Some((Move::Strike, 0.96));
+        let posed = pose(&rig, &mut anim, 0.0, 0.0, false, false);
+        let (rear_leg, rear_shin, rear_foot) = BIPED_LEGS[1];
+        let sole_up = [J::Lift, J::Hips, rear_leg, rear_shin, rear_foot]
+            .into_iter()
+            .fold(Quat::IDENTITY, |chain, j| chain * posed.rot[j as usize])
+            * Vec3::Y;
+        assert!(sole_up.distance(Vec3::Y) < 1e-5, "{sole_up:?}");
+        let end = ankle(&mut anim, 1.0);
+        anim.action = None;
+        let idle = pose(&rig, &mut anim, 0.0, 0.0, false, false);
+        assert_eq!(end, legs.map(|leg| posed_ankle(&idle, &rig, leg)));
+    }
 
     #[test]
     fn death_preroll_consumes_intended_heading_but_falling_bodies_keep_theirs() {
