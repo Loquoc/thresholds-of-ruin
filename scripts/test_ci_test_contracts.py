@@ -109,6 +109,47 @@ class ContractSelectionTests(unittest.TestCase):
         self.assertTrue(result['full_required'])
         self.assertIn('cannot resolve Python source dependencies', result['reasons'])
 
+    def script(self, module, source=''):
+        self.source(f'scripts/{module}.py', source)
+
+    def test_copied_bot_modules_and_cli_launches_select_their_consumers(self):
+        for name in ('rogue_player', 'rogue_gear', 'rogue_o_matic'):
+            self.script(name)
+        self.script('rogue_o_matic_cohort',
+                    'files = ("rogue_player.py", "rogue_gear.py", "rogue_o_matic.py")')
+        self.script('test_rogue_o_matic_cohort', 'import rogue_o_matic_cohort')
+        self.script('test_rogue_bot_process', 'command = "rogue_o_matic.py"')
+        process = 'test_rogue_bot_process.RogueBotProcess.test_cli'
+        cohort = 'test_rogue_o_matic_cohort.CohortSummaryTests.test_snapshot'
+        with patch.dict(contracts.REVIEWED_OWNERS, self.repository_owners):
+            self.metadata[process] = {'process': True, 'graphical': False}
+            for name, witness in [('rogue_gear', cohort), ('rogue_player', cohort), ('rogue_o_matic', process)]:
+                result = self.select(f'scripts/{name}.py', ids=self.ids + [cohort, process])
+                self.assertFalse(result['full_required'], result['reasons'])
+                for lane in ('linux_debug', 'windows_debug'):
+                    self.assertIn(witness, result[lane])
+
+    def test_sdk_sources_select_public_api_and_live_bot_consumers(self):
+        self.script('test_rogue_bot_process', 'package = "tor_client_bot"')
+        self.script('test_tooling', 'from tor_client_bot.game import Turn')
+        process = 'test_rogue_bot_process.RogueBotProcess.test_cli'
+        sdk = 'crates/client-bot/python/tor_client_bot/'
+        with patch.dict(contracts.REVIEWED_OWNERS, self.repository_owners):
+            self.metadata[process] = {'process': True, 'graphical': False}
+            for module in ('__init__', 'game', 'models', 'navigation', 'training', 'unknown'):
+                path = sdk + module + '.py'
+                self.source(path)
+                result = self.select(path, ids=self.ids + [process])
+                if module == 'unknown':
+                    self.assertTrue(result['full_required'])
+                    continue
+                self.assertFalse(result['full_required'], result['reasons'])
+                self.assertTrue(result['requires_apps'])
+                self.assertFalse(result['requires_rust'])
+                for lane in ('linux_debug', 'windows_debug'):
+                    self.assertIn(process, result[lane])
+                    self.assertIn('test_tooling.Tools.test_valid', result[lane])
+
     def test_actual_reviewed_runtime_cli_edges_are_registered(self):
         self.assertIn('test_rogue_playable_study_process', contracts.RUNTIME_SCRIPT_EDGES['rogue_roster_study'])
         self.assertIn('test_arena_starter_study_process', contracts.RUNTIME_SCRIPT_EDGES['arena_starter_study'])

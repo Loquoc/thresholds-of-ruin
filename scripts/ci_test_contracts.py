@@ -436,6 +436,9 @@ RUNTIME_SCRIPT_EDGES = {
     'process_harness': ('rogue_roster_study',),
     'process_work_budget': ('rogue_earned_route_process',),
     'rogue_activation_oracle': ('rogue_activation_candidate',),
+    'rogue_gear': ('rogue_o_matic_cohort',),
+    'rogue_o_matic': ('rogue_o_matic_cohort', 'test_rogue_bot_process', 'test_rogue_o_matic_cohort'),
+    'rogue_player': ('rogue_o_matic_cohort',),
     'rogue_earned_route': ('rogue_earned_route_process',),
     'rogue_roster_study': ('test_rogue_playable_study_process',),
     'ruleset_sources': ('arena_search', 'arena_starter_study', 'rogue_activation_candidate', 'rogue_roster_study'),
@@ -443,7 +446,26 @@ RUNTIME_SCRIPT_EDGES = {
     'service_contract_tests': ('service_contract_ci',),
     'strike_performance_report': ('perf_compare', 'test_strike_performance_report'),
     'test_runner': ('parallel_tests', 'test_parallel_tests', 'test_test_runner'),
+    # The cohort snapshots the package and the process fixture installs it for its child interpreter.
+    'tor_client_bot': ('rogue_o_matic_cohort', 'test_rogue_bot_process'),
 }
+
+
+# Reviewed Python implementation files share the public package's consumers.
+# Native bindings, build inputs and new source files still require full CI.
+BOT_SDK_SOURCES = {
+    f'crates/client-bot/python/tor_client_bot/{name}.py'
+    for name in ('__init__', 'game', 'models', 'navigation', 'training')
+}
+
+
+def _python_module(path):
+    if path in BOT_SDK_SOURCES:
+        return 'tor_client_bot'
+    parts = PurePosixPath(path).parts
+    if len(parts) == 2 and parts[0] == 'scripts' and path.endswith('.py'):
+        return Path(path).stem
+    return None
 
 
 def _callers(root, changed_modules=()):
@@ -453,6 +475,7 @@ def _callers(root, changed_modules=()):
     Parsing is source-only: never import an application or run test setup here.
     """
     files = {path.stem: path for path in (root / 'scripts').glob('*.py')}
+    local_modules = set(files) | {'tor_client_bot'}
     reverse = defaultdict(set)
     references = set()
     for module, path in files.items():
@@ -466,10 +489,10 @@ def _callers(root, changed_modules=()):
                      else [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
             for name in names:
                 dependency = name.split('.')[0]
-                if dependency in files:
+                if dependency in local_modules:
                     reverse[dependency].add(module)
     for dependency, callers in RUNTIME_SCRIPT_EDGES.items():
-        if dependency in files:
+        if dependency in local_modules:
             reverse[dependency].update(caller for caller in callers if caller in files)
     missing = sorted((dependency, caller) for dependency, caller in references
                      if caller not in reverse[dependency])
@@ -564,18 +587,20 @@ def select(paths, discovered_ids, *, root, test_metadata=None):
         if path in CONTROLS or path.startswith('.github/') or path.endswith('/Cargo.toml') or path.endswith('/Cargo.lock'):
             full(f'verification/build controls changed: {path}')
             continue
-        if path.startswith('scripts/') and path.endswith('.py') and len(PurePosixPath(path).parts) == 2:
+        if module := _python_module(path):
             try:
                 if reverse is None:
-                    reverse = _callers(root, [Path(value).stem for value in paths
-                                             if isinstance(value, str) and value.startswith('scripts/') and value.endswith('.py')])
-                closure = _dependents(Path(path).stem, reverse)
+                    reverse = _callers(root, [name for value in paths if isinstance(value, str)
+                                             and (name := _python_module(value))])
+                closure = _dependents(module, reverse)
                 affected = closure & modules.keys()
                 if 'service_contract_tests' in closure:
                     result['requires_rust'] = result['requires_apps'] = True
                     contracts.add('service')
-            except (OSError, SyntaxError, UnicodeError, ValueError):
+            except (OSError, SyntaxError, UnicodeError, ValueError) as error:
                 full('cannot resolve Python source dependencies')
+                if isinstance(error, ValueError):
+                    full(str(error))
                 continue
             if not affected:
                 full(f'unowned or dynamic Python dependency: {path}')

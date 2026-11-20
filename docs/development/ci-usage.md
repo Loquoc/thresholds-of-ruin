@@ -199,3 +199,13 @@ renderer or benchmark, reaches no network destination and produces no
 artifact. No workflow commands, runners, triggers, permissions, dependencies,
 caches, retention or budgets change. Updated only the reviewed
 `ci_test_contracts.py` hash after this source review.
+
+## Python SDK and bot launch selection
+
+Changes to the five reviewed Python SDK modules select the tests of the
+package's consumers. The evaluator follows ordinary imports as well as the
+cohort runner's file copies and the process fixtures that launch the bot.
+Replaying PR #35 selected the Linux debug build, Linux and Windows debug
+Python tests, and one Linux release Python test. Unknown SDK files and
+unexplained runtime references still require exhaustive verification.
+This review changes test selection within existing jobs and budgets.

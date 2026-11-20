@@ -140,6 +140,30 @@ print(json.dumps({'mode': result['mode'], 'apps': result.get('requires_apps'),
                 self.assertEqual(json.loads(result.stdout), {'mode': 'selected', 'apps': False,
                                                              'lanes': ['linux-tooling', 'windows-tooling']})
 
+    def test_actual_planner_selects_api_and_live_bot_tests_on_both_platforms(self):
+        code = """
+import sys
+sys.path.insert(0, 'scripts')
+from ci_test_plan import ROOT, discover_inventory, make_plan
+from ci_test_contracts import select
+inventory, metadata = discover_inventory()
+for path in sys.argv[1:]:
+    selection = select([path], inventory, root=ROOT, test_metadata=metadata)
+    plan = make_plan('pull_request', 'a' * 40, 'b' * 40, [path], inventory, selection)
+    assert plan['mode'] == 'selected', (path, plan['reasons'])
+    lanes = {lane['id']: lane for lane in plan['lanes']}
+    assert plan['requires_apps'] and not plan['requires_rust']
+    modules = {'test_rogue_bot_process', 'test_rogue_o_matic', 'test_rogue_o_matic_cohort'}
+    if path.startswith('crates/'):
+        modules.add('test_bot_api')
+    required = {identity for identity in inventory if identity.split('.')[0] in modules}
+    for lane in ('linux-debug-python', 'windows-debug-python'):
+        assert required <= set(lanes[lane]['test_ids']), (path, lane)
+"""
+        paths = ['crates/client-bot/python/tor_client_bot/game.py', 'scripts/' + 'rogue_player' + '.py']
+        run = subprocess.run([sys.executable, '-c', code, *paths], cwd=plan.ROOT, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
     def test_reviewed_reporter_cli_edges_cover_actual_validator_routes(self):
         import ci_test_contracts as contracts
         import perf_compare
