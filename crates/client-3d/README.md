@@ -402,16 +402,15 @@ Receipt `tor-client-3d-verification-v3` separates `gate_passed` from
 `clean_passed`; legacy `passed` remains equal to `clean_passed`. An authorized
 waived gate may exit zero while both clean fields remain false. Missing or
 mismatched actual waiver accounting and changed checked inputs fail the gate.
-This mechanism grants no authorization itself and does not replace hosted native
-acceptance or the unchanged default verification commands.
+This mechanism grants no authorization itself and does not replace the hosted
+Linux smoke check or the unchanged default local verification commands.
 
-The core Cargo workspace excludes Bevy, but the core CI plan can require a
-3D consumer-compatibility lane when shared contracts change. Exhaustive core CI
-checks the 3D binary and runs the renderer-free model tests. The independent
-native/rendering workflow runs for its client paths or when manually requested;
-consumer compatibility does not replace those checks. When resuming 3D
-maintenance, build and verify against the current shared protocol and client
-libraries. Run matching server and client binaries from the same checkout.
+The core Cargo workspace excludes Bevy. Core CI plans that select 3D
+compatibility run the same hosted Linux smoke check described above; there is no
+standalone hosted 3D workflow. The local debug and release verifier owns
+animation, geometry, and rendering qualification. When resuming 3D maintenance,
+build and verify against the current shared protocol and client libraries. Run
+matching server and client binaries from the same checkout.
 
 For the renderer-free API, start with [the crate overview](model/src/lib.rs): it maps projection,
 frame alignment, context-bound commands and the inventory/map/advancement reducers.
