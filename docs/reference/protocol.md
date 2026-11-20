@@ -1599,7 +1599,10 @@ actual public ability preparation can still disclose authorized aim and work
 with a null ability reference. This deliberately avoids distinguishing private
 work through a special redaction flag, an absent record, or a timing read.
 Repeated snapshots, pauses, occlusion and reconnects preserve the paid record;
-clients present it explicitly as a past observation.
+clients present it explicitly as a past observation. The accepted
+[action compositor plan](../plans/action-compositor.md#disclosure-amendments)
+will license category-only wind-up, follow-through and item-handling provenance;
+until it is implemented, this paragraph is the current rule.
 
 Required nullable `sequence` is present only for the attached actor's multi-strike
 preparation. It contains small integer `completed` and `total`, plus decimal-string

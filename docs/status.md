@@ -152,6 +152,14 @@ this is not a claim that AI can use every item. Other floor-loot laws remain
 unchanged except the approved dagger quantities and generated-arrow conditions.
 Earlier numerical campaign receipts are historical, not new balance qualification.
 
+### Action compositor
+
+The accepted [action compositor plan](plans/action-compositor.md) adds a past-tense
+`activity` outcome fact (the next protocol version) with category-only wind-up, follow-through
+and item-handling disclosure, a shared client beat/timeline compositor, and 3D
+playback of continuous moves, phase-mapped attacks and straight per-segment
+missiles. None of it is implemented yet; references change as each phase lands.
+
 ### Other scoped extensions
 
 - Authored language/description/places and optional disclosed-view bots, without
