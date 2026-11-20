@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from enum import Enum
 
 
@@ -104,6 +104,7 @@ class Cell:
     stairs_down: bool
     door: Door | None
     trap: Trap | None = None
+    lit: bool | None = None
 
 
 class Injury(str, Enum):
@@ -137,6 +138,15 @@ class ItemUse(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class WeaponAttack:
+    skill: str
+    accuracy_bonus: int
+    mean_damage: float
+    wind_up: int
+    recovery: int
+
+
+@dataclass(frozen=True, slots=True)
 class Item:
     target: str
     name: str
@@ -144,6 +154,45 @@ class Item:
     quantity: int
     uses: tuple[ItemUse, ...]
     category: str
+    appearance: str | None = None
+    physical_reduction: int | None = None
+    known_cursed: bool | None = None
+    weapon_attack: WeaponAttack | None = None
+    equipment_identified: bool = False
+    known_protected: bool | None = None
+
+
+class DeviceActivation(str, Enum):
+    DIRECTION = "direction"
+    SELF_TARGET = "self_target"
+    DIRECTION_OR_SELF = "direction_or_self"
+
+
+@dataclass(frozen=True, slots=True)
+class Device:
+    """An offered activation and the remaining charges the player can see."""
+
+    item: Item
+    activation: DeviceActivation
+    charges: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class Zap:
+    """Aim along a direction, toward a visible cell, or at yourself with None."""
+
+    device: Device
+    target: Direction | Cell | None
+
+    def __post_init__(self) -> None:
+        if self.target is not None and not isinstance(self.target, (Direction, Cell)):
+            raise TypeError("Aim at a direction, a visible cell, or yourself with None")
+        if self.target is None and self.device.activation is DeviceActivation.DIRECTION:
+            raise ValueError("This device offers directional aim only")
+        if self.target is not None and self.device.activation is DeviceActivation.SELF_TARGET:
+            raise ValueError("This device offers self aim only")
+        if isinstance(self.target, Cell) and self.target.offset == (0, 0, 0):
+            raise ValueError("Use None for self aim")
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +216,7 @@ class EquipmentSlot:
     kind: str
     name: str
     occupant: Item | None
+    removal_blocked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,12 +235,14 @@ class GroundItem:
     item: Item
     offset: tuple[int, int, int]
     reachable: bool
+    cell: Cell | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Identify:
     choice: str
     item: Item | None
+    prompt: Identification | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,9 +251,9 @@ class Identification:
     items: tuple[Item, ...]
 
     def select(self, item: Item | None) -> Identify:
-        if item is not None and item not in self.items:
+        if item is not None and not any(item is offered for offered in self.items):
             raise ValueError("Choose an offered item")
-        return Identify(self.choice, item)
+        return Identify(self.choice, item, self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +295,17 @@ class Shot:
     equipped_throw: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class StairAttempt:
+    """Player-visible evidence saved when a vertical move was submitted."""
+
+    direction: Direction
+    origin: str
+    landing: str | None
+    tick: int
+    receipt: Result | None
+
+
 class ActivityChoice(Enum):
     RESUME = "resume"
     CANCEL = "cancel"
@@ -254,6 +317,16 @@ class Recovery:
     elapsed_ticks: int
     stopped: bool
     reset_percent: int
+
+    def ticks_to_regain(self, points: int) -> int | None:
+        """Estimate active ticks for this many missing Health at the observed rate."""
+        if points < 0:
+            raise ValueError("points must be nonnegative")
+        if points == 0:
+            return 0
+        if self.stopped:
+            return None
+        return points * self.period_ticks - self.elapsed_ticks
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +410,14 @@ class IncomingAbility:
     strike: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class OutgoingAbility:
+    target: str | None
+    ability: str | None
+    outcome: AbilityOutcome
+    strike: int | None
+
+
 class CombatReport:
     """Combat witnessed by the player over one observation interval."""
 
@@ -360,6 +441,19 @@ class CombatReport:
             and self._observer is not None
             and event.get("target") == self._observer
             and event.get("caster") != self._observer
+        )
+
+    @property
+    def outgoing(self) -> tuple[OutgoingAbility, ...]:
+        """This observer's ability outcomes, including self-targeted abilities, in observation order."""
+        return tuple(
+            OutgoingAbility(
+                event.get("target"), (event.get("ability") or {}).get("id"),
+                AbilityOutcome(event["outcome"]), event.get("strike"),
+            )
+            for event in self._events
+            if self._observer is not None and event.get("caster") == self._observer
+            and event["type"] in {"ability", "anonymous_ability"}
         )
 
     def records(self) -> list[dict]:
@@ -390,7 +484,7 @@ class Activity:
 
     @classmethod
     def from_row(cls, row: dict) -> Activity:
-        return cls(row["actor"], row["branch"], row["intention"], ActivityPhase(row["phase"]))
+        return cls(int(row["actor"]), row["branch"], row["intention"], ActivityPhase(row["phase"]))
 
 
 class Outcome(str, Enum):
@@ -408,6 +502,11 @@ class Result:
     reason: str | None
     activity: Activity | None = None
     code: str | None = None
+
+    @property
+    def stale(self) -> bool:
+        """The choice was refused because its observation has expired."""
+        return self.status is Outcome.STALE or (self.status is Outcome.REJECTED and self.code == "stale_context")
 
     @classmethod
     def from_reply(cls, reply: Mapping[str, Any]) -> Result:
@@ -435,4 +534,59 @@ Action = (
     | ActivityChoice
     | UseAbility
     | Shot
+    | Zap
 )
+
+
+def _direct_command(action: Move | Wait | UseItem | Pickup | Equip | Escape | OpenDoor | Zap) -> dict:
+    """These actions use the same operands in the player trace and the submitted command."""
+    if isinstance(action, Move):
+        return {"type": "move", "direction": action.direction.value}
+    if isinstance(action, Wait):
+        return {"type": "wait"}
+    if isinstance(action, UseItem):
+        return {"type": action.use.value, "item": action.item.target}
+    if isinstance(action, Pickup):
+        return {"type": "take", "item": action.item.target}
+    if isinstance(action, Equip):
+        return {"type": "equip", "item": action.item.target, "slot": action.slot.index}
+    if isinstance(action, Escape):
+        return {"type": "escape", "hold": action.hold.target}
+    if isinstance(action, OpenDoor):
+        return {"type": "set_door", "door": action.door.target, "open": True}
+    if isinstance(action, Zap):
+        aim: dict[str, object]
+        if isinstance(action.target, Cell):
+            aim = {"kind": "cell", "offset": list(action.target.offset)}
+        elif isinstance(action.target, Direction):
+            aim = {"kind": "direction", "direction": action.target.value}
+        else:
+            aim = {"kind": "self_target"}
+        return {"type": "zap", "item": action.device.item.target, "aim": aim}
+    raise TypeError(f"Unsupported action {action!r}")
+
+
+def describe_action(action: Action) -> dict:
+    """Describe a proposed action with stable labels and player-visible operands."""
+    if isinstance(action, ActivityChoice):
+        return {"type": action.value}
+    if isinstance(action, Unequip):
+        return {"type": "unequip", "slot": action.slot.index}
+    if isinstance(action, Identify):
+        return {"type": "identify", "item": action.item.target if action.item else None}
+    if isinstance(action, Shot):
+        return {
+            "type": "use_ability",
+            "id": action.ability.identity,
+            "target": action.target.target,
+            "offset": action.offset,
+            "projectile": action.projectile.target,
+            "launcher": action.launcher.target if action.launcher else None,
+        }
+    if isinstance(action, UseAbility):
+        return {
+            "type": "use_ability",
+            "id": action.ability.identity,
+            "target": action.target.target if action.target else None,
+        }
+    return _direct_command(action)

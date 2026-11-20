@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Iterator, Set
 from dataclasses import dataclass
 
 from .game import Turn
@@ -51,7 +51,7 @@ class FloorMap:
         plane = {cell.offset[:2]: cell for cell in turn.visible_cells if cell.offset[2] == 0}
         sightings: dict[str, list[RememberedItem]] = {}
         for ground in turn.ground_items:
-            cell = turn.cell_at(ground.offset)
+            cell = ground.cell
             if cell and cell.offset[2] == 0:
                 item = ground.item
                 sightings.setdefault(cell.key, []).append(
@@ -103,9 +103,25 @@ class FloorMap:
             if len(sides) < 4 and not self.cells[key].wall and key not in self.visited
         }
 
+    def stairs(self, direction: Direction) -> set[str]:
+        """Cell keys last seen with stairs leading in the given vertical direction."""
+        if direction is Direction.UP:
+            return {key for key, cell in self.cells.items() if cell.stairs_up}
+        if direction is Direction.DOWN:
+            return {key for key, cell in self.cells.items() if cell.stairs_down}
+        raise ValueError("Stairs lead up or down")
+
     def adjacent(self, key: str) -> tuple[RememberedCell, ...]:
         """Known cardinal neighbors, including walls."""
         return tuple(self.cells[n] for n in self._neighbors.get(key, {}).values())
+
+    def is_dead_end(self, key: str) -> bool:
+        """Whether a mapped floor cell has one passage and three known cardinal walls."""
+        cell = self.cells.get(key)
+        sides = self._neighbors.get(key)
+        if cell is None or cell.wall or sides is None or len(sides) != 4:
+            return False
+        return sum(self.cells[neighbor].wall for neighbor in sides.values()) == 3
 
     def reachable(self, start: str) -> Iterator[tuple[RememberedCell, int]]:
         """Traverse known floor cells in order of distance, ignoring transient occupants."""
@@ -125,31 +141,41 @@ class FloorMap:
         """Fewest known horizontal steps to a goal, ignoring transient occupants."""
         return next((distance for cell, distance in self.reachable(start) if cell.key in goals), None)
 
-    def toward(self, turn: Turn, goals: set[str], *, prefer_safe: bool = True) -> Move | OpenDoor | None:
-        """Prefer a trap-free route when one is known, otherwise take the shortest known route."""
+    def toward_unexplored(self, turn: Turn, *, avoid: Set[str] = frozenset()) -> Move | OpenDoor | None:
+        """Head for a frontier, then any unvisited floor. Excluded cells stay off the route."""
+        if step := self.toward(turn, self.frontier, avoid=avoid):
+            return step
+        unvisited = {key for key, cell in self.cells.items() if not cell.wall and key not in self.visited}
+        return self.toward(turn, unvisited, avoid=avoid)
+
+    def toward(self, turn: Turn, goals: set[str], *, prefer_safe: bool = True,
+               avoid: Set[str] = frozenset(), max_steps: int | None = None) -> Move | OpenDoor | None:
+        """Choose a first step on a known route within the optional horizontal step limit."""
         if prefer_safe and self._traps:
-            step = self._route(turn, goals, self._traps)
+            step = self._route(turn, goals, self._traps | avoid, max_steps)
             if step is not None:
                 return step
-        return self._route(turn, goals, ())
+        return self._route(turn, goals, avoid, max_steps)
 
-    def _route(self, turn: Turn, goals: set[str], excluded) -> Move | OpenDoor | None:
+    def _route(self, turn: Turn, goals: set[str], excluded: Set[str], max_steps: int | None) -> Move | OpenDoor | None:
         here = turn.cell
-        if here is None or here.key in goals or not goals:
+        if here is None or here.key in goals or not goals or (max_steps is not None and max_steps < 1):
             return None
         seen = {here.key, *excluded}
-        queue: deque[tuple[str, Move | OpenDoor]] = deque()
+        queue: deque[tuple[str, Move | OpenDoor, int]] = deque()
         for direction, neighbor in self._links.get(here.key, {}).items():
             first = turn.step(direction)
             if first is not None and neighbor not in seen:
-                queue.append((neighbor, first))
+                queue.append((neighbor, first, 1))
                 seen.add(neighbor)
         while queue:
-            key, first = queue.popleft()
+            key, first, distance = queue.popleft()
             if key in goals:
                 return first
+            if max_steps is not None and distance >= max_steps:
+                continue
             for neighbor in self._links.get(key, {}).values():
                 if neighbor not in seen:
                     seen.add(neighbor)
-                    queue.append((neighbor, first))
+                    queue.append((neighbor, first, distance + 1))
         return None

@@ -17,6 +17,375 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_falling_uses_only_downward_velocity_and_supports_older_recordings(self):
+        for motion, expected in [(None, False), ({"velocity": ["4", "0", "0"]}, False),
+                                 ({"velocity": [0, 0, 2]}, False), ({"velocity": ["0", "0", "-1"]}, True)]:
+            with self.subTest(motion=motion):
+                view = {"motion": motion} if motion else {}
+                self.assertEqual(Turn({"state": {"observation": view}, "readiness": {}}).falling, expected)
+
+    def test_map_remembers_stairs_by_direction_until_the_cell_is_seen_again(self):
+        def observe(*stairs):
+            cells = [{"key": key, "position": {"x": i, "y": 0, "z": 0}, "wall": False,
+                      "stairs_up": up, "stairs_down": down} for i, (key, up, down) in enumerate(stairs)]
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": cells, "ground_items": [], "interactions": {},
+            }}}))
+
+        memory = FloorMap()
+        observe(("up", True, False), ("both", True, True))
+        observe(("room", False, False))
+        self.assertEqual(memory.stairs(Direction.UP), {"up", "both"})
+        self.assertEqual(memory.stairs(Direction.DOWN), {"both"})
+        observe(("both", False, False))
+        self.assertEqual(memory.stairs(Direction.UP), {"up"})
+        self.assertEqual(memory.stairs(Direction.DOWN), set())
+        with self.assertRaises(ValueError):
+            memory.stairs(Direction.EAST)
+
+    def test_recovery_estimate_accounts_for_elapsed_ticks_and_a_stopped_clock(self):
+        from tor_client_bot import Recovery
+
+        running = Recovery(period_ticks=1000, elapsed_ticks=250, stopped=False, reset_percent=100)
+        paused = Recovery(period_ticks=1000, elapsed_ticks=250, stopped=True, reset_percent=100)
+        self.assertEqual(running.ticks_to_regain(1), 750)
+        self.assertEqual(running.ticks_to_regain(3), 2750)
+        self.assertEqual(paused.ticks_to_regain(0), 0)
+        self.assertIsNone(paused.ticks_to_regain(1))
+        with self.assertRaises(ValueError):
+            running.ticks_to_regain(-1)
+
+    def test_floor_map_dead_end_requires_four_observed_sides_and_updates_after_discovery(self):
+        def tile(key, x, y, wall=False):
+            return {"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": wall,
+                    "stairs_up": False, "stairs_down": False}
+
+        cells = [tile("end", 0, 0), tile("west", -1, 0), tile("north", 0, -1, True),
+                 tile("south", 0, 1, True)]
+        memory = FloorMap()
+
+        def observe():
+            memory.observe(Turn({"readiness": {}, "state": {"observation": {
+                "visible_cells": cells, "visible_actors": [], "self_target": "me"}}}))
+
+        observe()
+        self.assertFalse(memory.is_dead_end("end"))
+        self.assertFalse(memory.is_dead_end("unknown"))
+        cells.append(tile("east", 1, 0, True))
+        observe()
+        self.assertTrue(memory.is_dead_end("end"))
+        cells[0]["wall"] = True
+        observe()
+        self.assertFalse(memory.is_dead_end("end"))
+        cells[0]["wall"] = False
+        cells[-1]["wall"] = False
+        cells[-1]["door"] = {"id": "door", "reachable": True, "open": False}
+        observe()
+        self.assertFalse(memory.is_dead_end("end"))
+
+    def test_exploration_prefers_a_frontier_and_respects_excluded_routes(self):
+        cells = [{"key": key, "position": {"x": x, "y": y, "z": 0}, "wall": wall,
+                  "stairs_up": False, "stairs_down": False}
+                 for key, x, y, wall in (("home", 0, 0, False), ("alcove", -1, 0, False),
+                                         ("wall", -2, 0, True), ("north", -1, -1, True),
+                                         ("south", -1, 1, True), ("frontier", 1, 0, False))]
+        turn = Turn({"state": {"observation": {"visible_cells": cells, "visible_actors": []}}, "readiness": {}})
+        memory = FloorMap()
+        memory.observe(turn)
+        self.assertEqual(memory.toward_unexplored(turn), Move(Direction.EAST))
+        self.assertEqual(memory.toward_unexplored(turn, avoid={"frontier"}), Move(Direction.WEST))
+        memory.visited.add("alcove")
+        self.assertIsNone(memory.toward_unexplored(turn, avoid={"frontier"}))
+
+    def test_named_melee_requires_contact_an_actor_target_and_disclosed_costs(self):
+        actor = {"id": "foe", "name": "opponent", "position": {"x": 1, "y": 0, "z": 0}}
+        technique = {"id": "tech", "name": "Attack", "target_kind": "actor", "reach": {"kind": "melee"},
+                     "basic_attack": False, "cooldown_remaining": 0,
+                     "cost": {"resource": {"id": "stamina"}, "start": 1, "resolution": 1},
+                     "supply_costs": [{"supply": "stone", "quantity": 1}]}
+        basic = dict(technique, id="basic", basic_attack=True, cost=None, supply_costs=[])
+        resource = {"resource": {"id": "stamina"}, "available": 2}
+        stock = {"known_supply": {"id": "stone"}, "quantity": 1, "identified": True}
+        observer = {"id": "me", "name": "player", "position": {"x": 0, "y": 0, "z": 0}}
+        view = {"visible_actors": [observer, actor], "visible_cells": [], "self_target": "me", "inventory": [stock],
+                "combat": {"own_stats": {"abilities": [basic, technique], "resources": [resource]}}}
+        def picture():
+            return Turn({"readiness": {}, "state": {"observation": view}})
+
+        turn = picture()
+        foe, = turn.creatures
+        self.assertEqual(turn.attack(foe).ability.identity, "basic")
+        self.assertEqual(turn.attack(foe, technique="tech").ability.identity, "tech")
+        self.assertIsNone(turn.attack(foe, technique="Attack"))
+        self.assertIsNone(picture().attack(foe, technique="tech"))
+        for row, field, value in ((resource, "available", 1), (stock, "quantity", 0), (stock, "identified", False),
+                                  (technique, "cooldown_remaining", 1), (technique, "target_kind", "self_or_ally"),
+                                  (technique, "reach", {"kind": "projectile"}), (actor["position"], "x", 2)):
+            with self.subTest(field=field):
+                original, row[field] = row[field], value
+                turn = picture()
+                self.assertIsNone(turn.attack(turn.creatures[0], technique="tech"))
+                row[field] = original
+
+    def test_cell_illumination_survives_recording_and_unknown_stays_unknown(self):
+        import json
+        cells = [{"key": str(x), "position": {"x": x, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False} for x in range(3)]
+        cells[0]["lit"], cells[1]["lit"] = False, True
+        turn = Turn({"state": {"observation": {"visible_cells": cells}}, "readiness": {}})
+        for picture in (turn, Turn(json.loads(turn.recording()))):
+            self.assertEqual([cell.lit for cell in picture.visible_cells], [False, True, None])
+
+    def test_clear_horizontal_device_aim_can_choose_another_visible_body_cell(self):
+        def tile(x, y, wall=False):
+            return {"key": f"{x},{y}", "position": {"x": x, "y": y, "z": 0}, "wall": wall,
+                    "stairs_up": False, "stairs_down": False}
+
+        wand = {"id": "w", "name": "staff", "quantity": 1, "class": "wand", "identified": False}
+        offer = {"item": "w", "zappable": True, "device_activation": "direction"}
+        for side_open in (True, False):
+            cells = [tile(1, 0, True), tile(2, 0), tile(0, 1, not side_open), tile(1, 1), tile(2, 1), tile(2, 2)]
+            actors = [{"id": "foe", "name": "large creature", "position": c["position"]} for c in (cells[1], cells[-1])]
+            turn = Turn({"readiness": {}, "state": {"observation": {"self_target": "self", "visible_cells": cells,
+                        "visible_actors": actors, "inventory": [wand], "interactions": {"inventory": [offer]}}}})
+            device, = turn.devices
+            foe, = turn.creatures
+            self.assertEqual(turn.aim_device(device, foe).target.offset, (2, 0, 0))
+            aimed = turn.aim_device(device, foe, clear_horizontal_ray=True)
+            self.assertEqual(aimed.target.offset if aimed else None, (2, 2, 0) if side_open else None)
+
+    def test_reflecting_device_requires_disclosed_clearance_for_the_shooters_body(self):
+        def aim(terrain, target, body=((0, 0),), *, steps=6):
+            def position(xy):
+                return {"x": xy[0], "y": xy[1], "z": 0}
+
+            cells = [{"key": str(at), "position": position(at), "wall": blocked, "stairs_up": False,
+                      "stairs_down": False} for at, blocked in terrain.items()]
+            actors = [{"id": "self", "name": "self", "position": position(at)} for at in body]
+            actors.append({"id": "enemy", "name": "foe", "position": position(target)})
+            view = {"self_target": "self", "visible_cells": cells, "visible_actors": actors,
+                    "inventory": [{"id": "w", "name": "staff", "class": "wand", "quantity": 1, "identified": False}],
+                    "interactions": {"inventory": [{"item": "w", "zappable": True, "device_activation": "direction"}]}}
+            turn = Turn({"state": {"observation": view}, "readiness": {}})
+            return turn.aim_device(turn.devices[0], turn.creatures[0], reflected_ray_range=steps)
+
+        lane = {(x, 0): False for x in range(7)}
+        self.assertIsNotNone(aim(lane, (2, 0)))
+        self.assertIsNone(aim({**lane, (4, 0): True}, (2, 0)))
+        self.assertIsNone(aim({(x, 0): False for x in range(4)}, (2, 0)))
+        self.assertIsNone(aim({**lane, (5, 0): True}, (3, 0), body=((0, 0), (1, 0), (2, 0))))
+        diagonal = {(x, y): False for x in range(5) for y in range(5)}
+        self.assertIsNotNone(aim(diagonal, (2, 2)))
+        self.assertIsNone(aim({**diagonal, (3, 4): True}, (2, 2)))
+        self.assertIsNone(aim(lane, (5, 0), steps=4))
+        with self.assertRaises(ValueError):
+            aim(lane, (2, 0), steps=0)
+
+    def test_rejected_training_preview_reopens_before_another_selection(self):
+        from tor_client_bot import Session, TrainingKind, TrainingRefused
+        basis = {"actor": 1, "stream": "s", "branch": "b", "reset": "0", "build_epoch": "4"}
+        def page(value):
+            return {"status": "confirmed", "page": {"basis": basis, "next": None, "entries": [{"value": value}]}}
+        overview = page({"locked": False, "points": {"unspent": "1"}, "starting_skills": []})
+        transport = Mock()
+        transport.advancement.side_effect = [
+            overview, page({"owner": "1", "pool": {"id": "xp", "name": "XP"}, "unspent": 1, "allowed": ["talent"]}),
+            page({"name": "Strike", "selection": {"talent": "strike"}, "form_choices": []}),
+            {"status": "rejected", "code": "invalid_purchase"}, overview,
+            page({"health": {"current": "8", "maximum": "9", "dead": False}}),
+        ]
+        training = Session(transport).training
+        pool, = training.pools()
+        choice, = training.options(TrainingKind.TALENT)
+        with self.assertRaises(TrainingRefused):
+            training.preview(pool, choice)
+        self.assertFalse(training.preview(pool, choice).would_die)
+        self.assertEqual(transport.advancement.call_args_list[-2].args, ("overview",))
+
+    def test_result_recognizes_local_and_server_stale_contexts(self):
+        from tor_client_bot import Result
+        for status, code, expected in [
+            ("stale_observation", None, True), ("rejected", "stale_context", True),
+            ("rejected", "invalid_target", False), ("unknown_outcome", None, False),
+        ]:
+            result = Result.from_reply({"status": status, "code": code})
+            self.assertEqual(result.stale, expected)
+
+    def test_device_offers_preserve_hidden_charges_and_bind_the_aim_to_its_observation(self):
+        from tor_client_bot import Zap, describe_action
+
+        wand = {"id": "device", "name": "ash wand", "identified": False, "quantity": 1, "class": "wand"}
+        target = {"key": "east", "position": {"x": 1, "y": 0, "z": 0}, "wall": False,
+                  "stairs_up": False, "stairs_down": False}
+        offer = {"item": "device", "zappable": True, "device_activation": "direction", "charges": None}
+        enemy = {"id": "foe", "name": "serpent", "position": target["position"]}
+        view = {"inventory": [wand], "visible_cells": [target], "interactions": {"inventory": [offer]},
+                "visible_actors": [enemy], "self_target": "player"}
+        snap, transport = Mock(), Mock()
+        snap.data.return_value = {"state": {"observation": view}, "readiness": {}}
+        transport.act.return_value = {"status": "confirmed"}
+        old = attached(transport, snap)
+        new = attached(transport, snap)
+        device, = new.devices
+        self.assertIs(device.item, new.inventory[0])
+        self.assertIsNone(device.item.identity)
+        self.assertIsNone(device.charges)
+        with self.assertRaises(ValueError):
+            Zap(device, None)
+        current = new.cell_at((1, 0, 0))
+        self.assertIs(new.submit(Zap(old.devices[0], current)).status, Outcome.STALE)
+        self.assertIs(new.submit(Zap(device, old.cell_at((1, 0, 0)))).status, Outcome.STALE)
+        transport.act.assert_not_called()
+        action = Zap(device, current)
+        self.assertEqual(new.aim_device(device, new.creatures[0]), action)
+        self.assertIsNone(new.aim_device(device, old.creatures[0]))
+        expected = {"type": "zap", "item": "device", "aim": {"kind": "cell", "offset": [1, 0, 0]}}
+        self.assertEqual(describe_action(action), expected)
+        self.assertIs(new.submit(action).status, Outcome.CONFIRMED)
+        transport.act.assert_called_once_with(expected, snap)
+        offer.update(device_activation="self_target", charges="0")
+        self_only = attached(transport, snap).devices[0]
+        self.assertEqual(self_only.charges, 0)
+        self.assertEqual(describe_action(Zap(self_only, None))["aim"], {"kind": "self_target"})
+        with self.assertRaises(ValueError):
+            Zap(self_only, Direction.EAST)
+        offer.update(device_activation="direction_or_self", charges="2")
+        flexible = attached(transport, snap).devices[0]
+        self.assertEqual(describe_action(Zap(flexible, Direction.EAST))["aim"],
+                         {"kind": "direction", "direction": "east"})
+        self.assertEqual(describe_action(Zap(flexible, None))["aim"], {"kind": "self_target"})
+
+    def test_wait_for_decision_skips_a_prompt_while_its_answer_is_queued(self):
+        from tor_client_bot import Session
+
+        def snapshot(choice, admission):
+            snap = Mock()
+            snap.data.return_value = {
+                "readiness": {"admission": admission},
+                "state": {"observation": {"tick": 100, "ready": False, "inventory": [], "interactions": {
+                    "identification": {"choice": choice, "items": []},
+                }}},
+            }
+            return snap
+
+        transport = Mock()
+        transport.observe.side_effect = [snapshot("answered", False), snapshot("next", True)]
+        turn = Session(transport).wait_for_decision()
+        self.assertEqual(turn.identification.choice, "next")
+        self.assertTrue(turn.needs_identification)
+
+    def test_readiness_timeout_retains_the_last_observed_turn(self):
+        from tor_client_bot import ReadinessTimeout, Session
+
+        transport = Mock()
+        transport.observe.return_value.data.return_value = {
+            "state": {"observation": {"ready": False, "tick": "17"}},
+            "readiness": {"admission": False},
+        }
+        with self.assertRaises(ReadinessTimeout) as caught:
+            Session(transport).wait_for_decision(timeout=0)
+        self.assertIsInstance(caught.exception, TimeoutError)
+        self.assertEqual(caught.exception.turn.tick, 17)
+        self.assertFalse(caught.exception.turn.can_act)
+
+    def test_optional_stalled_decision_preserves_receipt_and_continues_the_same_iterator(self):
+        from tor_client_bot import ActivityPhase, ReadinessTimeout, Session, Wait
+
+        receipt = {"actor": 1, "branch": "game", "intention": "down", "phase": "queued"}
+        transport = Mock()
+        transport.act.return_value = {"status": "confirmed", "receipt": {"type": "admitted", **receipt}}
+        def frame(ready, phase):
+            return Turn({"state": {"observation": {"tick": 17, "ready": ready}},
+                         "readiness": {"admission": ready}, "intentions": [dict(receipt, phase=phase)]},
+                        connection=transport, snapshot=Mock())
+        first, blocked, following = frame(True, "queued"), frame(False, "queued"), frame(True, "cancelled")
+        session = Session(Mock())
+        session.wait_for_decision = Mock(side_effect=[first, ReadinessTimeout(blocked), following])
+        decisions = session.decisions(include_stalls=True)
+        initial = next(decisions)
+        initial.turn.submit(Wait())
+        stall = next(decisions)
+        self.assertTrue(stall.stalled)
+        self.assertIs(stall.turn, blocked)
+        self.assertIs(stall.previous_phase, ActivityPhase.QUEUED)
+        self.assertFalse(next(decisions).stalled)
+
+    def test_identification_accepts_only_items_from_its_own_offer(self):
+        from dataclasses import replace
+        from tor_client_bot import Identification, Item
+
+        item = Item("carried", "scroll", None, 1, (), "scroll")
+        prompt = Identification("choose", (item,))
+        self.assertIs(prompt.select(item).item, item)
+        self.assertIsNone(prompt.select(None).item)
+        with self.assertRaises(ValueError):
+            prompt.select(replace(item))
+
+    def test_decision_iterator_carries_the_previous_receipt_into_the_terminal_picture(self):
+        from tor_client_bot import ActivityPhase, Session, Wait
+        transport = Mock()
+        receipt = dict(actor=1, branch="game", intention="7", phase="queued")
+        transport.act.return_value = {"status": "confirmed", "receipt": {"type": "admitted", **receipt}}
+        def snapshot(terminal):
+            snap = Mock()
+            snap.data.return_value = {
+                "readiness": {"admission": True}, "state": {"observation": {
+                    "ready": True, "combat": {"terminal": terminal}, "tick": 0}},
+                "finished_intentions": [dict(receipt, phase="resolved")] if terminal else [],
+            }
+            return snap
+        transport.observe.side_effect = [snapshot(False), snapshot(True)]
+        decisions = Session(transport).decisions()
+        first = next(decisions)
+        self.assertIsNone(first.previous)
+        result = first.turn.submit(Wait())
+        last = next(decisions)
+        self.assertIs(last.previous, result)
+        self.assertIs(last.previous_phase, ActivityPhase.RESOLVED)
+        self.assertTrue(last.turn.terminal)
+        with self.assertRaises(StopIteration):
+            next(decisions)
+
+    def test_decline_from_an_earlier_prompt_cannot_answer_a_fresh_prompt(self):
+        snap = Mock()
+        snap.data.return_value = {"state": {"observation": {
+            "inventory": [], "interactions": {"identification": {"choice": "offer", "items": []}},
+        }}, "readiness": {}}
+        session = Mock()
+        session.act.return_value = {"status": "confirmed"}
+        first = attached(session, snap)
+        current = attached(session, snap)
+        self.assertIs(current.submit(first.identification.select(None)).status, Outcome.STALE)
+        session.act.assert_not_called()
+        self.assertIs(current.submit(current.identification.select(None)).status, Outcome.CONFIRMED)
+
+    def test_condition_query_distinguishes_active_expired_and_protected(self):
+        def condition(identity, phase, remaining):
+            return {"condition": {"id": identity, "name": identity}, "phase": phase,
+                    "remaining_ticks": remaining}
+        rows = [condition("timed", "active", "2"), condition("persistent", "active", None),
+                condition("expired", "active", "0"), condition("protected", "protection", "3")]
+        view = {"combat": {"own_stats": {"conditions": rows}}}
+        turn = Turn({"state": {"observation": view}, "readiness": {}})
+        self.assertTrue(turn.has_condition("timed"))
+        self.assertTrue(turn.has_condition("persistent"))
+        for key in ("expired", "protected", "undisclosed"):
+            self.assertFalse(turn.has_condition(key))
+
+    def test_action_description_uses_player_visible_operands(self):
+        from tor_client_bot import Wait, describe_action
+
+        session, snapshot = Mock(), Mock()
+        snapshot.data.return_value = {"state": {"observation": {}}, "readiness": {"admission": True}}
+        session.act.return_value = {"status": "confirmed"}
+        turn = attached(session, snapshot)
+        for action, expected in [(Move(Direction.DOWN), {"type": "move", "direction": "down"}),
+                                 (Wait(), {"type": "wait"})]:
+            with self.subTest(action=action):
+                self.assertEqual(describe_action(action), expected)
+                self.assertIs(turn.submit(action).status, Outcome.CONFIRMED)
+                session.act.assert_called_with(expected, snapshot)
+
     def test_journal_interprets_incoming_abilities_without_inventing_a_hidden_caster(self):
         from tor_client_bot import AbilityOutcome, CombatJournal
 
@@ -52,6 +421,28 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(journal.read(Turn(data)).incoming, ())
         self.assertEqual(journal.read(Turn({**data, "stream": "two"})).incoming, report.incoming)
 
+    def test_outgoing_abilities_preserve_disclosure_order_and_journal_cursor(self):
+        from tor_client_bot import AbilityOutcome, CombatJournal
+
+        rows = [
+            {"type": "ability", "caster": "me", "target": "troll", "ability": {"id": "polymorph"},
+             "outcome": "unaffected", "strike": 0},
+            {"type": "anonymous_ability", "caster": "me", "target": None, "outcome": "miss"},
+            {"type": "ability", "caster": "me", "target": "me", "ability": {"id": "mend"}, "outcome": "applied"},
+            {"type": "unseen_ability", "target": "me", "outcome": "miss"},
+            {"type": "ability", "caster": "other", "target": "troll", "outcome": "applied"},
+        ]
+        data = {"state": {"observation": {"self_target": "me"}}, "readiness": {}, "stream": "one",
+                "combat_updates": [{"cursor": {"sequence": "1"}, "events": rows}]}
+        journal = CombatJournal()
+        effects = journal.read(Turn(data)).outgoing
+        self.assertEqual([(e.target, e.ability, e.outcome, e.strike) for e in effects], [
+            ("troll", "polymorph", AbilityOutcome.UNAFFECTED, 0), (None, None, AbilityOutcome.MISS, None),
+            ("me", "mend", AbilityOutcome.APPLIED, None),
+        ])
+        self.assertEqual(journal.read(Turn(data)).outgoing, ())
+        self.assertEqual(CombatJournal().read(Turn({**data, "state": {"observation": {}}})).outgoing, ())
+
     def test_activity_lookup_tracks_phase_only_for_receipts_from_same_actor_and_branch(self):
         from tor_client_bot import ActivityPhase, Result
 
@@ -73,6 +464,10 @@ class BotApiTests(unittest.TestCase):
         self.assertIs(paused.outcome_of(result), ActivityPhase.PAUSED)
         final = observe(finished=[dict(row, phase="resolved", entry_id="later")])
         self.assertIs(Turn.replay(final.recording()).outcome_of(result), ActivityPhase.RESOLVED)
+        wire = Result.from_reply({"status": "confirmed", "receipt": {
+            "type": "admitted", **row, "actor": "1"}})
+        self.assertEqual(wire.activity.actor, 1)
+        self.assertIs(final.outcome_of(wire), ActivityPhase.RESOLVED)
         for other in (dict(row, branch="other"), dict(row, actor=2)):
             self.assertIsNone(observe([other]).outcome_of(result))
         self.assertIsNone(observe().outcome_of(result))
@@ -251,6 +646,11 @@ class BotApiTests(unittest.TestCase):
         first = memory.toward(turn, {"exit"})
         self.assertIsInstance(first, OpenDoor)
         self.assertEqual(first.door.target, "oak")
+        self.assertIsNone(memory.toward(turn, {"corner"}, max_steps=1))
+        self.assertEqual(memory.toward(turn, {"corner"}, max_steps=2), first)
+        self.assertIsNone(memory.toward(turn, {"exit"}, max_steps=0))
+        for prefer_safe in (True, False):
+            self.assertIsNone(memory.toward(turn, {"corner"}, avoid={"exit"}, prefer_safe=prefer_safe))
         self.assertIsNone(turn.step(Direction.SOUTH_EAST))
         self.assertIsNone(turn.health)
         self.assertEqual(memory.visited, {"home"})
@@ -308,6 +708,8 @@ class BotApiTests(unittest.TestCase):
         ]
         turn = attached(session, snap)
         shot, upper = turn.ranged_attacks(max_distance=2)
+        replay = Turn.replay(turn.recording())
+        self.assertEqual(tuple(replay.ranged_attacks(max_distance=2)), (shot, upper))
         self.assertIs(shot.target, upper.target)
         self.assertEqual(upper.offset, (2, 0, 1))
         self.assertEqual(session.projectile_choices.call_count, 3)
@@ -418,6 +820,7 @@ class BotApiTests(unittest.TestCase):
             (chart.acquired_at, mark.component, mark.position, mark.feature),
             (120, 4, (5, -1, 0), "secret_door"),
         )
+        self.assertEqual(Turn.replay(turn.recording()).chart(ChartKind.MAPPING), turn.chart(ChartKind.MAPPING))
         session.chart.assert_called_once_with(snap, "mapping")
 
     def test_replay_runs_the_same_local_policy_without_a_connection(self):

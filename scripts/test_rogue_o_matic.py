@@ -50,6 +50,293 @@ def choose(player, turn):
 
 
 class RogueOMaticPolicyTests(unittest.TestCase):
+    def test_moves_onto_freed_downstairs_with_a_second_opponent_one_step_from_contact(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        turn = player_turn([cell("here"), cell("west", -1), cell("exit", 1, down=True), cell("east", 2)],
+                           actors=[{"id": "west", "name": "orc", "position": cell("west", -1)["position"]},
+                                   {"id": "east", "name": "emu", "position": cell("east", 2)["position"]}],
+                           hostiles=["west", "east"],
+                           abilities=[{"id": "basic_melee", "name": "Strike", "basic_attack": True,
+                                       "target_kind": "actor", "reach": {"kind": "melee"},
+                                       "cost": None, "cooldown_remaining": 0}])
+        self.assertEqual(choose(player, turn), (Move(Direction.EAST), "retreat_to_stairs"))
+
+    def test_pinned_player_pushes_only_when_it_can_see_space_beyond_the_blocker(self):
+        foes = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                for name, x in (("emu", -1), ("orc", 1))]
+        abilities = [{"id": name, "name": name, "basic_attack": name == "basic_melee", "cost": None,
+                      "cooldown_remaining": 0, "target_kind": "actor", "reach": {"kind": "melee"}}
+                     for name in ("basic_melee", "dislocating_strike")]
+        for space, expected in (([], "basic_melee"), ([{**cell("wall", 2), "wall": True}], "basic_melee"),
+                                ([cell("free", 2)], "dislocating_strike")):
+            with self.subTest(space=space):
+                turn = player_turn([cell("here"), cell("west", -1), cell("exit", 1, down=True), *space],
+                                   actors=foes, hostiles=["emu", "orc"], abilities=abilities)
+                action, _ = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.ability.identity, action.target.name), (expected, "orc"))
+
+    def test_drinks_known_haste_before_a_group_closes_and_avoids_a_second_dose(self):
+        potion = {"id": "dose", "name": "potion of haste", "identity": "item.potion.haste",
+                  "quantity": 2, "identified": True, "class": "potion"}
+        enemies = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                   for name, x in (("emu", 3), ("orc", -3))]
+        for condition, count, expected in ((None, 2, True), (None, 1, False),
+                                           ("rogue.hasted", 2, False), ("rogue.haste_exhaustion", 2, False)):
+            with self.subTest(condition=condition, count=count):
+                foes = enemies[:count]
+                conditions = [{"condition": {"id": condition, "name": condition},
+                               "phase": "active", "remaining_ticks": 300}] if condition else []
+                turn = player_turn([cell("here")], actors=foes, hostiles=[f["id"] for f in foes],
+                                   stats={"conditions": conditions}, inventory=[potion],
+                                   interactions={"inventory": [{"item": "dose", "drinkable": True}]})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                self.assertEqual(choose(player, turn)[1] == "combat_haste", expected)
+
+    def test_uses_room_light_only_in_disclosed_darkness_and_remembers_an_unlit_passage(self):
+        from tor_client_bot import Zap
+        wand = {"id": "light", "name": "staff of light", "identity": "item.wand.wand-light",
+                "identified": True, "quantity": 1, "class": "wand"}
+        offer = {"item": "light", "zappable": True, "device_activation": "self_target", "charges": 3}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        def picture(lit):
+            terrain = cell("here")
+            if lit is not None:
+                terrain["lit"] = lit
+            return player_turn([terrain, cell("east", 1)], inventory=[wand], interactions={"inventory": [offer]})
+        for illumination in (None, True):
+            turn = picture(illumination)
+            self.assertIs(turn.cell.lit, illumination)
+            self.assertNotIsInstance(choose(player, turn)[0], Zap)
+        dark = picture(False)
+        action, reason = choose(player, dark)
+        self.assertEqual((action, reason), (Zap(dark.devices[0], None), "light_room"))
+        player.admitted(dark, action, reason=reason)
+        self.assertNotIsInstance(choose(player, dark)[0], Zap)
+        choose(player, picture(True))
+        self.assertEqual(choose(player, dark)[1], "light_room")
+
+    def test_unknown_scroll_trial_uses_a_safe_outbound_stair_once_per_appearance(self):
+        scroll = {"id": "scroll", "class": "scroll", "name": "runed scroll", "quantity": 2, "identified": False}
+        ring = {"id": "ring", "class": "ring", "name": "opal ring", "quantity": 1, "identified": False}
+        amulet = {"id": "amulet", "class": "amulet", "name": "Amulet", "quantity": 1, "identified": True,
+                  "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        for depth, down, hp, pack, guarded, expected in (
+            (3, True, 20, [scroll, ring], False, True),
+            (1, True, 20, [scroll, ring], False, False),
+            (3, False, 20, [scroll, ring], False, False),
+            (3, True, 15, [scroll, ring], False, False),
+            (3, True, 20, [scroll], False, False),
+            (3, True, 20, [scroll, ring, amulet], False, False),
+            (3, True, 20, [scroll, ring], True, False),
+        ):
+            with self.subTest(depth=depth, down=down, hp=hp, pack=len(pack), guarded=guarded):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=depth)
+                turn = player_turn([cell("here", down=down)], inventory=pack,
+                                   interactions={"inventory": [{"item": "scroll", "readable": True}]},
+                                   combat={"hp": hp, "max_hp": 20})
+                if guarded:
+                    player.unsafe_stairs[("here", Direction.DOWN)] = 1200
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "study_scroll_at_exit", expected)
+                if expected:
+                    player.admitted(turn, action, reason=reason)
+                    self.assertNotEqual(choose(player, turn)[1], reason)
+
+    def test_ring_or_wand_scroll_matches_either_unidentified_category(self):
+        for category, should_read in [("ring", True), ("wand", True), ("armor", False)]:
+            with self.subTest(category=category):
+                items = [{"id": "scroll", "class": "scroll", "name": "lore", "identified": True,
+                          "identity": "item.scroll.identify-wand", "quantity": 1},
+                         {"id": "unknown", "class": category, "name": "mystery", "identified": False,
+                          "identity": f"item.{category}.unknown", "quantity": 1}]
+                turn = player_turn([cell("stairs", down=True)], inventory=items,
+                                   interactions={"inventory": [{"item": "scroll", "readable": True}]})
+                _, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason == "identify_gear", should_read)
+
+    def test_protects_disclosed_unprotected_armor_and_preserves_scroll_otherwise(self):
+        from tor_client_bot import UseItem, ItemUse
+        body = {"id": "body_armor", "name": "body"}
+        inventory = [
+            {"id": "mail", "identity": "item.armor.ring-mail", "name": "mail", "class": "armor"},
+            {"id": "scroll", "identity": "item.scroll.protect-armor", "name": "lore", "class": "scroll"},
+        ]
+        for item in inventory:
+            item.update(identified=True, quantity=1)
+        for known in (False, True, None):
+            turn = player_turn([cell("stairs", down=True)], inventory=inventory,
+                               interactions={"slots": [body], "inventory": [
+                                   {"item": "mail", "slot": body, "equipped_slot": 0, "known_protected": known},
+                                   {"item": "scroll", "readable": True}]})
+            decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+            self.assertEqual(decision, (UseItem(turn.inventory[1], ItemUse.READ), "protect_armor") if known is False
+                             else (Move(Direction.DOWN), "descend"))
+
+    def test_trial_armor_needs_a_large_known_improvement_or_a_way_to_remove_a_curse(self):
+        from tor_client_bot import Unequip
+        slot = {"id": "body_armor", "name": "Armor"}
+        for candidate, cure, trial in [("plate-mail", False, True), ("scale-mail", False, False),
+                                       ("scale-mail", True, True), ("unrecognized", True, False)]:
+            with self.subTest(candidate=candidate, cure=cure):
+                suits = [{"id": name, "name": name, "class": "armor", "quantity": 1,
+                          "identified": True, "identity": "item.armor." + name} for name in ("ring-mail", candidate)]
+                offers = [{"item": item["id"], "slot": slot, "equipped_slot": 0 if i == 0 else None}
+                          for i, item in enumerate(suits)]
+                if cure:
+                    suits.append({"id": "cure", "class": "scroll", "name": "remove curse", "quantity": 1,
+                                  "identified": True, "identity": "item.scroll.remove-curse"})
+                    offers.append({"item": "cure", "readable": True})
+                turn = player_turn([cell("exit", down=True)], inventory=suits,
+                                   interactions={"slots": [slot], "inventory": offers})
+                self.assertIsNone(turn.inventory[1].physical_reduction)
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action, reason), (Unequip(turn.equipment[0]), "try_armor") if trial else
+                                 (Move(Direction.DOWN), "descend"))
+
+    def test_swaps_redundant_ring_for_slow_digestion(self):
+        from tor_client_bot import Unequip
+        slots = [{"id": "ring", "name": "Finger"}] * 2
+        rings = [{"id": str(i), "name": name, "class": "ring", "quantity": 1, "identified": True,
+                  "identity": "item.ring.ring-" + name} for i, name in enumerate(
+                      ["protection", "protection", "slow-digestion"])]
+        offers = [{"item": item["id"], "slot": slots[0], "equipped_slot": i if i < 2 else None}
+                  for i, item in enumerate(rings)]
+        turn = player_turn([cell("here", down=True)], inventory=rings,
+                           interactions={"slots": slots, "inventory": offers, "curse_blocked": ["0"]})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Unequip(turn.equipment[1]), "change_ring"))
+
+    def test_unseen_attack_uses_a_free_sight_ring_and_keeps_a_spare_dose(self):
+        from tor_client_bot import describe_action
+
+        ring = {"id": "band", "class": "ring", "quantity": 1, "identified": True, "name": "sight ring",
+                "identity": "item.ring.ring-see-invisible"}
+        dose = {"id": "dose", "class": "potion", "quantity": 1, "identified": True, "name": "sight potion",
+                "identity": "item.potion.see-invisible"}
+        slot = {"id": "ring", "name": "Finger"}
+        for equipped, cursed, expected in [(None, False, "equip"), (0, False, "move"), (None, True, "drink")]:
+            with self.subTest(equipped=equipped, cursed=cursed):
+                offers = [{"item": "band", "slot": slot, "equipped_slot": equipped, "known_cursed": cursed},
+                          {"item": "dose", "drinkable": True}]
+                turn = player_turn([{**cell("here"), "lit": True}, cell("west", -1)], inventory=[ring, dose],
+                                   interactions={"slots": [slot], "inventory": offers})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.last_unseen_attack = "here", 0
+                action, _ = choose(player, turn)
+                self.assertEqual(describe_action(action)["type"], expected)
+
+    def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
+        from tor_client_bot import Equip, Unequip
+
+        slot = {"id": "weapon", "name": "Primary"}
+        inventory = [{"id": name, "identity": f"item.weapon.{name}", "name": name,
+                      "quantity": 1, "class": "weapon", "identified": True}
+                     for name in ("mace", "long-sword", "dagger")]
+        def weapon(name, damage, duration):
+            attack = {"skill": {"id": "heavy_weaponry"}, "bonus": 2, "damage_enchantment": 1,
+                      "wind_up": duration, "recovery": 50, "damage": {"components": [
+                          {"amount": {"type": "rolled", "count": 2, "sides": damage, "bonus": 0}}]}}
+            return {"item": name, "slot": slot, "known_equipment": {"attack": attack, "modifiers": []}}
+        offers = [dict(weapon("mace", 3, 50), equipped_slot=0), weapon("long-sword", 6, 50),
+                  weapon("dagger", 8, 300)]
+        def picture():
+            return player_turn([cell("here", down=True)], inventory=inventory,
+                               interactions={"slots": [slot], "inventory": offers})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        turn = picture()
+        self.assertEqual(turn.inventory[1].weapon_attack.mean_damage, 8)
+        self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "change_weapon"))
+        del offers[0]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "equip_melee"))
+        offers[1]["equipped_slot"] = 0
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+
+    def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
+        here, near = cell("exit", down=True), cell("ring", 1)
+        slot = {"id": "ring", "name": "Finger"}
+        def ring(name):
+            return {"id": name, "identity": "item.ring.ring-" + name, "name": name,
+                    "quantity": 1, "class": "ring", "identified": True}
+        for worn, found, expected in [("searching", "slow-digestion", "seek_supplies"),
+                                      ("slow-digestion", "searching", "descend"),
+                                      ("searching", "searching", "descend")]:
+            with self.subTest(worn=worn, found=found):
+                ground = {**near, "item": {**ring(found), "id": "new"}, "reachable": False}
+                turn = player_turn([here, near], inventory=[ring(worn)], ground=[ground],
+                                   interactions={"slots": [slot], "inventory": [
+                                       {"item": worn, "slot": slot, "equipped_slot": 0}]})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
+
+    def test_nearby_armor_detour_depends_on_retrieval_phase(self):
+        here, nearby = cell("exit", up=True, down=True), cell("mail", 1)
+        armor = {"id": "plate", "identity": "item.armor.plate-mail", "name": "plate",
+                 "quantity": 1, "class": "armor", "identified": True}
+        amulet = {**armor, "id": "prize", "class": "amulet", "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        for pack, decision in [([], (Move(Direction.EAST), "seek_supplies")),
+                               ([amulet], (Move(Direction.UP), "ascend"))]:
+            turn = player_turn([here, nearby], inventory=pack, ground=[{**nearby, "item": armor, "reachable": False}])
+            self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), decision)
+
+    def test_exploration_continues_to_a_nearby_frontier_before_doubling_back(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        west = player_turn([cell("west"), cell("here", 1)])
+        player.observe(west)
+        player.admitted(west, Move(Direction.EAST), reason="explore")
+        cells = [cell("here"), cell("west", -1), cell("unknown-west", -2),
+                 cell("east", 1), cell("far-east", 2), cell("unknown-east", 3)]
+        turn = player_turn(cells)
+        player.observe(turn)
+        player.maps[player.depth].visited.update({"east", "far-east"})
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "explore"))
+        player.maps[player.depth].visited.add("unknown-east")
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "explore"))
+
+    def test_take_corridor_before_two_foes_make_contact(self):
+        def tile(x, y, wall=False):
+            return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}
+        cells = [tile(0, 0), tile(-1, 0), tile(-2, 0), tile(-1, -1, True), tile(-1, 1, True),
+                 tile(2, 0), tile(2, 1)]
+        foes = [{"id": str(i), "name": "troll", "position": c["position"]} for i, c in enumerate(cells[-2:])]
+        turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "take_corridor"))
+        cells[2]["wall"] = True
+        turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
+        self.assertNotEqual(choose(player, turn)[1], "take_corridor")
+
+    def test_player_compares_disclosed_armor_and_respects_blocked_removal(self):
+        from tor_client_bot import Equip, Unequip
+
+        here = cell("stairs", down=True)
+        slot = {"id": "body_armor", "name": "Body"}
+        inventory = [{"id": name, "identity": name, "identified": True, "name": name,
+                      "quantity": 1, "class": "armor"} for name in ("worn", "plate", "cursed", "unknown")]
+        def offer(name, amount):
+            modifiers = [{"id": "reduction", "fields": [
+                {"id": "scope", "value": {"value": "always"}},
+                {"id": "category", "value": {"value": {"id": category}}},
+                {"id": "amount", "value": {"value": str(amount)}},
+            ]} for category in ("impact", "keen")]
+            return {"item": name, "slot": slot, "known_equipment": {"modifiers": modifiers}}
+        offers = [dict(offer("worn", 2), equipped_slot=0), offer("plate", 6),
+                  dict(offer("cursed", 9), known_cursed=True), {"item": "unknown", "slot": slot}]
+        interactions = {"slots": [slot], "inventory": offers}
+        def picture():
+            return player_turn([here], inventory=inventory, interactions=interactions)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        turn = picture()
+        self.assertEqual([i.physical_reduction for i in turn.inventory], [2, 6, 9, None])
+        self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "upgrade_armor"))
+        interactions["curse_blocked"] = ["worn"]
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+        interactions["curse_blocked"] = []
+        del offers[0]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "upgrade_armor"))
+        offers[1]["equipped_slot"] = 0
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+
     def test_bot_extension_uses_test_profile_with_downloaded_binaries(self):
         from pathlib import Path
         from types import SimpleNamespace
@@ -72,6 +359,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 for item in (lookalike, target)]
         policy = Adventurer(1, "item.misc.copper-seal")
         turn = player_turn([cell("exit", up=True)], ground=rows)
+        self.assertIs(turn.ground_items[1].cell, turn.cell)
         self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[1].item), "take"))
         self.assertEqual(choose(policy, player_turn([cell("exit", up=True)], inventory=[target])),
                          (Move(Direction.UP), "ascend"))
@@ -182,6 +470,374 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(policy.depth, 2)
         self.assertTrue(policy.maps[2].cells["landing"].stairs_up)
 
+    def test_receipt_phase_limits_what_a_landing_can_establish(self):
+        from tor_client_bot import Result
+
+        before = player_turn([cell("origin", down=True)])
+        after = player_turn([cell("below", up=True)], tick=100)
+        row = {"actor": 1, "branch": "branch", "intention": "move", "phase": "queued"}
+        accepted = Result.from_reply({"status": "confirmed", "receipt": {"type": "admitted", **row}})
+        attempt = before.stair_attempt(Move(Direction.DOWN), accepted)
+        import json
+        picture = json.loads(after.recording())
+        for phase, expected in [("started", None), ("failed", False), ("resolved", True)]:
+            picture["finished_intentions"] = [dict(row, phase=phase)]
+            self.assertIs(Turn(picture).stair_arrival(attempt), expected)
+        refused = Result.from_reply({"status": "rejected"})
+        self.assertIs(after.stair_arrival(before.stair_attempt(Move(Direction.DOWN), refused)), False)
+
+    def test_ready_picture_at_the_origin_cannot_discard_a_pending_stair(self):
+        import json
+        from tor_client_bot import Result
+
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        origin = player_turn([cell("origin", down=True)])
+        move, _ = choose(policy, origin)
+        row = {"actor": 1, "branch": "branch", "intention": "down", "phase": "queued"}
+        receipt = Result.from_reply({"status": "confirmed", "receipt": {"type": "admitted", **row}})
+        policy.admitted(origin, move, receipt)
+        picture = json.loads(origin.recording())
+        picture["finished_intentions"] = [row]
+        pending = Turn(picture)
+        policy.observe(pending)
+        self.assertEqual(policy.choose(pending), (None, "uncertain_stair_landing"))
+        landed = json.loads(player_turn([cell("below", up=True)], tick=100).recording())
+        landed["finished_intentions"] = [dict(row, phase="resolved")]
+        policy.observe(Turn(landed))
+        self.assertEqual(policy.depth, 2)
+
+    def test_body_clearance_after_a_step_counts_the_nearest_observed_cells(self):
+        actors = [{"id": who, "name": who, "position": {"x": x, "y": 0, "z": 0}}
+                  for who, x in [("player", 1), ("foe", 4), ("foe", 5)]]
+        turn = player_turn([cell("origin")], actors=actors)
+        foe, = turn.creatures
+        self.assertEqual(foe.distance, 4)
+        self.assertEqual(turn.distance_to(foe), 3)
+        self.assertEqual(turn.distance_to(foe, from_offset=(1, 0, 0)), 2)
+
+    def test_searches_an_unseen_side_of_a_visited_site_with_a_finite_budget(self):
+        search = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                  "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        turn = player_turn([cell("dark")], abilities=[search])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[1]
+        for _ in range(4):
+            decision = player.search(turn, memory, returning=False)
+            self.assertIsNotNone(decision)
+            action, reason = decision
+            self.assertEqual((action.ability.identity, reason), ("rogue.search", "search"))
+            player.admitted(turn, action)
+        self.assertIsNone(player.search(turn, memory, returning=False))
+
+    def test_mapped_room_with_only_an_entrance_gets_a_second_bounded_wall_search(self):
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        cells = [cell("entrance", up=True)]
+        for x, y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cells.append({**cell(f"wall-{x}-{y}"), "wall": True, "position": {"x": x, "y": y, "z": 0}})
+        turn = player_turn(cells, abilities=[ability])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.observe(turn)
+        for _ in range(6):
+            action, reason = player.choose(turn)
+            self.assertEqual(reason, "search")
+            player.admitted(turn, action)
+        self.assertEqual(player.choose(turn), (None, "no_disclosed_route"))
+
+    def test_search_credits_disclosed_nearby_walls_on_the_current_floor(self):
+        search = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                  "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        room = [cell("here")]
+        for key, x, y, z in (("diagonal", 1, 1, 0), ("middle", -3, 2, 0),
+                             ("far", 4, 0, 0), ("above", 1, 1, 1)):
+            room.append({**cell(key), "wall": True, "position": {"x": x, "y": y, "z": z}})
+        turn = player_turn(room, abilities=[search])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        player.admitted(turn, UseAbility(turn.abilities[0]))
+        self.assertEqual(dict(player.wall_searches), {"diagonal": 1, "middle": 1})
+
+    def test_equivalent_search_sites_are_ranked_independently_of_opaque_cell_keys(self):
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        def decision(left, right):
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+            cells = [cell("here"), cell(left, -1), cell(right, 1),
+                     {**cell("left-wall", -2), "wall": True}, {**cell("right-wall", 2), "wall": True}]
+            turn = player_turn(cells, abilities=[ability])
+            player.observe(turn)
+            return player.search(turn, player.maps[1], returning=False)
+
+        self.assertEqual(decision("a", "z"), decision("z", "a"))
+        self.assertIsInstance(decision("a", "z")[0], Move)
+
+    def test_waits_on_the_stair_for_levitation_to_end(self):
+        condition = {"condition": {"id": "rogue.levitation", "name": "Levitating"},
+                     "phase": "active", "remaining_ticks": "1958"}
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        stairs = [cell("down", down=True)]
+        floating = player_turn(stairs, stats={"conditions": [condition]})
+        self.assertEqual(choose(policy, floating), (Wait(), "wait_for_ground_contact"))
+        self.assertEqual(choose(policy, player_turn(stairs)), (Move(Direction.DOWN), "descend"))
+
+    def test_samples_an_unknown_potion_appearance_once_while_healthy(self):
+        item = {"id": "a", "name": "flask", "appearance": "smoky flask", "identified": False,
+                "quantity": 2, "class": "potion"}
+        offer = {"item": "a", "drinkable": True}
+        turn = player_turn([cell("stairs", down=True)], inventory=[item],
+                           interactions={"inventory": [offer]})
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        action, reason = choose(policy, turn)
+        self.assertEqual(reason, "test_unknown_potion")
+        self.assertIs(action.item, turn.inventory[0])
+        self.assertEqual(action.item.appearance, "smoky flask")
+        policy.admitted(turn, action)
+        other = player_turn([cell("stairs", down=True)], inventory=[{**item, "id": "b"}],
+                            interactions={"inventory": [{**offer, "item": "b"}]})
+        self.assertEqual(choose(policy, other), (Move(Direction.DOWN), "descend"))
+
+    def test_collects_a_healing_reserve_and_bounds_unknown_supplies(self):
+        potion = {"id": "flask", "name": "cerulean potion", "identified": False,
+                  "quantity": 1, "class": "potion"}
+        ground = {"item": potion, "reachable": True, "position": {"x": 0, "y": 0, "z": 0}}
+        for identified in (False, True):
+            item = {**potion, "identified": identified, "identity": "item.potion.healing"}
+            turn = player_turn([cell("here", down=True)], ground=[{**ground, "item": item}])
+            policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+            self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
+        full = [{**potion, "id": "pack", "quantity": 4}]
+        turn = player_turn([cell("here", down=True)], inventory=full, ground=[ground])
+        self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
+        for category in ("wand", "ring", "scroll", "potion"):
+            with self.subTest(category=category):
+                item = {**potion, "class": category}
+                here, nearby = cell("here", down=True), cell("nearby", 1)
+                stock = [{**item, "id": "stock", "quantity": 5}]
+                turn = player_turn([here, nearby], inventory=stock,
+                                   ground=[{**here, "item": item, "reachable": True}])
+                self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
+                turn = player_turn([here, nearby], inventory=stock,
+                                   ground=[{**nearby, "item": item, "reachable": False}])
+                self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "descend"))
+
+    def test_recovers_reachable_arrows_when_carrying_the_bow(self):
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        def weapon(name):
+            return {"id": name, "name": name, "identity": f"item.weapon.{name}",
+                    "identified": True, "quantity": 1, "class": "weapon"}
+        ground = {"item": weapon("arrow"), "reachable": True, "position": {"x": 0, "y": 0, "z": 0}}
+        turn = player_turn([cell("here", down=True)], inventory=[weapon("shortbow")], ground=[ground])
+        self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
+
+    def test_collects_nearby_gold_before_a_distant_stack_of_arrows(self):
+        cells = [cell(str(i), i) for i in range(-12, 3)]
+        bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
+               "identified": True, "quantity": 1, "class": "weapon"}
+        arrow = {**bow, "id": "arrows", "identity": "item.weapon.arrow", "quantity": 4}
+        gold = {**bow, "id": "gold", "identity": "item.coin.gold", "class": "coin"}
+        ground = [{**cells[0], "item": arrow, "reachable": False},
+                  {**cells[-1], "item": gold, "reachable": False}]
+        turn = player_turn(cells, inventory=[bow], ground=ground)
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.EAST), "seek_supplies"))
+
+    def test_collects_visible_spent_arrows_beyond_an_immediate_detour(self):
+        cells = [cell(str(i), i, down=i == 0) for i in range(5)]
+        bow, arrow = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                       "identified": True, "quantity": 12, "class": "weapon"} for name in ("shortbow", "arrow")]
+        ground = [{**cells[-1], "item": {**arrow, "id": "spent", "quantity": 1}, "reachable": False}]
+        turn = player_turn(cells, inventory=[bow, arrow], ground=ground)
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.EAST), "recover_arrows"))
+
+    def test_uses_a_ready_contact_attack_instead_of_throwing_a_carried_dart(self):
+        from unittest.mock import Mock
+        from tor_client_bot import Shot
+
+        foe = {"id": "emu", "name": "emu", "position": {"x": 1, "y": 0, "z": 0}}
+        melee = {"id": "basic_melee", "name": "Strike", "basic_attack": True, "target_kind": "actor",
+                 "reach": {"kind": "melee"}, "cooldown_remaining": "0", "cost": None}
+        throw = {**melee, "id": "throw", "basic_attack": False, "target_kind": "directional_projectile",
+                 "reach": {"kind": "projectile"}}
+        dart = {"id": "d", "name": "dart", "identity": "item.weapon.dart", "identified": True,
+                "quantity": 12, "class": "weapon"}
+        turn = player_turn([cell("here"), cell("enemy", 1)], actors=[foe], hostiles=["emu"],
+                           abilities=[melee, throw], inventory=[dart])
+        target, = turn.hostiles
+        shot = Shot(turn.abilities[1], target, (1, 0, 0), turn.inventory[0], None, 0)
+        turn.ranged_attacks = Mock(return_value=[shot])
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (turn.attack(target), "melee"))
+
+    def test_replaces_empty_bow_while_an_enemy_is_visible(self):
+        from tor_client_bot import Unequip
+
+        foe = {"id": "snake", "name": "snake", "position": {"x": 3, "y": 0, "z": 0}}
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                      "identified": True, "quantity": 1} for name in ("shortbow", "mace")]
+        slot = {"id": "weapon", "name": "Weapon"}
+        offers = [{"item": "shortbow", "slot": slot, "equipped_slot": 0},
+                  {"item": "mace", "slot": slot, "equipped_slot": None}]
+        turn = player_turn([cell("here")], actors=[foe], hostiles=["snake"], inventory=inventory,
+                           interactions={"slots": [slot], "inventory": offers})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Unequip(turn.equipment[0]), "change_weapon"))
+
+    def test_readies_a_melee_weapon_when_a_foe_closes_even_with_arrows_left(self):
+        from tor_client_bot import Unequip
+
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}",
+                      "identified": True, "quantity": 1} for name in ("shortbow", "mace", "arrow")]
+        slot = {"id": "weapon", "name": "Weapon"}
+        offers = [{"item": "shortbow", "slot": slot, "equipped_slot": 0},
+                  {"item": "mace", "slot": slot, "equipped_slot": None}]
+        foe = {"id": "snake", "name": "snake", "position": cell("snake", 2)["position"]}
+        turn = player_turn([cell("here")], actors=[foe], hostiles=["snake"], inventory=inventory,
+                           interactions={"slots": [slot], "inventory": offers})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Unequip(turn.equipment[0]), "change_weapon"))
+
+    def test_stair_retreat_does_not_reverse_into_the_same_pursuit(self):
+        snake = {"id": "snake", "name": "rattlesnake", "position": {"x": 2, "y": 0, "z": 0}}
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
+        policy.draining_creatures.add("rattlesnake")
+        first = player_turn([cell("origin"), cell("detour", 1), cell("stairs", -1, up=True)],
+                            actors=[snake], hostiles=["snake"])
+        policy.observe(first)
+        policy.admitted(first, Move(Direction.EAST), reason="retreat_to_stairs")
+        later = player_turn([cell("detour"), cell("origin", -1), cell("stairs", -2, up=True)],
+                            actors=[snake], hostiles=["snake"], tick=100)
+        policy.observe(later)
+        self.assertNotEqual(policy.combat(later), (Move(Direction.WEST), "retreat_to_stairs"))
+
+    def test_outnumbered_player_steps_onto_nearby_downstairs_then_descends(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        for on_stair in (False, True):
+            cells = [cell("exit" if on_stair else "here", down=on_stair), cell("hall", -1)]
+            if not on_stair:
+                cells.append(cell("exit", 1, down=True))
+            actors = []
+            for x, name in enumerate(("emu", "hobgoblin")):
+                square = cell(name, x - int(on_stair))
+                square["position"]["y"] = 1
+                cells.append(square)
+                actors.append({"id": name, "name": name, "position": square["position"]})
+            turn = player_turn(cells, actors=actors, hostiles=["emu", "hobgoblin"],
+                               combat={"hp": "19", "max_hp": "19"})
+            expected = (Move(Direction.DOWN), "retreat_downstairs") if on_stair else (
+                Move(Direction.EAST), "retreat_to_stairs")
+            self.assertEqual(choose(player, turn), expected)
+
+    def test_uses_down_stair_underfoot_to_escape_a_known_draining_creature(self):
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
+        policy.draining_creatures.add("rattlesnake")
+        snake = {"id": "snake", "name": "rattlesnake", "position": {"x": 1, "y": 0, "z": 0}}
+        turn = player_turn([cell("escape", down=True), cell("away", -1), cell("snake", 1)],
+                           actors=[snake], hostiles=["snake"])
+        self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
+
+    def test_recontests_a_guarded_landing_only_with_a_health_margin(self):
+        snake = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 1)["position"]}
+        strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
+                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        for hp, damage, guard, expected in [(23, 2, "snake", "melee"), (10, 2, "snake", "retreat_upstairs"),
+                                             (23, 8, "snake", "retreat_upstairs"), (23, 2, "other", "retreat_upstairs")]:
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+            player.draining_creatures.add("rattlesnake")
+            player.observed_loss["snake"] = damage
+            player.last_guarded_landing = "landing", guard
+            turn = player_turn([cell("landing", up=True), cell("snake", 1)], actors=[snake], hostiles=["snake"],
+                               abilities=[strike], combat={"hp": str(hp), "max_hp": "26"})
+            self.assertEqual(choose(player, turn)[1], expected)
+
+    def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.draining_creatures.add("rattlesnake")
+        foe = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 9)["position"]}
+        turn = player_turn([cell("landing", up=True), cell("hall", -1)], actors=[foe], hostiles=["snake"],
+                           combat={"hp": "25", "max_hp": "26"})
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "explore"))
+
+    def test_does_not_reverse_an_escape_stair_at_sight_of_a_distant_foe(self):
+        self.check_escape_landing(1)
+
+    def test_remembers_a_stair_retreat_from_a_foe_outside_contact(self):
+        self.check_escape_landing(2)
+
+    def check_escape_landing(self, distance):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
+        snake = {"id": "bite", "name": "dragon", "position": cell("enemy", distance)["position"]}
+        before = player_turn([cell("lower", up=True), cell("enemy", distance)], actors=[snake], hostiles=["bite"])
+        escape, reason = choose(player, before)
+        self.assertEqual((escape, reason), (Move(Direction.UP), "retreat_upstairs"))
+        player.admitted(before, escape, reason=reason)
+        distant = {**snake, "id": "other", "position": cell("foe", 3)["position"]}
+        cells = [cell("upper", down=True), cell("away", -1), cell("foe", 3)]
+        after = player_turn(cells, tick=100, actors=[distant], hostiles=["other"])
+        self.assertNotEqual(choose(player, after)[0], Move(Direction.DOWN))
+        quiet = player_turn(cells, tick=200)
+        self.assertNotEqual(choose(player, quiet)[0], Move(Direction.DOWN))
+        later = player_turn(cells, tick=2000, actors=[distant], hostiles=["other"])
+        self.assertEqual(choose(player, later), (Move(Direction.DOWN), "retreat_downstairs"))
+
+    def test_takes_the_nearby_down_stair_route_away_from_a_draining_pursuer(self):
+        foe = {"id": "poison", "name": "rattlesnake", "position": {"x": 0, "y": -1, "z": 0}}
+        room = [cell("here"), cell("escape", 1, down=True), cell("corridor", -1), cell("up", -2, up=True),
+                {**cell("snake"), "position": foe["position"]}]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
+        player.draining_creatures.add("rattlesnake")
+        turn = player_turn(room, actors=[foe], hostiles=["poison"])
+        self.assertEqual(choose(player, turn), (Move(Direction.EAST), "retreat_to_stairs"))
+
+    def test_unrelated_up_stair_cannot_confirm_the_expected_landing(self):
+        policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        landing = cell("paired", up=True)
+        landing["position"]["z"] = -20
+        before = player_turn([cell("origin", down=True), landing])
+        down, _ = choose(policy, before)
+        policy.admitted(before, down)
+        ambiguous = player_turn([cell("unrelated", up=True)], tick=100)
+        policy.observe(ambiguous)
+        self.assertEqual(policy.depth, 1)
+        self.assertNotIn(2, policy.maps)
+        self.assertNotIn("unrelated", policy.maps[1].cells)
+        self.assertEqual(policy.choose(ambiguous), (None, "uncertain_stair_landing"))
+        established = player_turn([cell("paired", up=True)], tick=101)
+        policy.observe(established)
+        policy.observe(established)
+        self.assertEqual(policy.depth, 2)
+        self.assertIn("paired", policy.maps[2].visited)
+
+    def test_carries_the_amulet_past_an_ordinary_enemy_to_nearby_upstairs(self):
+        amulet = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                  "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        foe = {"id": "orc", "name": "orc", "position": cell("orc", -1)["position"]}
+        strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
+                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        for here, exit_cell, expected in [
+            (cell("here", up=True), cell("east", 1), (Move(Direction.UP), "retreat_upstairs")),
+            (cell("here"), cell("east", 1, up=True), (Move(Direction.EAST), "retreat_to_stairs")),
+        ]:
+            turn = player_turn([here, cell("west", -1), exit_cell], actors=[foe], hostiles=["orc"],
+                               inventory=[amulet], abilities=[strike])
+            self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), expected)
+
+    def test_follows_the_last_amulet_sighting_until_its_cell_is_seen_empty(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=26)
+        passage = [cell("here"), cell("west", -1), cell("west-end", -2), cell("east", 1)]
+        alcove = cell("alcove", 2)
+        amulet = {"id": "relic", "name": AMULET, "class": "amulet", "quantity": 1,
+                  "identified": True, "identity": DEFAULT_OBJECTIVE_IDENTITY}
+        ration = {"id": "food", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        food = {**passage[2], "item": ration, "reachable": False}
+        sighting = {**alcove, "item": amulet, "reachable": False}
+        player.observe(player_turn([*passage, alcove], ground=[sighting]))
+        hidden = player_turn(passage, ground=[food])
+        self.assertEqual(choose(player, hidden), (Move(Direction.EAST), "seek_objective"))
+        empty = player_turn([*passage, alcove], ground=[food])
+        self.assertEqual(choose(player, empty), (Move(Direction.WEST), "seek_item"))
+
     def test_retrieves_amulet_and_returns_through_known_stairs(self):
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         item = {"identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET, "id": "disclosed-amulet",
@@ -221,6 +877,278 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         side["wall"] = True
         self.assertEqual(policy.choose(data), ({"type": "wait"}, "hold_position"))
 
+    def test_one_point_of_regeneration_during_pursuit_does_not_restart_melee(self):
+        foe = {"id": "hunter", "name": "medusa", "position": {"x": 1, "y": 0, "z": 0}}
+        melee = {"id": "basic_melee", "name": "Attack", "cooldown_remaining": "0", "cost": None,
+                 "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        def pursued(hp, tick):
+            return player_turn([cell("here"), cell("away", -1), cell("enemy", 1)], actors=[foe],
+                               hostiles=["hunter"], abilities=[melee], tick=tick,
+                               combat={"hp": str(hp), "max_hp": "69"})
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        first = pursued(34, 100)
+        step, reason = choose(player, first)
+        self.assertEqual((step, reason), (Move(Direction.WEST), "retreat"))
+        player.admitted(first, step, reason=reason)
+        self.assertEqual(choose(player, pursued(35, 200)), (Move(Direction.WEST), "retreat"))
+        self.assertEqual(choose(player, pursued(56, 300))[1], "melee")
+
+    def test_newly_seen_medusa_inherits_the_damage_estimate_from_an_earlier_encounter(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        room = [cell("here"), cell("away", -1), cell("foe", 1)]
+        def scene(target, hp, events=()):
+            enemy = {"id": target, "name": "medusa", "position": {"x": 1, "y": 0, "z": 0}}
+            return player_turn(room, actors=[enemy], hostiles=[target],
+                               combat={"hp": hp, "max_hp": 69, "events": events})
+        player.observe(scene("first", 69))
+        player.observe(scene("first", 51, [{"type": "ability", "target": "player",
+                                            "caster": "first", "outcome": "applied"}]))
+        self.assertEqual(choose(player, scene("second", 35)), (Move(Direction.WEST), "retreat"))
+
+    def test_makes_a_short_safe_detour_for_a_visible_unidentified_potion(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        potion = {"id": "dose", "class": "potion", "name": "blue potion",
+                  "quantity": 1, "identified": False}
+        def sight(distance):
+            tiles = [cell("stairs", down=True)] + [cell(str(x), x) for x in range(1, distance + 1)]
+            ground = [{**tiles[-1], "item": potion, "reachable": False}]
+            return player_turn(tiles, ground=ground)
+        self.assertEqual(choose(player, sight(3)), (Move(Direction.EAST), "seek_supplies"))
+        self.assertEqual(choose(player, sight(4)), (Move(Direction.DOWN), "descend"))
+
+    def test_collects_a_safe_potion_and_remembers_the_guarded_scroll_after_stepping_back(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        potion = {"id": "blue", "class": "potion", "name": "blue potion", "quantity": 1, "identified": False}
+        scroll = {**potion, "id": "roll", "name": "scroll", "class": "scroll"}
+        watcher = {"id": "foe", "name": "ice monster", "position": {"x": 2, "y": 0, "z": 0}}
+        room = [cell("potion"), cell("scroll", 1), cell("guard", 2)]
+        turn = player_turn(room, actors=[watcher], hostiles=["foe"],
+                           ground=[{**room[0], "item": potion, "reachable": True},
+                                   {**room[1], "item": scroll, "reachable": False}])
+        self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
+        stairs = [cell("stairs", down=True), cell("potion", 1), cell("scroll", 2)]
+        later = player_turn(stairs, ground=[{**stairs[2], "item": scroll, "reachable": False}])
+        self.assertEqual(choose(player, later), (Move(Direction.DOWN), "descend"))
+
+    def test_prefers_a_known_teleport_to_another_step_in_a_lethal_pursuit(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        foe = {"id": "hunter", "name": "troll", "position": {"x": 1, "y": 0, "z": 0}}
+        scroll = {"id": "escape", "name": "renamed scroll", "identity": "item.scroll.teleportation",
+                  "class": "scroll", "identified": True, "quantity": 1}
+        turn = player_turn([cell("here"), cell("away", -1), cell("foe", 1)], actors=[foe],
+                           hostiles=["hunter"], inventory=[scroll], combat={"hp": 17, "max_hp": 59},
+                           interactions={"inventory": [{"item": "escape", "readable": True}]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss["hunter"] = 17
+        self.assertEqual(choose(player, turn), (UseItem(turn.inventory[0], ItemUse.READ), "escape_pursuit"))
+
+    def test_uses_a_recognized_escape_wand_on_a_lethal_adjacent_enemy(self):
+        from tor_client_bot import Zap
+
+        foe = {"id": "fang", "name": "rattlesnake", "position": {"x": 1, "y": 0, "z": 0}}
+        item = {"id": "staff", "class": "wand", "name": "displacing staff", "quantity": 1,
+                "identified": True, "identity": "item.wand.wand-teleport-away"}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction", "charges": None}
+        turn = player_turn([cell("here"), cell("snake", 1)], actors=[foe], hostiles=["fang"],
+                           inventory=[item], combat={"hp": 5, "max_hp": 39},
+                           interactions={"inventory": [offer]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss["fang"] = 7
+        action, reason = choose(player, turn)
+        self.assertEqual((action, reason), (Zap(turn.devices[0], turn.cell_at((1, 0, 0))), "displace_threat"))
+        player.admitted(turn, action, reason=reason)
+        self.assertNotIsInstance(player.choose(turn)[0], Zap)
+
+    def test_when_pinned_attacks_the_equally_healthy_foe_blocking_the_down_stair(self):
+        melee = {"id": "basic_melee", "name": "Attack", "cooldown_remaining": "0", "cost": None,
+                 "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        room = [cell("here"), cell("plain", 1), cell("exit", -1, down=True)]
+        enemies = [{"id": name, "name": "rattlesnake", "position": tile["position"]}
+                   for name, tile in zip(["other", "blocker"], room[1:])]
+        turn = player_turn(room, actors=enemies, hostiles=["other", "blocker"], abilities=[melee],
+                           combat={"hp": 7, "max_hp": 42})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=8)
+        action, reason = choose(player, turn)
+        self.assertEqual((reason, action.target.target), ("melee", "blocker"))
+        self.assertEqual(turn.cells_of(action.target), (turn.cell_at((-1, 0, 0)),))
+
+    def test_control_a_dangerous_approach_or_step_to_an_exit(self):
+        from tor_client_bot import Zap
+        here, lane, distant = cell("here"), cell("lane", 1), cell("enemy", 2)
+        foe = {"id": "troll", "name": "dragon", "position": distant["position"]}
+        wand = {"id": "slow", "class": "wand", "identity": "item.wand.wand-slow",
+                "identified": True, "name": "slow staff", "quantity": 1}
+        offer = {"item": "slow", "zappable": True, "device_activation": "direction", "charges": 3}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
+        player.observed_loss_by_name["dragon"] = 7
+        def picture(extra=(), actors=()):
+            return player_turn([here, lane, distant, *extra], actors=[foe, *actors], hostiles=["troll"],
+                               inventory=[wand], interactions={"inventory": [offer]})
+        turn = picture()
+        action, reason = choose(player, turn)
+        self.assertEqual((action, reason), (Zap(turn.devices[0], turn.cell_at((2, 0, 0))), "slow_approach"))
+        exit_turn = picture([cell("escape", -1, up=True)])
+        self.assertEqual(choose(player, exit_turn), (Move(Direction.WEST), "retreat_to_stairs"))
+        blocked = picture(actors=[{"id": "bystander", "name": "friend", "position": lane["position"]}])
+        self.assertNotIsInstance(choose(player, blocked)[0], Zap)
+        player.admitted(turn, action, reason=reason)
+        self.assertNotIsInstance(choose(player, turn)[0], Zap)
+
+    def test_elemental_wand_requires_a_recognized_effect_and_an_available_charge(self):
+        cells = [cell(str(i), i) for i in range(6)]
+        foe = {"id": "foe", "name": "hunter", "position": cells[3]["position"]}
+        for known, charges, fires in [(True, 1, True), (True, None, True), (True, 0, False), (False, 2, False)]:
+            with self.subTest(known=known, charges=charges):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                wand = {"id": "rod", "class": "wand", "name": "rod", "quantity": 1, "identified": known,
+                        "identity": "item.wand.wand-cold" if known else None}
+                offer = {"item": "rod", "zappable": True, "device_activation": "direction", "charges": charges}
+                turn = player_turn(cells, actors=[foe], hostiles=["foe"], inventory=[wand],
+                                   interactions={"inventory": [offer]})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "elemental_ray", fires)
+                if fires and charges is None:
+                    player.admitted(turn, action, reason=reason)
+                    self.assertNotEqual(player.choose(turn)[1], "elemental_ray")
+
+    def test_polymorph_is_reserved_for_a_dangerous_uninjured_approach(self):
+        wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
+                "identified": True, "name": "staff of polymorph", "quantity": 1}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction_or_self", "charges": 3}
+        cells = [cell("here"), cell("lane", 1), cell("foe", 2)]
+        foe = {"id": "hunter", "name": "griffin", "position": cells[-1]["position"]}
+        for damage, injury, expected in [(10, "healthy", True), (5, "healthy", False), (10, "near_death", False)]:
+            with self.subTest(damage=damage, injury=injury):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss_by_name["griffin"] = damage
+                turn = player_turn(cells, actors=[foe], inventory=[wand], interactions={"inventory": [offer]},
+                                   combat={"actors": [{"actor": "hunter", "hostile": True, "injury": injury}]})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "polymorph_threat", expected)
+                if expected:
+                    self.assertEqual(action.target, turn.cell_at((2, 0, 0)))
+                    player.admitted(turn, action, reason=reason)
+                    self.assertNotEqual(choose(player, turn)[1], reason)
+
+    def test_only_a_witnessed_resisted_polymorph_permits_one_measured_retry(self):
+        from tor_client_bot import CombatReport
+
+        cells = [cell("here"), cell("enemy", 1)]
+        wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph", "identified": True,
+                "quantity": 1, "name": "staff"}
+        foe = {"id": "hunter", "name": "griffin", "position": cells[1]["position"]}
+        own_cast = {"type": "ability", "caster": "player", "target": "hunter",
+                    "ability": {"id": "rogue.wand_polymorph"}, "outcome": "unaffected"}
+        for fields, charges, retry in [
+            ({}, 3, True), ({}, None, False), ({"caster": "other"}, 3, False),
+            ({"target": "other"}, 3, False), ({"outcome": "applied"}, 3, False),
+            ({"ability": None}, 3, False),
+        ]:
+            with self.subTest(fields=fields, charges=charges):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                turn = player_turn(cells, actors=[foe], inventory=[wand],
+                                   interactions={"inventory": [{"item": "staff", "zappable": True,
+                                     "device_activation": "direction_or_self", "charges": charges}]},
+                                   combat={"actors": [{"actor": "hunter", "hostile": True, "injury": "healthy"}]})
+                player.observed_loss_by_name["griffin"] = 10
+                action, reason = choose(player, turn)
+                self.assertEqual(reason, "polymorph_threat")
+                player.admitted(turn, action, reason=reason)
+                report = CombatReport("player", ({**own_cast, **fields},))
+                player.observe(turn, report)
+                action, reason = player.choose(turn)
+                self.assertEqual(reason == "polymorph_threat", retry)
+                if retry:
+                    player.admitted(turn, action, reason=reason)
+                    player.observe(turn, report)
+                    self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
+
+    def test_polymorph_targets_the_lethal_troll_while_another_foe_is_in_contact(self):
+        from tor_client_bot import CombatReport
+
+        wand = {"id": "staff", "class": "wand", "identity": "item.wand.wand-polymorph",
+                "identified": True, "name": "staff of polymorph", "quantity": 1}
+        offer = {"item": "staff", "zappable": True, "device_activation": "direction_or_self", "charges": 3}
+        for distance in (1, 2):
+            with self.subTest(distance=distance):
+                cells = [cell("aquator", -1), cell("here"), cell("lane", 1), cell("beyond", 2)]
+                foes = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+                        for name, x in (("aquator", -1), ("troll", distance))]
+                combat = {"hp": "13", "max_hp": "56", "actors": [
+                    {"actor": f["id"], "hostile": True, "injury": "healthy"} for f in foes]}
+                turn = player_turn(cells, actors=foes, inventory=[wand],
+                                   interactions={"inventory": [offer]}, combat=combat)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss_by_name["troll"] = 19
+                action, reason = choose(player, turn)
+                self.assertEqual(reason, "polymorph_threat")
+                self.assertEqual(action.target, turn.cell_at((distance, 0, 0)))
+                player.admitted(turn, action, reason=reason)
+                resisted = {"type": "ability", "ability": {"id": "rogue.wand_polymorph"},
+                            "caster": "player", "target": "troll", "outcome": "unaffected"}
+                player.observe(turn, CombatReport("player", (resisted,)))
+                self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
+                alone = player_turn(cells, actors=foes[1:], inventory=[wand],
+                                    interactions={"inventory": [offer]}, combat=combat)
+                self.assertEqual(choose(player, alone)[1], "polymorph_threat")
+
+    def test_weak_player_eats_a_carried_ration_during_a_prolonged_pursuit(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        enemy = {"id": "foe", "name": "centaur", "position": {"x": 1, "y": 0, "z": 0}}
+        ration = {"id": "food", "name": "ration", "identity": "item.food.ration",
+                  "class": "food", "identified": True, "quantity": "1"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, recovering_from_pursuit=True)
+        turn = player_turn([cell("here"), cell("away", -1), cell("foe", 1)], actors=[enemy],
+                           hostiles=["foe"], combat={"hp": "24", "max_hp": "35"}, inventory=[ration],
+                           interactions={"inventory": [{"item": "food", "edible": True}]},
+                           stats={"nutrition": {"hunger": "weak"}})
+        self.assertEqual(choose(player, turn), (UseItem(turn.inventory[0], ItemUse.EAT), "eat"))
+
+    def test_wounded_pursuit_uses_a_remembered_exit_before_running_another_lap(self):
+        foe = {"id": "pursuer", "name": "centaur", "position": {"x": 1, "y": 0, "z": 0}}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=10, recovering_from_pursuit=True)
+        turn = player_turn([cell("here", up=True), cell("clear", -1), cell("enemy", 1)],
+                           actors=[foe], hostiles=["pursuer"], combat={"hp": "24", "max_hp": "35"})
+        self.assertEqual(choose(player, turn), (Move(Direction.UP), "retreat_upstairs"))
+
+    def test_stair_approach_breaks_dangerous_contact_when_there_is_room(self):
+        foe = {"id": "centaur", "name": "centaur", "position": {"x": 1, "y": 1, "z": 0}}
+        for health, side_open, expected in [(9, True, Direction.WEST), (9, False, Direction.EAST),
+                                            (35, True, Direction.EAST)]:
+            with self.subTest(health=health, side_open=side_open):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=13, recovering_from_pursuit=True)
+                player.observed_loss_by_name["centaur"] = 16
+                cells = [cell("here"), cell("stairs", 1, up=True), {**cell("enemy"), "position": foe["position"]}]
+                if side_open:
+                    cells.append(cell("side", -1))
+                turn = player_turn(cells, actors=[foe], hostiles=["centaur"],
+                                   combat={"hp": str(health), "max_hp": "35"})
+                player.observe(turn)
+                player.recovering_from_pursuit = True
+                self.assertEqual(player.retreat_to_stairs(turn)[0], Move(expected))
+
+    def test_a_retreat_can_open_a_door_or_break_contact_before_opening_it(self):
+        from tor_client_bot import OpenDoor
+        door = {"id": "gate", "open": False, "reachable": True}
+        obstacle = {**cell("threshold", 1), "door": door}
+        enemy = {"id": "griffin", "name": "griffin", "position": {"x": 0, "y": 1, "z": 0}}
+        for can_evade in (False, True):
+            player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+            room = [cell("here"), obstacle, cell("stairs", 2, up=True), {**cell("foe"), "position": enemy["position"]}]
+            if can_evade:
+                room.append({**cell("side"), "position": {"x": 0, "y": -1, "z": 0}})
+            turn = player_turn(room, actors=[enemy], hostiles=["griffin"])
+            player.observed_loss_by_name["griffin"] = 20
+            action, reason = choose(player, turn)
+            if can_evade:
+                self.assertEqual(reason, "retreat")
+                self.assertFalse(turn.in_contact(turn.hostiles[0], from_offset=action.direction.offset))
+            else:
+                self.assertEqual((action, reason), (OpenDoor(turn.cell_at((1, 0, 0)).door), "retreat_to_stairs"))
+
     def test_retreat_rejects_a_diagonal_tile_still_in_melee_reach(self):
         foe = {"id": "foe", "position": {"x": 0, "y": 1, "z": 0}}
         enemy_tile = cell("enemy")
@@ -246,6 +1174,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         melee = {"id": "basic_melee", "cooldown_remaining": "0", "cost": None}
         data = state(room, actors=foes, hostiles=["east", "north"], abilities=[melee])
         self.assertEqual(Policy().choose(data), ({"type": "move", "direction": "south"}, "retreat"))
+
+    def test_public_policy_steps_out_of_one_of_two_melee_contacts(self):
+        def tile(x, y):
+            result = cell(f"{x},{y}", x)
+            result["position"]["y"] = y
+            return result
+
+        room = [tile(x, y) for x, y in [(0, 0), (1, 0), (0, -1), (0, 1), (1, 1)]]
+        foes = [{"id": name, "name": name, "position": {"x": x, "y": y, "z": 0}}
+                for name, x, y in [("east", 1, 0), ("north", 0, -1)]]
+        turn = player_turn(room, actors=foes, hostiles=["east", "north"], combat={"hp": 9, "max_hp": 58})
+        self.assertEqual(sum(turn.in_contact(foe) for foe in turn.hostiles), 2)
+        self.assertEqual(sum(turn.in_contact(foe, from_offset=(0, 1, 0)) for foe in turn.hostiles), 1)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        self.assertEqual(choose(player, turn), (Move(Direction.SOUTH), "retreat"))
 
     def test_multicell_foe_counts_as_one_melee_contact(self):
         foe = {"id": "foe", "position": {"x": 1, "y": 0, "z": 0}}
@@ -295,6 +1238,78 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                          (Wait(), "wait_for_restraint"))
         self.assertEqual(choose(policy, player_turn(tiles)), (Move(Direction.DOWN), "descend"))
 
+    def test_stalled_campaign_reports_the_last_picture_and_the_admitted_stair_phase(self):
+        import json
+        from unittest.mock import Mock
+        from rogue_player import play
+        from tor_client_bot import ReadinessTimeout, Session
+
+        actor = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        transport = Mock()
+        ready = Turn(json.loads(player_turn([cell("stair", down=True)]).recording()),
+                     connection=transport, snapshot=Mock())
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "down", "phase": "queued"}
+        transport.act.return_value = {"status": "confirmed", "receipt": receipt}
+        data = json.loads(player_turn([cell("stair", down=True)], tick=100).recording())
+        data["readiness"] = {"admission": False}
+        data["intentions"] = [dict(receipt, phase="started")]
+        session = Session(Mock())
+        session.wait_for_decision = Mock(side_effect=[ready, ReadinessTimeout(Turn(data))])
+        report = play(session, actor, 10, lambda row: None, record_decisions=True)
+        self.assertEqual((report["terminal"], report["tick"], report["actions"]), ("readiness_timeout", 100, 1))
+        self.assertEqual((report["previous_intention_id"], report["previous_intention_phase"]), ("down", "started"))
+        self.assertFalse(Turn.replay(report["recording"]).can_act)
+
+    def test_cancelled_scroll_trial_preserves_other_scroll_choices(self):
+        import json
+        from tor_client_bot import ActivityChoice, Result
+
+        scrolls = [{"id": name, "name": name, "class": "scroll", "identified": False, "quantity": 1}
+                   for name in ("MIR VEL", "NAR")]
+        turn = player_turn([cell("here")], inventory=scrolls, interactions={
+            "inventory": [{"item": s["id"], "readable": True} for s in scrolls]})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        action, reason = choose(player, turn)
+        self.assertEqual((action.item.target, reason), ("MIR VEL", "test_unknown_magic"))
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        player.admitted(turn, action, result, reason=reason)
+        picture = json.loads(turn.recording())
+        picture.update(can_cancel=True, readiness={"admission": False})
+        for phase, intention in (("started", "read"), ("queued", "other")):
+            stalled = Turn({**picture, "intentions": [dict(receipt, phase=phase, intention=intention)]})
+            self.assertEqual(player.stalled(stalled, result), (None, "readiness_timeout"))
+        stalled = Turn({**picture, "intentions": [receipt]})
+        cancel, reason = player.stalled(stalled, result)
+        self.assertEqual((cancel, reason), (ActivityChoice.CANCEL, "cancel_stalled_scroll"))
+        player.admitted(stalled, cancel, reason=reason)
+        action, reason = choose(player, turn)
+        self.assertEqual((action.item.target, reason), ("NAR", "test_unknown_magic"))
+
+    def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
+        import json
+        from tor_client_bot import ActivityChoice, Result
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        landing = player_turn([cell("stair", down=True)])
+        move, _ = choose(player, landing)
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "down", "phase": "queued"}
+        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        player.admitted(landing, move, result)
+        data = json.loads(landing.recording())
+        data.update(can_cancel=True, intentions=[receipt], readiness={"admission": False})
+        blocked = Turn(data)
+        self.assertEqual(player.stalled(blocked, None), (None, "readiness_timeout"))
+        self.assertEqual(player.stalled(blocked, result), (ActivityChoice.CANCEL, "cancel_stalled_stair"))
+        player.admitted(blocked, ActivityChoice.CANCEL, reason="cancel_stalled_stair")
+        clear = Turn({**data, "intentions": [], "finished_intentions": [dict(receipt, phase="cancelled")],
+                      "can_cancel": False, "readiness": {"admission": True}})
+        self.assertEqual(choose(player, clear), (Wait(), "wait_after_cancel"))
+        player.admitted(clear, Wait(), reason="wait_after_cancel")
+        self.assertEqual(choose(player, landing), (move, "descend"))
+        player.admitted(landing, move, result)
+        self.assertEqual(player.stalled(blocked, result), (None, "readiness_timeout"))
+
     def test_victory_on_last_budgeted_action_is_reported(self):
         from unittest.mock import Mock
         from rogue_player import play
@@ -312,8 +1327,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ongoing = observed(player_turn([cell("exit", up=True)], inventory=[objective]))
         finished = observed(player_turn([], combat={"terminal": True, "victory": True}))
         ongoing.submit = Mock(return_value=Result(Outcome.CONFIRMED, None, None))
-        session = Mock()
-        session.wait_for_decision.side_effect = [ongoing, finished]
+        from tor_client_bot import Session
+        session = Session(Mock())
+        session.wait_for_decision = Mock(side_effect=[ongoing, finished])
         trace = []
         report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 1, trace.append)
         self.assertEqual(report["terminal"], "victory")
@@ -323,13 +1339,30 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(trace[0]["events_since_previous_action"], [event])
         self.assertEqual(report["events_since_previous_action"], [])
 
+    def test_a_terminal_only_attachment_reports_the_carried_objective(self):
+        from unittest.mock import Mock
+        from rogue_player import play
+        from tor_client_bot import Session
+
+        item = {"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                "quantity": 1, "identified": True}
+        terminal = player_turn([], inventory=[item], combat={"terminal": True, "victory": True})
+        session = Session(Mock())
+        session.wait_for_decision = Mock(return_value=terminal)
+        report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 0, self.fail)
+        self.assertEqual(report["terminal"], "victory")
+        self.assertTrue(report["amulet_acquired"])
+        self.assertEqual(report["actions"], 0)
+
     def test_terminal_without_death_or_victory_is_reported_as_terminal(self):
         from unittest.mock import Mock
         from rogue_player import play
 
         for dead, expected in [(True, "death"), (False, "terminal")]:
             with self.subTest(dead=dead):
-                session = Mock()
+                from tor_client_bot import Session
+                session = Session(Mock())
+                session.wait_for_decision = Mock()
                 session.wait_for_decision.return_value = player_turn(
                     [], combat={"terminal": True, "dead": dead, "victory": False})
                 report = play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 0, self.fail)
@@ -546,7 +1579,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
         native = Mock()
         paused, ready = Mock(), Mock()
-        picture = json.loads(player_turn([cell("here")]).recording())
+        here, far = cell("here"), cell("other", 2)
+        meal = {"id": "ration-a", "name": "ration", "class": "food", "quantity": "2", "identified": False}
+        ground = [{**here, "item": meal, "reachable": True},
+                  {**far, "item": {**meal, "id": "ration-b"}, "reachable": False}]
+        picture = json.loads(player_turn([here, far], ground=ground).recording())
         paused.data.return_value = {**picture, "can_resume": True, "readiness": {"admission": False}}
         ready.data.return_value = picture
         native.observe.side_effect = [paused, ready]
@@ -557,6 +1594,8 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         native.act.assert_not_called()
         self.assertEqual(report["terminal"], "action_budget")
         self.assertEqual(trace[0]["action"], {"type": "resume"})
+        self.assertEqual(trace[0]["reachable_pickups"], [
+            {"item": "ration-a", "category": "food", "identity": None, "quantity": 2, "cell": "here"}])
 
     def test_switches_to_stronger_disclosed_armor_and_ignores_cursed_gear(self):
         slot = {"id": "armor"}
@@ -682,7 +1721,46 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn([here], inventory=inventory, ground=ground)
         self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
         inventory.append({**spear, "id": "carried-spear"})
-        self.assertNotIsInstance(choose(player, player_turn([here], inventory=inventory, ground=ground))[0], Pickup)
+        self.assertIsInstance(choose(player, player_turn([here], inventory=inventory, ground=ground))[0], Pickup)
+
+    def test_collects_nearby_loot_with_a_full_pack_of_the_same_type(self):
+        here, hall, near = cell("here"), cell("hall", 1), cell("loot", 2)
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for category, identity in [("weapon", "item.weapon.arrow"), ("coin", None),
+                                   ("tool", None), ("misc", "item.misc.clean-bandage"), ("wand", None)]:
+            with self.subTest(category=category):
+                item = {"id": "ground", "class": category, "identity": identity, "name": category,
+                        "identified": identity is not None, "quantity": 1}
+                pack = [{**item, "id": "stock", "quantity": 40}]
+                for pos, reachable, reason in ((near, False, "seek_supplies"), (here, True, "take")):
+                    turn = player_turn([here, hall, near], inventory=pack,
+                                       ground=[{**pos, "item": item, "reachable": reachable}])
+                    self.assertEqual(choose(player, turn)[1], reason)
+
+    def test_searches_closed_corridor_end_six_times_before_exploring_elsewhere(self):
+        import json
+        from tor_client_bot import Result
+        here = cell("end")
+        walls = [{**cell(key), "position": {"x": x, "y": y, "z": 0}, "wall": True} for key, x, y in
+                 [("north", 0, -1), ("east", 1, 0), ("south", 0, 1)]]
+        ability = {"id": "rogue.search", "name": "Search", "cost": None, "cooldown_remaining": 0,
+                   "basic_attack": False, "target_kind": "self_only", "reach": {"kind": "self_only"}}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        room = [here, cell("hall", -1), *walls]
+        turn = player_turn(room, abilities=[ability])
+        for index, phase in enumerate(["failed"] + ["resolved"] * 6):
+            action, reason = choose(player, turn)
+            self.assertEqual(reason, "search")
+            activity = {"type": "admitted", "actor": 1, "branch": "game", "intention": str(index), "phase": "queued"}
+            receipt = Result.from_reply({"status": "confirmed", "receipt": activity})
+            player.admitted(turn, action, receipt)
+            picture = json.loads(turn.recording())
+            picture["finished_intentions"] = [{**activity, "phase": phase}]
+            turn = Turn(picture)
+        self.assertEqual(choose(player, turn)[1], "explore")
+        player.completed_end_searches["end"] = 1
+        walls[1]["wall"] = False
+        self.assertEqual(choose(player, player_turn(room, abilities=[ability]))[1], "explore")
 
     def test_full_weapon_stock_does_not_hide_a_stronger_known_weapon(self):
         inventory = [{"id": item, "name": "mace", "identity": "item.weapon.mace",
@@ -877,6 +1955,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.danger_until["cleared"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
+    def test_explores_away_from_recent_danger_when_another_route_exists(self):
+        turn = player_turn([cell("here"), cell("east", 1), cell("west", -1)])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        first, reason = player.choose(turn)
+        self.assertEqual(reason, "explore")
+        danger = turn.cell_at(first.direction.offset).key
+        player.danger_until[danger] = 1200
+        other, reason = player.choose(turn)
+        self.assertEqual(reason, "explore")
+        self.assertNotEqual(other, first)
+        player.maps[1].visited.add(turn.cell_at(other.direction.offset).key)
+        self.assertEqual(player.choose(turn), (first, "explore"))
+
     def test_recovery_moves_after_an_unseen_attack_without_a_visible_enemy(self):
         data = state([cell("exposed"), cell("cleared", -1), cell("unknown", 1)])
         view = data["observation"]
@@ -940,6 +2032,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         self.assertEqual(choose(player, turn), (Wait(), "recover"))
         player.maps[1].visited.add("hall")
+        player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick + 100
+        self.assertEqual(player.choose(turn), (Wait(), "recover"))
+        scarce = player_turn(room, combat={"hp": 6}, stats={**stats, "nutrition": {
+            "kind": "required", "reserve": 50, "maximum": 2000, "unit_ticks": 100,
+            "hunger": "nourished", "elapsed": 0}})
+        player.ascent_ticks_by_floor[1] = scarce.nutrition.ticks_until_empty
+        self.assertIsNone(player.recovery_action(scarce))
+        player.ascent_ticks_by_floor.clear()
+        player.unsafe_stairs["stairs", Direction.DOWN] = turn.tick
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "recover_en_route"))
         player.danger_until["hall"] = 1200
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
@@ -1004,6 +2105,53 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        stats={"nutrition": dict(nutrition, reserve=reserve)})
                     self.assertEqual(choose(player, turn)[0], Move(expected))
 
+    def test_injured_food_scout_keeps_moving_until_the_scouting_budget_expires(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
+        stats = {"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100,
+                                     "stopped": False},
+                 "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+                               "hunger": "nourished", "elapsed": 0}}
+        player.ascent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = 1000, 0
+        for tick, expected in [(100, (Move(Direction.EAST), "scout_for_food")),
+                               (1000, (Move(Direction.WEST), "recover_en_route"))]:
+            with self.subTest(tick=tick):
+                turn = player_turn(cells, tick=tick, combat={"hp": 6}, stats=stats)
+                player.observe(turn)
+                player.maps[3].visited.add("stairs")
+                self.assertEqual(player.choose(turn), expected)
+
+    def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.ascent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = 1000, 0
+        cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
+        turn = player_turn(cells, tick=100, stats={"nutrition": {
+            "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+            "hunger": "nourished", "elapsed": 0}})
+        player.observe(turn)
+        player.maps[3].visited.add("stairs")
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        player.admitted(turn, Move(Direction.WEST), reason="seek_stairs")
+        self.assertEqual(player.choose(turn), (Move(Direction.WEST), "seek_stairs"))
+
+    def test_recovers_along_a_visited_food_route_when_rest_is_also_affordable(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        cells = [cell("here"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]
+        stats = {"health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100,
+                                     "stopped": False},
+                 "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
+                               "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
+        player.descent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = 1000, 0
+        turn = player_turn(cells, tick=100, combat={"hp": 6}, stats=stats)
+        player.observe(turn)
+        player.maps[3].visited.update({"stairs", "passage"})
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "scout_for_food"))
+        player.danger_until["passage"] = 900
+        self.assertEqual(player.choose(turn), (Wait(), "recover"))
+
     def test_scouts_for_food_before_an_underfunded_descent(self):
         data = state([cell("stairs", down=True), cell("frontier", 1)])
         view = data["observation"]
@@ -1059,6 +2207,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.choose(turn), (Move(Direction.EAST), "search"))
         self.assertEqual({c.key for c in player.maps[4].adjacent("connection")}, {"search-site", "stair"})
 
+        # The link is still worth trying if it joins a hallway leading to the stairs.
+        room[-1:] = [cell("far-hall", 3), cell("stair", 4, up=True)]
+        room.append({**cell("unvisited"), "position": {"x": 0, "y": 1, "z": 0}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=4)
+        turn = player_turn(room, inventory=[item], abilities=[search])
+        player.observe(turn)
+        player.maps[4].visited.update({"here", "search-site"})
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "search"))
+        player.searches["search-site"] = 3
+        self.assertEqual(player.choose(turn), (Move(Direction.SOUTH), "explore"))
+
+
     def test_uses_known_teleportation_when_the_remembered_return_route_is_disconnected(self):
         items = [{"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                   "quantity": 1, "identified": True},
@@ -1072,6 +2232,41 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("scroll", "find_return_route"))
         self.assertEqual(choose(player, picture([cell("here"), cell("frontier", 1)])), (Move(Direction.EAST), "explore"))
+
+    def test_partial_recovery_before_reentering_recent_danger_has_a_food_limit(self):
+        room = [cell("shelter"), cell("hall", 1), cell("exit", 2, down=True)]
+        for reserve, travel_ticks, expected in [
+            (15, 400, (Wait(), "recover")),
+            (15, 500, (Move(Direction.EAST), "seek_stairs")),
+            (5, 0, (Move(Direction.EAST), "seek_stairs")),
+        ]:
+            with self.subTest(reserve=reserve, travel_ticks=travel_ticks):
+                turn = player_turn(room, combat={"hp": "5", "max_hp": "10"}, stats={
+                    "nutrition": {"kind": "required", "reserve": reserve, "maximum": 1300, "unit_ticks": 100,
+                                  "elapsed": 0, "hunger": "nourished"},
+                    "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                        "reset_percent": 100, "stopped": False}})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                player.observe(turn)
+                player.maps[2].visited.add("hall")
+                player.ascent_ticks_by_floor[1] = travel_ticks
+                player.danger_until["hall"] = 1200
+                self.assertEqual(player.choose(turn), expected)
+
+    def test_return_recovery_budgets_only_the_floors_still_ahead(self):
+        turn = player_turn([cell("stairs", up=True)],
+                           inventory=[{"id": "amulet", "name": AMULET, "identity": DEFAULT_OBJECTIVE_IDENTITY,
+                                       "class": "amulet", "identified": True, "quantity": 1}],
+                           combat={"hp": 6, "max_hp": 10}, stats={
+                               "nutrition": {"kind": "required", "reserve": 40, "maximum": 1300, "unit_ticks": 100,
+                                             "elapsed": 0, "hunger": "nourished"},
+                               "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                                   "reset_percent": 100, "stopped": False}})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.ascent_ticks_by_floor.update({1: 500, 2: 500, 3: 9000})
+        self.assertEqual(choose(player, turn), (Wait(), "recover"))
+        player.ascent_ticks_by_floor[1] = 1500
+        self.assertEqual(player.choose(turn), (Move(Direction.UP), "ascend"))
 
     def test_recovery_preserves_food_for_previously_mapped_floors(self):
         item = {"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET}
@@ -1224,6 +2419,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = Policy().choose(data)
         self.assertEqual(reason, "ranged_device")
         self.assertEqual(action["aim"]["direction"], "north_east")
+
+    def test_player_samples_a_wand_appearance_once_and_only_with_clearance(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        cells = [cell(str(x), x) for x in range(5)]
+        wand = {"id": "wand", "name": "oak wand", "class": "wand", "appearance": "oak wand", "identified": False, "quantity": 1}
+        offer = {"item": "wand", "device_activation": "direction", "zappable": True}
+        def picture(distance=3, hp=10):
+            foe = {"id": "foe", "name": "emu", "position": cell("foe", distance)["position"]}
+            return player_turn(cells, actors=[foe], hostiles=["foe"], inventory=[wand], combat={"hp": hp},
+                               interactions={"inventory": [offer]})
+
+        self.assertIsNone(player.try_unknown_wand(picture(distance=2)))
+        self.assertIsNone(player.try_unknown_wand(picture(hp=7)))
+        cells[-1]["wall"] = True
+        self.assertIsNone(player.try_unknown_wand(picture()))
+        cells[-1]["wall"] = False
+        turn = picture()
+        action, reason = choose(player, turn)
+        self.assertEqual(reason, "test_unknown_device")
+        player.admitted(turn, action, reason=reason)
+        wand["id"] = offer["item"] = "second"
+        self.assertIsNone(player.try_unknown_wand(picture()))
 
     def test_does_not_test_an_unknown_wand_without_room_to_clear_a_reflection(self):
         foe = {"id": "foe", "position": {"x": 3, "y": 0, "z": 0}}

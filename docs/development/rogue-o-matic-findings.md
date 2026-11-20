@@ -1,9 +1,481 @@
 # Rogue-O-Matic findings and follow-ups
 
-The first three entries concern the bot API refactor on bundled `rogue`. The earlier entries describe ordinary-player experiments on `rogue-exploration`. Their fixes and campaign results need fresh verification against bundled `rogue`.
+In a recorded seed 45 run the archer took 30 shots, including 18 with a
+hostile in melee contact and the starter mace in inventory. Keeping the
+mace ready for close encounters and drawing the bow at range cleared
+floor 2 on the same seed. With nearby arrow recovery enabled, 27 arrow
+pickups resolved before the run stopped on floor 3.
+
+At tick 37,210 on that floor the server rejected an exploration move west
+with `invalid_action` and the message `Intention is unavailable`. An
+independent run reproduced the same rejection. The saved decision showed
+16/16 Health, no visible hostile, hold, or condition, and west among the
+walkable directions. The destination had no disclosed wall, door or trap.
+The observation reported downward velocity. On a copy of the save, a wait
+advanced the clock 100 ticks, after which walking west succeeded. A run that
+waited for landing continued to floor 13 and died there.
+
+Recovery used two different food budgets. A short rest in shelter could
+spend food reserved for the return journey, while a player carrying the
+Amulet still budgeted for floors it had already climbed. Short and full
+rests now both reserve the estimated travel time. On the ascent this
+includes the current floor and shallower floors. A live two-floor fixture
+verified that the player picked up the Amulet, waited for a Health point
+with food available, and climbed when the remaining travel cost consumed
+the rest budget.
+
+On the next three development runs, the wounded player reversed a food
+scouting move to walk back toward the stairs for recovery. Counting consecutive
+move pairs that returned to the same cell, seeds 49 and 47 had 111 and 37
+such reversals respectively. Seed 42 had none. On seed 49, resting in place
+when affordable and otherwise following the food scout reduced those reversals
+from 111 to one. It still died of injury on floor 15 after 6,340 actions,
+with reserve at −47 on its last decision. The control died on the same floor
+with 216 reserve. In particular the variant spent 196 actions resting on
+floor 12, compared with none in the control.
+
+On seed 47 the same comparison eliminated all 37 scout–stair reversals.
+That run died on floor 15 after 6,028 actions. Its control reached floor 16
+and stopped on a stalled teleport-away action, so the improved navigation
+has not yet translated into a deeper run.
+
+Scouting sometimes pays for equipment instead of food. Across the three
+budget-control runs on seeds 42, 47 and 49, there were 920 moves labeled
+`scout_for_food` on 15 floor visits. From the first scouting move to the end
+of each uninterrupted visit, only one visit included a food pickup. A floor
+visit can include other decisions before the player leaves. Seed 42 collected
+armor during its scouting visit and seed 47 collected potions. Future choices
+about spending turns on undisclosed food should account for this yield and
+for the earlier successful floor-26 retrieval.
+
+The current player can also recover while advancing along a known safe
+stretch of the active food route. It rests before entering an unexplored or
+recently dangerous cell when the budget permits. In a live underfunded
+descent it took damage after leaving the stair, followed an already visited
+step even with enough reserve to rest, gained Health while walking, collected
+a ration and then turned back toward the stair. In the paired seed-49
+campaign this version eliminated all 111 scout–stair reversals. It spent
+zero turns resting on floor 12, down from 196 with the in-place rule, but
+spent 950 turns resting on floor 14. It died of injury on floor 15 after
+6,543 actions with nutrition reserve at −837 on its last decision. The
+remaining recovery cost is concentrated away from the floor-12 food route.
+
+On development seed 49 at `843d00f8`, floor 15 had 31 sequences where
+the player took a step toward the stairs and immediately moved back to
+shelter to recover. It could afford the next point of Health even when its
+food budget ruled out a full rest. A live two-floor fixture verified that
+it waited in shelter, resumed travel after the danger expired, and gained
+one Health at the first decision after its predicted recovery deadline.
+On the same seed, changing recovery alone removed all 31 such reversals.
+The bot spent 759 actions recovering on floor 15, compared with 233 before.
+It died of injury there after 6,442 actions with reserve at −103 on its
+last decision. Avoiding a reversal alone did not solve the food problem.
+
+An independent seed-49 rerun reproduced the floor-15 death at tick
+639,697. Three turns before death the player had 13 Health. A healthy troll
+two cells away had previously caused 19 Health loss, and the player could
+aim a charged polymorph staff at its visible body along a clear ray.
+An adjacent aquator caused the bot to skip all devices for approaching
+enemies. The troll was still a valid target after entering contact.
+Replaying each of the final three decisions independently now selects the
+troll for polymorph. A live encounter separately verified that the cast
+resolved and reduced a lethal opponent's hit dice in contact.
+In the fresh seed-49 run with both changes, the player cast polymorph on
+floor 15 at tick 598,078. The activation resolved. This run died of injury
+on floor 15 after 6,398 actions with zero reserve at its last decision.
+
+Keeping the previous recovery policy and changing only contact polymorph
+produced a different outcome. On seed 49 the cast resolved on floor 15 at
+tick 609,723, but the combat event reported the target was unaffected.
+The same target later landed all three attacks in the terminal observation
+at tick 617,267. The staff still had two charges. The bot had remembered
+the attempted target as soon as the server admitted the action. That
+memory prevented a second attempt regardless of the observed effect.
+
+The player now reads its own ability outcomes from the combat journal. It
+permits one more polymorph attempt on the same still-dangerous target after
+a disclosed unaffected result, using a staff with known remaining charges.
+A real griffin resisted twice. Both casts resolved, the staff spent two
+charges, the griffin kept its hit dice, and the player chose another action
+with charges still available. On a matched seed-49 development run the first
+cast was again resisted at tick 609,823. The retry took effect at tick 609,923.
+The transformed target and another creature both landed blows in the terminal
+observation at tick 609,985. The player died 66 actions earlier than the
+one-cast control. Spending a second charge in this encounter did not improve
+survival.
+
+In a third matched seed-49 run, the player observed a quagga in contact
+when the troll resisted. Deferring the retry let it spend two moves
+retreating. At tick 610,023 only the troll was still in contact, so it
+retried, and the cast took effect. This run also died on floor 15, at tick
+621,825 after 5,885 actions, compared with 5,773 for an immediate retry
+and 5,839 for one cast only. The player now defers the second cast while
+another hostile is in contact. In a live two-opponent fixture it kept
+the charge when the first cast failed to change the griffin.
+
+The budget-only comparison with contact polymorph (before the retry change)
+ended after 6,189 actions on floor 15 of seed 49. The last decision had 216
+nutrition reserve. At tick 652,200 the player observed an applied polymorph.
+Six ticks later the same target landed both fatal melee strikes. An applied
+polymorph establishes that the effect occurred. The target's subsequent
+combat behavior still matters when deciding whether the player can stay in
+contact.
+
+In the seed-49 landing recording the player climbed back upstairs at tick
+70,262 with 25 of 26 Health. The only visible hostile was a rattlesnake
+nine cells away. Earlier attacks had taught the player that rattlesnakes
+could cause lasting injury. The bot now uses that observation to initiate
+retreat when the creature is within two cells. In the paired development
+run it first chose exploration over retreat at tick 63,394 and reached floor
+4 after 982 actions instead of 1,953. Its reserve at that point was lower,
+328 against 437. The number of retreats upstairs from floor 3 fell from
+44 to 10. The new run reached floor 15 and died of injury after 6,057
+actions, with 342 reserve on its last decision. The earlier run starved on
+floor 8. These are outcomes for one development seed.
+
+On development seed 47, the policy at `b2fe496b` died on floor 2 after
+320 actions. Preferring exploration routes that avoided recently threatened
+cells reached floor 10 on the same seed. The bot then reported
+`no_disclosed_route` at tick 156,970, after visiting 15 cells and
+submitting 36 searches on that floor. It still had 980 nutrition reserve at
+its last decision.
+
+An ordinary player resumed a copy of that save with fresh bot map memory.
+After 36 more resolved searches it observed a closed door, opened it at tick
+164,558, and eventually mapped 174 cells. Failed searches had left the
+entrance looking like a wall. The bot now makes a second bounded pass over
+ordinary walls when it has found only the upstairs and exhausted exploration,
+its first search pass and its available fallback items. The separate limit
+of six completed searches at a corridor end still applies.
+
+With the second pass enabled from a fresh seed-47 save, the bot made 36
+additional Search submissions after the former stopping point. It opened
+the door at tick 162,396 with 924 reserve and reached floor 11 at tick
+266,440. On seed 49, the danger-aware exploration policy reached floor 8
+and starved. On floors 2 and 3 it repeatedly returned to the same guarded
+landing, including eight consecutive descents immediately followed by
+retreats. This is a separate cost from time spent searching.
+
+The seed-47 second-pass run reached floor 16 and stalled after 5,949
+actions. The server admitted an aimed teleport-away wand activation against
+an adjacent nymph. At tick 622,870 the receipt was `started`, with 28 of 60
+Health and 258 reserve. On a copy of the save, a fresh player connection
+observed the same intention paused with 68 preparation ticks remaining. The
+server confirmed Resume, but the next decision timed out at the same tick.
+The original save journal ends with autonomous intention 16498 admitted for
+actor 132 at that tick, after the player's wand activation started.
+Opening a fresh copy directly with the server engine selected actor 132
+next. Executing that queued intention returned `StorageFailure` with the
+message “Could not commit the game journal.” The player connection had
+reported a readiness timeout. Which journal operation failed remains open.
+The expected outcome is either a resolved or failed activation followed by a
+decision. The reason time stopped remains open. Classify this run as a
+readiness timeout.
+
+The production player picked up and identified plate mail in a live encounter.
+An independent player connection confirmed which armor it wore afterward.
+The clean plate replaced ring mail. A cursed plate with higher disclosed
+reduction stayed in the pack. During the identification exchange the ordinary
+server sometimes returned `rejected` with code `stale_context` after a prompt
+had advanced. Bots can now use `Result.stale` to refresh and choose again for
+both this server reply and a locally expired turn. In the resisted-polymorph
+fixture, immediately after a confirmed identification selection,
+`wait_for_decision()` also returned the old prompt at tick 100. The following
+observation disclosed the staff's six remaining charges. The receipt was
+queued, and the server had already closed admission for a second action.
+The SDK now checks admission before returning a prompt as a decision.
+A live test uses the next decision directly to aim the identified staff.
+
+Bundled Rogue uses authored growth. Its scheduled skill ranks apply on earning
+hit dice and the player has no purchase decision. Discretionary training tests
+belong to scenarios that offer it, such as Rogue Exploration.
+
+In the seed-47 development campaign, the player carried three recognized
+armor instances and obtained exact protection for none. Recognition and
+instance identification are separate. An armor trial can close that gap.
+The client first observed an unmeasured plate, and after equipping it a
+second connection observed six physical reduction with its curse still
+undisclosed. The policy uses the public base armor values and worst published
+birth penalty when it lacks an identification or remove-curse scroll.
+
+On closer examination, the spare suits on seed 47 were leather and studded
+leather. Keeping the starting ring mail was reasonable. A more consequential
+choice came at 9 Health, after a centaur had dealt 16 damage. The bot moved
+toward the stairs while remaining in contact. An eastward or northeastward
+step would have taken it out of immediate reach. A route to a stair should
+account for the hits the player can survive on the way.
+
+Seed 49 reached floor 18 carrying three unidentified devices, three unknown
+rings and five scrolls without an admitted scroll use. Counting pickups alone
+hid an identification bottleneck. Test safe opportunities to read scrolls,
+record what the player learns from each one, and compare the resulting
+device and ring use on the same seed.
+
+In bundled Rogue the known scroll of identify ring or wand has the historical
+identity `item.scroll.identify-wand`. Inferring its target class from that
+suffix caused the bot to walk past the opportunity when only a ring needed
+identification. The production policy now uses the published target classes.
+A live regression picked up an unknown searching ring, read the scroll,
+selected the ring from the offered prompt, and equipped it. The pre-fix
+player spent those turns moving. A useful future client disclosure would
+show the eligible classes of a known readable scroll before it is consumed.
+On a fresh seed-49 run with that fix the player died in melee on floor 15
+after 6,293 submissions. It carried one unidentified ring, two unidentified
+devices and five scrolls with no admitted scroll use. The fixture verifies
+what the player can do with a known scroll. Finding or discovering such a
+scroll early enough remains a separate campaign problem.
+
+On seed 49 an experimental policy tried previously unread scroll appearances
+from a quiet down stair while healthy, outbound, and carrying an unidentified
+device, ring or potion. Five such reads included two followed by identification
+choices. By floor 17 the player had recognized a staff of polymorph with three
+charges. It died with the staff unused. This verifies an opportunity to learn
+an effect and exposes another missing decision about when to use it. The
+stair-retreat control for this comparison stopped with an unknown outcome on
+floor 13, so the pair cannot establish an improvement in survival.
+
+The last twelve rows of this floor-17 run also showed five Fainted condition
+events. Nutrition reserve was already −89 before the first of the final two
+bow shots and reached −138 before the final melee attack. The bot spent 1,146
+moves scouting for food over the run. Of 2,161 submissions labelled search,
+1,337 invoked the Search ability and 824 moved toward search sites. On floor
+8 alone, searching and moving between search sites accounted for 1,056
+submissions. Compare food spent on overlapping visual searches with fresh
+coverage on the same rooms. Each paid check can cover several illuminated
+surfaces, with different advantages by distance. [Discovery rules](../architecture/perception.md#concealed-physical-features)
+
+An isolated production rerun at `0610efef` reproduced the stair-scroll experiment
+on seed 49. Across all 8,430 trace rows, the two runs agreed on decision tick,
+floor, reason, action type, movement direction, nutrition reserve and terminal
+status. Both ended in death on floor 17 after 8,429 submissions. This supplies a
+matched baseline for search and provisioning changes on this seed.
+
+Giving unsearched walls priority produced 650 search submissions from 446
+positions on seed 49. Repeat searches fell from 883 to 204, while movement
+toward search sites rose from 824 to 958. The bot left floor 16 at tick
+816,320 with 1,069 reserve, compared with tick 842,678 and 419 reserve in
+the control. It died on floor 18 after 10,449 actions and 49 Fainted events.
+The control died on floor 17 after 13 Fainted events. Neither retrieved the
+Amulet. Search order deserves a second development seed before adoption.
+
+The floor-18 run recorded six distinct food handles on the ground, three
+distinct food handles carried and three used. At least three ground handles
+never appeared in the pack. Ground sightings include distant items, and
+carried totals include starting inventory. Those counts cannot establish
+that the bot walked past three reachable rations. Its last decision had a
+reserve of −595, making the missed food worth tracing on a fresh run.
+
+In that baseline the largest observed decreases in nutrition reserve between
+successive decisions followed exploration (3,616 units), searching and travel
+to search positions (2,247), and scouting unknown territory for food (1,322).
+These totals sum decreases and exclude gains after meals. On floors 6, 8, 12
+and 16 the bot spent a combined 197 reserve on scout moves and collected no
+item between the first scout decision and leaving that floor. Other floors
+did yield pickups. The old trace contains opaque item handles, so an arbitrary
+pickup during a scouting trip cannot be counted as a meal found.
+
+New action traces include `reachable_pickups` from the player's picture at
+each decision. Match the opaque item handle against a later resolved pickup
+to see if an earlier trip passed within reach of the same ration. The row also
+gives its last observed cell, category, quantity and any disclosed identity.
+A live pickup followed by eating verifies that the reachable item disappears
+from the next decision. Resuming an activity can leave reachable food in place.
+
+The seed-49 known-food-only experiment stopped on floor 4. The projectile
+choice query reported an interruption. Closing the same session then reported
+that the save writer had reached revision 5,209 against a requested 8,936.
+The run ended with a client error and a server cleanup timeout. The paired
+seed-47 control subsequently timed out before announcing an address. Neither
+run gives a terminal gameplay comparison. Preserve both query and shutdown
+errors when diagnosing future interrupted runs.
+
+A fresh retry of the pinned known-food-only policy completed on development
+seed 49. It starved on floor 8 after 5,168 actions.
+
+The completed seed-47 repeat used the same frozen player and bindings for
+both search orders. The control starved on floor 17 after 8,719 actions.
+Searching fresh walls first ended in a melee death on floor 10 after 2,946
+actions. Each run picked up every distinct food item observed within reach
+(five and three respectively), with no observed departure followed by a
+return trip for the same ration. These runs predate the six-search hallway
+rule and the broader pickup policy.
+
+The first difference was action 1,368 on floor 7. Both players had just
+searched, had charted 502 cells and had 1,136 nutrition reserve. The control
+searched the same spot a second time, opened a door on its next action and
+left floor 7 with 1,010 reserve. The experimental player stepped east to
+search a fresh site. Across that floor it spent 259 actions searching and
+374 moving toward search sites, then left with 419 reserve. The control
+spent two actions searching and made no search travel moves on that floor.
+
+Retreats exposed another cost on floor 15 of the control. After 75 exploration
+moves back into cells the player had retreated from within the previous
+1,200 ticks, its next decision was to retreat toward the stairs again.
+The same trace also contains 96 reentries followed by further exploration.
+Compare choosing a different mapped frontier while the danger memory lasts.
+Keep the original route available when every known path crosses such a cell.
+
+The control also reversed a floor-15 stair retreat on the very next action
+and retreated up it again 100 ticks later. A live refuge fixture reproduced
+immediate reentry when the pursuer started two cells away. The player now
+remembers why it crossed the stair even when it escaped before contact.
+The existing danger expiry still allows a later return.
+
+Repeated crossings also changed the food forecast. Floor 13's first descent
+took 81,698 ticks. A revisit took 1,242. Floor 14's first descent took
+10,996 ticks, and one repeat took 100. The player had been replacing the
+exploration estimate with each revisit. A live stair round trip reproduced
+the overwrite (300 ticks became 100). The food forecast now keeps each
+floor's first outbound duration when estimating the cost of unfamiliar floors.
+
+Of the 1,337 Search submissions, 454 were the first at their cell, 448 the
+second and 435 the third. Three searches were immediately followed by opening
+a door, on floors 4, 8 and 17. Each was the first search at its cell. The trace
+does not reveal what an earlier attempt at another cell could have discovered.
+Compare an initial sweep of unsearched boundaries against immediate retries,
+counting both searches and the moves needed to reach the next site.
+
+The subsequent clear-ray development cohort ended with a readiness timeout
+on seed 49 and unknown action outcomes on seeds 47 and 42. Seed 47's server
+logged that saving was behind schedule. In a separate small scroll fixture,
+disconnect reported that the save writer had reached sequence 0 and needed
+sequence 6. The fixture passed on retry. Treat these attempts as infrastructure
+or unresolved outcomes when comparing strategies. The messages alone do not
+establish why a particular action failed to return a receipt.
+
+Seed 42 twice escaped an adjacent rattlesnake upstairs and promptly returned
+to its floor. The bot now remembers the return direction for a short time
+after observing arrival at the refuge. A two-floor live encounter verifies
+that its next action resolves without taking it back to the guarded stair.
+In the paired seed-42 runs that change advanced the deepest floor from 8 to
+9 (4,322 and 4,193 submissions respectively). On the later run, the bot fled
+a quagga on floor 9 and arrived back on floor 8 at 6 Health with five visible
+foes. Venomous Bite ended both runs. Choosing between exits also requires
+remembering what was last seen on the far side.
+
+Two exploratory policies produced ordinary action traces but no verified
+terminal result. A seed-47 retreat that preferred breaking dangerous contact
+reached floor 15 (4,738 submissions). A seed-49 policy that sampled unknown
+scrolls at safe stairs read three, reached floor 8, and stopped after 4,604
+submissions. Both reported `unknown_outcome`. Neither counts as a death or a
+win. An interrupted seed-47 control exposed a separate diagnostics problem:
+the native observation refresh raised `UnknownOutcome`, then closing the
+session raised a visual observation timeout. Preserve the original failure
+when reporting cleanup errors. The traces do not establish a server cause.
+
+A fresh repeat of the seed-47 contact-breaking experiment completed normally:
+death by basic melee after 6,269 submissions, deepest floor 15. The
+corresponding earlier production run reached floor 13. This gives a reason
+to test the maneuver on other maps, particularly where stepping aside can
+take the player away from an immediately usable exit.
+
+The entries name the scenario and revision used where available. Earlier
+experiments on `rogue-exploration` need fresh verification against bundled `rogue`.
 Use this page to retain observations that may warrant separate work. Campaign
 acceptance and reproduction commands are in the [capability and acceptance
 checks](rogue-o-matic-parity.md).
+
+## A resolved stair move can change the picture at the same tick
+
+The occupied paired-stair process fixture on the `496de9a8` server returned
+a queued receipt at tick zero. A subsequent observation, also at tick zero,
+showed the matching receipt resolved, a different origin cell and the
+previously observed stair endpoint one cardinal step away. The blocker remained
+on the endpoint. The Python client now compares the scene and receipt without
+requiring the simulation clock to advance. This case illustrates a client
+assumption about time and does not establish a server defect.
+
+## Seed 49 produced different search choices in fresh games
+
+Two runs with the same arrow-recovery policy, baseline server and bundled seed
+49 agreed through 1,228 submissions on floor, tick, action reason, movement
+direction, admission and previous phase. At decision 1,229 both chose a search
+approach at tick 120480. One moved south and one moved west. One exhausted
+its routes on floor 4; the other reached floor 8. A policy regression
+independently reproduced a cause of variation: exchanging the opaque keys of
+two otherwise equivalent search sites reversed the preferred direction.
+Search now breaks ties using map traversal order. Other sources of run-to-run
+variation remain possible.
+
+## Save backlog and an unknown movement outcome
+
+The second seed-49 run above, under concurrent host build load, reported an
+unknown movement outcome on floor 8 at tick 338078. Closing the ordinary
+session then raised a save-backlog error: 15,539 entries were saved and this
+save required 16,954. The runner timed out waiting ten seconds for server
+shutdown. Treat this run as an infrastructure failure. The trace does not
+establish whether the movement resolved or whether the backlog caused the
+unknown receipt. A focused server/common-client follow-up should reproduce
+backpressure, check which close errors reach the caller after an unknown
+receipt, and verify durable completion and clean shutdown.
+
+The cohort runner now retains the observed game result if server shutdown
+times out. It records `server_cleanup: "timeout"` on the seed, continues the
+remaining seeds and exits with an infrastructure error.
+
+## An admitted throw can fail on the same tick
+
+On bundled development seed 47, server SHA-256 prefix `864f9811b114`, the
+ordinary player saw a hostile body cell at offset `(-3, 0, 1)` and an offered
+throw source. At tick 8674 the server admitted Throw. The next ready picture
+at tick 8674 showed the same intention in the failed phase. The retained
+phase gives the outcome, but supplies no reason for execution failure.
+A real-client test matches the admission to the failure by intention and
+replays the subsequent decision. A server follow-up should establish which
+execution check failed and whether its reason can be disclosed to the player.
+
+## Queued descent with cancellation available
+
+Three runs of the development seed-49 stair case reached floor 11. At tick
+597000 a floor descent was admitted, and the clock then stopped. The last
+ordinary player picture from the diagnostic run showed 55/57 Health,
+nutrition reserve −759, active hallucination, a ready actor, closed admission
+and one queued intention. The cancel offer named the admitted stair intention.
+The server warned that saving was behind schedule. The run ended in a
+readiness timeout. The role of the save backlog remains unresolved.
+
+Reopening a copy of the save showed the same intention suspended at the same
+tick. Cancellation was confirmed, a wait advanced the clock to 598400 and
+a fresh descent was admitted. The next ready picture was at tick 598500.
+Investigate why the live clock stopped while a ready actor had a queued move.
+
+A fresh diagnostic followed the original policy up to the live stall, then
+used the updated recovery policy. At tick 597000 it matched its admitted
+descent to the queued activity, cancelled it and waited once. The next
+descent at 598400 resolved on floor 12 at 598500. This diagnostic ended at
+the crossing. The bot limits recovery to one cancellation at the same
+stair origin until a crossing is established.
+
+## Teleport-away preparation stalled on floor 16
+
+On development seed 47, the server admitted a teleport-away wand action at
+tick 622,838. At tick 622,870 the player received no further decision before
+the readiness deadline. The last observed activity phase was started. The
+server was still running when the harness cleaned up.
+
+A server reopened on a SQLite backup showed the same tick, 28 Health, an
+adjacent nymph, a paused action with 68 preparation ticks remaining, and a
+resume choice. On a second independent backup the server confirmed resume
+but still failed to advance beyond tick 622,870 within three seconds.
+Investigate which actor or scheduler event prevents preparation from
+advancing. A charged device and an admitted action alone do not establish
+that the displacement took effect.
+
+## A visible stair can be unusable while hovering
+
+On development seed 49 the actor sampled an unidentified potion, reached
+the down stair at tick 3492, and submitted a descent. The server returned
+`invalid_action` and the message `Intention is unavailable`. The recorded
+picture showed the active levitation condition with 1,958 ticks remaining.
+The bundled rules suspend ground pickup and stair use while hovering. The
+policy now waits at its intended stair and checks ground contact before
+attempting a pickup or a vertical escape. On the same seed it waited twenty
+turns and the server admitted descent at tick 5492. A small paired-stair
+fixture verifies arrival on the lower floor after the sampled potion expires.
+
+The terrain flag describes the stair correctly. A player-visible explanation
+of the locomotion restriction on refusal would help clients distinguish it
+from an obstructed landing. This is a response-design follow-up.
 
 ## One door can have different reachability on different body cells
 
@@ -784,3 +1256,21 @@ repeat searches elsewhere. The live fixture verified that the bot
 walked to the favored boundary and completed Search. The fixture
 does not establish that a secret door exists in a particular wall
 or in seed 49's disconnected return route.
+
+### An admitted scroll read remains queued on floor 17
+
+With bot revision `4f40aca5`, development seed 42 stopped after 5,465
+actions. The player had 62/62 Health and 807 food reserve. Search resolved,
+then Read on the unidentified scroll titled MIR VEL was admitted at tick
+573075. On a copy of the save, cancelling preserved the item and a Wait
+advanced time to 573175. A fresh Read on the same item remained queued at
+that tick for the eight-second observation window. Investigate the server
+scheduler and the read resolution path. The cause remains open.
+
+The bot now cancels its own queued experimental read when readiness times
+out and the player is offered cancellation. It remembers the affected
+item on that floor. On a copy with fresh bot map memory it kept the scroll
+and took four exploration steps to tick 573743. Session close reported a
+save lag of 14 journal entries. Verify the steps in the live observation
+stream when reproducing. Retire the workaround once the server reliably
+resolves the read or reports a recoverable failure.

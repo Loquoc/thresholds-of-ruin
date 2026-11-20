@@ -7,6 +7,84 @@ from rogue_o_matic_cohort import summarize
 
 
 class CohortSummaryTests(unittest.TestCase):
+    def test_binding_snapshot_preserves_the_selected_python_and_native_code(self):
+        import hashlib
+        import os
+        import tempfile
+        from pathlib import Path
+        from importlib.machinery import EXTENSION_SUFFIXES
+        from unittest.mock import Mock, patch
+        from rogue_o_matic_cohort import play_on_server, snapshot_bindings
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, policy = root / "installed/tor_client_bot", root / "policy"
+            source.mkdir(parents=True)
+            policy.mkdir()
+            native = "_native" + EXTENSION_SUFFIXES[0]
+            contents = {"__init__.py": b"", "game.py": b"current = True", native: b"binary fixture"}
+            for name, data in contents.items():
+                (source / name).write_bytes(data)
+            (source / "_native.pyi").write_text("stub only")
+            hashes = snapshot_bindings(source, policy)
+            (source / "game.py").write_text("current = False")
+            for name, data in contents.items():
+                self.assertEqual((policy / "tor_client_bot" / name).read_bytes(), data)
+            self.assertEqual(hashes, {name: hashlib.sha256(data).hexdigest() for name, data in contents.items()})
+            entry = policy / "player.py"
+            terminal = json.dumps({"terminal": "action_budget"})
+            entry.write_text("from tor_client_bot.game import current\nassert current\n"
+                             f"print({terminal!r})\nraise SystemExit(1)\n")
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            with patch.dict(os.environ, {"PYTHONPATH": str(source.parent), "PYTHONSAFEPATH": "1"}):
+                result = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl", 26, "amulet", entry, False)
+            self.assertEqual(result["terminal"], "action_budget")
+
+    def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
+        from pathlib import Path
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scenario.toml").write_text("id = 'fixture'\n", encoding="utf-8")
+            output = root / "campaign"
+            # Python exits immediately on the server's --listen argument.
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name("rogue_o_matic_cohort.py")),
+                                     "--server", sys.executable, "--scenario", str(root), "--output", str(output),
+                                     "47", "49"], capture_output=True, text=True, timeout=40)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            report = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["runs"], 2, result.stderr)
+            self.assertEqual([(r["seed"], r["terminal"]) for r in report["results"]],
+                             [(47, "server_startup_error"), (49, "server_startup_error")])
+            self.assertEqual(report["victories"], 0)
+            self.assertEqual(report["deaths_by_cause"], {})
+
+    def test_shutdown_timeout_preserves_the_observed_campaign_result(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from rogue_o_matic_cohort import play
+
+        def client(*args, stdout, **kwargs):
+            print(json.dumps({"terminal": "action_budget", "actions": 1, "max_depth": 3}), file=stdout)
+            return subprocess.CompletedProcess(args, 1)
+
+        with tempfile.TemporaryDirectory() as temp, patch("rogue_o_matic_cohort.Process") as process:
+            server = process.return_value
+            server.until.return_value = '{"address":"localhost:1"}'
+            server.stop.side_effect = subprocess.TimeoutExpired("server", 10)
+            with patch("rogue_o_matic_cohort.subprocess.run", side_effect=client):
+                result = play(47, "server", "scenario", 1, 1, 60, Path(temp), 26, "amulet", "bot.py")
+        self.assertEqual(result["terminal"], "action_budget")
+        self.assertEqual(result["max_depth"], 3)
+        self.assertEqual(result["server_cleanup"], "timeout")
+
     def test_campaign_inputs_identify_scenario_and_policy(self):
         from pathlib import Path
         import tempfile
@@ -96,16 +174,20 @@ class CohortSummaryTests(unittest.TestCase):
                     "--output", str(root / "output"), "50"]
             result = {"seed": 50, "terminal": "readiness_timeout", "max_depth": 11}
             def play(*_):
-                initial = json.loads((root / "output/summary.json").read_text(encoding="utf-8"))
+                initial = json.loads((output / "summary.json").read_text(encoding="utf-8"))
                 self.assertEqual(initial["inputs"]["seeds"], [50])
                 self.assertEqual(initial["results"], [])
                 return result
 
-            with patch("sys.argv", args), patch("rogue_o_matic_cohort.play", side_effect=play), \
-                    redirect_stdout(StringIO()):
-                self.assertEqual(main(), 1)
-            summary = json.loads((root / "output/summary.json").read_text(encoding="utf-8"))
-            self.assertEqual(summary["results"], [result])
+            for terminal in ("readiness_timeout", "unknown_outcome"):
+                result["terminal"] = terminal
+                output = root / terminal
+                args[-2] = str(output)
+                with self.subTest(terminal=terminal), patch("sys.argv", args), \
+                        patch("rogue_o_matic_cohort.play", side_effect=play), redirect_stdout(StringIO()):
+                    self.assertEqual(main(), 1)
+                summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+                self.assertEqual(summary["results"], [result])
 
     def test_counts_victory_and_distinguishes_disclosed_and_undisclosed_deaths(self):
         rows = [
@@ -170,6 +252,22 @@ class CohortSummaryTests(unittest.TestCase):
         self.assertEqual(summarize(rows)["deaths_by_cause"],
                          {"starvation": 1, "undisclosed": 1, "rogue.wand_lightning": 1})
 
+    def test_closest_return_floor_excludes_outbound_travel(self):
+        from pathlib import Path
+        import tempfile
+
+        from rogue_o_matic_cohort import trace_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            rows = []
+            for floor, acquired, expected in [(1, False, None), (26, True, 26),
+                                              (12, True, 12), (13, True, 12)]:
+                rows.append({"floor": floor, "amulet_acquired": acquired, "action": {"type": "wait"}})
+                path.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
+                _, report = trace_report(path)
+                self.assertEqual(report["closest_return_floor"], expected)
+
     def test_unverified_claim_does_not_count_as_a_victory(self):
         self.assertEqual(summarize([{"terminal": "victory"}])["victories"], 0)
 
@@ -201,6 +299,25 @@ class CohortSummaryTests(unittest.TestCase):
             {"from": 1, "to": 2, "before_reserve": 250, "after_reserve": 240},
             {"from": 2, "to": 1, "before_reserve": 240, "after_reserve": 310},
         ])
+
+    def test_prices_resolved_supply_steps_and_counts_reversals_without_new_terrain(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        rows = [{"floor": 1, "tick": tick, "cell": square, "known_cells": size,
+                 "action": {"type": "move"}, "reason": reason, "nutrition_reserve": reserve,
+                 "result": {"status": "confirmed", "receipt": {"intention": str(tick)}},
+                 "previous_intention_id": str(tick - 100), "previous_intention_phase": "resolved"}
+                for tick, square, size, reason, reserve in [
+                    (0, "a", 9, "seek_supplies", 20), (100, "b", 9, "explore", 18),
+                    (200, "a", 9, "explore", 17), (300, "b", 10, "explore", 16)]]
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "turns.jsonl"
+            log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            _, progress = trace_report(log)
+        self.assertEqual(progress["supply_detours"], {"ticks": 100, "reserve_spent": 2, "resolved_steps": 1})
+        self.assertEqual(progress["reversals_without_new_terrain"], 1)
 
     def test_correlates_search_resolution_with_its_admission_floor(self):
         from pathlib import Path
