@@ -96,7 +96,7 @@ bands = [{ depth = { kind = "open", minimum = 3 }, choices = [{ archetype = "mar
         server = self.server("--checkpoint-interval", 64, scenario=package)
         # This long route checks current views and exact saved state, never the
         # headless client's unrelated accumulated-memory diagnostic projection.
-        player, ready = self.client(omit_memory=True)
+        player, ready = self.client(omit_memory=True, compact_background=True)
         first = self.private_receipts()
         self.assertEqual([entry["scope"] for entry in first], ["dungeon/1"])
         self.assertEqual(first[0]["decisions"][1]["result"]["kind"], "skipped")

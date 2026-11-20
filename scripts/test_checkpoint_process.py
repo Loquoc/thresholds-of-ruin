@@ -396,7 +396,7 @@ class CheckpointProcesses(CheckpointFixture, ProcessTestCase):
         self.assertEqual(validation.returncode, 0, validation.stderr)
         server = self.server("--checkpoint-interval", 32, "--save-target-ms", 3600000,
             "--save-max-ms", 7200000, "--save-idle-ms", 0, scenario=package)
-        player, _ = self.client()
+        player, _ = self.client(compact_background=True)
         for index in range(132):
             completed = self.act(player, {"type": "wait"})
             self.assertIsNone(completed["error"])

@@ -170,7 +170,7 @@ class ClientResponsivenessProcesses(ProcessTestCase):
         current = self.ascii_frame(fresh, lambda f: f["state"] is not None and not f["busy"])
         self.assertDisclosedStateEqual(current["state"], final["state"])
         self.assertEqual(current["history"], final["history"])
-        self.assertIsNone(self.request(player, {"type":"save"})["error"])
+        self.flush_save()
         with sqlite3.connect(self.save) as db:
             self.assertEqual(db.execute("SELECT sequence FROM checkpoint").fetchone()[0], actions * 2)
 
