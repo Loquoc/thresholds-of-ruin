@@ -103,9 +103,10 @@ pub(in crate::creatures) fn emit_hand(
             }
         }
         GloveAppearance::Padded => {
-            // Resolve each palm cell against the bare hand before adding pads,
-            // so neighbouring decorations cannot become each other's support.
-            let mut pads = Vec::with_capacity(9);
+            // Fit palm and knuckle cells against the complete undecorated hand.
+            // Finger surfaces, not the palm alone, support the outer knuckles;
+            // no decoration may become another cell's support.
+            let mut pads = Vec::with_capacity(13);
             for row in 0..3 {
                 for col in 0..3 {
                     pads.push((
@@ -114,6 +115,13 @@ pub(in crate::creatures) fn emit_hand(
                         color * (0.94 + row as f32 * 0.04),
                     ));
                 }
+            }
+            for finger in 0..4 {
+                pads.push((
+                    point(0.0, -0.038, (1.5 - finger as f32) * 0.019),
+                    Vec3::new(0.009, 0.014, 0.010) * build,
+                    color * 0.84,
+                ));
             }
             let direction = Vec3::X * side;
             for (center, radii, _) in &mut pads {
@@ -125,17 +133,6 @@ pub(in crate::creatures) fn emit_hand(
             }
             for (center, radii, color) in pads {
                 p.matte.blob(center, radii, 1, 0.0, color);
-            }
-            // Knuckle pads retain their authored recipe. They straddle a
-            // different support boundary and cannot reuse a palm-only fit.
-            for finger in 0..4 {
-                p.matte.blob(
-                    point(0.013, -0.038, (1.5 - finger as f32) * 0.019),
-                    Vec3::new(0.013, 0.014, 0.010) * build,
-                    1,
-                    0.0,
-                    color * 0.84,
-                );
             }
         }
         GloveAppearance::Riding => {
@@ -643,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn padded_palm_cells_overlap_support_and_preserve_knuckle_details() {
+    fn padded_palm_cells_overlap_support_and_preserve_knuckle_footprints() {
         for smooth in [false, true] {
             for (open, clawed) in [(false, false), (true, false), (true, true)] {
                 for side in [-1.0, 1.0] {
@@ -695,9 +692,19 @@ mod tests {
                                 GloveAppearance::Padded.color() * 0.84,
                             );
                         }
-                        dressed
-                            .matte
-                            .assert_same_recipe_after(prefix + 9 * count, &knuckles.matte);
+                        // Only the pad's radial profile/support placement changes.
+                        // Preserve every authored axial/lateral vertex and triangle.
+                        for (actual, expected) in triangles[9 * count..]
+                            .iter()
+                            .zip(knuckles.matte.surface_triangles())
+                        {
+                            for (a, b) in actual.iter().zip(expected) {
+                                assert_eq!(
+                                    [a.y.to_bits(), a.z.to_bits()],
+                                    [b.y.to_bits(), b.z.to_bits()]
+                                );
+                            }
+                        }
                         for (index, chunk) in triangles.chunks_exact(count).take(9).enumerate() {
                             let mut pad = Parts::default();
                             for triangle in chunk {
@@ -1346,5 +1353,83 @@ mod tests {
         assert!(fencing.matte.bounds().1.y > old.matte.bounds().1.y + 0.025);
         assert!(fencing.metal.is_empty());
         assert!(!old.metal.is_empty());
+    }
+    #[test]
+    fn padded_knuckle_centers_have_bounded_surface_relative_relief() {
+        let mut failures = Vec::new();
+        for smooth in [false, true] {
+            for (open, clawed) in [(false, false), (true, false), (true, true)] {
+                for side in [-1.0, 1.0] {
+                    for build in [0.7, 1.0, 1.4] {
+                        let at = Vec3::new(0.013, -0.021, 0.017);
+                        let mut bare = Parts::default();
+                        let mut dressed = Parts::default();
+                        if smooth {
+                            bare.soften();
+                            dressed.soften();
+                        }
+                        if open {
+                            open_hand(&mut bare, at, side, build, Vec3::ONE, clawed);
+                        } else {
+                            fist(&mut bare, at, side, build, Vec3::ONE);
+                        }
+                        let prefix = bare.matte.surface_triangles().count();
+                        emit_hand(
+                            &mut dressed,
+                            GloveAppearance::Padded,
+                            at,
+                            side,
+                            build,
+                            open,
+                            clawed,
+                        );
+                        let mut probe = Parts::default();
+                        if smooth {
+                            probe.soften();
+                        }
+                        probe.matte.blob(Vec3::ZERO, Vec3::ONE, 1, 0.0, Vec3::ONE);
+                        let count = probe.matte.surface_triangles().count();
+                        let triangles: Vec<_> = dressed
+                            .matte
+                            .surface_triangles()
+                            .skip(prefix + 9 * count)
+                            .collect();
+                        assert_eq!(triangles.len(), 4 * count);
+                        for (finger, chunk) in triangles.chunks_exact(count).enumerate() {
+                            let mut pad = Builder::default();
+                            for triangle in chunk {
+                                pad.tri(*triangle, Vec3::ONE);
+                            }
+                            let dir = Vec3::X * side;
+                            let origin = at
+                                + Vec3::new(-side * 0.15, -0.038, (1.5 - finger as f32) * 0.019)
+                                    * build;
+                            let support = bare
+                                .matte
+                                .outer_surface(origin, dir)
+                                .expect("knuckle center has real hand support");
+                            let crown = pad
+                                .outer_surface(origin, dir)
+                                .expect("knuckle center has emitted padding");
+                            let inner = pad
+                                .outer_surface(origin + dir * (0.3 * build), -dir)
+                                .expect("knuckle pad has an inner surface");
+                            assert!(
+                                (inner - support).dot(dir) <= 0.0,
+                                "knuckle center must overlap actual hand support"
+                            );
+                            let relief = (crown - support).dot(dir) / build;
+                            if !(0.0005..=0.0055).contains(&relief) {
+                                failures.push(format!("smooth={smooth} open={open} clawed={clawed} side={side} build={build} finger={finger} relief={relief}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "knuckle crown relief outside 0.5–5.5 mm: {failures:#?}"
+        );
     }
 }
