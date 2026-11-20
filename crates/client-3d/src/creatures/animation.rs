@@ -3,30 +3,17 @@ use super::geometry::{snake_segment_radius, BIRD_ANKLE, SNAKE};
 use super::*;
 
 mod carriage;
+mod curves;
+mod foot_trajectory;
 pub use carriage::WalkingCarriage;
+pub(super) use curves::ease;
+use curves::envelope;
+use foot_trajectory::beast_step;
 mod publication;
 mod rogue;
 
 // ---------------------------------------------------------------------------
 // Posing.
-
-pub(super) fn ease(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-/// Rise from 0 to 1 over [a, b], hold, then fall back over [c, d].
-fn envelope(t: f32, a: f32, b: f32, c: f32, d: f32) -> f32 {
-    if t < a || t > d {
-        0.0
-    } else if t < b {
-        ease((t - a) / (b - a))
-    } else if t < c {
-        1.0
-    } else {
-        1.0 - ease((t - c) / (d - c))
-    }
-}
 
 fn fwd(a: f32) -> Quat {
     Quat::from_rotation_x(-a)
@@ -2612,22 +2599,6 @@ fn biped_pose(
             p.r(J::Torso, bow(0.32 * gather - 0.08 * tuck));
             p.r(J::Head, bow(-0.2 * gather + 0.05 * tuck));
         }
-    }
-}
-
-/// A foot stays in support for most of a step, then clears the ground on
-/// a shorter return arc. Its backwards speed agrees on both sides of contact.
-fn beast_step(phase: f32, stance: f32, span: f32, clearance: f32) -> (f32, f32) {
-    let phase = phase.rem_euclid(1.0);
-    if phase < stance {
-        (span * (0.5 - phase / stance), 0.0)
-    } else {
-        let t = (phase - stance) / (1.0 - stance);
-        let carry = -span * (1.0 - stance) / stance * t * (1.0 - t) * (1.0 - 2.0 * t);
-        (
-            span * (ease(t) - 0.5) + carry,
-            clearance * (PI * t).sin().powi(2),
-        )
     }
 }
 
