@@ -610,7 +610,7 @@ async fn settle(
             }
             ServerMessage::Update { update }
                 if matches!(&update.body,
-                UpdateBody::Intention { status } if matches!(status.phase, IntentionPhase::Failed | IntentionPhase::Cancelled)
+                UpdateBody::Intention { status, .. } if matches!(status.phase, IntentionPhase::Failed | IntentionPhase::Cancelled)
                     && receipt.as_ref() == Some(&status.entry_id)) =>
             {
                 execution_failed = true;

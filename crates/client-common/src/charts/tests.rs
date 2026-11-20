@@ -16,6 +16,7 @@ fn client(kind: ChartKind, mode: ChartMode, status: ChartStatus) -> ClientState 
     let observation = Observation {
         charts: vec![summary],
         public_effects: vec![],
+        known_item_uses: Vec::new(),
         self_appearance: None,
         interactions: None,
         combat: None,

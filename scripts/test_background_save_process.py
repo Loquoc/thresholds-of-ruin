@@ -186,7 +186,7 @@ class BackgroundSaveProcesses(ProcessTestCase):
             self.assertEqual(db.execute("SELECT max(sequence) FROM journal").fetchone()[0],2)
 
     def test_slow_writer_does_not_hold_the_session_lock(self):
-        self.saving_server(target=1, maximum=1000, idle=0, writer_barrier=True)
+        server = self.saving_server(target=1, maximum=1000, idle=0, writer_barrier=True)
         client, _ = self.client()
         with self.held_save_writer() as barrier:
             self.act(client, {"type": "wait"})
@@ -195,9 +195,33 @@ class BackgroundSaveProcesses(ProcessTestCase):
             # busy timeout or worker scheduling, throughout the next action.
             result = self.act(client, {"type": "wait"})
             self.assertEqual(result["state"]["observation"]["tick"], "200")
+            moved = self.act(client, {"type": "move", "direction": "east"})
+            self.assertIsNone(moved["error"])
+            def occupied_cell_key(frame):
+                observation = frame["state"]["observation"]
+                return next(cell["key"] for cell in observation["visible_cells"]
+                            if cell["position"] == observation["position"])
+
+            self.assertNotEqual(occupied_cell_key(moved), occupied_cell_key(result))
             barrier.assert_held()
         self.assertIsNone(self.request(client, {"type": "save"})["error"])
         barrier.assert_released()
+        with sqlite3.connect(self.save) as db:
+            records = [json.loads(frame[24:])["record"] for (frame,) in
+                       db.execute("SELECT frame FROM journal WHERE sequence > 0 ORDER BY sequence")]
+        admissions = [r for r in records if r["receipt"] and
+                      r["receipt"]["command"].get("action") == {"type": "move", "direction": "east"}]
+        admission, = admissions
+        self.assertTrue(admission["receipt"]["request_id"])
+        completed, = [r["entry"]["content"] for r in records
+                      if r["entry"]["content"].get("admission") == admission["entry"]["id"]]
+        self.assertEqual(completed["type"], "intention_started")
+        client.stop()
+        server.stop()
+        self.saving_server()
+        _, restored = self.client()
+        self.assertDisclosedStateEqual(restored["state"], moved["state"])
+        self.assertEqual(restored["intentions"], [])
 
     def test_failed_background_save_allows_reconnect_and_explicit_retry(self):
         self.saving_server(target=1, maximum=5000, idle=0)

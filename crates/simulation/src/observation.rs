@@ -1088,7 +1088,26 @@ impl Game {
                         || item.spec.readable.is_some()
                         || item.spec.device.is_some()
                     {
+                        let profile = if identified && item.spec.equipment.is_some() {
+                            self.projectile_item_profile(id, item_id)
+                        } else {
+                            None
+                        };
                         item_interactions.push(crate::interactions::ItemInteractionView {
+                            identifies: if identified {
+                                item.spec
+                                    .readable
+                                    .as_ref()
+                                    .and_then(|spec| spec.identify.clone())
+                                    .unwrap_or_default()
+                            } else {
+                                Vec::new()
+                            },
+                            throw_range: profile.as_ref().and_then(|p| p.thrown()),
+                            launch_range: profile
+                                .as_ref()
+                                .and_then(|p| p.launcher())
+                                .map(|launcher| launcher.range),
                             portable_light: self.portable_light_view(id, item_id),
                             item: item_id,
                             slot: item

@@ -340,7 +340,7 @@ async fn actual_server_process_persists_an_action_and_annotation_across_restart(
                 }
                 ServerMessage::Update { update }
                     if id == "wait"
-                        && matches!(&update.body, UpdateBody::Intention { status }
+                        && matches!(&update.body, UpdateBody::Intention { status, .. }
                         if status.phase == IntentionPhase::Resolved
                             && wait_admission.as_ref().is_some_and(|(intention, entry)|
                                 &status.intention == intention && &status.entry_id == entry)) =>

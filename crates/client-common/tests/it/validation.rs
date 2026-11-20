@@ -133,6 +133,7 @@ fn admission_permission_is_independent_of_due_turn_and_blocks_interim_lifecycle(
                 tick: 0,
             },
             body: UpdateBody::Intention {
+                failure: None,
                 status: IntentionStatus {
                     actor: initial.actor,
                     branch: initial.branch.clone(),
@@ -439,7 +440,10 @@ fn started_intention_can_suspend_resume_and_cancel_under_original_context() {
                     sequence: sequence as u64 + 1,
                     tick: 0,
                 },
-                body: UpdateBody::Intention { status },
+                body: UpdateBody::Intention {
+                    status,
+                    failure: None,
+                },
             })
             .unwrap();
         if phase.active() {
@@ -459,7 +463,10 @@ fn started_intention_can_suspend_resume_and_cancel_under_original_context() {
                 sequence: 5,
                 tick: 0
             },
-            body: UpdateBody::Intention { status: original },
+            body: UpdateBody::Intention {
+                status: original,
+                failure: None
+            },
         }),
         Err(StreamError::InconsistentState)
     );
@@ -596,6 +603,7 @@ fn intention_lifecycle_is_separate_from_observation_readiness_and_rejects_foreig
                 tick: 0,
             },
             body: UpdateBody::Intention {
+                failure: None,
                 status: queued.clone(),
             },
         })
@@ -615,7 +623,10 @@ fn intention_lifecycle_is_separate_from_observation_readiness_and_rejects_foreig
                 sequence: 2,
                 tick: 0
             },
-            body: UpdateBody::Intention { status: foreign },
+            body: UpdateBody::Intention {
+                status: foreign,
+                failure: None
+            },
         }),
         Err(StreamError::InconsistentState)
     );
@@ -631,7 +642,10 @@ fn intention_lifecycle_is_separate_from_observation_readiness_and_rejects_foreig
                 sequence: 2,
                 tick: 0,
             },
-            body: UpdateBody::Intention { status: resolved },
+            body: UpdateBody::Intention {
+                status: resolved,
+                failure: None,
+            },
         })
         .unwrap();
     assert!(!client.has_pending_intention());

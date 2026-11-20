@@ -1239,6 +1239,7 @@ impl OutcomeFacts {
             (*velocity != [0; 3]).then_some((*velocity, *units_per_cell))
         }
         let Observation {
+            known_item_uses,
             charts,
             self_appearance,
             interactions: old_interactions,
@@ -1257,7 +1258,8 @@ impl OutcomeFacts {
             visible_actors,
             ready,
         } = before;
-        charts != &after.charts
+        known_item_uses != &after.known_item_uses
+            || charts != &after.charts
             || self_appearance != &after.self_appearance
             || interactions(old_interactions) != interactions(&after.interactions)
             || !combat_equal(combat, &after.combat)
@@ -1283,6 +1285,7 @@ mod tests {
     fn observation() -> Observation {
         Observation {
             charts: vec![],
+            known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,
             combat: Some(CombatView {

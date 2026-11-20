@@ -391,8 +391,10 @@ impl App {
                 .collect::<Vec<_>>(),
             _ => Vec::new(),
         };
-        let phase = match &update.body {
-            UpdateBody::Intention { status } => Some(status.phase),
+        let action_message = match &update.body {
+            UpdateBody::Intention { status, failure } => {
+                Some(failure.map_or_else(|| phase_status(status.phase), |reason| reason.message()))
+            }
             _ => None,
         };
         let observed = matches!(
@@ -504,8 +506,8 @@ impl App {
         self.inspection = None;
         self.state_changed(old);
         if self.role == AccessRole::Player {
-            if let Some(phase) = phase {
-                self.status = phase_status(phase).into();
+            if let Some(message) = action_message {
+                self.status = message.into();
             }
         }
         Ok(())

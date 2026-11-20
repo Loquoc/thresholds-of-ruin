@@ -1607,6 +1607,8 @@ pub struct CommandResult {
     pub entry: JournalEntry,
     /// True when a matching request returned its entry without repeating effects.
     pub duplicate: bool,
+    /// Private live evidence, correlated to the admission and never part of a save.
+    pub(crate) intention_failure: Option<(EntryId, IntentionFailure)>,
 }
 
 /// Diagnostic phase measurements for the checked-in performance harness.
@@ -3571,6 +3573,7 @@ impl Engine {
         Ok(Some(CommandResult {
             entry: record.entry.clone(),
             duplicate: true,
+            intention_failure: None,
         }))
     }
 
@@ -4321,10 +4324,28 @@ impl Engine {
                         tor_simulation::IntentionOrigin::Human,
                     )
                     .map_err(|error| match error {
+                        tor_simulation::GameError::InsufficientGrip => Failure::new(
+                            ErrorCode::InvalidAction,
+                            "You do not have enough free grip capacity to equip this weapon.",
+                        ),
                         tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::MeleeOutOfReach) => Failure::new(
                             ErrorCode::InvalidAction,
                             "You can't reach that target in melee from here. Try from an open adjacent square.",
                         ),
+                        tor_simulation::GameError::StepNeedsSupport => Failure::new(
+                            ErrorCode::InvalidAction,
+                            "You need solid ground underfoot to take a step.",
+                        ),
+                        tor_simulation::GameError::StairsWhileLevitating => Failure::new(
+                            ErrorCode::InvalidAction,
+                            "You are levitating above the stairs. Wait until you reach the ground.",
+                        ),
+                        tor_simulation::GameError::ActorBusy
+                            if matches!(action.as_ref(), Action::Move { .. })
+                                && candidate.game.actor_locomotion(SimActor(receipt.actor.0)).is_some_and(|capabilities| capabilities.stationary) =>
+                        {
+                            Failure::new(ErrorCode::ActorBusy, "You cannot move while stationary.")
+                        }
                         tor_simulation::GameError::ActorBusy => {
                             Failure::new(ErrorCode::ActorBusy, "Intention is unavailable")
                         }
@@ -4699,6 +4720,7 @@ impl Engine {
         Ok(CommandResult {
             entry,
             duplicate: false,
+            intention_failure: None,
         })
     }
 
@@ -4797,7 +4819,7 @@ impl Engine {
         {
             return Err(Failure::new(
                 ErrorCode::InvalidAnnotation,
-                "Notes require 1â€“4096 bytes of plain text",
+                "Notes require 1Ã¢â‚¬â€œ4096 bytes of plain text",
             ));
         }
         match anchor {

@@ -599,6 +599,33 @@ impl Game {
         }
     }
 
+    /// Explain a failed ordinary step only after movement, stair fallback and
+    /// apparent-object contact have all been tried.
+    pub(crate) fn step_refusal(&self, id: ActorId, direction: Direction) -> GameError {
+        let actor = &self.actors[&id];
+        let local = direction.rotated(actor.orientation);
+        if self.world.is_stair(actor.location, local) {
+            if actor.locomotion().levitating {
+                return GameError::StairsWhileLevitating;
+            }
+        } else if self.body_has_field(actor.location, actor.orientation, &actor.body)
+            && !actor.locomotion().hovers()
+            && !self.supported(id)
+        {
+            return GameError::StepNeedsSupport;
+        }
+        if self.reach(actor.location, local).is_some_and(|(at, _)| {
+            self.actors
+                .at(&self.world, at)
+                .keys()
+                .any(|other| *other != id)
+        }) {
+            GameError::Occupied
+        } else {
+            GameError::Blocked
+        }
+    }
+
     pub(crate) fn actor_translation(
         &self,
         id: ActorId,

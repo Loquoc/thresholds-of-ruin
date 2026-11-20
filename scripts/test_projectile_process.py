@@ -11,7 +11,7 @@ import sqlite3
 import unittest
 from unittest.mock import Mock, patch
 
-from process_harness import ProcessTestCase, non_graphical, resource, hit_die_counts
+from process_harness import ProcessTestCase, SPECTATOR_TOKEN, non_graphical, resource, hit_die_counts
 from projectile_package import projectile_package
 from rogue_roster_package import unrelated_fallback
 from stream_relay import StreamRelay
@@ -64,8 +64,8 @@ def preview_lines(preview):
 class ProjectileProcesses(ProcessTestCase):
     graphical = True
 
-    def setup_encounter(self):
-        self.package = projectile_package(self)
+    def setup_encounter(self, *, short_ranges=False):
+        self.package = projectile_package(self, short_ranges=short_ranges)
         self.game = self.server("--checkpoint-interval", 1, scenario=self.package, seed=42)
         self.probe, initial = self.client(observe=True)
         self.target, target = self.client(actor=3)
@@ -173,6 +173,47 @@ class ProjectileProcesses(ProcessTestCase):
         self.assertGreater(sum(cost["start"] + cost["resolution"]
                                for cost in preview["cost"].values() if cost), 0)
         return preview
+
+    @non_graphical
+    def test_selected_projectile_range_matches_horizontal_and_vertical_cell_aims(self):
+        self.setup_encounter(short_ranges=True)
+        owner, _ = self.client()
+        spectator, _ = self.client(token=SPECTATOR_TOKEN, observe=True)
+        for command in ("overview", "purchase 2 advancement expertise rogue.knife", "confirm"):
+            self.assertIsNone(self.command(owner, {"type": "advancement", "command": command})["error"])
+        current = self.settle()
+
+        def check(ability, source, delivery, band, expected):
+            spectator_view = view(self.request(spectator, {"type": "snapshot"}))
+            self.assertNotIn("known_item_uses", spectator_view)
+            facts = next(row for row in view(current)["known_item_uses"] if row["item"] == source)
+            self.assertEqual(facts[band], {"short_cells": expected - 1, "long_cells": expected})
+            visible = {tuple(cell["position"][axis] for axis in "xyz") for cell in view(current)["visible_cells"]}
+
+            def shoot(offset):
+                self.assertIn(tuple(offset), visible)
+                invocation = {"aim": {"kind": "cell_projectile", "offset": offset, "delivery": delivery},
+                              "weapon": {"kind": "default"}}
+                return self.act(owner, {"type": "use_ability", "id": ability, "invocation": invocation})
+
+            for too_far in ([expected + 1, 0, 1], [1, 0, expected + 1]):
+                result = shoot(too_far)
+                self.assertIsNotNone(result["error"], result)
+                self.assertDisclosedStateEqual(self.snapshot()["state"], current["state"])
+            self.assertIsNone(shoot([1, 0, expected])["error"])
+            return self.settle()
+
+        dagger = item(current, "dagger")["id"]
+        thrown = {"kind": "throw", "source": {"kind": "equipped", "item": dagger, "socket": 10}}
+        current = check("rogue.throw", dagger, thrown, "throw_range", 2)
+        self.assertFalse(any(row["id"] == dagger for row in view(current)["inventory"]))
+        bow = item(current, "shortbow")["id"]
+        self.assertIsNone(self.act(owner, {"type": "equip", "item": bow, "slot": 0})["error"])
+        current = self.settle()
+        arrows = item(current, "arrow")
+        launch = {"kind": "launch", "launcher": {"item": bow, "socket": 0}, "ammunition": arrows["id"]}
+        current = check("rogue.launch", bow, launch, "launch_range", 3)
+        self.assertEqual(int(item(current, "arrow")["quantity"]), int(arrows["quantity"]) - 1)
 
     @non_graphical
     def test_headless_projectile_payment_recovery_and_source_free_restart(self):

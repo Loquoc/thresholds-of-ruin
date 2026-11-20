@@ -476,7 +476,7 @@ impl Game {
             .get(&actor)
             .is_some_and(|actor| actor.locomotion().levitating)
         {
-            return Err(GameError::Blocked);
+            return Err(GameError::StairsWhileLevitating);
         }
         let at = self
             .actors

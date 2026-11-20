@@ -3,7 +3,10 @@
 //! rejected update and recover through a server snapshot rather than modifying it.
 use crate::{ObservationStream, StreamError};
 use serde::Serialize;
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+};
 use tor_protocol::*;
 
 const RETAINED_FINISHED_INTENTIONS: usize = 32;
@@ -38,6 +41,10 @@ pub struct CombatUpdate {
 pub struct ClientState {
     session: ClientSessionState,
     finished_intentions: VecDeque<IntentionStatus>,
+    /// A notice is tied to the decision that received it; observe requests
+    /// can advance the presentation cursor without changing that decision.
+    server_notice: Option<(InputContext, u64, ErrorCode, String)>,
+    intention_failures: BTreeMap<IntentionId, IntentionFailure>,
     combat_updates: VecDeque<CombatUpdate>,
     observation_base: ObservationBase,
     last_visual_change: u64,
@@ -88,6 +95,8 @@ impl ClientState {
         validate_reset_snapshot(&snapshot)?;
         let mut client = Self {
             finished_intentions: VecDeque::new(),
+            server_notice: None,
+            intention_failures: BTreeMap::new(),
             combat_updates: VecDeque::new(),
             last_visual_change: snapshot.cursor.sequence,
             observation_base: ObservationBase {
@@ -356,6 +365,36 @@ impl ClientState {
     /// A snapshot starts a new window and does not provide earlier result history.
     pub fn finished_intentions(&self) -> &VecDeque<IntentionStatus> {
         &self.finished_intentions
+    }
+
+    /// Owner-visible failures within the same retained window as finished_intentions.
+    pub fn intention_failures(&self) -> &BTreeMap<IntentionId, IntentionFailure> {
+        &self.intention_failures
+    }
+
+    pub(crate) fn record_server_notice(
+        &mut self,
+        context: &ReplyContext,
+        code: ErrorCode,
+        message: &str,
+    ) {
+        if self.validate_reply_context(context).is_ok() {
+            self.server_notice = Some((
+                context.input.clone(),
+                context.cursor.tick,
+                code,
+                message.to_owned(),
+            ));
+        }
+    }
+
+    /// Most recent unsolicited error at this actor's current decision boundary.
+    pub fn server_notice(&self) -> Option<(ErrorCode, &str)> {
+        let (input, tick, code, message) = self.server_notice.as_ref()?;
+        (input.stream == *self.context()
+            && input.readiness_revision == self.readiness().revision
+            && *tick == self.cursor().tick)
+            .then_some((*code, message.as_str()))
     }
 
     pub fn has_pending_intention(&self) -> bool {
@@ -730,7 +769,10 @@ impl ClientState {
                 }
                 self.session.authority.readiness = readiness;
             }
-            UpdateBody::Intention { status } => {
+            UpdateBody::Intention { status, failure } => {
+                if failure.is_some() && status.phase != IntentionPhase::Failed {
+                    return Err(StreamError::InconsistentState);
+                }
                 if update.cursor.tick != self.session.stream.cursor().tick
                     || !status.valid_context(update.actor, &update.branch)
                 {
@@ -765,7 +807,13 @@ impl ClientState {
                 self.session.authority.intentions = intentions;
                 if let Some(status) = finished {
                     if self.finished_intentions.len() == RETAINED_FINISHED_INTENTIONS {
-                        self.finished_intentions.pop_front();
+                        if let Some(expired) = self.finished_intentions.pop_front() {
+                            self.intention_failures.remove(&expired.intention);
+                        }
+                    }
+                    if let Some(reason) = failure {
+                        self.intention_failures
+                            .insert(status.intention.clone(), reason);
                     }
                     self.finished_intentions.push_back(status);
                 }
@@ -1025,6 +1073,7 @@ mod outcome_stream_tests {
         let observation = Observation {
             public_effects: vec![],
             charts: vec![],
+            known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,
             combat: Some(CombatView {
@@ -1387,13 +1436,21 @@ mod outcome_stream_tests {
                     &client,
                     tick,
                     UpdateBody::Intention {
+                        failure: None,
                         status: status.clone(),
                     },
                 ))
                 .unwrap();
             status.phase = IntentionPhase::Failed;
             client
-                .apply(update(&client, tick, UpdateBody::Intention { status }))
+                .apply(update(
+                    &client,
+                    tick,
+                    UpdateBody::Intention {
+                        status,
+                        failure: Some(IntentionFailure::Unfunded),
+                    },
+                ))
                 .unwrap();
         }
         assert!(client.intentions().is_empty());
@@ -1401,8 +1458,37 @@ mod outcome_stream_tests {
         assert_eq!(finished.len(), RETAINED_FINISHED_INTENTIONS);
         assert_eq!(finished.front().unwrap().intention.0, "intention-1");
         assert_eq!(finished.back().unwrap().phase, IntentionPhase::Failed);
+        assert_eq!(client.intention_failures().len(), finished.len());
+        for status in finished {
+            assert_eq!(
+                client.intention_failures().get(&status.intention),
+                Some(&IntentionFailure::Unfunded)
+            );
+        }
         let reset = ClientState::from_snapshot(client.reset_snapshot().unwrap()).unwrap();
         assert!(reset.finished_intentions().is_empty());
+        assert!(reset.intention_failures().is_empty());
+    }
+
+    #[test]
+    fn server_notices_require_the_current_scope_and_do_not_survive_reset() {
+        let mut client = client();
+        let context = client.reply_context();
+        let mut foreign = context.clone();
+        foreign.actor = ActorId(context.actor.0 + 1);
+        client.record_server_notice(&foreign, ErrorCode::StorageFailure, "another actor");
+        assert_eq!(client.server_notice(), None);
+        client.record_server_notice(
+            &context,
+            ErrorCode::InvalidArchive,
+            "queued work is pending",
+        );
+        assert_eq!(
+            client.server_notice(),
+            Some((ErrorCode::InvalidArchive, "queued work is pending"))
+        );
+        let reset = ClientState::from_snapshot(client.reset_snapshot().unwrap()).unwrap();
+        assert_eq!(reset.server_notice(), None);
     }
 
     #[test]

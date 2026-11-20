@@ -171,6 +171,37 @@ fn capture(game: &mut Game, actor: ActorId, witness: &EventObservationWitness) -
 }
 
 #[test]
+fn observing_a_host_event_suffix_before_final_sealing_preserves_participant_receipts() {
+    let mut game = fixture();
+    game.host_region_continuation = true;
+    game.begin_event_batch().unwrap();
+    game.apply_outcome(damage(ActorId(1), ActorId(2), 1))
+        .unwrap();
+    game.host_region_continuation = false;
+    assert!(game.event_receipts.sealed < game.event_log.len());
+
+    // A continuation may append events after the last participant seal.
+    // Both host publication orders must preserve each actor's original evidence.
+    let mut control = game.clone();
+    control.seal_participant_events().unwrap();
+    for candidate in [&mut control, &mut game] {
+        let witness = candidate.event_observation_witness();
+        for observer in [ActorId(1), ActorId(2), ActorId(3)] {
+            capture(candidate, observer, &witness);
+        }
+        candidate.seal_event_observations().unwrap();
+    }
+    let reopened = restored(&game);
+    for observer in [ActorId(1), ActorId(2), ActorId(3)] {
+        let expected = events(&control, observer);
+        assert_eq!(events(&game, observer), expected);
+        assert_eq!(events(&reopened, observer), expected);
+    }
+    assert!(!events(&game, ActorId(1)).is_empty());
+    assert!(!events(&game, ActorId(2)).is_empty());
+}
+
+#[test]
 fn unchanged_unbound_origins_reuse_work_but_changed_senses_and_bindings_do_not() {
     let mut game = fixture();
     let origin = game.capture_event_origin(ActorId(1), ActorId(2));

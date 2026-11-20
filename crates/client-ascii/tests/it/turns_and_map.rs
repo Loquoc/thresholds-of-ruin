@@ -1098,6 +1098,7 @@ fn automatic_run_waits_for_character_readiness_after_acknowledgement_and_executi
         apply(
             &mut app,
             UpdateBody::Intention {
+                failure: None,
                 status: status.clone(),
             },
         );
@@ -1127,6 +1128,7 @@ fn automatic_run_waits_for_character_readiness_after_acknowledgement_and_executi
         apply(
             &mut app,
             UpdateBody::Intention {
+                failure: None,
                 status: IntentionStatus {
                     phase: IntentionPhase::Resolved,
                     ..status

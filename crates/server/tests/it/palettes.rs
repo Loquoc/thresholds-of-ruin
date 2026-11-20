@@ -454,7 +454,7 @@ impl Viewer {
             let message = receive(&mut self.client).await.expect("connected");
             let resolved = match &message {
                 ServerMessage::Update { update } => match &update.body {
-                    UpdateBody::Intention { status }
+                    UpdateBody::Intention { status, .. }
                         if admitted.as_ref() == Some(&status.intention) =>
                     {
                         match status.phase {

@@ -77,7 +77,7 @@ impl AdmissionBoundary {
             return false;
         }
         match &update.body {
-            UpdateBody::Intention { status }
+            UpdateBody::Intention { status, .. }
                 if status.actor == self.actor
                     && status.branch == self.branch
                     && status.intention == self.intention
@@ -135,6 +135,7 @@ mod tests {
         update(
             2,
             UpdateBody::Intention {
+                failure: None,
                 status: IntentionStatus {
                     actor: ActorId(1),
                     branch: BranchId("branch".into()),
@@ -216,7 +217,7 @@ mod tests {
             let ServerMessage::Update { update } = &mut unrelated else {
                 unreachable!()
             };
-            let UpdateBody::Intention { status } = &mut update.body else {
+            let UpdateBody::Intention { status, .. } = &mut update.body else {
                 unreachable!()
             };
             match different {

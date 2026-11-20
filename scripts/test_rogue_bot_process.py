@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 
@@ -154,6 +155,71 @@ class RogueBotProcess(ProcessTestCase):
         extension = "_native.pyd" if os.name == "nt" else "_native.so"
         shutil.copyfile(Path(build) / library, package / extension)
 
+    def test_lost_reply_identifies_the_single_durable_action(self):
+        self.server(seed=None, spectator=False)
+        self.install_bot_extension()
+        code = """
+import os, sys
+from stream_relay import StreamRelay
+from tor_client_bot import Outcome, Session, Wait
+
+relay = StreamRelay(sys.argv[1])
+try:
+    session = Session.connect(relay.address, os.environ["TOR_SERVER_TOKEN"], 1)
+    turn = session.wait_for_decision()
+    relay.gate.clear()
+    result = turn.submit(Wait())
+    assert relay.held.is_set()
+    assert result.status is Outcome.UNKNOWN and result.request_id, result
+    print(result.request_id)
+finally:
+    relay.close()
+"""
+        run = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                             env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=40)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.flush_save(actor=1)
+        with sqlite3.connect(self.save) as db:
+            records = [json.loads(frame[24:])["record"] for (frame,) in
+                       db.execute("SELECT frame FROM journal WHERE sequence > 0 ORDER BY sequence")]
+        admission, = [r for r in records if r["receipt"] and
+                      r["receipt"]["command"].get("action") == {"type": "wait"}]
+        self.assertEqual(admission["receipt"]["request_id"], run.stdout.strip())
+        execution, = [r["entry"]["content"] for r in records
+                      if r["entry"]["content"].get("admission") == admission["entry"]["id"]]
+        self.assertEqual(execution["type"], "intention_started")
+
+    def test_session_keeps_action_error_when_save_worker_is_delayed(self):
+        self.server("--save-target-ms", "1", "--save-max-ms", "60000", "--save-idle-ms", "0",
+                    seed=None, spectator=False, writer_barrier=True)
+        self.install_bot_extension()
+        code = """
+import os, sys
+from tor_client_bot import Outcome, Session, Wait
+
+class ActionError(Exception):
+    pass
+
+try:
+    with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as session:
+        turn = session.wait_for_decision()
+        assert turn.submit(Wait()).status is Outcome.CONFIRMED
+        raise ActionError("movement outcome unknown")
+except ActionError as error:
+    assert str(error) == "movement outcome unknown"
+"""
+        with self.held_save_writer() as barrier:
+            run = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                                 env={**os.environ, "TOR_SERVER_TOKEN": TOKEN},
+                                 capture_output=True, text=True, timeout=25)
+            barrier.wait()
+            barrier.assert_held()
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("Session close also failed: Saving is behind schedule", run.stderr)
+        self.flush_save(actor=1)
+        barrier.assert_released()
+
     def test_player_waits_through_a_fall_then_walks_on_landing(self):
         self.server(scenario="physics", seed=None, spectator=False)
         self.install_bot_extension()
@@ -167,6 +233,11 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     turn = game.wait_for_decision()
     assert turn.submit(Wait()).status is Outcome.CONFIRMED
     turn = game.wait_for_decision()
+    assert turn.falling
+    denied = turn.submit(Move(Direction.EAST))
+    assert denied.status is Outcome.REJECTED, denied
+    assert 'ground' in denied.reason.lower(), denied
+    turn = game.observe()
     assert turn.falling
     for _ in range(6):
         player.observe(turn)
@@ -192,7 +263,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.install_bot_extension()
         code = """
 import os
-from tor_client_bot import ActivityPhase, Outcome, Session, Wait
+from tor_client_bot import ActivityPhase, Outcome, Session, Unequip, Wait
 
 with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     turn = game.observe()
@@ -205,6 +276,7 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     refusal = turn.submit(bow)
     assert refusal.status is Outcome.REJECTED and refusal.code and refusal.reason, refusal
     assert refusal.activity is None
+    assert 'grip' in refusal.reason.lower(), refusal
     turn = game.observe()
     assert turn.tick == 0 and any(slot.occupant and slot.occupant.identity == "item.weapon.mace"
                                   for slot in turn.equipment)
@@ -214,6 +286,19 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert admitted.activity.actor == 1
     following = game.wait_for_decision()
     assert following.outcome_of(admitted) is ActivityPhase.RESOLVED, following.finished_activities
+    mace = next(slot for slot in following.equipment
+               if slot.occupant and slot.occupant.identity == "item.weapon.mace")
+    removed = following.submit(Unequip(mace))
+    assert removed.status is Outcome.CONFIRMED, removed
+    following = game.wait_for_decision()
+    assert following.outcome_of(removed) is ActivityPhase.RESOLVED
+    bow = next(choice for choice in following.equip_choices()
+               if choice.item.identity == "item.weapon.shortbow" and choice.slot.index == bow.slot.index)
+    equipped = following.submit(bow)
+    assert equipped.status is Outcome.CONFIRMED, equipped
+    following = game.wait_for_decision()
+    assert following.outcome_of(equipped) is ActivityPhase.RESOLVED
+    assert following.equipment[bow.slot.index].occupant.identity == "item.weapon.shortbow"
 """
         run = subprocess.run([sys.executable, "-c", code], cwd=self.directory,
                              env={**os.environ, "TOR_SERVER_TOKEN": TOKEN, "BOT_TEST_ADDRESS": self.address},
@@ -383,7 +468,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.server(scenario=write_package(self, contents, "unfunded-throw"))
         self.install_bot_extension()
         code = """
-import os, sys
+import json, os, sys
 from rogue_player import Adventurer
 from tor_client_bot import ActivityPhase, Outcome, Session, Wait
 
@@ -406,6 +491,16 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         turn = following
     assert following.outcome_of(receipt) is ActivityPhase.FAILED, following.finished_activities
     assert following.tick == turn.tick, (turn.tick, following.tick)
+    failed = next(activity for activity in following.finished_activities
+                  if activity.intention == receipt.activity.intention)
+    assert (failed.actor, failed.branch) == (receipt.activity.actor, receipt.activity.branch)
+    assert failed.failure == "unfunded", failed
+    def resources(picture):
+        return json.loads(picture.recording())["state"]["observation"]["combat"]["own_stats"]["resources"]
+    def inventory(picture):
+        return [(item.identity, item.quantity) for item in picture.inventory]
+    assert resources(following) == resources(turn)
+    assert inventory(following) == inventory(turn)
     player.observe(following)
     action, reason = player.choose(following)
     assert action is not None and reason not in {"throw_projectile", "launch_projectile"}, (action, reason)
@@ -1305,6 +1400,8 @@ from tor_client_bot import ItemUse, Outcome, Session, UseItem
 with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     turn = game.wait_for_decision()
     scroll = next(item for item in turn.inventory if ItemUse.READ in item.uses)
+    assert scroll.identifies == ("potion",), scroll
+    assert all(not item.identifies for item in turn.inventory if item.identity is None)
     assert turn.submit(UseItem(scroll, ItemUse.READ)).status is Outcome.CONFIRMED
     first = game.wait_for_decision().identification
     current = game.observe()
@@ -1313,6 +1410,9 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
     assert current.submit(first.select(first.items[0])).status is Outcome.STALE
     answer = current.identification.select(current.identification.items[0])
     assert current.submit(answer).status is Outcome.CONFIRMED
+    following = game.wait_for_decision()
+    assert following.can_act and following.identification is None
+    assert following.submit(answer).status is Outcome.STALE
 """
         run = subprocess.run(
             [sys.executable, "-c", code], cwd=self.directory,
@@ -1476,7 +1576,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         if use == "conserve_food":
             self.assertEqual(rows[-1]["equipment_opportunities"]["ring"]["worn"], 1)
 
-    def test_bot_descends_after_its_sampled_potion_stops_levitation(self):
+    def start_levitation_stair_fixture(self):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1491,6 +1591,32 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
                                     "chamber": True, "anchors": {"up": [2, 2, 0]}})
         self.server(scenario=write_package(self, contents, "levitating-on-stairs"))
         self.install_bot_extension()
+
+    def test_levitating_player_gets_a_ground_contact_reason_at_the_stair(self):
+        self.start_levitation_stair_fixture()
+        code = """
+import os, sys
+from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem
+
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    potion = next(item for item in turn.inventory if ItemUse.DRINK in item.uses)
+    assert turn.submit(UseItem(potion, ItemUse.DRINK)).status is Outcome.CONFIRMED
+    turn = game.wait_for_decision()
+    assert turn.has_condition("rogue.levitation") and turn.cell.stairs_down
+    refused = turn.submit(Move(Direction.DOWN))
+    assert refused.status is Outcome.REJECTED, refused
+    assert "levitating" in refused.reason and "ground" in refused.reason, refused
+    current = game.observe()
+    assert current.can_act and current.tick == turn.tick and current.cell.key == turn.cell.key
+"""
+        run = subprocess.run([sys.executable, "-c", code, self.address], cwd=self.directory,
+                             env={**os.environ, "TOR_SERVER_TOKEN": TOKEN},
+                             capture_output=True, text=True, timeout=40)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_bot_descends_after_its_sampled_potion_stops_levitation(self):
+        self.start_levitation_stair_fixture()
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
              "--budget", "100"], cwd=self.directory,
@@ -1677,6 +1803,20 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         contents["regions"][0]["actors"] = []
         server = self.server(scenario=write_package(self, contents, "rogue-bot-rename-ring"))
         self.install_bot_extension()
+        if identify:
+            inspect_scope = """
+import os, sys
+from tor_client_bot import ItemUse, Session
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    scroll = next(item for item in turn.inventory if ItemUse.READ in item.uses)
+    assert scroll.identifies == ("ring", "wand"), scroll
+    assert not any(item.category == "wand" for item in turn.inventory)
+"""
+            scope = subprocess.run([sys.executable, "-c", inspect_scope, self.address], cwd=self.directory,
+                                   env={**os.environ, "TOR_SERVER_TOKEN": TOKEN},
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(scope.returncode, 0, scope.stderr)
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
              "--budget", str(8 if identify else 2 + int(occupied))],

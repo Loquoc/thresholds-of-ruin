@@ -21,6 +21,30 @@ fn illumination_is_required_and_changes_without_changing_visibility() {
     assert!(serde_json::from_value::<CellView>(wire).is_err());
 }
 
+#[test]
+fn known_projectile_ranges_survive_deltas_and_require_a_recognized_carried_item() {
+    let base = equipped_state(true);
+    let mut next = base.clone();
+    next.revision += 1;
+    next.observation.known_item_uses.push(KnownItemUse {
+        item: next.observation.inventory[0].id,
+        identifies: Vec::new(),
+        throw_range: Some(ProjectileRangeView {
+            short_cells: 2,
+            long_cells: 6,
+        }),
+        launch_range: None,
+    });
+    next.validate().unwrap();
+    round_trip(&base, &next);
+    let mut cleared = next.clone();
+    cleared.revision += 1;
+    cleared.observation.known_item_uses.clear();
+    round_trip(&next, &cleared);
+    next.observation.known_item_uses[0].item = ItemTarget::from_digest(synthetic_digest(4));
+    assert_eq!(next.validate(), Err(InvalidState::InvalidInteraction));
+}
+
 fn equipment_slot(id: &str, requires_attack: bool) -> EquipmentSlot {
     EquipmentSlot {
         id: id.into(),
@@ -234,6 +258,7 @@ fn room(ox: i32, oy: i32, revision: u64) -> StateView {
         wizard_game: false,
         revision,
         observation: Observation {
+            known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,
             combat: None,

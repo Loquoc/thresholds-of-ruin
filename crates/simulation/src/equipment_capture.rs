@@ -193,88 +193,94 @@ impl FrozenEquipAllocation {
         socket: EquipmentSlotId,
         sources: PlanSourceContext<'_>,
     ) -> bool {
+        self.check_source(game, actor, item, socket, sources)
+            .is_ok()
+    }
+
+    fn check_source(
+        &self,
+        game: &Game,
+        actor: ActorId,
+        item: ItemId,
+        socket: EquipmentSlotId,
+        sources: PlanSourceContext<'_>,
+    ) -> Result<(), GameError> {
+        let invalid = GameError::ItemUnavailable;
         if !self.valid_shape(game.content.rules(), item, socket) || item.0 >= game.next_item_id {
-            return false;
+            return Err(invalid);
         }
-        let Some(anatomy) = self.anatomy_with_context(game, actor, sources) else {
-            return false;
+        let rules = game.content.rules();
+        let anatomy = self
+            .anatomy_with_context(game, actor, sources)
+            .ok_or(invalid)?;
+        let slot_at = |socket: EquipmentSlotId| {
+            anatomy
+                .slots
+                .get(usize::from(socket.0))
+                .and_then(|id| rules.equipment_slot(id))
         };
-        let Some(slot) = anatomy
-            .slots
-            .get(usize::from(socket.0))
-            .and_then(|id| game.content.rules().equipment_slot(id))
-        else {
-            return false;
-        };
-        let Some((target_demand, maximum, _)) = profile_demands(&self.target, game.content.rules())
-        else {
-            return false;
-        };
-        if !captured_profile_matches_surviving_item(game, item, &slot.id, &self.target, sources) {
-            return false;
+        let slot = slot_at(socket).ok_or(invalid)?;
+        let (target_demand, maximum, _) = profile_demands(&self.target, rules).ok_or(invalid)?;
+        if !captured_profile_matches_surviving_item(game, item, &slot.id, &self.target, sources)
+            || (!matches!(self.target, CapturedWeaponProfile::Ordinary) && !slot.requires_attack)
+        {
+            return Err(invalid);
         }
-        if !matches!(self.target, CapturedWeaponProfile::Ordinary) && !slot.requires_attack {
-            return false;
-        }
-        match &slot.capacity {
-            EquipmentCapacityUse::None => maximum == 1 && self.occupants.is_empty(),
-            EquipmentCapacityUse::Shared { resource, units } => {
-                let Some(capacity) = anatomy.capacities.get(resource) else {
-                    return false;
-                };
-                let Some(mut total) = units.checked_mul(target_demand) else {
-                    return false;
-                };
-                for row in &self.occupants {
-                    if row.item.0 >= game.next_item_id {
-                        return false;
-                    }
-                    let Some(other) = anatomy
-                        .slots
-                        .get(usize::from(row.socket.0))
-                        .and_then(|id| game.content.rules().equipment_slot(id))
-                    else {
-                        return false;
-                    };
-                    if !captured_profile_matches_surviving_item(
-                        game,
-                        row.item,
-                        &other.id,
-                        &row.profile,
-                        sources,
-                    ) {
-                        return false;
-                    }
-                    if !matches!(row.profile, CapturedWeaponProfile::Ordinary)
-                        && !other.requires_attack
-                    {
-                        return false;
-                    }
-                    let EquipmentCapacityUse::Shared {
-                        resource: other_resource,
-                        units,
-                    } = &other.capacity
-                    else {
-                        return false;
-                    };
-                    if other_resource != resource {
-                        return false;
-                    }
-                    let Some((demand, _, _)) = profile_demands(&row.profile, game.content.rules())
-                    else {
-                        return false;
-                    };
-                    let Some(next) = units
-                        .checked_mul(demand)
-                        .and_then(|demand| total.checked_add(demand))
-                    else {
-                        return false;
-                    };
-                    total = next;
-                }
-                total <= capacity
+        let EquipmentCapacityUse::Shared { resource, units } = &slot.capacity else {
+            return (maximum == 1 && self.occupants.is_empty())
+                .then_some(())
+                .ok_or(invalid);
+        };
+        let capacity = anatomy.capacities.get(resource).ok_or(invalid)?;
+        let mut total = units.checked_mul(target_demand).ok_or(invalid)?;
+        for row in &self.occupants {
+            let other = slot_at(row.socket).ok_or(invalid)?;
+            if row.item.0 >= game.next_item_id
+                || !captured_profile_matches_surviving_item(
+                    game,
+                    row.item,
+                    &other.id,
+                    &row.profile,
+                    sources,
+                )
+                || (!matches!(row.profile, CapturedWeaponProfile::Ordinary)
+                    && !other.requires_attack)
+            {
+                return Err(invalid);
             }
+            let EquipmentCapacityUse::Shared {
+                resource: other_resource,
+                units,
+            } = &other.capacity
+            else {
+                return Err(invalid);
+            };
+            if other_resource != resource {
+                return Err(invalid);
+            }
+            let (demand, _, _) = profile_demands(&row.profile, rules).ok_or(invalid)?;
+            total = units
+                .checked_mul(demand)
+                .and_then(|demand| total.checked_add(demand))
+                .ok_or(invalid)?;
         }
+        if total > capacity {
+            let known_weapon = game.items.get(&item).is_some_and(|item| {
+                !item.spec.concealed
+                    || game
+                        .actors
+                        .get(&actor)
+                        .is_some_and(|owner| owner.knowledge.contains(&item.spec.identity))
+            });
+            return Err(
+                if known_weapon && matches!(self.target, CapturedWeaponProfile::Profile { .. }) {
+                    GameError::InsufficientGrip
+                } else {
+                    invalid
+                },
+            );
+        }
+        Ok(())
     }
     pub(crate) fn resource<'a>(
         &'a self,
@@ -381,10 +387,8 @@ impl Game {
             target: profile(item)?,
             occupants,
         };
-        captured
-            .source_valid(self, actor, item, socket)
-            .then_some(captured)
-            .ok_or(GameError::ItemUnavailable)
+        captured.check_source(self, actor, item, socket, PlanSourceContext::Loaded)?;
+        Ok(captured)
     }
     pub(crate) fn frozen_equip_available(
         &self,

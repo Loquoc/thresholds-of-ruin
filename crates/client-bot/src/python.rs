@@ -43,8 +43,14 @@ fn encode_observation(state: &ClientState, diagnostics: bool) -> serde_json::Res
         fields.serialize_entry("can_resume", &state.can_resume_intention())?;
         fields.serialize_entry("can_cancel", &state.can_cancel_intention())?;
     }
+    if let Some((code, message)) = state.server_notice() {
+        fields.serialize_entry("server_notice", &json!({"code": code, "message": message}))?;
+    }
     fields.serialize_entry("intentions", state.intentions())?;
     fields.serialize_entry("finished_intentions", state.finished_intentions())?;
+    if !state.intention_failures().is_empty() {
+        fields.serialize_entry("intention_failures", state.intention_failures())?;
+    }
     fields.serialize_entry("combat_updates", state.combat_updates())?;
     fields.end()?;
     Ok(String::from_utf8(contents).expect("JSON serialization produces UTF-8"))
@@ -116,7 +122,7 @@ impl PythonSession {
                     .block_on(session.act(&observation.context, action))
             })
             .map_err(runtime_error)?;
-        turn_result(py, turn)
+        turn_result(py, turn, session.last_request_id())
     }
 
     /// Resolve the selected ability and actor through the shared client catalog.
@@ -132,7 +138,7 @@ impl PythonSession {
             .observation()
             .ok_or_else(|| runtime_error("Refresh the player view"))?;
         if state.reply_context() != observation.context {
-            return turn_result(py, Turn::StaleObservation);
+            return turn_result(py, Turn::StaleObservation, None);
         }
         let target = serde_json::from_value(json!(target)).map_err(value_error)?;
         let action =
@@ -144,7 +150,7 @@ impl PythonSession {
                     .block_on(session.act(&observation.context, action))
             })
             .map_err(runtime_error)?;
-        turn_result(py, turn)
+        turn_result(py, turn, session.last_request_id())
     }
 
     fn resume<'py>(
@@ -156,7 +162,7 @@ impl PythonSession {
         let turn = py
             .detach(|| self.runtime.block_on(session.resume(&observation.context)))
             .map_err(runtime_error)?;
-        turn_result(py, turn)
+        turn_result(py, turn, session.last_request_id())
     }
 
     fn cancel<'py>(
@@ -168,7 +174,7 @@ impl PythonSession {
         let turn = py
             .detach(|| self.runtime.block_on(session.cancel(&observation.context)))
             .map_err(runtime_error)?;
-        turn_result(py, turn)
+        turn_result(py, turn, session.last_request_id())
     }
 
     fn advancement<'py>(&mut self, py: Python<'py>, input: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -181,7 +187,7 @@ impl PythonSession {
             let page = serde_json::to_value(session.advancement_page()).map_err(runtime_error)?;
             Ok::<_, PyErr>((turn, page))
         })?;
-        let mut result = turn_value(turn);
+        let mut result = turn_value(turn, session.last_request_id());
         result["page"] = page;
         py.import("json")?
             .call_method1("loads", (result.to_string(),))
@@ -256,12 +262,16 @@ impl PythonSession {
     }
 }
 
-fn turn_result(py: Python<'_>, turn: Turn) -> PyResult<Bound<'_, PyAny>> {
+fn turn_result<'py>(
+    py: Python<'py>,
+    turn: Turn,
+    request_id: Option<&str>,
+) -> PyResult<Bound<'py, PyAny>> {
     py.import("json")?
-        .call_method1("loads", (turn_value(turn).to_string(),))
+        .call_method1("loads", (turn_value(turn, request_id).to_string(),))
 }
 
-fn turn_value(turn: Turn) -> Value {
+fn turn_value(turn: Turn, request_id: Option<&str>) -> Value {
     match turn {
         Turn::Confirmed(ConfirmedReply::Receipt(receipt)) => {
             json!({"status": "confirmed", "receipt": receipt})
@@ -272,7 +282,8 @@ fn turn_value(turn: Turn) -> Value {
         Turn::Confirmed(ConfirmedReply::Completed) => json!({"status": "confirmed"}),
         Turn::StaleObservation => json!({"status": "stale_observation"}),
         Turn::IntentionUnavailable => json!({"status": "intention_unavailable"}),
-        Turn::UnknownOutcome => json!({"status": "unknown_outcome"}),
+        Turn::UnknownOutcome => json!({"status": "unknown_outcome", "request_id": request_id,
+            "message": "The client could not confirm the outcome of this request."}),
     }
 }
 

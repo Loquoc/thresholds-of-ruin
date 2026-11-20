@@ -590,6 +590,7 @@ fn validated_lifecycle_updates_refresh_action_status_without_changing_spectator_
                 tick: initial.cursor.tick,
             },
             body: UpdateBody::Intention {
+                failure: None,
                 status: IntentionStatus {
                     actor,
                     branch: initial.branch.clone(),

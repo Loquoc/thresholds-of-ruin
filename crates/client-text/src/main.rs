@@ -369,7 +369,11 @@ fn present(connection: &Connection, message: &ServerMessage) -> Result<(), Error
     match message {
         ServerMessage::Update { update } => match &update.body {
             UpdateBody::Readiness { .. } | UpdateBody::Travel { .. } => {}
-            UpdateBody::Intention { status } => println!("Action: {:?}.", status.phase),
+            UpdateBody::Intention {
+                failure: Some(reason),
+                ..
+            } => println!("{}", reason.message()),
+            UpdateBody::Intention { status, .. } => println!("Action: {:?}.", status.phase),
             UpdateBody::Outcome { .. } => {
                 for line in connection.state.narration_lines() {
                     println!("{}", line.text);

@@ -24,6 +24,7 @@ pub enum Turn {
 pub struct Session {
     connection: Connection,
     usable: bool,
+    last_request_id: Option<String>,
 }
 
 impl Session {
@@ -42,6 +43,7 @@ impl Session {
         let mut session = Self {
             connection,
             usable: true,
+            last_request_id: None,
         };
         match session.transact(Request::AcquireControl).await? {
             Turn::Confirmed(ConfirmedReply::Receipt(_))
@@ -243,6 +245,11 @@ impl Session {
         tokio::time::timeout(TIMEOUT, self.connection.close()).await?
     }
 
+    /// Correlation for the latest transaction, including one with an unknown outcome.
+    pub fn last_request_id(&self) -> Option<&str> {
+        self.last_request_id.as_deref()
+    }
+
     async fn transact(&mut self, request: Request) -> Result<Turn, TransportError> {
         self.transact_with(request, |_, _| {}).await
     }
@@ -255,7 +262,17 @@ impl Session {
         if !self.usable {
             return Err("Session disconnected or timed out; reconnect before retrying".into());
         }
-        match tokio::time::timeout(TIMEOUT, transact(&mut self.connection, request, observe)).await
+        self.last_request_id = None;
+        match tokio::time::timeout(
+            TIMEOUT,
+            transact(
+                &mut self.connection,
+                request,
+                observe,
+                &mut self.last_request_id,
+            ),
+        )
+        .await
         {
             Ok(Ok(turn)) => Ok(turn),
             // The send can have reached the server before either failure.
@@ -271,8 +288,11 @@ async fn transact(
     connection: &mut Connection,
     request: Request,
     mut observe: impl FnMut(&str, &ServerMessage),
+    last_request_id: &mut Option<String>,
 ) -> Result<Turn, TransportError> {
-    let id = connection.request(request).await?;
+    let id = connection
+        .request_tracked(request, |id| *last_request_id = Some(id.to_owned()))
+        .await?;
     let mut pending = PendingRequest::new(id.clone());
     loop {
         let message = connection.next().await?;

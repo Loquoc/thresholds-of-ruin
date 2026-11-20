@@ -392,6 +392,9 @@ pub struct ProjectileBonusView {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ItemInteractionView {
+    pub identifies: Vec<crate::ItemClass>,
+    pub throw_range: Option<crate::weapon_profiles::RangeBands>,
+    pub launch_range: Option<crate::weapon_profiles::RangeBands>,
     pub portable_light: Option<crate::PortableLightView>,
     pub item: ItemId,
     pub slot: Option<EquipmentSlotView>,
@@ -964,7 +967,17 @@ impl Game {
                 if i.quantity == 1 {
                     let mut candidate = a.equipment.clone();
                     candidate.insert(slot, item);
-                    self.equipment_candidate(actor, candidate)?;
+                    if let Err(error) = self.equipment_candidate(actor, candidate) {
+                        // The complete actor projection can also reject non-capacity
+                        // changes. Only disclose grip when the allocation proves it.
+                        if matches!(
+                            self.capture_carried_weapon_allocation(actor, item, slot),
+                            Err(GameError::InsufficientGrip)
+                        ) {
+                            return Err(GameError::InsufficientGrip);
+                        }
+                        return Err(error);
+                    }
                 } else {
                     // The captured target/occupant profiles prove the capacity
                     // of ONE unit without weakening persisted equipment shape.
