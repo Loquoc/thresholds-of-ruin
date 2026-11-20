@@ -96,7 +96,7 @@ bands = [{ depth = { kind = "open", minimum = 3 }, choices = [{ archetype = "mar
         server = self.server("--checkpoint-interval", 64, scenario=package)
         # This long route checks current views and exact saved state, never the
         # headless client's unrelated accumulated-memory diagnostic projection.
-        player, ready = self.client(omit_memory=True, compact_background=True)
+        player, ready = self.client(omit_memory=True)
         first = self.private_receipts()
         self.assertEqual([entry["scope"] for entry in first], ["dungeon/1"])
         self.assertEqual(first[0]["decisions"][1]["result"]["kind"], "skipped")
@@ -127,7 +127,7 @@ bands = [{ depth = { kind = "open", minimum = 3 }, choices = [{ archetype = "mar
         shutil.rmtree(package)
 
         server = self.server("--checkpoint-interval", 64, scenario=unrelated_fallback(self), seed=None)
-        player, resumed = self.client(omit_memory=True, compact_background=True)
+        player, resumed = self.client(omit_memory=True)
         self.assertDisclosedStateEqual(resumed["state"], before["state"])
         self.assertEqual(resumed["history"], before["history"])
         self.assertEqual(self.private_receipts(), second)

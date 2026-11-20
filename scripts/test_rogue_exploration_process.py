@@ -294,7 +294,7 @@ class RogueExplorationAsciiProcess(ProcessTestCase):
 
     def test_native_generated_floor_stair_round_trip(self):
         self.server(scenario="tests/rogue-geometry")
-        player, welcome = self.client(omit_memory=True, compact_background=True)
+        player, welcome = self.client(omit_memory=True)
         departure = explore_to_stairs(self, player, welcome["state"])
         player.stop()
         window = self.launch("tor-client-ascii", ["--connect", self.address, "--report-frames"])
