@@ -158,7 +158,10 @@ The accepted [action compositor plan](plans/action-compositor.md) adds a past-te
 `activity` outcome fact (the next protocol version) with category-only wind-up, follow-through
 and item-handling disclosure, a shared client beat/timeline compositor, and 3D
 playback of continuous moves, phase-mapped attacks and straight per-segment
-missiles. None of it is implemented yet; references change as each phase lands.
+missiles. All three phases are implemented on the work branch: the activity
+fact, the shared compositor (with the text goal engine as its own beat
+policy), and 3D playback. Sequence follow-through is defined but not yet
+emitted.
 
 ### Other scoped extensions
 

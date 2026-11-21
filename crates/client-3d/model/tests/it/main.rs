@@ -10,4 +10,5 @@ mod interaction;
 mod inventory;
 mod items;
 mod map;
+mod playback;
 mod projection;

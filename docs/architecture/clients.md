@@ -381,8 +381,12 @@ client supplies itself.
 - **Pacing:** `PlanDriver` withholds the client's next planned action while
   the simulation is more than a bounded lead ahead of what is presented.
 
-The 3D client is the first consumer. The text client keeps its goal engine as
-its own beat rules.
+The [3D client](../../crates/client-3d/README.md#how-it-works) is the first
+consumer. Its playback times spans and happenings on one tick clock: steps walk
+continuously, blows land on their strike ticks, and missiles fly straight runs
+of disclosed cells. Input waits for playback, and click-to-travel errands step
+within a bounded lead. The text client keeps its goal engine as its own beat
+rules.
 
 ### Chronicle and composition
 

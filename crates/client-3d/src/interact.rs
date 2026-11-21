@@ -95,6 +95,15 @@ impl Pursuit {
             ..default()
         };
     }
+
+    /// The beat's caution fired on authoritative facts: a newcomer or a wound
+    /// needs the player, so a fetch errand stops. A chase continues, because a
+    /// fight is expected to wound and its quarry is already in view.
+    pub(crate) fn interrupt(&mut self) {
+        if matches!(self.goal, Some(Goal::Take(_))) {
+            *self = Self::default();
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -436,11 +445,11 @@ pub fn pursue(
         *pursuit = Pursuit::default();
         return;
     }
-    // Let the state settle after each step: a request made from a stale
-    // revision is refused.
-    let fresh = (pursuit.sent_at != Some(game.view_serial) && game.since_send > 0.2)
-        || game.since_send > 1.5;
-    if game.busy || game.fatal || !fresh {
+    // Each step waits for the view it produced (a request made from a stale
+    // revision is refused), and for presentation to come within the plan's
+    // bounded lead, so the walk keeps moving without racing ahead of the screen.
+    let fresh = pursuit.sent_at != Some(game.view_serial) || game.since_send > 1.5;
+    if game.busy || game.fatal || !fresh || !game.playback.within_lead() {
         return;
     }
     if pursuit.travelling {
@@ -471,7 +480,7 @@ pub fn pursue(
         // Mid-fight, time moves on only when asked: continue until our turn.
         if view.actors.iter().any(|a| a.hostile) {
             pursuit.sent_at = Some(game.view_serial);
-            send(&net, &mut game, Cmd::Wait);
+            game.send_planned(&net, Cmd::Wait);
         }
         return;
     }
@@ -540,7 +549,7 @@ pub fn pursue(
         Some(command) if pursuit.steps <= 80 => {
             pursuit.travelling = matches!(command, Cmd::Travel(_));
             pursuit.sent_at = Some(game.view_serial);
-            send(&net, &mut game, command);
+            game.send_planned(&net, command);
         }
         _ => {
             if command.is_none() && pursuit.steps > 1 {

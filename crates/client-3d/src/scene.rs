@@ -94,6 +94,7 @@ pub(super) fn receive(
     mut bodies: Query<&mut ActorBody>,
     effects: Query<Entity, TransientEffects>,
     assets: SceneAssets,
+    mut pursuit: Option<ResMut<interact::Pursuit>>,
 ) {
     if game.capture.is_some() {
         return;
@@ -204,15 +205,37 @@ pub(super) fn receive(
                 game.last_revision = Some(view.revision);
                 // Ordered spatial facts are injected once by net, not replayed from
                 // retained picture history. They can arrive without a new revision.
+                // Spans are timed before this update's tick is placed, so their
+                // activity counts as covered rather than idle.
+                let timed = game.playback.time_spans(&view.activity);
+                if view.activity.ended == Some(tor_client_common::compositor::BeatEnd::Interrupted)
+                {
+                    if let Some(pursuit) = pursuit.as_deref_mut() {
+                        pursuit.interrupt();
+                    }
+                }
                 let offset = game.offset;
-                game.pending
-                    .extend(presentation_events(&view.events, offset));
+                let mut happened = presentation_events(&view.events, offset);
                 if fresh {
                     if let Some(before) = &game.view {
                         let harm = tor_client_3d_model::observed_harm(before, &view);
-                        game.pending.extend(harm.into_iter().map(Happening::Hurt));
+                        happened.extend(harm.into_iter().map(Happening::Hurt));
                     }
                 }
+                // Start each blow early enough that its impact frame lands on
+                // the strike's own tick.
+                let lead = happened
+                    .iter()
+                    .filter_map(|event| match event {
+                        Happening::Ability { id, strike, .. } => {
+                            let action = Move::for_ability(id, *strike);
+                            Some(f64::from(action.duration() * action.impact()))
+                        }
+                        _ => None,
+                    })
+                    .fold(0.0, f64::max);
+                game.playback.schedule(&view.activity, happened, lead);
+                let walking = crate::playback::walking_from(&view, &game, &bodies);
                 let died: HashSet<ActorTarget> = view
                     .events
                     .iter()
@@ -232,6 +255,7 @@ pub(super) fn receive(
                     &mut bodies,
                     &died,
                 );
+                crate::playback::start_walks(&game, timed, &walking, &mut bodies);
                 let actors_ms = actors_started.map(|time| time.elapsed().as_secs_f64() * 1000.0);
                 let items_started = profile_started.map(|_| Instant::now());
                 build_items(&mut commands, &mut game, &mut library, &mut meshes, &view);
@@ -269,6 +293,7 @@ fn align(commands: &mut Commands, game: &mut Game, view: &View) {
         game.log.clear();
         game.last_narration.clear();
         game.view = None;
+        game.playback.reset();
     }
     let change = game
         .frame
@@ -303,6 +328,8 @@ fn align(commands: &mut Commands, game: &mut Game, view: &View) {
     game.hands.clear();
     game.held.clear();
     game.pending.clear();
+    // Scheduled playback belongs to the old frame; it cannot be mapped into this one.
+    game.playback.reset();
     for (_, effect) in game.public_effects.drain() {
         commands.entity(effect.root).try_despawn();
     }
@@ -757,6 +784,7 @@ fn build_actors(
                     wearing: actor.wearing,
                     hostile: actor.hostile,
                     goal,
+                    path: None,
                     label,
                     ring,
                     name: actor.name.clone(),
@@ -825,6 +853,21 @@ pub(super) fn react(
             _ => None,
         })
         .collect();
+    // When each caster's blow lands within the batch: a disclosed missile
+    // leaves the hand then, not when the wind-up starts.
+    let leads: HashMap<_, _> = pending
+        .iter()
+        .filter_map(|event| match event {
+            Happening::Ability {
+                caster, id, strike, ..
+            } => {
+                let action = Move::for_ability(id, *strike);
+                Some(((*caster, id.clone()), action.duration() * action.impact()))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut flights = HashMap::new();
     let mut arrivals = HashMap::new();
     let find = |game: &Game, id: Option<ActorTarget>| {
         id.and_then(|id| {
@@ -837,6 +880,8 @@ pub(super) fn react(
     for happening in pending {
         match happening {
             Happening::Effect {
+                caster,
+                ability,
                 timing,
                 presentation,
                 object_model,
@@ -845,6 +890,12 @@ pub(super) fn react(
                 segments,
                 ..
             } => {
+                let key = ability.map(|ability| (caster, ability.id));
+                let launch = key
+                    .as_ref()
+                    .and_then(|key| leads.get(key))
+                    .copied()
+                    .unwrap_or(0.0);
                 let points: Vec<Vec<Vec3>> = segments
                     .iter()
                     .map(|segment| {
@@ -864,7 +915,11 @@ pub(super) fn react(
                     delivery,
                     cue,
                     &points,
+                    std::time::Duration::from_secs_f32(launch),
                 );
+                if let Some(key) = key {
+                    flights.insert(key, (segments, launch));
+                }
             }
             Happening::Hurt(id) => {
                 if let Some(entity) = find(&game, Some(id)) {
@@ -914,22 +969,41 @@ pub(super) fn react(
                         }
                     }
                 }
-                let reaction =
-                    if matches!(action, Move::Breath(_)) || authoritative.contains(&(caster, id)) {
-                        // Authoritative geometry wins over canned endpoint-only visuals.
-                        // Breath never falls back, even when its path was not disclosed.
-                        None
-                    } else {
-                        creatures::stage(
-                            &mut commands,
-                            &mut library,
-                            &mut meshes,
-                            action,
-                            from,
-                            to,
-                            outcome == tor_protocol::AbilityOutcome::Applied,
-                        )
-                    };
+                let reaction = if let Some((segments, launch)) = flights.get(&(caster, id.clone()))
+                {
+                    // Authoritative geometry wins over canned endpoint-only visuals.
+                    // The target reacts when the flight reaches its disclosed cell,
+                    // or at launch when its cell was not part of the disclosure.
+                    let cell = to.map(|(at, _)| Position {
+                        x: at.x.round() as i32,
+                        y: at.z.round() as i32,
+                        z: (at.y + 0.5).round() as i32,
+                    });
+                    let legs = tor_client_3d_model::playback::flight_legs(
+                        segments,
+                        creatures::MISSILE_CELLS_PER_SECOND,
+                    );
+                    let travel = cell
+                        .and_then(|cell| {
+                            tor_client_3d_model::playback::arrival(segments, &legs, cell)
+                        })
+                        .unwrap_or(0.0);
+                    Some(*launch + travel as f32)
+                } else if matches!(action, Move::Breath(_)) || authoritative.contains(&(caster, id))
+                {
+                    // Breath never falls back, even when its path was not disclosed.
+                    None
+                } else {
+                    creatures::stage(
+                        &mut commands,
+                        &mut library,
+                        &mut meshes,
+                        action,
+                        from,
+                        to,
+                        outcome == tor_protocol::AbilityOutcome::Applied,
+                    )
+                };
                 if let (Some(delay), Some(target_entity)) =
                     (reaction, target_entity.filter(|_| !self_targeted))
                 {

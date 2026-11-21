@@ -15,6 +15,7 @@ fn body(app: &mut App, at: Vec3) -> Entity {
                 wearing: Default::default(),
                 hostile: false,
                 goal: at,
+                path: None,
                 label,
                 ring,
                 name: String::new(),

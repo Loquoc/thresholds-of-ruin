@@ -224,6 +224,7 @@ pub(super) fn update_cave_params(
 
 pub(super) fn follow_actors(
     time: Res<Time>,
+    game: Option<Res<crate::Game>>,
     mut bodies: Query<(&ActorBody, &mut Transform)>,
     mut labels: Query<(&mut Node, &mut Visibility), With<Label>>,
     camera: Query<(&Camera, &GlobalTransform), crate::portrait::ExplorationCamera>,
@@ -232,9 +233,21 @@ pub(super) fn follow_actors(
     let Ok((camera, eye)) = camera.single() else {
         return;
     };
+    // Offline reviews and tests run without a game: nothing walks a path there.
+    let (now, skips) = game.map_or((0.0, 0), |game| (game.playback.now, game.playback.skips));
     for (body, mut transform) in &mut bodies {
-        let step = body.goal - transform.translation;
-        transform.translation += step * smooth;
+        // A disclosed step walks its timed path at a steady pace; anything
+        // else (a snap, a teleport, a finished walk) eases toward the goal.
+        match body.path.map(|path| path.at(now, skips)) {
+            Some((at, false)) if now >= body.path.map_or(0.0, |path| path.start) => {
+                transform.translation = at;
+            }
+            Some((_, false)) => {}
+            _ => {
+                let step = body.goal - transform.translation;
+                transform.translation += step * smooth;
+            }
+        }
         if let Ok((mut node, mut visibility)) = labels.get_mut(body.label) {
             let head = transform.translation + Vec3::Y * (body.height + 0.15);
             match camera.world_to_viewport(eye, head) {

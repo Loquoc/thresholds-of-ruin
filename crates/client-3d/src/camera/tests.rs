@@ -126,6 +126,7 @@ fn actor_following_uses_the_world_camera_even_with_an_offscreen_camera() {
                 wearing: default(),
                 hostile: false,
                 goal: Vec3::new(2., 0., 3.),
+                path: None,
                 label,
                 ring,
                 name: "Actor".into(),

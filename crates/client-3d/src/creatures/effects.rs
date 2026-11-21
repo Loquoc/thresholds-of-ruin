@@ -574,9 +574,15 @@ pub fn public_effect(
         .id()
 }
 
+/// Cosmetic missile speed, in cells per second. Never derived from server data.
+pub const MISSILE_CELLS_PER_SECOND: f64 = 12.5;
+
 /// Present a server-resolved instant. Finite playback is cosmetic, not effect lifetime.
-/// Present only server-disclosed cell paths. Styling and playback speed are cosmetic;
-/// neither interpolation across segment boundaries nor invented impact flashes are allowed.
+/// Present only server-disclosed cell paths. Within a segment a missile flies
+/// straight along each run of its disclosed cells; it never extends past a
+/// segment, never crosses a hidden gap (the gap only delays the next segment),
+/// and never flies toward an undisclosed cell. Styling and speed are cosmetic,
+/// and no impact flash is invented. `launch` delays the whole flight.
 #[expect(
     clippy::too_many_arguments,
     reason = "authoritative descriptor and geometry are independent inputs"
@@ -591,6 +597,7 @@ pub fn stage_authoritative(
     delivery: tor_protocol::EffectDelivery,
     _cue: tor_protocol::EffectCue,
     segments: &[Vec<Vec3>],
+    launch: Duration,
 ) {
     use tor_protocol::{EffectAppearance, EffectDelivery, EffectTiming};
     let EffectTiming::Instant = timing;
@@ -627,32 +634,40 @@ pub fn stage_authoritative(
                     ))
                     .with_children(|p| model.attach(p));
             }
-            continue;
         }
-        for (index, pair) in segment.windows(2).enumerate() {
-            let model = match object_model {
-                Some(kind) => library.item(kind, meshes),
-                None => effect_form(library, meshes, appearance, accent),
-            };
-            commands
-                .spawn((
-                    Bolt {
-                        from: pair[0],
-                        to: pair[1],
-                        delay: Duration::from_millis(index as u64 * 80),
-                        elapsed: Duration::ZERO,
-                        wobble: 0.0,
-                        accent,
-                        duration: Duration::from_millis(80),
-                        arc: false,
-                        impact: false,
-                        physical: object_model.is_some(),
-                    },
-                    Transform::from_translation(pair[0]).with_scale(Vec3::ZERO),
-                    Visibility::default(),
-                ))
-                .with_children(|p| model.attach(p));
-        }
+    }
+    // Paths fly as straight runs, timed across every segment and gap.
+    if !path {
+        return;
+    }
+    let cells: Vec<Vec<[f32; 3]>> = segments
+        .iter()
+        .map(|segment| segment.iter().map(|point| point.to_array()).collect())
+        .collect();
+    for leg in tor_client_3d_model::playback::flight_legs(&cells, MISSILE_CELLS_PER_SECOND) {
+        let model = match object_model {
+            Some(kind) => library.item(kind, meshes),
+            None => effect_form(library, meshes, appearance, accent),
+        };
+        let from = Vec3::from_array(leg.from);
+        commands
+            .spawn((
+                Bolt {
+                    from,
+                    to: Vec3::from_array(leg.to),
+                    delay: launch + Duration::from_secs_f64(leg.delay),
+                    elapsed: Duration::ZERO,
+                    wobble: 0.0,
+                    accent,
+                    duration: Duration::from_secs_f64(leg.duration.max(0.01)),
+                    arc: false,
+                    impact: false,
+                    physical: object_model.is_some(),
+                },
+                Transform::from_translation(from).with_scale(Vec3::ZERO),
+                Visibility::default(),
+            ))
+            .with_children(|p| model.attach(p));
     }
 }
 
@@ -873,5 +888,47 @@ mod authoritative_tests {
                 .any(|(a, b)| a.distance(from) < 1e-6 && b.distance(to) < 1e-6));
         }
         assert!(bolts.iter().all(|b| !b.arc && !b.impact));
+    }
+
+    #[test]
+    fn an_off_axis_missile_flies_one_straight_line_along_its_disclosed_cells() {
+        let mut app = App::new();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let library = PropLibrary::new(PropMaterials::new(&mut materials));
+        app.init_resource::<Game>()
+            .init_resource::<Assets<Mesh>>()
+            .insert_resource(materials)
+            .insert_resource(library)
+            .add_systems(Update, crate::scene::react);
+        // The server's per-axis stepper zigzags across a shallow diagonal.
+        let cells = [(0, 0), (1, 0), (2, 1), (3, 1), (4, 2), (5, 2), (6, 3)];
+        app.world_mut()
+            .resource_mut::<Game>()
+            .pending
+            .push(Happening::Effect {
+                caster: None,
+                ability: None,
+                tick: 4,
+                timing: EffectTiming::Instant,
+                presentation: tor_protocol::EffectPresentation::neutral(EffectAppearance::Missile),
+                object_model: None,
+                delivery: EffectDelivery::Projectile,
+                cue: EffectCue::Neutral,
+                segments: vec![cells
+                    .iter()
+                    .map(|&(x, y)| Position { x, y, z: 0 })
+                    .collect()],
+            });
+        app.update();
+        let mut query = app.world_mut().query::<&Bolt>();
+        let bolts: Vec<_> = query.iter(app.world()).collect();
+        let point = |x, y| Vec3::new(x, 0.05, y);
+        assert_eq!(bolts.len(), 1, "one heading, not a wiggle per cell");
+        assert!(bolts[0].from.distance(point(0.0, 0.0)) < 1e-6);
+        assert!(bolts[0].to.distance(point(6.0, 3.0)) < 1e-6);
+        // Fixed cosmetic speed over the straight length.
+        let expected = 45f64.sqrt() / MISSILE_CELLS_PER_SECOND;
+        assert!((bolts[0].duration.as_secs_f64() - expected).abs() < 1e-6);
+        assert_eq!(bolts[0].delay, Duration::ZERO);
     }
 }

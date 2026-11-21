@@ -7,8 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{sync::mpsc as async_mpsc, time::timeout};
-use tor_client_3d_model::{request_from, view};
+use tor_client_3d_model::{request_from, view, Activity};
 pub use tor_client_3d_model::{Cmd, Happening, Input, View};
+use tor_client_common::compositor::{Caution, Compositor, Pushed, SpanEnd};
 use tor_client_common::{Connection, PendingRequest, RequestCompletion};
 use tor_protocol::*;
 
@@ -216,7 +217,78 @@ fn present(
     Ok(())
 }
 
+/// Spans retained before the shared timeline starts a fresh generation.
+const TIMELINE_SPANS: usize = 512;
+
+/// The shared beat timeline, fed every message the connection has applied.
+struct Composer {
+    compositor: Compositor<Caution>,
+    generation: u64,
+    ends: Vec<SpanEnd>,
+}
+
+impl Composer {
+    fn new() -> Self {
+        Self {
+            compositor: Compositor::new(Caution::default()),
+            generation: 0,
+            ends: Vec::new(),
+        }
+    }
+
+    /// Record one applied message and report what it added or changed.
+    fn record(
+        &mut self,
+        state: &tor_client_common::ClientState,
+        message: &ServerMessage,
+    ) -> Activity {
+        let pushed = self.compositor.push(state, message);
+        let spans = self.compositor.timeline().spans();
+        let changed = spans
+            .iter()
+            .enumerate()
+            .filter(|(index, span)| self.ends.get(*index) != Some(&span.end))
+            .map(|(index, span)| (index, span.clone()))
+            .collect();
+        self.ends = spans.iter().map(|span| span.end).collect();
+        let activity = Activity {
+            generation: self.generation,
+            tick: match message {
+                ServerMessage::Update { update } => Some(update.cursor.tick),
+                _ => None,
+            },
+            spans: changed,
+            ended: match pushed {
+                Pushed::Ended(end) => Some(end),
+                _ => None,
+            },
+        };
+        // A finished beat, or a long one, starts a fresh bounded timeline.
+        if activity.ended.is_some() || spans.len() >= TIMELINE_SPANS {
+            self.compositor.take();
+            self.generation += 1;
+            self.ends.clear();
+        }
+        activity
+    }
+}
+
+thread_local! {
+    /// One network worker thread owns one attachment's composer.
+    static COMPOSER: std::cell::RefCell<Composer> = std::cell::RefCell::new(Composer::new());
+}
+
 fn presentation_event(connection: &Connection, message: &ServerMessage) -> Option<Event> {
+    let activity =
+        COMPOSER.with(|composer| composer.borrow_mut().record(&connection.state, message));
+    let mut event = picture_event(connection, message);
+    if let Some(Event::View(view)) = &mut event {
+        view.activity = activity;
+    }
+    event
+}
+
+fn picture_event(connection: &Connection, message: &ServerMessage) -> Option<Event> {
     match message {
         ServerMessage::Update { update } if matches!(update.body, UpdateBody::Outcome { .. }) => {
             let UpdateBody::Outcome { facts, .. } = &update.body else {
@@ -267,7 +339,8 @@ async fn run(
     tx: &SyncSender<Event>,
 ) -> Result<(), Error> {
     let mut connection = Connection::connect(address, token, actor, "3d").await?;
-    connection.set_pace(Duration::from_millis(90));
+    // Presentation timing belongs to the beat timeline, not to message spacing.
+    connection.set_pace(Duration::ZERO);
     let result = session(&mut connection, observe, rx, tx).await;
     // A broken presentation pipe is normal during window shutdown. Connection
     // failures remain errors, and a failed save always takes precedence.

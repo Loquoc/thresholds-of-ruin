@@ -445,10 +445,7 @@ pub(crate) fn setup(
                     }
                 });
             }
-            root.spawn((
-                chrome::BlockWorld,
-                action_button(Action::Menu, "Menu"),
-            ));
+            root.spawn((chrome::BlockWorld, action_button(Action::Menu, "Menu")));
         });
 }
 

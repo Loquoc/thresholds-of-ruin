@@ -55,6 +55,7 @@ mod test_support;
 use diagnostics::capture;
 mod camera;
 mod character;
+mod playback;
 mod scene;
 mod screen;
 use camera::{follow_actors, input, rig_camera, torch_flicker, update_cave_params};
@@ -486,7 +487,7 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
                 startup::tick,
             )
                 .chain(),
-            react,
+            (playback::release, react).chain(),
             (pile_picker::update, interact::keys, hud::buttons)
                 .chain()
                 .run_if(session::has_input),
@@ -734,8 +735,10 @@ struct Game {
     dying: Vec<DeadBody>,
     /// Corpse models by item, with the cell each lies in, kept between views.
     corpses: HashMap<tor_protocol::ItemTarget, CachedCorpse>,
-    /// Combat events waiting to be acted out, and the revision they came from.
+    /// Combat events due to be acted out now.
     pending: Vec<Happening>,
+    /// Presentation timing for the beat timeline.
+    playback: playback::Playback,
     public_effects: HashMap<String, scene::PublicEffectBody>,
     last_revision: Option<u64>,
     actors: HashMap<ActorTarget, Entity>,
@@ -785,6 +788,26 @@ impl Game {
         if self.busy || self.fatal {
             return false;
         }
+        // Input waits until what already happened has been shown. Trying to act
+        // early fast-forwards it; the next attempt acts on the caught-up scene.
+        if !self.playback.drained() {
+            self.playback.skip();
+            self.status = "Caught up. Act again.".into();
+            return false;
+        }
+        self.dispatch(net, command)
+    }
+
+    /// The client's own plan (a clicked errand) sends while playback is within
+    /// its bounded lead, so a walk keeps moving without racing ahead.
+    fn send_planned(&mut self, net: &Net, command: Cmd) -> bool {
+        if self.busy || self.fatal || !self.playback.within_lead() {
+            return false;
+        }
+        self.dispatch(net, command)
+    }
+
+    fn dispatch(&mut self, net: &Net, command: Cmd) -> bool {
         let Some(view) = &self.view else {
             return false;
         };
@@ -918,6 +941,8 @@ struct ActorBody {
     wearing: tor_client_3d_model::Wearing,
     hostile: bool,
     goal: Vec3,
+    /// A timed walk toward goal; without one the body eases there.
+    path: Option<playback::Path>,
     label: Entity,
     ring: Entity,
     name: String,

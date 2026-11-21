@@ -664,6 +664,7 @@ fn apply(
             effect.delivery,
             tor_protocol::EffectCue::Neutral,
             &segments,
+            std::time::Duration::ZERO,
         );
     }
     for (entity, mut actor, mut anim, mut transform, rig) in &mut actors {

@@ -140,6 +140,16 @@ exhaustively handles the new variant, and fixtures are regenerated.
 
 ## 3D playback (phase 3)
 
+Implemented as designed. The [3D guide](../../crates/client-3d/README.md#how-it-works)
+owns the behaviour; this section keeps the design rationale. Two points of
+detail differ from the sketch:
+
+- **Body paths:** a step's span only times the walk. The body moves from its
+  previous authoritative cell to its new one, so no frame conversion of the
+  span's own endpoints is needed.
+- **Missile runs:** a segment flies as maximal straight runs of its cells
+  rather than one first-to-last line, so a disclosed bounce still turns.
+
 - **Clock:** a renderer-free tick clock maps ticks to milliseconds at a fixed
   rate. Intervals with nothing visible, and held stances, compress to a cap.
   Playback starts after a lookahead of about 120 ms, too short to notice.
