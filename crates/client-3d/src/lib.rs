@@ -751,6 +751,11 @@ struct Game {
     journey: Option<settings::Journey>,
     /// Every mob this character has seen in this game.
     seen: HashSet<ActorTarget>,
+    /// Whether this game has sent a gameplay command yet.
+    acted: bool,
+    /// Views with spans or happenings that arrived while input was released:
+    /// a turn's moves arriving after the player could already act again.
+    late_timeline_views: u64,
     public_effects: HashMap<String, scene::PublicEffectBody>,
     last_revision: Option<u64>,
     actors: HashMap<ActorTarget, Entity>,
@@ -840,6 +845,7 @@ impl Game {
             return false;
         }
         self.busy = true;
+        self.acted = true;
         self.since_send = 0.0;
         self.status.clear();
         self.journey = match (journey, self.journey.take()) {

@@ -144,6 +144,12 @@ pub(super) fn receive(
                 game.fatal = true;
             }
             NetEvent::View(view) => {
+                if game.acted
+                    && !game.busy
+                    && (!view.activity.spans.is_empty() || !view.events.is_empty())
+                {
+                    game.late_timeline_views += 1;
+                }
                 let profile_started = props::profile_builds().then(Instant::now);
                 align(&mut commands, &mut game, &view);
                 if game.snap_camera {

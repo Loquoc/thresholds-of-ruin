@@ -348,6 +348,8 @@ pub(super) fn capture(
         "failed_models": failed_models.iter().count(),
         "fatal": game.as_ref().is_some_and(|game| game.fatal),
         "busy": game.as_ref().is_some_and(|game| game.busy),
+        // Timeline content that arrived after input was released for it.
+        "late_timeline_views": game.as_ref().map_or(0, |game| game.late_timeline_views),
         "inventory": view.map(|view| view.inventory.iter().map(|item| serde_json::json!({
             "id": item.id, "name": item.name, "model": format!("{:?}", item.model), "quantity": item.quantity.to_string(),
             "equipped":item.equipped,

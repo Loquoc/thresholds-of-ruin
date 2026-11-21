@@ -455,8 +455,12 @@ the map and journal, Tab takes control, Esc closes
 the pack or quits. Stepping into
 a hostile creature attacks it, as in the ASCII client.
 
-What already happened plays out before the next action: input waits until
-the current playback has finished. Acting early fast-forwards to the caught-up
+What already happened plays out before the next action. An action counts as
+done only once the server has run everything due before your next turn, not
+when it acknowledges the request, so every mob's move in a turn arrives and
+plays together. Input then waits until that playback has finished. A turn
+whose messages stop for three seconds reports an uncertain outcome instead of
+waiting further. Acting early fast-forwards to the caught-up
 scene ("Caught up. Act again.") without sending; the next press acts. A
 click-to-travel errand keeps walking while the picture stays within about
 1.5 seconds of the game, so long walks are continuous rather than stepwise.

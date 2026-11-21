@@ -9,7 +9,7 @@ use std::{
 use tokio::{sync::mpsc as async_mpsc, time::timeout};
 use tor_client_3d_model::{request_from, view, Activity};
 pub use tor_client_3d_model::{Cmd, Happening, Input, View};
-use tor_client_common::compositor::{Caution, Compositor, Pushed, SpanEnd};
+use tor_client_common::compositor::{Caution, Compositor, Pushed, SettleBoundary, SpanEnd, Until};
 use tor_client_common::{Connection, PendingRequest, RequestCompletion};
 use tor_protocol::*;
 
@@ -497,7 +497,10 @@ async fn session(
                 }
                 Some(command) => {
                     match request_from(&connection.state, &command.shown, command.command) {
-                        Ok(request) if connection.is_synchronized() => transact(connection, request, tx).await?,
+                        Ok(request) if connection.is_synchronized() => match settle_until(&request) {
+                            Some(until) => settle(connection, request, until, tx).await?,
+                            None => transact(connection, request, tx).await?,
+                        },
                         Ok(_) => publish(tx, Event::Status("Resynchronizing; try again.".into()))?,
                         Err(reason) => publish(tx, Event::Status(reason))?,
                     }
@@ -561,6 +564,79 @@ fn present_charts(
         publish(tx, Event::Charts(lines))?;
     }
     Ok(())
+}
+
+/// Gameplay settles a whole turn, not an admission receipt. An action's Ack
+/// arrives before it runs, so releasing input then lets the next command go
+/// out while this turn's mob moves are still arriving. The shared boundary
+/// waits until the action has run and the server has sent the player's next
+/// permissions, which follow everything due before that turn.
+fn settle_until(request: &Request) -> Option<Until> {
+    match request {
+        Request::Command {
+            command: Command::Travel { .. },
+            ..
+        } => Some(Until::Journey),
+        Request::Command { .. } => Some(Until::Acted),
+        _ => None,
+    }
+}
+
+/// The longest gap between messages while a turn settles. Turns settle in
+/// milliseconds; this only ends a wait the server has stopped answering.
+const SETTLE_SILENCE: Duration = Duration::from_secs(3);
+
+async fn settle(
+    connection: &mut Connection,
+    request: Request,
+    until: Until,
+    tx: &SyncSender<Event>,
+) -> Result<(), Error> {
+    let id = connection.request(request).await?;
+    let mut boundary = SettleBoundary::new(id, until, false);
+    loop {
+        let message = match timeout(SETTLE_SILENCE, connection.next()).await {
+            Ok(message) => message?,
+            Err(_) => {
+                if let Err(silence) = boundary.silence(&connection.state) {
+                    publish(tx, Event::Status(silence.message().into()))?;
+                }
+                return Ok(());
+            }
+        };
+        if let Some(event) = presentation_event(connection, &message) {
+            publish(tx, event)?;
+        }
+        if !connection.is_synchronized() {
+            continue;
+        }
+        let refused = execution_refused(connection, &message);
+        if boundary
+            .observe(&connection.state, false, refused, &message)
+            .is_some()
+        {
+            return Ok(());
+        }
+    }
+}
+
+/// A scoped notice that the server could not execute a queued action: an
+/// explicit stop that keeps the intention, not a settlement to wait out.
+fn execution_refused(connection: &Connection, message: &ServerMessage) -> bool {
+    matches!(
+        message,
+        ServerMessage::Error {
+            scope: ErrorScope::Attached { context },
+            request_id: None,
+            code: ErrorCode::InvalidAction | ErrorCode::ResourceLimit,
+            ..
+        } if connection.state.validate_reply_context(context).is_ok()
+            && connection
+                .state
+                .intentions()
+                .iter()
+                .any(|status| status.phase == IntentionPhase::Queued)
+    )
 }
 
 async fn transact(

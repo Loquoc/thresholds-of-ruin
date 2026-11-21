@@ -80,6 +80,28 @@ class Native3DProcesses(ProcessTestCase):
             self.assertTrue(all(not actor["hostile"] for actor in previous["actors"]))
         self.assertEqual(previous["world_feet"], initial["world_feet"])
 
+    def test_a_whole_turn_arrives_before_input_is_released(self):
+        # Every mob's move in a turn must be presented together: input may not
+        # return until the server has run everything due before the player's
+        # next turn, or later moves fall into another batch and lose simultaneity.
+        self.server(scenario="peaceful-menagerie")
+        executable = Path(os.environ.get("TOR_3D_TEST_BINARY", CLIENT / "target/debug" / ("tor-client-3d" + self.suffix)))
+        window = self.launch("tor-client-3d", [
+            "--connect", self.address, "--capture", self.directory / "whole-turn",
+            "--capture-every", "0.5",
+        ], executable=executable)
+        initial = self.captured(window, lambda frame: frame["has_control"] and not frame["busy"]
+                                and all(actor["model_ready"] for actor in frame["actors"]))
+        native = self.native_keys(window)
+        previous = initial
+        for _ in range(3):
+            tick = int(previous["tick"])
+            previous = self.tap(window, native, "space",
+                                lambda frame, tick=tick: int(frame["tick"]) > tick and not frame["busy"])
+        settled = self.captured(window, lambda frame: frame["png"] != previous["png"] and not frame["busy"])
+        self.assertEqual(settled["late_timeline_views"], 0,
+                         "mob moves of a turn arrived after input was already released")
+
     def assert_live_portrait(self, portrait, initial):
         own_actor = next(actor for actor in portrait["actors"] if actor["is_self"])
         self.assertEqual(portrait["portrait"]["target"], own_actor["target"])
