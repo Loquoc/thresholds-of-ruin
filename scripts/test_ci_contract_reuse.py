@@ -46,9 +46,11 @@ class ContractReuseTests(unittest.TestCase):
             'CARGO_INCREMENTAL': None, 'CARGO_PROFILE_DEV_DEBUG': '0', 'CARGO_PROFILE_RELEASE_DEBUG': None}}
             for role in roles}
         successful, skipped = contract.job_roles(base.qualified)
-        base.jobs = [{'name': name, 'run_id': 123, 'head_sha': 'b' * 40, 'run_attempt': 1,
-                      'status': 'completed', 'conclusion': 'skipped' if name in skipped else 'success'}
-                     for name in sorted(successful | skipped)]
+        roles = [(name, 'success') for name in sorted(successful)]
+        roles.extend((name, 'skipped') for name in sorted(skipped.elements()))
+        base.jobs = [{'id': job_id, 'name': name, 'run_id': 123, 'head_sha': 'b' * 40, 'run_attempt': 1,
+                      'status': 'completed', 'conclusion': conclusion}
+                     for job_id, (name, conclusion) in enumerate(roles, 1)]
         responses = base.responses()
         runs_key = next(key for key in responses if key.startswith('/actions/workflows/'))
         responses[runs_key]['workflow_runs'][0]['path'] = contract.workflow
@@ -60,6 +62,36 @@ class ContractReuseTests(unittest.TestCase):
             def raw(self, path):
                 return responses[path]
         return module, contract, base, responses, Api()
+
+    def test_only_known_duplicate_skipped_matrix_placeholder_is_allowed(self):
+        module, contract, base, _, _ = self.fixture()
+        canonical = module.job_name('profiles')
+        grouped = canonical.replace(
+            "matrix.shard && format('python shard {0}', matrix.shard) || matrix.partition",
+            "((matrix.shard && format('python shard {0}', matrix.shard)) || matrix.partition)")
+        rows = [dict(j, name=grouped) if j['name'] == canonical else dict(j) for j in base.jobs]
+        skipped = [i for i, row in enumerate(rows) if row['name'] == grouped]
+        self.assertEqual(len(skipped), 2)
+        contract.validate_jobs(rows, base.run, base.qualified)
+        for edit in ('drop', 'extra', 'duplicate_id', 'promote', 'unknown', 'null_name', 'stale'):
+            with self.subTest(edit=edit), self.assertRaises(ValueError):
+                changed = deepcopy(rows)
+                i, j = skipped
+                if edit == 'drop':
+                    changed.pop(j)
+                elif edit == 'extra':
+                    changed.append(dict(changed[j], id=10000))
+                elif edit == 'duplicate_id':
+                    changed[j]['id'] = changed[i]['id']
+                elif edit == 'promote':
+                    changed[j]['conclusion'] = 'success'
+                elif edit == 'unknown':
+                    changed[j]['name'] = grouped.replace('matrix.partition', 'matrix.other')
+                elif edit == 'null_name':
+                    changed[j]['name'] = None
+                else:
+                    changed[j]['run_attempt'] += 1
+                contract.validate_jobs(changed, base.run, base.qualified)
 
     def test_selected_accepts_only_the_exact_tree_and_canonical_lane_union(self):
         kind = 'selected'

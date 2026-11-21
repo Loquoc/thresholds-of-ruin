@@ -209,3 +209,29 @@ Replaying PR #35 selected the Linux debug build, Linux and Windows debug
 Python tests, and one Linux release Python test. Unknown SDK files and
 unexplained runtime references still require exhaustive verification.
 This review changes test selection within existing jobs and budgets.
+
+## November 21 skipped matrix names in selected post-merge reuse
+
+PR #42 qualified the exact tree in selected CI. Main still ran fresh
+selected verification because the Jobs API returned two distinct
+skipped full-matrix jobs with the same display template and added
+grouping parentheses to its expression. The evidence check confused
+that representation with a malformed or duplicate active role.
+
+This change accepts only the observed grouped spelling of that known
+skipped template. It requires the exact number of completed skipped
+records and distinct positive job IDs. Active jobs still require
+exact canonical names and conclusions; run, head, attempt, tested tree,
+receipt, toolchain and artifact verification remain unchanged. Missing,
+extra, unfamiliar, promoted or unproven records continue to fall back
+to fresh CI. Main still runs its fresh integration checks for eligible
+proofs. No workflow trigger, shell command, action, permission, runner,
+dependency, network destination, artifact, retention or test workload
+is added or changed. This restores the existing exact-tree reuse path
+instead of repeating the selected matrix when the proof is valid.
+
+Reviewed against the current Actions terms, actual PR #42 job metadata
+and qualification evidence, and the unchanged Actions runner and
+transport paths. Refresh only the selected contract resolver's reviewed
+source hash. Unit and transport regressions exercise the observed
+placeholder and reject missing, duplicate, promoted or foreign rows.

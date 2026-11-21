@@ -8,7 +8,7 @@
   "scripts/ci_binary_artifact.py": "41b253f2ce89afa420512a4c6cc456b6a635f687760dee26aa95f5631a10def6",
   "scripts/ci_build_key.py": "6bbd6f772cc42ee6ddd0127dffa2b4e843d91f26d360574ea2314e70851017c0",
   "scripts/ci_consumer_dependencies.py": "2ee5230576e21deef4d4879380b21992d228459fea4a15f20d417ac31aab93ca",
-  "scripts/ci_contract_reuse.py": "5e1af4bc383422c7a354de32211282057f93b6391b5eea31665f94255c7524a3",
+  "scripts/ci_contract_reuse.py": "2f0c3a9d1420776c782e13010fa68e9879b5402efd6bffa068c71d7e1e98695d",
   "scripts/ci_example_prerequisites.py": "e998e636d079f90c418a443300aecd1f8a51e32a948cf0bc1503dba3abba67e4",
   "scripts/ci_postmerge.py": "834858faed9720191a6fca995ea1d18cfc7088cdf377223775aa9622b5fd856c",
   "scripts/ci_python_shards.py": "e6dc055d797f9f4ee5bff7b2fd7f25cecc93bd5d82ce36ca7fab2641e0eaec48",
