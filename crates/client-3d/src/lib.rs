@@ -58,6 +58,7 @@ mod character;
 mod playback;
 mod scene;
 mod screen;
+mod settings;
 use camera::{follow_actors, input, rig_camera, torch_flicker, update_cave_params};
 use scene::{animate_props, react, receive, stand, studio_lights, tend_the_dead};
 
@@ -447,6 +448,7 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     .init_resource::<interact::Hover>()
     .init_resource::<interact::Panel>()
     .init_resource::<interact::Pursuit>()
+    .insert_resource(settings::Settings::load(settings::Settings::default_path()))
     .init_resource::<loot_labels::LootLabels>()
     .init_resource::<pile_picker::PilePicker>()
     .insert_resource(autoplay::Autoplay::new(autoplay, hunt))
@@ -487,7 +489,13 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
                 startup::tick,
             )
                 .chain(),
-            (playback::release, react).chain(),
+            (
+                playback::release,
+                react,
+                settings::resume_travel,
+                settings::toggles,
+            )
+                .chain(),
             (pile_picker::update, interact::keys, hud::buttons)
                 .chain()
                 .run_if(session::has_input),
@@ -739,6 +747,10 @@ struct Game {
     pending: Vec<Happening>,
     /// Presentation timing for the beat timeline.
     playback: playback::Playback,
+    /// The journey the player last asked for, kept to resume excused interruptions.
+    journey: Option<settings::Journey>,
+    /// Every mob this character has seen in this game.
+    seen: HashSet<ActorTarget>,
     public_effects: HashMap<String, scene::PublicEffectBody>,
     last_revision: Option<u64>,
     actors: HashMap<ActorTarget, Entity>,
@@ -808,9 +820,17 @@ impl Game {
     }
 
     fn dispatch(&mut self, net: &Net, command: Cmd) -> bool {
+        // A new journey is remembered so an excused interruption can resume
+        // it; any other action ends that intention.
+        let journey = match &command {
+            Cmd::Travel(destination) => Some(destination.clone()),
+            _ => None,
+        };
         let Some(view) = &self.view else {
             return false;
         };
+        let started_with = settings::in_view(view);
+        let hp = view.hp.map(|(hp, _)| hp);
         let input = Input {
             shown: view.shown.clone(),
             command,
@@ -822,6 +842,20 @@ impl Game {
         self.busy = true;
         self.since_send = 0.0;
         self.status.clear();
+        self.journey = match (journey, self.journey.take()) {
+            // Resending the same journey keeps its resumption count.
+            (Some(destination), Some(previous)) if previous.destination == destination => {
+                Some(previous)
+            }
+            (Some(destination), _) => Some(settings::Journey {
+                destination,
+                started_with,
+                hp,
+                sent_at: self.view_serial,
+                resumed: 0,
+            }),
+            (None, _) => None,
+        };
         true
     }
 }

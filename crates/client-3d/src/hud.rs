@@ -248,7 +248,11 @@ pub(crate) fn setup(
     mut images: ResMut<Assets<Image>>,
     session: Option<Res<crate::session::Session>>,
     touch: Option<Res<TouchControls>>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
+    let settings = settings
+        .map(|settings| settings.clone())
+        .unwrap_or_default();
     let (standalone, touch) = (session.is_some(), touch.is_some());
     let image = images.add(Image::new(
         Extent3d {
@@ -423,6 +427,21 @@ pub(crate) fn setup(
                 }
                 if standalone {
                     list.spawn(action_button(Action::Leave, "Leave  [Esc]"));
+                }
+                // Settings flip in place and stay in the open menu.
+                list.spawn((
+                    Text::new("Settings"),
+                    chrome::text(13.0, chrome::GOLD),
+                    Node {
+                        margin: UiRect::top(Val::Px(6.0)),
+                        ..default()
+                    },
+                ));
+                for setting in [
+                    crate::settings::Setting::Peaceful,
+                    crate::settings::Setting::Unseen,
+                ] {
+                    list.spawn(crate::settings::toggle_button(setting, &settings));
                 }
             });
             // Touch stand-ins for keys stay one tap away rather than folded.

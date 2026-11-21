@@ -87,6 +87,10 @@ fn reconcile_public_effects(
 
 type TransientEffects = Or<(With<creatures::Bolt>, With<creatures::Fade>)>;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system names each resource it reads; grouping them would hide which"
+)]
 pub(super) fn receive(
     mut commands: Commands,
     net: Res<Net>,
@@ -95,6 +99,7 @@ pub(super) fn receive(
     effects: Query<Entity, TransientEffects>,
     assets: SceneAssets,
     mut pursuit: Option<ResMut<interact::Pursuit>>,
+    settings: Res<crate::settings::Settings>,
 ) {
     if game.capture.is_some() {
         return;
@@ -208,10 +213,18 @@ pub(super) fn receive(
                 // Spans are timed before this update's tick is placed, so their
                 // activity counts as covered rather than idle.
                 let timed = game.playback.time_spans(&view.activity);
-                if view.activity.ended == Some(tor_client_common::compositor::BeatEnd::Interrupted)
-                {
-                    if let Some(pursuit) = pursuit.as_deref_mut() {
-                        pursuit.interrupt();
+                // A fetch errand stops for a wound, or for a newcomer the
+                // player's settings say should interrupt.
+                if let Some(before) = &game.view {
+                    let hurt = matches!((before.hp, view.hp), (Some((was, _)), Some((now, _))) if now < was);
+                    let present = crate::settings::in_view(before);
+                    let interrupting = crate::settings::newcomers(&present, &view).any(|actor| {
+                        settings.interrupts(actor.hostile, game.seen.contains(&actor.id))
+                    });
+                    if hurt || interrupting {
+                        if let Some(pursuit) = pursuit.as_deref_mut() {
+                            pursuit.interrupt();
+                        }
                     }
                 }
                 let offset = game.offset;
@@ -271,6 +284,9 @@ pub(super) fn receive(
                         started.elapsed().as_secs_f64() * 1000.0,
                     );
                 }
+                // Remembered after this view's decisions: a mob is unseen until now.
+                let sighted = crate::settings::in_view(&view);
+                game.seen.extend(sighted);
                 game.view = Some(*view);
                 game.view_serial += 1;
             }
@@ -294,6 +310,8 @@ fn align(commands: &mut Commands, game: &mut Game, view: &View) {
         game.last_narration.clear();
         game.view = None;
         game.playback.reset();
+        game.seen.clear();
+        game.journey = None;
     }
     let change = game
         .frame

@@ -461,6 +461,22 @@ scene ("Caught up. Act again.") without sending; the next press acts. A
 click-to-travel errand keeps walking while the picture stays within about
 1.5 seconds of the game, so long walks are continuous rather than stepwise.
 
+The Menu's Settings section has two toggles, both on by default and saved in
+`.local/client-3d/settings.json`:
+
+- **Peaceful mobs interrupt:** when off, a non-hostile mob entering view does
+  not interrupt.
+- **New mobs interrupt:** when off, a mob this character has never seen before
+  does not interrupt.
+
+A mob entering view interrupts unless a toggle that matches it is off, so a
+hostile mob already seen always interrupts. Leaving view never interrupts.
+
+The toggles govern fetch errands, and journeys you started. The server still
+ends a journey when anything new appears. If every newcomer is excused and you
+were not hurt, the client sends the same journey again, up to 50 times.
+Wounds and other reasons still stop it.
+
 Objects:
 
 - More than four non-corpse ground stacks share a compact treasure pile and an

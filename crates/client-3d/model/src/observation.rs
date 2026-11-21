@@ -81,6 +81,8 @@ pub struct View {
     pub public_effects: Vec<PublicEffectView>,
     /// What the update this view follows added to the shared beat timeline.
     pub activity: Activity,
+    /// The current or most recent journey, as the server reports it.
+    pub travel: Option<TravelStatus>,
 }
 
 /// One update's contribution to the shared beat timeline, in its view's frame.
@@ -421,6 +423,7 @@ pub fn view(state: &ClientState, palette: &Palette) -> View {
         // consumes accepted ordered Outcome facts instead of replaying this list.
         events: vec![],
         activity: Activity::default(),
+        travel: state.travel().cloned(),
         public_effects: o
             .public_effects
             .iter()
