@@ -207,6 +207,26 @@ and stops it on exit. Other options:
 - `scenarios/menagerie` (in this crate) is a lit hall holding its supported
   creature recipes, wandering at peace except an emu and a snake that fight, with
   items on the floor: `--scenario crates/client-3d/scenarios/menagerie`
+- `scenarios/peaceful-menagerie` (repository root) is a fully lit 32 by 25 cell
+  hall with one of each of the 26 current Rogue mob archetypes:
+  `--scenario scenarios/peaceful-menagerie`.
+  - **Creatures:** they keep their catalog bodies, models and abilities, but
+    every species is passive and no faction has enemies. They explore using
+    ordinary AI (rooted creatures stay rooted), and time advances only when the
+    visitor acts.
+  - **The visitor:** needs no food and can see invisible creatures, including
+    the phantom.
+  - **The xeroc:** shown openly, because this package's rules remove its
+    disguise and touch ambush.
+  - **Regenerating:** the package is derived from `scenarios/rogue-exploration`
+    by `python scripts/generate_peaceful_menagerie.py`. Run it after Rogue
+    catalog changes, then `tor-scenario validate`.
+  - **Tests:** `python -m unittest scripts.test_peaceful_menagerie` checks the
+    roster and peaceful policy. `scripts/test_peaceful_menagerie_process.py`
+    checks 30 ordinary waits through real server and headless processes. The 3D
+    process suite's
+    `test_complete_peaceful_menagerie_renders_and_waits_without_hostility`
+    checks rendered models and native wait input in the real 3D window.
 - `scenarios/crowd` (in this crate) is the smaller rendering diagnostic: 24
   creatures and the player, using the menagerie's palette. Use
   `--scenario crates/client-3d/scenarios/crowd --distance 16` to frame all 25.

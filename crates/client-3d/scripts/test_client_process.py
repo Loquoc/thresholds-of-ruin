@@ -58,6 +58,28 @@ class AbilityTrace:
 class Native3DProcesses(ProcessTestCase):
     graphical = True
 
+    def test_complete_peaceful_menagerie_renders_and_waits_without_hostility(self):
+        self.server(scenario="peaceful-menagerie")
+        executable = Path(os.environ.get("TOR_3D_TEST_BINARY", CLIENT / "target/debug" / ("tor-client-3d" + self.suffix)))
+        window = self.launch("tor-client-3d", [
+            "--connect", self.address, "--capture", self.directory / "peaceful-hall",
+            "--capture-every", "0.5",
+        ], executable=executable)
+        initial = self.captured(window, lambda frame: frame["has_control"] and not frame["busy"]
+                                and len(frame["actors"]) >= 10
+                                and all(actor["model_ready"] for actor in frame["actors"]))
+        self.assertTrue(all(not actor["hostile"] for actor in initial["actors"]))
+        self.assertEqual(len(initial["actors"]), 27, "all 26 mob types and the visitor must be openly visible")
+        self.assertIn("xeroc", {actor["name"] for actor in initial["actors"]})
+        self.assertIn("phantom", {actor["name"] for actor in initial["actors"]})
+        native = self.native_keys(window)
+        previous = initial
+        for _ in range(3):
+            tick = int(previous["tick"])
+            previous = self.tap(window, native, "space", lambda frame: int(frame["tick"]) > tick)
+            self.assertTrue(all(not actor["hostile"] for actor in previous["actors"]))
+        self.assertEqual(previous["world_feet"], initial["world_feet"])
+
     def assert_live_portrait(self, portrait, initial):
         own_actor = next(actor for actor in portrait["actors"] if actor["is_self"])
         self.assertEqual(portrait["portrait"]["target"], own_actor["target"])

@@ -1,0 +1,36 @@
+# All catalog mobs share a peaceful, fully lit viewing hall.
+format = 38
+id = "peaceful-menagerie"
+version = "1.0"
+ruleset = "rules.toml"
+modules = ["catalog/actors.toml", "catalog/bodies.toml", "catalog/creatures.toml", "catalog/items.toml"]
+default_character = 1
+themes = ["dungeon"]
+factions = { delvers = [], dungeon_foes = [] }
+ai_profiles = { wander = { care = false, equipment = false, loot = false, flee_percent = 0 } }
+
+[[characters]]
+asset = "creature.humanoid.human"
+id = 1
+anchor = "1/start"
+turn_ticks = 100
+unselected = "omit"
+body = { cells = [[0, 0, 0], [0, 0, 1]], eye = [0, 0, 1], mass = 80 }
+known_identities = ["item.weapon.mace", "item.armor.ring-mail", "item.misc.clean-bandage", "item.food.ration", "item.amulet.amulet-of-yendor"]
+loadout = []
+
+[characters.creature]
+body_package = "rogue.body.human"
+species = "rogue.human"
+name = "Visitor"
+corpse_identity = "item.corpse.persona.warrior"
+faction = "delvers"
+binding = "intellect"
+starting_skills = ["heavy_weaponry", "discipline"]
+restoration = "choose_again"
+nutrition = { kind = "exempt" }
+future_growth = { kind = "selected", source = { kind = "class", class = "warrior" } }
+hit_dice = [{ source = "racial", purchases = [] }, { source = "warrior", purchases = [] }]
+
+[assets]
+dungeon = ["creature.ape.yeti", "creature.aquator", "creature.bat", "creature.bird.emu", "creature.bird.kestrel", "creature.centaur", "creature.dragon", "creature.elemental.ice", "creature.equine.quagga", "creature.equine.unicorn.black", "creature.fey.leprechaun", "creature.fey.nymph", "creature.goblin.hobgoblin", "creature.griffin", "creature.humanoid.orc", "creature.jabberwock", "creature.medusa", "creature.plant.venus.flytrap", "creature.serpent.rattlesnake", "creature.serpent.snake", "creature.troll", "creature.undead.phantom", "creature.undead.vampire", "creature.undead.wraith", "creature.undead.zombie", "creature.xeroc", "item.amulet", "item.armor", "item.armor.leather", "item.armor.leather.studded", "item.armor.mail", "item.armor.mail.chain", "item.armor.mail.ring", "item.armor.mail.scale", "item.armor.plate", "item.armor.plate.banded", "item.armor.plate.splint", "item.bandage", "item.coin", "item.food", "item.food.fruit", "item.food.ration", "item.potion", "item.potion.amber", "item.potion.azure", "item.potion.cerulean", "item.potion.chartreuse", "item.potion.copper", "item.potion.crimson", "item.potion.indigo", "item.potion.ochre", "item.potion.pearl", "item.potion.saffron", "item.potion.silver", "item.potion.smoky", "item.potion.teal", "item.potion.violet", "item.ring", "item.ring.agate", "item.ring.amethyst", "item.ring.bronze", "item.ring.coral", "item.ring.diamond", "item.ring.emerald", "item.ring.garnet", "item.ring.ivory", "item.ring.jade", "item.ring.opal", "item.ring.quartz", "item.ring.ruby", "item.ring.sapphire", "item.ring.topaz", "item.scroll", "item.scroll.an-dor", "item.scroll.elam-tor", "item.scroll.heth-ara", "item.scroll.iv-mem", "item.scroll.kel-ran", "item.scroll.kha-mer", "item.scroll.lor-nev", "item.scroll.mir-vel", "item.scroll.nar-shen", "item.scroll.nem-al", "item.scroll.or-veth", "item.scroll.os-thal", "item.scroll.sah-ren", "item.scroll.tal-ion", "item.scroll.tir-os", "item.scroll.ur-sek", "item.scroll.vel-mor", "item.scroll.vel-tor", "item.tool.torch", "item.wand", "item.wand.aluminum", "item.wand.bronze", "item.wand.copper", "item.wand.electrum", "item.wand.gold", "item.wand.iron", "item.wand.lead", "item.wand.magnesium", "item.wand.nickel", "item.wand.platinum", "item.wand.silver", "item.wand.staff", "item.wand.staff.ash", "item.wand.staff.birch", "item.wand.staff.cedar", "item.wand.staff.cherry", "item.wand.staff.elm", "item.wand.staff.hazel", "item.wand.staff.mahogany", "item.wand.staff.maple", "item.wand.staff.oak", "item.wand.staff.pine", "item.wand.staff.teak", "item.wand.staff.walnut", "item.wand.staff.willow", "item.wand.staff.yew", "item.wand.steel", "item.wand.tin", "item.wand.zinc", "item.weapon", "item.weapon.arrow", "item.weapon.bow.short", "item.weapon.dagger", "item.weapon.dart", "item.weapon.greatsword", "item.weapon.mace", "item.weapon.shuriken", "item.weapon.spear", "item.weapon.sword.long"]
