@@ -1,5 +1,6 @@
 """Exact-tree selected PR seals plus fresh main integration."""
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -94,20 +95,40 @@ class Contract:
                    'Dependencies (advisories)', 'Rust (windows-latest)', 'Rust (ubuntu-latest)', 'Selected PR qualification'}
         success |= {'3D compatibility (linux-3d-consumer)' if row['id'] == 'linux-3d-consumer'
                     else 'Selected (' + row['id'] + ')' for row in self.plan['lanes']}
-        skipped = {job_name(key) for key in ('profiles', 'windows_binaries', 'windows_python', 'full_qualification', 'postmerge')}
-        skipped |= {job_name(key) for key, status in self.groups().items() if status == 'skipped'}
+        skipped = Counter(job_name(key) for key in (
+            'profiles', 'windows_binaries', 'windows_python', 'full_qualification', 'postmerge'))
+        skipped.update(job_name(key) for key, status in self.groups().items() if status == 'skipped')
         return success, skipped
 
+    @staticmethod
+    def skipped_name(name):
+        # GitHub's Jobs API may serialize uninstantiated conditional
+        # matrix names with explicit grouping. Accept only the observed
+        # spelling of this known skipped placeholder, never active roles.
+        matrix = job_name('profiles')
+        token = "matrix.shard && format('python shard {0}', matrix.shard) || matrix.partition"
+        if matrix == job_name('windows_python') and token in matrix:
+            grouped = matrix.replace(token, "((matrix.shard && format('python shard {0}', matrix.shard)) || matrix.partition)")
+            if name == grouped:
+                return matrix
+        return name
+
     def validate_jobs(self, jobs, run, qualified):
-        require(all(isinstance(row, dict) for row in jobs), 'malformed contract job metadata')
+        require(all(isinstance(row, dict) and isinstance(row.get('name'), str) for row in jobs), 'malformed contract job metadata')
         success, skipped = self.job_roles(qualified)
-        names = [row.get('name') for row in jobs]
-        require(len(names) == len(set(names)) and set(names) == success | skipped, 'canonical contract job roles')
+        ids = [row.get('id') for row in jobs]
+        require(all(type(job_id) is int and job_id > 0 for job_id in ids)
+                and len(set(ids)) == len(ids), 'malformed or duplicate contract job identity')
+        actual = Counter((self.skipped_name(row['name']) if row.get('conclusion') == 'skipped'
+                          else row['name'], row.get('conclusion') == 'skipped') for row in jobs)
+        expected = Counter((name, False) for name in success)
+        expected.update({(name, True): count for name, count in skipped.items()})
+        require(actual == expected, 'canonical contract job roles')
         for row in jobs:
             require(row.get('run_id') == run['id'] and row.get('head_sha') == run['head_sha']
                     and type(row.get('run_attempt')) is int and row['run_attempt'] == run['run_attempt']
                     and row.get('status') == 'completed', 'partial or foreign execution cohort')
-            allowed = {'skipped'} if row['name'] in skipped else {'success'}
+            allowed = {'skipped'} if row.get('conclusion') == 'skipped' else {'success'}
             if row['name'] == 'Dependencies (advisories)':
                 allowed |= {'failure'}  # Main enforcement is independently blocking.
             require(row.get('conclusion') in allowed, 'required contract job failed')
