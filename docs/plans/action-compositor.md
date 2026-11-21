@@ -123,9 +123,12 @@ exhaustively handles the new variant, and fixtures are regenerated.
 
 - **Settle boundary:** the text client's current turn-settle decision (`Until`,
   `Settled` and admission boundaries) moves into the shared crate unchanged,
-  behind characterization tests recorded first. Then the text client gets its own
-  beat policy, so multi-action commands close as one narrated beat. That change is
-  a separate commit with its own tests.
+  behind characterization tests recorded first. Implemented: the existing text turn
+  suites are the parity witness. The text client's goal engine (fight, follow,
+  journeys) already ends its multi-action beats with goal-specific caution, and
+  already narrates them as one passage. By decision, that engine *is* its beat
+  policy; it is not ported to `BeatPolicy`. The text client may adopt the shared
+  timeline later if narration needs it.
 - **Batch model:** per-actor spans with commit tick, linked strike ticks and an
   end. The end is exact for the owner, inferred from the actor's next activity, or
   open with a cap from its last observed step interval. Effect flights and
@@ -169,7 +172,7 @@ exhaustively handles the new variant, and fixtures are regenerated.
 | Wire round-trip, rejection and fixtures | `crates/protocol/tests/it` |
 | Disclosure:<br>• hidden actors emit nothing<br>• leaving sight yields a null endpoint<br>• no wait or ready tick for others<br>• private work is silent<br>• posture only for public preparation<br>• follow-through without an end<br>• unidentified item appearance<br>• exact own ready tick<br>Witnesses: an ordinary actor, a creature, and travel across a trap. | server adapter tests and a Python Service contract |
 | Compositor:<br>• beats across settles with client actions<br>• each end reason<br>• joined capped chunks<br>• the bounded-lead pause<br>• overlapping actions<br>• travel continuity<br>• multi-strike<br>• interrupted own preparation<br>• segmented projectiles<br>• frame change<br>• resynchronization | `crates/client-common/tests/it` |
-| Text-client parity, then text beat policy | characterization tests plus the existing turn and strike-sequence owners |
+| Text-client parity | characterization tests plus the existing turn and strike-sequence owners |
 | 3D:<br>• clock and gap caps<br>• span sampling<br>• disclosed-only straight flight<br>• reaction delay<br>• input gating and fast-forward | `crates/client-3d/model/tests/it` |
 
 Actual-process checks use the text turns, the headless effects test and the 3D
