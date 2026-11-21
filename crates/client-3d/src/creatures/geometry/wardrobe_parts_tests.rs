@@ -2210,3 +2210,51 @@ fn detached_draped_sleeve_has_an_upper_arm_seat_and_long_free_tail() {
         }
     }
 }
+
+#[test]
+fn closed_panel_preserves_resolved_attachment_and_fit_without_side_opening() {
+    for figure in [0, 2] {
+        let look = Look::with_choice(
+            CreatureModel::Nymph,
+            7,
+            Some(Variant {
+                woman: true,
+                figure,
+                ..default()
+            }),
+        );
+        let body = HumanoidBody::resolve(&look);
+        let mut shell =
+            ClothSurface::new(skirt_cut(body, 0.4, 0.86, false, true), 0.86, 12, 0.33, 7)
+                .with_hem(Hem::Train {
+                    extension: 0.1,
+                    front_rise: 0.15,
+                });
+        shell.paired = true;
+        let torso = torso_shape(body, None, false);
+        shell.seam = Some(std::sync::Arc::new(
+            (0..=64)
+                .map(|i| waist_parts::point(body, &torso, 0.07, i as f32 * TAU / 64.0, 0.006))
+                .collect(),
+        ));
+        shell = shell.fit_pelvis(body);
+        let closed = ClothSurface {
+            split: 0.0,
+            ..shell.clone()
+        };
+        for angle in [0.0, 0.11, 0.23, PI, TAU - 0.23, TAU] {
+            for t in [0.0, 0.125, 0.25, 0.5, 0.82, 1.0] {
+                for inside in [false, true] {
+                    let actual = shell.closed_point(t, angle, inside);
+                    assert_eq!(actual, closed.point(t, angle, inside));
+                    if t == 0.0 {
+                        assert_eq!(actual, shell.point(t, angle, inside));
+                    }
+                }
+            }
+        }
+        assert!(
+            shell.point(0.5, 0.0, false).distance(shell.closed_point(0.5, 0.0, false)) > 0.1
+        );
+    }
+}

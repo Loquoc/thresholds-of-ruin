@@ -10,11 +10,7 @@ pub(super) fn panel_point(
 ) -> Vec3 {
     // A separate, continuous central panel leaves two real openings. It shares
     // the parent's cut and sway, but never inherits the side panels' separation.
-    let unsplit = ClothSurface {
-        split: 0.0,
-        ..surface.clone()
-    };
-    unsplit.point(t, (across * width).rem_euclid(TAU), inner) + Vec3::Z * 0.008
+    surface.closed_point(t, (across * width).rem_euclid(TAU), inner) + Vec3::Z * 0.008
 }
 
 pub(super) fn center_panel(
