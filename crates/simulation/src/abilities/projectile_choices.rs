@@ -19,7 +19,7 @@ pub enum ProjectileChoice {
     Ammunition { item: ItemId },
 }
 impl Game {
-    fn projectile_item_profile(
+    pub(crate) fn projectile_item_profile(
         &self,
         actor: ActorId,
         item: ItemId,

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from itertools import product
 import json
+import logging
 import time
 from typing import TYPE_CHECKING, Iterator
 
@@ -46,9 +47,11 @@ from .models import (
     Outcome,
     Pickup,
     ProjectileOption,
+    ProjectileRange,
     Recovery,
     RestorableLosses,
     Result,
+    ServerNotice,
     Shot,
     StairAttempt,
     Trap,
@@ -94,8 +97,10 @@ def _weapon_attack(equipment: dict | None) -> WeaponAttack | None:
     return WeaponAttack(attack["skill"]["id"], attack["bonus"], damage, attack["wind_up"], attack["recovery"])
 
 
-def _item(row: dict, uses: tuple[ItemUse, ...] = (), *, offer: dict | None = None) -> Item:
+def _item(row: dict, uses: tuple[ItemUse, ...] = (), *, offer: dict | None = None,
+          known_use: dict | None = None) -> Item:
     offer = offer or {}
+    known_use = known_use or {}
     return Item(
         row["id"],
         row["name"],
@@ -109,6 +114,9 @@ def _item(row: dict, uses: tuple[ItemUse, ...] = (), *, offer: dict | None = Non
         _weapon_attack(offer.get("known_equipment")),
         offer.get("known_equipment") is not None,
         offer.get("known_protected"),
+        tuple(known_use.get("identifies", ())),
+        ProjectileRange(**known_use["throw_range"]) if known_use.get("throw_range") else None,
+        ProjectileRange(**known_use["launch_range"]) if known_use.get("launch_range") else None,
     )
 
 
@@ -160,9 +168,15 @@ class Turn:
         return tuple(Activity.from_row(row) for row in self._picture.get("intentions", ()))
 
     @cached_property
+    def server_notice(self) -> ServerNotice | None:
+        row = self._picture.get("server_notice")
+        return ServerNotice(**row) if row else None
+
+    @cached_property
     def finished_activities(self) -> tuple[Activity, ...]:
         """Recent terminal actions retained by the common client."""
-        return tuple(Activity.from_row(row) for row in self._picture.get("finished_intentions", ()))
+        failures = self._picture.get("intention_failures", {})
+        return tuple(Activity.from_row(row, failures.get(row["intention"])) for row in self._picture.get("finished_intentions", ()))
 
     def outcome_of(self, result: Result) -> ActivityPhase | None:
         """Latest observed phase for this receipt, or None outside the retained history."""
@@ -460,6 +474,7 @@ class Turn:
     @cached_property
     def inventory(self) -> tuple[Item, ...]:
         items = []
+        known_uses = {use["item"]: use for use in self._view.get("known_item_uses", ())}
         for row in self._view["inventory"]:
             offer = self._inventory_offers.get(row["id"], {})
             uses = tuple(
@@ -471,7 +486,7 @@ class Turn:
                 )
                 if offer.get(field)
             )
-            items.append(_item(row, uses, offer=offer))
+            items.append(_item(row, uses, offer=offer, known_use=known_uses.get(row["id"])))
         return tuple(items)
 
     @cached_property
@@ -773,6 +788,8 @@ class Turn:
             return
         for option in self.projectiles():
             for offset, target in targets:
+                if option.range is not None and not option.range.reaches(offset):
+                    continue
                 yield Shot(
                     option.ability,
                     target,
@@ -781,6 +798,7 @@ class Turn:
                     option.launcher,
                     option.socket,
                     option.equipped_throw,
+                    option.range,
                 )
 
     def projectiles(self) -> Iterator[ProjectileOption]:
@@ -973,7 +991,10 @@ class ReadinessTimeout(TimeoutError):
 
     def __init__(self, turn: Turn):
         self.turn = turn
-        super().__init__(f"Player readiness stalled at tick {turn.tick}")
+        message = f"Player readiness stalled at tick {turn.tick}"
+        if turn.server_notice:
+            message += f" ({turn.server_notice.code}): {turn.server_notice.message}"
+        super().__init__(message)
 
 
 class Session:
@@ -1046,4 +1067,9 @@ class Session:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
+        try:
+            self.close()
+        except Exception as close_error:
+            if exc is None:
+                raise
+            logging.getLogger(__name__).error("Session close also failed: %s", close_error)

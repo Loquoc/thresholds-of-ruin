@@ -22,6 +22,7 @@ impl Engine {
         Ok(Some(CommandResult {
             entry: record.entry.clone(),
             duplicate: true,
+            intention_failure: None,
         }))
     }
 
@@ -126,6 +127,7 @@ impl Engine {
         Ok(CommandResult {
             entry,
             duplicate: false,
+            intention_failure: None,
         })
     }
     pub(crate) fn attachment_bytes(

@@ -170,6 +170,23 @@ impl IntentionPhase {
     }
 }
 
+/// A controlling player's own reason for a committed execution failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IntentionFailure {
+    Unfunded,
+    CoolingDown,
+}
+
+impl IntentionFailure {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::Unfunded => "You cannot pay the cost of this action.",
+            Self::CoolingDown => "This ability is still cooling down.",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IntentionStatus {
@@ -789,8 +806,42 @@ pub struct MotionView {
     pub impacted: bool,
 }
 
+/// Ranges in physical cells. Cell aims use the largest absolute component,
+/// including height, just as the simulation's flight-aim check does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectileRangeView {
+    pub short_cells: u32,
+    pub long_cells: u32,
+}
+
+impl ProjectileRangeView {
+    pub(crate) fn valid(self) -> bool {
+        (1..=self.long_cells).contains(&self.short_cells) && self.long_cells <= 4096
+    }
+}
+
+/// Type and expertise facts for a recognized carried item.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KnownItemUse {
+    pub item: ItemTarget,
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "read_item_classes"
+    )]
+    pub identifies: Vec<ItemClass>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub throw_range: Option<ProjectileRangeView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_range: Option<ProjectileRangeView>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_item_uses: Vec<KnownItemUse>,
     /// Read-only chart catalog; never sight, ordinary map memory or action offers.
     #[serde(deserialize_with = "crate::chart_pages::read_summaries")]
     pub charts: Vec<crate::chart_pages::ChartSummary>,
@@ -2237,6 +2288,8 @@ pub enum UpdateBody {
     },
     Intention {
         status: IntentionStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failure: Option<IntentionFailure>,
     },
     Travel {
         status: TravelStatus,

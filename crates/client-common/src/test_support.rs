@@ -98,6 +98,7 @@ pub fn stats() -> OwnStats {
 pub fn observation() -> Observation {
     Observation {
         public_effects: vec![],
+        known_item_uses: Vec::new(),
         self_appearance: None,
         interactions: None,
         combat: Some(CombatView {

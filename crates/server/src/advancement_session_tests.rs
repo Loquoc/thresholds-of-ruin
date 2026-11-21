@@ -1152,6 +1152,41 @@ fn real_capacity_notice_reaches_a_new_controller_after_suspend_and_resume() {
 }
 
 #[test]
+fn queued_storage_failure_reaches_each_controller_once_without_exposing_other_work() {
+    let (mut service, mut owner, mut others) = capacity_service(false);
+    let victim = &mut others[0];
+    let actor = ActorId(1);
+    admit_capacity_ability(&mut service, &mut owner, actor, "growth_finisher", 2);
+    let queued = service.engine.pending_intentions(actor);
+    assert!(!queued.is_empty());
+    for _ in 0..2 {
+        service.report_execution_failure(
+            actor,
+            Failure::new(ErrorCode::InvalidArchive, "private diagnostic"),
+        );
+        service.poll_saves();
+    }
+    let errors = |client: &mut Connection| {
+        drain(client)
+            .into_iter()
+            .filter(|message| message["type"] == "error")
+            .collect::<Vec<_>>()
+    };
+    let own = errors(&mut owner);
+    let other = errors(victim);
+    assert_eq!(own.len(), 1);
+    assert_eq!(other.len(), 1);
+    assert_eq!(own[0]["message"], "private diagnostic");
+    assert_ne!(other[0]["message"], own[0]["message"]);
+    assert_eq!(other[0]["code"], "invalid_archive");
+    assert_eq!(other[0]["scope"]["type"], "attached");
+    for spectator in &mut others[1..] {
+        assert!(errors(spectator).is_empty());
+    }
+    assert_eq!(service.engine.pending_intentions(actor), queued);
+}
+
+#[test]
 fn real_capacity_notice_output_refusal_disconnects_without_partial_simulation_effects() {
     use crate::engine::growth_capacity_transaction_tests as fixture;
     let (mut service, mut owner, mut others) = capacity_service(true);
@@ -1173,7 +1208,10 @@ fn real_capacity_notice_output_refusal_disconnects_without_partial_simulation_ef
     assert!(owner.close.borrow().is_some());
     assert!(service.pending_pauses.contains(&ActorId(1)));
     assert!(
-        service.reported_execution_failure.is_none(),
+        service
+            .clients
+            .values()
+            .all(|client| client.reported_execution_failure.is_none()),
         "refused output is not a delivered notice"
     );
     for client in &mut others {

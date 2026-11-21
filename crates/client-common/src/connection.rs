@@ -659,6 +659,16 @@ impl Connection {
     /// background-query, validation and transport failures. Do not automatically
     /// retry an error that may have occurred after the server received the request.
     pub async fn request(&mut self, request: Request) -> Result<String, ConnectionError> {
+        self.request_tracked(request, |_| {}).await
+    }
+
+    /// Like `request`, but disclose the correlation ID before a socket write can
+    /// become ambiguous. An issued ID does not establish server admission.
+    pub async fn request_tracked(
+        &mut self,
+        request: Request,
+        issued: impl FnOnce(&str),
+    ) -> Result<String, ConnectionError> {
         if matches!(request, Request::Map { .. }) {
             return Err("Map hydration is managed automatically".into());
         }
@@ -673,13 +683,14 @@ impl Connection {
                 self.observation_demand.ensure_pending();
             }
             self.prepare_observation_request()?;
-            return Ok(self
+            let id = &self
                 .observation_demand
                 .pending
                 .as_ref()
                 .expect("prepared visual demand")
-                .request_id
-                .clone());
+                .request_id;
+            issued(id);
+            return Ok(id.clone());
         }
         if let Request::Chart { query } = &request {
             self.start_chart_request(query.clone())?;
@@ -690,13 +701,10 @@ impl Connection {
                 .0
                 .request_id
                 .clone();
+            issued(&id);
             self.progress_chart_request().await?;
             return Ok(id);
         }
-        self.send_request(request).await
-    }
-
-    async fn send_request(&mut self, request: Request) -> Result<String, ConnectionError> {
         let request_id = uuid::Uuid::new_v4().to_string();
         if let Request::Command {
             command:
@@ -725,6 +733,7 @@ impl Connection {
         ) {
             self.inspection_pages.bind_request(&request_id);
         }
+        issued(&request_id);
         let started = self.timing.then(std::time::Instant::now);
         if self.timing {
             self.timing_event("client_request", &request_id, None, Some(&request));
@@ -856,6 +865,12 @@ impl Connection {
                 } => {
                     return Err("Host error has no current attachment".into());
                 }
+                ServerMessage::Error {
+                    scope: ErrorScope::Attached { context },
+                    request_id: None,
+                    code,
+                    message,
+                } => self.state.record_server_notice(context, *code, message),
                 _ => {}
             }
             if let ServerMessage::CreatureCatalog { page, .. } = &message {

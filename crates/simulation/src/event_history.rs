@@ -1493,6 +1493,12 @@ impl Game {
         {
             return Err(invalid());
         }
+        // A host continuation can append events after the action's participant
+        // seal. Bind their causal receipts before filling gaps from this
+        // observer's view, just as for an ordinary completed action.
+        if self.event_receipts.sealed != self.event_log.len() {
+            self.seal_participant_events()?;
+        }
         let row = self.event_receipts.observers.get(&observer);
         let additions = proof
             .entries

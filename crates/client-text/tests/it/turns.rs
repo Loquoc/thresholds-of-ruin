@@ -285,6 +285,7 @@ impl Link for Scripted {
                     self.update(
                         tick,
                         UpdateBody::Intention {
+                            failure: None,
                             status: IntentionStatus {
                                 actor: ActorId(1),
                                 branch: branch(),

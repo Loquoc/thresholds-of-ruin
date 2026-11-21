@@ -1120,6 +1120,7 @@ class ProcessTestCase(unittest.TestCase):
         field remain exact; same-role callers must use the strict assertion.
         """
         expected = copy.deepcopy(player_observation)
+        expected.pop("known_item_uses", None)
         items = list(expected.get("inventory", [])) + [row["item"] for row in expected.get("ground_items", [])]
         for item in items:
             # Real wire items require both fields; no legacy-shape fallback.

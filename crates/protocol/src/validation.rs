@@ -211,9 +211,33 @@ impl StateView {
         {
             return Err(InvalidState::InvalidMotion);
         }
+        if o.interactions.is_none() && !o.known_item_uses.is_empty() {
+            return Err(InvalidState::InvalidInteraction);
+        }
         if let Some(interactions) = &o.interactions {
             let inventory: std::collections::HashMap<_, _> =
                 o.inventory.iter().map(|item| (item.id, item)).collect();
+            if !unique(o.known_item_uses.iter().map(|use_| use_.item))
+                || o.known_item_uses.iter().any(|use_| {
+                    let Some(item) = inventory.get(&use_.item) else {
+                        return true;
+                    };
+                    !item.identified
+                        || item.identity.is_unknown()
+                        || (use_.identifies.is_empty()
+                            && use_.throw_range.is_none()
+                            && use_.launch_range.is_none())
+                        || (!use_.identifies.is_empty()
+                            && (item.class != crate::ItemClass::Scroll
+                                || !crate::wire::valid_identification_classes(&use_.identifies)))
+                        || [use_.throw_range, use_.launch_range]
+                            .into_iter()
+                            .flatten()
+                            .any(|range| !range.valid())
+                })
+            {
+                return Err(InvalidState::InvalidInteraction);
+            }
             let mut equipped = HashSet::new();
             if interactions.refused.len() > 4096
                 || interactions

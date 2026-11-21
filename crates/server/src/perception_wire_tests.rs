@@ -929,6 +929,9 @@ fn equipped_weapon_selection_keeps_item_scope_socket_and_contact_authority_indep
         }],
         preparation: None,
         inventory: vec![s::ItemInteractionView {
+            identifies: Vec::new(),
+            throw_range: None,
+            launch_range: None,
             portable_light: None,
             item,
             slot: None,
@@ -1069,6 +1072,9 @@ fn projectile_delivery_preserves_exact_owned_operands_without_hidden_profile_aut
                 asset: None,
             });
             s::ItemInteractionView {
+                identifies: Vec::new(),
+                throw_range: None,
+                launch_range: None,
                 portable_light: None,
                 item,
                 slot: None,

@@ -461,6 +461,71 @@ Investigate which actor or scheduler event prevents preparation from
 advancing. A charged device and an admitted action alone do not establish
 that the displacement took effect.
 
+### Replaying the stalled campaigns
+
+On fresh SQLite backups, the seed-47 wand stall, seed-49 descent stall, and
+seed-42 scroll-read stall reached the same event-history check.
+An observer recorded an event while its participant receipts were still
+unsealed. Recording the participant receipt then encountered a duplicate.
+The server reported a journal commit failure for seeds 47 and 42 and an
+inconsistent archive for seed 49.
+
+With participant receipts sealed first, actor 132 started its original Filch
+Charm intention (16498), advancing the durable sequence from 33049 to 33050.
+An ordinary client resumed the player's wand, received its resolved phase at
+tick 622938 and reopened at the same cell. On seed 49 the original descent
+(15110) advanced the durable sequence from 30251 to 30252 and crossed from
+region 94 to 102. The client resumed without cancellation, received the
+resolved phase at tick 598000 and reopened at the landing. The floor-6
+eastward walking report still lacks a matching engine trace.
+
+On floor 17 of seed 42, the final queued Read matched actor 1's admission
+at sequence 31349 and tick 573075. On the original engine, attempting that
+work rejected an event receipt during a region transition at tick 573175.
+On the candidate, an ordinary client resumed the same Read and saw it resolve
+at tick 573175. Reopening preserved the resulting decision and cell. The
+journal contained one execution of that admission at sequence 31352.
+
+These three historical replays used the receipt fix on the format-37
+scenario revision that produced the saves. On the integrated format-38
+revision, startup rejected the seed-42 archive with the bundled scenario.
+Its scenario validator also rejected a separate copy of the original
+format-37 package. The historical replays establish the receipt fix on
+matching inputs. Current-format coverage comes from the event-history and
+actual-process regressions.
+
+### Checkpoint size and restore time on retained campaigns
+
+Each row measures one fresh Windows debug server restoring a SQLite backup.
+Replay time comes from the server's restore trace. Ready time runs from
+process launch to publication of the listening address. The operating-system
+file cache was uncontrolled.
+
+| Floor and seed | Uncompressed checkpoint bytes | Bytes in shared floor activations | Journal entries after checkpoint | Replay seconds | Ready seconds |
+|---|---:|---:|---:|---:|---:|
+| 11, seed 49 | 10,550,450 | 4,589,011 | 555 | 7.51 | 19.94 |
+| 16, seed 47 | 19,403,317 | 9,786,821 | 281 | 9.31 | 11.83 |
+| 23, seed 49 | 21,699,898 | 10,443,761 | 848 | 16.82 | 21.02 |
+
+Shared floor activations accounted for 43–50% of these checkpoints. Across
+143 retained campaign checkpoints the longest durable tail was 992 entries,
+within the normal 1,024-entry capture interval. Measuring replay after
+consecutive capacity deferrals still requires a save exhibiting that condition.
+
+### Save lag at close
+
+In a seed-43 run during a concurrent Windows build, Dislocating Strike
+resolved and the opponent left the exit. Closing the client then reported
+zero of six journal entries durable. A repeat with a 45-second server save
+deadline reached the native client's close deadline. Six entries suffice
+to reproduce the symptom under load. The observed counts do not establish
+where the writer spent its time or whether the entries became durable later.
+
+To distinguish those cases, record the requested sequence, the writer's
+batch start and commit times, and the durable sequence after reopening.
+Keep any earlier action error and receipt with the report. The Python
+session preserves that error when closing during exception unwinding.
+
 ## A visible stair can be unusable while hovering
 
 On development seed 49 the actor sampled an unidentified potion, reached

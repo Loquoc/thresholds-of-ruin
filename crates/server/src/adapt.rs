@@ -951,6 +951,29 @@ pub(crate) fn observation(
         })
         .collect();
     p::Observation {
+        known_item_uses: view
+            .interactions
+            .iter()
+            .flat_map(|interaction| &interaction.inventory)
+            .filter_map(|item| {
+                if item.identifies.is_empty()
+                    && item.throw_range.is_none()
+                    && item.launch_range.is_none()
+                {
+                    return None;
+                }
+                let cells = |range: s::weapon_profiles::RangeBands| p::ProjectileRangeView {
+                    short_cells: range.short_feet / s::weapon_profiles::PROJECTILE_STEP_FEET,
+                    long_cells: range.long_feet / s::weapon_profiles::PROJECTILE_STEP_FEET,
+                };
+                Some(p::KnownItemUse {
+                    item: targets.item(item.item),
+                    identifies: item.identifies.iter().copied().map(item_class).collect(),
+                    throw_range: item.throw_range.map(cells),
+                    launch_range: item.launch_range.map(cells),
+                })
+            })
+            .collect(),
         public_effects: Vec::new(),
         charts: vec![],
         self_appearance: Some(p::CreatureAppearance {

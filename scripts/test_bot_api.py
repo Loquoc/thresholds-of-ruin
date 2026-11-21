@@ -17,6 +17,33 @@ def attached(session, snapshot):
 
 
 class BotApiTests(unittest.TestCase):
+    def test_session_exit_preserves_action_error_when_save_also_fails(self):
+        from tor_client_bot import Session
+
+        connection = Mock()
+        connection.close.side_effect = RuntimeError("save deadline exceeded")
+        action_error = TimeoutError("movement outcome unknown")
+        with self.assertLogs('tor_client_bot.game', level='ERROR') as logged:
+            with self.assertRaises(TimeoutError) as raised:
+                with Session(connection):
+                    raise action_error
+        self.assertIn('save deadline exceeded', logged.output[0])
+        self.assertIs(raised.exception, action_error)
+        connection.close.assert_called_once()
+
+    def test_session_exit_propagates_save_failure_after_normal_play(self):
+        from tor_client_bot import Session
+
+        connection = Mock()
+        save_error = RuntimeError("save deadline exceeded")
+        connection.close.side_effect = save_error
+        with self.assertRaises(RuntimeError) as raised:
+            with Session(connection):
+                pass
+        self.assertIs(raised.exception, save_error)
+        connection.close.assert_called_once()
+
+
     def test_falling_uses_only_downward_velocity_and_supports_older_recordings(self):
         for motion, expected in [(None, False), ({"velocity": ["4", "0", "0"]}, False),
                                  ({"velocity": [0, 0, 2]}, False), ({"velocity": ["0", "0", "-1"]}, True)]:
@@ -288,6 +315,24 @@ class BotApiTests(unittest.TestCase):
         self.assertEqual(caught.exception.turn.tick, 17)
         self.assertFalse(caught.exception.turn.can_act)
 
+    def test_unknown_result_keeps_its_request_id_without_claiming_admission(self):
+        from tor_client_bot import Result
+        result = Result.from_reply({"status": "unknown_outcome", "request_id": "lost-reply"})
+        self.assertIs(result.status, Outcome.UNKNOWN)
+        self.assertEqual(result.request_id, "lost-reply")
+        self.assertIsNone(result.activity)
+        self.assertIsNone(Result.from_reply({"status": "unknown_outcome"}).request_id)
+
+    def test_readiness_timeout_reports_the_scoped_server_notice(self):
+        from tor_client_bot import ReadinessTimeout, Turn
+        notice = {"code": "storage_failure", "message": "Could not commit the game journal"}
+        turn = Turn({"state": {"observation": {"tick": 17}}, "readiness": {},
+                     "server_notice": notice})
+        timeout = ReadinessTimeout(Turn.replay(turn.recording()))
+        self.assertIn("storage_failure", str(timeout))
+        self.assertIn(notice["message"], str(timeout))
+        self.assertEqual(timeout.turn.server_notice.code, "storage_failure")
+
     def test_optional_stalled_decision_preserves_receipt_and_continues_the_same_iterator(self):
         from tor_client_bot import ActivityPhase, ReadinessTimeout, Session, Wait
 
@@ -309,6 +354,19 @@ class BotApiTests(unittest.TestCase):
         self.assertIs(stall.turn, blocked)
         self.assertIs(stall.previous_phase, ActivityPhase.QUEUED)
         self.assertFalse(next(decisions).stalled)
+
+    def test_recording_retains_the_disclosed_reason_only_for_the_matching_failure(self):
+        from tor_client_bot import ActivityPhase
+        rows = [dict(actor=1, branch="game", intention=str(index), phase=phase)
+                for index, phase in enumerate(("failed", "resolved", "failed"))]
+        picture = {"state": {"observation": {"tick": 17}}, "readiness": {}, "finished_intentions": rows}
+        legacy = Turn(picture)
+        self.assertTrue(all(activity.failure is None for activity in legacy.finished_activities))
+        picture["intention_failures"] = {"2": "unfunded"}
+        replay = Turn.replay(Turn(picture).recording())
+        self.assertEqual([(a.intention, a.phase, a.failure) for a in replay.finished_activities],
+                         [("0", ActivityPhase.FAILED, None), ("1", ActivityPhase.RESOLVED, None),
+                          ("2", ActivityPhase.FAILED, "unfunded")])
 
     def test_identification_accepts_only_items_from_its_own_offer(self):
         from dataclasses import replace
@@ -695,10 +753,14 @@ class BotApiTests(unittest.TestCase):
             view["visible_cells"].append(
                 {**view["visible_cells"][-1], "key": f"upper-{height}", "position": position}
             )
-        for key in ("bow", "arrow"):
+        for key in ("bow", "arrow", "scroll"):
             view["inventory"].append(
                 {"id": key, "name": key, "quantity": "1", "identity": key, "identified": True}
             )
+        view["known_item_uses"] = [
+            {"item": "bow", "launch_range": {"short_cells": 1, "long_cells": 2}},
+            {"item": "scroll", "identifies": ["ring", "wand"]},
+        ]
         snap.data.return_value = {"state": {"observation": view}, "readiness": {}}
         launcher = {"item": "bow", "socket": 3}
         session.projectile_choices.side_effect = [
@@ -708,7 +770,11 @@ class BotApiTests(unittest.TestCase):
         ]
         turn = attached(session, snap)
         shot, upper = turn.ranged_attacks(max_distance=2)
+        self.assertEqual((shot.range.short_cells, shot.range.long_cells), (1, 2))
+        self.assertEqual(turn.inventory[-1].identifies, ("ring", "wand"))
         replay = Turn.replay(turn.recording())
+        self.assertEqual(tuple(replay.ranged_attacks()), (shot, upper))
+        self.assertEqual(tuple(replay.ranged_attacks(max_distance=1)), ())
         self.assertEqual(tuple(replay.ranged_attacks(max_distance=2)), (shot, upper))
         self.assertIs(shot.target, upper.target)
         self.assertEqual(upper.offset, (2, 0, 1))

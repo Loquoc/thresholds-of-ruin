@@ -39,15 +39,16 @@ pub struct Account {
 /// Keep the sharing fast path beside the restriction it must exactly match.
 /// Presence, including a known false curse/protection fact, is private knowledge.
 fn has_private_item_disclosure(state: &StateView) -> bool {
-    state
-        .observation
-        .inventory
-        .iter()
-        .chain(state.observation.ground_items.iter().map(|row| &row.item))
-        .any(|item| {
-            item.identity != ItemClass::Misc.unknown_identity()
-                || item.knowledge != ItemKnowledge::default()
-        })
+    !state.observation.known_item_uses.is_empty()
+        || state
+            .observation
+            .inventory
+            .iter()
+            .chain(state.observation.ground_items.iter().map(|row| &row.item))
+            .any(|item| {
+                item.identity != ItemClass::Misc.unknown_identity()
+                    || item.knowledge != ItemKnowledge::default()
+            })
         || state.observation.interactions.as_ref().is_some_and(|view| {
             view.identification.is_some()
                 || !view.curse_blocked.is_empty()
@@ -65,6 +66,7 @@ fn has_private_item_disclosure(state: &StateView) -> bool {
 /// and learned equipment facts belong only to account-authorized owner attachments.
 fn restrict_item_disclosure(state: &mut StateView, role: AccessRole) {
     if role == AccessRole::Spectator {
+        state.observation.known_item_uses.clear();
         // Machine identity and learned instance facts are observer-owned. Keep
         // legacy public names, identified flags and currency/supply affordances;
         // identified does not imply a disclosed concrete machine identity.
@@ -277,6 +279,8 @@ struct Client {
     /// What this client was last told play waits for, since its last update
     /// or snapshot; `None` once anything has changed.
     waiting: Option<Waiting>,
+    /// Last queued failure delivered to this attachment. Never persisted.
+    reported_execution_failure: Option<(StreamContext, BranchId, EntryId, ErrorCode)>,
 }
 
 /// A resource failure discards stale output; an intentional detach may deliver
@@ -371,8 +375,6 @@ pub struct Service {
     save_warning: Option<String>,
     /// How long an explicit save waits for durability before `SaveBehind`.
     save_reply_wait: std::time::Duration,
-    // One ephemeral delivery witness, never simulation or saved authority.
-    reported_execution_failure: Option<(u64, StreamContext, BranchId, EntryId, ErrorCode)>,
     clients: BTreeMap<u64, Client>,
     controllers: BTreeMap<ActorId, u64>,
     control_generations: BTreeMap<ActorId, Option<u64>>,
@@ -449,7 +451,6 @@ impl Service {
             pending_saves: Vec::new(),
             save_reply_wait: SAVE_REPLY_WAIT,
             save_warning,
-            reported_execution_failure: None,
             clients: BTreeMap::new(),
             controllers: BTreeMap::new(),
             control_generations: BTreeMap::new(),
@@ -530,6 +531,7 @@ impl Service {
                 messages,
                 close,
                 waiting: None,
+                reported_execution_failure: None,
             },
         );
         self.send(
@@ -1474,6 +1476,14 @@ impl Service {
                 self.update(
                     recipient,
                     UpdateBody::Intention {
+                        failure: result.intention_failure.as_ref().and_then(
+                            |(admission, reason)| {
+                                (status.phase == IntentionPhase::Failed
+                                    && admission == &status.entry_id
+                                    && self.controllers.get(&status.actor) == Some(&recipient))
+                                .then_some(*reason)
+                            },
+                        ),
                         status: status.clone(),
                     },
                 );
@@ -1992,7 +2002,6 @@ impl Service {
                 .map(|result| (before_states, result))
         }) {
             Ok((before_states, Some(result))) => {
-                self.reported_execution_failure = None;
                 // Account committed movement before output can disconnect its owner.
                 let travel = self.commit_travel_progress(next, &result);
                 if let Err(error) = self.action_result_update(&before_states, &result) {
@@ -2004,57 +2013,63 @@ impl Service {
                 return Step::Progress;
             }
             Ok((_, None)) => {}
-            // Ordinary unavailable actions already return a committed
-            // IntentionFailed above. Returned simulation refusals retain their
-            // queue and need a controller notice, not a storage warning.
-            Err(error)
-                if matches!(
-                    error.code,
-                    ErrorCode::ResourceLimit | ErrorCode::InvalidAction
-                ) =>
-            {
-                self.report_execution_failure(next, error);
-            }
-            Err(error) => self.save_warning = Some(error.to_string()),
+            // An execution error leaves its admission queued. Save-worker polling
+            // tracks a separate condition and cannot acknowledge this failure.
+            Err(error) => self.report_execution_failure(next, error),
         }
         self.announce_waiting();
         Step::Blocked
     }
 
-    /// A refused admitted action stays retryable. Report its typed simulation
-    /// failure to its current controller once, independently of storage polling.
     fn report_execution_failure(&mut self, actor: ActorId, failure: Failure) {
-        let Some(&client) = self.controllers.get(&actor) else {
-            return;
-        };
         let Some(admission) = self.engine.queued_intention_admission(actor).cloned() else {
             return;
         };
-        let Some(stream) = self
-            .clients
-            .get(&client)
-            .and_then(|client| client.context.clone())
-        else {
-            return;
-        };
-        let key = (
-            client,
-            stream,
-            self.engine.branch().clone(),
-            admission,
+        let owner = self.controllers.get(&actor).copied();
+        let shared = matches!(
             failure.code,
-        );
-        if self.reported_execution_failure.as_ref() == Some(&key) {
-            return;
-        }
-        let message = ServerMessage::Error {
-            scope: self.error_scope(client),
-            request_id: None,
-            code: failure.code,
-            message: failure.message,
+            ErrorCode::StorageFailure | ErrorCode::InvalidArchive
+        ) || self.engine.next_intention_origin()
+            == Some(tor_simulation::IntentionOrigin::Autonomous);
+        let recipients: Vec<_> = if shared {
+            self.controllers.values().copied().collect()
+        } else {
+            owner.into_iter().collect()
         };
-        if self.admit_output(client, &message) {
-            self.reported_execution_failure = Some(key);
+        for id in recipients {
+            let Some(client) = self.clients.get(&id) else {
+                continue;
+            };
+            let Some(stream) = client.context.clone() else {
+                continue;
+            };
+            let key = (
+                stream,
+                self.engine.branch().clone(),
+                admission.clone(),
+                failure.code,
+            );
+            if client.reported_execution_failure.as_ref() == Some(&key) {
+                continue;
+            }
+            // A controller waiting on someone else's work can learn that
+            // advancement stopped, but neither the actor nor its action.
+            let reason = if owner == Some(id) {
+                failure.message.clone()
+            } else {
+                "World advancement is blocked. The queued action has not committed.".into()
+            };
+            let message = ServerMessage::Error {
+                scope: self.error_scope(id),
+                request_id: None,
+                code: failure.code,
+                message: reason,
+            };
+            if self.admit_output(id, &message) {
+                if let Some(client) = self.clients.get_mut(&id) {
+                    client.reported_execution_failure = Some(key);
+                }
+            }
         }
     }
 
@@ -3287,6 +3302,7 @@ mod tests {
             base_snapshot: base.snapshot.clone(),
             snapshot: next.snapshot.clone(),
             charts: o.charts.clone(),
+            known_item_uses: o.known_item_uses.clone(),
             self_appearance: o.self_appearance.clone(),
             interactions: None,
             base_revision: base.revision,
@@ -5071,7 +5087,8 @@ mod tests {
                 status: IntentionStatus {
                     phase: IntentionPhase::Queued,
                     ..
-                }
+                },
+                ..
             }
         ));
         assert_eq!(update.cursor.tick, 0);

@@ -499,9 +499,12 @@ pub enum GameError {
     InvalidLocation,
     Occupied,
     Blocked,
+    StepNeedsSupport,
+    StairsWhileLevitating,
     /// No distinction between unknown, hidden, carried, and out-of-reach items.
     ItemUnavailable,
 
+    InsufficientGrip,
     InvalidQuantity,
     DoorUnavailable,
     IdentityExhausted,

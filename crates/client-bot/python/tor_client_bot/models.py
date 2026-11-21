@@ -147,6 +147,16 @@ class WeaponAttack:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectileRange:
+    """Effective short and maximum range, measured in five-foot cells."""
+    short_cells: int
+    long_cells: int
+
+    def reaches(self, offset: tuple[int, int, int]) -> bool:
+        return max(map(abs, offset)) <= self.long_cells
+
+
+@dataclass(frozen=True, slots=True)
 class Item:
     target: str
     name: str
@@ -160,6 +170,9 @@ class Item:
     weapon_attack: WeaponAttack | None = None
     equipment_identified: bool = False
     known_protected: bool | None = None
+    identifies: tuple[str, ...] = ()
+    throw_range: ProjectileRange | None = None
+    launch_range: ProjectileRange | None = None
 
 
 class DeviceActivation(str, Enum):
@@ -283,6 +296,11 @@ class ProjectileOption:
     socket: int
     equipped_throw: bool = False
 
+    @property
+    def range(self) -> ProjectileRange | None:
+        return self.launcher.launch_range if self.launcher else self.projectile.throw_range
+
+
 
 @dataclass(frozen=True, slots=True)
 class Shot:
@@ -293,6 +311,7 @@ class Shot:
     launcher: Item | None
     socket: int
     equipped_throw: bool = False
+    range: ProjectileRange | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +493,13 @@ class ActivityPhase(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ServerNotice:
+    """An unsolicited server error received at the current decision boundary."""
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class Activity:
     """One observation of a gameplay action admitted by the server."""
 
@@ -481,10 +507,11 @@ class Activity:
     branch: str
     intention: str
     phase: ActivityPhase
+    failure: str | None = None
 
     @classmethod
-    def from_row(cls, row: dict) -> Activity:
-        return cls(int(row["actor"]), row["branch"], row["intention"], ActivityPhase(row["phase"]))
+    def from_row(cls, row: dict, failure: str | None = None) -> Activity:
+        return cls(int(row["actor"]), row["branch"], row["intention"], ActivityPhase(row["phase"]), failure)
 
 
 class Outcome(str, Enum):
@@ -502,6 +529,7 @@ class Result:
     reason: str | None
     activity: Activity | None = None
     code: str | None = None
+    request_id: str | None = None
 
     @property
     def stale(self) -> bool:
@@ -518,6 +546,7 @@ class Result:
             reply.get("message"),
             activity,
             reply.get("code"),
+            reply.get("request_id"),
         )
 
 

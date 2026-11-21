@@ -68,7 +68,7 @@ impl Player {
                         UpdateBody::ObservationDelta { state, .. } => {
                             state.apply(&self.state).unwrap()
                         }
-                        UpdateBody::Intention { status }
+                        UpdateBody::Intention { status, .. }
                             if admitted.as_ref() == Some(&status.intention) =>
                         {
                             match status.phase {

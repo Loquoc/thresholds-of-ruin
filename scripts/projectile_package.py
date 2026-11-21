@@ -12,8 +12,8 @@ from arena_matrix import toml_source
 from rogue_roster_package import PRODUCTION, encounter
 
 
-def projectile_package(test):
-    manifest, region = encounter("emu")
+def projectile_package(test, *, short_ranges=False):
+    manifest, region = encounter("emu", height=6 if short_ranges else 2)
     manifest["id"] = "projectile-client-acceptance"
     character = manifest["characters"][0]
     character["known_identities"] += ["item.weapon.dagger", "item.weapon.shortbow", "item.weapon.arrow"]
@@ -41,6 +41,13 @@ def projectile_package(test):
     items = tomllib.loads(items_path.read_text(encoding="utf-8"))
     for name in ("rogue.dagger", "rogue.shortbow"):
         items["items"][name].pop("equipment_generation")
+    if short_ranges:
+        # Keep the inside and outside boundaries of both deliveries in sight.
+        dagger = items["items"]["rogue.dagger"]["equipment"]["weapon_profile"]
+        thrown = next(trait for trait in dagger["expert_traits"]["add"] if trait["kind"] == "thrown")
+        thrown["range"] = {"short_feet": 5, "long_feet": 10}
+        bow = items["items"]["rogue.shortbow"]["equipment"]["weapon_profile"]
+        bow["launcher"]["range"] = {"short_feet": 10, "long_feet": 15}
     items_path.write_text(toml_source(items), encoding="utf-8", newline="\n")
     (package / "scenario.toml").write_text(toml_source(manifest), encoding="utf-8", newline="\n")
     (package / "regions/1.toml").write_text(toml_source(region), encoding="utf-8", newline="\n")

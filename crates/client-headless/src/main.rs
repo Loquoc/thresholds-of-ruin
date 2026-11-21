@@ -374,9 +374,12 @@ fn emit(
         fields["intentions"] = serde_json::json!(connection.state.intentions());
         fields["palette"] = serde_json::json!(&connection.palette);
     });
+    // Serialize the complete JSON line before writing to a redirected pipe.
+    // Large actor updates otherwise issue many small writes on the network loop.
+    let mut line = serde_json::to_vec(&output)?;
+    line.push(b'\n');
     let mut stdout = io::stdout().lock();
-    serde_json::to_writer(&mut stdout, &output)?;
-    writeln!(stdout)?;
+    stdout.write_all(&line)?;
     stdout.flush()?;
     drop(stdout);
     if let Some(started) = started {

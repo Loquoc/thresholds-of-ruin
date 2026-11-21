@@ -123,6 +123,7 @@ fn assert_spectator_disclosed_state_eq(
     owner: &tor_protocol::StateView,
 ) {
     let mut expected = owner.clone();
+    expected.observation.known_item_uses.clear();
     for item in expected.observation.inventory.iter_mut().chain(
         expected
             .observation

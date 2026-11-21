@@ -836,21 +836,7 @@ impl Game {
                     touches = contacts;
                     (OutcomeKind::Waited, actor.movement_duration(direction)?)
                 } else {
-                    return Err(
-                        if self
-                            .reach(actor.location, direction.rotated(actor.orientation))
-                            .is_some_and(|(at, _)| {
-                                self.actors
-                                    .at(&self.world, at)
-                                    .keys()
-                                    .any(|other| *other != id)
-                            })
-                        {
-                            GameError::Occupied
-                        } else {
-                            GameError::Blocked
-                        },
-                    );
+                    return Err(self.step_refusal(id, direction));
                 }
             }
             Action::TouchApparentObject { subject, quantity } => {

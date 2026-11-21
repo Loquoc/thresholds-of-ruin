@@ -133,7 +133,7 @@ async fn completed_action(player: &mut Client, observer: &mut Client, id: &str) 
     let ServerMessage::Update { update: queued } = receive(player).await else {
         panic!("queued lifecycle required")
     };
-    let UpdateBody::Intention { status } = &queued.body else {
+    let UpdateBody::Intention { status, .. } = &queued.body else {
         panic!("queued lifecycle required")
     };
     assert_eq!(status.phase, IntentionPhase::Queued);
@@ -177,7 +177,10 @@ async fn completed_action(player: &mut Client, observer: &mut Client, id: &str) 
         let ServerMessage::Update { update } = receive(client).await else {
             panic!("resolution required")
         };
-        let UpdateBody::Intention { status: resolved } = update.body else {
+        let UpdateBody::Intention {
+            status: resolved, ..
+        } = update.body
+        else {
             panic!("resolution required")
         };
         assert_eq!(resolved.phase, IntentionPhase::Resolved);
@@ -720,7 +723,7 @@ async fn reconnect_retries_a_taken_target_before_old_context_and_fresh_resolutio
                     assert!(event.is_some());
                     outcomes += 1;
                 }
-                UpdateBody::Intention { status } => {
+                UpdateBody::Intention { status, .. } => {
                     if status.phase == IntentionPhase::Resolved {
                         break;
                     }
@@ -1049,7 +1052,7 @@ async fn deltas_follow_each_attachments_last_observation_across_control_and_rese
                             panic!("no picture was requested before resolution");
                         }
                         saw_outcome |= matches!(&update.body, UpdateBody::Outcome { .. });
-                        let resolved = matches!(&update.body, UpdateBody::Intention { status } if status.phase == IntentionPhase::Resolved);
+                        let resolved = matches!(&update.body, UpdateBody::Intention { status, .. } if status.phase == IntentionPhase::Resolved);
                         model.apply(*update).unwrap();
                         if resolved {
                             break;

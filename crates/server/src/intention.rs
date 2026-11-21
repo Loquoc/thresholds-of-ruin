@@ -1243,6 +1243,7 @@ impl Engine {
             execution.intention.work,
             tor_simulation::IntentionWork::ResumePreparation { .. }
         );
+        let mut intention_failure = None;
         let content = match execution.outcome {
             Ok(outcome) => {
                 let action = execution
@@ -1277,6 +1278,17 @@ impl Engine {
                 if let Some(failure) = Failure::simulation_failure(error) {
                     return Err(failure);
                 }
+                if execution.intention.origin == tor_simulation::IntentionOrigin::Human {
+                    use tor_simulation::{abilities::RuleError, GameError};
+                    let reason = match error {
+                        GameError::Rule(RuleError::Unfunded) => Some(IntentionFailure::Unfunded),
+                        GameError::Rule(RuleError::CoolingDown) => {
+                            Some(IntentionFailure::CoolingDown)
+                        }
+                        _ => None,
+                    };
+                    intention_failure = reason.map(|reason| (admission.clone(), reason));
+                }
                 validate_preparation_observers(&self.game, &candidate.game, actor)?;
                 if continuation {
                     JournalContent::IntentionContinuationFailed {
@@ -1304,7 +1316,8 @@ impl Engine {
             audience: Audience::Actor,
             content,
         };
-        self.commit_candidate(candidate, entry, None, profile)
-            .map(Some)
+        let mut result = self.commit_candidate(candidate, entry, None, profile)?;
+        result.intention_failure = intention_failure;
+        Ok(Some(result))
     }
 }

@@ -96,8 +96,28 @@ arrived = after.stair_arrival(attempt)
 An arrival of `True` means the subsequent picture supports switching maps.
 `False` reports a refusal or observed failure. `None` leaves arrival uncertain.
 A policy can use `after.outcome_of(receipt)` to inspect the latest retained phase.
+For a failed action, the matching entry in `after.finished_activities` can
+also carry a `failure` such as `unfunded` or `cooling_down`. The server
+discloses these reasons to the controller when execution fails. A missing
+reason leaves the cause unknown.
+
+If a submission returns `Outcome.UNKNOWN`, keep its `request_id` when
+available. It identifies the outgoing request and can be matched to a durable
+journal receipt. Admission and execution are still uncertain, so reconnect
+and inspect the actor's current state before deciding whether to act again.
+
+When a queued action stops progressing, inspect `turn.server_notice` for a
+server-reported code and message. A readiness timeout includes the current
+notice when available. Keep the action receipt as well, since a notice about
+the session can accompany an action belonging to another actor.
+
 When the origin disclosed a landing, its stable key ties the subsequent arrival
 to the expected place, including an adjacent landing beside an occupied stair.
+The origin and landing can have the same simulation tick. Match the move receipt
+and check the actor's cell in the subsequent decision before switching maps.
+A prompt can likewise remain visible while its answer is processing. Use
+`game.wait_for_decision()` before choosing another answer. An accepted answer
+closes admission before the next picture necessarily replaces the prompt.
 
 ## Reading the world
 
@@ -130,11 +150,16 @@ to the expected place, including an adjacent landing beside an occupied stair.
   Chebyshev distance between the visible bodies after translating the observer.
   Use `turn.walkable_directions` to choose candidate steps before scoring them.
   When `turn.falling` is true, Rogue-O-Matic waits until it lands before choosing a step.
+  In Rogue, an attempted step during an active bear-trap struggle spends a wait
+  at the current cell. The actor can still choose an available melee action.
 - `turn.inventory` combines carried items with their offered uses. For example,
   an unidentified flask can offer `ItemUse.DRINK` while its identity is
   `None`. A policy decides whether to take that risk.
   `item.appearance` preserves the disclosed appearance when a policy wants
   to remember an unidentified flask across item stacks.
+  A recognized identification scroll exposes its eligible categories in
+  `item.identifies` before it is read. The ring-or-wand scroll lists both even
+  when the inventory contains only one of those categories.
 - `turn.has_condition(identity)` checks for an active, unexpired condition.
   Rogue-O-Matic uses it to wait at a stair while levitation prevents descent.
 - `turn.equip_choices()` pairs carried equipment with slots of the offered
@@ -143,7 +168,10 @@ to the expected place, including an adjacent landing beside an occupied stair.
   its disclosed rejection code and message.
 - `turn.step(direction)` examines visible terrain, doors and bodies. It returns
   a proposed move, an action to open a reachable door, or `None`. Reconsider
-  movement after opening a door.
+  movement after opening a door. A multi-cell door can offer an approach at
+  only one of its cells. When grouping cells by door ID, keep the approaches
+  from every visible cell so an unreachable upper cell cannot hide a reachable
+  lower one.
 - `turn.projectiles()` queries usable throwables and compatible launcher/ammunition
   pairs, including when there are no targets in sight.
 - `turn.attack(foe)` proposes the basic attack. Pass an identity such as
@@ -154,7 +182,10 @@ to the expected place, including an adjacent landing beside an occupied stair.
 - `turn.ranged_attacks()` finds target cells on visible creatures and pairs
   them with the server's projectile choices. Each shot identifies its target,
   projectile, launcher when applicable, and aim offset. The server resolves
-  reach, obstructions and hits.
+  obstructions and hits. When disclosed, `shot.range` gives short and maximum
+  reach in cells for that delivery. An offset is in range when its largest
+  absolute component, including height, is at most `long_cells`.
+  `ranged_attacks(max_distance=n)` also applies the caller's distance limit.
 
 ### Comparing armor
 
