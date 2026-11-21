@@ -917,21 +917,53 @@ pub(super) fn react(
                     &points,
                     std::time::Duration::from_secs_f32(launch),
                 );
+                // Anyone standing on a disclosed cell of this flight is struck
+                // when it arrives there; a later hurt or death waits for it.
+                let legs = tor_client_3d_model::playback::flight_legs(
+                    &segments,
+                    creatures::MISSILE_CELLS_PER_SECOND,
+                );
+                let struck: Vec<_> = game
+                    .actors
+                    .iter()
+                    .filter_map(|(id, entity)| {
+                        let goal = bodies.get(*entity).ok()?.0.goal;
+                        let travel = tor_client_3d_model::playback::arrival(
+                            &segments,
+                            &legs,
+                            body_cell(goal),
+                        )?;
+                        Some((*id, f64::from(launch) + travel))
+                    })
+                    .collect();
+                for (id, delay) in struck {
+                    game.playback.strike_at(id, delay);
+                }
                 if let Some(key) = key {
                     flights.insert(key, (segments, launch));
                 }
             }
             Happening::Hurt(id) => {
+                let delay = arrivals
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_else(|| game.playback.until_struck(id));
                 if let Some(entity) = find(&game, Some(id)) {
                     if let Ok((_, mut anim)) = bodies.get_mut(entity) {
-                        anim.hit(arrivals.get(&id).copied().unwrap_or(0.0));
+                        anim.hit(delay);
                     }
                 }
             }
             Happening::Died(id) => {
+                // A death never plays before the blow or missile that caused it.
+                let delay = arrivals
+                    .get(&id)
+                    .copied()
+                    .unwrap_or(0.0)
+                    .max(game.playback.until_struck(id));
                 if let Some(entity) = find(&game, Some(id)) {
                     if let Ok((body, mut anim)) = bodies.get_mut(entity) {
-                        if anim.die(true) {
+                        if anim.die(true, delay) {
                             anim.target_yaw = Some(lying_yaw(&game, body.goal));
                         }
                     }
@@ -974,11 +1006,7 @@ pub(super) fn react(
                     // Authoritative geometry wins over canned endpoint-only visuals.
                     // The target reacts when the flight reaches its disclosed cell,
                     // or at launch when its cell was not part of the disclosure.
-                    let cell = to.map(|(at, _)| Position {
-                        x: at.x.round() as i32,
-                        y: at.z.round() as i32,
-                        z: (at.y + 0.5).round() as i32,
-                    });
+                    let cell = to.map(|(at, _)| body_cell(at));
                     let legs = tor_client_3d_model::playback::flight_legs(
                         segments,
                         creatures::MISSILE_CELLS_PER_SECOND,
@@ -1021,6 +1049,15 @@ pub(super) fn react(
                 }
             }
         }
+    }
+}
+
+/// The world cell a body stands on: the inverse of [`stand`].
+fn body_cell(goal: Vec3) -> Position {
+    Position {
+        x: goal.x.round() as i32,
+        y: goal.z.round() as i32,
+        z: (goal.y + 0.5).round() as i32,
     }
 }
 

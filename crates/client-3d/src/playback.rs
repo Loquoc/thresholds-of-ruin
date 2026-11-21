@@ -43,6 +43,8 @@ pub(crate) struct Playback {
     generation: u64,
     starts: HashMap<usize, f64>,
     scheduled: Vec<(f64, Happening)>,
+    /// When a disclosed flight reaches each struck actor, in presentation seconds.
+    struck: HashMap<tor_protocol::ActorTarget, f64>,
     pub skips: u64,
 }
 
@@ -54,6 +56,7 @@ impl Default for Playback {
             generation: 0,
             starts: HashMap::new(),
             scheduled: Vec::new(),
+            struck: HashMap::new(),
             skips: 0,
         }
     }
@@ -85,12 +88,29 @@ impl Playback {
         self.clock.ahead(self.now) <= PLAN_LEAD_SECONDS
     }
 
+    /// A disclosed flight reaches `actor` this many seconds from now.
+    pub fn strike_at(&mut self, actor: tor_protocol::ActorTarget, delay: f64) {
+        let at = self.now + delay;
+        self.clock.reserve(at);
+        let entry = self.struck.entry(actor).or_insert(at);
+        *entry = entry.max(at);
+    }
+
+    /// Seconds until the latest flight still on its way reaches `actor`.
+    /// A hurt or death never plays before what caused it arrives.
+    pub fn until_struck(&mut self, actor: tor_protocol::ActorTarget) -> f32 {
+        let now = self.now;
+        self.struck.retain(|_, at| *at > now);
+        self.struck.get(&actor).map_or(0.0, |at| (*at - now) as f32)
+    }
+
     /// Make everything already scheduled due now.
     pub fn skip(&mut self) {
         self.clock.skip(self.now);
         for (due, _) in &mut self.scheduled {
             *due = due.min(self.now);
         }
+        self.struck.clear();
         self.skips += 1;
     }
 
@@ -99,6 +119,7 @@ impl Playback {
         self.clock.reset();
         self.starts.clear();
         self.scheduled.clear();
+        self.struck.clear();
         self.skips += 1;
     }
 
@@ -110,10 +131,13 @@ impl Playback {
         }
         let mut timed = Vec::new();
         for (index, span) in &activity.spans {
+            // A span disclosed after its moment would have played starts now:
+            // late arrival delays a walk, it never turns it into a snap.
+            let now = self.now;
             let start = *self
                 .starts
                 .entry(*index)
-                .or_insert_with(|| self.clock.place(span.start, self.now));
+                .or_insert_with(|| self.clock.place(span.start, now).max(now));
             let end_tick = span
                 .end
                 .tick()
@@ -192,7 +216,25 @@ pub(crate) fn start_walks(
     from: &HashMap<tor_protocol::ActorTarget, Vec3>,
     bodies: &mut Query<&mut ActorBody>,
 ) {
-    for timed in timed {
+    // Folded views can carry several steps by one actor: walk them as one
+    // path from the earliest start to the latest end.
+    let mut walks: Vec<Timed> = Vec::new();
+    for step in timed {
+        match walks
+            .iter_mut()
+            .find(|walk| walk.span.actor == step.span.actor)
+        {
+            Some(walk) => {
+                walk.start = walk.start.min(step.start);
+                if step.end >= walk.end {
+                    walk.end = step.end;
+                    walk.key = step.key;
+                }
+            }
+            None => walks.push(step),
+        }
+    }
+    for timed in walks {
         let Some(entity) = game.actors.get(&timed.span.actor) else {
             continue;
         };
@@ -287,6 +329,57 @@ mod tests {
         assert!(playback.within_lead(), "a plan may keep walking");
         playback.skip();
         assert!(playback.drained(), "fast-forward catches up");
+    }
+
+    #[test]
+    fn a_span_disclosed_late_walks_from_now_instead_of_snapping() {
+        let mut playback = Playback {
+            now: 1.0,
+            ..Playback::default()
+        };
+        let first = playback.time_spans(&activity(0, vec![(0, span(0, SpanEnd::Exact(100)))]));
+        // Another actor's same-tick step arrives after that window has passed.
+        playback.now = 3.0;
+        let late = playback.time_spans(&Activity {
+            generation: 0,
+            tick: Some(0),
+            spans: vec![(
+                1,
+                ActorSpan {
+                    actor: ActorTarget::from_digest([4; 32]),
+                    ..span(0, SpanEnd::Exact(100))
+                },
+            )],
+            ended: None,
+        });
+        assert!(first[0].start < 3.0);
+        assert!(
+            (late[0].start - 3.0).abs() < 1e-9,
+            "starts now, not in the past"
+        );
+        assert!(
+            (late[0].end - late[0].start - 0.25).abs() < 1e-9,
+            "keeps its full duration"
+        );
+    }
+
+    #[test]
+    fn a_struck_actor_waits_for_the_flight_and_then_clears() {
+        let target = ActorTarget::from_digest([7; 32]);
+        let mut playback = Playback {
+            now: 2.0,
+            ..Playback::default()
+        };
+        assert_eq!(playback.until_struck(target), 0.0);
+        playback.strike_at(target, 0.4);
+        playback.strike_at(target, 0.1);
+        assert!(
+            (playback.until_struck(target) - 0.4).abs() < 1e-6,
+            "the latest arrival wins"
+        );
+        assert!(!playback.drained(), "input waits for the flight too");
+        playback.now = 2.5;
+        assert_eq!(playback.until_struck(target), 0.0);
     }
 
     #[test]

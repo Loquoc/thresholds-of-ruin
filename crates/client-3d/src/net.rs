@@ -38,6 +38,8 @@ pub enum Event {
 pub struct Network {
     commands: async_mpsc::Sender<Input>,
     events: Receiver<Event>,
+    /// An event read while folding views, delivered first next frame.
+    held: Option<Event>,
     ready: bool,
     capturing: bool,
     closed: bool,
@@ -54,6 +56,7 @@ impl Network {
             Self {
                 commands,
                 events,
+                held: None,
                 ready: false,
                 capturing: false,
                 closed: false,
@@ -96,6 +99,12 @@ impl Network {
 
     fn next_event(&mut self) -> Result<Event, mpsc::TryRecvError> {
         let event = self.events.try_recv()?;
+        Ok(self.deliver(event))
+    }
+
+    /// Apply an event's input-authority effects as it is handed to the scene,
+    /// never earlier: readiness must follow the views that precede it.
+    fn deliver(&mut self, event: Event) -> Event {
         match &event {
             Event::Ready => self.ready = true,
             Event::Fatal(_) => {
@@ -104,11 +113,15 @@ impl Network {
             }
             _ => {}
         }
-        Ok(event)
+        event
     }
 
     /// Preserve ordering, limit work, and let deferred scene entities materialize
     /// before another view can refer to them.
+    ///
+    /// Views already waiting fold into the newest one, so every update that
+    /// arrived together is timed together: a turn of many mobs walks at once
+    /// instead of one mob per frame.
     pub fn frame_events(&mut self) -> Vec<Event> {
         // Do not consume even one newer View while GPU pixels retain the
         // previous disclosure. Bounded channel backpressure preserves ordering.
@@ -121,14 +134,30 @@ impl Network {
             if started.elapsed() >= Duration::from_millis(4) {
                 break;
             }
-            match self.next_event() {
-                Ok(event) => {
-                    let view = matches!(event, Event::View(_));
-                    batch.push(event);
-                    if view {
-                        break;
+            let next = match self.held.take() {
+                Some(event) => Ok(self.deliver(event)),
+                None => self.next_event(),
+            };
+            match next {
+                Ok(Event::View(mut view)) => {
+                    // Read ahead without delivering: a held event takes effect
+                    // only when it is handed over, after this view.
+                    loop {
+                        match self.events.try_recv() {
+                            Ok(Event::View(newer)) if mergeable(&view, &newer) => {
+                                view = merge(view, newer);
+                            }
+                            Ok(other) => {
+                                self.held = Some(other);
+                                break;
+                            }
+                            Err(_) => break,
+                        }
                     }
+                    batch.push(Event::View(view));
+                    break;
                 }
+                Ok(event) => batch.push(event),
                 Err(mpsc::TryRecvError::Disconnected) if !self.closed && !self.fatal_reported => {
                     self.ready = false;
                     self.fatal_reported = true;
@@ -191,6 +220,42 @@ impl Drop for Network {
     fn drop(&mut self) {
         let _ = self.shutdown();
     }
+}
+
+/// Two views may fold together only within one scope, one timeline
+/// generation and one observer frame. The observer's own step moves the frame,
+/// so a newer view that carries one starts its own picture.
+fn mergeable(older: &View, newer: &View) -> bool {
+    older.context == newer.context
+        && older.branch == newer.branch
+        && older.activity.generation == newer.activity.generation
+        && !newer.activity.spans.iter().any(|(_, span)| {
+            matches!(
+                span.kind,
+                tor_client_common::compositor::SpanKind::OwnStep { .. }
+            )
+        })
+}
+
+/// The newer picture wins; earlier happenings, spans and narration are kept in order.
+fn merge(older: Box<View>, mut newer: Box<View>) -> Box<View> {
+    let older = *older;
+    let mut events = older.events;
+    events.append(&mut newer.events);
+    newer.events = events;
+    let mut narration = older.narration;
+    narration.append(&mut newer.narration);
+    newer.narration = narration;
+    let mut spans = older.activity.spans;
+    for (index, span) in std::mem::take(&mut newer.activity.spans) {
+        // A later report of the same span (its end now known) replaces the earlier one.
+        spans.retain(|(existing, _)| *existing != index);
+        spans.push((index, span));
+    }
+    newer.activity.spans = spans;
+    newer.activity.ended = newer.activity.ended.or(older.activity.ended);
+    newer.activity.tick = newer.activity.tick.or(older.activity.tick);
+    newer
 }
 
 #[derive(Debug)]
@@ -565,6 +630,83 @@ pub(crate) fn test_channel() -> (crate::Net, async_mpsc::Receiver<Input>) {
 mod tests {
     use super::*;
 
+    fn stepping(revision: u64, index: usize, own: bool) -> Box<View> {
+        use tor_client_common::compositor::{ActorSpan, SpanEnd, SpanKind};
+        let mut view = crate::test_support::view(revision);
+        view.narration = vec![format!("line {revision}")];
+        view.events = vec![Happening::Died(ActorTarget::from_digest(
+            [revision as u8; 32],
+        ))];
+        view.activity.tick = Some(revision * 100);
+        view.activity.spans = vec![(
+            index,
+            ActorSpan {
+                actor: ActorTarget::from_digest([index as u8; 32]),
+                kind: if own {
+                    SpanKind::OwnStep {
+                        direction: Direction::East,
+                    }
+                } else {
+                    SpanKind::Step {
+                        from: None,
+                        to: None,
+                    }
+                },
+                start: 0,
+                end: SpanEnd::Open,
+                strikes: vec![],
+                frame: revision,
+            },
+        )];
+        Box::new(view)
+    }
+
+    #[test]
+    fn waiting_views_fold_so_simultaneous_mobs_walk_together() {
+        let (mut network, _, events) = Network::channels();
+        for revision in 1..=3 {
+            events
+                .send(Event::View(stepping(revision, revision as usize, false)))
+                .unwrap();
+        }
+        events.send(Event::Ready).unwrap();
+        // An own step moves the observer frame: it never folds into earlier views.
+        events.send(Event::View(stepping(4, 9, true))).unwrap();
+        let first = network.frame_events();
+        assert_eq!(first.len(), 1);
+        let Event::View(view) = &first[0] else {
+            panic!("one folded view")
+        };
+        assert_eq!(view.revision, 3, "the newest picture wins");
+        assert_eq!(view.narration, ["line 1", "line 2", "line 3"]);
+        assert_eq!(view.events.len(), 3, "every happening is kept, in order");
+        assert_eq!(
+            view.activity
+                .spans
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert_eq!(view.activity.tick, Some(300));
+        let second = network.frame_events();
+        assert!(matches!(second.as_slice(), [Event::Ready, Event::View(_)]));
+        std::mem::forget(events);
+    }
+
+    #[test]
+    fn a_later_report_of_one_span_replaces_the_earlier() {
+        let older = stepping(1, 5, false);
+        let mut newer = stepping(2, 5, false);
+        newer.activity.spans[0].1.end = tor_client_common::compositor::SpanEnd::Inferred(90);
+        let merged = merge(older, newer);
+        assert_eq!(merged.activity.spans.len(), 1);
+        assert_eq!(
+            merged.activity.spans[0].1.end,
+            tor_client_common::compositor::SpanEnd::Inferred(90)
+        );
+    }
+
     #[test]
     fn screenshot_reservation_retains_new_views_until_readback_or_cancel() {
         let (mut network, _commands, events) = Network::channels();
@@ -812,11 +954,11 @@ mod tests {
         events.send(Event::View(Box::new(sample(1)))).unwrap();
         events.send(Event::View(Box::new(sample(2)))).unwrap();
         events.send(Event::Ready).unwrap();
-        for revision in [1, 2] {
-            let batch = network.frame_events();
-            assert!(matches!(batch.as_slice(), [Event::View(view)] if view.revision == revision));
-            assert!(!network.ready);
-        }
+        // Waiting views fold into the newest picture in one frame; the ready
+        // marker read behind them is not applied until it is handed over.
+        let batch = network.frame_events();
+        assert!(matches!(batch.as_slice(), [Event::View(view)] if view.revision == 2));
+        assert!(!network.ready);
         assert!(matches!(network.frame_events().as_slice(), [Event::Ready]));
         assert!(network.ready);
     }
