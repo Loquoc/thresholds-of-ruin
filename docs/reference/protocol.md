@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":73,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":74,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -558,6 +558,32 @@ the disclosed kind and name of the work, and a replacement admission identity
 when a new action took its place. A client can combine that fact with the new
 action's start in the same update. Work names use the actor's disclosed
 inventory or their authored ability name.
+
+An `activity` fact describes another visible actor's activity in the past tense:
+`{"kind":"activity","actor":…,"started_at":"100","activity":{"type":"move","from":{"x":1,"y":0,"z":0},"to":{"x":2,"y":0,"z":0}}}`.
+`started_at` is the committing tick. It may precede the update's cursor tick,
+because publication follows the walk to the next decision. Positions are offsets
+in the update's observation frame. `activity.type` is closed:
+
+- `move` has required-nullable `from` and `to`. An endpoint outside sight, or a
+  start offset invalidated by the observer's own displacement, is null; at least
+  one is present, and they differ.
+- `wind_up` has a `posture` of `melee`, `ranged`, `casting` or `other`, for a
+  public ability preparation only.
+- `follow_through` has `after` of `strike` or `cast`. The schema and validation
+  are fixed, but the current server does not yet emit it; clients treat the end
+  of a step as the start of its follow-through.
+- `item_handling` has the `work` kind and a required-nullable `name`, which uses
+  the observer's own item naming: an unidentified appearance stays unidentified.
+
+The fact never names the observer itself, whose own actions keep `own_action`
+and status facts. It carries no ability identity, aim, remaining work, strike
+total, ready tick or end tick. Waiting, recovery and private or non-ability work
+emit nothing, so they remain indistinguishable. Another actor's recovery end is
+learned only when that actor next acts. The acting actor gains an
+`actor_names` row from the same event-time sighting. Clients narrate item handling
+("The goblin drinks the bubbly potion.") and use the other kinds for presentation
+timing only.
 
 A `user_message` fact carries server-authored text for the player:
 `{"kind":"user_message","style":"tutorial","segments":[{"text":"Press "},{"control":"pick_up"},{"text":" to take it."}]}`.
@@ -1599,10 +1625,11 @@ actual public ability preparation can still disclose authorized aim and work
 with a null ability reference. This deliberately avoids distinguishing private
 work through a special redaction flag, an absent record, or a timing read.
 Repeated snapshots, pauses, occlusion and reconnects preserve the paid record;
-clients present it explicitly as a past observation. The accepted
-[action compositor plan](../plans/action-compositor.md#disclosure-amendments)
-will license category-only wind-up, follow-through and item-handling provenance;
-until it is implemented, this paragraph is the current rule.
+clients present it explicitly as a past observation. Ordered `activity`
+outcome facts separately license category-only wind-up posture and visible item
+handling at their committing boundary (see
+[ordered outcomes](#ordered-outcomes-and-demand-driven-pictures)). They do not
+change this record, its paid-observation rule or the `no_public_plan` state.
 
 Required nullable `sequence` is present only for the attached actor's multi-strike
 preparation. It contains small integer `completed` and `total`, plus decimal-string

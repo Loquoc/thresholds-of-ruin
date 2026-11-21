@@ -370,6 +370,15 @@ Sequence gaps or base mismatches cannot be applied as partial truth. Reconnect
 and rewind establish snapshot boundaries. See the [protocol reference](../reference/protocol.md)
 for delta encoding and recovery, and [clients](clients.md) for atomic application.
 
+Activity facts disclose only what watching shows: another actor's step between
+cells sighted before and after it, the category of a public ability preparation
+(the same creature-classified gate as paid plan observation, read from the
+sighting the outcome capture already holds rather than a second perception
+pass), and visible item
+handling under the observer's own item names. They never carry timing that
+watching could not supply, such as a ready tick or remaining work. The adapter
+is [outcome_activity.rs](../../crates/server/src/outcome_activity.rs).
+
 ## Exact implementations and derived caches
 
 The reference defines geometry. Accelerated and cached builders must produce

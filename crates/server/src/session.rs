@@ -1612,6 +1612,13 @@ impl Service {
                     facts
                         .facts
                         .extend(self.engine.transaction_user_messages(result, actor));
+                    let activities = self.engine.outcome_activities(
+                        result,
+                        actor,
+                        &previous_facts,
+                        &current_facts,
+                    );
+                    facts.extend_activities(activities, &previous_facts, &current_facts);
                     let changes = self
                         .engine
                         .outcome_work_changes(result, actor, &previous_facts);
@@ -6137,3 +6144,7 @@ mod presentation_queries;
 #[cfg(test)]
 #[path = "palette_outcome_tests.rs"]
 mod palette_outcome_tests;
+
+#[cfg(test)]
+#[path = "outcome_activity_tests.rs"]
+mod outcome_activity_tests;

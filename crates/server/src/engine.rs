@@ -51,6 +51,8 @@ mod floor_activation_tests;
 mod input_basis_generation;
 #[path = "intention.rs"]
 mod intention;
+#[path = "outcome_activity.rs"]
+mod outcome_activity;
 use input_basis_generation::InputGenerations;
 #[path = "intention_lifecycle.rs"]
 mod intention_lifecycle;

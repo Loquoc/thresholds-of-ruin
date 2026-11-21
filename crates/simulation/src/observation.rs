@@ -975,6 +975,18 @@ impl Game {
         (identified, anonymous_corpse, name, known_supply)
     }
 
+    /// The name `observer` would give an item another actor carries: its
+    /// identity only when already known, otherwise its unidentified appearance.
+    /// This teaches nothing and grants no targeting handle.
+    pub fn observed_carried_item_name(&self, observer: ActorId, item: ItemId) -> Option<String> {
+        if !self.actors.contains_key(&observer) {
+            return None;
+        }
+        let item = self.items.get(&item)?;
+        let (_, _, name, _) = self.project_item_identity(observer, item, &BTreeSet::new());
+        Some(name.to_owned())
+    }
+
     fn project_ground_item(
         &self,
         id: ActorId,

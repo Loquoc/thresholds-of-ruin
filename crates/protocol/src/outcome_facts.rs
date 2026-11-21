@@ -209,9 +209,66 @@ pub enum OutcomeWorkChange {
     Replaced { replacement: IntentionId },
 }
 
+/// The visible stance of another actor's public ability preparation. It is a
+/// category only: never the ability identity, aim, remaining work or strike total.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityPosture {
+    Melee,
+    Ranged,
+    Casting,
+    Other,
+}
+
+/// What another actor's follow-through follows. It has no end tick: an
+/// observer learns that recovery ended only when the actor next acts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityFollowThrough {
+    Strike,
+    Cast,
+}
+
+/// A past-tense, category-only description of another visible actor's
+/// activity. Positions are offsets in the update's observation frame.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ActivityKind {
+    /// A step between disclosed cells; an endpoint outside sight is null.
+    Move {
+        #[serde(deserialize_with = "read_position")]
+        from: Option<Position>,
+        #[serde(deserialize_with = "read_position")]
+        to: Option<Position>,
+    },
+    WindUp {
+        posture: ActivityPosture,
+    },
+    FollowThrough {
+        after: ActivityFollowThrough,
+    },
+    /// The item is named as the observer perceives it; this teaches nothing.
+    ItemHandling {
+        work: ItemWorkKind,
+        #[serde(deserialize_with = "read_asset")]
+        name: Option<String>,
+    },
+}
+fn read_position<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Position>, D::Error> {
+    Option::deserialize(d)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OutcomeFact {
+    /// Another visible actor's activity, starting at or before this update.
+    /// Own actions keep `own_action` events and status facts instead.
+    Activity {
+        actor: ActorTarget,
+        #[serde(with = "crate::integers::unsigned")]
+        started_at: u64,
+        activity: ActivityKind,
+    },
     OwnWorkChanged {
         intention: IntentionId,
         work: OutcomeWork,
@@ -1015,6 +1072,42 @@ impl OutcomeFacts {
         }
     }
 
+    /// Append host-derived activity facts, naming each newly referenced actor
+    /// from the same event-time sightings the captured facts use.
+    pub fn extend_activities(
+        &mut self,
+        activities: Vec<OutcomeFact>,
+        before: &OutcomeObservation,
+        after: &OutcomeObservation,
+    ) {
+        for fact in &activities {
+            let OutcomeFact::Activity { actor, .. } = fact else {
+                continue;
+            };
+            if *actor == self.self_target || self.actor_names.iter().any(|row| row.actor == *actor)
+            {
+                continue;
+            }
+            let named = |rows: &[OutcomeActorName]| {
+                rows.iter()
+                    .find(|row| row.id == *actor && !row.name.trim().is_empty())
+                    .or_else(|| rows.iter().find(|row| row.id == *actor))
+                    .map(|row| (row.name.clone(), row.asset.clone()))
+            };
+            let current = named(&after.visible_actors);
+            if let Some((name, asset)) = current.clone().or_else(|| named(&before.visible_actors)) {
+                self.actor_names.push(DisclosedActorName {
+                    actor: *actor,
+                    name,
+                    asset,
+                    current_disclosed_appearance: current
+                        .map(|(name, asset)| DisclosedActorAppearance { name, asset }),
+                });
+            }
+        }
+        self.facts.extend(activities);
+    }
+
     /// Validate before accepting into a client stream. Outer response encoding
     /// still enforces envelope bytes; this independently bounds retained facts.
     pub fn validate_at(&self, tick: u64) -> Result<(), InvalidState> {
@@ -1023,6 +1116,7 @@ impl OutcomeFacts {
             matches!(fact,
             OutcomeFact::PublicPlan { record } if !record.valid_at(tick))
                 || matches!(fact, OutcomeFact::Combat { event, .. } if !event.valid_effect(tick))
+                || matches!(fact, OutcomeFact::Activity { started_at, .. } if *started_at > tick)
         }) {
             return Err(InvalidState::InvalidCombat);
         }
@@ -1045,7 +1139,9 @@ impl OutcomeFacts {
             .iter()
             .flat_map(|fact| match fact {
                 OutcomeFact::Combat { event, .. } => event_subjects(event),
-                OutcomeFact::Injured { actor, .. } => vec![*actor],
+                OutcomeFact::Injured { actor, .. } | OutcomeFact::Activity { actor, .. } => {
+                    vec![*actor]
+                }
                 _ => Vec::new(),
             })
             .collect();
@@ -1115,6 +1211,21 @@ impl OutcomeFacts {
                     return Err(InvalidState::InvalidCombat);
                 }
                 OutcomeFact::Status { status } if !status.valid() => {
+                    return Err(InvalidState::InvalidCombat);
+                }
+                OutcomeFact::Activity {
+                    actor, activity, ..
+                } if *actor == self.self_target
+                    || match activity {
+                        ActivityKind::Move { from, to } => {
+                            (from.is_none() && to.is_none()) || (from.is_some() && from == to)
+                        }
+                        ActivityKind::ItemHandling {
+                            name: Some(name), ..
+                        } => !crate::creature::valid_label(name, 256),
+                        _ => false,
+                    } =>
+                {
                     return Err(InvalidState::InvalidCombat);
                 }
                 OutcomeFact::UserMessage { segments, .. } | OutcomeFact::Goal { segments }

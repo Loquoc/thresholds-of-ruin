@@ -418,6 +418,51 @@ class ObserverDoorRecordingCase(ProcessTestCase):
         self.door_sample = copy.deepcopy(candidates[0])
 
 
+class ObservedActivityRecordingCase(ProcessTestCase):
+    """Record an ordinary actor watching another actor step between two sighted cells."""
+    def runTest(self):
+        self.server(scenario="semantic-narration", seed=None)
+        player, initial = self.client()
+        before = initial["state"]["observation"]
+        other = self.launch("tor-client-headless", ["--connect", self.address, "--actor", "2"])
+        other_initial = self.frame(other, lambda frame: frame["type"] == "ready")
+        other_door = next(cell["door"]["id"]
+                          for cell in other_initial["state"]["observation"]["visible_cells"]
+                          if cell.get("door"))
+        self.assertIsNone(self.act(player, {"type": "wait"})["error"])
+        self.assertIsNone(self.request(other, {"type": "snapshot"})["error"])
+        self.assertIsNone(self.act(other, {"type": "set_door", "door": other_door, "open": True})["error"])
+        opened = self.request(player, {"type": "observe"})["state"]["observation"]
+        seen = [row for row in opened["visible_actors"] if row["id"] != opened["self_target"]]
+        self.assertEqual([row["position"] for row in seen], [{"x": 2, "y": 0, "z": 0}])
+        self.assertIsNone(self.act(player, {"type": "wait"})["error"])
+        self.assertIsNone(self.request(other, {"type": "snapshot"})["error"])
+        start = len(player.transcript)
+        self.assertIsNone(self.act(other, {"type": "move", "direction": "west"})["error"])
+        self.assertIsNone(self.request(player, {"type": "observe"})["error"])
+        messages = [json.loads(line).get("message") for line in player.transcript[start:]
+                    if line.startswith("{")]
+        candidates = []
+        for message in messages:
+            body = (message or {}).get("update", {}).get("body", {})
+            if body.get("type") != "outcome":
+                continue
+            found = [fact for fact in body["facts"]["facts"] if fact["kind"] == "activity"]
+            if found:
+                self.assertEqual(body["facts"]["self_target"], before["self_target"])
+                self.assertEqual(len(found), 1)
+                fact = found[0]
+                self.assertEqual(fact["actor"], seen[0]["id"])
+                self.assertEqual(fact["activity"], {"type": "move",
+                                                    "from": {"x": 2, "y": 0, "z": 0},
+                                                    "to": {"x": 1, "y": 0, "z": 0}})
+                self.assertLessEqual(int(fact["started_at"]), int(message["update"]["cursor"]["tick"]))
+                self.assertIn(seen[0]["id"], [row["actor"] for row in body["facts"]["actor_names"]])
+                candidates.append(message)
+        self.assertEqual(len(candidates), 1, "one actual watched step, never a synthesized DTO")
+        self.activity_sample = copy.deepcopy(candidates[0])
+
+
 def user_message_outcomes(lines):
     """Raw outcome updates carrying script user messages, in arrival order."""
     found = []
@@ -462,6 +507,9 @@ class Recorder(ProcessTestCase):
     def record_noticed(self, server_samples):
         server_samples["zz.noticed_position"] = run_recording_case(
             NoticedRecordingCase(), "noticed_sample")
+    def record_observed_activity(self, server_samples):
+        server_samples["zz.observed_activity"] = run_recording_case(
+            ObservedActivityRecordingCase(), "activity_sample")
 
     def record_physical_projectiles(self, server_samples):
         samples = run_recording_case(physical_projectile_recording_case(), "physical_projectile_samples")
@@ -1227,6 +1275,7 @@ class Recorder(ProcessTestCase):
         self.record_scare_crumble(server_samples)
         self.record_noticed(server_samples)
         self.record_observer_door(server_samples)
+        self.record_observed_activity(server_samples)
         server_samples["zz.user_message"] = run_recording_case(
             TutorialRecordingCase(), "tutorial_sample")
         server_samples["zz.work_replacement"] = run_recording_case(

@@ -253,7 +253,9 @@ impl Messages {
                     }
                 }
                 Topic::LostSight(_) | Topic::Pacing => {}
-                Topic::Combat(_) | Topic::PublicPlan | Topic::WorkChanged => self.push(&line.text),
+                Topic::Combat(_) | Topic::PublicPlan | Topic::WorkChanged | Topic::Activity(_) => {
+                    self.push(&line.text)
+                }
                 Topic::UserMessage { style, segments } => self.push(user_message(*style, segments)),
                 Topic::Status => {
                     if let Some(combat) = view.combat.as_ref() {

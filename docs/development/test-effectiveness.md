@@ -1187,9 +1187,9 @@ Two production defects and one class of stale pins, counted by root cause:
   combat view, so clients cannot see a scripted victory; that was tutorial
   content, fixed by giving its character a build. One method, one root cause.
 - **Stale version pins (stale tests, expected with the format change).**
-  Protocol 73, save format 72, scenario format 38 and validator
+  The then-new wire revision (73), save format 72, scenario format 38 and validator
   `tor-scenario-52` failed the explicit pin and golden tests until the
-  protocol 73 wire samples and the save format 72 scenario golden were
+  matching wire samples and the save format 72 scenario golden were
   recorded and the pins updated. These are deliberate first-red pins, not defects.
 
 Not counted: a bulk `format = 37` replacement that also rewrote one literal

@@ -221,7 +221,7 @@ impl Chronicler {
             OutcomeFact::PublicPlan { .. } => 6,
             OutcomeFact::Status { .. } => 7,
             OutcomeFact::Goal { .. } => 8,
-            OutcomeFact::Noticed { .. } => 9,
+            OutcomeFact::Noticed { .. } | OutcomeFact::Activity { .. } => 9,
             OutcomeFact::LostSight { .. } => 10,
             OutcomeFact::DoorChanged { .. } => 11,
             OutcomeFact::Pacing { .. } => 12,
@@ -390,6 +390,8 @@ impl Chronicler {
                     beats.push(Beat::ItemFinished(line.text))
                 }
                 OutcomeFact::Pacing { .. } => {}
+                // Only item handling has a line; it is told as it was seen.
+                OutcomeFact::Activity { .. } => beats.push(Beat::EscapeHold(line.text)),
                 OutcomeFact::Injured { .. }
                 | OutcomeFact::Goal { .. }
                 | OutcomeFact::UserMessage { .. } => unreachable!(),

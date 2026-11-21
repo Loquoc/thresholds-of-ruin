@@ -78,6 +78,15 @@ rules change. P3 itself teaches nothing.
 
 ## Protocol and server (phase 1)
 
+Implemented as narrower than first sketched: the fact covers other actors only,
+with no `ready_at` or phase. Own exact timing already arrives through outcome
+status facts, and own suspension and cancellation through `own_work_changed`.
+The kinds are `move`, `wind_up`, `follow_through` and `item_handling`. The
+[protocol reference](../reference/protocol.md#ordered-outcomes-and-demand-driven-pictures)
+owns the wire shape. `follow_through` has its schema and validation but is not yet
+emitted, because the last strike of another actor's sequence is not currently
+disclosed to observers. The original sketch follows for its rationale.
+
 Ordered outcomes gain one fact, `activity`, for each disclosed actor activity at
 its committing boundary:
 
