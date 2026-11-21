@@ -211,11 +211,21 @@ impl ClothSurface {
     }
 
     pub(super) fn point(&self, t: f32, angle: f32, inner: bool) -> Vec3 {
+        self.point_with_opening(t, angle, inner, self.split)
+    }
+
+    /// Sample the resolved skirt cut and attachment without the side opening.
+    /// The independent center panel still shares the shell’s seam and fit.
+    pub(super) fn closed_point(&self, t: f32, angle: f32, inner: bool) -> Vec3 {
+        self.point_with_opening(t, angle, inner, 0.0)
+    }
+
+    fn point_with_opening(&self, t: f32, angle: f32, inner: bool, opening: f32) -> Vec3 {
         let mut point = drape_point(
             self.cut,
             self.length * self.hem.reach(angle),
             self.folds,
-            self.split,
+            opening,
             self.phase,
             t,
             angle,
@@ -226,7 +236,7 @@ impl ClothSurface {
             point.z -= extension * rear * ease((t - 0.45) / 0.55);
         }
         if self.paired {
-            point.y -= self.split * angle.cos().max(0.0).powi(14) * ease((t - 0.55) / 0.45);
+            point.y -= opening * angle.cos().max(0.0).powi(14) * ease((t - 0.55) / 0.45);
         }
         if let Some(seam) = &self.seam {
             let column = (angle / TAU).clamp(0.0, 1.0) * 64.0;
@@ -236,7 +246,7 @@ impl ClothSurface {
                 self.cut,
                 self.length,
                 self.folds,
-                self.split,
+                opening,
                 self.phase,
                 0.0,
                 angle,
@@ -352,8 +362,10 @@ impl ClothSurface {
         // Bound each actual emitted quad, including its midpoints. Radius
         // changes preserve angle and height, so these bounds remain valid.
         let mut cells = Vec::with_capacity(rows * 64);
+        let mut row_heights = Vec::with_capacity(rows);
         let delta = |angle: f32, center: f32| (angle - center + PI).rem_euclid(TAU) - PI;
         for row in 0..rows {
+            let (mut row_low, mut row_high) = (f32::INFINITY, f32::NEG_INFINITY);
             for side in 0..64 {
                 let center = (side as f32 + 0.5) * TAU / 64.0;
                 let mut low_y = f32::INFINITY;
@@ -383,7 +395,10 @@ impl ClothSurface {
                     (r * 65 + c, point)
                 });
                 cells.push((center, low_y, high_y, low_angle, high_angle, corners));
+                row_low = row_low.min(low_y);
+                row_high = row_high.max(high_y);
             }
+            row_heights.push((row_low, row_high));
         }
         // Sample between the lower mesh's emitted rows/columns too. The
         // margin covers triangle chords and the raised trim's radial extent.
@@ -399,7 +414,14 @@ impl ClothSurface {
                 let point = under_to_self.transform_point3(point);
                 let radius = point.xz().length() + GAP;
                 let direction = point.x.atan2(point.z);
-                for &(center, low_y, high_y, low_angle, high_angle, corners) in &cells {
+                // Use the union of actual cell bounds, not nominal row
+                // height: shaped hems and seams can overlap adjacent rows.
+                let cells_at_height = row_heights
+                    .iter()
+                    .zip(cells.chunks_exact(64))
+                    .filter(|&(&(low, high), _)| !(point.y < low - GAP || point.y > high + GAP))
+                    .flat_map(|(_, row)| row);
+                for &(center, low_y, high_y, low_angle, high_angle, corners) in cells_at_height {
                     if point.y < low_y - GAP || point.y > high_y + GAP {
                         continue;
                     }
