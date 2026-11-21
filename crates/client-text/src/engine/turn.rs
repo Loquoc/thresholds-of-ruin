@@ -387,33 +387,8 @@ pub async fn projectile_choices(
     Ok(result)
 }
 
-/// What a request waits for before it counts as finished.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Until {
-    /// An action: acknowledged, its result seen, and the character ready.
-    Acted,
-    /// A journey: acknowledged, ended, and the character ready.
-    Journey,
-    /// Resumed play: the character ready.
-    Ready,
-    /// A reply: the acknowledgement, snapshot or history page.
-    Answered,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Settled {
-    Done,
-    /// The server yielded to another actor; no further work may be sent.
-    /// Preserve an observed journey ending for narration, not permission.
-    Waiting(Option<TravelPhase>),
-    /// Execution was refused, but the queued intention remains pending.
-    Deferred,
-    Rejected(ErrorCode),
-    /// A journey ended this way.
-    Journey(TravelPhase),
-    /// Control was lost, or the state replaced.
-    Lost,
-}
+pub use tor_client_common::compositor::Settled;
+use tor_client_common::compositor::{SettleBoundary, Until};
 
 /// Reads updates for a turn, recording beats as they come.
 pub struct Reader<'a> {
@@ -539,172 +514,33 @@ async fn settle(
 ) -> Result<Settled, Error> {
     let observing = matches!(request, Request::Observe);
     let id = link.send(request).await?;
-    let mut acked = false;
-    let mut admission: Option<crate::admission::AdmissionBoundary> = None;
-    let mut execution_failed = false;
-    let mut receipt: Option<EntryId> = None;
-    let mut ended = None;
+    let mut boundary = SettleBoundary::new(id.clone(), until, observing);
     loop {
         let before = link.client().state().clone();
-        // Play stopped, and not for this player: the turn is over.
-        let others = |ended: Option<TravelPhase>, failed: bool| {
-            if failed {
-                Settled::Rejected(ErrorCode::InvalidAction)
-            } else {
-                match ended {
-                    Some(phase) => Settled::Journey(phase),
-                    None if until == Until::Journey => Settled::Journey(TravelPhase::Active),
-                    None => Settled::Done,
-                }
-            }
-        };
         let Some(message) = link.next(ANSWER).await? else {
-            let permissions_missing =
-                !terminal(link.client()) && !link.client().can_admit_intention();
-            let incomplete = match until {
-                Until::Answered => admission.is_some(),
-                Until::Acted => {
-                    admission
-                        .as_ref()
-                        .is_some_and(|boundary| !boundary.settled())
-                        || permissions_missing
-                }
-                Until::Journey => ended.is_some() && permissions_missing,
-                Until::Ready => false,
-            };
-            if acked && !incomplete && !observing {
-                return Ok(others(ended, execution_failed));
-            }
-            if execution_failed {
-                return Err("The action failed, but the server did not finish updating input permissions. Reconnect before acting again.".into());
-            }
-            return Err("The server did not answer. The action may have completed; reconnect and check history before trying again.".into());
+            return boundary
+                .silence(link.client())
+                .map_err(|silence| silence.message().into());
         };
         reader.record(&before, link, &message);
         if !link.is_synchronized() {
             continue;
         }
-        if observing && link.completed_observation_request(&id, &message) {
-            return Ok(Settled::Done);
-        }
-        // A scoped execution notice is an explicit stop, not a settlement:
-        // preserve the queue and its permissions for inspection/cancellation.
-        if reader.execution_refused() {
-            return Ok(Settled::Deferred);
-        }
+        let completed = observing && link.completed_observation_request(&id, &message);
+        let settled = boundary.observe(
+            link.client(),
+            completed,
+            reader.execution_refused(),
+            &message,
+        );
+        // Neither a finished observation nor a refusal notice records a wait.
         if let ServerMessage::Waiting { on } = &message {
-            reader.waiting = Some(*on);
+            if !completed && settled != Some(Settled::Deferred) {
+                reader.waiting = Some(*on);
+            }
         }
-        match &message {
-            ServerMessage::Error {
-                request_id, code, ..
-            } if request_id.as_ref() == Some(&id) => return Ok(Settled::Rejected(*code)),
-            ServerMessage::Ack {
-                request_id,
-                receipt: accepted,
-                ..
-            } if *request_id == id => {
-                acked = true;
-                receipt = accepted.entry_id().cloned();
-                admission = crate::admission::AdmissionBoundary::new(accepted);
-            }
-            ServerMessage::Update { update }
-                if matches!(&update.body,
-                UpdateBody::Intention { status, .. } if matches!(status.phase, IntentionPhase::Failed | IntentionPhase::Cancelled)
-                    && receipt.as_ref() == Some(&status.entry_id)) =>
-            {
-                execution_failed = true;
-            }
-            ServerMessage::Snapshot { request_id, .. } if *request_id == id => {
-                return Ok(Settled::Done);
-            }
-            ServerMessage::WizardReport { request_id, .. }
-            | ServerMessage::CreatureCatalog { request_id, .. }
-            | ServerMessage::CreatureInspection { request_id, .. }
-            | ServerMessage::CreatureStrikePage { request_id, .. }
-            | ServerMessage::AdvancementPage { request_id, .. }
-            | ServerMessage::History { request_id, .. }
-                if *request_id == id =>
-            {
-                return Ok(Settled::Done);
-            }
-            ServerMessage::Snapshot { .. } => return Ok(Settled::Lost),
-            ServerMessage::Waiting { on } if acked && *on != Waiting::You => {
-                if execution_failed
-                    && admission
-                        .as_ref()
-                        .is_some_and(|boundary| !boundary.settled())
-                {
-                    // A wait can yield retained work, but cannot turn a known
-                    // failure's incomplete permissions into a fresh input boundary.
-                    continue;
-                }
-                if until == Until::Journey {
-                    ended = link
-                        .client()
-                        .travel()
-                        .filter(|t| Some(&t.id) == receipt.as_ref())
-                        .map(|t| t.phase)
-                        .filter(|phase| *phase != TravelPhase::Active);
-                }
-                return Ok(if until == Until::Answered || execution_failed {
-                    others(ended, execution_failed)
-                } else {
-                    Settled::Waiting(ended)
-                });
-            }
-            ServerMessage::Update { update } => {
-                if let UpdateBody::Control { has_control: false } = update.body {
-                    if until != Until::Answered {
-                        return Ok(Settled::Lost);
-                    }
-                }
-            }
-            _ => {}
-        }
-        if observing || !acked {
-            continue;
-        }
-        let ended_run = terminal(link.client());
-        let ready = link.client().character_ready() || ended_run;
-        // Observation and journey completion precede their permission update.
-        // Keep existing turn pacing, but consume that boundary before new input.
-        let permissions_ready = ended_run || link.client().can_admit_intention();
-        let answered = admission
-            .as_mut()
-            .is_none_or(|boundary| boundary.observe(&message));
-        let action_settled =
-            ended_run || admission.as_ref().is_none_or(|boundary| boundary.settled());
-        let failure_settled = if admission.is_some() {
-            action_settled
-        } else {
-            permissions_ready
-        };
-        if execution_failed && failure_settled && (until != Until::Answered || answered) {
-            return Ok(Settled::Rejected(ErrorCode::InvalidAction));
-        }
-        let gameplay_ready = ready && permissions_ready;
-        match until {
-            Until::Answered if answered => return Ok(Settled::Done),
-            Until::Ready if ready => return Ok(Settled::Done),
-            Until::Acted if gameplay_ready && action_settled => return Ok(Settled::Done),
-            Until::Journey => {
-                ended = link
-                    .client()
-                    .travel()
-                    .filter(|t| Some(&t.id) == receipt.as_ref())
-                    .map(|t| t.phase)
-                    .filter(|phase| *phase != TravelPhase::Active);
-                if let Some(phase) = ended {
-                    if gameplay_ready {
-                        return Ok(Settled::Journey(phase));
-                    }
-                }
-                if receipt.is_none() {
-                    return Ok(Settled::Journey(TravelPhase::Failed));
-                }
-            }
-            _ => {}
+        if let Some(settled) = settled {
+            return Ok(settled);
         }
     }
 }
