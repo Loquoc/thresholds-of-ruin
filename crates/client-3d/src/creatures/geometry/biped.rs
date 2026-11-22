@@ -1853,8 +1853,8 @@ fn legs(kit: &mut Kit, figure: &Figure, hips: Entity) {
                 // Hip to knee: the thigh is fullest above the middle.
                 sculpted_limb(&mut p.matte, body.thigh, pants);
             }
-            if let Some(color) = outfit.trimmings.garter.filter(|_| side > 0.0 && !blocky) {
-                accessory_parts::garter(p, color, b);
+            if let Some(garter) = outfit.trimmings.garter.filter(|_| side > 0.0 && !blocky) {
+                accessory_parts::garter(p, garter, b);
             }
         });
         let lower_leg = kit.joint(shin, thigh, body.knee(), &format!("shin{tag}"), |p| {

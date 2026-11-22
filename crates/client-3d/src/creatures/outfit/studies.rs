@@ -116,7 +116,7 @@ pub(super) fn compose(wardrobe: Wardrobe, wearer: &Look) -> Outfit {
             outfit.arms = Arms::Sleeves(IVORY);
             outfit.head = Headwear::HoodDown(RED);
             outfit.cloak = Some(Cloak::new(RED, INK));
-            outfit.trimmings.garter = Some(LEATHER);
+            outfit.trimmings.garter = Some(Garter::low_relief(LEATHER));
             outfit.baldric = Some(Baldric {
                 color: LEATHER,
                 reverse: true,

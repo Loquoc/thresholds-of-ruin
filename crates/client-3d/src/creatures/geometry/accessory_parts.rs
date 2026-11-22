@@ -1,7 +1,7 @@
 //! Jewellery and small pieces: chokers, collars, armlets, waist pieces,
 //! pointed shoulders and garters. Each is built in the space of the joint it
 //! rides on and fitted to the resolved wearer, so any outfit can wear it.
-use super::super::outfit::{Earrings, Neck, Waist};
+use super::super::outfit::{Earrings, Garter, GarterProfile, Neck, Waist};
 use super::*;
 
 /// What is worn on the neck itself, in the head joint's space where the
@@ -408,13 +408,18 @@ pub(super) fn waist(p: &mut Parts, waist: Waist, body: HumanoidBody, support: &c
 }
 
 /// A cloth tie knotted round her left thigh, in the leg joint's space.
-pub(super) fn garter(p: &mut Parts, color: Vec3, build: f32) {
+pub(super) fn garter(p: &mut Parts, piece: Garter, build: f32) {
+    let color = piece.color;
+    let (radial_half, knot_depth) = match piece.profile {
+        GarterProfile::Rounded => (0.012, 1.0),
+        GarterProfile::LowRelief => (0.005, 0.63),
+    };
     let y = -0.2;
     let profile = radial_parts::RoundedBandProfile {
         height: y,
         half_height: 0.012,
         clearance: 0.003 * build,
-        radial_half: 0.012,
+        radial_half,
         sides: 24,
         sections: 8,
     };
@@ -437,7 +442,7 @@ pub(super) fn garter(p: &mut Parts, color: Vec3, build: f32) {
     }
     p.matte.blob(
         knot + outward * 0.002,
-        Vec3::new(0.018, 0.02, 0.016),
+        Vec3::new(0.018 * knot_depth, 0.02, 0.016 * knot_depth),
         2,
         0.1,
         color,
