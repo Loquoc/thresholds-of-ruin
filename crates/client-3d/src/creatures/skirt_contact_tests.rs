@@ -197,6 +197,68 @@ fn native_short_skirt_and_tassets_do_not_cross_actual_thigh_faces() {
     assert!(failures.is_empty(),"actual skirt triangles cross actual thigh faces below waistband, not empty authored slits: {failures:?}");
 }
 
+#[test]
+fn paired_gown_lining_clears_sturdy_bare_thighs_at_rest() {
+    let mut equipment = Equipment::default();
+    equipment.select("cloak").unwrap();
+    let look = Look::with_choice(
+        CreatureModel::Nymph,
+        7,
+        Some(Variant {
+            woman: true,
+            build: 2,
+            bust: 4,
+            ..default()
+        }),
+    )
+    .dressed(Wardrobe::RoyalPrincess)
+    .equipped(equipment);
+    let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+    world.insert_resource(meshes);
+    let mut update = Schedule::default();
+    update.add_systems(
+        (
+            bevy::transform::systems::mark_dirty_trees,
+            bevy::transform::systems::sync_simple_transforms,
+            bevy::transform::systems::propagate_parent_transforms,
+        )
+            .chain(),
+    );
+    update.run(&mut world);
+    let hips = world
+        .get::<GlobalTransform>(rig.joint(J::Hips).unwrap())
+        .unwrap()
+        .affine()
+        .inverse();
+    assert_eq!(rig.skirt_layers.len(), 2);
+    // Only the neutral upper-thigh transition is owned by this fit.
+    // Use actual emitted triangles, not the fitter's distance field.
+    const LOW: f32 = -0.145;
+    const HIGH: f32 = -0.070;
+    let in_band =
+        |face: &[Vec3; 3]| face.iter().any(|p| p.y >= LOW) && face.iter().any(|p| p.y <= HIGH);
+    let lining: Vec<_> = triangles(&world, rig.skirt_layers[1], hips)
+        .into_iter()
+        .filter(in_band)
+        .collect();
+    assert!(!lining.is_empty(), "the side wall must be present");
+    for leg in [J::LegL, J::LegR] {
+        let thigh: Vec<_> = triangles(&world, rig.joint(leg).unwrap(), hips)
+            .into_iter()
+            .filter(in_band)
+            .collect();
+        assert!(!thigh.is_empty(), "the upper thigh must be present");
+        for &cloth in &lining {
+            for &skin in &thigh {
+                assert!(
+                    crossing(cloth, skin).is_none_or(|p| !(LOW..=HIGH).contains(&p.y)),
+                    "resting lining crosses the sculpted thigh {leg:?}"
+                );
+            }
+        }
+    }
+}
+
 // Exact captured matrices from armor-join-audit/{plain,chain-only} at0/20/53.
 const EXPECTED: [[[[u32; 16]; 3]; 3]; 2] = [
     [

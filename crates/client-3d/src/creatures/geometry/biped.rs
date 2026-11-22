@@ -1304,6 +1304,19 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             }
         }
     }
+    // A paired gown's lining can graze its sculpted bare thigh at rest.
+    // Resolve that fit before the shell samples the lining, not as a pose
+    // displacement. Other silhouettes retain their own fit contracts.
+    if matches!(outfit.legs, Legs::Bare(_))
+        && body.thigh.contour.is_some()
+        && skirt_stack
+            .first()
+            .is_some_and(|(_, skirt, _)| skirt.center_panel.is_some())
+    {
+        for (_, _, lining) in skirt_stack.iter_mut().skip(1) {
+            lining.fit_bare_thigh_sides(body);
+        }
+    }
     // Resolve the stack from the innermost garment outward. Each outer
     // layer clears every lower layer, including through another layer's slit.
     for outer in (0..skirt_stack.len()).rev() {
