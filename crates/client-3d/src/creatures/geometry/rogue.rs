@@ -2803,10 +2803,14 @@ pub(super) fn flytrap(kit: &mut Kit, lift: Entity, look: &Look) {
         }
     });
     let lower = kit.joint(J::Neck, base, Vec3::Y * 0.08, "stem", |p| {
-        stem(p, &l, Vec3::new(0.0, 0.38, 0.04));
+        stem(p, &l, Vec3::new(0.0, 0.38, 0.04), 0.085);
     });
     let upper = kit.joint(J::Torso, lower, Vec3::new(0.0, 0.38, 0.04), "stalk", |p| {
-        stem(p, &l, Vec3::new(0.0, 0.34, 0.1));
+        stem(p, &l, Vec3::new(0.0, 0.34, 0.1), 0.06);
+        // Cover both tube ends at their shared pivot so the stalk stays
+        // continuous when the upper segment bends sharply into a lunge.
+        p.matte
+            .blob(Vec3::ZERO, Vec3::splat(0.071), 0, 0.0, l.skin * 0.93);
     });
     let trap = kit.joint(J::Head, upper, Vec3::new(0.0, 0.34, 0.1), "trap", |p| {
         trap_lobe(p, &l, 1.0);
@@ -2814,10 +2818,14 @@ pub(super) fn flytrap(kit: &mut Kit, lift: Entity, look: &Look) {
     kit.joint(J::Jaw, trap, Vec3::ZERO, "lobe", |p| trap_lobe(p, &l, -1.0));
 }
 
-fn stem(p: &mut Parts, l: &Look, top: Vec3) {
+fn stem(p: &mut Parts, l: &Look, top: Vec3, root_radius: f32) {
     p.matte.tube(
         &[Vec3::ZERO, top * 0.5 + Vec3::Z * 0.02, top],
-        &[Vec2::splat(0.085), Vec2::splat(0.076), Vec2::splat(0.06)],
+        &[
+            Vec2::splat(root_radius),
+            Vec2::splat(0.076),
+            Vec2::splat(0.06),
+        ],
         14,
         &|_, _, t| l.skin * (0.88 + 0.12 * (t * 9.0).sin().abs()),
     );

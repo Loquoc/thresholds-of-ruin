@@ -240,7 +240,10 @@ pub(super) fn action(name: &str) -> Result<Option<Move>, String> {
         "heavy" => Some(Move::Heavy),
         "focus" => Some(Move::Focus),
         "gesture" => Some(Move::Gesture),
-        _ => return Err(format!("unsupported action {name}")),
+        _ => Some(
+            Move::for_known_ability(name, None)
+                .ok_or_else(|| format!("unsupported action {name}"))?,
+        ),
     })
 }
 impl Actor {

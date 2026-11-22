@@ -599,9 +599,15 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     // Retain the blend for revival, but living layers stop when death starts.
     // Real deaths can retain rest = 1, unlike discovered corpse construction.
     let calm = (1.0 - ease(s * 4.0).max(a.contacts.blend)) * a.rest * alive;
+    let mut bird_plant = 0.0;
     if calm > 0.0 && !a.quiet {
-        if !rogue::idle(&mut p, rig, a.time + a.seed * 3.7, a.seed, calm) {
-            idle(&mut p, rig, a.time + a.seed * 3.7, a.seed, calm);
+        let time = a.time + a.seed * 3.7;
+        if !rogue::idle(&mut p, rig, time, a.seed, calm) {
+            if rig.plan == Plan::Bird {
+                bird_plant = idle_ground_bird(&mut p, time, calm);
+            } else {
+                idle(&mut p, rig, time, a.seed, calm);
+            }
         }
         if fun > 0.0 {
             let (w, gag, progress) = antic(a);
@@ -623,7 +629,7 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     match rig.plan {
         Plan::Biped => biped_pose(&mut p, rig, s, w, breath, m.map(|m| (m, t)), a.carriage),
         Plan::Bird if rig.style.flies() => rogue::flier_pose(&mut p, rig, a, s, breath, m, t),
-        Plan::Bird => bird_pose(&mut p, s, w, breath, m, t, !world_walk),
+        Plan::Bird => bird_pose(&mut p, s, w, breath, m, t, !world_walk, bird_plant),
         Plan::Quadruped | Plan::Centaur => quad_pose(&mut p, rig, s, w, breath, m, t, !world_walk),
         Plan::Rooted => rogue::rooted_pose(&mut p, a, breath, m, t),
         Plan::Serpent | Plan::Floater | Plan::Marker => {}
@@ -2049,13 +2055,26 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
                     p.r(J::Torso, Quat::from_rotation_z(0.06 * f));
                 }
                 Style::Scout => {
-                    // Light on its feet, glancing sharply about; flips the dagger.
+                    // Quick glances and a compact grip check. Bring up the arm
+                    // and turn the forearm with the hand, rather than spinning
+                    // the hand on its cuff while keeping the elbow straight.
                     let dart = ((time * 0.9).sin() * 3.0).clamp(-1.0, 1.0) * 0.45;
                     p.r(J::Head, Quat::from_rotation_y(dart * k));
                     p.o(J::Lift, Vec3::Y * -0.03 * k);
-                    let f = every(time, 5.5, 3.0, 4.2) * k;
-                    p.r(J::HandR, Quat::from_rotation_y(f * TAU));
-                    p.r(J::ArmR, fwd(0.4 * f));
+                    let lift = every(time, 5.5, 3.0, 4.2) * k;
+                    let turn = every(time, 5.5, 3.14, 4.06) * k;
+                    p.r(
+                        J::ArmR,
+                        fwd(0.36 * lift) * Quat::from_rotation_z(-0.1 * lift),
+                    );
+                    p.r(
+                        J::ForeR,
+                        fwd(0.66 * lift) * Quat::from_rotation_y(0.28 * turn),
+                    );
+                    p.r(
+                        J::HandR,
+                        Quat::from_rotation_y(0.56 * turn) * fwd(0.14 * turn),
+                    );
                 }
                 Style::Guardian => {
                     // A slow, grinding scan of the room.
@@ -2106,24 +2125,26 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
                     p.r(J::Torso, bow((time * 1.2).sin() * 0.05 * k));
                     let f = every(time, 9.0, 5.5, 7.5) * k;
                     let beat = (time * 12.0).sin();
-                    p.r(J::ArmL, fwd((0.9 + 0.25 * beat) * f));
-                    p.r(J::ArmR, fwd((0.9 - 0.25 * beat) * f));
-                    p.r(J::ForeL, fwd(1.2 * f));
-                    p.r(J::ForeR, fwd(1.2 * f));
+                    for (side, arm, fore, hand) in [
+                        (1.0, J::ArmL, J::ForeL, J::HandL),
+                        (-1.0, J::ArmR, J::ForeR, J::HandR),
+                    ] {
+                        // Keep the elbow out and fold the forearm across
+                        // the chest. Each fist comes back as the other winds
+                        // up, instead of both fists pushing into empty air.
+                        let tap = (1.0 + side * beat) * 0.5;
+                        p.r(
+                            arm,
+                            Quat::from_rotation_y(-side * (0.24 + 0.51 * tap) * f)
+                                * fwd((0.13 + 0.52 * (1.0 - tap)) * f),
+                        );
+                        p.r(fore, fwd((1.05 + 1.23 * tap) * f));
+                        p.r(hand, fwd(0.50 * tap * f));
+                    }
                     p.r(J::Head, bow(-0.3 * f));
                 }
                 _ => {}
             }
-        }
-        Plan::Bird => {
-            // Head bobs and jerks; every few seconds it pecks at the ground.
-            let jerk = ((time * 1.3).sin() * 4.0).round() * 0.08;
-            p.r(J::Neck, Quat::from_rotation_y(jerk * k));
-            let f = every(time, 5.0, 2.8, 3.8) * k;
-            let peck = (time * 14.0).sin().max(0.0);
-            p.r(J::Neck, bow((1.6 + 0.2 * peck) * f));
-            p.r(J::Head, bow(0.4 * f));
-            p.r(J::Body, bow(0.25 * f));
         }
         Plan::Quadruped | Plan::Centaur => {
             p.r(
@@ -2147,8 +2168,21 @@ fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) {
             p.r(J::FL, fwd(0.5 * stamp));
             p.r(J::FLs, fwd(-0.9 * stamp));
         }
-        Plan::Serpent | Plan::Floater | Plan::Rooted | Plan::Marker => {}
+        Plan::Bird | Plan::Serpent | Plan::Floater | Plan::Rooted | Plan::Marker => {}
     }
+}
+
+/// Peck with the existing neck reach, but plant the toes before pitching the
+/// breast. Ease the support in and out while the load is still small.
+fn idle_ground_bird(p: &mut Pose, time: f32, weight: f32) -> f32 {
+    let jerk = ((time * 1.3).sin() * 4.0).round() * 0.08;
+    p.r(J::Neck, Quat::from_rotation_y(jerk * weight));
+    let f = every(time, 5.0, 2.8, 3.8) * weight;
+    let peck = (time * 14.0).sin().max(0.0);
+    p.r(J::Neck, bow((1.6 + 0.2 * peck) * f));
+    p.r(J::Head, bow(0.4 * f));
+    p.r(J::Body, bow(0.25 * f));
+    envelope(time.rem_euclid(5.0), 2.65, 2.8, 3.8, 3.95) * weight
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2474,7 +2508,11 @@ fn biped_pose(
                 Quat::from_rotation_z(0.18 * k * (t * 6.0).sin()) * bow(0.1 * k),
             );
             p.r(J::Torso, Quat::from_rotation_y(0.25 * k));
-            p.o(J::Lift, Vec3::new(0.0, -0.08 * k, 0.0));
+            // A planted deep crouch puts both knees hard into a floor-length
+            // robe. Keep a small weight shift when that garment is actually
+            // worn; the hands and torso still carry the channeling gesture.
+            let dip = if rig.robe.is_some() { 0.025 } else { 0.08 };
+            p.o(J::Lift, Vec3::Y * (-dip * k));
             p.r(J::LegL, fwd(0.35 * k));
             p.r(J::LegR, fwd(-0.3 * k));
             p.r(J::ShinR, fwd(-0.3 * k));
@@ -2652,7 +2690,16 @@ fn beast_limb(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn bird_pose(p: &mut Pose, s: f32, w: f32, breath: f32, m: Option<Move>, t: f32, local_legs: bool) {
+fn bird_pose(
+    p: &mut Pose,
+    s: f32,
+    w: f32,
+    breath: f32,
+    m: Option<Move>,
+    t: f32,
+    local_legs: bool,
+    idle_support: f32,
+) {
     let walk = ease(s * 4.0);
     // Keep the front contact inside both bone lengths even at maximum
     // breast pitch. A shorter, quicker step suits the compact ground bird.
@@ -2735,7 +2782,7 @@ fn bird_pose(p: &mut Pose, s: f32, w: f32, breath: f32, m: Option<Move>, t: f32,
                 BirdBody::UPPER.z + BirdBody::LOWER.z + z * walk + 0.38 * raised,
             ),
             1.0,
-            support,
+            support.max(idle_support),
         );
     }
 }
@@ -3112,13 +3159,22 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             }
             let wave = a.walk * 2.2 + a.seed;
             let amplitude = 0.18 + 0.4 * ease(a.speed * 3.0);
+            // Keep the raised neck and rattle through the pose's existing
+            // action/idle handoff. A boolean action gate resets their height
+            // in one frame, even though the bite is only starting to gather.
+            let stopped = 1.0 - ease(a.speed * 4.0);
+            let still = stopped * if a.dead.is_some() { 1.0 } else { a.rest };
+            let calm = still * f32::from(u8::from(a.dead.is_none() && !a.quiet));
             let rear = every(a.time + a.seed * 3.7, 8.0, 3.0, 6.5) * calm;
             let rattler = rig.style == Style::Rattlesnake;
-            let still = (1.0 - ease(a.speed * 4.0)) * f32::from(u8::from(m.is_none()));
             // Default rest keeps the whole animal extended and readable.
             // Head and rattle lift gently above the same continuous body path.
             let warning = if rattler { still } else { 0.0 };
-            let raised = 0.24 * gather + 0.13 * strike + 0.19 * rear + 0.16 * warning;
+            let idle_rise = 0.19 * rear + 0.16 * warning;
+            let bite_rise = 0.24 * gather + 0.13 * strike;
+            // Transfer support rather than stacking the idle rise onto
+            // the established apex of the attack pose.
+            let raised = idle_rise.max(bite_rise);
             let mut live = Vec3::new(
                 0.018 * wave.sin() * a.speed,
                 snake_ground_height(0, 0.0, rig.style) + raised,
@@ -3399,6 +3455,138 @@ pub fn soften(
 mod support_tests {
     use super::*;
     use crate::creatures::rogue_tests::spawn_one;
+
+    #[test]
+    fn idle_ground_bird_pecks_without_dragging_its_toes() {
+        let (_, rig, _, _) = spawn_one(&Look::of(CreatureModel::Emu, 49));
+        let at = |time| {
+            let mut anim = Anim::new(49, Vec3::ZERO);
+            anim.seed = 0.0;
+            anim.time = time;
+            pose(&rig, &mut anim, 0.0, 0.02, true, false)
+        };
+        let foot_frame = |pose: &Pose, [thigh, shin, foot]: [J; 3]| {
+            let mut origin = Vec3::ZERO;
+            let mut rotation = Quat::IDENTITY;
+            for joint in [J::Lift, J::Body, thigh, shin, foot] {
+                let j = joint as usize;
+                origin += rotation * (rig.rest[j] + pose.off[j]);
+                rotation *= pose.rot[j];
+            }
+            // Near the forward toe pad: tracks both a sliding ankle and a
+            // foot pitching through the ground with the body.
+            (
+                origin + rotation * Vec3::new(0.0, -0.032, 0.17),
+                rotation * Vec3::Y,
+            )
+        };
+        let rest = at(2.55);
+        let peak = at(3.30);
+        assert!(
+            peak.rot[J::Neck as usize].angle_between(rest.rot[J::Neck as usize]) > 1.0,
+            "keep the visible neck reach"
+        );
+        for (thigh, shin, foot) in BIPED_LEGS {
+            let limbs = [thigh, shin, foot];
+            let (initial, _) = foot_frame(&rest, limbs);
+            for frame in (140..=190).step_by(2) {
+                let time = frame as f32 / 50.0;
+                let (toe, sole_up) = foot_frame(&at(time), limbs);
+                assert!(
+                    toe.distance(initial) < 0.020,
+                    "{foot:?} toe moves {:.3} m while pecking at {time:.2}s",
+                    toe.distance(initial),
+                );
+                assert!(
+                    sole_up.dot(Vec3::Y) > 0.998,
+                    "{foot:?} tips off the floor while pecking at {time:.2}s"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn yeti_idle_brings_each_fist_in_to_the_chest_in_turn() {
+        let (_, rig, _, _) = spawn_one(&Look::of(CreatureModel::Yeti, 17));
+        let at = |time, weight| {
+            let mut p = Pose::new();
+            idle(&mut p, &rig, time, 0.0, weight);
+            p
+        };
+        let wrist = |p: &Pose, arm: J, fore: J, hand: J| {
+            let [a, e, w] = [arm as usize, fore as usize, hand as usize];
+            rig.rest[a] + p.rot[a] * (rig.rest[e] + p.rot[e] * rig.rest[w])
+        };
+        for (side, (arm, fore, hand, time)) in [
+            (
+                1.0,
+                (J::ArmL, J::ForeL, J::HandL, (PI / 2.0 + 12.0 * TAU) / 12.0),
+            ),
+            (
+                -1.0,
+                (J::ArmR, J::ForeR, J::HandR, (-PI / 2.0 + 13.0 * TAU) / 12.0),
+            ),
+        ] {
+            // The native fur chest sits around y=.28 and is .30 across the
+            // midline to its outer edge. The wrist must be on its own side,
+            // but come inward and back to the forward fur instead of the air.
+            let point = wrist(&at(time, 1.0), arm, fore, hand);
+            assert!(
+                (0.12..0.32).contains(&(side * point.x))
+                    && (0.18..0.50).contains(&point.y)
+                    && (0.23..0.43).contains(&point.z),
+                "chest beat misses on {hand:?}: {point:?}"
+            );
+            let other_beat = wrist(&at(time + PI / 12.0, 1.0), arm, fore, hand);
+            assert!(
+                other_beat.z > point.z + 0.055,
+                "one fist must release while the other comes in"
+            );
+            let rest = wrist(&at(5.35, 1.0), arm, fore, hand);
+            assert_eq!(rest, wrist(&Pose::new(), arm, fore, hand));
+            assert_eq!(rest, wrist(&at(time, 0.0), arm, fore, hand));
+        }
+    }
+
+    #[test]
+    fn scout_idle_checks_its_grip_without_spinning_the_wrist() {
+        let (_, mut rig, _, _) = spawn_one(&Look::of(CreatureModel::Scout, 104));
+        let rest = Pose::new();
+        let at = |time, weight| {
+            let mut p = Pose::new();
+            idle(&mut p, &rig, time, 0.0, weight);
+            p
+        };
+        let right = J::HandR as usize;
+        for time in [2.95, 3.0, 4.2, 4.25, 5.5] {
+            assert!(at(time, 1.0).rot[right].angle_between(rest.rot[right]) < 0.001);
+        }
+        let mut furthest: f32 = 0.0;
+        for frame in 150..=210 {
+            let time = frame as f32 / 50.0;
+            let wrist = at(time, 1.0).rot[right];
+            let twist = wrist.angle_between(rest.rot[right]);
+            assert!(twist < 1.4, "idle wrist turns {twist:.2} rad at {time:.2}s");
+            furthest = furthest.max(twist);
+        }
+        assert!(furthest > 0.45, "the grip check should still read");
+        let active = at(3.60, 1.0);
+        assert!(
+            active.rot[J::ForeR as usize].angle_between(rest.rot[J::ForeR as usize]) > 0.42,
+            "the forearm should bring the grip up instead of just turning the hand"
+        );
+        assert!(
+            at(3.6, 0.4).rot[right].angle_between(rest.rot[right])
+                < active.rot[right].angle_between(rest.rot[right]) * 0.5,
+            "walking/action blend must also fade the grip check"
+        );
+        // Compare against the same idle body at the same time: this hand may
+        // still be resting on a hip because of the shared idle stance.
+        rig.style = Style::Common;
+        let mut common = Pose::new();
+        idle(&mut common, &rig, 3.6, 0.0, 1.0);
+        assert_eq!(active.rot[J::HandL as usize], common.rot[J::HandL as usize]);
+    }
 
     #[test]
     fn strike_entry_admits_a_fresh_pose_and_releases_before_impact() {
@@ -4015,6 +4203,92 @@ mod support_tests {
         }
         // Smoothing must preserve the recognizable overhead flight pose.
         assert!(arms(0.5)[0].angle_between(arms(0.0)[0]) > 2.0);
+    }
+
+    #[test]
+    fn robed_focus_keeps_the_knees_near_rest_with_both_feet_planted() {
+        let at = |p: &Pose, rig: &Rig, leg: J, shin: J, foot: J| {
+            let l = J::Lift as usize;
+            let h = J::Hips as usize;
+            let [leg, shin, foot] = [leg, shin, foot].map(|j| j as usize);
+            let hips = p.off[l] + p.rot[l] * (rig.rest[h] + p.off[h]);
+            let torso = p.rot[l] * p.rot[h];
+            let knee = hips
+                + torso
+                    * (rig.rest[leg] + p.off[leg] + p.rot[leg] * (rig.rest[shin] + p.off[shin]));
+            let ankle = knee + torso * p.rot[leg] * p.rot[shin] * (rig.rest[foot] + p.off[foot]);
+            (knee, ankle)
+        };
+        let anim = Anim::new(22, Vec3::ZERO);
+        for model in [CreatureModel::Mage, CreatureModel::RedMage] {
+            for woman in [false, true] {
+                let look = Look::with_choice(
+                    model,
+                    22,
+                    Some(Variant {
+                        woman,
+                        build: 2,
+                        ..default()
+                    }),
+                );
+                let (_, rig, _, _) = spawn_one(&look);
+                assert!(rig.robe.is_some());
+                let mut idle = Pose::new();
+                biped_pose(
+                    &mut idle,
+                    &rig,
+                    0.0,
+                    0.0,
+                    0.0,
+                    None,
+                    WalkingCarriage::Native,
+                );
+                for phase in [0.27, 0.5, 0.78] {
+                    let mut p = Pose::new();
+                    biped_pose(
+                        &mut p,
+                        &rig,
+                        0.0,
+                        0.0,
+                        0.0,
+                        Some((Move::Focus, phase)),
+                        WalkingCarriage::Native,
+                    );
+                    grounded_action(&mut p, &rig, &anim, Move::Focus, phase);
+                    for ((leg, shin, foot), target) in
+                        BIPED_LEGS.into_iter().zip(biped_rest_contacts(&rig))
+                    {
+                        let (knee, ankle) = at(&p, &rig, leg, shin, foot);
+                        let (rest_knee, _) = at(&idle, &rig, leg, shin, foot);
+                        assert!(
+                            ankle.distance(target) < 0.014,
+                            "{model:?} foot drift {ankle:?} vs {target:?}"
+                        );
+                        assert!(
+                            knee.z - rest_knee.z < 0.14,
+                            "{model:?} focus drives knee {:.3}m forward",
+                            knee.z - rest_knee.z
+                        );
+                    }
+                    assert!(
+                        p.rot[J::ArmR as usize].angle_between(idle.rot[J::ArmR as usize]) > 1.0
+                    );
+                }
+                let (_, unrobed, _, _) = spawn_one(&look.dressed(Wardrobe::Knight));
+                assert!(unrobed.robe.is_none());
+                let mut p = Pose::new();
+                biped_pose(
+                    &mut p,
+                    &unrobed,
+                    0.0,
+                    0.0,
+                    0.0,
+                    Some((Move::Focus, 0.5)),
+                    WalkingCarriage::Native,
+                );
+                assert_eq!(p.off[J::Lift as usize].y, -0.08);
+            }
+        }
     }
 
     #[test]

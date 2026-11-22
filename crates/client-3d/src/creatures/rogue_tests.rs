@@ -5474,3 +5474,95 @@ fn bare_feet_do_not_emit_boot_shafts_on_fitted_legs() {
         }
     }
 }
+
+#[test]
+fn aquator_corrosion_tendrils_extend_toward_contact() {
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Aquator, 42), 12, |_| Vec3::ZERO);
+    let motion = Move::for_ability("rogue.corrode", None);
+    assert_eq!(motion, Move::Touch(Accent::Amber));
+    let segments = app.world().get::<Rig>(root).unwrap().segments.clone();
+    assert_eq!(segments.len(), 8, "two four-segment tendrils");
+    let relative_tips = |world: &World| {
+        [0, 4].map(|start| {
+            let chain = &segments[start..start + 4];
+            let local = |e| world.get::<Transform>(e).unwrap();
+            // Chain steps are identical; the distal segment ends one step
+            // beyond its hinge. Measure in the head frame, not just the lunge.
+            let end = local(chain[1]).translation;
+            let path = chain.iter().fold(Affine3A::IDENTITY, |path, e| {
+                path * local(*e).compute_affine()
+            });
+            path.transform_point3(end)
+        })
+    };
+    let rest = relative_tips(app.world());
+    let mut sample = |phase| {
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((motion, phase - 0.016 / motion.duration()));
+        app.update();
+        relative_tips(app.world())
+    };
+    let wind_up = sample(0.30);
+    let contact = sample(motion.impact());
+    for i in 0..2 {
+        assert!(
+            contact[i].z > rest[i].z + 0.05 && contact[i].z > wind_up[i].z + 0.10,
+            "tendril {i} needs to lead the contact, rest={:?}, wind-up={:?}, contact={:?}",
+            rest[i],
+            wind_up[i],
+            contact[i],
+        );
+        assert!(
+            contact[i].y > rest[i].y + 0.07,
+            "tendril {i} folds down rather than sweeping up at contact: {:?}",
+            contact[i],
+        );
+    }
+}
+
+#[test]
+fn dragon_and_griffin_keep_distal_wings_on_their_own_sides_when_mantling() {
+    use bevy::render::mesh::VertexAttributeValues;
+    for (model, ability) in [
+        (CreatureModel::Dragon, "rogue.breath_weapon"),
+        (CreatureModel::Griffin, "rogue.fear"),
+    ] {
+        let (mut app, root) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+        let motion = Move::for_ability(ability, None);
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((motion, motion.impact() - 0.016 / motion.duration()));
+        app.update();
+        let world = app.world();
+        let rig = world.get::<Rig>(root).unwrap();
+        let meshes = world.resource::<Assets<Mesh>>();
+        let local = |entity| world.get::<Transform>(entity).unwrap().compute_affine();
+        for (wing, tip, side) in [(J::WingL, J::WingTipL, 1.0), (J::WingR, J::WingTipR, -1.0)] {
+            let tip = rig.joint(tip).unwrap();
+            let frame = local(rig.joint(wing).unwrap()) * local(tip);
+            let mut min_side = f32::INFINITY;
+            let mut max_side = f32::NEG_INFINITY;
+            for child in world.get::<Children>(tip).unwrap().iter() {
+                let Some(mesh) = world.get::<Mesh3d>(child).and_then(|m| meshes.get(&m.0)) else {
+                    continue;
+                };
+                let Some(VertexAttributeValues::Float32x3(vertices)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("wing positions");
+                };
+                for vertex in vertices {
+                    let at = local(child).transform_point3((*vertex).into());
+                    if at.z < -0.18 {
+                        let outward = side * frame.transform_point3(at).x;
+                        min_side = min_side.min(outward);
+                        max_side = max_side.max(outward);
+                    }
+                }
+            }
+            assert!(
+                min_side > 0.08 && max_side > 0.29,
+                "{model:?} {wing:?} folds into the torso at peak: outward range {min_side:.4}..{max_side:.4}"
+            );
+        }
+    }
+}

@@ -426,6 +426,52 @@ fn repeated_preparation_reuses_sources_but_keeps_deforming_meshes_private() {
 }
 
 #[test]
+fn bridal_veil_reuses_meshes_but_binds_each_loaded_wearer() {
+    use std::collections::HashSet;
+
+    let mut world = world();
+    let mut generator = generator(&world);
+    let look = Look::preview_adjusted(CreatureModel::Human, 76, |v| {
+        v.woman = true;
+        v.hair = 4;
+    })
+    .dressed(Wardrobe::RoyalBride);
+    let mut mesh_sets = Vec::new();
+    let mut skin_entities = Vec::new();
+    for _ in 0..2 {
+        let root = world.spawn_empty().id();
+        let rig = generator.prepare(&look).install(&mut world, root);
+        let head = rig.joint(J::Head).unwrap();
+        let torso = rig.joint(J::Torso).unwrap();
+        let layers: Vec<_> = world
+            .query::<(Entity, &Mesh3d, &SkinnedMesh, &ChildOf)>()
+            .iter(&world)
+            .filter(|(_, _, skin, _)| skin.joints.get(1) == Some(&head))
+            .collect();
+        assert_eq!(layers.len(), 3);
+        let mut meshes = HashSet::new();
+        let mut entities = HashSet::new();
+        for (entity, mesh, skin, child) in layers {
+            let frame = child.parent();
+            assert_eq!(skin.joints, vec![frame, head]);
+            assert_eq!(world.get::<ChildOf>(frame).unwrap().parent(), torso);
+            assert!(world
+                .resource::<Assets<SkinnedMeshInverseBindposes>>()
+                .get(&skin.inverse_bindposes)
+                .is_some());
+            let mesh = world.resource::<Assets<Mesh>>().get(&mesh.0).unwrap();
+            assert!(mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_some());
+            meshes.insert(world.get::<Mesh3d>(entity).unwrap().0.id());
+            entities.insert((entity, frame, head));
+        }
+        mesh_sets.push(meshes);
+        skin_entities.push(entities);
+    }
+    assert_eq!(mesh_sets[0], mesh_sets[1]);
+    assert!(skin_entities[0].is_disjoint(&skin_entities[1]));
+}
+
+#[test]
 fn a_model_finishing_after_death_keeps_death_state_and_registers_no_live_hand() {
     let mut world = world();
     let parent = world.spawn(Anim::corpse(17)).id();

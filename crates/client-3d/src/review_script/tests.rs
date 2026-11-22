@@ -816,3 +816,48 @@ fn effect_track_is_bounded_capture_only_and_preserves_disclosure_segments() {
     bad["effects"][0]["secret_actor"] = json!(123);
     assert!(parse(bad).is_err());
 }
+
+#[test]
+fn scripted_abilities_replay_the_gameplay_move_without_caption_fallback() {
+    use crate::{creatures::Move, props::Accent};
+    for (id, expected) in [
+        ("rogue.corrode", Move::Touch(Accent::Amber)),
+        ("rogue.breath_weapon", Move::Breath(Accent::Ember)),
+        ("rogue.confusing_gaze", Move::Gaze),
+        ("rogue.venomous_bite", Move::Bite(Accent::Teal)),
+        ("basic_melee", Move::Strike),
+        ("read_the_rhythm", Move::Focus),
+    ] {
+        let mut v = fixture();
+        v["captures"][0]["tick"] = json!(10);
+        v["events"] = json!([
+            {"tick":1, "actor":"woman", "operation":{"type":"action", "name":id}}
+        ]);
+        let script = parse(v).unwrap_or_else(|error| panic!("{id}: {error}"));
+        let mut spec = script.actors[0].clone();
+        let mut anim = spec.animation(Vec3::ZERO, 0.0);
+        let mut velocity = Vec3::ZERO;
+        let mut transform = Transform::default();
+        assert!(!apply_operation(
+            &mut spec,
+            &mut velocity,
+            &mut anim,
+            &mut transform,
+            &script.events[0].operation
+        ));
+        assert_eq!(anim.action, Some((expected, 0.0)), "{id}");
+        assert_eq!(Move::for_ability(id, None), expected, "{id}");
+    }
+
+    // Live views keep their neutral fallback for unknown server abilities; a
+    // scripted review must reject a typo instead of capturing the wrong move.
+    for name in ["rogue.corode", "Corrode", "unknown_ability"] {
+        let mut v = fixture();
+        v["captures"][0]["tick"] = json!(10);
+        v["events"] = json!([
+            {"tick":1, "actor":"woman", "operation":{"type":"action", "name":name}}
+        ]);
+        assert_eq!(parse(v).err(), Some(format!("unsupported action {name}")));
+        assert_eq!(Move::for_ability(name, None), Move::Gesture);
+    }
+}

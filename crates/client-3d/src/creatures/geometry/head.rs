@@ -11,6 +11,7 @@ struct Finish {
     earrings: Option<Earrings>,
     cuirass: bool,
     hood_binding: Option<Vec3>,
+    seat_hood_locks: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -21,20 +22,19 @@ pub(super) struct Recipe {
 impl Recipe {
     pub(super) fn resolve(look: &Look) -> Self {
         let outfit = Outfit::worn(look);
+        let equipped_hood = look
+            .equipment
+            .outerwear()
+            .filter(|kind| *kind == super::outfit::outerwear::OuterwearAppearance::HoodedCloak)
+            .filter(|_| matches!(outfit.head, Headwear::Hood { .. }));
         Self {
             finish: Finish {
                 headwear: outfit.head,
                 neck_band: outfit.trimmings.neck,
                 earrings: outfit.trimmings.earrings,
                 cuirass: outfit.outer == Some(Outer::Cuirass),
-                hood_binding: look
-                    .equipment
-                    .outerwear()
-                    .filter(|kind| {
-                        *kind == super::outfit::outerwear::OuterwearAppearance::HoodedCloak
-                    })
-                    .filter(|_| matches!(outfit.head, Headwear::Hood { .. }))
-                    .map(|kind| kind.recipe().trim),
+                hood_binding: equipped_hood.map(|kind| kind.recipe().trim),
+                seat_hood_locks: equipped_hood.is_some(),
             },
         }
     }
@@ -56,6 +56,7 @@ impl Recipe {
             earrings,
             cuirass,
             hood_binding,
+            seat_hood_locks,
         } = self.finish;
         let neck = if furry { l.cloth } else { l.skin };
         let slim = neck_slim(fem);
@@ -366,47 +367,74 @@ impl Recipe {
                                     Vec3::new(0.16, 0.05, 0.09),
                                 ),
                                 0.05,
-                            )
-                            // The face opening, tilted to follow the face.
-                            .carve(
-                                Ellipsoid(Vec3::new(0.0, 0.14, 0.13), Vec3::new(0.088, 0.13, 0.11)),
-                                0.012,
-                            )
-                            // The underside around the neck and the front of the shoulders.
-                            .carve(
-                                Ellipsoid(Vec3::new(0.0, -0.06, 0.1), Vec3::new(0.2, 0.08, 0.14)),
-                                0.02,
                             );
+                            // The face opening, tilted to follow the face.
+                            let opening =
+                                Ellipsoid(Vec3::new(0.0, 0.14, 0.13), Vec3::new(0.088, 0.13, 0.11));
+                            let binding = hood_binding
+                                .map(|trim| (h.clone(), (hood * 0.60).lerp(trim, 0.18)));
+                            h.carve(opening, 0.012)
+                                // The underside around the neck and the front of the shoulders.
+                                .carve(
+                                    Ellipsoid(
+                                        Vec3::new(0.0, -0.06, 0.1),
+                                        Vec3::new(0.2, 0.08, 0.14),
+                                    ),
+                                    0.02,
+                                );
                             h.mesh(
                                 &mut p.matte,
                                 Vec3::new(-0.2, -0.1, -0.22),
                                 Vec3::new(0.2, 0.38, 0.14),
                                 0.0065,
-                                &|_at, n| {
-                                    // A slightly darker edge where the cloth turns inward.
-                                    (if n.z > 0.6 { hood * 0.88 } else { hood })
-                                        * crate::sdf::Sculpt::weave(_at)
+                                &|at, n| {
+                                    // The folded binding follows the junction of the face
+                                    // cut and the outer cloth. There's nothing to bind
+                                    // where the opening extends below the shell.
+                                    let cloth = if n.z > 0.6 { hood * 0.88 } else { hood };
+                                    let cloth = binding.as_ref().map_or(cloth, |(shell, edge)| {
+                                        let gap = opening
+                                            .distance(at)
+                                            .abs()
+                                            .max(shell.distance(at).abs());
+                                        cloth.lerp(*edge, ((0.015 - gap) / 0.008).clamp(0.0, 1.0))
+                                    });
+                                    cloth * Sculpt::weave(at)
                                 },
                             );
-                        }
-                        if let Some(trim) = hood_binding {
-                            equipment_outerwear::emit_hood_rim(p, hood, trim);
                         }
                         if fem || style == Style::Wraith {
                             // Locks of hair escape the hood to frame the face.
                             let c = hair_color(l);
                             for side in [-1.0f32, 1.0] {
-                                lock(
-                                    &mut p.matte,
-                                    &[
-                                        Vec3::new(side * 0.075, 0.2, 0.07),
-                                        Vec3::new(side * 0.088, 0.13, 0.07),
-                                        Vec3::new(side * 0.08, 0.05, 0.06),
-                                    ],
-                                    0.026,
-                                    0.016,
-                                    c,
-                                );
+                                if seat_hood_locks {
+                                    // Hide the cut end under the hood and bring the lock
+                                    // out through the face opening, below the eyebrow.
+                                    lock(
+                                        &mut p.matte,
+                                        &[
+                                            Vec3::new(side * 0.090, 0.225, 0.028),
+                                            Vec3::new(side * 0.075, 0.164, 0.076),
+                                            Vec3::new(side * 0.085, 0.116, 0.074),
+                                            Vec3::new(side * 0.082, 0.056, 0.061),
+                                        ],
+                                        0.020,
+                                        0.016,
+                                        c,
+                                    );
+                                } else {
+                                    lock(
+                                        &mut p.matte,
+                                        &[
+                                            Vec3::new(side * 0.075, 0.2, 0.07),
+                                            Vec3::new(side * 0.088, 0.13, 0.07),
+                                            Vec3::new(side * 0.08, 0.05, 0.06),
+                                        ],
+                                        0.026,
+                                        0.016,
+                                        c,
+                                    );
+                                }
                             }
                         }
                         // Some hoods end in a long soft point that flops back.
@@ -589,6 +617,118 @@ fn native_helm_rim(b: &mut Builder, shell: &Builder) {
 #[cfg(test)]
 mod study_hood_tests {
     use super::*;
+
+    #[test]
+    fn study_hood_binding_sits_on_the_hood_shell() {
+        let mut look = Look::with_choice(
+            CreatureModel::RedMage,
+            22,
+            Some(Variant {
+                woman: true,
+                build: 2,
+                hair: 2,
+                bust: 3,
+                ..default()
+            }),
+        );
+        look.equipment.select("hooded-cloak").unwrap();
+        let body = HumanoidBody::resolve(&look);
+        let with_binding = Recipe::resolve(&look);
+        assert!(with_binding.finish.hood_binding.is_some());
+        let mut unbound = with_binding;
+        unbound.finish.hood_binding = None;
+        let (mut base, mut bound) = (Parts::default(), Parts::default());
+        unbound.emit(&mut base, &look, body);
+        with_binding.emit(&mut bound, &look, body);
+
+        assert!(
+            base.matte
+                .surface_triangles()
+                .eq(bound.matte.surface_triangles()),
+            "a sewn face binding should follow the existing hood shell, not add a floating rim"
+        );
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let materials = crate::props::PropMaterials::new(&mut materials);
+        let base_model = base.finish(&mut meshes, &materials);
+        let bound_model = bound.finish(&mut meshes, &materials);
+        fn colors(mesh: &Mesh) -> &[[f32; 4]] {
+            use bevy::render::mesh::VertexAttributeValues;
+            let Some(VertexAttributeValues::Float32x4(paint)) =
+                mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+            else {
+                panic!("hood vertices carry cloth colors");
+            };
+            paint
+        }
+        let base_paint = colors(meshes.get(&base_model.0[0].0).unwrap());
+        let bound_paint = colors(meshes.get(&bound_model.0[0].0).unwrap());
+        assert_ne!(
+            base_paint, bound_paint,
+            "the fitted binding still colors the cloth"
+        );
+    }
+
+    #[test]
+    fn equipped_hood_locks_emerge_below_the_outer_brow() {
+        use bevy::render::mesh::VertexAttributeValues;
+        let mut look = Look::with_choice(
+            CreatureModel::RedMage,
+            22,
+            Some(Variant {
+                woman: true,
+                build: 2,
+                hair: 2,
+                bust: 3,
+                ..default()
+            }),
+        );
+        look.equipment.select("hooded-cloak").unwrap();
+        let body = HumanoidBody::resolve(&look);
+        let mut head = Parts::default();
+        Recipe::resolve(&look).emit(&mut head, &look, body);
+
+        // A head-local ray through the exposed root cap at the outer eyebrow
+        // on the stock model. Preserve the side lock, not its visible cut end.
+        let origin = Vec3::new(0.067, 0.197, 0.4);
+        let ray = Vec3::NEG_Z;
+        let foremost = head
+            .matte
+            .inner_surface(origin, ray)
+            .expect("head under brow");
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let materials = crate::props::PropMaterials::new(&mut materials);
+        let head = head.finish(&mut meshes, &materials);
+        let mesh = meshes.get(&head.0[0].0).unwrap();
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("head positions");
+        };
+        let Some(VertexAttributeValues::Float32x4(colors)) = mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            panic!("head pigments");
+        };
+        let [r, g, b] = hair_color(&look).to_array();
+        let hair = Color::srgb(r, g, b).to_linear();
+        let color = Vec3::new(hair.red, hair.green, hair.blue);
+        let mut locks = Builder::default();
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        for tri in indices.as_chunks::<3>().0 {
+            if tri.iter().all(|&i| {
+                Vec3::from_array(colors[i][..3].try_into().unwrap()).distance(color) < 1e-6
+            }) {
+                locks.tri(tri.map(|i| Vec3::from_array(points[i])), color);
+            }
+        }
+        assert!(!locks.is_empty(), "retain the side locks");
+        let lock = locks.inner_surface(origin, ray);
+        assert!(
+            lock.is_none_or(|hit| foremost.z > hit.z + 0.001),
+            "lock's exposed cap obscures the brow: head {foremost:?}, lock {lock:?}"
+        );
+    }
 
     #[test]
     fn study_hood_binding_is_a_head_cache_dependency() {

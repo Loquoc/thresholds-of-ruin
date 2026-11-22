@@ -53,11 +53,15 @@ pub(super) fn lock(b: &mut Builder, path: &[Vec3], width: f32, thick: f32, color
             )
         })
         .collect();
+    lock_with_radii(b, path, &radii, color);
+}
+
+fn lock_with_radii(b: &mut Builder, path: &[Vec3], radii: &[Vec2], color: Vec3) {
     // Broad side along the scalp: across the lock and around the head.
     let tangent = (path[1] - path[0]).normalize_or(Vec3::Y);
     let outward = (path[0] - Vec3::new(0.0, 0.17, -0.005)).normalize_or(Vec3::Y);
     let across = tangent.cross(outward).normalize_or(Vec3::X);
-    b.tube_framed(path, &radii, 10, &|_, _, _| color, Some(across));
+    b.tube_framed(path, radii, 10, &|_, _, _| color, Some(across));
 }
 
 /// One strand of a sculpted hairstyle: points down its length and its
@@ -71,8 +75,49 @@ pub(super) struct Strand {
 }
 
 pub(super) const HAIR_SCALP_END_Y: f32 = 0.1;
+const SCALP_CAP_CENTER: Vec3 = Vec3::new(0.0, 0.205, -0.02);
+const SCALP_CAP_RADII: Vec3 = Vec3::new(0.105, 0.094, 0.110);
 
+pub(super) fn loose_strands(l: &Look) -> Vec<Strand> {
+    // A fitted brim owns the shape of its covered roots. Seat starts only
+    // on exposed scalp, before the independently moving fall is built.
+    let uncovered = uses_uncovered_hair_profile(l);
+    let mut strands = long_hair_profile(hair_seed(l, 0), uncovered);
+    if uncovered && loose_fall(l) {
+        use super::deformation::SupportSide;
+        for strand in &mut strands {
+            // The loose roots are closed tubes. Keep their full cross
+            // section for the fall but seat the first ring in the scalp,
+            // including the entirely pinned sweep over the forehead.
+            let root = &mut strand.path[0];
+            match strand.support_side {
+                Some(SupportSide::Back) => {}
+                Some(SupportSide::Front) => {
+                    *root = Vec3::new(root.x.signum() * 0.049, 0.238, root.z);
+                }
+                None => {
+                    *root = Vec3::new(root.x.signum() * 0.022, 0.246, 0.019);
+                    // The next, also pinned station exits onto the cap
+                    // rather than levering the swept lock up into a loop.
+                    strand.path[1].y = 0.267;
+                    strand.path[1].z = 0.063;
+                }
+            }
+        }
+    }
+    strands
+}
+
+fn uses_uncovered_hair_profile(l: &Look) -> bool {
+    hair_envelope::HairEnvelope::for_look(l).is_none()
+}
+
+#[cfg(test)]
 pub(super) fn long_hair_strands(seed: u64) -> Vec<Strand> {
+    long_hair_profile(seed, false)
+}
+
+fn long_hair_profile(seed: u64, seat_rear_roots: bool) -> Vec<Strand> {
     let skull = Vec3::new(0.0, 0.17, -0.005);
     // The skull's horizontal radius at a height, a little proud of the scalp.
     let around = |y: f32| {
@@ -92,6 +137,12 @@ pub(super) fn long_hair_strands(seed: u64) -> Vec<Strand> {
         let path: Vec<Vec3> = (0..=6)
             .map(|i| {
                 let s = i as f32 / 6.0;
+                // Anchor the capped start inside the fitted scalp. Only this
+                // pinned control moves: the rear locks keep their shoulder
+                // clearance, taper and free fall below the root.
+                if seat_rear_roots && i == 0 {
+                    return Vec3::new(0.035 * a.sin(), 0.251, -0.020 - 0.038 * a.cos());
+                }
                 let y = lerp(0.27, reach, s);
                 // Over the skull, then hanging clear of the neck and
                 // spreading a little over the shoulder blades.
@@ -282,6 +333,39 @@ pub(super) fn crown(
     width: f32,
     count: u32,
 ) {
+    crown_with_roots(
+        p,
+        tone,
+        front,
+        side,
+        back,
+        sweep,
+        width,
+        count,
+        CrownRoots::Authored,
+    );
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CrownRoots {
+    Authored,
+    Seated,
+    Comb,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn crown_with_roots(
+    p: &mut Parts,
+    tone: &dyn Fn(u32) -> Vec3,
+    front: f32,
+    side: f32,
+    back: f32,
+    sweep: f32,
+    width: f32,
+    count: u32,
+    roots: CrownRoots,
+) {
+    let seated = roots != CrownRoots::Authored;
     let skull = Vec3::new(0.0, 0.17, -0.005);
     for k in 0..count {
         let a = k as f32 / count as f32 * TAU;
@@ -292,17 +376,46 @@ pub(super) fn crown(
             side + (back - side) * -facing
         };
         let dir = Vec3::new(a.sin(), 0.0, a.cos());
-        let root = Vec3::new(0.0, 0.292, -0.015) + dir * 0.025;
+        // Bury the closed start under the scalp. Full clump width starts
+        // farther down the curve, where caps no longer pile up at the part.
+        let root_y = if seated { 0.276 } else { 0.292 };
+        let root = Vec3::new(0.0, root_y, -0.015) + dir * 0.025;
         // Points on the skull surface, a little proud of it.
         let on_skull = |y: f32, out: f32| {
             let h = ((y - skull.y) / 0.112).clamp(-1.0, 1.0);
             let r = (1.0 - h * h).max(0.0).sqrt();
             skull + Vec3::new(dir.x * 0.1 * r, y - skull.y, dir.z * 0.108 * r) * out
         };
+        // Stay below the buried root as the locks spread out. Near the
+        // pole the scalp radius collapses; letting the next station rise
+        // that far sends the path back inward and turns the lock on end.
         let mid_y = (0.29 + end_y) * 0.5 + 0.02;
-        let mid = on_skull(mid_y, 1.16) + Vec3::X * sweep * 0.5;
+        let mid_y = if seated { mid_y.min(0.268) } else { mid_y };
+        let mid = if roots == CrownRoots::Comb {
+            // Comb the upper lock against the fitted scalp rather than
+            // balancing a thick hair clump on the pole of the skull.
+            let h = (mid_y - SCALP_CAP_CENTER.y) / SCALP_CAP_RADII.y;
+            let edge = (1.0 - h * h).max(0.0).sqrt() * 0.97;
+            let point = SCALP_CAP_CENTER + dir * SCALP_CAP_RADII * edge;
+            Vec3::new(point.x, mid_y, point.z)
+        } else {
+            on_skull(mid_y, 1.16)
+        } + Vec3::X * sweep * 0.5;
         let end = on_skull(end_y, 1.1) + Vec3::X * sweep;
-        lock(&mut p.matte, &[root, mid, end], width, 0.03, tone(k));
+        if seated {
+            let radii = [
+                Vec2::new(0.012, 0.009),
+                if roots == CrownRoots::Comb {
+                    Vec2::new(width * 0.7575, 0.012)
+                } else {
+                    Vec2::new(width * 0.7575, 0.03 * 0.7625)
+                },
+                Vec2::new((width * 0.03).max(0.0015), 0.0015),
+            ];
+            lock_with_radii(&mut p.matte, &[root, mid, end], &radii, tone(k));
+        } else {
+            lock(&mut p.matte, &[root, mid, end], width, 0.03, tone(k));
+        }
     }
 }
 
@@ -379,7 +492,7 @@ pub(in crate::creatures) fn long_hair_form_for(p: &mut Parts, l: &Look) {
 /// Each lock has its own topology; the head's fitted cap covers their roots.
 #[cfg(test)]
 pub(super) fn long_fall(p: &mut Parts, l: &Look) {
-    for strand in long_hair_strands(hair_seed(l, 0)) {
+    for strand in loose_strands(l) {
         hanging_lock(p, l, &strand);
     }
 }
@@ -595,6 +708,47 @@ pub(super) fn emit_bun(p: &mut Parts, l: &Look, bun: BunProfile) {
     );
 }
 
+fn bob_temple_lock(p: &mut Parts, side: f32, color: Vec3) {
+    // Start under the scalp cap, then grow into the cheek-length shape. A
+    // full-width capped tube at the temple leaves a visible flat shelf.
+    let path = [
+        Vec3::new(side * 0.047, 0.268, 0.013),
+        Vec3::new(side * 0.076, 0.245, 0.017),
+        Vec3::new(side * 0.106, 0.206, 0.021),
+        Vec3::new(side * 0.115, 0.150, 0.020),
+        Vec3::new(side * 0.105, 0.070, 0.0),
+    ];
+    let radii = [
+        Vec2::new(0.012, 0.009),
+        Vec2::new(0.030, 0.019),
+        Vec2::new(0.050, 0.031),
+        Vec2::new(0.045, 0.027),
+        Vec2::new(0.002, 0.002),
+    ];
+    lock_with_radii(&mut p.matte, &path, &radii, color);
+}
+
+fn feminine_crown(p: &mut Parts, l: &Look, tone: &dyn Fn(u32) -> Vec3) {
+    // On an exposed long cut the moving rear locks already have buried
+    // roots. A shallower crown now combs into that fall without relying on
+    // the old bulky root caps to hide the junction. Brimmed caps own a
+    // separate fitted silhouette and retain their authored clumps.
+    let cut = hair_style(l);
+    let roots = if cut == 4 {
+        CrownRoots::Seated
+    } else if cut == 0 && loose_fall(l) && uses_uncovered_hair_profile(l) {
+        CrownRoots::Comb
+    } else {
+        CrownRoots::Authored
+    };
+    let width = if roots == CrownRoots::Comb {
+        0.063
+    } else {
+        0.068
+    };
+    crown_with_roots(p, tone, 0.235, 0.12, 0.09, 0.015, width, 12, roots);
+}
+
 fn authored_hair_parts(p: &mut Parts, l: &Look, with_fall: bool, with_bun: bool) {
     let c = hair_color(l);
     let v = l.v;
@@ -603,12 +757,7 @@ fn authored_hair_parts(p: &mut Parts, l: &Look, with_fall: bool, with_bun: bool)
     let tone = move |k: u32| c * (0.9 + 0.18 * rand(seed, k));
     let mass = |p: &mut Parts, at: Vec3, r: Vec3, color: Vec3| p.matte.blob(at, r, 2, 0.0, color);
     // The fitted cap under the clumps fills any gaps between them.
-    mass(
-        p,
-        Vec3::new(0.0, 0.205, -0.02),
-        Vec3::new(0.105, 0.094, 0.11),
-        c * 0.9,
-    );
+    mass(p, SCALP_CAP_CENTER, SCALP_CAP_RADII, c * 0.9);
     if !v.woman {
         match style {
             // Swept up and over: a quiff above a crown of clumps.
@@ -684,15 +833,14 @@ fn authored_hair_parts(p: &mut Parts, l: &Look, with_fall: bool, with_bun: bool)
         }
         return;
     }
-    // Hers: a side-parted crown falling over the ears to the nape.
-    crown(p, &tone, 0.235, 0.12, 0.09, 0.015, 0.068, 12);
+    feminine_crown(p, l, &tone);
     match style {
         // Long and loose over the shoulders, locks framing the face: one
         // sculpted fall of hair whose waving strands merge into a soft mass
         // at the scalp and part into separate locks towards their tips.
         0 => {
             if with_fall {
-                for strand in long_hair_strands(hair_seed(l, 0)) {
+                for strand in loose_strands(l) {
                     authored_hanging_lock(p, l, &strand);
                 }
             }
@@ -733,17 +881,7 @@ fn authored_hair_parts(p: &mut Parts, l: &Look, with_fall: bool, with_bun: bool)
         // A bob to the jaw.
         _ => {
             for side in [-1.0f32, 1.0] {
-                lock(
-                    &mut p.matte,
-                    &[
-                        Vec3::new(side * 0.09, 0.25, 0.02),
-                        Vec3::new(side * 0.115, 0.15, 0.02),
-                        Vec3::new(side * 0.105, 0.07, 0.0),
-                    ],
-                    0.06,
-                    0.04,
-                    tone(50 + side as u32),
-                );
+                bob_temple_lock(p, side, tone(50 + side as u32));
             }
             // Locks round the back of the head curve in under the jaw line,
             // a softer, layered cut instead of one solid helmet of hair.
@@ -887,6 +1025,203 @@ pub(super) fn equipment_hair(p: &mut Parts, l: &Look, kind: equipment_headwear::
                     color * (0.92 + 0.025 * (k % 4) as f32),
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod scalp_root_tests {
+    use super::*;
+    use bevy::render::mesh::VertexAttributeValues;
+
+    #[test]
+    fn bob_and_uncovered_long_crown_lock_start_fans_stay_under_the_scalp() {
+        for hair in [4, 0] {
+            let look = Look::with_choice(
+                CreatureModel::Human,
+                76,
+                Some(Variant {
+                    woman: true,
+                    hair,
+                    ..default()
+                }),
+            );
+            let mut p = Parts::default();
+            p.soften();
+            feminine_crown(&mut p, &look, &|_| Vec3::ONE);
+            assert_root_fans_are_seated(p, hair);
+        }
+    }
+
+    fn assert_root_fans_are_seated(p: Parts, hair: u8) {
+        let mut meshes = Assets::<Mesh>::default();
+        let model = p.finish(
+            &mut meshes,
+            &crate::props::PropMaterials::new(&mut Assets::<StandardMaterial>::default()),
+        );
+        let mesh = meshes.get(&model.0[0].0).unwrap();
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("crown lock positions")
+        };
+        let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+        let mut fans = std::collections::HashMap::<[u32; 3], Vec<Vec3>>::new();
+        for tri in indices.chunks_exact(3) {
+            let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| Vec3::from(points[i]));
+            if a.y > 0.268 {
+                fans.entry(a.to_array().map(f32::to_bits))
+                    .or_default()
+                    .extend([a, b, c]);
+            }
+        }
+        let caps: Vec<_> = fans
+            .into_values()
+            .filter(|points| points.len() >= 24)
+            .collect();
+        assert_eq!(caps.len(), 12, "witness each upper start fan");
+        let center = Vec3::new(0.0, 0.205, -0.02);
+        let radius = Vec3::new(0.105, 0.094, 0.110);
+        for fan in caps {
+            for point in fan {
+                let extent = ((point - center) / radius).length();
+                assert!(
+                    extent < 0.95,
+                    "exposed scalp root fan on cut {hair} at {point:?}: {extent:.3}"
+                );
+            }
+        }
+        assert!(points
+            .iter()
+            .any(|&[x, y, z]| y < 0.22 && x.hypot(z) > 0.095));
+    }
+
+    #[test]
+    fn uncovered_long_locks_start_under_the_scalp_without_pinning_the_fall() {
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            76,
+            Some(Variant {
+                woman: true,
+                hair: 0,
+                ..default()
+            }),
+        );
+        let strands = loose_strands(&look);
+        let fitted_profile = long_hair_strands(hair_seed(&look, 0));
+        let mut meshes = Assets::<Mesh>::default();
+        let materials = crate::props::PropMaterials::new(&mut Assets::default());
+        let mut rear_locks = 0;
+        let mut witnessed = 0;
+        assert_eq!(strands.len(), fitted_profile.len());
+        for (strand, original) in strands.iter().zip(&fitted_profile) {
+            assert_eq!(strand.attached, original.attached);
+            assert_eq!(strand.support_side, original.support_side);
+            assert_eq!((strand.root, strand.tip), (original.root, original.tip));
+            if strand.support_side.is_none() {
+                let extent = |at: Vec3| {
+                    ((at - Vec3::new(0.0, 0.205, -0.02)) / Vec3::new(0.105, 0.094, 0.110)).length()
+                };
+                assert!(original.attached[1] && extent(original.path[1]) > 1.15);
+                assert!(extent(strand.path[1]) < 1.07, "raised swept lock");
+                assert_eq!(strand.path[2..], original.path[2..]);
+            } else {
+                assert_eq!(strand.path[1..], original.path[1..]);
+            }
+            witnessed += 1;
+            let mut p = Parts::default();
+            authored_hanging_lock(&mut p, &look, strand);
+            let model = p.finish(&mut meshes, &materials);
+            let mesh = meshes.get(&model.0[0].0).expect("long lock");
+            let Some(VertexAttributeValues::Float32x3(vertices)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("long lock positions")
+            };
+            let starts: Vec<_> = mesh
+                .indices()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>()
+                .chunks_exact(3)
+                .filter(|face| Vec3::from(vertices[face[0]]) == strand.path[0])
+                .flat_map(|face| face[1..].iter().map(|&index| Vec3::from(vertices[index])))
+                .collect();
+            assert!(starts.len() >= 32, "find the emitted root fan");
+            for point in starts {
+                let extent = ((point - Vec3::new(0.0, 0.205, -0.020))
+                    / Vec3::new(0.105, 0.094, 0.110))
+                .length();
+                assert!(
+                    extent < 0.94,
+                    "exposed long lock root {:?} at {point:?}: {extent:.3}",
+                    strand.support_side
+                );
+            }
+            assert!(strand.attached[0] && strand.attached[1]);
+            if strand.support_side.is_some() {
+                assert!(!strand.attached[strand.attached.len() - 1]);
+            }
+            if strand.support_side == Some(super::super::deformation::SupportSide::Back) {
+                rear_locks += 1;
+                assert!(vertices.iter().any(|&[_, y, z]| y < -0.20 && z < -0.032));
+            }
+        }
+        assert_eq!((rear_locks, witnessed), (11, 16));
+    }
+
+    #[test]
+    fn both_bob_temple_root_caps_are_hidden_inside_the_scalp() {
+        for side in [-1.0f32, 1.0] {
+            let mut p = Parts::default();
+            bob_temple_lock(&mut p, side, Vec3::ONE);
+            let mut meshes = Assets::<Mesh>::default();
+            let model = p.finish(
+                &mut meshes,
+                &crate::props::PropMaterials::new(&mut Assets::<StandardMaterial>::default()),
+            );
+            let mesh = meshes.get(&model.0[0].0).unwrap();
+            let Some(VertexAttributeValues::Float32x3(points)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("bob side lock positions")
+            };
+            let indices: Vec<_> = mesh.indices().unwrap().iter().collect();
+            // A closed start emits a flat fan facing back up the lock. Find
+            // its repeated center from the actual triangles, not the recipe.
+            let mut fans = std::collections::HashMap::<[u32; 3], Vec<Vec3>>::new();
+            for tri in indices.chunks_exact(3) {
+                let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| Vec3::from(points[i]));
+                let n = (b - a).cross(c - a).normalize_or_zero();
+                if a.y > 0.22 && n.y > 0.36 {
+                    fans.entry(a.to_array().map(f32::to_bits))
+                        .or_default()
+                        .extend([a, b, c]);
+                }
+            }
+            let caps: Vec<_> = fans
+                .into_values()
+                .filter(|points| points.len() >= 24)
+                .collect();
+            assert_eq!(
+                caps.len(),
+                1,
+                "find the emitted upper cap of each side lock"
+            );
+            // Independently authored envelope of the underlying scalp cap.
+            let center = Vec3::new(0.0, 0.205, -0.02);
+            let radius = Vec3::new(0.105, 0.094, 0.110);
+            for &point in &caps[0] {
+                let extent = ((point - center) / radius).length_squared();
+                assert!(
+                    extent < 0.95,
+                    "exposed temple cap at {point:?}, normalized extent {extent:.2}"
+                );
+            }
+            assert!(points.iter().any(|p| p[1] < 0.075 && side * p[0] > 0.10));
+            assert!(points
+                .iter()
+                .any(|p| (0.137..0.195).contains(&p[1]) && side * p[0] > 0.133));
         }
     }
 }
