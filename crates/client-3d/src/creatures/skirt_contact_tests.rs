@@ -197,6 +197,68 @@ fn native_short_skirt_and_tassets_do_not_cross_actual_thigh_faces() {
     assert!(failures.is_empty(),"actual skirt triangles cross actual thigh faces below waistband, not empty authored slits: {failures:?}");
 }
 
+#[test]
+fn paired_gown_lining_clears_sturdy_bare_thighs_at_rest() {
+    let mut equipment = Equipment::default();
+    equipment.select("cloak").unwrap();
+    let look = Look::with_choice(
+        CreatureModel::Nymph,
+        7,
+        Some(Variant {
+            woman: true,
+            build: 2,
+            bust: 4,
+            ..default()
+        }),
+    )
+    .dressed(Wardrobe::RoyalPrincess)
+    .equipped(equipment);
+    let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+    world.insert_resource(meshes);
+    let mut update = Schedule::default();
+    update.add_systems(
+        (
+            bevy::transform::systems::mark_dirty_trees,
+            bevy::transform::systems::sync_simple_transforms,
+            bevy::transform::systems::propagate_parent_transforms,
+        )
+            .chain(),
+    );
+    update.run(&mut world);
+    let hips = world
+        .get::<GlobalTransform>(rig.joint(J::Hips).unwrap())
+        .unwrap()
+        .affine()
+        .inverse();
+    assert_eq!(rig.skirt_layers.len(), 2);
+    // Only the neutral upper-thigh transition is owned by this fit.
+    // Use actual emitted triangles, not the fitter's distance field.
+    const LOW: f32 = -0.145;
+    const HIGH: f32 = -0.070;
+    let in_band =
+        |face: &[Vec3; 3]| face.iter().any(|p| p.y >= LOW) && face.iter().any(|p| p.y <= HIGH);
+    let lining: Vec<_> = triangles(&world, rig.skirt_layers[1], hips)
+        .into_iter()
+        .filter(in_band)
+        .collect();
+    assert!(!lining.is_empty(), "the side wall must be present");
+    for leg in [J::LegL, J::LegR] {
+        let thigh: Vec<_> = triangles(&world, rig.joint(leg).unwrap(), hips)
+            .into_iter()
+            .filter(in_band)
+            .collect();
+        assert!(!thigh.is_empty(), "the upper thigh must be present");
+        for &cloth in &lining {
+            for &skin in &thigh {
+                assert!(
+                    crossing(cloth, skin).is_none_or(|p| !(LOW..=HIGH).contains(&p.y)),
+                    "resting lining crosses the sculpted thigh {leg:?}"
+                );
+            }
+        }
+    }
+}
+
 // Exact captured matrices from armor-join-audit/{plain,chain-only} at0/20/53.
 const EXPECTED: [[[[u32; 16]; 3]; 3]; 2] = [
     [
@@ -296,3 +358,115 @@ const EXPECTED: [[[[u32; 16]; 3]; 3]; 2] = [
         ],
     ],
 ];
+
+#[test]
+fn composed_rogue_garter_clears_the_resting_skirt() {
+    // Fresh caches make this single pigment difference a reliable way to
+    // identify the accessory inside the shared thigh mesh.
+    let compose = |pigment| {
+        let mut look = Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                build: 2,
+                figure: 1,
+                bust: 2,
+                ..default()
+            }),
+        )
+        .dressed(Wardrobe::Rogue);
+        if let Some(color) = pigment {
+            look.outfit
+                .as_mut()
+                .unwrap()
+                .trimmings
+                .garter
+                .as_mut()
+                .unwrap()
+                .color = color;
+        }
+        let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+        let root = world
+            .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+            .unwrap()
+            .parent();
+        let at = Vec3::new(0.0, -0.5, 0.0);
+        let mut anim = Anim::new(7, at);
+        anim.yaw = 0.0;
+        anim.target_yaw = Some(0.0);
+        *world.get_mut::<Transform>(root).unwrap() = Transform::from_translation(at);
+        world.entity_mut(root).insert((rig, anim));
+        world.insert_resource(meshes);
+        world.insert_resource(Time::<()>::default());
+        crate::review_script::animation_schedule().run(&mut world);
+        let rig = world.get::<Rig>(root).unwrap();
+        assert_eq!(rig.skirt_layers.len(), 1);
+        let hip = world
+            .get::<GlobalTransform>(rig.joint(J::Hips).unwrap())
+            .unwrap()
+            .affine()
+            .inverse();
+        let thigh = rig.joint(J::LegL).unwrap();
+        let assets = world.resource::<Assets<Mesh>>();
+        let colors: Vec<[[f32; 4]; 3]> = world
+            .get::<Children>(thigh)
+            .unwrap()
+            .iter()
+            .flat_map(|child| {
+                let Some(handle) = world.get::<Mesh3d>(child) else {
+                    return Vec::new();
+                };
+                let mesh = assets.get(&handle.0).unwrap();
+                let Some(VertexAttributeValues::Float32x4(c)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+                else {
+                    panic!("expected authored thigh colors")
+                };
+                let indices: Vec<_> = mesh
+                    .indices()
+                    .map(|i| i.iter().collect())
+                    .unwrap_or_else(|| (0..c.len()).collect());
+                indices
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
+                    .map(|f| [c[f[0]], c[f[1]], c[f[2]]])
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let leg = triangles(&world, thigh, hip);
+        assert_eq!(leg.len(), colors.len());
+        (leg, colors, triangles(&world, rig.skirt_layers[0], hip))
+    };
+    let (leg, colors, skirt) = compose(None);
+    let (recolored_leg, recolored_colors, recolored_skirt) =
+        compose(Some(Vec3::new(0.13, 0.61, 0.29)));
+    assert_eq!(leg, recolored_leg, "pigment must not affect the leg mesh");
+    assert_eq!(skirt, recolored_skirt, "pigment must not affect the skirt");
+    assert_eq!(colors.len(), recolored_colors.len());
+    let garter: Vec<_> = leg
+        .into_iter()
+        .zip(colors.into_iter().zip(recolored_colors))
+        .filter_map(|(face, (a, b))| (a != b).then_some(face))
+        .collect();
+    assert!(garter.len() > 384, "band and tie must be present");
+    let bounds = |face: [Vec3; 3]| {
+        (
+            face[0].min(face[1]).min(face[2]),
+            face[0].max(face[1]).max(face[2]),
+        )
+    };
+    let skirt: Vec<_> = skirt.into_iter().map(|tri| (bounds(tri), tri)).collect();
+    for face in garter {
+        let (lo, hi) = bounds(face);
+        for &((skirt_lo, skirt_hi), panel) in &skirt {
+            if lo.cmple(skirt_hi).all() && skirt_lo.cmple(hi).all() {
+                assert!(
+                    crossing(face, panel).is_none(),
+                    "Rogue garter crosses the resting skirt"
+                );
+            }
+        }
+    }
+}

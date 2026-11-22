@@ -718,6 +718,34 @@ pub(crate) enum Earrings {
     Hoops { metal: Vec3 },
 }
 
+/// One thigh tie, with a lower profile available under close skirts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Garter {
+    pub color: Vec3,
+    pub profile: GarterProfile,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum GarterProfile {
+    Rounded,
+    LowRelief,
+}
+
+impl Garter {
+    pub const fn rounded(color: Vec3) -> Self {
+        Self {
+            color,
+            profile: GarterProfile::Rounded,
+        }
+    }
+    pub const fn low_relief(color: Vec3) -> Self {
+        Self {
+            color,
+            profile: GarterProfile::LowRelief,
+        }
+    }
+}
+
 /// The small things an outfit adds, each fitted to any wearer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Trimmings {
@@ -736,7 +764,7 @@ pub(crate) struct Trimmings {
     /// Stiff pointed shoulders standing up over the arms.
     pub peaks: Option<Vec3>,
     /// A cloth tie knotted round one thigh.
-    pub garter: Option<Vec3>,
+    pub garter: Option<Garter>,
 }
 
 impl Trimmings {

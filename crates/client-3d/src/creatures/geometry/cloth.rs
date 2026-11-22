@@ -324,6 +324,65 @@ impl ClothSurface {
         self
     }
 
+    /// Add a small rest allowance only where a bare thigh touches the
+    /// paired lining's side wall. Check the emitted triangle interiors:
+    /// the curved analytic surface and the triangle chords can differ.
+    pub(super) fn fit_bare_thigh_sides(&mut self, body: HumanoidBody) {
+        use super::anatomy::{HIP_SCALE, LIMB_SCALE};
+        let rows = self.rows();
+        let form = limb_form(body.thigh);
+        let depth = |p: Vec3| {
+            let p = p * HIP_SCALE;
+            let root = body.leg_root(if p.x < 0.0 { -1.0 } else { 1.0 });
+            -form.distance((p - root) / LIMB_SCALE)
+        };
+        let sample = |row: usize, col: usize, inner: bool| {
+            self.point(row as f32 / rows as f32, col as f32 * TAU / 64.0, inner)
+        };
+        const LOW: f32 = -0.145;
+        const HIGH: f32 = -0.070;
+        const HIT: f32 = 0.00015;
+        let mut touching = false;
+        'rows: for row in 0..rows {
+            for col in (10..22).chain(42..54) {
+                let a = sample(row, col, true);
+                let b = sample(row, col + 1, true);
+                let c = sample(row + 1, col + 1, true);
+                let d = sample(row + 1, col, true);
+                let y = [a.y, b.y, c.y, d.y];
+                if y.into_iter().all(|y| y < LOW) || y.into_iter().all(|y| y > HIGH) {
+                    continue;
+                }
+                for cell in [[a, b, c], [a, c, d]] {
+                    for far in 0..3 {
+                        let q = (cell[far] * 4.0 + cell[(far + 1) % 3] + cell[(far + 2) % 3]) / 6.0;
+                        if (LOW..=HIGH).contains(&q.y) && depth(q) > HIT {
+                            touching = true;
+                            break 'rows;
+                        }
+                    }
+                }
+            }
+        }
+        if !touching {
+            return;
+        }
+        let mut lift = self
+            .fit
+            .as_ref()
+            .map_or_else(|| vec![0.0; (rows + 1) * 65], |fit| fit.lift.clone());
+        for row in 1..=rows {
+            for col in (10..=22).chain(42..=54) {
+                let p = sample(row, col, false) * HIP_SCALE;
+                let angle = p.x.atan2(p.z).abs().to_degrees();
+                let side = ease((angle - 62.0) / 13.0) * ease((110.0 - angle) / 14.0);
+                let height = ease((p.y + 0.152) / 0.031) * ease((-0.065 - p.y) / 0.021);
+                lift[row * 65 + col] += 0.006 * side * height / HIP_SCALE.x;
+            }
+        }
+        self.fit = Some(std::sync::Arc::new(ClothFit { lift, rows }));
+    }
+
     /// Sample the emitted triangles, not the analytic curve between vertices.
     /// Concave folds can put a triangle outside that curve.
     pub(super) fn mesh_point(&self, t: f32, angle: f32, inner: bool) -> Vec3 {

@@ -710,7 +710,7 @@ pub(super) fn compose(w: Wardrobe, l: &Look) -> Outfit {
                 trimmings: Trimmings {
                     neck: Some(Neck::Teeth { cord: DARK * 2.0 }),
                     armlets: Some(DARK * 2.0),
-                    garter: Some(hide),
+                    garter: Some(Garter::rounded(hide)),
                     ..Trimmings::NONE
                 },
                 skirt: Some(Skirt {

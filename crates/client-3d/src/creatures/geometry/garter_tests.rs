@@ -21,7 +21,7 @@ fn garter_clears_the_actual_thigh_instead_of_a_nominal_radius() {
     let mut p = Parts::default();
     sculpted_limb(&mut p.matte, body.thigh, look.skin);
     let before = p.matte.surface_triangles().count();
-    garter(&mut p, Vec3::ONE, body.build);
+    garter(&mut p, Garter::rounded(Vec3::ONE), body.build);
     let garment: Vec<_> = p.matte.surface_triangles().skip(before).collect();
     assert!(garment.len() >= 100, "fixture must emit the complete tie");
     let thigh = limb_form(body.thigh);
@@ -139,70 +139,79 @@ fn contact_witness(triangles: &[[Vec3; 3]], build: f32) -> bool {
 #[test]
 fn garter_fits_real_bare_and_clothed_thighs_and_keeps_tie_attached() {
     let mut cases = 0;
-    for model in [
-        CreatureModel::Human,
-        CreatureModel::Orc,
-        CreatureModel::Nymph,
-    ] {
-        for woman in [false, true] {
-            for build in 0..3 {
-                for smooth in [false, true] {
-                    for layer in 0..3 {
-                        let (look, body) = wearer(model, woman, build);
-                        let fixture = || {
-                            let mut p = Parts::default();
-                            if smooth {
-                                p.soften();
-                            }
-                            if layer == 1 {
-                                trouser_leg(&mut p.matte, body.thigh, body.build, false, LEATHER);
-                            } else {
-                                sculpted_limb(&mut p.matte, body.thigh, look.skin);
-                                if layer == 2 {
-                                    plate_lames(&mut p.metal, &cuisse_lames(body));
+    for piece in [Garter::rounded(LEATHER), Garter::low_relief(LEATHER)] {
+        for model in [
+            CreatureModel::Human,
+            CreatureModel::Orc,
+            CreatureModel::Nymph,
+        ] {
+            for woman in [false, true] {
+                for build in 0..3 {
+                    for smooth in [false, true] {
+                        for layer in 0..3 {
+                            let (look, body) = wearer(model, woman, build);
+                            let fixture = || {
+                                let mut p = Parts::default();
+                                if smooth {
+                                    p.soften();
+                                }
+                                if layer == 1 {
+                                    trouser_leg(
+                                        &mut p.matte,
+                                        body.thigh,
+                                        body.build,
+                                        false,
+                                        LEATHER,
+                                    );
+                                } else {
+                                    sculpted_limb(&mut p.matte, body.thigh, look.skin);
+                                    if layer == 2 {
+                                        plate_lames(&mut p.metal, &cuisse_lames(body));
+                                    }
+                                }
+                                p
+                            };
+                            let before = fixture();
+                            let mut p = fixture();
+                            let start = p.matte.surface_triangles().count();
+                            let support = mesh(
+                                &parts_builders(&before)
+                                    .into_iter()
+                                    .flat_map(|b| b.surface_triangles())
+                                    .collect::<Vec<_>>(),
+                            );
+                            garter(&mut p, piece, body.build);
+                            assert_prefix(&p, &before, false);
+                            let triangles: Vec<_> =
+                                p.matte.surface_triangles().skip(start).collect();
+                            assert!(contact_witness(&triangles,body.build),"detached tie {model:?} woman={woman} build={build} smooth={smooth} layer={layer}");
+                            for t in &triangles {
+                                for at in [
+                                    t[0],
+                                    t[1],
+                                    t[2],
+                                    (t[0] + t[1]) * 0.5,
+                                    (t[1] + t[2]) * 0.5,
+                                    (t[2] + t[0]) * 0.5,
+                                    (t[0] + t[1] + t[2]) / 3.0,
+                                ] {
+                                    let origin = Vec3::Y * at.y;
+                                    let out = (at - origin).normalize();
+                                    let hit = support
+                                        .outer_surface(origin, out)
+                                        .expect("actual thigh spans complete tie");
+                                    let clearance = (at - hit).dot(out);
+                                    assert!(clearance>=0.001,"tie penetrates {model:?} woman={woman} build={build} smooth={smooth} layer={layer} at={at:?} gap={clearance}");
                                 }
                             }
-                            p
-                        };
-                        let before = fixture();
-                        let mut p = fixture();
-                        let start = p.matte.surface_triangles().count();
-                        let support = mesh(
-                            &parts_builders(&before)
-                                .into_iter()
-                                .flat_map(|b| b.surface_triangles())
-                                .collect::<Vec<_>>(),
-                        );
-                        garter(&mut p, LEATHER, body.build);
-                        assert_prefix(&p, &before, false);
-                        let triangles: Vec<_> = p.matte.surface_triangles().skip(start).collect();
-                        assert!(contact_witness(&triangles,body.build),"detached tie {model:?} woman={woman} build={build} smooth={smooth} layer={layer}");
-                        for t in &triangles {
-                            for at in [
-                                t[0],
-                                t[1],
-                                t[2],
-                                (t[0] + t[1]) * 0.5,
-                                (t[1] + t[2]) * 0.5,
-                                (t[2] + t[0]) * 0.5,
-                                (t[0] + t[1] + t[2]) / 3.0,
-                            ] {
-                                let origin = Vec3::Y * at.y;
-                                let out = (at - origin).normalize();
-                                let hit = support
-                                    .outer_surface(origin, out)
-                                    .expect("actual thigh spans complete tie");
-                                let clearance = (at - hit).dot(out);
-                                assert!(clearance>=0.001,"tie penetrates {model:?} woman={woman} build={build} smooth={smooth} layer={layer} at={at:?} gap={clearance}");
-                            }
+                            cases += 1;
                         }
-                        cases += 1;
                     }
                 }
             }
         }
     }
-    assert_eq!(cases, 108);
+    assert_eq!(cases, 216);
 }
 
 fn cylinder() -> Builder {
@@ -221,7 +230,7 @@ fn garter_preserves_band_dimensions_closure_and_rejects_detached_tie_oracles() {
         metal: cylinder(),
         ..default()
     };
-    garter(&mut p, LEATHER, 1.0);
+    garter(&mut p, Garter::rounded(LEATHER), 1.0);
     let tris: Vec<_> = p.matte.surface_triangles().collect();
     assert!(contact_witness(&tris, 1.0));
     let ring = mesh(&tris[..384]);
@@ -308,7 +317,7 @@ fn garter_is_material_independent_and_preserves_the_recipe_frame() {
         let before = fixture();
         let mut p = fixture();
         let start = p.matte.surface_triangles().count();
-        garter(&mut p, LEATHER, 1.0);
+        garter(&mut p, Garter::rounded(LEATHER), 1.0);
         assert_prefix(&p, &before, false);
         let tris: Vec<_> = p.matte.surface_triangles().skip(start).collect();
         assert!(contact_witness(&tris, 1.0));
@@ -348,7 +357,7 @@ fn garter_missing_late_angular_or_axial_support_rejects_the_whole_tie() {
         if kind > 0 {
             assert!(p.matte.outer_surface(Vec3::Y * -0.21, Vec3::Z).is_some());
         }
-        garter(&mut p, LEATHER, 1.0);
+        garter(&mut p, Garter::rounded(LEATHER), 1.0);
         assert_prefix(&p, &before, true);
     }
 }
