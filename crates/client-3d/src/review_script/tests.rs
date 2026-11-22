@@ -756,7 +756,7 @@ fn death_event_starts_real_fall_without_rebuilding_outfit() {
         &mut velocity,
         &mut anim,
         &mut transform,
-        &Operation::Death {}
+        &Operation::Death { motion: None }
     ));
     assert_eq!(anim.dead, Some(0.0));
     assert!(anim.action.is_none());
@@ -860,4 +860,18 @@ fn scripted_abilities_replay_the_gameplay_move_without_caption_fallback() {
         assert_eq!(parse(v).err(), Some(format!("unsupported action {name}")));
         assert_eq!(Move::for_ability(name, None), Move::Gesture);
     }
+}
+
+#[test]
+fn death_review_accepts_three_explicit_reproducible_choices() {
+    let mut v = fixture();
+    v["captures"][0]["tick"] = json!(200);
+    for name in ["collapse", "stagger", "dramatic"] {
+        v["events"] = json!([{
+            "tick": 1, "actor": "woman", "operation": {"type": "death", "motion": name}
+        }]);
+        assert!(parse(v.clone()).is_ok(), "death review lacks {name}");
+    }
+    v["events"][0]["operation"]["motion"] = json!("unknown");
+    assert!(parse(v).is_err());
 }

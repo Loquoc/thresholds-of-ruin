@@ -685,13 +685,31 @@ pub(super) fn flier(kit: &mut Kit, lift: Entity, look: &Look) {
             c,
         );
     });
-    kit.joint(J::Head, neck, Vec3::new(0.0, 0.07, 0.05), "head", |p| {
+    let head = kit.joint(J::Head, neck, Vec3::new(0.0, 0.07, 0.05), "head", |p| {
         if bat {
             bat_head(p, &l);
         } else {
             kestrel_head(p, &l);
         }
     });
+    if bat {
+        kit.joint(J::Jaw, head, Vec3::new(0.0, -0.019, 0.048), "jaw", |p| {
+            p.matte.blob(
+                Vec3::new(0.0, -0.013, 0.038),
+                Vec3::new(0.037, 0.020, 0.052),
+                2,
+                0.0,
+                l.skin * 0.78,
+            );
+            p.matte.blob(
+                Vec3::new(0.0, 0.003, 0.042),
+                Vec3::new(0.024, 0.007, 0.036),
+                2,
+                0.0,
+                Vec3::new(0.24, 0.09, 0.09),
+            );
+        });
+    }
     for (side, wing, tip, leg, shin) in [
         (1.0f32, J::WingL, J::WingTipL, J::LegL, J::ShinL),
         (-1.0, J::WingR, J::WingTipR, J::LegR, J::ShinR),
@@ -801,7 +819,7 @@ fn bat_head(p: &mut Parts, l: &Look) {
             0.0,
         )
         .add(
-            Ellipsoid(Vec3::new(0.0, 0.01, 0.08), Vec3::new(0.046, 0.04, 0.07)),
+            Ellipsoid(Vec3::new(0.0, 0.02, 0.08), Vec3::new(0.046, 0.031, 0.07)),
             0.03,
         );
     let frames = animal_eye_sockets(

@@ -941,6 +941,8 @@ struct DeadBody {
     age: f32,
     /// Whether a corpse lies where it fell, so the body stands in for it.
     holds: bool,
+    /// A disclosed item owns continued visibility once it has claimed the body.
+    claimed: bool,
 }
 
 /// The twinkle above an item on the floor.

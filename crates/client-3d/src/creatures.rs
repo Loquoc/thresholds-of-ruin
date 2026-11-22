@@ -1523,6 +1523,7 @@ pub struct Anim {
     dodge: Option<f32>,
     /// Death progress, 0 to 1. A corpse holds 1.
     pub dead: Option<f32>,
+    death_motion: DeathMotion,
     /// How far down it still is after being revived: it rises out of its
     /// death pose instead of snapping upright.
     fallen: f32,
@@ -1534,6 +1535,12 @@ pub struct Anim {
     pub carriage: WalkingCarriage,
     /// Play this antic from the start of the clock, for studies.
     pub antic: Option<u32>,
+}
+
+/// Presentation time advanced by a single animation frame. Large time steps
+/// would destabilize contact and cloth, so animated-body cleanup uses it too.
+pub(crate) fn animation_frame_delta(dt: f32) -> f32 {
+    dt.min(0.05)
 }
 
 impl Anim {
@@ -1552,6 +1559,7 @@ impl Anim {
             hurt: None,
             dodge: None,
             dead: None,
+            death_motion: DeathMotion::default(),
             fallen: 0.0,
             rest: 1.0,
             quiet: false,
@@ -1583,6 +1591,39 @@ impl Anim {
         self.action = Some((action, 0.0));
     }
 
+    /// Pick once, independently of appearance, and ignore duplicate death cues.
+    pub fn die(&mut self, face_corridor: bool) -> bool {
+        if self.dead.is_some() {
+            return false;
+        }
+        use std::hash::{BuildHasher, RandomState};
+        let roll = (RandomState::new().hash_one(0_u8) % 100) as u8;
+        self.start_death(DeathMotion::choose(roll), face_corridor);
+        true
+    }
+
+    /// An explicit motion for scripted playback; no RNG or facing delay.
+    pub fn preview_death(&mut self, motion: DeathMotion) {
+        self.start_death(motion, false);
+    }
+
+    fn start_death(&mut self, motion: DeathMotion, face_corridor: bool) {
+        self.death_motion = motion;
+        self.dead = Some(if face_corridor { -0.35 } else { 0.0 });
+        self.action = None;
+    }
+
+    pub fn death_linger(&self) -> f32 {
+        // Enough for the corridor pre-roll and the entire performance, with
+        // the old two-second minimum for ordinary deaths.
+        (self.death_motion.duration() + 0.6).max(2.0)
+    }
+
+    fn death_fall(&self) -> f32 {
+        self.dead
+            .map_or(self.fallen, |phase| self.death_motion.fall(phase))
+    }
+
     pub fn hit(&mut self, delay: f32) {
         self.hurt = Some(-delay);
     }
@@ -1594,6 +1635,7 @@ impl Anim {
 
 mod anatomy;
 mod animation;
+pub use animation::DeathMotion;
 mod apron;
 #[cfg(test)]
 mod art_contract_tests;

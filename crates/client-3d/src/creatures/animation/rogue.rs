@@ -84,7 +84,8 @@ pub(super) fn flier_pose(
     };
     let (gather, strike, act) = timing(m, t);
     if m.offensive() {
-        // Climb with wings high, then stoop on the target, talons forward.
+        // Both climb and stoop. The kestrel strikes with its feet; the
+        // bat keeps its feet trailing and snaps its fangs instead.
         p.o(
             J::Lift,
             Vec3::new(
@@ -96,17 +97,45 @@ pub(super) fn flier_pose(
         p.r(J::Body, bow(-0.35 * gather + 0.55 * strike));
         p.r(J::WingL, roll(0.9 * gather - 0.3 * strike));
         p.r(J::WingR, roll(-0.9 * gather + 0.3 * strike));
-        for (leg, shin) in [(J::LegL, J::ShinL), (J::LegR, J::ShinR)] {
-            p.r(leg, fwd(1.9 * strike));
-            p.r(shin, fwd(0.5 * strike));
+        if bat {
+            let contact = m.impact();
+            let gape = envelope(t, 0.0, contact * 0.54, contact - 0.07, contact + 0.04);
+            p.r(J::Jaw, bow(0.88 * gape));
+            p.r(J::Neck, bow(-0.20 * strike));
+            p.r(J::Head, bow(0.05 * strike));
+        } else {
+            for (leg, shin) in [(J::LegL, J::ShinL), (J::LegR, J::ShinR)] {
+                p.r(leg, fwd(1.9 * strike));
+                p.r(shin, fwd(0.5 * strike));
+            }
+            p.r(J::Head, bow(0.25 * strike));
         }
-        p.r(J::Head, bow(0.25 * strike));
     } else {
         // Flare: wings wide, body upright, hanging in the air.
         p.r(J::Body, bow(-0.4 * act));
         p.r(J::WingL, roll(0.35 * act));
         p.r(J::WingR, roll(-0.35 * act));
         p.o(J::Lift, Vec3::Y * 0.1 * act);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Floating ice: lead with a shard fan instead of pushing the whole core.
+
+pub(super) fn ice_touch_fan(side: f32, lag: f32, gather: f32, reach: f32) -> (Vec3, Quat) {
+    if side < 0.0 {
+        // Cock the hanging shards back, then swing their tips forward. Move
+        // inward only partway so the outstretched fan does not cover the eyes.
+        (
+            Vec3::new(0.10 * reach, 0.12 * reach, -0.095 * gather + 0.24 * reach),
+            turn(0.14 * reach) * fwd(-0.25 * gather + 1.43 * reach) * roll(side * lag),
+        )
+    } else {
+        // The opposite fan braces beside the face without also becoming a spear.
+        (
+            Vec3::new(0.035 * reach, 0.025 * reach, -0.035 * reach),
+            roll(lag + 0.22 * reach),
+        )
     }
 }
 
@@ -202,8 +231,9 @@ pub(super) fn beast_pose(
                 mantle(p, 1.2 * act);
             }
         }
+        Move::Shove if style == Style::Xeroc => xeroc_ambush(p, rig, t, m.impact(), gather, strike),
         Move::Shove => {
-            // An ambush: crouch, gape, then a lunge that clamps shut.
+            // A whole-body shove for other beasts.
             p.o(
                 J::Lift,
                 Vec3::new(
@@ -251,6 +281,28 @@ pub(super) fn beast_pose(
     }
 }
 
+/// Reach out of the shell, expose the fangs on contact, then snap shut.
+fn xeroc_ambush(p: &mut Pose, rig: &Rig, phase: f32, impact: f32, gather: f32, strike: f32) {
+    let gape = envelope(phase, 0.0, impact * 0.52, impact, impact + 0.14);
+    // Short supporting legs cannot carry the whole shell far forward without
+    // sliding. Put the rest of the reach into the neck instead.
+    p.o(
+        J::Lift,
+        Vec3::new(
+            0.0,
+            -0.07 * gather * rig.legs,
+            -0.065 * gather + 0.13 * strike,
+        ),
+    );
+    p.r(J::Body, bow(0.07 * gather - 0.025 * strike));
+    p.o(
+        J::Neck,
+        Vec3::new(0.0, 0.035 * strike, -0.035 * gather + 0.17 * strike),
+    );
+    p.r(J::Head, bow(-0.33 * gape + 0.055 * strike));
+    p.r(J::Jaw, bow(0.92 * gape - 0.055 * strike));
+}
+
 /// Free forelimbs balance the stride and reach into a two-handed rake. This
 /// follows limb roles, so another reared body can use the same motion without
 /// inheriting Jabberwock's neck, jaw, or tail recipe.
@@ -272,8 +324,16 @@ fn grasping_forelimbs(p: &mut Pose, rig: &Rig, m: Option<Move>, t: f32, walk: f3
                 upper,
                 fwd(0.55 * gather + 1.0 * strike) * roll(side * (0.24 * gather - 0.08 * strike)),
             );
-            p.r(fore, fwd(-0.35 * gather + 0.35 * strike));
-            p.r(hand, fwd(-0.22 * strike));
+            // Turn the hooked claws in and down as they reach. Share the
+            // twist with the forearm, around its own bone, so the wrists keep
+            // the same reach instead of orbiting away from the target.
+            let fore_axis = rig.rest[hand as usize].normalize_or(Vec3::NEG_Y);
+            p.r(
+                fore,
+                fwd(-0.35 * gather + 0.35 * strike)
+                    * Quat::from_axis_angle(fore_axis, side * 1.24 * strike),
+            );
+            p.r(hand, fwd(-0.22 * strike) * turn(-side * 0.98 * strike));
         } else if m.is_some() {
             p.r(upper, fwd(0.35 * act) * roll(side * 0.18 * act));
             p.r(fore, fwd(0.2 * act));
@@ -285,13 +345,20 @@ fn grasping_forelimbs(p: &mut Pose, rig: &Rig, m: Option<Move>, t: f32, walk: f3
 pub(super) fn death(p: &mut Pose, rig: &Rig, d: f32, side: f32) {
     match rig.plan {
         Plan::Bird => {
-            // Dropped from the air onto its side, wings askew.
+            // Settle on the flank, not on the end of a vertical wing.
             let height = rig.rest[J::Body as usize].y - rig.girth;
             p.rot[J::Lift as usize] =
-                Quat::from_rotation_z(side * 1.3 * d) * Quat::from_rotation_x(0.2 * d);
+                Quat::from_rotation_z(side * 1.48 * d) * Quat::from_rotation_x(0.2 * d);
             p.off[J::Lift as usize] = Vec3::new(side * (height + 0.1) * d, -height * 0.02 * d, 0.0);
-            p.r(J::WingL, roll(-0.5 * d));
-            p.r(J::WingR, roll(0.3 * d));
+            let (lower, upper) = if side > 0.0 {
+                (J::WingR, J::WingL)
+            } else {
+                (J::WingL, J::WingR)
+            };
+            // Both wings yield into the fall, with the lower wing already
+            // lying across the ground when the body bears its own weight.
+            p.r(lower, roll(-side * 1.54 * d));
+            p.r(upper, roll(-side * 1.03 * d));
             p.r(J::Neck, bow(0.6 * d) * turn(side * 0.5 * d));
             p.r(J::Head, bow(0.3 * d));
             for leg in [J::LegL, J::LegR] {
@@ -307,7 +374,6 @@ pub(super) fn death(p: &mut Pose, rig: &Rig, d: f32, side: f32) {
         }
         _ => {
             p.r(J::Jaw, bow(0.4 * d));
-            p.r(J::Tail, turn(-side * 0.5 * d));
             if matches!(rig.style, Style::Griffin | Style::Dragon) {
                 // The upper wing falls open across the flank.
                 let (upper, tip) = if side > 0.0 {
@@ -322,8 +388,39 @@ pub(super) fn death(p: &mut Pose, rig: &Rig, d: f32, side: f32) {
     }
 }
 
+/// The long winged-beast tails trail onto the floor instead of sticking up
+/// like levers when the body rolls. The dragon's tail also curves to its own
+/// right in the mesh, so counter that bias on both sides of the fall.
+pub(super) fn fallen_quadruped_tail(p: &mut Pose, style: Style, d: f32, side: f32) {
+    match style {
+        Style::Dragon => p.r(J::Tail, turn((side * 0.295 + 0.085) * d)),
+        Style::Griffin => p.r(J::Tail, turn(side * 0.24 * d)),
+        _ => {
+            p.r(J::Tail, turn(-side * 0.5 * d));
+            p.r(J::Tail, fwd(0.6 * d) * roll(-side * 0.6 * d));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Humanoid moves that only Rogue monsters use.
+
+/// The vampire and wraith have an open left hand and a right equipment grip.
+/// Reach with the open hand and draw it back toward the chest without
+/// asking the grip's fixed fist to mime an open-palmed grasp.
+pub(super) fn drain_with_free_hand(p: &mut Pose, reach: f32, draw: f32) {
+    p.r(
+        J::ArmL,
+        fwd(1.48 * reach + 0.65 * draw) * roll(0.16 * reach - 0.10 * draw),
+    );
+    p.r(J::ForeL, fwd(-0.16 * reach + 1.65 * draw));
+    p.r(J::HandL, bow(0.20 * reach - 0.55 * draw));
+    p.r(
+        J::ArmR,
+        fwd(0.32 * reach + 0.22 * draw) * roll(-0.15 * reach),
+    );
+    p.r(J::ForeR, fwd(0.46 * draw));
+}
 
 pub(super) fn biped_move(p: &mut Pose, m: Move, t: f32) {
     let (gather, strike, act) = timing(m, t);
@@ -687,7 +784,7 @@ pub(super) fn place(
         .action
         .filter(|_| a.dead.is_none())
         .map_or((None, 0.0), |(m, t)| (Some(m), t));
-    let d = ease(a.dead.unwrap_or(a.fallen));
+    let d = ease(a.death_fall());
     let alive = 1.0 - d;
     let (gather, strike) = m.map_or((0.0, 0.0), |m| {
         let (g, s, _) = timing(m, t);
@@ -700,15 +797,26 @@ pub(super) fn place(
         Style::Medusa => {
             for (i, e) in rig.segments.iter().enumerate() {
                 let f = i as f32;
-                // Each serpent weaves on its own rhythm, rears at her gaze,
-                // and slumps when she falls.
-                let weave = Quat::from_rotation_x((time * 1.3 + f * 0.9).sin() * 0.22 * alive)
-                    * Quat::from_rotation_z((time * 1.1 + f * 1.7).cos() * 0.25 * alive)
-                    * Quat::from_rotation_y((time * 2.1 + f).sin() * 0.3 * fun);
-                let rear = Quat::from_rotation_x(-0.35 * gather + 0.5 * strike);
-                let slump = Quat::from_rotation_x(1.1 * d);
                 if let Ok(mut transform) = joints.get_mut(*e) {
-                    transform.rotation = slump * rear * weave;
+                    // The front rank turns to the victim at contact. Keep
+                    // each head on its own side and leave the rear rank fanned
+                    // out, rather than pulling all eleven across the crown.
+                    let at = transform.translation;
+                    let aim = if m == Some(Move::Gaze) && at.z > 0.01 {
+                        strike
+                    } else {
+                        0.0
+                    };
+                    let focus = turn(-at.x.signum() * 0.92 * aim);
+                    // Let the rest of the crown keep its individual weave
+                    // while the four front heads momentarily hold their aim.
+                    let sway = alive * (1.0 - 0.65 * aim);
+                    let weave = Quat::from_rotation_x((time * 1.3 + f * 0.9).sin() * 0.22 * sway)
+                        * Quat::from_rotation_z((time * 1.1 + f * 1.7).cos() * 0.25 * sway)
+                        * Quat::from_rotation_y((time * 2.1 + f).sin() * 0.3 * fun);
+                    let rear = Quat::from_rotation_x(-0.35 * gather + 0.5 * strike - 0.32 * aim);
+                    let slump = Quat::from_rotation_x(1.1 * d);
+                    transform.rotation = slump * focus * rear * weave;
                 }
             }
             true

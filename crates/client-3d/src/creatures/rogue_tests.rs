@@ -565,6 +565,118 @@ pub(super) fn animate_look(
 }
 
 #[test]
+fn freezing_touch_reaches_with_one_ice_fan_and_returns_it() {
+    let touch = Move::for_ability("rogue.freezing_touch", None);
+    let sample = |cue: Option<(Move, f32)>| {
+        let (mut app, root) = animate_look(Look::of(CreatureModel::Ice, 42), 2, |_| Vec3::ZERO);
+        if let Some((motion, phase)) = cue {
+            app.world_mut().get_mut::<Anim>(root).unwrap().action =
+                Some((motion, phase - 0.016 / motion.duration()));
+        }
+        app.update();
+        let world = app.world();
+        let rig = world.get::<Rig>(root).unwrap();
+        let meshes = world.resource::<Assets<Mesh>>();
+        let core = *world.get::<Transform>(rig.joint(J::Core).unwrap()).unwrap();
+        let fans = [J::ArmR, J::ArmL].map(|joint| {
+            let entity = rig.joint(joint).unwrap();
+            let local = world.get::<Transform>(entity).unwrap().compute_affine();
+            points_under(world, meshes, entity)
+                .into_iter()
+                .map(|p| local.transform_point3(p))
+                .max_by(|a, b| a.z.total_cmp(&b.z))
+                .expect("each ice fan has a rendered shard surface")
+        });
+        (core, fans)
+    };
+    let (rest, [right_rest, left_rest]) = sample(None);
+    let (contact, [reach, guard]) = sample(Some((touch, touch.impact())));
+    assert!(
+        reach.z > right_rest.z + 0.35 && reach.z > guard.z + 0.35,
+        "a single fan must reach past the face at contact: {reach:?}, {guard:?}"
+    );
+    assert!(
+        reach.x < 0.05 && guard.x > 0.30,
+        "the guard stays beside the face"
+    );
+    assert!((guard.z - left_rest.z).abs() < 0.10);
+    assert!((contact.translation - rest.translation).length() < 0.14);
+    assert!(contact.rotation.angle_between(rest.rotation) < 0.16);
+    let (_, basic) = sample(Some((Move::Strike, Move::Strike.impact())));
+    assert!(
+        (basic[0].z - basic[1].z).abs() < 0.05,
+        "ordinary attack remains bilateral"
+    );
+    let (_, recovered) = sample(Some((touch, 0.94)));
+    for (fan, target) in recovered.into_iter().zip([right_rest, left_rest]) {
+        assert!(
+            fan.distance(target) < 0.025,
+            "the fan must draw back without popping"
+        );
+    }
+}
+
+#[test]
+fn dead_fliers_settle_on_their_body_not_a_wingtip() {
+    use bevy::render::mesh::VertexAttributeValues;
+
+    for model in [CreatureModel::Kestrel, CreatureModel::Bat] {
+        for seed in [2.0, 7.0] {
+            let (mut app, root) = animate_look(Look::of(model, 42), 2, |_| Vec3::ZERO);
+            let mut a = app.world_mut().get_mut::<Anim>(root).unwrap();
+            a.seed = seed;
+            a.dead = Some(0.0);
+            for frame in 0..75 {
+                app.update();
+                if ![15, 35, 55, 74].contains(&frame) {
+                    continue;
+                }
+                let world = app.world();
+                let rig = world.get::<Rig>(root).unwrap();
+                let meshes = world.resource::<Assets<Mesh>>();
+                let body = rig.joint(J::Body).unwrap();
+                let mut floor = f32::INFINITY;
+                let mut belly = f32::INFINITY;
+                let mut stack = vec![(root, Affine3A::IDENTITY, false)];
+                while let Some((node, at, on_body)) = stack.pop() {
+                    if let Some(mesh) = world.get::<Mesh3d>(node).and_then(|m| meshes.get(&m.0)) {
+                        let Some(VertexAttributeValues::Float32x3(vertices)) =
+                            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                        else {
+                            panic!("flier mesh positions");
+                        };
+                        for &v in vertices {
+                            let y = at.transform_point3(v.into()).y / rig.scale;
+                            floor = floor.min(y);
+                            if on_body {
+                                belly = belly.min(y);
+                            }
+                        }
+                    }
+                    if let Some(children) = world.get::<Children>(node) {
+                        for child in children.iter() {
+                            let local = world.get::<Transform>(child).unwrap().compute_affine();
+                            stack.push((child, at * local, node == body));
+                        }
+                    }
+                }
+                assert!(belly.is_finite(), "{model:?} missing torso mesh");
+                if frame == 74 {
+                    assert!(
+                        (-0.03..=0.06).contains(&belly),
+                        "{model:?} seed {seed} never settled onto its body: lowest torso={belly:.3}, lowest part={floor:.3}"
+                    );
+                }
+                assert!(
+                    floor >= -0.035,
+                    "{model:?} seed {seed} frame {frame} buries a body part: lowest part={floor:.3}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn fliers_stay_on_the_wing_without_ground_contacts() {
     for model in [CreatureModel::Bat, CreatureModel::Kestrel] {
         let (app, root) = animate_along(model, 90, |f| Vec3::Z * f as f32 * 0.03);
@@ -5565,4 +5677,384 @@ fn dragon_and_griffin_keep_distal_wings_on_their_own_sides_when_mantling() {
             );
         }
     }
+}
+
+#[test]
+fn medusa_front_serpents_turn_toward_their_gaze_target() {
+    use bevy::render::mesh::VertexAttributeValues;
+
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Medusa, 42), 12, |_| Vec3::ZERO);
+    let motion = Move::for_ability("rogue.confusing_gaze", None);
+    assert_eq!(motion, Move::Gaze);
+    let world = app.world();
+    let rig = world.get::<Rig>(root).unwrap();
+    let mut front = Vec::new();
+    for &segment in &rig.segments {
+        let hinge = world.get::<Transform>(segment).unwrap().translation;
+        if hinge.z <= 0.01 {
+            continue;
+        }
+        // The far ends of the emitted segments contain the heads, not the
+        // collars. Pick the distal horizontal vertex in local space so this
+        // witness sees an aim change even if the entire actor lunges.
+        let tip = world
+            .get::<Children>(segment)
+            .unwrap()
+            .iter()
+            .filter_map(|e| {
+                let handle = world.get::<Mesh3d>(e)?;
+                let asset = world.resource::<Assets<Mesh>>().get(&handle.0)?;
+                let local = world.get::<Transform>(e)?.compute_affine();
+                let VertexAttributeValues::Float32x3(v) =
+                    asset.attribute(Mesh::ATTRIBUTE_POSITION)?
+                else {
+                    return None;
+                };
+                v.iter()
+                    .map(|&v| local.transform_point3(Vec3::from_array(v)))
+                    .max_by(|a, b| a.x.hypot(a.z).total_cmp(&b.x.hypot(b.z)))
+            })
+            .max_by(|a, b| a.x.hypot(a.z).total_cmp(&b.x.hypot(b.z)))
+            .expect("each front serpent must have an emitted head");
+        front.push((segment, hinge.x.signum(), tip));
+    }
+    assert_eq!(front.len(), 4);
+    assert_eq!(front.iter().filter(|(_, side, _)| *side > 0.0).count(), 2);
+    let sample = |app: &App| {
+        front
+            .iter()
+            .map(|&(segment, _, tip)| {
+                let local = app.world().get::<Transform>(segment).unwrap();
+                (local.translation, local.rotation * tip)
+            })
+            .collect::<Vec<_>>()
+    };
+    let rest = sample(&app);
+    let mut at = |phase| {
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((motion, phase - 0.016 / motion.duration()));
+        app.update();
+        sample(&app)
+    };
+    let contact = at(motion.impact());
+    let recovery = at(0.995);
+    for (i, &(_, side, _)) in front.iter().enumerate() {
+        let (root, reach) = contact[i];
+        assert_eq!(root, rest[i].0, "serpent {i} detached from the scalp");
+        assert!(
+            reach.z >= 0.055 && reach.z > rest[i].1.z + 0.09,
+            "front serpent {i} looks away at gaze contact: rest={:?}, gaze={reach:?}",
+            rest[i].1
+        );
+        assert!(reach.x * side > 0.04, "serpent {i} crossed the crown");
+        assert!(reach.y > 0.035, "serpent {i} dipped into the face");
+        assert!(
+            recovery[i].1.z < reach.z - 0.06,
+            "serpent {i} did not release its gaze"
+        );
+    }
+}
+
+#[test]
+fn emu_settles_its_head_and_body_on_the_ground() {
+    use bevy::render::mesh::VertexAttributeValues;
+
+    for seed in [2.0, 7.0] {
+        let (mut app, root) = animate_look(Look::of(CreatureModel::Emu, 42), 2, |_| Vec3::ZERO);
+        let mut a = app.world_mut().get_mut::<Anim>(root).unwrap();
+        a.seed = seed;
+        a.dead = Some(0.0);
+        for _ in 0..75 {
+            app.update();
+        }
+
+        let world = app.world();
+        let rig = world.get::<Rig>(root).unwrap();
+        let meshes = world.resource::<Assets<Mesh>>();
+        let head = rig.joint(J::Head).unwrap();
+        let body = rig.joint(J::Body).unwrap();
+        let mut head_floor = f32::INFINITY;
+        let mut body_floor = f32::INFINITY;
+        let mut stack = vec![(root, Affine3A::IDENTITY, root)];
+        while let Some((node, at, parent)) = stack.pop() {
+            if parent == head || parent == body {
+                if let Some(mesh) = world.get::<Mesh3d>(node).and_then(|m| meshes.get(&m.0)) {
+                    let Some(VertexAttributeValues::Float32x3(vertices)) =
+                        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        panic!("emu support mesh positions");
+                    };
+                    let min = if parent == head {
+                        &mut head_floor
+                    } else {
+                        &mut body_floor
+                    };
+                    for &v in vertices {
+                        *min = min.min(at.transform_point3(v.into()).y / rig.scale);
+                    }
+                }
+            }
+            if let Some(children) = world.get::<Children>(node) {
+                for child in children.iter() {
+                    let local = world.get::<Transform>(child).unwrap().compute_affine();
+                    stack.push((child, at * local, node));
+                }
+            }
+        }
+        for (part, height) in [("head", head_floor), ("body", body_floor)] {
+            assert!(
+                (-0.035..=0.06).contains(&height),
+                "emu seed {seed} {part} doesn't rest on the ground: {height:.3}"
+            );
+        }
+    }
+}
+
+#[test]
+fn long_winged_beast_tails_settle_without_piercing_the_floor() {
+    use bevy::render::mesh::VertexAttributeValues;
+
+    for model in [CreatureModel::Dragon, CreatureModel::Griffin] {
+        for seed in [2.0, 7.0] {
+            let (mut app, root) = animate_look(Look::of(model, 42), 2, |_| Vec3::ZERO);
+            let mut a = app.world_mut().get_mut::<Anim>(root).unwrap();
+            a.seed = seed;
+            a.dead = Some(0.0);
+            for _ in 0..75 {
+                app.update();
+            }
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let tail = rig.joint(J::Tail).unwrap();
+            let meshes = world.resource::<Assets<Mesh>>();
+            let local = |e| world.get::<Transform>(e).unwrap().compute_affine();
+            let at = [J::Lift, J::Body, J::Tail]
+                .into_iter()
+                .fold(local(root), |at, j| at * local(rig.joint(j).unwrap()));
+            let mut vertices = Vec::new();
+            for child in world.get::<Children>(tail).unwrap().iter() {
+                let Some(mesh) = world.get::<Mesh3d>(child).and_then(|m| meshes.get(&m.0)) else {
+                    continue;
+                };
+                let Some(VertexAttributeValues::Float32x3(v)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("tail has no emitted positions");
+                };
+                vertices.extend(v.iter().map(|&v| local(child).transform_point3(v.into())));
+            }
+            let end = vertices.iter().map(|v| v.z).fold(0.0, f32::min);
+            assert!(end < -0.5, "expected a long emitted tail");
+            let min_y = |points: &[Vec3]| {
+                points
+                    .iter()
+                    .map(|v| at.transform_point3(*v).y / rig.scale)
+                    .fold(f32::INFINITY, f32::min)
+            };
+            // Require support near the tip, not merely the tail root behind
+            // the flank. Measure actual surfaces including fur and spines.
+            let distal: Vec<_> = vertices
+                .iter()
+                .copied()
+                .filter(|v| v.z < end * 0.80)
+                .collect();
+            let reach = min_y(&distal);
+            assert!(
+                reach <= 0.11,
+                "{model:?} seed {seed} holds the tail tip in the air: {reach:.3}"
+            );
+            let floor = min_y(&vertices);
+            assert!(
+                floor >= -0.035,
+                "{model:?} seed {seed} tail pierces the floor: {floor:.3}"
+            );
+        }
+    }
+}
+
+#[test]
+fn vampire_and_wraith_drain_with_their_free_hand() {
+    for (model, ability) in [
+        (CreatureModel::Vampire, "rogue.drain_vitality"),
+        (CreatureModel::Wraith, "rogue.energy_drain"),
+    ] {
+        let (mut app, root) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+        let motion = Move::for_ability(ability, None);
+        assert_eq!(motion, Move::Drain);
+        let sample = |app: &App| {
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let transform_of = |joint| {
+                let mut e = rig.joint(joint).unwrap();
+                let mut path = Affine3A::IDENTITY;
+                while e != root {
+                    path = world.get::<Transform>(e).unwrap().compute_affine() * path;
+                    e = world.get::<ChildOf>(e).unwrap().parent();
+                }
+                path
+            };
+            let in_torso = transform_of(J::Torso).inverse();
+            [J::HandL, J::HandR]
+                .map(|j| in_torso.transform_point3(transform_of(j).translation.into()))
+        };
+        let rest = sample(&app);
+        let mut at = |phase| {
+            app.world_mut().get_mut::<Anim>(root).unwrap().action =
+                Some((motion, phase - 0.016 / motion.duration()));
+            app.update();
+            sample(&app)
+        };
+        let reach = at(motion.impact());
+        let draw = at(0.62);
+        let end = at(0.995);
+        assert!(
+            reach[0].z > reach[1].z + 0.12 && reach[0].z > rest[0].z + 0.20,
+            "{model:?} reaches with the grip instead of its free hand: {reach:?}"
+        );
+        assert!(
+            draw[0].z < reach[0].z - 0.16,
+            "{model:?} never draws the same hand back: {reach:?} → {draw:?}"
+        );
+        assert!(
+            draw[0].x > 0.08,
+            "{model:?} pulls the hand across its own chest"
+        );
+        assert!(
+            (end[0].z - rest[0].z).abs() < 0.075,
+            "{model:?} doesn't release the gesture"
+        );
+    }
+}
+
+#[test]
+fn jabberwock_turns_both_claw_palms_down_at_rake_contact() {
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Jabberwock, 42), 12, |_| Vec3::ZERO);
+    let motion = Move::for_ability("basic_melee", None);
+    assert_eq!(motion, Move::Strike);
+    let hands = |world: &World| {
+        let rig = world.get::<Rig>(root).unwrap();
+        let facing = Quat::from_rotation_y(world.get::<Anim>(root).unwrap().yaw).inverse();
+        [J::HoofFL, J::HoofFR].map(|joint| {
+            let mut e = rig.joint(joint).unwrap();
+            let mut at = Affine3A::IDENTITY;
+            while e != root {
+                at = world.get::<Transform>(e).unwrap().compute_affine() * at;
+                e = world.get::<ChildOf>(e).unwrap().parent();
+            }
+            // The emitted claw's knuckles curl around the palm on +Z.
+            // Follow that side through the actual forearm and wrist chain.
+            (
+                facing * Vec3::from(at.translation),
+                at.transform_vector3(Vec3::Z).normalize(),
+            )
+        })
+    };
+    let rest = hands(app.world());
+    app.world_mut().get_mut::<Anim>(root).unwrap().action =
+        Some((motion, motion.impact() - 0.016 / motion.duration()));
+    app.update();
+    let rake = hands(app.world());
+    for (i, (position, palm)) in rake.into_iter().enumerate() {
+        assert!(
+            palm.y < -0.22,
+            "jabberwock offers palm {i} upward instead of raking: {palm:?}"
+        );
+        assert!(
+            position.z > rest[i].0.z + 0.20,
+            "jabberwock palm {i} does not stay at contact reach: {position:?}"
+        );
+    }
+    assert!(rake[0].0.x - rake[1].0.x > 0.20, "claws cross over");
+}
+
+#[test]
+fn death_families_play_distinct_motions_and_keep_their_settled_pose() {
+    for model in [
+        CreatureModel::Placeholder,
+        CreatureModel::Human,
+        CreatureModel::Medusa,
+        CreatureModel::Dragon,
+        CreatureModel::Centaur,
+        CreatureModel::Bat,
+        CreatureModel::Emu,
+        CreatureModel::Flytrap,
+        CreatureModel::Rattlesnake,
+        CreatureModel::Wisp,
+        CreatureModel::Ice,
+    ] {
+        let (mut app, root) = animate_look(Look::of(model, 42), 2, |_| Vec3::ZERO);
+        let rig = app.world().get::<Rig>(root).unwrap();
+        let nodes: Vec<_> = rig
+            .joints
+            .iter()
+            .flatten()
+            .copied()
+            .chain(rig.segments.iter().copied())
+            .collect();
+        let pose = |app: &mut App, variant, phase| {
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.preview_death(variant);
+            anim.dead = Some(phase);
+            app.update();
+            nodes
+                .iter()
+                .map(|&node| *app.world().get::<Transform>(node).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let difference = |left: &[Transform], right: &[Transform]| {
+            left.iter()
+                .zip(right)
+                .map(|(a, b)| {
+                    a.translation.distance(b.translation)
+                        + a.rotation.dot(b.rotation).abs().min(1.0).acos()
+                        + a.scale.distance(b.scale)
+                })
+                .fold(0.0, f32::max)
+        };
+        use DeathMotion::*;
+        let quick = pose(&mut app, Collapse, 0.16);
+        let stagger = pose(&mut app, Stagger, 0.16);
+        let dramatic = pose(&mut app, Dramatic, 0.43);
+        assert!(
+            difference(&quick, &stagger) > 0.045,
+            "{model:?}: regular variants look the same"
+        );
+        assert!(
+            difference(&dramatic, &stagger) > 0.075,
+            "{model:?}: dramatic variant lacks a different pose"
+        );
+        let settled = pose(&mut app, Collapse, 1.0);
+        for variant in [Stagger, Dramatic] {
+            let end = pose(&mut app, variant, 1.0);
+            assert!(
+                difference(&settled, &end) < 0.004,
+                "{model:?}: variant changed settled pose"
+            );
+        }
+    }
+}
+
+#[test]
+fn bat_opens_its_jaw_for_the_bite_and_recovers() {
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Bat, 42), 12, |_| Vec3::ZERO);
+    let rig = app.world().get::<Rig>(root).unwrap();
+    let jaw = rig
+        .joint(J::Jaw)
+        .expect("bat bite needs a hinged lower jaw");
+    let rest = app.world().get::<Transform>(jaw).unwrap().rotation;
+    let movement = Move::for_ability("basic_melee", None);
+    let mut at = |phase| {
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((movement, phase - 0.016 / movement.duration()));
+        app.update();
+        app.world().get::<Transform>(jaw).unwrap().rotation
+    };
+    let gape = at(movement.impact() - 0.07);
+    let after = at(movement.impact() + 0.12);
+    let swung = gape * Vec3::Z;
+    assert!(
+        swung.y < -0.42,
+        "lower jaw doesn't expose the fangs: {swung:?}"
+    );
+    assert!(after.angle_between(rest) < 0.08, "bite doesn't close again");
 }

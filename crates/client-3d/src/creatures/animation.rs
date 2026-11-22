@@ -9,6 +9,8 @@ pub use carriage::WalkingCarriage;
 pub(super) use curves::ease;
 use curves::envelope;
 use foot_trajectory::beast_step;
+mod death;
+pub use death::DeathMotion;
 mod publication;
 mod rogue;
 
@@ -127,7 +129,7 @@ pub fn animate(
     if let Some(profile) = profile.as_deref_mut() {
         *profile = MotionProfile::default();
     }
-    let dt = time.delta_secs().min(0.05);
+    let dt = animation_frame_delta(time.delta_secs());
     // A held presentation frame must retain contact history and cloth transforms,
     // not re-evaluate the pose with a zero step.
     if dt <= 0.0 {
@@ -211,9 +213,10 @@ pub fn animate(
         }
         anim.hurt = anim.hurt.map(|t| t + dt).filter(|t| *t < 0.4);
         anim.dodge = anim.dodge.map(|t| t + dt).filter(|t| *t < 0.45);
+        let death_motion = anim.death_motion;
         if let Some(d) = anim.dead.as_mut() {
-            *d = (*d + dt / 1.1).min(1.0);
-            anim.fallen = *d;
+            *d = death_motion.advance(*d, dt);
+            anim.fallen = death_motion.fall(*d);
         } else {
             // A revived creature gets up over most of a second.
             anim.fallen = (anim.fallen - dt / 0.8).max(0.0);
@@ -651,8 +654,11 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     let side = if a.seed > 5.0 { 1.0 } else { -1.0 };
     p.o(J::Lift, Vec3::new(side * 0.28 * dodge, 0.0, -0.05 * dodge));
     p.r(J::Lift, Quat::from_rotation_z(-side * 0.25 * dodge));
-    if let Some(d) = a.dead.or((a.fallen > 0.0).then_some(a.fallen)) {
-        death_pose(&mut p, rig, ease(d), a.seed);
+    if a.dead.is_some() || a.fallen > 0.0 {
+        death_pose(&mut p, rig, ease(a.death_fall()), a.seed);
+        if let Some(phase) = a.dead {
+            death::perform(&mut p, rig, a, phase);
+        }
     }
     p
 }
@@ -2540,15 +2546,19 @@ fn biped_pose(
         Move::Drain => {
             let reach = envelope(t, 0.0, 0.3, 0.45, 0.6);
             let draw = envelope(t, 0.4, 0.6, 0.85, 1.0);
-            p.r(
-                J::ArmR,
-                fwd(1.5 * reach + 0.9 * draw) * Quat::from_rotation_z(-0.1 * reach),
-            );
-            p.r(J::ForeR, fwd(-0.1 * reach + 1.6 * draw));
-            p.r(
-                J::ArmL,
-                fwd(0.9 * reach) * Quat::from_rotation_z(0.4 * reach),
-            );
+            if matches!(rig.style, Style::Vampire | Style::Wraith) {
+                rogue::drain_with_free_hand(p, reach, draw);
+            } else {
+                p.r(
+                    J::ArmR,
+                    fwd(1.5 * reach + 0.9 * draw) * Quat::from_rotation_z(-0.1 * reach),
+                );
+                p.r(J::ForeR, fwd(-0.1 * reach + 1.6 * draw));
+                p.r(
+                    J::ArmL,
+                    fwd(0.9 * reach) * Quat::from_rotation_z(0.4 * reach),
+                );
+            }
             p.r(J::Torso, bow(0.25 * reach - 0.2 * draw));
             p.r(J::Head, bow(0.15 * reach - 0.45 * draw));
             p.o(
@@ -3042,17 +3052,15 @@ fn death_pose(p: &mut Pose, rig: &Rig, d: f32, seed: f32) {
                 bow(1.05 * d) * Quat::from_rotation_z(-side * 0.15 * d),
             );
             p.r(J::Snout, bow(-0.3 * d));
-            p.r(
-                J::Tail,
-                fwd(0.6 * d) * Quat::from_rotation_z(-side * 0.6 * d),
-            );
+            rogue::fallen_quadruped_tail(p, rig.style, d, side);
         }
         Plan::Bird if rig.style.flies() => rogue::death(p, rig, d, side),
         Plan::Rooted => rogue::death(p, rig, d, side),
         Plan::Bird => {
             p.rot[J::Lift as usize] = Quat::from_rotation_z(side * 1.5 * d);
-            p.off[J::Lift as usize] = Vec3::new(side * 0.62 * d, 0.2 * d, 0.0);
-            // Long legs sprawled, the neck laid flat with the head on the floor.
+            // Rest on the outer feather layer, not on the bare body shell.
+            p.off[J::Lift as usize] = Vec3::new(side * 0.62 * d, 0.234 * d, 0.0);
+            // Long legs sprawl; let the neck follow the torso toward the floor.
             p.r(
                 J::LegL,
                 fwd(0.6 * d) * Quat::from_rotation_z(-side * 0.35 * d),
@@ -3065,11 +3073,15 @@ fn death_pose(p: &mut Pose, rig: &Rig, d: f32, seed: f32) {
             p.r(J::ShinR, fwd(-0.5 * d));
             p.r(
                 J::Neck,
-                bow(1.25 * d) * Quat::from_rotation_z(-side * 0.35 * d),
+                bow(1.25 * d) * Quat::from_rotation_z(side * 0.27 * d),
             );
             p.r(J::Head, bow(-0.4 * d));
         }
-        Plan::Serpent | Plan::Floater | Plan::Marker => {}
+        Plan::Marker => {
+            p.rot[J::Lift as usize] = Quat::from_rotation_z(side * FRAC_PI_2 * d);
+            p.off[J::Lift as usize] = Vec3::new(side * 0.5 * d, 0.36 * d, 0.0);
+        }
+        Plan::Serpent | Plan::Floater => {}
     }
 }
 
@@ -3137,7 +3149,7 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
         .action
         .filter(|_| a.dead.is_none())
         .map_or((None, 0.0), |(m, t)| (Some(m), t));
-    let d = ease(a.dead.unwrap_or(a.fallen));
+    let d = ease(a.death_fall());
     let alive = 1.0 - d;
     let calm = (1.0 - ease(a.speed * 4.0))
         * f32::from(u8::from(m.is_none() && a.dead.is_none() && !a.quiet));
@@ -3174,7 +3186,10 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             let bite_rise = 0.24 * gather + 0.13 * strike;
             // Transfer support rather than stacking the idle rise onto
             // the established apex of the attack pose.
-            let raised = idle_rise.max(bite_rise);
+            let (brace, flourish) = a
+                .dead
+                .map_or((0.0, 0.0), |phase| a.death_motion.beats(phase));
+            let raised = idle_rise.max(bite_rise) + 0.18 * brace + 0.30 * flourish;
             let mut live = Vec3::new(
                 0.018 * wave.sin() * a.speed,
                 snake_ground_height(0, 0.0, rig.style) + raised,
@@ -3284,10 +3299,18 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
                 (phase * 1.8).sin() * 0.055
             };
             let flare = m.map_or(0.0, |_| envelope(t, 0.0, hit * 0.8, hit + 0.04, 1.0));
+            let freezing_touch = ice && matches!(m, Some(Move::Touch(Accent::Travel)));
+            let reach = if freezing_touch {
+                envelope(t, hit - 0.16, hit, hit + 0.06, 0.88)
+            } else {
+                0.0
+            };
+            // The core braces instead of lunging with the reaching fan.
+            let body_strike = if freezing_touch { 0.34 * reach } else { strike };
             let live_core = Vec3::new(
                 (phase * 0.55).sin() * 0.015 * (1.0 - a.speed),
                 1.1 + hover - 0.035 * gather,
-                -0.04 * a.speed - 0.065 * gather + 0.25 * strike,
+                -0.04 * a.speed - 0.065 * gather + 0.25 * body_strike,
             );
             let fallen_rotation =
                 Quat::from_rotation_y(a.seed * 0.4) * Quat::from_rotation_z(0.9) * bow(0.2);
@@ -3316,7 +3339,7 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
                     transform.scale =
                         live_scale.lerp(Vec3::splat(if ice { 0.65 } else { 0.06 }), d);
                     let live_rotation = Quat::from_rotation_y((phase * 0.6).sin() * 0.08)
-                        * bow(0.1 * a.speed - 0.14 * gather + 0.18 * strike)
+                        * bow(0.1 * a.speed - 0.14 * gather + 0.18 * body_strike)
                         * Quat::from_rotation_z(
                             (phase * 0.8).sin() * if ice { 0.035 } else { 0.06 },
                         );
@@ -3327,8 +3350,15 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
                 if let Some(e) = rig.joint(j) {
                     if let Ok(mut transform) = joints.get_mut(e) {
                         let lag = (phase * 1.3 - 0.55 + side * 0.25).sin() * 0.035;
-                        let live_rotation = Quat::from_rotation_y(-side * 0.22 * strike)
-                            * Quat::from_rotation_z(side * (lag + 0.28 * flare));
+                        let (offset, live_rotation) = if freezing_touch {
+                            rogue::ice_touch_fan(side, lag, gather, reach)
+                        } else {
+                            (
+                                Vec3::ZERO,
+                                Quat::from_rotation_y(-side * 0.22 * strike)
+                                    * Quat::from_rotation_z(side * (lag + 0.28 * flare)),
+                            )
+                        };
                         // The broken shard fans lie out to either side of
                         // the core, supported at their broad roots. Cancel
                         // the core's fall rotation so neither arm is buried.
@@ -3336,7 +3366,7 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
                             fallen_rotation.inverse() * Quat::from_rotation_z(side * FRAC_PI_2);
                         let ground_at = fallen_rotation.inverse()
                             * Vec3::new(side * 0.42, (0.025 - fallen.y) / 0.65, 0.06);
-                        transform.translation = rig.rest[j as usize].lerp(ground_at, d);
+                        transform.translation = (rig.rest[j as usize] + offset).lerp(ground_at, d);
                         transform.rotation = live_rotation.slerp(ground_rotation, d);
                     }
                 }
@@ -4399,6 +4429,52 @@ mod support_tests {
             (narrowing(false) - 1.0).abs() < 1e-4,
             "his stay under his hips"
         );
+    }
+
+    #[test]
+    fn xeroc_ambush_reaches_with_open_fangs_before_clamping() {
+        let (_, rig, _, _) = spawn_one(&Look::of(CreatureModel::Xeroc, 42));
+        let animation = Anim::new(42, Vec3::ZERO);
+        let ambush = Move::for_ability("rogue.ambush_from_guise", None);
+        let hit = ambush.impact();
+        let sample = |motion, phase| {
+            let mut p = Pose::new();
+            quad_pose(&mut p, &rig, 0.0, 0.0, 0.0, motion, phase, true);
+            p
+        };
+        let rest = sample(None, 0.0);
+        let open = sample(Some(ambush), hit - 0.08);
+        let contact = sample(Some(ambush), hit);
+        let closed = sample(Some(ambush), hit + 0.17);
+        let jaw = |p: &Pose| p.rot[J::Jaw as usize].angle_between(rest.rot[J::Jaw as usize]);
+        assert!(
+            jaw(&open) > 0.8,
+            "the windup must expose both rows of fangs"
+        );
+        assert!(
+            jaw(&contact) > 0.4,
+            "the ambush must reach the target before clamping, got {}",
+            jaw(&contact)
+        );
+        assert!(
+            jaw(&closed) < 0.16,
+            "the jaws should clamp in the follow-through"
+        );
+        assert!(
+            contact.off[J::Neck as usize].z > 0.08,
+            "reach should come from an extending head, not just the whole root"
+        );
+        for leg in walk_legs(&rig, &animation).into_iter().flatten() {
+            let slip = (posed_ankle(&contact, &rig, leg) - posed_ankle(&rest, &rig, leg)).length();
+            assert!(slip < 0.05, "{:?} ambush pad slipped {slip}", leg.foot);
+        }
+        let normal_bite = sample(Some(Move::Strike), hit);
+        assert_eq!(normal_bite.off[J::Neck as usize], Vec3::ZERO);
+        for phase in [0.0, 1.0] {
+            let end = sample(Some(ambush), phase);
+            assert_eq!(end.off, rest.off, "cue boundary {phase} must not pop");
+            assert!(jaw(&end) < 1e-5);
+        }
     }
 
     #[test]

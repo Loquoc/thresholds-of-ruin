@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "hz": 50,
+  "viewport": [1110, 490],
+  "actors": [
+    {"id": "collapse", "model": "Human", "seed": 42, "body": {}, "outfit": "native", "equipment": [], "position": [-2.3, -0.5, 0], "yaw": 8},
+    {"id": "stagger", "model": "Human", "seed": 42, "body": {}, "outfit": "native", "equipment": [], "position": [0.0, -0.5, 0], "yaw": 8},
+    {"id": "dramatic", "model": "Human", "seed": 42, "body": {}, "outfit": "native", "equipment": [], "position": [2.3, -0.5, 0], "yaw": 8}
+  ],
+  "cameras": [
+    {"id": "view", "position": [0, 2.15, 5.9], "target": [0, 0.54, 0], "fov_degrees": 33}
+  ],
+  "events": [
+    {"tick": 20, "actor": "collapse", "operation": {"type": "death", "motion": "collapse"}},
+    {"tick": 20, "actor": "stagger", "operation": {"type": "death", "motion": "stagger"}},
+    {"tick": 20, "actor": "dramatic", "operation": {"type": "death", "motion": "dramatic"}}
+  ],
+  "captures": [
+    {"tick": 19, "name": "t19", "camera": "view"},
+    {"tick": 38, "name": "t38", "camera": "view"},
+    {"tick": 83, "name": "t83", "camera": "view"},
+    {"tick": 120, "name": "t120", "camera": "view"},
+    {"tick": 186, "name": "t186", "camera": "view"}
+  ]
+}

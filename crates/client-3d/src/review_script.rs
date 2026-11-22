@@ -671,7 +671,7 @@ fn apply(
             rebuild |= apply_operation(spec, velocity, &mut anim, &mut transform, &event.operation);
             if matches!(
                 event.operation,
-                Operation::Action { .. } | Operation::Death {} | Operation::Teleport { .. }
+                Operation::Action { .. } | Operation::Death { .. } | Operation::Teleport { .. }
             ) {
                 commands.entity(entity).insert(creatures::PoseRefresh);
             }
@@ -706,10 +706,9 @@ fn apply_operation(
                 anim.action = None;
             }
         }
-        Operation::Death {} => {
+        Operation::Death { motion } => {
             *velocity = Vec3::ZERO;
-            anim.action = None;
-            anim.dead = Some(0.0);
+            anim.preview_death(motion.unwrap_or_default());
         }
         Operation::Velocity { value } => *velocity = Vec3::from_array(*value),
         Operation::Teleport { position, yaw } => {
