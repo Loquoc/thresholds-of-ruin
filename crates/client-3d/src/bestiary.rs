@@ -926,7 +926,7 @@ fn perform(
         }
         Cue::Hit => anim.hit(0.0),
         Cue::Miss => anim.miss(0.0),
-        Cue::Die => anim.dead = Some(0.0),
+        Cue::Die => anim.preview_death(creatures::DeathMotion::Collapse),
         Cue::Revive => anim.dead = None,
     }
 }

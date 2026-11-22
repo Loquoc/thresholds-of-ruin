@@ -52,6 +52,14 @@ its exact requested position at that timestamp, with no extra movement step:
   tick zero is the generated rest pose. That pose does not yet present the
   actor's authored `yaw` (the manifest still records it), so capture turned
   actors at tick 1 or later.
+- `death`: optionally set `motion` to `collapse`, `stagger`, or `dramatic`.
+  It stops the actor and starts the selected animation at that tick (tick 1
+  or later). Omission keeps the original deterministic `collapse` for existing
+  scenes. Regular motions take 1.10 s or 1.52 s, and the staged dramatic fall
+  takes 3.18 s. Live deaths choose once on the client, with a 5% dramatic
+  chance, and may first turn to fit the corridor. This does not affect
+  gameplay death or corpse placement. `death-variants.json` compares all
+  three motions from left to right with the same body and outfit.
 - `velocity`: `value` is a world-space vector in units per second. It persists
   until changed; use `[0, 0, 0]` to stop. Root displacement drives the usual gait.
 - `teleport`: `position` and `yaw` place the actor and reset animation state.

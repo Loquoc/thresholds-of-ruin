@@ -162,6 +162,64 @@ Troll/Nymph feet. Preserve both the negative shaft witness and positive foot,
 calf-binding and equipped/restored controls across body variants. Multiple
 figures or sampled poses are witnesses of one root, not separate bugs.
 
+The bat and kestrel could finish a fall balanced on a buried wingtip while
+their bodies stayed suspended. The grounded-fall witness samples real emitted
+mesh vertices in both mirrored falls: torso contact at rest is independent of
+minimum height across all body parts during the drop. The living-flight control
+still excludes planted feet. These sampled poses and manually matched native
+views are not a continuous collision or gameplay-flight guarantee.
+
+The Medusa did not turn the front of her serpent crown toward her gaze target.
+The witness samples distal emitted geometry in the head's frame at rest,
+contact and release, so the actor merely leaning forward cannot pass. Keep
+head aim separate from scalp attachment and crown-side checks. Native views
+review the silhouette across poses and angles; the reach witness does not
+prove continuous separation of every pair of serpents.
+
+The grounded Emu could hold its head above the floor while its flank sank
+through it. Check the emitted head and feathered torso separately in both fall
+directions: rolling the neck fixed the head but left the flank below the floor
+until the torso support changed too. A settled-pose check does not certify the
+rest of the fall or every feather and toe.
+
+Dragon and griffin tails could remain raised after the flank had settled.
+Measure both the distal surface near the spade or tuft and the minimum over
+the whole tail on both fall sides. This catches a raised tip even when the
+root is within ground reach, without passing a fix that buries part of an
+asymmetric tail. Native views cover sampled poses, not continuous contact.
+
+Vampire and wraith used their fixed equipment fists to mime a grasp even
+though their open free hands were already modeled. Measure reach and recall
+of the same wrist relative to the torso so a body lunge cannot pass; use
+native ability frames to verify the visible hand silhouette. This does not
+assert combat hit timing or target contact on the server.
+
+The Jabberwock's shoulder swing passed even when its claws faced up at
+contact. Measure palm orientation through the actual forearm and wrist,
+and judge forward reach and side separation in the actor's heading rather
+than a fixed world direction. The native opening strike confirms the
+changed silhouette, not the follow-up strike or combat resolution.
+
+For multiple death motions, test the selection buckets independently from the
+timing and visible poses. A long animation can pass its pose tests but still
+disappear under the scene's old corpse deadline; the scene witness exercises
+both transient bodies and those claimed by a disclosed corpse. Drive the
+actual animation and cleanup together at ordinary and low frame rates:
+elapsed time can outpace the capped pose clock. Distinct family motions
+converge on the same settled poses, separate from server death.
+
+The bat and kestrel formerly shared a talon-first lunge, although the bat's
+authored fangs had no moving jaw. Witness the bat's hinge opening and
+returning, and compare the whole native swing with the unchanged kestrel
+control. The silhouette and pose tests do not assert that an attack lands.
+
+The Xeroc ambush shut its jaw as the body reached forward, and the resulting
+shell travel slid its short pads. Sample at presentation contact, not merely
+at the windup: the advancing head must still gape, the supports must stay near
+their rest placements, and the jaws should clamp during follow-through.
+Matched native views separate this from the unchanged ordinary bite; they
+do not test gameplay disguise release or combat contact.
+
 ### Retain failed optimization lessons
 
 A contour-query shortcut reused the last crossing interval and found a different

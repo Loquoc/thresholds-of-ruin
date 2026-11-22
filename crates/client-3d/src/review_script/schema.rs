@@ -1,5 +1,7 @@
 //! Strict offline scene descriptions. No runtime or filesystem effects in validation.
-use crate::creatures::{Anim, Equipment, Look, Move, Variant, WalkingCarriage, Wardrobe};
+use crate::creatures::{
+    Anim, DeathMotion, Equipment, Look, Move, Variant, WalkingCarriage, Wardrobe,
+};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -161,12 +163,26 @@ pub(super) struct Event {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Operation {
-    Action { name: String },
-    Death {},
-    Velocity { value: [f32; 3] },
-    Teleport { position: [f32; 3], yaw: f32 },
-    Dress { outfit: String },
-    Equipment { items: Vec<String> },
+    Action {
+        name: String,
+    },
+    Death {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        motion: Option<DeathMotion>,
+    },
+    Velocity {
+        value: [f32; 3],
+    },
+    Teleport {
+        position: [f32; 3],
+        yaw: f32,
+    },
+    Dress {
+        outfit: String,
+    },
+    Equipment {
+        items: Vec<String>,
+    },
 }
 
 pub(super) fn model(name: &str) -> Result<CreatureModel, String> {
@@ -495,7 +511,7 @@ impl Script {
                         return Err("actions start at tick 1 or later".into());
                     }
                 }
-                Operation::Death {} => {
+                Operation::Death { .. } => {
                     if event.tick == 0 {
                         return Err("death starts at tick 1 or later".into());
                     }

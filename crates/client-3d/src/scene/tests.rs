@@ -192,6 +192,7 @@ fn only_the_same_cosmetic_identity_in_the_same_3d_cell_reuses_a_fallen_body() {
             appearance_seed: Some(AppearanceSeed::from_digest([19; 32])),
             age: 0.0,
             holds: false,
+            claimed: false,
         });
         app.world_mut()
             .resource_mut::<Fixture>()
@@ -1366,4 +1367,162 @@ fn public_effect_snapshot_reuses_updates_and_removes_roots_without_local_expiry(
         .unwrap();
     assert!(app.world().resource::<Game>().public_effects.is_empty());
     assert!(!app.world().entities().contains(reattached));
+}
+
+#[test]
+fn undropped_body_survives_its_first_half_second_of_fade() {
+    let mut app = App::new();
+    app.init_resource::<Game>()
+        .init_resource::<Time>()
+        .add_systems(Update, tend_the_dead);
+    let entity = app.world_mut().spawn(Anim::corpse(1)).id();
+    app.world_mut().resource_mut::<Game>().dying.push(DeadBody {
+        id: ActorTarget::from_digest([4; 32]),
+        entity,
+        cell: IVec3::ZERO,
+        appearance_seed: None,
+        age: 2.5,
+        holds: false,
+        claimed: false,
+    });
+    app.update();
+    assert!(
+        app.world().entities().contains(entity),
+        "an undropped body must fade, not vanish at the end of the fallen hold"
+    );
+}
+
+#[test]
+fn dramatic_death_is_not_removed_by_the_old_corpse_deadline() {
+    use creatures::DeathMotion;
+    let mut app = App::new();
+    app.init_resource::<Game>()
+        .init_resource::<Time>()
+        .add_systems(Update, tend_the_dead);
+    let mut spawn = |motion, holds| {
+        let mut anim = Anim::new(1, Vec3::ZERO);
+        anim.preview_death(motion);
+        let entity = app.world_mut().spawn(anim).id();
+        app.world_mut().resource_mut::<Game>().dying.push(DeadBody {
+            id: ActorTarget::from_digest([4; 32]),
+            entity,
+            cell: IVec3::ZERO,
+            appearance_seed: None,
+            age: 2.05,
+            holds,
+            claimed: false,
+        });
+        entity
+    };
+    let ordinary = spawn(DeathMotion::Collapse, false);
+    let dramatic = spawn(DeathMotion::Dramatic, false);
+    let held = spawn(DeathMotion::Dramatic, true);
+    app.update();
+    let exists = |app: &App, e| app.world().entities().contains(e);
+    assert!(exists(&app, ordinary));
+    assert!(app
+        .world()
+        .get::<lighting::CorpseOpacity>(ordinary)
+        .is_some());
+    assert!(exists(&app, dramatic));
+    assert!(app
+        .world()
+        .get::<lighting::CorpseOpacity>(dramatic)
+        .is_none());
+    for body in &mut app.world_mut().resource_mut::<Game>().dying {
+        body.age = 7.0;
+    }
+    app.update();
+    assert!(!exists(&app, dramatic));
+    assert!(exists(&app, held), "a disclosed corpse still owns its body");
+}
+
+#[test]
+fn a_dramatic_death_finishes_before_cleanup_at_normal_and_low_frame_rates() {
+    use creatures::DeathMotion;
+    for hz in [60, 15] {
+        let mut app = app(CreatureModel::Placeholder);
+        app.init_resource::<Time>();
+        update(&mut app);
+        let id = app.world().resource::<Fixture>().0.actors[0].id;
+        let entity = app.world().resource::<Game>().actors[&id];
+        assert!(app.world().get::<creatures::Rig>(entity).is_some());
+        {
+            let mut state = app.world_mut().get_mut::<Anim>(entity).unwrap();
+            state.preview_death(DeathMotion::Dramatic);
+            state.dead = Some(-0.35); // Preserve the actual corridor pre-roll.
+        }
+        app.world_mut().resource_mut::<Game>().dying.push(DeadBody {
+            id,
+            entity,
+            cell: IVec3::ZERO,
+            appearance_seed: None,
+            age: 0.0,
+            holds: false,
+            claimed: false,
+        });
+        // The projection fixture has already put this actor in the view.
+        // Drive just the two chained runtime systems after it starts dying.
+        let mut schedule = Schedule::default();
+        schedule.add_systems((creatures::animate, tend_the_dead).chain());
+        let mut previous = -0.35;
+        let mut expired = false;
+        let mut starts = None;
+        for frame in 0..hz * 9 {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f64(1.0 / f64::from(hz)));
+            schedule.run(app.world_mut());
+            if let Some(anim) = app.world().get::<Anim>(entity) {
+                previous = anim.dead.unwrap();
+                if let Some(fade) = app.world().get::<lighting::CorpseOpacity>(entity) {
+                    assert_eq!(previous, 1.0, "the corpse cannot fade while still falling");
+                    assert!((0.0..1.0).contains(&fade.0));
+                    starts.get_or_insert(frame);
+                }
+            } else {
+                let frames = frame - starts.expect("the body should visibly fade");
+                assert!((frames as f32 / hz as f32 - CORPSE_FADE_SECS).abs() < 0.11);
+                assert_eq!(
+                    previous, 1.0,
+                    "cleanup at {hz} Hz erased the dramatic fall before it settled"
+                );
+                expired = true;
+                break;
+            }
+        }
+        assert!(expired, "unclaimed body never expired at {hz} Hz");
+    }
+}
+
+#[test]
+fn a_late_corpse_item_claim_stops_the_fade_and_removal_does_not_restart_it() {
+    let mut app = App::new();
+    app.init_resource::<Game>()
+        .init_resource::<Time>()
+        .add_systems(Update, tend_the_dead);
+    let entity = app.world_mut().spawn(Anim::corpse(1)).id();
+    app.world_mut().resource_mut::<Game>().dying.push(DeadBody {
+        id: ActorTarget::from_digest([4; 32]),
+        entity,
+        cell: IVec3::ZERO,
+        appearance_seed: None,
+        age: 2.5,
+        holds: false,
+        claimed: false,
+    });
+    app.update();
+    let fade = |app: &App| {
+        app.world()
+            .get::<lighting::CorpseOpacity>(entity)
+            .map(|o| o.0)
+    };
+    assert!((fade(&app).unwrap() - 0.8).abs() < 1e-5);
+    app.world_mut().resource_mut::<Game>().dying[0].holds = true;
+    app.update();
+    assert!(fade(&app).is_none());
+    assert!(app.world().entities().contains(entity));
+    app.world_mut().resource_mut::<Game>().dying[0].holds = false;
+    app.update();
+    assert!(!app.world().entities().contains(entity));
 }

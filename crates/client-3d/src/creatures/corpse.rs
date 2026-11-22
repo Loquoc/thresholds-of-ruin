@@ -60,7 +60,7 @@ pub fn snuff(
         return;
     };
     for (entity, anim, snuffed) in &rigs {
-        let dead = anim.dead.is_some_and(|d| d > 0.3);
+        let dead = anim.dead.is_some() && anim.death_fall() > 0.3;
         match (dead, snuffed) {
             (true, None) => {
                 let mut put_out = Vec::new();

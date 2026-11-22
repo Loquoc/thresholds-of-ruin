@@ -632,6 +632,7 @@ fn build_actors(
                         appearance_seed: body.appearance_seed,
                         age: 0.0,
                         holds: false,
+                        claimed: false,
                     });
                     return false;
                 }
@@ -872,8 +873,9 @@ pub(super) fn react(
             Happening::Died(id) => {
                 if let Some(entity) = find(&game, Some(id)) {
                     if let Ok((body, mut anim)) = bodies.get_mut(entity) {
-                        anim.dead = Some(-0.35);
-                        anim.target_yaw = Some(lying_yaw(&game, body.goal));
+                        if anim.die(true) {
+                            anim.target_yaw = Some(lying_yaw(&game, body.goal));
+                        }
                     }
                 }
             }
@@ -967,16 +969,61 @@ fn lying_yaw(game: &Game, at: Vec3) -> f32 {
     }
 }
 
-/// Bodies of the fallen stay while their corpse lies where they fell.
-pub(super) fn tend_the_dead(mut commands: Commands, time: Res<Time>, mut game: ResMut<Game>) {
+/// Undropped bodies settle before fading. A disclosed corpse instead keeps
+/// the fallen rig as its persistent, selectable item presentation.
+const CORPSE_FADE_SECS: f32 = 2.5;
+
+pub(super) fn tend_the_dead(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut game: ResMut<Game>,
+    animations: Query<(&Anim, Has<creatures::Rig>)>,
+    fading: Query<(), With<lighting::CorpseOpacity>>,
+) {
     let dt = time.delta_secs();
     game.dying.retain_mut(|body| {
-        body.age += dt;
-        let keep = body.holds || body.age < 2.0;
-        if !keep {
-            commands.entity(body.entity).despawn();
+        let (pose_step, linger, settled) = match animations.get(body.entity) {
+            Ok((anim, true)) if anim.dead.is_some() => (
+                creatures::animation_frame_delta(dt),
+                anim.death_linger(),
+                anim.dead.is_some_and(|phase| phase >= 1.0),
+            ),
+            // Without an active pose, keep a finite elapsed-time deadline.
+            Ok((anim, _)) => (dt, anim.death_linger(), true),
+            Err(_) => (dt, 2.0, true),
+        };
+        if body.holds {
+            body.claimed = true;
+            if fading.contains(body.entity) {
+                commands
+                    .entity(body.entity)
+                    .remove::<lighting::CorpseOpacity>();
+            }
         }
-        keep
+        if !settled {
+            body.age = (body.age + pose_step).min(linger);
+            return true;
+        }
+        if body.age < linger {
+            body.age += pose_step;
+        } else {
+            // Dissolving follows elapsed time, not the capped fall clock.
+            body.age += dt;
+        }
+        if body.holds || body.age <= linger {
+            return true;
+        }
+        let progress = (body.age - linger) / CORPSE_FADE_SECS;
+        if body.claimed || progress >= 1.0 {
+            commands.entity(body.entity).despawn();
+            return false;
+        }
+        if dt > 0.0 || !fading.contains(body.entity) {
+            commands
+                .entity(body.entity)
+                .insert(lighting::CorpseOpacity(1.0 - progress));
+        }
+        true
     });
 }
 

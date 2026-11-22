@@ -441,7 +441,7 @@ fn apply_event(world: &mut World, live: &mut Live, event: &schema::Event) {
     if changed
         || matches!(
             event.operation,
-            Operation::Action { .. } | Operation::Death {} | Operation::Teleport { .. }
+            Operation::Action { .. } | Operation::Death { .. } | Operation::Teleport { .. }
         )
     {
         world
