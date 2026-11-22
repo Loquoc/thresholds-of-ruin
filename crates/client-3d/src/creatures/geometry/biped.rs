@@ -1154,8 +1154,17 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
     if let Some(worn) = outfit.trimmings.neck {
         accessory_parts::neck_collar(p, worn, body, garment, l);
     }
+    let outerwear = l.equipment.outerwear().map(|kind| {
+        let support = figure.outerwear_support();
+        let bib = equipment_outerwear::FittedApronBib::fit(kind, body, &support);
+        (kind, support, bib)
+    });
     if let Some(baldric) = figure.baldric() {
-        baldric.emit_covered(p, equipped_plate.as_ref());
+        baldric.emit_layered(
+            p,
+            equipped_plate.as_ref(),
+            outerwear.as_ref().and_then(|(_, _, bib)| bib.as_ref()),
+        );
     }
     if let (Some(item), Some(armor)) = (armor_item, &equipped_plate) {
         armor_parts::emit(p, armor, body, item);
@@ -1222,9 +1231,8 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         }
         p.set_transform(Affine3A::IDENTITY);
     }
-    if let Some(outerwear) = l.equipment.outerwear() {
-        let support = figure.outerwear_support();
-        equipment_outerwear::emit_torso(p, outerwear, body, &support);
+    if let Some((kind, support, bib)) = outerwear {
+        equipment_outerwear::emit_torso_fitted(p, kind, body, &support, bib.as_ref());
     }
 }
 
@@ -2550,3 +2558,55 @@ mod stitch_attachment_tests;
 #[cfg(test)]
 #[path = "native_hardware_tests.rs"]
 mod native_hardware_tests;
+
+#[cfg(test)]
+#[test]
+fn apron_hides_the_bib_covered_baldric_buckle_but_preserves_the_ribbon() {
+    for (build, bust) in [(1, 3), (2, 2)] {
+        let look = Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                build,
+                figure: 1,
+                bust,
+                ..default()
+            }),
+        )
+        .dressed(crate::creatures::Wardrobe::Rogue);
+
+        let render = |apron: bool, buckle: bool| {
+            let mut look = look.clone();
+            if apron {
+                look.equipment.select("apron").unwrap();
+            }
+            look.outfit
+                .as_mut()
+                .unwrap()
+                .baldric
+                .as_mut()
+                .unwrap()
+                .buckle = buckle;
+            let body = HumanoidBody::resolve(&look);
+            let mut parts = Parts::default();
+            torso_parts(&mut parts, &Figure::resolve(body, &look));
+            (
+                parts.metal.surface_triangles().collect::<Vec<_>>(),
+                parts.satin.surface_triangles().collect::<Vec<_>>(),
+            )
+        };
+        let (bare_metal, bare_ribbon) = render(false, true);
+        let (bare_without_buckle, _) = render(false, false);
+        assert!(bare_metal.len() > bare_without_buckle.len());
+        let (apron_metal, apron_ribbon) = render(true, true);
+        let (apron_without_buckle, expected_ribbon) = render(true, false);
+        assert_eq!(apron_ribbon, expected_ribbon);
+        assert_eq!(apron_ribbon, bare_ribbon);
+        assert_eq!(
+            apron_metal.len(),
+            apron_without_buckle.len(),
+            "isolated buckle shows through the apron bib"
+        );
+    }
+}

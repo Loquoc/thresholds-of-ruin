@@ -989,11 +989,22 @@ impl FittedBaldric {
         self.emit_covered(p, None)
     }
 
-    /// Only an actual outer armor layer may suppress the complete hardware.
+    #[cfg(test)]
     pub fn emit_covered(
         &self,
         p: &mut Parts,
         armor: Option<&crate::sdf::Sculpt>,
+    ) -> &crate::sdf::Sculpt {
+        self.emit_layered(p, armor, None)
+    }
+
+    /// Armor still requires solid containment; a sewn apron can deliberately
+    /// hide the buckle it substantially covers from the front.
+    pub fn emit_layered(
+        &self,
+        p: &mut Parts,
+        armor: Option<&crate::sdf::Sculpt>,
+        apron: Option<&super::equipment_outerwear::FittedApronBib>,
     ) -> &crate::sdf::Sculpt {
         let baldric = self.recipe;
         let b = self.body.build;
@@ -1027,7 +1038,8 @@ impl FittedBaldric {
                 .collect();
             if !armor.is_some_and(|cover| {
                 layer_coverage::WholeDetailCoverage::front().hides(cover, &points)
-            }) {
+            }) && !apron.is_some_and(|bib| bib.covers_buckle(&points))
+            {
                 buckle_frame(
                     &mut p.metal,
                     centre,

@@ -140,23 +140,105 @@ fn apron_shoulder_bridge(
     fitting::terminal_shoulder_bridge(support, front, back, top)
 }
 
+/// The fitted bib is shared by drawing and the apron-specific buckle rule.
+pub(super) struct FittedApronBib(fitting::FittedStrap);
+
+impl FittedApronBib {
+    pub fn fit(
+        appearance: OuterwearAppearance,
+        body: HumanoidBody,
+        support: &crate::sdf::Sculpt,
+    ) -> Option<Self> {
+        let OuterwearCut::Apron { bib_width, .. } = appearance.recipe().cut else {
+            return None;
+        };
+        let width = bib_width * body.build;
+        Some(Self(fitting::FittedStrap::fit(
+            support,
+            &[
+                (Vec2::new(0.0, 0.035), width * 0.55),
+                (Vec2::new(0.0, 0.22), width * 0.475),
+                (Vec2::new(0.0, 0.40), width * 0.5),
+            ],
+            true,
+            0.018,
+            fitting::StrapEdgePolicy::EndUnsupportedRows,
+        )))
+    }
+
+    /// An authored layering rule, not a view-dependent occlusion test. Remove
+    /// only the buckle when its whole front footprint is inset in one sewn
+    /// bib strip. This intentionally ignores grazing/high-angle exposure.
+    pub fn covers_buckle(&self, bounds: &[Vec3]) -> bool {
+        const EDGE_MARGIN: f32 = 0.005;
+        if bounds.is_empty() || bounds.iter().any(|point| !point.is_finite()) {
+            return false;
+        }
+        let (lo, hi) = bounds.iter().map(|p| p.truncate()).fold(
+            (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY)),
+            |(lo, hi), p| (lo.min(p), hi.max(p)),
+        );
+        let (lo, hi) = (lo - Vec2::splat(EDGE_MARGIN), hi + Vec2::splat(EDGE_MARGIN));
+        // The centered bib path produces horizontal rows. Between adjacent
+        // rows its triangulated edges are linear, so their end widths enclose
+        // the rectangle without ray sampling or bridging unsupported strips.
+        self.0.strips.iter().any(|strip| {
+            let mut through = lo.y;
+            for pair in strip.windows(2) {
+                let [a, b] = pair else { continue };
+                let (Some(a0), Some(a1), Some(b0), Some(b1)) =
+                    (a.first(), a.last(), b.first(), b.last())
+                else {
+                    return false;
+                };
+                let y0 = a0.0.y;
+                let y1 = b0.0.y;
+                if y1 <= through {
+                    continue;
+                }
+                if y0 > through
+                    || y1 <= y0
+                    || [*a0, *b0]
+                        .into_iter()
+                        .zip([*a1, *b1])
+                        .any(|((p, _), (q, _))| {
+                            let (left, right) = (p.x.min(q.x), p.x.max(q.x));
+                            (p.y - q.y).abs() > 1e-6 || left > lo.x || right < hi.x
+                        })
+                {
+                    return false;
+                }
+                through = y1;
+                if through >= hi.y {
+                    return true;
+                }
+            }
+            false
+        })
+    }
+}
+
 /// Torso-local decoration. `support` must include every retained shirt and
 /// armour layer; fitting against naked anatomy would bury these outer pieces.
+#[cfg(test)]
 pub(super) fn emit_torso(
     p: &mut Parts,
     appearance: OuterwearAppearance,
     body: HumanoidBody,
     support: &crate::sdf::Sculpt,
 ) {
-    emit_torso_with_layout(p, appearance, body, support, WrappingLayout::for_body(body));
+    let bib = FittedApronBib::fit(appearance, body, support);
+    emit_torso_fitted(p, appearance, body, support, bib.as_ref());
 }
-fn emit_torso_with_layout(
+
+pub(super) fn emit_torso_fitted(
     p: &mut Parts,
     appearance: OuterwearAppearance,
     body: HumanoidBody,
     support: &crate::sdf::Sculpt,
-    layout: WrappingLayout,
+    bib: Option<&FittedApronBib>,
 ) {
+    let layout = WrappingLayout::for_body(body);
     let r = appearance.recipe();
     match r.cut {
         OuterwearCut::Robe => emit_robe_torso(p, body, support, r.cloth, r.trim),
@@ -187,18 +269,9 @@ fn emit_torso_with_layout(
         }
         OuterwearCut::Apron { bib_width, .. } => {
             let width = bib_width * body.build;
-            fitting::fitted_ribbon(
-                &mut p.matte,
-                support,
-                &[
-                    (Vec2::new(0.0, 0.035), width * 0.55),
-                    (Vec2::new(0.0, 0.22), width * 0.475),
-                    (Vec2::new(0.0, 0.40), width * 0.5),
-                ],
-                true,
-                0.018,
-                r.cloth,
-            );
+            bib.expect("apron has a fitted bib")
+                .0
+                .emit(&mut p.matte, r.cloth, true);
             let core = super::super::anatomy::TorsoCoreProfile::biped(body);
             for side in [-1.0, 1.0] {
                 let path = apron_shoulder_path(core, width, side);
@@ -824,6 +897,31 @@ fn emit_lower_with_layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apron_buckle_rule_retains_near_edge_and_interrupted_coverage() {
+        let body = HumanoidBody::resolve(&Look::with_choice(
+            CreatureModel::Human,
+            7,
+            Some(Variant {
+                woman: true,
+                ..default()
+            }),
+        ));
+        let support = torso_shape(body, None, true);
+        let mut bib = FittedApronBib::fit(OuterwearAppearance::Apron, body, &support).unwrap();
+        let centered = [Vec3::new(-0.04, 0.20, 0.30), Vec3::new(0.04, 0.30, 0.35)];
+        assert!(bib.covers_buckle(&centered));
+        let edge = [centered[0], Vec3::new(0.19, 0.30, 0.35)];
+        assert!(!bib.covers_buckle(&edge));
+        let mut strip = bib.0.strips.pop().unwrap();
+        let gap = strip.iter().position(|row| row[0].0.y > 0.25).unwrap();
+        let upper = strip.split_off(gap + 1);
+        strip.truncate(gap);
+        bib.0.strips = vec![strip, upper];
+        assert!(!bib.covers_buckle(&centered));
+    }
+
     #[test]
     fn default_wrapping_preserves_both_complete_tail_panels() {
         for woman in [false, true] {
