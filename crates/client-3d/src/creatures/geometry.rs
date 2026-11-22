@@ -984,13 +984,22 @@ impl Kit<'_, '_, '_> {
     }
 
     fn part(&mut self, part: &str, build: impl FnOnce(&mut Parts)) -> Model {
+        self.part_prepared(part, build, |_| {})
+    }
+
+    fn part_prepared(
+        &mut self,
+        part: &str,
+        build: impl FnOnce(&mut Parts),
+        prepare_mesh: impl Fn(&mut Mesh),
+    ) -> Model {
         let soft = true;
         // A phantom's face and hair stay solid, as on its sheet, so its
         // hair can never show through its face; the rest is translucent.
         // Long hair hangs as its own part, and stays solid with the head.
         let hair_part = part == "hair" || part.starts_with("hair/");
         let ghost = self.ghost && part != "head" && !hair_part;
-        self.library.get(
+        self.library.get_prepared(
             format!(
                 "creature/{}/{part}",
                 match part {
@@ -1011,6 +1020,7 @@ impl Kit<'_, '_, '_> {
                 }
                 p
             },
+            prepare_mesh,
         )
     }
 

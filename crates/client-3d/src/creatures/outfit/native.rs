@@ -263,6 +263,7 @@ pub(super) fn compose(l: &Look) -> Outfit {
         color,
         tail,
         covered_by_helm,
+        meet_neckline: style == Style::Caster,
     });
     Outfit {
         veil: None,

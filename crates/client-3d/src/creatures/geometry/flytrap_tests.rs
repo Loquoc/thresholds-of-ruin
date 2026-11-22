@@ -134,3 +134,74 @@ fn flytrap_opens_its_lobes_at_rest_and_snaps_without_uprooting() {
             < 1e-6
     );
 }
+
+#[test]
+fn flytrap_thrusts_its_mouth_forward_without_biting_the_floor() {
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Flytrap, 42), 12, |_| Vec3::ZERO);
+    // Use the actor's forward world axis consistently in measurement.
+    {
+        let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+        anim.yaw = 0.0;
+        anim.target_yaw = None;
+    }
+    app.update();
+    let rig = app.world().get::<Rig>(root).unwrap();
+    let chain =
+        [J::Lift, J::Body, J::Neck, J::Torso, J::Head].map(|joint| rig.joint(joint).unwrap());
+    let jaw = rig.joint(J::Jaw).unwrap();
+    let meshes = app.world().resource::<Assets<Mesh>>();
+    let upper_points = direct_points(app.world(), meshes, chain[4], false);
+    let lower_points = direct_points(app.world(), meshes, jaw, false);
+    let mouth_bounds = |world: &World| {
+        let matrix = |entity| world.get::<Transform>(entity).unwrap().compute_affine();
+        let upper = chain
+            .into_iter()
+            .fold(Affine3A::IDENTITY, |path, joint| path * matrix(joint));
+        let lower = upper * matrix(jaw);
+        let samples = upper_points
+            .iter()
+            .map(|p| upper.transform_point3(*p))
+            .chain(lower_points.iter().map(|p| lower.transform_point3(*p)));
+        samples.fold((f32::INFINITY, f32::NEG_INFINITY), |(floor, front), at| {
+            (floor.min(at.y), front.max(at.z))
+        })
+    };
+    let (_, rest_front) = mouth_bounds(app.world());
+    let strike = Move::Strike;
+    for phase in [0.35, strike.impact(), 0.49, 0.55, 0.62] {
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((strike, phase - 0.016 / strike.duration()));
+        app.update();
+        let (floor, front) = mouth_bounds(app.world());
+        assert!(
+            floor > 0.035,
+            "flytrap bites the floor at phase {phase}: {floor:.4}"
+        );
+        if phase == strike.impact() {
+            assert!(
+                front > rest_front + 0.12,
+                "the snap must still reach forward"
+            );
+        }
+    }
+}
+
+#[test]
+fn flytrap_stalk_does_not_flare_at_the_bending_joint() {
+    let look = Look::of(CreatureModel::Flytrap, 42);
+    let (world, rig, _, meshes) = spawn_one(&look);
+    let joint = rig.joint(J::Torso).unwrap();
+    let upper = direct_points(&world, &meshes, joint, false);
+    // This neighborhood contains the stem's entry, not the wider supporting
+    // stalk above it or its leaves. A wide cap becomes a ledge as the stem bends.
+    let entry = (rig.rest[J::Head as usize] * 0.5 + Vec3::Z * 0.02).normalize();
+    let widest = upper
+        .iter()
+        .filter(|p| p.dot(entry).abs() < 0.004 && p.length() < 0.12)
+        .map(|p| p.length())
+        .fold(0.0, f32::max);
+    assert!(
+        (0.058..0.080).contains(&widest),
+        "upper stem should meet the lower stem without a flared cap: {widest:.4}"
+    );
+}

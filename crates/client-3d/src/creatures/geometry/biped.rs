@@ -334,6 +334,9 @@ pub(super) fn biped(kit: &mut Kit, lift: Entity, look: &Look) {
     let head = kit.joint(J::Head, torso, body.head, "head", |p| {
         head_recipe.emit(p, look, body)
     });
+    if let Some(recipe) = outfit.veil {
+        veil::spawn(kit, head, torso, body, recipe);
+    }
     arms(kit, &figure, torso);
     legs(kit, &figure, hips);
     loose_hair(kit, &figure, head);
@@ -515,6 +518,19 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
     if let Some(pouch) = outfit.pouch {
         waist_parts::pouch(&mut p.satin, body, waist_support, pouch.color);
     }
+}
+
+/// The cowl gathers at the neck; only its lower edge spreads to meet the bodice.
+fn neck_drape_half_width(drape: NeckDrape, neckline: Option<NecklineCut>, build: f32) -> f32 {
+    const COMPACT: f32 = 0.15;
+    let Some(cut) = neckline.filter(|cut| drape.meet_neckline && !cut.keyhole) else {
+        return COMPACT;
+    };
+    // Allow for the binding at the opening. The seam meets the drape partway
+    // down, so widen its hem more than the shortfall at the collar. Limit the
+    // spread to a shoulder cowl; the neck aperture and depth are unchanged.
+    let reach = cut.wide / build + 0.006;
+    (COMPACT + 2.0 * (reach - COMPACT).max(0.0)).min(0.195)
 }
 
 /// The chest, bust, waist and every garment layer on the torso.
@@ -1039,12 +1055,17 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
         );
     }
     // A soft cowl or scarf gathered round the neck and draped over the shoulders.
-    if let Some(NeckDrape { color, tail, .. }) = outfit.neck_drape {
+    if let Some(drape) = outfit.neck_drape {
+        let NeckDrape { color, tail, .. } = drape;
+        let half_width = neck_drape_half_width(drape, neckline, b);
         p.set_transform(Affine3A::from_translation(Vec3::new(0.0, 0.515, -0.012)));
         draped_cloth(
             &mut p.matte,
             ClothSurface::new(
-                SkirtCut::straight(Vec2::new(0.087, 0.078) * b, Vec2::new(0.15, 0.118) * b),
+                SkirtCut::straight(
+                    Vec2::new(0.087, 0.078) * b,
+                    Vec2::new(half_width, 0.118) * b,
+                ),
                 0.045,
                 8,
                 -0.025,
@@ -1168,9 +1189,6 @@ fn torso_parts(p: &mut Parts, figure: &Figure) {
     }
     if let (Some(item), Some(armor)) = (armor_item, &equipped_plate) {
         armor_parts::emit(p, armor, body, item);
-    }
-    if let Some(veil) = outfit.veil {
-        veil::emit(p, body, veil);
     }
     if let Some(regalia) = outfit.regalia {
         wedding_groom::torso(p, body, garment, regalia.metal, regalia.gem);
@@ -2173,7 +2191,7 @@ fn loose_hair(kit: &mut Kit, figure: &Figure, head: Entity) {
             * Affine3A::from_scale(Vec3::splat(size))
             * Affine3A::from_translation(Vec3::Y * -0.08);
         let proportion = storybook_part(Plan::Biped, J::Head);
-        let strands = long_hair_strands(hair_seed(l, 0));
+        let strands = loose_strands(l);
         let models: Vec<_> = strands
             .iter()
             .enumerate()
@@ -2608,5 +2626,82 @@ fn apron_hides_the_bib_covered_baldric_buckle_but_preserves_the_ribbon() {
             apron_without_buckle.len(),
             "isolated buckle shows through the apron bib"
         );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn native_caster_cowl_joins_the_open_neckline_without_closing_it() {
+    let look = Look::with_choice(
+        CreatureModel::RedMage,
+        22,
+        Some(Variant {
+            woman: true,
+            build: 2,
+            hair: 2,
+            figure: 1,
+            bust: 3,
+            ..default()
+        }),
+    );
+    let mut figure = Figure::resolve(HumanoidBody::resolve(&look), &look);
+    let mut dressed = Parts::default();
+    torso_parts(&mut dressed, &figure);
+    figure.outfit.neck_drape = None;
+    let mut without_cowl = Parts::default();
+    torso_parts(&mut without_cowl, &figure);
+
+    // Torso-local rays through the inner shoulder notches in the front
+    // review, mirrored across the sternum. Compare emitted surfaces, not a
+    // pixel color or a fit formula. The cowl must sit ahead of the old hit.
+    for side in [-1.0, 1.0] {
+        let origin = Vec3::new(0.11369 * side, 0.53944, 0.15);
+        let direction = Vec3::new(0.00471 * side, -0.01309, -0.05);
+        let hit = without_cowl.matte.inner_surface(origin, direction).unwrap();
+        let covered = dressed.matte.inner_surface(origin, direction).unwrap();
+        assert!(
+            covered.z > hit.z + 0.002,
+            "uncapped shoulder at {hit:?}; first hit {covered:?}"
+        );
+    }
+
+    let chest = Vec3::new(0.0, 0.44, 0.28);
+    assert_eq!(
+        dressed.matte.inner_surface(chest, -Vec3::Z),
+        without_cowl.matte.inner_surface(chest, -Vec3::Z),
+        "the V below the cowl is still open"
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn native_caster_cowl_fit_preserves_compact_geometry_on_other_outfits() {
+    for (woman, build, equipment) in [
+        (true, 0, None),
+        (false, 2, None),
+        (true, 2, Some("hooded-cloak")),
+    ] {
+        let mut look = Look::with_choice(
+            CreatureModel::RedMage,
+            22,
+            Some(Variant {
+                woman,
+                build,
+                figure: if build == 0 { 0 } else { 1 },
+                ..default()
+            }),
+        );
+        if let Some(item) = equipment {
+            look.equipment.select(item).unwrap();
+        }
+        let mut figure = Figure::resolve(HumanoidBody::resolve(&look), &look);
+        let mut resolved = Parts::default();
+        torso_parts(&mut resolved, &figure);
+        let drape = figure.outfit.neck_drape.as_mut().unwrap();
+        assert_eq!(drape.meet_neckline, equipment.is_none());
+        drape.meet_neckline = false;
+        let mut compact = Parts::default();
+        torso_parts(&mut compact, &figure);
+        resolved.matte.assert_same_recipe(&compact.matte);
     }
 }

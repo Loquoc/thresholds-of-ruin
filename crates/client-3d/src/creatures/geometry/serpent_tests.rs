@@ -201,6 +201,57 @@ fn serpent_emitted_heads_and_jaws_clear_the_floor_at_rest_bite_and_side_fall() {
 }
 
 #[test]
+fn raised_serpents_enter_and_leave_a_bite_without_resetting_the_neck() {
+    // Quiet suppresses incidental rearing, but not a rattlesnake's warning.
+    // The ordinary snake is sampled near the top of its separate idle rear.
+    for (model, quiet) in [
+        (CreatureModel::Rattlesnake, true),
+        (CreatureModel::Snake, false),
+    ] {
+        let (mut app, actor) = animate_look(Look::of(model, 49), 12, |_| Vec3::ZERO);
+        {
+            let mut anim = app.world_mut().get_mut::<Anim>(actor).unwrap();
+            anim.seed = 0.0;
+            anim.time = 4.70;
+            anim.quiet = quiet;
+        }
+        let head = app.world().get::<Rig>(actor).unwrap().segments[0];
+        let at = |app: &App| app.world().get::<Transform>(head).unwrap().translation;
+        app.update();
+        let ready = at(&app);
+        app.world_mut()
+            .get_mut::<Anim>(actor)
+            .unwrap()
+            .act(Move::Strike);
+        app.update();
+        let start = at(&app);
+        assert!(
+            (start.y - ready.y).abs() < 0.060,
+            "{model:?} head snaps on bite entry: {ready:?} to {start:?}"
+        );
+        let mut last = start;
+        let mut front: f32 = last.z;
+        for frame in 0..54 {
+            let was_active = app.world().get::<Anim>(actor).unwrap().action.is_some();
+            app.update();
+            let at_now = at(&app);
+            front = front.max(at_now.z);
+            let active = app.world().get::<Anim>(actor).unwrap().action.is_some();
+            if was_active && !active {
+                assert!(
+                    (at_now.y - last.y).abs() < 0.060,
+                    "{model:?} head snaps on bite exit: {last:?} to {at_now:?}"
+                );
+            }
+            assert!(at_now.is_finite(), "{model:?} at {frame}");
+            last = at_now;
+        }
+        assert!(front > 0.80, "{model:?} still lunges into the bite");
+        assert!(last.y > 0.14, "{model:?} resumes its raised rest shape");
+    }
+}
+
+#[test]
 fn rattlesnake_default_rest_has_an_extended_body_with_a_raised_head_and_rattle() {
     for quiet in [false, true] {
         for build in 0..3 {

@@ -1324,7 +1324,12 @@ pub enum Move {
 impl Move {
     /// Recipes use disclosed content identity; captions never choose mechanics.
     pub fn for_ability(id: &str, strike: Option<u16>) -> Move {
-        match id {
+        Self::for_known_ability(id, strike).unwrap_or(Move::Gesture)
+    }
+
+    /// Exact presentation recipe, with no fallback for misspelled content IDs.
+    pub(crate) fn for_known_ability(id: &str, strike: Option<u16>) -> Option<Move> {
+        Some(match id {
             "basic_melee" if strike.is_some_and(|s| s > 0) => Move::Combo(strike.unwrap() % 2 == 1),
             "basic_melee" => Move::Strike,
             "measured_cut" => Move::Thrust,
@@ -1348,8 +1353,8 @@ impl Move {
             "shell_impact" | "shell_keen" | "shell_energy" => Move::Guard(Accent::Teal),
             "guarded_step" => Move::Step,
             "bind_wounds" => Move::Mend,
-            _ => Move::Gesture,
-        }
+            _ => return None,
+        })
     }
 
     pub fn duration(self) -> f32 {

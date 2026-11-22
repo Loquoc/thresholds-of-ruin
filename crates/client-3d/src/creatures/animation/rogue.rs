@@ -24,8 +24,10 @@ fn timing(m: Move, t: f32) -> (f32, f32, f32) {
 fn mantle(p: &mut Pose, k: f32) {
     p.r(J::WingL, roll(-1.15 * k) * fwd(0.25 * k));
     p.r(J::WingR, roll(1.15 * k) * fwd(0.25 * k));
-    p.r(J::WingTipL, roll(0.8 * k) * turn(0.5 * k));
-    p.r(J::WingTipR, roll(-0.8 * k) * turn(-0.5 * k));
+    // Folded tips trail along -Z, so yaw in the opposite direction to
+    // each wing's side to swing those tips out rather than into the torso.
+    p.r(J::WingTipL, roll(0.96 * k) * turn(-0.66 * k));
+    p.r(J::WingTipR, roll(-0.96 * k) * turn(0.66 * k));
 }
 
 // ---------------------------------------------------------------------------
@@ -125,9 +127,12 @@ pub(super) fn rooted_pose(p: &mut Pose, a: &Anim, breath: f32, m: Option<Move>, 
     if let Some(m) = m {
         let (gather, strike, act) = timing(m, t);
         if m.offensive() {
-            // Draw back gaping, then lunge and snap shut.
-            p.r(J::Neck, bow(-0.4 * gather + 0.6 * strike));
-            p.r(J::Torso, bow(-0.25 * gather + 0.55 * strike));
+            // Draw back gaping, then bend the stalk forward. Counter
+            // pitch at the hinge so both lobes snap at the target instead
+            // of burying the mouth in the ground at full extension.
+            p.r(J::Neck, bow(-0.4 * gather + 0.45 * strike));
+            p.r(J::Torso, bow(-0.25 * gather + 0.40 * strike));
+            p.r(J::Head, bow(-0.25 * strike));
             gape = (gape + 0.6 * gather) * (1.0 - strike);
         } else {
             gape = gape.lerp(0.9, act);
@@ -713,11 +718,13 @@ pub(super) fn place(
                 let (chain, k) = (i / 4, (i % 4) as f32);
                 let side = if chain == 0 { -1.0 } else { 1.0 };
                 let sway = (time * 1.4 - k * 0.7 + side).sin() * 0.25;
-                // Tendrils sweep forward and up to make contact.
+                // Lead with the rust tips: draw the roots down and back
+                // on the gather, then lift the sweep forward at contact.
+                // Keep a little trailing curl in the smaller segments.
                 let sweep = if k == 0.0 {
-                    -0.6 * gather + 0.9 * strike
+                    0.32 * gather - 0.82 * strike
                 } else {
-                    0.15 * gather - 0.25 * strike
+                    -0.05 * gather + 0.12 * strike
                 };
                 let twirl = if gag == 1 {
                     (time * 3.0 + k).sin() * 0.6 * fun

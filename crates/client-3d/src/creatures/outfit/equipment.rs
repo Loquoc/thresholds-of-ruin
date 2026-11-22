@@ -323,6 +323,7 @@ impl Equipment {
                 base.neck_drape = Some(NeckDrape {
                     color: recipe.cloth,
                     tail: false,
+                    meet_neckline: false,
                     covered_by_helm: true,
                 });
             }

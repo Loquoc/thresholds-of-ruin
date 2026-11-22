@@ -627,34 +627,6 @@ fn emit_arm_wraps(p: &mut Parts, length: f32, build: f32, upper: bool) {
     }
 }
 
-/// Head-local folded binding for the explicit hooded-cloak study. The native
-/// hood and its face opening remain unchanged for every other wardrobe.
-pub(super) fn emit_hood_rim(p: &mut Parts, cloth: Vec3, trim: Vec3) {
-    let path: Vec<_> = (0..=40)
-        .map(|i| {
-            let angle = i as f32 / 40.0 * TAU;
-            Vec3::new(
-                0.096 * angle.sin(),
-                0.15 + 0.133 * angle.cos(),
-                0.117 - 0.018 * angle.cos(),
-            )
-        })
-        .collect();
-    p.matte.tube(
-        &path,
-        &vec![Vec2::splat(0.009); path.len()],
-        7,
-        &|_, _, _| cloth * 0.68,
-    );
-    let edge: Vec<_> = path.iter().map(|p| *p + Vec3::Z * 0.006).collect();
-    p.matte.tube(
-        &edge,
-        &vec![Vec2::splat(0.0025); edge.len()],
-        5,
-        &|_, _, _| trim * 0.85,
-    );
-}
-
 /// Only these cuts have an independently animated piece below the waist.
 pub(super) fn lower_length(appearance: OuterwearAppearance) -> Option<f32> {
     match appearance.recipe().cut {

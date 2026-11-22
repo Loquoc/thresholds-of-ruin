@@ -416,7 +416,17 @@ pub(crate) struct Parts {
 }
 
 impl Parts {
+    #[cfg(test)]
     pub(crate) fn finish(self, meshes: &mut Assets<Mesh>, materials: &PropMaterials) -> Model {
+        self.finish_prepared(meshes, materials, |_| {})
+    }
+
+    fn finish_prepared(
+        self,
+        meshes: &mut Assets<Mesh>,
+        materials: &PropMaterials,
+        prepare_mesh: impl Fn(&mut Mesh),
+    ) -> Model {
         let mut model = Model::default();
         let soft = self.soft;
         model.1 = soft
@@ -429,6 +439,7 @@ impl Parts {
                 if !soft.is_empty() {
                     skin(&mut mesh, &soft);
                 }
+                prepare_mesh(&mut mesh);
                 model.2.push(mesh.compute_aabb());
                 model.0.push((meshes.add(mesh), material));
             }
@@ -631,6 +642,18 @@ impl PropLibrary {
         meshes: &mut Assets<Mesh>,
         build: impl FnOnce() -> Parts,
     ) -> Model {
+        self.get_prepared(key, meshes, build, |_| {})
+    }
+
+    /// Decorate generated mesh buffers once, before they enter the shared cache.
+    /// The preparation belongs to the supplied cache key.
+    pub(crate) fn get_prepared(
+        &mut self,
+        key: String,
+        meshes: &mut Assets<Mesh>,
+        build: impl FnOnce() -> Parts,
+        prepare_mesh: impl Fn(&mut Mesh),
+    ) -> Model {
         self.clock += 1;
         if let Some(entry) = self.cache.get_mut(&key) {
             entry.last_used = self.clock;
@@ -642,7 +665,7 @@ impl PropLibrary {
         }
         let parts = build();
         let parts_ms = started.map(|time| time.elapsed().as_secs_f64() * 1000.0);
-        let model = parts.finish(meshes, &self.materials);
+        let model = parts.finish_prepared(meshes, &self.materials, prepare_mesh);
         // Measure while the newly added meshes are still in main-world Assets.
         // RENDER_WORLD-only meshes leave that collection after extraction.
         let payload_bytes = model

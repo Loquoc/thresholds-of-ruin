@@ -42,9 +42,13 @@ tick run in source order. Movement reaches that timestamp using the previous
 velocity; boundary events affect the following interval. A teleport is visible at
 its exact requested position at that timestamp, with no extra movement step:
 
-- `action`: `name` is `jump`, `strike`, `thrust`, `heavy`, `focus`, `gesture`, or
-  `cancel`. A named action starts/restarts at phase zero at its timestamp;
-  the following interval advances it. Action starts require tick 1 or later;
+- `action`: `name` can be `jump`, `strike`, `thrust`, `heavy`, `focus`, `gesture`,
+  `cancel`, or an exact ability ID with an authored animation recipe. For
+  example, `{"type":"action","name":"rogue.corrode"}` plays the Aquator's
+  corrosion motion. This replays the pose, not a server action, hit, or
+  target-dependent effect. Unknown names are rejected. A named action
+  starts/restarts at phase zero at its timestamp; the following interval advances
+  it. Action starts require tick 1 or later;
   tick zero is the generated rest pose. That pose does not yet present the
   actor's authored `yaw` (the manifest still records it), so capture turned
   actors at tick 1 or later.

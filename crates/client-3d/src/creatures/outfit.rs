@@ -851,6 +851,8 @@ pub(crate) struct Pouch {
 pub(crate) struct NeckDrape {
     pub color: Vec3,
     pub tail: bool,
+    /// Cut the cowl's lower edge to meet the bodice opening at the shoulders.
+    pub meet_neckline: bool,
     /// Hood bases are replaced with the hood when an independent helm is worn.
     pub covered_by_helm: bool,
 }
