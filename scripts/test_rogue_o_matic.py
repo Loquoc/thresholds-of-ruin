@@ -2112,14 +2112,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         ration = {"id": "ration", "class": "food", "name": "ration", "quantity": 1, "identified": False}
         relic = {"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                  "identified": True, "quantity": 1}
-        for carrying, direction in [(True, Direction.UP), (False, Direction.DOWN)]:
-            with self.subTest(direction=direction):
+        for carrying, direction, descent_history, required_reserve in (
+            (True, Direction.UP, {1: 10000}, 400),
+            (False, Direction.DOWN, {}, 400),
+            (False, Direction.DOWN, {1: 10000}, 1300),
+        ):
+            with self.subTest(direction=direction, required_reserve=required_reserve):
                 player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
                 player.ascent_ticks_by_floor = {1: 20000, 2: 20000}
+                player.descent_ticks_by_floor = descent_history
                 player.observe(player_turn([cell("passage"), cell("food", 1)], ground=[
                     {"item": ration, "reachable": False, "position": {"x": 1, "y": 0, "z": 0}},
                 ]))
-                for reserve, expected in [(350, Direction.EAST), (400, direction)]:
+                for reserve, expected in [(required_reserve - 1, Direction.EAST), (required_reserve, direction)]:
                     turn = player_turn([cell("stairs", up=carrying, down=not carrying), cell("passage", 1)],
                                        inventory=[relic] if carrying else [],
                                        stats={"nutrition": dict(nutrition, reserve=reserve)})

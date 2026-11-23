@@ -898,20 +898,24 @@ class Adventurer:
                 return step, "search"
         return None
 
+    def estimated_journey_ticks(self, returning: bool) -> int:
+        known_return = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
+        floors_ahead = self.retrieval_depth - self.depth
+        if returning or floors_ahead <= 0 or not self.descent_ticks_by_floor:
+            return known_return
+
+        recent_floors = sorted(self.descent_ticks_by_floor)[-5:]
+        round_trip = median_low(
+            self.descent_ticks_by_floor[floor] + self.ascent_ticks_by_floor.get(floor, 0)
+            for floor in recent_floors
+        )
+        return known_return + floors_ahead * round_trip
+
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
         if nutrition is None:
             return None
-        required = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
-        if not returning and self.descent_ticks_by_floor:
-            recent = sorted(self.descent_ticks_by_floor)[-5:]
-            round_trip = median_low(
-                [
-                    self.descent_ticks_by_floor[floor] + self.ascent_ticks_by_floor.get(floor, 0)
-                    for floor in recent
-                ]
-            )
-            required += max(0, self.retrieval_depth - self.depth) * round_trip
+        required = self.estimated_journey_ticks(returning)
         if nutrition.ticks_until_empty >= required:
             return None
         meals = [item for item in turn.inventory if ItemUse.EAT in item.uses]
