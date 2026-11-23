@@ -261,38 +261,42 @@ class Adventurer:
             if arrived is None:
                 return
             if arrived:
-                if self.stair_pursuers:
-                    if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
-                        self.last_guarded_landing = attempt.origin, self.stair_pursuers[0]
-                    reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
-                    self.unsafe_stairs[attempt.landing or here.key, reverse] = self.danger_until.get(
-                        attempt.origin, turn.tick)
-                self.cancelled_stair_origin = None
-                if attempt.direction is Direction.DOWN:
-                    previous = self.maps[self.depth]
-                    upstairs = previous.stairs(Direction.UP)
-                    distance = previous.distance(attempt.origin, upstairs)
-                    if distance is not None:
-                        self.ascent_ticks_by_floor[self.depth] = (distance + 1) * (turn.tick - attempt.tick)
-                    # Forecast unfamiliar floors from the first outbound visit.
-                    self.descent_ticks_by_floor.setdefault(self.depth, turn.tick - self.entered_floor_at)
-                    self.depth += 1
-                else:
-                    self.depth -= 1
-                    self.recovering_from_pursuit = bool(
-                        health
-                        and health.current * 5 < health.maximum * 4
-                        and not self.carrying_objective(turn)
-                    )
-                self.recovery_landing = (
-                    (attempt.landing or here.key) if attempt.direction is Direction.UP and self.recovering_from_pursuit else None
-                )
-                self.entered_floor_at = turn.tick
+                self.record_stair_arrival(turn, attempt, attempt.landing or here.key)
             self.pending_stair = None
             self.stair_pursuers = ()
         self.maps.setdefault(self.depth, FloorMap()).observe(turn)
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
+
+    def record_stair_arrival(self, turn: Turn, attempt: StairAttempt, landing: str) -> None:
+        if self.stair_pursuers:
+            if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
+                self.last_guarded_landing = attempt.origin, self.stair_pursuers[0]
+            reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
+            self.unsafe_stairs[landing, reverse] = self.danger_until.get(
+                attempt.origin, turn.tick)
+        self.cancelled_stair_origin = None
+        if attempt.direction is Direction.DOWN:
+            previous = self.maps[self.depth]
+            upstairs = previous.stairs(Direction.UP)
+            distance = previous.distance(attempt.origin, upstairs)
+            if distance is not None:
+                self.ascent_ticks_by_floor[self.depth] = (distance + 1) * (turn.tick - attempt.tick)
+            # Forecast unfamiliar floors from the first outbound visit.
+            self.descent_ticks_by_floor.setdefault(self.depth, turn.tick - self.entered_floor_at)
+            self.depth += 1
+        else:
+            self.depth -= 1
+            health = turn.health
+            self.recovering_from_pursuit = bool(
+                health
+                and health.current * 5 < health.maximum * 4
+                and not self.carrying_objective(turn)
+            )
+        self.recovery_landing = (
+            landing if attempt.direction is Direction.UP and self.recovering_from_pursuit else None
+        )
+        self.entered_floor_at = turn.tick
 
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:

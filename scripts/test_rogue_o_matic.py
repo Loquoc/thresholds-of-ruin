@@ -514,9 +514,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         policy.observe(pending)
         self.assertEqual(policy.choose(pending), (None, "uncertain_stair_landing"))
         landed = json.loads(player_turn([cell("below", up=True)], tick=100).recording())
-        landed["finished_intentions"] = [dict(row, phase="resolved")]
+        landed["finished_intentions"] = [dict(row, phase="started")]
         policy.observe(Turn(landed))
+        self.assertEqual(policy.depth, 1)
+        self.assertNotIn("below", policy.maps[1].cells)
+
+        landed["finished_intentions"] = [dict(row, phase="resolved")]
+        arrival = Turn(landed)
+        policy.observe(arrival)
+        policy.observe(arrival)
         self.assertEqual(policy.depth, 2)
+        self.assertIn("below", policy.maps[2].cells)
+        self.assertEqual(policy.descent_ticks_by_floor, {1: 100})
 
     def test_body_clearance_after_a_step_counts_the_nearest_observed_cells(self):
         actors = [{"id": who, "name": who, "position": {"x": x, "y": 0, "z": 0}}
