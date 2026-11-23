@@ -4,7 +4,9 @@
 //! - a deliberate stale command preserves disclosed states/history and accepted sequence;
 //! - a retried request gets the original answer and changes nothing;
 //! - a restart replays every actor's state exactly;
-//! - rewinding to the start restores the initial observation.
+//! - rewinding to the start restores the initial observation. A busy package
+//!   whose play outgrew the retained rewind window instead refuses that rewind
+//!   without acting, and a one-turn game of it rewinds exactly.
 //!
 //! Feature tests don't need to repeat these checks for their own packages:
 //! adding a package to `scenarios/` or `scenarios/tests/` covers it here.
@@ -15,6 +17,10 @@ use tor_server::journal::{Action, Direction};
 use tor_server::{scenario_package, CommandResult, Engine, Scenario};
 
 const TURNS: usize = 12;
+/// The engine retains this many latest selectable states for rewinding
+/// (`REWIND_BOUNDARIES`). Every actor's action is one, so a busy package can
+/// play past its initial state within a few turns.
+const REWIND_WINDOW: u64 = 128;
 const DIRECTIONS: [Direction; 8] = [
     Direction::East,
     Direction::North,
@@ -56,15 +62,16 @@ fn finished(engine: &Engine, character: ActorId) -> bool {
     !engine.alive(character) || observation.combat.as_ref().is_some_and(|c| c.terminal)
 }
 
-/// Play the package's character for a few turns. Returns the last accepted
-/// request so it can be retried.
+/// Play the package's character for up to `turns` turns. Returns the last
+/// accepted request so it can be retried.
 fn play(
     engine: &mut Engine,
     character: ActorId,
     name: &str,
+    turns: usize,
 ) -> Option<(String, Command, CommandResult)> {
     let mut last = None;
-    for turn in 0..TURNS {
+    for turn in 0..turns {
         run_ai_turns(engine);
         if finished(engine, character) {
             break;
@@ -126,10 +133,7 @@ fn every_package_rejects_retries_replays_and_rewinds_exactly() {
         let directory = tempfile::tempdir().unwrap();
         let save = directory.path().join("game.db");
         let mut engine = Engine::open(&save, scenario).unwrap();
-        let initial: Vec<_> = states(&engine)
-            .into_iter()
-            .map(|(id, state)| (id, state.observation))
-            .collect();
+        let initial = observations(&engine);
         let before_play = states(&engine);
 
         // Non-vacuous rejection, including a repeated failure under the same ID.
@@ -230,7 +234,7 @@ fn every_package_rejects_retries_replays_and_rewinds_exactly() {
             .unwrap();
         assert_eq!(states(&engine), before_play, "{name}: cancellation acted");
 
-        let (request, command, original) = play(&mut engine, character, &name)
+        let (request, command, original) = play(&mut engine, character, &name, TURNS)
             .unwrap_or_else(|| panic!("{name}: the character could neither move nor wait"));
         let played = states(&engine);
         assert_ne!(played, before_play, "{name}: playing changed nothing");
@@ -290,15 +294,55 @@ fn every_package_rejects_retries_replays_and_rewinds_exactly() {
         );
 
         engine.enable_wizard().unwrap();
-        support::wizard(&mut engine, character, "rewind initial")
-            .unwrap_or_else(|e| panic!("{name}: rewind failed: {e}"));
-        assert_eq!(
-            states(&engine)
-                .into_iter()
-                .map(|(id, state)| (id, state.observation))
-                .collect::<Vec<_>>(),
-            initial,
-            "{name}: rewinding didn't restore the start"
-        );
+        let sequence = engine.save_status().accepted_sequence;
+        let current = states(&engine);
+        match support::wizard(&mut engine, character, "rewind initial") {
+            Ok(_) => assert_eq!(
+                observations(&engine),
+                initial,
+                "{name}: rewinding didn't restore the start"
+            ),
+            Err(error) => {
+                // Only history longer than the retained window may drop the
+                // start, and refusing to rewind to it changes nothing.
+                assert!(
+                    sequence > REWIND_WINDOW,
+                    "{name}: rewind failed within the retained window: {error}"
+                );
+                assert_eq!(error.code, tor_protocol::ErrorCode::InvalidAction, "{name}");
+                assert_eq!(states(&engine), current, "{name}: a refused rewind acted");
+                assert_eq!(
+                    engine.save_status().accepted_sequence,
+                    sequence,
+                    "{name}: a refused rewind consumed a sequence"
+                );
+                // A shorter game stays within the window and rewinds exactly.
+                let scenario = scenario_package::load(&path, 7, None, false).unwrap();
+                let directory = tempfile::tempdir().unwrap();
+                let mut short = Engine::open(directory.path().join("short.db"), scenario).unwrap();
+                let initial = observations(&short);
+                play(&mut short, character, &name, 1)
+                    .unwrap_or_else(|| panic!("{name}: the short game could not act"));
+                assert!(
+                    short.save_status().accepted_sequence <= REWIND_WINDOW,
+                    "{name}: one turn outgrew the rewind window"
+                );
+                short.enable_wizard().unwrap();
+                support::wizard(&mut short, character, "rewind initial")
+                    .unwrap_or_else(|e| panic!("{name}: short rewind failed: {e}"));
+                assert_eq!(
+                    observations(&short),
+                    initial,
+                    "{name}: rewinding the short game didn't restore the start"
+                );
+            }
+        }
     }
+}
+
+fn observations(engine: &Engine) -> Vec<(ActorId, tor_protocol::Observation)> {
+    states(engine)
+        .into_iter()
+        .map(|(id, state)| (id, state.observation))
+        .collect()
 }
