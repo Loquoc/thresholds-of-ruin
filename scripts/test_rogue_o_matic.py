@@ -1461,6 +1461,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(trace[0]["events_since_previous_action"], [event])
         self.assertEqual(report["events_since_previous_action"], [])
 
+    def test_action_trace_preserves_admission_and_rejection_details(self):
+        from unittest.mock import Mock
+        from rogue_player import play
+        from tor_client_bot import Result, Session
+
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "step", "phase": "queued"}
+        for reply, expected in (
+            ({"status": "confirmed", "receipt": receipt, "request_id": "request-1"},
+             {"status": "confirmed", "receipt": {**receipt, "failure": None}, "code": None,
+              "message": None, "request_id": "request-1"}),
+            ({"status": "rejected", "code": "blocked", "message": "No passage"},
+             {"status": "rejected", "receipt": {"intention": None}, "code": "blocked", "message": "No passage"}),
+        ):
+            with self.subTest(status=reply["status"]):
+                turn = player_turn([cell("stairs", down=True)])
+                turn.submit = Mock(return_value=Result.from_reply(reply))
+                session = Session(Mock())
+                session.wait_for_decision = Mock(side_effect=[turn, player_turn([], combat={"terminal": True, "victory": False})])
+                rows = []
+                play(session, Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), 1, rows.append)
+                self.assertEqual(json.loads(json.dumps(rows[0]["result"])), expected)
+
     def test_equipment_report_counts_distinct_items_and_retains_last_device_offers(self):
         from rogue_gear import EquipmentHistory
 

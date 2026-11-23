@@ -1201,6 +1201,17 @@ class Adventurer:
         return None, "no_disclosed_route"
 
 
+def trace_result(result: Result) -> dict:
+    receipt = {"intention": result.intention}
+    if result.activity:
+        receipt.update(type="admitted", **asdict(result.activity))
+    record = {"status": result.status.value, "receipt": receipt,
+              "code": result.code, "message": result.reason}
+    if result.request_id:
+        record["request_id"] = result.request_id
+    return record
+
+
 def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], None],
          *, record_decisions: bool = False) -> dict:
     """Observe the outcome after the last budgeted submission, including victory."""
@@ -1263,9 +1274,6 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
             result = turn.submit(action)
             command = describe_action(action)
         count += 1
-        receipt = {"intention": result.intention}
-        if result.activity:
-            receipt.update(type="admitted", **asdict(result.activity))
         emit(
             {
                 **({"recording": turn.recording()} if record_decisions else {}),
@@ -1282,9 +1290,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
                 **({"stalled": True} if decision.stalled else {}),
                 "reason": reason,
                 "action": command,
-                "result": {"status": result.status.value, "receipt": receipt,
-                           "code": result.code, "message": result.reason,
-                           **({"request_id": result.request_id} if result.request_id else {})},
+                "result": trace_result(result),
                 "previous_intention_id": previous.intention if previous else None,
                 "previous_intention_phase": decision.previous_phase,
                 "health_recovery": asdict(turn.recovery) if turn.recovery else None,
