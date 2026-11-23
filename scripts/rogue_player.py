@@ -850,19 +850,23 @@ class Adventurer:
     def has_arrows(turn: Turn) -> bool:
         return any(item.identity == "item.weapon.arrow" for item in turn.inventory)
 
+    @staticmethod
+    def ready_search(turn: Turn) -> UseAbility | None:
+        return next((UseAbility(ability) for ability in turn.abilities
+                     if ability.identity == "rogue.search" and ability.ready), None)
+
     def search_dead_end(self, turn: Turn, memory: FloorMap) -> UseAbility | None:
         here = turn.cell
         if (here is None or here.stairs_up or here.stairs_down or turn.hostiles
                 or self.completed_end_searches[here.key] >= DEAD_END_SEARCHES
                 or not memory.is_dead_end(here.key)):
             return None
-        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
-        return UseAbility(ability) if ability else None
+        return self.ready_search(turn)
 
     def search_return_connection(self, turn: Turn, memory: FloorMap, upstairs: set[str]) -> tuple[Action, str] | None:
         """Search where one opening could reconnect the route to a remembered staircase."""
-        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
-        if turn.cell is None or ability is None:
+        search = self.ready_search(turn)
+        if turn.cell is None or search is None:
             return None
         sites: set[str] = set()
         for stair in upstairs:
@@ -875,7 +879,7 @@ class Adventurer:
                         sites.update(c.key for c in memory.adjacent(wall.key)
                                      if not c.wall and c.key not in passages and self.searches[c.key] < 3)
         if turn.cell.key in sites:
-            return UseAbility(ability), "search"
+            return search, "search"
         if step := memory.toward(turn, sites):
             return step, "search"
         return None
@@ -884,9 +888,18 @@ class Adventurer:
                allow_unseen: bool = True, wall_limit: int = 3) -> tuple[Action, str] | None:
         if returning and (action := self.search_dead_end(turn, memory)):
             return action, "search"
-        ability = next((a for a in turn.abilities if a.identity == "rogue.search" and a.ready), None)
-        if ability is None or turn.cell is None:
+        search = self.ready_search(turn)
+        if search is None or turn.cell is None:
             return None
+        for key in self.ranked_search_sites(turn, memory, returning, allow_unseen, wall_limit):
+            if key == turn.cell.key:
+                return search, "search"
+            if step := memory.toward(turn, {key}):
+                return step, "search"
+        return None
+
+    def ranked_search_sites(self, turn: Turn, memory: FloorMap, returning: bool,
+                           allow_unseen: bool, wall_limit: int) -> list[str]:
         sites = []
         for site, distance in memory.reachable(turn.cell.key):
             attempts = self.searches[site.key]
@@ -912,13 +925,9 @@ class Adventurer:
             # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
             rank = near_exit, bool(untested), value - distance * 2, -distance
             sites.append((rank, site.key))
-        # Equal ranks keep the map traversal order. Cell keys identify places within the game.
-        for _, key in sorted(sites, key=lambda site: site[0], reverse=True):
-            if key == turn.cell.key:
-                return UseAbility(ability), "search"
-            if step := memory.toward(turn, {key}):
-                return step, "search"
-        return None
+        # Equal ranks retain traversal order, independent of opaque cell keys.
+        sites.sort(key=lambda site: site[0], reverse=True)
+        return [key for _, key in sites]
 
     def estimated_journey_ticks(self, returning: bool) -> int:
         known_return = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)

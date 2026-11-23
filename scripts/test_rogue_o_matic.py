@@ -558,6 +558,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
             player.admitted(turn, action)
         self.assertIsNone(player.search(turn, memory, returning=False))
 
+    def test_search_requires_a_ready_search_offer_before_travelling_to_a_site(self):
+        site = [cell("here"), cell("site", 1), {**cell("wall", 2), "wall": True}]
+        ability = {"id": "rogue.search", "name": "Search", "cost": None, "basic_attack": False,
+                   "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        for cooldown, ready in ((1, False), (0, True)):
+            with self.subTest(cooldown=cooldown):
+                turn = player_turn(site, abilities=[dict(ability, cooldown_remaining=str(cooldown))])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                expected = (Move(Direction.EAST), "search") if ready else None
+                self.assertEqual(player.search(turn, player.maps[1], returning=False), expected)
+
     def test_mapped_room_with_only_an_entrance_gets_a_second_bounded_wall_search(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
