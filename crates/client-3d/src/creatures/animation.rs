@@ -119,7 +119,7 @@ pub struct HairScheduling<'w, 's> {
 
 /// Advance timers and pose every creature.
 pub fn animate(
-    time: Res<Time>,
+    (time, pace): (Res<Time>, Option<Res<crate::playback::Pace>>),
     bored: Option<Res<Boredom>>,
     mut profile: Option<ResMut<MotionProfile>>,
     mut rigs: Query<(&mut Rig, &mut Anim, &Transform)>,
@@ -133,7 +133,9 @@ pub fn animate(
     if let Some(profile) = profile.as_deref_mut() {
         *profile = MotionProfile::default();
     }
-    let dt = animation_frame_delta(time.delta_secs());
+    // Every animation plays at the presentation pace, which slows to match a
+    // server that supplies the timeline more slowly than it plays.
+    let dt = animation_frame_delta(crate::playback::Pace::of(pace, time.delta_secs()));
     // A held presentation frame must retain contact history and cloth transforms,
     // not re-evaluate the pose with a zero step.
     if dt <= 0.0 {

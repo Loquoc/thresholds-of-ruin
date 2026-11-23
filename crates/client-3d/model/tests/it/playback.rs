@@ -14,18 +14,50 @@ fn close(a: f64, b: f64) -> bool {
 fn covered_ticks_play_at_the_fixed_rate_and_idle_gaps_are_capped() {
     let mut clock = TickClock::new(0.01, 0.1, 0.05);
     // The first disclosed tick waits for the lookahead.
-    assert!(close(clock.place(100, 2.0), 2.05));
+    assert!(close(clock.place(100, 2.0).at, 2.05));
     // Known activity covers 100..150: 50 ticks at the full rate.
     clock.cover(150);
-    assert!(close(clock.place(150, 2.0), 2.55));
+    assert!(close(clock.place(150, 2.0).at, 2.55));
     // 150..1150 is idle: a thousand ticks compress to the gap cap.
-    assert!(close(clock.place(1_150, 2.0), 2.65));
+    assert!(close(clock.place(1_150, 2.0).at, 2.65));
     // Partly covered: the covered part plays, the idle remainder is capped.
     clock.cover(1_170);
-    assert!(close(clock.place(1_200, 2.0), 2.65 + 0.2 + 0.1));
+    assert!(close(clock.place(1_200, 2.0).at, 2.65 + 0.2 + 0.1));
     // A start disclosed late is placed before the anchor without moving it.
-    assert!(close(clock.place(1_190, 2.0), 2.95 - 0.1));
+    assert!(close(clock.place(1_190, 2.0).at, 2.95 - 0.1));
     assert!(close(clock.span(2.95, 30), 3.25));
+}
+
+#[test]
+fn the_standard_rate_plays_a_base_step_in_0_325_seconds() {
+    // 30% longer than the former quarter-second step, for every action alike.
+    let clock = TickClock::standard();
+    assert!(close(clock.span(1.0, 100), 1.325));
+    assert!(close(STANDARD_STEP_SECONDS, 0.325));
+}
+
+#[test]
+fn placement_reports_how_late_a_tick_was_and_how_far_presentation_trails() {
+    let mut clock = TickClock::new(0.01, 0.1, 0.05);
+    let first = clock.place(100, 2.0);
+    assert!(close(first.at, 2.05));
+    assert!(close(first.late, 0.0), "the first tick is on time");
+    assert!(
+        close(clock.lead(2.0), 0.05),
+        "presentation trails by the lookahead"
+    );
+    // An earlier tick disclosed after its moment has passed.
+    let earlier = clock.place(80, 2.0);
+    assert!(close(earlier.at, 1.85));
+    assert!(close(earlier.late, 0.15));
+    // A later tick whose moment has passed resumes from now and says how late.
+    clock.cover(200);
+    let resumed = clock.place(200, 4.0);
+    assert!(close(resumed.at, 4.05));
+    assert!(close(resumed.late, 4.0 - 3.05));
+    let next = clock.place(250, 4.0);
+    assert!(close(next.at, 4.15), "idle ticks capped at the gap");
+    assert!(close(next.late, 0.0), "in time again");
 }
 
 #[test]
@@ -33,7 +65,7 @@ fn a_late_update_resumes_from_now_and_fast_forward_drains() {
     let mut clock = TickClock::new(0.01, 0.1, 0.05);
     clock.place(0, 0.0);
     // Presentation has moved on past where this tick would have played.
-    assert!(close(clock.place(10, 9.0), 9.05));
+    assert!(close(clock.place(10, 9.0).at, 9.05));
     clock.reserve(10.0);
     assert!(!clock.drained(9.5));
     assert!(clock.drained(10.0));
@@ -42,7 +74,7 @@ fn a_late_update_resumes_from_now_and_fast_forward_drains() {
     assert!(clock.drained(9.5), "fast-forward makes everything due");
     clock.reset();
     assert!(
-        close(clock.place(500, 20.0), 20.05),
+        close(clock.place(500, 20.0).at, 20.05),
         "a reset starts timing afresh"
     );
 }

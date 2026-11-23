@@ -70,6 +70,7 @@ impl<'a> LocationRows<'a> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn outcome_observation(
     view: &s::Observation,
     scene: &[w::SightCell],
@@ -77,7 +78,26 @@ pub(crate) fn outcome_observation(
     ready: bool,
     targets: &crate::wire_adapter::TargetScope,
 ) -> p::OutcomeObservation {
-    let effect_anchors = effect_frame_anchors(view, scene, salt);
+    let mut keys = CellKeys::fresh(salt, view.actor.0);
+    outcome_observation_keyed(view, scene, &mut keys, ready, targets)
+}
+
+/// Outcome facts, taking cell keys from an observer's key memo.
+pub(crate) fn outcome_observation_keyed(
+    view: &s::Observation,
+    scene: &[w::SightCell],
+    keys: &mut CellKeys,
+    ready: bool,
+    targets: &crate::wire_adapter::TargetScope,
+) -> p::OutcomeObservation {
+    assert_eq!(
+        keys.actor(),
+        view.actor.0,
+        "cell keys belong to the observer"
+    );
+    let salt = keys.salt().to_owned();
+    let salt = salt.as_str();
+    let effect_anchors = effect_frame_anchors(view, scene, keys);
     let disclosed: std::collections::BTreeMap<_, _> = view
         .visible_cells
         .iter()
@@ -118,7 +138,7 @@ pub(crate) fn outcome_observation(
                 };
         }
         visible_cells.push(p::OutcomeCell {
-            key: cell_key(salt, view.actor.0, cell.location),
+            key: keys.key(cell.location),
             wall: visible.wall,
             door: visible.door.map(|door| p::OutcomeDoor {
                 position: p::Position {

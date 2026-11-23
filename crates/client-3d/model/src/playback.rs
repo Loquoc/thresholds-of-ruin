@@ -6,6 +6,9 @@
 //! newly disclosed tick in the past, so a late update plays rather than skips.
 use tor_protocol::Position;
 
+/// Presentation seconds for one base step (100 ticks) at the standard rate.
+pub const STANDARD_STEP_SECONDS: f64 = 0.325;
+
 /// Maps simulation ticks to presentation seconds.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TickClock {
@@ -20,6 +23,20 @@ pub struct TickClock {
     horizon: f64,
 }
 
+/// Where a disclosed tick plays, and how far in the past its own moment
+/// already was when it was placed: zero when it was disclosed in time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placement {
+    pub at: f64,
+    pub late: f64,
+}
+
+impl Default for TickClock {
+    fn default() -> Self {
+        Self::standard()
+    }
+}
+
 impl TickClock {
     pub fn new(seconds_per_tick: f64, gap_cap: f64, lookahead: f64) -> Self {
         Self {
@@ -32,9 +49,11 @@ impl TickClock {
         }
     }
 
-    /// The ordinary presentation rate: a base step of 100 ticks in a quarter second.
+    /// The ordinary presentation rate: a base step of 100 ticks in 0.325 s,
+    /// 30% longer than a quarter second so a walk reads unhurried. Every
+    /// action shares the rate, so strikes stay in step with the walks.
     pub fn standard() -> Self {
-        Self::new(0.0025, 0.12, 0.12)
+        Self::new(STANDARD_STEP_SECONDS / 100.0, 0.12, 0.12)
     }
 
     /// Known activity covers time up to this tick, so it plays in full.
@@ -45,14 +64,21 @@ impl TickClock {
     /// The presentation time of a disclosed tick. A tick after the anchor
     /// advances it; an earlier tick (a start disclosed late) is placed relative
     /// to the anchor without moving it.
-    pub fn place(&mut self, tick: u64, now: f64) -> f64 {
+    pub fn place(&mut self, tick: u64, now: f64) -> Placement {
         let Some((at, time)) = self.anchor else {
             let placed = now + self.lookahead;
             self.anchor = Some((tick, placed));
-            return placed;
+            return Placement {
+                at: placed,
+                late: 0.0,
+            };
         };
         if tick <= at {
-            return time - (at - tick) as f64 * self.seconds_per_tick;
+            let placed = time - (at - tick) as f64 * self.seconds_per_tick;
+            return Placement {
+                at: placed,
+                late: (now - placed).max(0.0),
+            };
         }
         let covered = self.active_until.clamp(at, tick) - at;
         let idle = tick - at - covered;
@@ -60,11 +86,18 @@ impl TickClock {
             + covered as f64 * self.seconds_per_tick
             + (idle as f64 * self.seconds_per_tick).min(self.gap_cap);
         // A stream that fell behind resumes from now instead of skipping ahead.
-        if placed < now {
+        let late = (now - placed).max(0.0);
+        if late > 0.0 {
             placed = now + self.lookahead;
         }
         self.anchor = Some((tick, placed));
-        placed
+        Placement { at: placed, late }
+    }
+
+    /// How far presentation trails the newest placed tick: the buffer that
+    /// lets steps disclosed after their tick still play on time.
+    pub fn lead(&self, now: f64) -> f64 {
+        self.anchor.map_or(0.0, |(_, time)| (time - now).max(0.0))
     }
 
     /// The presentation time of a later tick at the full rate, without

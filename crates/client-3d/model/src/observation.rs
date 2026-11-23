@@ -94,8 +94,6 @@ pub struct Activity {
     pub tick: Option<u64>,
     /// Spans this update added or whose end it changed, by timeline index.
     pub spans: Vec<(usize, tor_client_common::compositor::ActorSpan)>,
-    /// Set when this update ended the beat being composed.
-    pub ended: Option<tor_client_common::compositor::BeatEnd>,
 }
 
 /// Something seen to happen, from the combat events the server disclosed.

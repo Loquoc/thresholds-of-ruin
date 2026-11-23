@@ -13,7 +13,7 @@ pub use region_slice::RegionSlice;
 /// This is a numeric label, not a loaded-region handle or allocation authority.
 /// Construction/deserialization does not prove that a world knows the identity.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, Hash,
 )]
 pub struct RegionId(#[doc = "The host-assigned numeric identity."] pub u64);
 
@@ -23,7 +23,7 @@ pub struct RegionId(#[doc = "The host-assigned numeric identity."] pub u64);
 /// depend on that order. A value may name unloaded or nonexistent geometry;
 /// distinguish [`World::knows`] from [`World::contains`].
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, Hash,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Location {

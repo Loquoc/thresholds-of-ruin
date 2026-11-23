@@ -2,8 +2,8 @@
 //!
 //! A beat can span many settles and include actions the client supplies
 //! itself. Each client decides through its [`BeatPolicy`] what interrupts a
-//! beat and how long a presentation chunk may grow; the compositor applies the
-//! shared rules for what the server alone can end.
+//! beat; the compositor applies the shared rules for what the server alone can
+//! end.
 use super::{Settled, Timeline};
 use crate::ClientState;
 use tor_protocol::*;
@@ -24,11 +24,6 @@ pub enum BeatEnd {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pushed {
     Pending,
-    /// A length cap closed a presentation chunk that began at this tick. The
-    /// beat continues: chunks are presentation-continuous.
-    Chunk {
-        started: u64,
-    },
     Ended(BeatEnd),
 }
 
@@ -40,27 +35,12 @@ pub trait BeatPolicy {
     fn interrupts(&mut self, _state: &ClientState, _facts: &OutcomeFacts) -> bool {
         false
     }
-    /// The longest presentation chunk, in ticks, before a chunk boundary.
-    fn chunk_ticks(&self) -> Option<u64> {
-        None
-    }
 }
 
 /// The ordinary caution most plans want: stop for a newcomer or a wound.
 #[derive(Clone, Debug, Default)]
 pub struct Caution {
     hp: Option<u64>,
-    pub chunk_ticks: Option<u64>,
-}
-
-impl Caution {
-    /// Caution whose presentation chunks close after `ticks`.
-    pub fn chunked(ticks: u64) -> Self {
-        Self {
-            hp: None,
-            chunk_ticks: Some(ticks),
-        }
-    }
 }
 
 impl BeatPolicy for Caution {
@@ -78,16 +58,12 @@ impl BeatPolicy for Caution {
         }
         noticed || wounded
     }
-    fn chunk_ticks(&self) -> Option<u64> {
-        self.chunk_ticks
-    }
 }
 
 /// One beat being composed, and the beats it has completed.
 pub struct Compositor<P> {
     policy: P,
     timeline: Timeline,
-    chunk_start: Option<u64>,
     ended: Option<BeatEnd>,
 }
 
@@ -96,7 +72,6 @@ impl<P: BeatPolicy> Compositor<P> {
         Self {
             policy,
             timeline: Timeline::default(),
-            chunk_start: None,
             ended: None,
         }
     }
@@ -110,11 +85,6 @@ impl<P: BeatPolicy> Compositor<P> {
     pub fn ended(&self) -> Option<BeatEnd> {
         self.ended
     }
-    /// Everything at or before this tick is final, except still-open ends.
-    pub fn stable_tick(&self) -> Option<u64> {
-        self.timeline.last_tick()
-    }
-
     /// Consume one message already validated and applied to `state`.
     pub fn push(&mut self, state: &ClientState, message: &ServerMessage) -> Pushed {
         if let Some(end) = self.ended {
@@ -124,7 +94,6 @@ impl<P: BeatPolicy> Compositor<P> {
             // A replacement state flushes what was being composed.
             ServerMessage::Snapshot { .. } => {
                 self.timeline = Timeline::default();
-                self.chunk_start = None;
                 return self.end(BeatEnd::DecisionRequired);
             }
             ServerMessage::Waiting { on } if *on != Waiting::You => {
@@ -151,16 +120,6 @@ impl<P: BeatPolicy> Compositor<P> {
                         return self.end(BeatEnd::Interrupted);
                     }
                     _ => {}
-                }
-                let tick = update.cursor.tick;
-                let started = *self.chunk_start.get_or_insert(tick);
-                if self
-                    .policy
-                    .chunk_ticks()
-                    .is_some_and(|cap| tick.saturating_sub(started) >= cap)
-                {
-                    self.chunk_start = Some(tick);
-                    return Pushed::Chunk { started };
                 }
             }
             _ => {}
@@ -196,22 +155,6 @@ impl<P: BeatPolicy> Compositor<P> {
     /// Start the next beat, returning the finished one's timeline.
     pub fn take(&mut self) -> Timeline {
         self.ended = None;
-        self.chunk_start = None;
         std::mem::take(&mut self.timeline)
-    }
-}
-
-/// Paces a client's own plan so the simulation never runs far ahead of what
-/// is presented: interruptions stay timely and the backlog stays small.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlanDriver {
-    /// The largest allowed lead, in simulation ticks.
-    pub lead_ticks: u64,
-}
-
-impl PlanDriver {
-    /// Whether the next planned action may be sent now.
-    pub fn may_send(&self, simulated: u64, presented: u64) -> bool {
-        simulated.saturating_sub(presented) <= self.lead_ticks
     }
 }

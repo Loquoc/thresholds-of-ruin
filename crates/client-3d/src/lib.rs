@@ -448,6 +448,7 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     .init_resource::<interact::Hover>()
     .init_resource::<interact::Panel>()
     .init_resource::<interact::Pursuit>()
+    .init_resource::<playback::Pace>()
     .insert_resource(settings::Settings::load(settings::Settings::default_path()))
     .init_resource::<loot_labels::LootLabels>()
     .init_resource::<pile_picker::PilePicker>()
@@ -981,8 +982,10 @@ struct ActorBody {
     wearing: tor_client_3d_model::Wearing,
     hostile: bool,
     goal: Vec3,
-    /// A timed walk toward goal; without one the body eases there.
-    path: Option<playback::Path>,
+    /// Timed walks toward goal; without one the body eases there.
+    walk: playback::Walk,
+    /// The player's own body, which the camera follows as it walks.
+    own: bool,
     label: Entity,
     ring: Entity,
     name: String,

@@ -116,8 +116,21 @@ fn semantic_item_facts(
     facts
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Before-captures served from the previous outcome's after-captures.
+    pub(crate) static REUSED_SEMANTIC_CAPTURES: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+fn reused_semantic_capture() {
+    #[cfg(test)]
+    REUSED_SEMANTIC_CAPTURES.with(|count| count.set(count.get() + 1));
+}
+
 /// Ephemeral semantic capture shared by all attachments watching each actor.
 /// Receipt provenance is private and never encoded into an outcome or snapshot.
+#[derive(Clone)]
 struct SemanticStates {
     views: BTreeMap<ActorId, Arc<crate::engine::SemanticObservation>>,
     events: EventProvenance,
@@ -364,6 +377,11 @@ pub struct Service {
     diagnostics: Option<crate::diagnostics::Diagnostics>,
     pending_pauses: BTreeSet<ActorId>,
     pending_travel_cancellations: BTreeSet<ActorId>,
+    /// The latest outcome's after-captures. The next action's before-capture
+    /// is the same committed state, so it reuses them while nothing else has
+    /// run: any request, connection change or save poll clears them, and they
+    /// apply only at their exact commit.
+    settled_views: Option<SemanticStates>,
     autonomous_enabled: bool,
     travels: BTreeMap<ActorId, TravelJob>,
     travel_status: BTreeMap<ActorId, TravelStatus>,
@@ -442,6 +460,7 @@ impl Service {
             diagnostics: None,
             pending_pauses: BTreeSet::new(),
             pending_travel_cancellations: BTreeSet::new(),
+            settled_views: None,
             autonomous_enabled: engine.unattended_arena() && engine.arena_execution_enabled(),
             travels: BTreeMap::new(),
             travel_status: BTreeMap::new(),
@@ -481,6 +500,7 @@ impl Service {
         account: &Account,
         frontend: String,
     ) -> Result<Connection, Failure> {
+        self.settled_views = None;
         if !valid_label(&frontend) {
             return Err(Failure::new(
                 ErrorCode::InvalidRequest,
@@ -552,6 +572,7 @@ impl Service {
     }
 
     pub(crate) fn handle(&mut self, id: u64, request_id: String, request: Request) {
+        self.settled_views = None;
         if !self.clients.contains_key(&id) {
             return;
         }
@@ -1508,14 +1529,34 @@ impl Service {
 
     /// Capture only attached observers. These transient values are narration
     /// inputs, not public display snapshots and not persisted revision state.
-    fn semantic_states(&self) -> Result<SemanticStates, Failure> {
+    fn semantic_states(&mut self) -> Result<SemanticStates, Failure> {
         let boundary = self.engine.presentation_boundary();
-        let events = self.engine.event_history_boundary_at(&boundary)?;
-        let views = self
+        let observers = self
             .clients
             .values()
             .filter_map(|client| client.actor)
-            .collect::<BTreeSet<_>>()
+            .collect::<BTreeSet<_>>();
+        if let Some(settled) = self.settled_views.take() {
+            if observers.iter().all(|actor| {
+                settled
+                    .views
+                    .get(actor)
+                    .is_some_and(|view| view.taken_at(&boundary))
+            }) {
+                reused_semantic_capture();
+                let views = settled
+                    .views
+                    .into_iter()
+                    .filter(|(actor, _)| observers.contains(actor))
+                    .collect();
+                return Ok(SemanticStates {
+                    views,
+                    events: settled.events,
+                });
+            }
+        }
+        let events = self.engine.event_history_boundary_at(&boundary)?;
+        let views = observers
             .into_iter()
             .map(|actor| {
                 self.engine
@@ -1556,6 +1597,13 @@ impl Service {
             .into_iter()
             .map(|actor| (actor, self.engine.semantic_observation(actor).map(Arc::new)))
             .collect();
+        self.settled_views = Some(SemanticStates {
+            views: after
+                .iter()
+                .filter_map(|(actor, view)| Some((*actor, Arc::clone(view.as_ref().ok()?))))
+                .collect(),
+            events,
+        });
         let pictures: BTreeMap<_, _> = after
             .iter()
             .filter_map(|(actor, current)| {
@@ -1567,8 +1615,8 @@ impl Service {
                         return Ok(None);
                     }
                     Ok::<_, Failure>(Some(SemanticPicturePair {
-                        before: Arc::new(self.engine.semantic_picture(previous)?),
-                        after: Arc::new(self.engine.semantic_picture(current)?),
+                        before: self.engine.semantic_picture(previous)?,
+                        after: self.engine.semantic_picture(current)?,
                     }))
                 })();
                 Some((*actor, comparison))
@@ -2752,6 +2800,7 @@ impl Service {
     }
 
     pub(crate) fn disconnect(&mut self, id: u64) {
+        self.settled_views = None;
         self.disconnect_with(id, DisconnectMode::Abort);
     }
 
@@ -2792,6 +2841,7 @@ impl Service {
     }
 
     pub(crate) fn poll_saves(&mut self) {
+        self.settled_views = None;
         self.expire_attachments();
         let clients_before_warnings = self.clients.len();
         let status = self.engine.save_status();
@@ -2881,6 +2931,7 @@ impl Service {
         self.engine.flush_handle()
     }
     pub(crate) fn shutdown(&mut self) {
+        self.settled_views = None;
         for id in self.clients.keys().copied().collect::<Vec<_>>() {
             self.disconnect(id);
         }
@@ -5267,6 +5318,80 @@ mod tests {
         assert_eq!(service.engine.next_actor(), Some(ActorId(1)));
         assert_ne!(service.engine.causal_boundary(ActorId(1)).unwrap(), before);
         assert!(matches!(service.step(), Step::Blocked));
+    }
+
+    #[test]
+    fn an_actions_before_capture_reuses_the_previous_after_capture_exactly() {
+        // Each AI turn is admitted then executed; each round's before-capture
+        // is the previous round's after-capture of the same commit. Reusing it
+        // must equal a fresh capture taken at that moment.
+        let (mut service, mut client) = character_waiting_on_a_guard();
+        let reused = REUSED_SEMANTIC_CAPTURES.with(std::cell::Cell::get);
+        let carried = crate::engine::REUSED_SEMANTIC_FACTS.with(std::cell::Cell::get);
+        let pictured = crate::engine::REUSED_SEMANTIC_PICTURES.with(std::cell::Cell::get);
+        let keyed = crate::adapt::CellKeys::reused_count();
+        let mut compared = 0;
+        loop {
+            let boundary = service.engine.presentation_boundary();
+            if let Some(settled) = &service.settled_views {
+                for (actor, view) in &settled.views {
+                    if !view.taken_at(&boundary) {
+                        continue;
+                    }
+                    let fresh = service.engine.semantic_observation(*actor).unwrap();
+                    assert_eq!(
+                        view.facts, fresh.facts,
+                        "reused facts equal a fresh capture"
+                    );
+                    assert_eq!(
+                        service.engine.semantic_picture(view).unwrap(),
+                        service.engine.semantic_picture(&fresh).unwrap(),
+                        "reused picture equals a fresh capture"
+                    );
+                    compared += 1;
+                }
+            }
+            let step = service.step();
+            while client.messages.try_recv().is_ok() {}
+            if !matches!(step, Step::Progress) {
+                break;
+            }
+        }
+        assert!(
+            compared > 0,
+            "positive fixture: a capture was available for reuse"
+        );
+        assert!(
+            REUSED_SEMANTIC_CAPTURES.with(std::cell::Cell::get) > reused,
+            "an action reused the previous outcome's capture"
+        );
+        // An AI admission only queues a decision: the observer's retained view
+        // survives it, so its after-capture carries the facts over (each reuse
+        // is checked against freshly derived facts in test builds).
+        assert!(
+            crate::engine::REUSED_SEMANTIC_FACTS.with(std::cell::Cell::get) > carried,
+            "an action that left the observer's view unchanged reused its facts"
+        );
+        // A picture of the same retained view and branch is adapted once
+        // (each memoized picture is checked against a fresh one in test builds).
+        assert!(
+            crate::engine::REUSED_SEMANTIC_PICTURES.with(std::cell::Cell::get) > pictured,
+            "a second picture of the same retained view reused the first"
+        );
+        // A changed view derives its facts and picture again, but cells still
+        // in sight keep their salted keys (each reused key is checked against
+        // a fresh digest in test builds; verifications are not counted).
+        assert!(
+            crate::adapt::CellKeys::reused_count() > keyed,
+            "a new derivation reused the keys of cells still in sight"
+        );
+        // Anything a client asks for may change state outside an outcome.
+        assert!(service.settled_views.is_some());
+        service.handle(client.id, "look".into(), Request::Observe);
+        assert!(
+            service.settled_views.is_none(),
+            "a request clears the reusable capture"
+        );
     }
 
     #[test]

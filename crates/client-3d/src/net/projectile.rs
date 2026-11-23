@@ -1,6 +1,6 @@
 //! Choosing a projectile delivery. The session owns the shared menu so each
 //! query is bound to its own reply; the window sees only a prompt.
-use super::{publish, transact, transact_with, Error, Event};
+use super::{publish, transact, transact_with, Error, Event, Outlet};
 use tor_client_3d_model::ProjectileStep;
 use tor_client_common::projectiles::{ProjectileMenu, Step};
 use tor_client_common::Connection;
@@ -34,7 +34,7 @@ fn prompt(menu: &ProjectileMenu) -> ProjectilePrompt {
 fn abandon(
     menu: &mut Option<ProjectileMenu>,
     reason: String,
-    tx: &std::sync::mpsc::SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     *menu = None;
     publish(tx, Event::Projectile(None))?;
@@ -45,7 +45,7 @@ fn abandon(
 pub(super) fn revalidate(
     connection: &Connection,
     menu: &mut Option<ProjectileMenu>,
-    tx: &std::sync::mpsc::SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     if menu.as_ref().is_some_and(|m| !m.current(&connection.state)) {
         return abandon(
@@ -61,7 +61,7 @@ pub(super) async fn step(
     connection: &mut Connection,
     menu: &mut Option<ProjectileMenu>,
     step: ProjectileStep,
-    tx: &std::sync::mpsc::SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     let state = &connection.state;
     let command = match step {
@@ -129,7 +129,7 @@ async fn query(
     connection: &mut Connection,
     menu: &mut Option<ProjectileMenu>,
     command: Command,
-    tx: &std::sync::mpsc::SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     let request = connection.state.command_request(command);
     let mut refused = None;
@@ -137,6 +137,7 @@ async fn query(
     transact_with(
         connection,
         request,
+        tx,
         |event| publish(tx, event),
         |connection, id, message| {
             let Some(m) = menu.as_mut() else {

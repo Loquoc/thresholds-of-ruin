@@ -73,7 +73,7 @@ pub use topology::{
 /// [`Location`] to name the region and [`World::contains`] to test loaded bounds.
 /// Ordering is lexicographic by x, then y, then z; region table lookups rely on it.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, Hash,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Position {

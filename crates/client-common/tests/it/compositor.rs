@@ -1,5 +1,5 @@
-//! Beat composition: timeline spans, flights and reactions, client-defined
-//! beat ends, presentation chunks and the bounded plan lead.
+//! Beat composition: timeline spans, flights and reactions, and client-defined
+//! beat ends.
 use std::sync::Arc;
 use tor_client_common::compositor::*;
 use tor_client_common::{test_support, ClientState};
@@ -240,9 +240,6 @@ fn overlapping_actors_keep_their_own_disclosed_starts_and_inferred_ends() {
             (target(ORC), 190, SpanEnd::Open),
         ]
     );
-    // Watching, not disclosure, supplies a cap for the open span.
-    assert_eq!(beat.timeline().observed_interval(target(ORC)), Some(70));
-    assert_eq!(beat.timeline().observed_interval(target(RAT)), None);
 }
 
 #[test]
@@ -501,32 +498,17 @@ fn a_replacement_snapshot_flushes_the_beat() {
 }
 
 #[test]
-fn length_caps_close_chunks_without_ending_the_beat_and_frames_keep_their_ticks() {
+fn frames_keep_their_ticks_and_spans_their_disclosing_frame() {
     let mut stream = Stream::new();
-    let mut beat = Compositor::new(Caution::chunked(250));
-    let results: Vec<_> = [0u64, 100, 200, 300, 400, 500, 600]
-        .into_iter()
-        .map(|tick| {
-            let message = stream.outcome(
-                tick,
-                vec![step(Direction::East)],
-                Some(status(20, 100, None)),
-            );
-            beat.push(&stream.client, &message)
-        })
-        .collect();
-    assert_eq!(
-        results,
-        [
-            Pushed::Pending,
-            Pushed::Pending,
-            Pushed::Pending,
-            Pushed::Chunk { started: 0 },
-            Pushed::Pending,
-            Pushed::Pending,
-            Pushed::Chunk { started: 300 },
-        ]
-    );
+    let mut beat = Compositor::new(BeatNever);
+    for tick in [0u64, 100, 200, 300, 400, 500, 600] {
+        let message = stream.outcome(
+            tick,
+            vec![step(Direction::East)],
+            Some(status(20, 100, None)),
+        );
+        assert_eq!(beat.push(&stream.client, &message), Pushed::Pending);
+    }
     assert_eq!(beat.ended(), None);
     // Every update keeps its own frame for later coordinate conversion.
     assert_eq!(
@@ -543,19 +525,6 @@ fn length_caps_close_chunks_without_ending_the_beat_and_frames_keep_their_ticks(
         .iter()
         .zip(1..)
         .all(|(span, frame)| span.frame == frame));
-}
-
-#[test]
-fn the_plan_driver_pauses_beyond_its_bounded_lead() {
-    let driver = PlanDriver { lead_ticks: 150 };
-    assert!(driver.may_send(100, 0));
-    assert!(driver.may_send(150, 0));
-    assert!(
-        !driver.may_send(151, 0),
-        "more than the lead ahead of the screen"
-    );
-    assert!(driver.may_send(300, 151));
-    assert!(driver.may_send(0, 500), "presentation ahead never blocks");
 }
 
 /// A policy that never interrupts, so tests isolate timeline behaviour.

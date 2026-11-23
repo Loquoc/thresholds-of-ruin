@@ -125,26 +125,8 @@ impl Timeline {
     pub fn frames(&self) -> &[Frame] {
         &self.frames
     }
-    /// The latest disclosed tick; ticks never run backwards within a stream.
-    pub fn last_tick(&self) -> Option<u64> {
-        self.frames.last().map(|frame| frame.tick)
-    }
     pub fn is_empty(&self) -> bool {
         self.spans.is_empty() && self.flights.is_empty() && self.reactions.is_empty()
-    }
-
-    /// The most recent interval between two disclosed starts by `actor`: what
-    /// watching suggests for capping an open span, not a disclosed duration.
-    pub fn observed_interval(&self, actor: ActorTarget) -> Option<u64> {
-        let mut starts = self
-            .spans
-            .iter()
-            .rev()
-            .filter(|span| span.actor == actor)
-            .map(|span| span.start);
-        let last = starts.next()?;
-        let previous = starts.next()?;
-        last.checked_sub(previous).filter(|interval| *interval > 0)
     }
 
     fn open(&mut self, actor: ActorTarget, start: u64, kind: SpanKind, frame: u64, own: bool) {

@@ -139,10 +139,17 @@ pub(super) fn rig_camera(
     mut rig: ResMut<CameraRig>,
     mut camera: Query<(&mut Transform, &Projection), WorldCameraFilter>,
     mut torch: Query<&mut Transform, (With<Torch>, Without<Camera3d>)>,
+    bodies: Query<(&ActorBody, &Transform), BodyFilter>,
     framing: crate::inventory::Framing,
 ) {
     let dt = time.delta_secs();
-    let player = stand(game.feet_world) + Vec3::Y * 0.65;
+    // While the player's own body walks its timed steps, the view follows the
+    // body rather than the authoritative cell, which runs ahead of playback.
+    let walking = bodies
+        .iter()
+        .find(|(body, _)| body.own && body.walk.walking())
+        .map(|(_, transform)| transform.translation);
+    let player = walking.unwrap_or_else(|| stand(game.feet_world)) + Vec3::Y * 0.65;
     let smooth = 1.0 - (-dt * 7.0).exp();
     if game.snap_camera {
         rig.focus = player;
@@ -169,6 +176,8 @@ pub(super) fn rig_camera(
         transform.translation = rig.focus + Vec3::Y * 1.4;
     }
 }
+
+type BodyFilter = (Without<Camera3d>, Without<Torch>);
 
 type WorldCameraFilter = (
     With<Camera3d>,
@@ -225,7 +234,7 @@ pub(super) fn update_cave_params(
 pub(super) fn follow_actors(
     time: Res<Time>,
     game: Option<Res<crate::Game>>,
-    mut bodies: Query<(&ActorBody, &mut Transform)>,
+    mut bodies: Query<(&mut ActorBody, &mut Transform)>,
     mut labels: Query<(&mut Node, &mut Visibility), With<Label>>,
     camera: Query<(&Camera, &GlobalTransform), crate::portrait::ExplorationCamera>,
 ) {
@@ -235,15 +244,14 @@ pub(super) fn follow_actors(
     };
     // Offline reviews and tests run without a game: nothing walks a path there.
     let (now, skips) = game.map_or((0.0, 0), |game| (game.playback.now, game.playback.skips));
-    for (body, mut transform) in &mut bodies {
-        // A disclosed step walks its timed path at a steady pace; anything
-        // else (a snap, a teleport, a finished walk) eases toward the goal.
-        match body.path.map(|path| path.at(now, skips)) {
-            Some((at, false)) if now >= body.path.map_or(0.0, |path| path.start) => {
-                transform.translation = at;
-            }
-            Some((_, false)) => {}
-            _ => {
+    for (mut body, mut transform) in &mut bodies {
+        // Disclosed steps walk their timed legs back to back at a steady pace;
+        // anything else (a snap, a teleport, a finished walk) eases to the goal.
+        let pose = body.walk.at(now, skips);
+        match pose {
+            crate::playback::Pose::At(at) => transform.translation = at,
+            crate::playback::Pose::Hold => {}
+            crate::playback::Pose::Free => {
                 let step = body.goal - transform.translation;
                 transform.translation += step * smooth;
             }

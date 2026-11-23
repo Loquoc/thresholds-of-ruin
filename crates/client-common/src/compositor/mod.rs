@@ -9,7 +9,7 @@ mod settle;
 mod timeline;
 
 pub use admission::AdmissionBoundary;
-pub use beat::{BeatEnd, BeatPolicy, Caution, Compositor, PlanDriver, Pushed};
+pub use beat::{BeatEnd, BeatPolicy, Caution, Compositor, Pushed};
 pub use settle::{SettleBoundary, Settled, Silence, Until};
 pub use timeline::{
     ActorSpan, Flight, Frame, Reaction, ReactionKind, SpanEnd, SpanKind, StrikeMark, Timeline,

@@ -9,7 +9,9 @@ use std::{
 use tokio::{sync::mpsc as async_mpsc, time::timeout};
 use tor_client_3d_model::{request_from, view, Activity};
 pub use tor_client_3d_model::{Cmd, Happening, Input, View};
-use tor_client_common::compositor::{Caution, Compositor, Pushed, SettleBoundary, SpanEnd, Until};
+use tor_client_common::compositor::{
+    BeatPolicy, Compositor, Pushed, SettleBoundary, SpanEnd, Until,
+};
 use tor_client_common::{Connection, PendingRequest, RequestCompletion};
 use tor_protocol::*;
 
@@ -40,6 +42,9 @@ pub struct Network {
     events: Receiver<Event>,
     /// An event read while folding views, delivered first next frame.
     held: Option<Event>,
+    /// A view carrying the observer's own step, gathering the same turn's
+    /// updates that follow it, and when it began waiting.
+    stepping: Option<(Box<View>, Instant)>,
     ready: bool,
     capturing: bool,
     closed: bool,
@@ -57,6 +62,7 @@ impl Network {
                 commands,
                 events,
                 held: None,
+                stepping: None,
                 ready: false,
                 capturing: false,
                 closed: false,
@@ -130,6 +136,16 @@ impl Network {
         }
         let started = Instant::now();
         let mut batch = Vec::new();
+        // An own step's view waits for what follows it in the same turn.
+        if let Some((view, since)) = self.stepping.take() {
+            let (view, ended) = self.gather(view);
+            if ended || since.elapsed() >= STEP_GATHER {
+                batch.push(Event::View(view));
+            } else {
+                self.stepping = Some((view, since));
+            }
+            return batch;
+        }
         for _ in 0..EVENTS_PER_FRAME {
             if started.elapsed() >= Duration::from_millis(4) {
                 break;
@@ -139,22 +155,19 @@ impl Network {
                 None => self.next_event(),
             };
             match next {
-                Ok(Event::View(mut view)) => {
-                    // Read ahead without delivering: a held event takes effect
-                    // only when it is handed over, after this view.
-                    loop {
-                        match self.events.try_recv() {
-                            Ok(Event::View(newer)) if mergeable(&view, &newer) => {
-                                view = merge(view, newer);
-                            }
-                            Ok(other) => {
-                                self.held = Some(other);
-                                break;
-                            }
-                            Err(_) => break,
-                        }
+                Ok(Event::View(view)) => {
+                    let (view, ended) = self.gather(view);
+                    // The observer's step moves the frame, but the picture that
+                    // shows the shift often arrives in the updates after it.
+                    // Handing it over alone would place every body against the
+                    // old frame and correct it a view later, without a walk.
+                    // (When the picture lags further, own legs still follow
+                    // the step's disclosed direction.)
+                    if !ended && carries_own_step(&view) {
+                        self.stepping = Some((view, Instant::now()));
+                    } else {
+                        batch.push(Event::View(view));
                     }
-                    batch.push(Event::View(view));
                     break;
                 }
                 Ok(event) => batch.push(event),
@@ -168,6 +181,25 @@ impl Network {
             }
         }
         batch
+    }
+
+    /// Fold waiting views into `view`. Read ahead without delivering: a held
+    /// event takes effect only when it is handed over, after this view.
+    /// Returns whether something that cannot fold in has ended the gathering.
+    fn gather(&mut self, mut view: Box<View>) -> (Box<View>, bool) {
+        loop {
+            match self.events.try_recv() {
+                Ok(Event::View(newer)) if mergeable(&view, &newer) => {
+                    view = merge(view, newer);
+                }
+                Ok(other) => {
+                    self.held = Some(other);
+                    return (view, true);
+                }
+                Err(mpsc::TryRecvError::Empty) => return (view, false),
+                Err(mpsc::TryRecvError::Disconnected) => return (view, true),
+            }
+        }
     }
 
     /// No game yet: the menu holds this until one starts, and it reports
@@ -222,6 +254,20 @@ impl Drop for Network {
     }
 }
 
+/// The longest an own step's view waits for the rest of its turn. The worker
+/// relays a turn's updates back to back, so this is only a bound for a stalled
+/// stream; it stays well inside the presentation lookahead.
+const STEP_GATHER: Duration = Duration::from_millis(60);
+
+fn carries_own_step(view: &View) -> bool {
+    view.activity.spans.iter().any(|(_, span)| {
+        matches!(
+            span.kind,
+            tor_client_common::compositor::SpanKind::OwnStep { .. }
+        )
+    })
+}
+
 /// Two views may fold together only within one scope, one timeline
 /// generation and one observer frame. The observer's own step moves the frame,
 /// so a newer view that carries one starts its own picture.
@@ -229,12 +275,7 @@ fn mergeable(older: &View, newer: &View) -> bool {
     older.context == newer.context
         && older.branch == newer.branch
         && older.activity.generation == newer.activity.generation
-        && !newer.activity.spans.iter().any(|(_, span)| {
-            matches!(
-                span.kind,
-                tor_client_common::compositor::SpanKind::OwnStep { .. }
-            )
-        })
+        && !carries_own_step(newer)
 }
 
 /// The newer picture wins; earlier happenings, spans and narration are kept in order.
@@ -253,7 +294,6 @@ fn merge(older: Box<View>, mut newer: Box<View>) -> Box<View> {
         spans.push((index, span));
     }
     newer.activity.spans = spans;
-    newer.activity.ended = newer.activity.ended.or(older.activity.ended);
     newer.activity.tick = newer.activity.tick.or(older.activity.tick);
     newer
 }
@@ -267,16 +307,31 @@ impl fmt::Display for WindowClosed {
 }
 impl std::error::Error for WindowClosed {}
 
-fn publish(tx: &SyncSender<Event>, event: Event) -> Result<(), Error> {
-    tx.send(event).map_err(|_| Box::new(WindowClosed) as Error)
+/// Where the worker hands presentation to the window. It owns the shared beat
+/// timeline, so every applied message is recorded once, in stream order,
+/// whichever request loop received it.
+struct Outlet<'a> {
+    tx: &'a SyncSender<Event>,
+    composer: std::cell::RefCell<Composer>,
 }
 
-fn present(
-    connection: &Connection,
-    message: &ServerMessage,
-    tx: &SyncSender<Event>,
-) -> Result<(), Error> {
-    if let Some(event) = presentation_event(connection, message) {
+impl<'a> Outlet<'a> {
+    fn new(tx: &'a SyncSender<Event>) -> Self {
+        Self {
+            tx,
+            composer: std::cell::RefCell::new(Composer::new()),
+        }
+    }
+}
+
+fn publish(tx: &Outlet<'_>, event: Event) -> Result<(), Error> {
+    tx.tx
+        .send(event)
+        .map_err(|_| Box::new(WindowClosed) as Error)
+}
+
+fn present(connection: &Connection, message: &ServerMessage, tx: &Outlet<'_>) -> Result<(), Error> {
+    if let Some(event) = presentation_event(connection, message, tx) {
         publish(tx, event)?;
     }
     Ok(())
@@ -285,9 +340,15 @@ fn present(
 /// Spans retained before the shared timeline starts a fresh generation.
 const TIMELINE_SPANS: usize = 512;
 
+/// The 3D client decides interruptions in the scene, from the player's
+/// settings. Its timeline ends a beat only where the server alone does: a
+/// decision, lost control, another's turn or a replacement state.
+struct ServerBoundaries;
+impl BeatPolicy for ServerBoundaries {}
+
 /// The shared beat timeline, fed every message the connection has applied.
 struct Composer {
-    compositor: Compositor<Caution>,
+    compositor: Compositor<ServerBoundaries>,
     generation: u64,
     ends: Vec<SpanEnd>,
 }
@@ -295,7 +356,7 @@ struct Composer {
 impl Composer {
     fn new() -> Self {
         Self {
-            compositor: Compositor::new(Caution::default()),
+            compositor: Compositor::new(ServerBoundaries),
             generation: 0,
             ends: Vec::new(),
         }
@@ -323,13 +384,9 @@ impl Composer {
                 _ => None,
             },
             spans: changed,
-            ended: match pushed {
-                Pushed::Ended(end) => Some(end),
-                _ => None,
-            },
         };
         // A finished beat, or a long one, starts a fresh bounded timeline.
-        if activity.ended.is_some() || spans.len() >= TIMELINE_SPANS {
+        if matches!(pushed, Pushed::Ended(_)) || spans.len() >= TIMELINE_SPANS {
             self.compositor.take();
             self.generation += 1;
             self.ends.clear();
@@ -338,14 +395,13 @@ impl Composer {
     }
 }
 
-thread_local! {
-    /// One network worker thread owns one attachment's composer.
-    static COMPOSER: std::cell::RefCell<Composer> = std::cell::RefCell::new(Composer::new());
-}
-
-fn presentation_event(connection: &Connection, message: &ServerMessage) -> Option<Event> {
-    let activity =
-        COMPOSER.with(|composer| composer.borrow_mut().record(&connection.state, message));
+/// Record an applied message on the beat timeline and build what it shows.
+fn presentation_event(
+    connection: &Connection,
+    message: &ServerMessage,
+    tx: &Outlet<'_>,
+) -> Option<Event> {
+    let activity = tx.composer.borrow_mut().record(&connection.state, message);
     let mut event = picture_event(connection, message);
     if let Some(Event::View(view)) = &mut event {
         view.activity = activity;
@@ -403,9 +459,14 @@ async fn run(
     rx: async_mpsc::Receiver<Input>,
     tx: &SyncSender<Event>,
 ) -> Result<(), Error> {
+    let tx = &Outlet::new(tx);
     let mut connection = Connection::connect(address, token, actor, "3d").await?;
     // Presentation timing belongs to the beat timeline, not to message spacing.
     connection.set_pace(Duration::ZERO);
+    // Playback is timed from ordered outcomes, so pictures are coalesced: the
+    // server adapts a full one per request, and asking after every mob's
+    // action made that a large share of each action's cost.
+    connection.set_observation_interval(OBSERVATION_INTERVAL);
     let result = session(&mut connection, observe, rx, tx).await;
     // A broken presentation pipe is normal during window shutdown. Connection
     // failures remain errors, and a failed save always takes precedence.
@@ -420,13 +481,14 @@ async fn session(
     connection: &mut Connection,
     observe: bool,
     mut rx: async_mpsc::Receiver<Input>,
-    tx: &SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     let mut initial = InitialPresentation::default();
     if !observe && connection.role() != AccessRole::Spectator {
         transact_with(
             connection,
             Request::AcquireControl,
+            tx,
             |event| initial.record(event),
             |_, _, _| {},
         )
@@ -522,7 +584,7 @@ async fn session(
 fn present_advancement(
     connection: &Connection,
     shown: &mut tor_client_3d_model::AdvancementView,
-    tx: &SyncSender<Event>,
+    tx: &Outlet<'_>,
     always: bool,
 ) -> Result<(), Error> {
     let view = tor_client_3d_model::AdvancementView::new(
@@ -541,7 +603,7 @@ fn present_advancement(
 fn present_charts(
     connection: &Connection,
     shown: &mut Vec<String>,
-    tx: &SyncSender<Event>,
+    tx: &Outlet<'_>,
     always: bool,
 ) -> Result<(), Error> {
     let state = &connection.state;
@@ -590,7 +652,7 @@ async fn settle(
     connection: &mut Connection,
     request: Request,
     until: Until,
-    tx: &SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     let id = connection.request(request).await?;
     let mut boundary = SettleBoundary::new(id, until, false);
@@ -604,7 +666,7 @@ async fn settle(
                 return Ok(());
             }
         };
-        if let Some(event) = presentation_event(connection, &message) {
+        if let Some(event) = presentation_event(connection, &message, tx) {
             publish(tx, event)?;
         }
         if !connection.is_synchronized() {
@@ -615,9 +677,30 @@ async fn settle(
             .observe(&connection.state, false, refused, &message)
             .is_some()
         {
-            return Ok(());
+            return current_picture(connection, tx).await;
         }
     }
+}
+
+/// The longest a visual change waits for its picture while play continues.
+/// It stays inside the playback lookahead, so a deferred picture is in place
+/// before the moment it shows.
+const OBSERVATION_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Before control returns to the player, fetch the picture that coalescing
+/// may have deferred, so input is never offered against a stale scene.
+async fn current_picture(connection: &mut Connection, tx: &Outlet<'_>) -> Result<(), Error> {
+    connection.hurry_observation();
+    while connection.is_synchronized() && !connection.observation_current() {
+        let Ok(message) = timeout(SETTLE_SILENCE, connection.next()).await else {
+            return Ok(());
+        };
+        let message = message?;
+        if let Some(event) = presentation_event(connection, &message, tx) {
+            publish(tx, event)?;
+        }
+    }
+    Ok(())
 }
 
 /// A scoped notice that the server could not execute a queued action: an
@@ -642,11 +725,12 @@ fn execution_refused(connection: &Connection, message: &ServerMessage) -> bool {
 async fn transact(
     connection: &mut Connection,
     request: Request,
-    tx: &SyncSender<Event>,
+    tx: &Outlet<'_>,
 ) -> Result<(), Error> {
     transact_with(
         connection,
         request,
+        tx,
         |event| publish(tx, event),
         |_, _, _| {},
     )
@@ -658,6 +742,7 @@ async fn transact(
 async fn transact_with(
     connection: &mut Connection,
     request: Request,
+    tx: &Outlet<'_>,
     mut deliver: impl FnMut(Event) -> Result<(), Error>,
     mut inspect: impl FnMut(&Connection, &str, &ServerMessage),
 ) -> Result<(), Error> {
@@ -670,7 +755,7 @@ async fn transact_with(
             inspect(connection, &id, &message);
             let complete = completion.is_some();
             let unknown = matches!(completion, Some(RequestCompletion::Unknown));
-            if let Some(event) = presentation_event(connection, &message) {
+            if let Some(event) = presentation_event(connection, &message, tx) {
                 deliver(event)?;
             }
             if unknown {
@@ -766,7 +851,13 @@ mod tests {
         );
         assert_eq!(view.activity.tick, Some(300));
         let second = network.frame_events();
-        assert!(matches!(second.as_slice(), [Event::Ready, Event::View(_)]));
+        assert!(matches!(second.as_slice(), [Event::Ready]));
+        // The own step's view gathers the rest of its turn before handover.
+        std::thread::sleep(STEP_GATHER + Duration::from_millis(10));
+        assert!(matches!(
+            network.frame_events().as_slice(),
+            [Event::View(_)]
+        ));
         std::mem::forget(events);
     }
 
@@ -1037,6 +1128,54 @@ mod tests {
         assert!(!network.ready);
         assert!(matches!(network.frame_events().as_slice(), [Event::Ready]));
         assert!(network.ready);
+    }
+
+    #[test]
+    fn an_own_step_waits_for_the_updates_of_its_turn_that_show_the_shift() {
+        // Recorded travel: the step's outcome arrives before the same turn's
+        // updates that move the visible cells. Handed over alone, it placed
+        // every body against the old frame and the next view snapped them.
+        let (mut network, _, events) = Network::channels();
+        events.send(Event::View(stepping(1, 1, true))).unwrap();
+        assert!(
+            network.frame_events().is_empty(),
+            "the step waits for its turn"
+        );
+        events
+            .send(Event::View(Box::new(crate::test_support::view(2))))
+            .unwrap();
+        events
+            .send(Event::View(Box::new(crate::test_support::view(3))))
+            .unwrap();
+        assert!(network.frame_events().is_empty(), "still gathering");
+        events.send(Event::View(stepping(4, 4, true))).unwrap();
+        let batch = network.frame_events();
+        assert!(
+            matches!(batch.as_slice(), [Event::View(view)] if view.revision == 3 && carries_own_step(view)),
+            "one picture with the step and the shifted frame"
+        );
+        assert!(
+            network.frame_events().is_empty(),
+            "the next step gathers in turn"
+        );
+        events.send(Event::Ready).unwrap();
+        assert!(
+            matches!(network.frame_events().as_slice(), [Event::View(view)] if view.revision == 4)
+        );
+        assert!(!network.ready, "readiness follows the view it trails");
+        assert!(matches!(network.frame_events().as_slice(), [Event::Ready]));
+        assert!(network.ready);
+    }
+
+    #[test]
+    fn an_own_step_is_not_held_past_its_bound_on_a_stalled_stream() {
+        let (mut network, _, events) = Network::channels();
+        events.send(Event::View(stepping(1, 1, true))).unwrap();
+        assert!(network.frame_events().is_empty());
+        std::thread::sleep(STEP_GATHER + Duration::from_millis(10));
+        assert!(
+            matches!(network.frame_events().as_slice(), [Event::View(view)] if view.revision == 1)
+        );
     }
 
     #[test]

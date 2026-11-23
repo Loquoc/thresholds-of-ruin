@@ -1253,6 +1253,7 @@ impl Game {
                 snapshot.tick,
             )?,
             map_validation: Default::default(),
+            map_scenes: Default::default(),
             spatial_registry: context.spatial_root(snapshot.spatial)?,
             seed: snapshot.seed,
             tick: snapshot.tick,

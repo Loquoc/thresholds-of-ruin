@@ -214,11 +214,6 @@ pub(super) fn receive(
                 );
                 let fresh = game.last_revision != Some(view.revision);
                 game.last_revision = Some(view.revision);
-                // Ordered spatial facts are injected once by net, not replayed from
-                // retained picture history. They can arrive without a new revision.
-                // Spans are timed before this update's tick is placed, so their
-                // activity counts as covered rather than idle.
-                let timed = game.playback.time_spans(&view.activity);
                 // A fetch errand stops for a wound, or for a newcomer the
                 // player's settings say should interrupt.
                 if let Some(before) = &game.view {
@@ -253,7 +248,9 @@ pub(super) fn receive(
                         _ => None,
                     })
                     .fold(0.0, f64::max);
-                game.playback.schedule(&view.activity, happened, lead);
+                // Ordered spatial facts are injected once by net, not replayed from
+                // retained picture history. They can arrive without a new revision.
+                let timed = game.playback.time_view(&view.activity, happened, lead);
                 let walking = crate::playback::walking_from(&view, &game, &bodies);
                 let died: HashSet<ActorTarget> = view
                     .events
@@ -744,6 +741,7 @@ fn build_actors(
                 {
                     body.wearing = actor.wearing;
                     body.goal = goal;
+                    body.own = actor.is_self;
                     if body.name != actor.name || body.hostile != actor.hostile {
                         body.name.clone_from(&actor.name);
                         body.hostile = actor.hostile;
@@ -808,7 +806,8 @@ fn build_actors(
                     wearing: actor.wearing,
                     hostile: actor.hostile,
                     goal,
-                    path: None,
+                    walk: default(),
+                    own: actor.is_self,
                     label,
                     ring,
                     name: actor.name.clone(),
@@ -1117,8 +1116,9 @@ pub(super) fn tend_the_dead(
     mut game: ResMut<Game>,
     animations: Query<(&Anim, Has<creatures::Rig>)>,
     fading: Query<(), With<lighting::CorpseOpacity>>,
+    pace: Option<Res<crate::playback::Pace>>,
 ) {
-    let dt = time.delta_secs();
+    let dt = crate::playback::Pace::of(pace, time.delta_secs());
     game.dying.retain_mut(|body| {
         let (pose_step, linger, settled) = match animations.get(body.entity) {
             Ok((anim, true)) if anim.dead.is_some() => (

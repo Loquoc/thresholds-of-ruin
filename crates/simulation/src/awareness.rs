@@ -393,6 +393,20 @@ impl Game {
             if !self.awareness_eligible(observer) {
                 continue;
             }
+            // Contacts hold only perceived-hostile subjects. An observer with
+            // no engagement and no faction enemy present can perceive none,
+            // whatever it sees, so its view need not be projected at all.
+            if !self.may_perceive_hostility(observer) {
+                crate::diagnostics::awareness_observers_without_hostility();
+                if !self.actors[&observer].awareness.contacts.is_empty() {
+                    self.actors
+                        .get_mut(&observer)
+                        .expect("observer")
+                        .awareness
+                        .contacts = Vec::new();
+                }
+                continue;
+            }
             let (observer_at, subjects) = self.awareness_subjects(observer)?;
             let mut contacts = Vec::new();
             for candidate in subjects {
@@ -442,6 +456,31 @@ impl Game {
         }
         self.lifecycle.awareness_contexts.0 = tor_world::Shared::new(Some(witness));
         Ok(())
+    }
+    /// Whether `perceived_hostile` could hold for this observer and any
+    /// subject: it needs an engagement, or a faction enemy among the actors.
+    fn may_perceive_hostility(&self, observer: ActorId) -> bool {
+        let Some(actor) = self.actors.get(&observer) else {
+            return true;
+        };
+        if actor.engagement_at(self.actor_clock(observer)).is_some() {
+            return true;
+        }
+        let Some(enemies) = actor
+            .combat
+            .as_ref()
+            .and_then(|combat| self.combat.hostility.get(&combat.identity.faction))
+            .filter(|enemies| !enemies.is_empty())
+        else {
+            return false;
+        };
+        self.actors.keys().any(|&subject| {
+            subject != observer
+                && self.actors[&subject]
+                    .combat
+                    .as_ref()
+                    .is_some_and(|combat| enemies.contains(&combat.identity.faction))
+        })
     }
     fn resolve_awareness_contest(
         &mut self,
@@ -905,6 +944,74 @@ mod tests {
             "unchanged contact writes must not detach actor payloads"
         );
         assert!(game.actors.shares_actor_payload(&retained.actors, OWNER));
+    }
+
+    /// Invalidate the global witness so the next reconciliation rescans.
+    fn move_bystander(game: &mut Game) {
+        let remote = game
+            .spawn_actor(at(2, 2, 2), std::num::NonZeroU64::new(100).unwrap())
+            .unwrap();
+        game.reconcile_awareness().unwrap();
+        game.actors.get_mut(&remote).unwrap().location.position.x += 1;
+    }
+
+    #[test]
+    fn an_observer_with_no_one_to_be_hostile_toward_settles_without_projecting() {
+        // A hall of peaceful creatures: each sees the others, but contacts hold
+        // only perceived-hostile subjects, so no view needs projecting.
+        let mut game = encounter(false);
+        assert!(
+            game.actors[&OWNER].awareness.detected(SUBJECT),
+            "positive fixture"
+        );
+        game.combat.hostility.clear();
+        move_bystander(&mut game);
+        let rng = game.rules_rng;
+        let before = crate::diagnostics::work_counts();
+        game.reconcile_awareness().unwrap();
+        let after = crate::diagnostics::work_counts();
+        assert!(
+            game.actors[&OWNER].awareness.contacts.is_empty(),
+            "ended hostility clears the established contact"
+        );
+        assert_eq!(game.rules_rng, rng, "no contest is rolled");
+        assert_eq!(after.perception_projections, before.perception_projections);
+        assert_eq!(
+            after.awareness_subject_candidates,
+            before.awareness_subject_candidates
+        );
+        assert_eq!(
+            after.awareness_observers_without_hostility
+                - before.awareness_observers_without_hostility,
+            1
+        );
+    }
+
+    #[test]
+    fn an_engagement_alone_keeps_its_observer_projecting_and_its_contact() {
+        let mut game = encounter(false);
+        game.combat.hostility.clear();
+        let clock = game.actor_clock(OWNER);
+        game.actors.get_mut(&OWNER).unwrap().behavior.engagement =
+            Some(crate::behavior::Engagement {
+                reference: crate::perception::ActorReferenceKind::Creature,
+                target: SUBJECT,
+                location: game.actors[&SUBJECT].location,
+                last_seen: clock,
+            });
+        assert!(
+            game.actors[&OWNER].engagement_at(clock).is_some(),
+            "positive fixture: the engagement is current"
+        );
+        move_bystander(&mut game);
+        let before = crate::diagnostics::work_counts();
+        game.reconcile_awareness().unwrap();
+        let after = crate::diagnostics::work_counts();
+        assert!(after.perception_projections > before.perception_projections);
+        assert!(
+            game.actors[&OWNER].awareness.detected(SUBJECT),
+            "a personal engagement is perceived hostility without a faction enemy"
+        );
     }
 
     #[test]

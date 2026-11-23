@@ -126,7 +126,8 @@ fn actor_following_uses_the_world_camera_even_with_an_offscreen_camera() {
                 wearing: default(),
                 hostile: false,
                 goal: Vec3::new(2., 0., 3.),
-                path: None,
+                walk: default(),
+                own: false,
                 label,
                 ring,
                 name: "Actor".into(),
@@ -147,6 +148,76 @@ fn actor_following_uses_the_world_camera_even_with_an_offscreen_camera() {
     assert_eq!(
         *app.world().get::<Transform>(portrait).unwrap(),
         portrait_pose
+    );
+}
+
+#[test]
+fn the_camera_follows_the_walking_body_not_the_cell_ahead_of_it() {
+    // Travel discloses cells ahead of playback; the view must stay with the
+    // body as it walks, then return to the authoritative cell once it stops.
+    let mut app = App::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(std::time::Duration::from_secs_f32(1. / 60.));
+    let game = Game {
+        feet_world: IVec3::new(9, 0, 0),
+        snap_camera: true,
+        ..default()
+    };
+    app.insert_resource(time)
+        .insert_resource(game)
+        .insert_resource(CameraRig::default())
+        .insert_resource(interact::Panel::default())
+        .add_systems(Update, rig_camera);
+    app.world_mut().spawn((
+        Camera3d::default(),
+        Projection::default(),
+        Transform::default(),
+    ));
+    let label = app.world_mut().spawn_empty().id();
+    let ring = app.world_mut().spawn_empty().id();
+    let mut walk = crate::playback::Walk::default();
+    walk.push(crate::playback::Path {
+        from: Vec3::X,
+        to: Vec3::X * 2.0,
+        start: 100.0,
+        end: 101.0,
+        span: (0, 0),
+        skips: 0,
+    });
+    let presented = Vec3::new(1.5, -0.5, 0.0);
+    let body = app
+        .world_mut()
+        .spawn((
+            ActorBody {
+                appearance_seed: None,
+                appearance_key: "fixture".into(),
+                model: CreatureModel::Placeholder,
+                wearing: default(),
+                hostile: false,
+                goal: stand(IVec3::new(9, 0, 0)),
+                walk,
+                own: true,
+                label,
+                ring,
+                name: String::new(),
+                height: 1.8,
+            },
+            Transform::from_translation(presented),
+        ))
+        .id();
+    app.update();
+    let focus = app.world().resource::<CameraRig>().focus;
+    assert!(
+        focus.distance(presented + Vec3::Y * 0.65) < 1e-5,
+        "focus {focus} must be on the walking body"
+    );
+    app.world_mut().get_mut::<ActorBody>(body).unwrap().walk = default();
+    app.world_mut().resource_mut::<Game>().snap_camera = true;
+    app.update();
+    let focus = app.world().resource::<CameraRig>().focus;
+    assert!(
+        focus.distance(stand(IVec3::new(9, 0, 0)) + Vec3::Y * 0.65) < 1e-5,
+        "a body that stopped walking gives the view back to its cell, got {focus}"
     );
 }
 

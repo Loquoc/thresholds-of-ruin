@@ -99,7 +99,7 @@ struct ProjectedCells {
     index: OffsetIndex,
 }
 
-enum OffsetIndex {
+pub(crate) enum OffsetIndex {
     Dense {
         origin: Offset,
         size: [usize; 3],
@@ -109,7 +109,7 @@ enum OffsetIndex {
 }
 
 impl OffsetIndex {
-    fn new(offsets: &[Offset]) -> Self {
+    pub(crate) fn new(offsets: &[Offset]) -> Self {
         let dense = offsets.first().and_then(|&(x, y, z)| {
             let mut lo = [x, y, z];
             let mut hi = lo;
@@ -169,7 +169,7 @@ impl OffsetIndex {
         Some((x * size[1] + y) * size[2] + z)
     }
 
-    fn get(&self, offset: &Offset) -> Option<usize> {
+    pub(crate) fn get(&self, offset: &Offset) -> Option<usize> {
         match self {
             Self::Dense { slots, .. } => {
                 let value = slots[self.dense_slot(offset)?];
@@ -390,6 +390,12 @@ impl Game {
         if before.len() != after.len() {
             return true;
         }
+        // An observer whose cached scene carried over hands in the very same
+        // cells: a scene is never changed relative to itself.
+        if std::ptr::eq(before, after) {
+            return false;
+        }
+        crate::diagnostics::navigation_scene_cells_compared(before.len());
         let Some((first, next)) = before.first().zip(after.first()) else {
             return false;
         };
@@ -882,6 +888,26 @@ mod refresh_tests {
         assert!(game.navigation_scene_changed(&[cell], &[translated]));
         assert!(!game.navigation_scene_changed(&[cell], &[cell]));
         assert!(game.navigation_scene_changed(&[cell], &[]));
+        // An observer whose cached scene carried over across an action hands
+        // in the same cells: that needs no comparison, while an equal copy
+        // is still compared cell by cell.
+        let scene = vec![cell; 64];
+        let copy = scene.clone();
+        let before = crate::diagnostics::work_counts();
+        assert!(!game.navigation_scene_changed(&scene, &scene));
+        let shared = crate::diagnostics::work_counts();
+        assert!(!game.navigation_scene_changed(&scene, &copy));
+        let copied = crate::diagnostics::work_counts();
+        assert_eq!(
+            shared.navigation_scene_cells_compared - before.navigation_scene_cells_compared,
+            0,
+            "a scene is never changed relative to itself"
+        );
+        assert_eq!(
+            copied.navigation_scene_cells_compared - shared.navigation_scene_cells_compared,
+            64,
+            "an equal copy is still compared"
+        );
     }
 
     #[test]

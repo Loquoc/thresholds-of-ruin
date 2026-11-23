@@ -228,8 +228,10 @@ pub fn effects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut bolts: Query<(Entity, &mut Bolt, &mut Transform), Without<Fade>>,
     mut fades: Query<(Entity, &mut Fade, &mut Transform), Without<Bolt>>,
+    pace: Option<Res<crate::playback::Pace>>,
 ) {
-    let delta = time.delta();
+    // Flights play at the presentation pace, like every other animation.
+    let delta = time.delta().mul_f32(crate::playback::Pace::of(pace, 1.0));
     let dt = delta.as_secs_f32();
     for (e, mut bolt, mut transform) in &mut bolts {
         let travel_dt = if !bolt.delay.is_zero() {
