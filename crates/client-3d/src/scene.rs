@@ -613,12 +613,15 @@ fn build_actors(
     game.actors.retain(|id, entity| {
         let keep = present.contains(id);
         if !keep {
-            game.hands.remove(entity);
+            let hand = game.hands.remove(entity);
             if let Ok(body) = bodies.get(*entity) {
                 commands.entity(body.label).despawn();
                 game.labels.remove(&body.label);
                 commands.entity(body.ring).insert(Visibility::Hidden);
                 if died.contains(id) {
+                    if let Some(hand) = hand {
+                        commands.entity(hand).insert(FallenGrip);
+                    }
                     commands.entity(*entity).remove::<crate::picking::Pick>();
                     let cell = IVec3::new(
                         body.goal.x.round() as i32,
@@ -1458,7 +1461,35 @@ fn update_held(
     }
 }
 
-/// Shared attachment for disclosed equipped props and bounded Human review fixtures.
+/// A Centaur's authored spear is part of its cosmetic look, not evidence of
+/// equipment. Its grip must never show both that spear and a disclosed item.
+pub(crate) fn prefer_disclosed_weapon(
+    mut spears: Query<(&ChildOf, &mut Visibility), With<creatures::AuthoredCentaurSpear>>,
+    grips: Query<&Children, (Changed<Children>, Without<FallenGrip>)>,
+    held: Query<(), With<HeldItemProp>>,
+) {
+    for (grip, mut visibility) in &mut spears {
+        let Ok(children) = grips.get(grip.parent()) else {
+            continue;
+        };
+        let wanted = if children.iter().any(|child| held.contains(child)) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        visibility.set_if_neq(wanted);
+    }
+}
+
+/// Freeze the cosmetic grip on the retained body. Actual equipment still
+/// leaves the hand normally and is only shown on the floor if disclosed.
+#[derive(Component)]
+pub(crate) struct FallenGrip;
+
+#[derive(Component)]
+pub(crate) struct HeldItemProp;
+
+/// Shared attachment for disclosed equipped props and bounded review fixtures.
 pub(crate) fn spawn_held_item(
     commands: &mut Commands,
     library: &mut PropLibrary,
@@ -1469,7 +1500,11 @@ pub(crate) fn spawn_held_item(
 ) -> Entity {
     let model = library.item_surface(kind, surface, meshes);
     let held = commands
-        .spawn((crate::props::held_transform(kind), Visibility::default()))
+        .spawn((
+            crate::props::held_transform(kind),
+            Visibility::default(),
+            HeldItemProp,
+        ))
         .with_children(|parent| model.attach(parent))
         .id();
     commands.entity(hand).add_child(held);

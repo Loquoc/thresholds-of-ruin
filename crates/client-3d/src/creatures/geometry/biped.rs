@@ -1542,6 +1542,7 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
                 &name,
                 skirt_scale,
                 belted_tassets,
+                skirt.swing_ease,
                 build,
             )
         } else {

@@ -470,3 +470,133 @@ fn composed_rogue_garter_clears_the_resting_skirt() {
         }
     }
 }
+
+#[test]
+fn quagga_fore_and_hind_hoof_surfaces_clear_at_a_slow_walk() {
+    let look = Look::of(CreatureModel::Quagga, 17);
+    let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+    let root = world
+        .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+        .unwrap()
+        .parent();
+    let mut anim = Anim::new(17, Vec3::ZERO);
+    anim.yaw = 0.0;
+    anim.target_yaw = Some(0.0);
+    world.entity_mut(root).insert((rig, anim));
+    world.insert_resource(meshes);
+    world.insert_resource(Time::<()>::default());
+    let mut frame = crate::review_script::animation_schedule();
+    let mut failures = Vec::new();
+    for tick in 1..=62 {
+        world
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(20));
+        if (5..=55).contains(&tick) {
+            world.get_mut::<Transform>(root).unwrap().translation.z += 0.65 / 50.0;
+        }
+        frame.run(&mut world);
+        let rig = world.get::<Rig>(root).unwrap();
+        for (front, back) in [(J::HoofFL, J::HoofBL), (J::HoofFR, J::HoofBR)] {
+            let fore = triangles(&world, rig.joint(front).unwrap(), Affine3A::IDENTITY);
+            let hind = triangles(&world, rig.joint(back).unwrap(), Affine3A::IDENTITY);
+            assert!(fore.len() > 8 && hind.len() > 8);
+            let contacts = fore
+                .iter()
+                .flat_map(|&f| hind.iter().filter_map(move |&h| crossing(f, h)))
+                .count();
+            if contacts > 0 {
+                failures.push((tick, front, back, contacts));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "same-side hooves cross: {failures:?}");
+}
+
+#[test]
+fn leprechaun_cutaway_clears_thighs_behind_the_opening() {
+    let mut failures = Vec::new();
+    for (woman, build) in [(false, 2), (true, 1)] {
+        let look = Look::with_choice(
+            CreatureModel::Leprechaun,
+            42,
+            Some(Variant {
+                woman,
+                build,
+                ..default()
+            }),
+        );
+        let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+        let root = world
+            .get::<ChildOf>(rig.joint(J::Lift).unwrap())
+            .unwrap()
+            .parent();
+        let at = Vec3::new(0.0, -0.5, 0.0);
+        let mut anim = Anim::new(42, at);
+        anim.yaw = 0.0;
+        anim.target_yaw = Some(0.0);
+        *world.get_mut::<Transform>(root).unwrap() = Transform::from_translation(at);
+        world.entity_mut(root).insert((rig, anim));
+        world.insert_resource(meshes);
+        world.insert_resource(Time::<()>::default());
+        let mut advance = crate::review_script::animation_schedule();
+        let mut refresh = Schedule::default();
+        refresh.add_systems(
+            (
+                refresh_pose,
+                bevy::transform::systems::mark_dirty_trees,
+                bevy::transform::systems::sync_simple_transforms,
+                bevy::transform::systems::propagate_parent_transforms,
+            )
+                .chain(),
+        );
+        for tick in 0..=65 {
+            world.resource_mut::<Time>().advance_by(if tick == 0 {
+                Duration::ZERO
+            } else {
+                Duration::from_millis(20)
+            });
+            if (3..=28).contains(&tick) {
+                world.get_mut::<Transform>(root).unwrap().translation.z += 0.7 / 50.0;
+            }
+            advance.run(&mut world);
+            if tick == 40 {
+                world.get_mut::<Anim>(root).unwrap().act(Move::Heavy);
+                world.entity_mut(root).insert(PoseRefresh);
+            }
+            if ![0, 18, 65].contains(&tick) {
+                continue;
+            }
+            refresh.run(&mut world);
+            let rig = world.get::<Rig>(root).unwrap();
+            let hip = world
+                .get::<GlobalTransform>(rig.joint(J::Hips).unwrap())
+                .unwrap()
+                .affine()
+                .inverse();
+            let body: Vec<_> = [J::LegL, J::LegR]
+                .into_iter()
+                .flat_map(|j| triangles(&world, rig.joint(j).unwrap(), hip))
+                .collect();
+            assert!(body.len() > 100);
+            let skirt = triangles(&world, rig.skirt_layers[0], hip);
+            let mut hits = Vec::new();
+            for face in skirt {
+                for &thigh in &body {
+                    if let Some(p) = crossing(face, thigh)
+                        .filter(|p| p.y < -0.035 && p.z > 0.0 && p.x.abs() > 0.065)
+                    {
+                        hits.push(p);
+                    }
+                }
+            }
+            if !hits.is_empty() {
+                failures.push(format!(
+                    "woman={woman} build={build} tick={tick}: {} crossings near {:?}",
+                    hits.len(),
+                    hits[0]
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

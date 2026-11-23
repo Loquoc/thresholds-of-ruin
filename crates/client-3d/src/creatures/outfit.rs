@@ -597,6 +597,8 @@ pub(crate) struct Skirt {
     pub split: f32,
     pub trim: Option<Vec3>,
     pub cutaway: bool,
+    /// Extra room that opens over the upper fronts as the thighs swing.
+    pub swing_ease: f32,
     /// Narrow central drape between a pair of thigh openings, angular half-width.
     pub center_panel: Option<f32>,
     /// Explicit level waist seam; otherwise paired panels use the raised royal cut.
@@ -631,6 +633,7 @@ impl Skirt {
         split: 0.0,
         trim: None,
         cutaway: false,
+        swing_ease: 0.0,
         center_panel: None,
         waistline: None,
         hem: Hem::Even,

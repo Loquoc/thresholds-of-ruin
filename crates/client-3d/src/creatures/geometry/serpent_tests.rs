@@ -385,3 +385,50 @@ fn raised_snake_does_not_snap_down_at_the_start_of_death() {
         assert_eq!(app.world().get::<Anim>(actor).unwrap().dead, Some(1.0));
     }
 }
+
+#[test]
+fn rattlesnake_releases_an_interrupted_bite_into_the_fall() {
+    let bite = Move::for_ability("rogue.venomous_bite", None);
+    for (motion, face_corridor) in [
+        (DeathMotion::Collapse, false),
+        (DeathMotion::Stagger, false),
+        (DeathMotion::Dramatic, false),
+        (DeathMotion::Collapse, true),
+    ] {
+        let (mut app, root) =
+            animate_look(Look::of(CreatureModel::Rattlesnake, 42), 12, |_| Vec3::ZERO);
+        app.world_mut().get_mut::<Anim>(root).unwrap().act(bite);
+        for _ in 0..16 {
+            app.update();
+        }
+        let rig = app.world().get::<Rig>(root).unwrap();
+        let (head, tail) = (rig.segments[0], *rig.segments.last().unwrap());
+        let at =
+            |app: &App| [head, tail].map(|e| app.world().get::<Transform>(e).unwrap().translation);
+        let mut prior = at(&app);
+        assert!(prior[0].z > 0.81, "fixture must begin at bite contact");
+        app.world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .start_death(motion, face_corridor);
+        for step in 0..28 {
+            app.update();
+            let points = at(&app);
+            for (old, new) in prior.into_iter().zip(points) {
+                assert!(
+                    old.distance(new) < 0.052,
+                    "{motion:?} facing={face_corridor} step {step}: {old:?} snapped to {new:?}"
+                );
+            }
+            prior = points;
+        }
+        for _ in 0..230 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Anim>(root).unwrap().dead, Some(1.0));
+        assert!(
+            (at(&app)[0].y - snake_ground_height(0, 2.6, Style::Rattlesnake)).abs() < 1.0e-6,
+            "interrupted bite must settle at the normal rolled head height"
+        );
+    }
+}

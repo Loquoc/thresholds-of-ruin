@@ -11,7 +11,7 @@ fn turn(a: f32) -> Quat {
 }
 
 /// Gather and strike envelopes shared by every offensive move.
-fn timing(m: Move, t: f32) -> (f32, f32, f32) {
+pub(super) fn timing(m: Move, t: f32) -> (f32, f32, f32) {
     let hit = m.impact();
     let gather = envelope(t, 0.0, hit * 0.55, hit - 0.1, hit);
     let strike = envelope(t, hit - 0.07, hit, hit + 0.06, 1.0);
@@ -33,40 +33,64 @@ fn mantle(p: &mut Pose, k: f32) {
 // ---------------------------------------------------------------------------
 // Fliers.
 
+/// Lift the far hand as a distraction while the near hand darts toward
+/// the target's belt, then turn the reach inward before settling.
+pub(super) fn filch(p: &mut Pose, phase: f32) {
+    let feint = envelope(phase, 0.0, 0.20, 0.34, 0.64);
+    let reach = envelope(phase, 0.18, 0.40, 0.44, 0.59);
+    let pocket = envelope(phase, 0.42, 0.66, 0.76, 1.0);
+    p.r(J::ArmL, roll(0.48 * feint) * fwd(0.72 * feint));
+    p.r(J::ForeL, fwd(0.86 * feint));
+    p.r(J::HandL, fwd(-0.38 * feint));
+    p.r(
+        J::ArmR,
+        fwd(0.18 * feint + 1.29 * reach + 0.39 * pocket) * roll(-0.13 * reach + 0.34 * pocket),
+    );
+    p.r(J::ForeR, fwd(0.08 * reach + 0.69 * pocket));
+    p.r(
+        J::HandR,
+        fwd(-0.22 * reach + 0.19 * pocket) * turn(-0.50 * pocket),
+    );
+    p.r(
+        J::Torso,
+        turn(-0.22 * feint + 0.22 * reach - 0.18 * pocket) * bow(0.20 * reach),
+    );
+    p.r(
+        J::Head,
+        turn(0.23 * feint - 0.28 * pocket) * bow(0.08 * reach),
+    );
+}
+
 pub(super) fn flier_pose(
     p: &mut Pose,
-    rig: &Rig,
-    a: &Anim,
-    s: f32,
-    breath: f32,
-    m: Option<Move>,
-    t: f32,
+    style: Style,
+    clock: f32,
+    seed: f32,
+    speed: f32,
+    action: Option<(Move, f32)>,
 ) {
-    let bat = rig.style == Style::Bat;
-    let alive = if a.dead.is_none() { 1.0 } else { 0.0 };
-    let time = a.time + a.seed;
+    let bat = style == Style::Bat;
+    let time = clock + seed;
+    let breath = (clock * 1.8 + seed).sin();
     let rate = if bat { 3.4 } else { 2.6 };
     let phase = time * TAU * rate;
     // A kestrel hangs on the wind in bursts of beats, then glides; a bat
     // never stops beating and jinks from side to side.
     let glide = if bat { 0.0 } else { every(time, 6.0, 3.4, 5.8) };
-    let amp = (if bat { 0.8 } else { 0.62 }) * (1.0 - 0.8 * glide) * alive;
+    let amp = (if bat { 0.8 } else { 0.62 }) * (1.0 - 0.8 * glide);
     let beat = phase.sin() * amp;
-    let dihedral = 0.18 * glide * alive;
+    let dihedral = 0.18 * glide;
     let jink = if bat { (time * 1.7).sin() * 0.07 } else { 0.0 };
     p.o(
         J::Lift,
         Vec3::new(
-            jink * alive,
-            (-0.05 * phase.cos() * amp + 0.04 * (time * 0.8).sin()) * alive,
+            jink,
+            -0.05 * phase.cos() * amp + 0.04 * (time * 0.8).sin(),
             0.0,
         ),
     );
-    p.r(J::Lift, roll(-jink * 1.5 * alive));
-    p.r(
-        J::Body,
-        bow((0.3 * s + 0.06 * beat + breath * 0.01) * alive),
-    );
+    p.r(J::Lift, roll(-jink * 1.5));
+    p.r(J::Body, bow(0.3 * speed + 0.06 * beat + breath * 0.01));
     let sweep = 0.22 * phase.cos() * amp;
     p.r(J::WingL, roll(beat + dihedral) * turn(-sweep));
     p.r(J::WingR, roll(-beat - dihedral) * turn(sweep));
@@ -74,12 +98,12 @@ pub(super) fn flier_pose(
     p.r(J::WingTipL, roll(lag));
     p.r(J::WingTipR, roll(-lag));
     // The head stays level while the body rises and falls beneath it.
-    p.r(J::Neck, bow((-0.3 * s - 0.06 * beat) * alive));
+    p.r(J::Neck, bow(-0.3 * speed - 0.06 * beat));
     p.r(J::Tail, bow(-0.12 * beat) * roll(0.1 * jink));
     for leg in [J::LegL, J::LegR] {
-        p.r(leg, fwd(-0.9 * alive));
+        p.r(leg, fwd(-0.9));
     }
-    let Some(m) = m else {
+    let Some((m, t)) = action else {
         return;
     };
     let (gather, strike, act) = timing(m, t);
@@ -94,7 +118,10 @@ pub(super) fn flier_pose(
                 -0.12 * gather + 0.42 * strike,
             ),
         );
-        p.r(J::Body, bow(-0.35 * gather + 0.55 * strike));
+        // Both dive, but the raptor flares its chest at contact to
+        // swing its talons past its beak. The bat still leads with its jaw.
+        let contact_pitch = if bat { 0.55 } else { -1.23 };
+        p.r(J::Body, bow(-0.35 * gather + contact_pitch * strike));
         p.r(J::WingL, roll(0.9 * gather - 0.3 * strike));
         p.r(J::WingR, roll(-0.9 * gather + 0.3 * strike));
         if bat {
@@ -105,10 +132,10 @@ pub(super) fn flier_pose(
             p.r(J::Head, bow(0.05 * strike));
         } else {
             for (leg, shin) in [(J::LegL, J::ShinL), (J::LegR, J::ShinR)] {
-                p.r(leg, fwd(1.9 * strike));
-                p.r(shin, fwd(0.5 * strike));
+                p.r(leg, fwd(1.45 * strike));
+                p.r(shin, fwd(0.35 * strike));
             }
-            p.r(J::Head, bow(0.25 * strike));
+            p.r(J::Head, bow(1.30 * strike));
         }
     } else {
         // Flare: wings wide, body upright, hanging in the air.
@@ -117,6 +144,50 @@ pub(super) fn flier_pose(
         p.r(J::WingR, roll(-0.35 * act));
         p.o(J::Lift, Vec3::Y * 0.1 * act);
     }
+}
+
+/// An entry blend counts live corridor pre-roll as elapsed time, but an
+/// explicit replay seek into the fall cannot resurrect that entry pose.
+fn fall_entry(a: &Anim, seconds: f32) -> Option<(DeathEntry, f32)> {
+    let (entry, phase) = (a.death_entry?, a.dead?);
+    let elapsed = (a.time - entry.started_at).max(phase.max(0.0) * a.death_motion.duration());
+    let fall = ease(elapsed / seconds);
+    (fall < 1.0).then_some((entry, fall))
+}
+
+/// Carry the last wing stroke and air position into the authored fall.
+pub(super) fn release_flier_pose(p: &mut Pose, style: Style, a: &Anim) {
+    let Some((entry, fall)) = fall_entry(a, 0.24) else {
+        return;
+    };
+    let mut live = Pose::new();
+    flier_pose(
+        &mut live,
+        style,
+        entry.started_at,
+        a.seed,
+        entry.speed,
+        entry.action,
+    );
+    for j in [
+        J::Lift,
+        J::Body,
+        J::WingL,
+        J::WingR,
+        J::WingTipL,
+        J::WingTipR,
+        J::Neck,
+        J::Head,
+        J::Tail,
+        J::Jaw,
+        J::LegL,
+        J::LegR,
+        J::ShinL,
+        J::ShinR,
+    ] {
+        p.rot[j as usize] = live.rot[j as usize].slerp(p.rot[j as usize], fall);
+    }
+    p.off[J::Lift as usize] = live.off[J::Lift as usize].lerp(p.off[J::Lift as usize], fall);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,18 +213,18 @@ pub(super) fn ice_touch_fan(side: f32, lag: f32, gather: f32, reach: f32) -> (Ve
 // ---------------------------------------------------------------------------
 // The flytrap.
 
-pub(super) fn rooted_pose(p: &mut Pose, a: &Anim, breath: f32, m: Option<Move>, t: f32) {
-    let alive = if a.dead.is_none() { 1.0 } else { 0.0 };
-    let time = a.time + a.seed * 3.7;
-    let sway = (time * 0.7).sin() * alive;
+pub(super) fn rooted_pose(p: &mut Pose, clock: f32, seed: f32, action: Option<(Move, f32)>) {
+    let breath = (clock * 1.8 + seed).sin();
+    let time = clock + seed * 3.7;
+    let sway = (time * 0.7).sin();
     p.r(J::Neck, roll(sway * 0.07) * bow(0.04 * breath));
     p.r(
         J::Torso,
-        roll(-sway * 0.06) * bow((0.12 + 0.04 * (time * 0.9).sin()) * alive),
+        roll(-sway * 0.06) * bow(0.12 + 0.04 * (time * 0.9).sin()),
     );
     // At rest the trap hangs a little open, breathing.
-    let mut gape = (0.55 + 0.10 * (time * 0.8).sin()) * alive;
-    if let Some(m) = m {
+    let mut gape = 0.55 + 0.10 * (time * 0.8).sin();
+    if let Some((m, t)) = action {
         let (gather, strike, act) = timing(m, t);
         if m.offensive() {
             // Draw back gaping, then bend the stalk forward. Counter
@@ -170,6 +241,19 @@ pub(super) fn rooted_pose(p: &mut Pose, a: &Anim, breath: f32, m: Option<Move>, 
     let gape = gape.clamp(0.0, 1.0);
     p.r(J::Head, bow(-0.55 * gape));
     p.r(J::Jaw, bow(1.5 * gape));
+}
+
+/// Let both lobes close from their last living gape while the stalk starts
+/// wilting. Only the joints above the roots change, not the base or targeting.
+pub(super) fn release_rooted_pose(p: &mut Pose, a: &Anim) {
+    let Some((entry, fall)) = fall_entry(a, 0.24) else {
+        return;
+    };
+    let mut live = Pose::new();
+    rooted_pose(&mut live, entry.started_at, a.seed, entry.action);
+    for j in [J::Neck, J::Torso, J::Head, J::Jaw] {
+        p.rot[j as usize] = live.rot[j as usize].slerp(p.rot[j as usize], fall);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +524,17 @@ fn aquator_fall_contacts(p: &mut Pose, rig: &Rig, side: f32, fall: f32) {
             weight,
         );
     }
+}
+
+/// A long neck needs to yield sideways at the end of the fall: bowing
+/// forward alone leaves the head suspended once the body is on its flank.
+pub(super) fn settle_winged_beast_head(p: &mut Pose, style: Style, fall: f32, side: f32) {
+    let drop = match style {
+        Style::Dragon => 0.42,
+        Style::Griffin => 0.34,
+        _ => return,
+    };
+    p.r(J::Neck, roll(side * drop * ease((fall - 0.25) / 0.75)));
 }
 
 /// The long winged-beast tails trail onto the floor instead of sticking up
@@ -892,17 +987,18 @@ pub(super) fn place(
     let fun = w * fun * f32::from(u8::from(m.is_none() && a.dead.is_none()));
     match rig.style {
         Style::Medusa => {
-            let (gather, strike, aiming) = match (a.dead, a.gaze_death_entry) {
-                (Some(phase), Some(gaze_phase)) => {
-                    // Preserve just the crown articulation, not the cancelled
-                    // gaze action or its gameplay/whole-body presentation.
-                    let elapsed = phase.max(0.0) * a.death_motion.duration();
-                    let release = 1.0 - ease(elapsed / 0.18);
-                    let (g, s, _) = timing(Move::Gaze, gaze_phase);
-                    (g * release, s * release, true)
-                }
-                _ => (gather, strike, m == Some(Move::Gaze)),
-            };
+            let (gather, strike, aiming) =
+                match (a.dead, a.death_entry.and_then(|entry| entry.action)) {
+                    (Some(phase), Some((Move::Gaze, gaze_phase))) => {
+                        // Preserve just the crown articulation, not the cancelled
+                        // gaze action or its gameplay/whole-body presentation.
+                        let elapsed = phase.max(0.0) * a.death_motion.duration();
+                        let release = 1.0 - ease(elapsed / 0.18);
+                        let (g, s, _) = timing(Move::Gaze, gaze_phase);
+                        (g * release, s * release, true)
+                    }
+                    _ => (gather, strike, m == Some(Move::Gaze)),
+                };
             for (i, e) in rig.segments.iter().enumerate() {
                 let f = i as f32;
                 if let Ok(mut transform) = joints.get_mut(*e) {

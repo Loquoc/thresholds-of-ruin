@@ -158,6 +158,15 @@ fn project(
     mut bodies: Query<&mut ActorBody>,
 ) {
     align(&mut commands, &mut game, &view.0);
+    let died = view
+        .0
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Happening::Died(id) => Some(*id),
+            _ => None,
+        })
+        .collect();
     build_actors(
         &mut commands,
         &mut game,
@@ -166,8 +175,9 @@ fn project(
         &mut meshes,
         &view.0,
         &mut bodies,
-        &HashSet::new(),
+        &died,
     );
+    game.pending.extend(view.0.events.iter().cloned());
     build_items(&mut commands, &mut game, &mut library, &mut meshes, &view.0);
     game.view = Some(view.0.clone());
 }
@@ -550,6 +560,143 @@ fn other_figures_hold_their_disclosed_weapon_and_nothing_when_none_is_disclosed(
         app.world().get_entity(model).is_err(),
         "the mace is removed"
     );
+}
+
+#[test]
+fn centaur_disclosed_weapon_replaces_its_authored_spear_without_rebuilding() {
+    let mut app = app(CreatureModel::Centaur);
+    app.add_systems(Update, present_held.after(project))
+        .add_systems(PostUpdate, prefer_disclosed_weapon);
+    update(&mut app);
+    let body = *app
+        .world()
+        .resource::<Game>()
+        .actors
+        .values()
+        .next()
+        .unwrap();
+    let hand = app.world().resource::<Game>().hands[&body];
+    let visible_props = |app: &App| {
+        let world = app.world();
+        world
+            .get::<Children>(hand)
+            .unwrap()
+            .iter()
+            .filter(|&entity| world.get::<Visibility>(entity) != Some(&Visibility::Hidden))
+            .count()
+    };
+    let authored = app.world().get::<Children>(hand).unwrap()[0];
+    assert!(
+        app.world()
+            .get::<creatures::AuthoredCentaurSpear>(authored)
+            .is_some(),
+        "installing generated geometry must keep the cosmetic spear marker"
+    );
+    assert_eq!(
+        visible_props(&app),
+        1,
+        "native Centaur has an authored spear"
+    );
+    for weapon in [ItemModel::Mace, ItemModel::ShortSword] {
+        app.world_mut().resource_mut::<Fixture>().0.actors[0]
+            .wearing
+            .weapons[0] = Some(weapon);
+        update(&mut app);
+        assert_eq!(app.world().resource::<Game>().hands[&body], hand);
+        assert_eq!(held_one(&app).1 .0, weapon);
+        assert_eq!(
+            visible_props(&app),
+            1,
+            "only the disclosed weapon should be shown"
+        );
+    }
+    app.world_mut().resource_mut::<Fixture>().0.actors[0]
+        .wearing
+        .weapons[0] = None;
+    update(&mut app);
+    assert_eq!(app.world().resource::<Game>().hands[&body], hand);
+    assert!(app.world().resource::<Game>().held.is_empty());
+    assert_ne!(
+        app.world().get::<Visibility>(authored),
+        Some(&Visibility::Hidden)
+    );
+    assert_eq!(
+        visible_props(&app),
+        1,
+        "restore native spear without rebuilding"
+    );
+}
+
+#[test]
+fn centaur_fall_does_not_replace_removed_equipment_with_a_decorative_spear() {
+    for weapon in [None, Some(ItemModel::Mace)] {
+        let mut app = app(CreatureModel::Centaur);
+        app.add_systems(Update, react.after(refresh_held))
+            .add_systems(PostUpdate, prefer_disclosed_weapon);
+        let id = {
+            let mut fixture = app.world_mut().resource_mut::<Fixture>();
+            fixture.0.actors[0].wearing.weapons[0] = weapon;
+            fixture.0.actors[0].id
+        };
+        update(&mut app);
+        let game = app.world().resource::<Game>();
+        let body = game.actors[&id];
+        let hand = game.hands[&body];
+        let spear = app
+            .world()
+            .get::<creatures::Rig>(body)
+            .unwrap()
+            .joint(J::CentaurSpear)
+            .unwrap();
+        let held = game.held.get(&hand).map(|(_, prop)| *prop);
+        assert_eq!(held.is_some(), weapon.is_some());
+        let expected = if weapon.is_some() {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        assert_eq!(app.world().get::<Visibility>(spear), Some(&expected));
+
+        let drop_id = tor_protocol::ItemTarget::from_digest([91; 32]);
+        {
+            let mut fixture = app.world_mut().resource_mut::<Fixture>();
+            let actor = fixture.0.actors.pop().unwrap();
+            fixture.0.events.push(Happening::Died(id));
+            if let Some(model) = weapon {
+                fixture.0.items.push(tor_client_3d_model::GroundItem {
+                    surface: ItemSurface::Neutral,
+                    corpse_seed: None,
+                    corpse_model: CreatureModel::Placeholder,
+                    model,
+                    id: drop_id,
+                    name: "mace".into(),
+                    class: ItemClass::Weapon,
+                    quantity: 1,
+                    description: String::new(),
+                    position: actor.position,
+                    reachable: true,
+                });
+            }
+        }
+        update(&mut app);
+        let game = app.world().resource::<Game>();
+        assert_eq!(game.dying[0].entity, body);
+        assert_eq!(game.items.len(), usize::from(weapon.is_some()));
+        if let Some(drop) = game.items.first() {
+            assert!(matches!(
+                app.world().get::<crate::picking::Pick>(*drop).unwrap().0,
+                tor_client_3d_model::Focus::Item(target) if target == drop_id
+            ));
+        }
+        assert!(app.world().get::<Anim>(body).unwrap().dead.is_some());
+        assert!(game.held.is_empty());
+        assert!(held.is_none_or(|prop| app.world().get_entity(prop).is_err()));
+        assert_eq!(
+            app.world().get::<Visibility>(spear),
+            Some(&expected),
+            "the falling body must not acquire a spear it didn't show when alive"
+        );
+    }
 }
 
 #[test]

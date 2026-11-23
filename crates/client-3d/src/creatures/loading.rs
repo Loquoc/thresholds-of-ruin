@@ -207,6 +207,7 @@ impl Prepared {
             transfer!(Aabb);
             transfer!(crate::picking::LooseBounds);
             transfer!(BodySurface);
+            transfer!(AuthoredCentaurSpear);
             transfer!(PointLight);
             if let Some(mesh) = node.take::<Mesh3d>() {
                 world

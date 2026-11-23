@@ -60,11 +60,14 @@ impl DeathMotion {
 }
 
 pub(super) fn perform(p: &mut Pose, rig: &Rig, anim: &Anim, phase: f32) {
+    let side = if anim.seed > 5.0 { 1.0 } else { -1.0 };
+    if anim.death_motion == DeathMotion::Collapse && rig.plan == Plan::Biped {
+        heavy_biped_collapse(p, rig.style, phase, side);
+    }
     let (brace, flourish) = anim.death_motion.beats(phase);
     if brace == 0.0 && flourish == 0.0 {
         return;
     }
-    let side = if anim.seed > 5.0 { 1.0 } else { -1.0 };
     let wobble = (phase * 42.0).sin() * flourish;
     let tilt = |angle| Quat::from_rotation_z(side * angle);
     let splay = |side: f32, angle| Quat::from_rotation_z(side * angle);
@@ -170,6 +173,33 @@ pub(super) fn perform(p: &mut Pose, rig: &Rig, anim: &Anim, phase: f32) {
     }
 }
 
+/// Let the heavier bipeds lose their knees before the shoulders come down.
+/// The downhill leg provides the last bit of support; the other leg folds
+/// more sharply. Rejoin the shared corpse pose before the body settles.
+fn heavy_biped_collapse(p: &mut Pose, style: Style, phase: f32, side: f32) {
+    let character = match style {
+        Style::Yeti => 1.0,
+        Style::Troll => 0.82,
+        _ => return,
+    };
+    let fold = character * envelope(phase, 0.0, 0.35, 0.51, 0.89);
+    if fold == 0.0 {
+        return;
+    }
+    let (support, loose) = if side > 0.0 {
+        (BIPED_LEGS[1], BIPED_LEGS[0])
+    } else {
+        (BIPED_LEGS[0], BIPED_LEGS[1])
+    };
+    for ((thigh, shin, foot), reach, bend) in [(support, 0.18, 0.36), (loose, 0.43, 0.92)] {
+        p.r(thigh, fwd(reach * fold));
+        p.r(shin, fwd(-bend * fold));
+        p.r(foot, fwd((bend - reach) * 0.55 * fold));
+    }
+    p.o(J::Lift, Vec3::NEG_Y * (0.045 * fold));
+    p.r(J::Torso, bow(0.20 * fold));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +232,89 @@ mod tests {
         assert_eq!(Collapse.beats(0.42), (0.0, 0.0));
         assert_eq!(Stagger.beats(0.42), (0.0, 0.0));
         assert!(Dramatic.beats(0.42).1 > 0.9);
+    }
+
+    #[test]
+    fn heavy_bipeds_fold_the_loose_knee_without_losing_the_shared_corpse_pose() {
+        use crate::creatures::rogue_tests::{points_under, spawn_one};
+
+        for model in [
+            CreatureModel::Yeti,
+            CreatureModel::Troll,
+            CreatureModel::Orc,
+        ] {
+            for build in 0..3 {
+                let look = Look::with_choice(model, 42, Some(Variant { build, ..default() }));
+                let (world, rig, _, meshes) = spawn_one(&look);
+                let sole_points = BIPED_LEGS.map(|(_, _, foot)| {
+                    let points = points_under(&world, &meshes, rig.joint(foot).unwrap());
+                    assert!(!points.is_empty());
+                    points
+                });
+                let lowest = |pose: &Pose| {
+                    BIPED_LEGS
+                        .into_iter()
+                        .enumerate()
+                        .map(|(leg, (thigh, knee, foot))| {
+                            let frame = [J::Lift, J::Hips, thigh, knee, foot].into_iter().fold(
+                                Affine3A::IDENTITY,
+                                |frame, joint| {
+                                    let i = joint as usize;
+                                    let at = pose.off[i]
+                                        + if joint == J::Lift {
+                                            Vec3::ZERO
+                                        } else {
+                                            rig.rest[i]
+                                        };
+                                    frame * Affine3A::from_rotation_translation(pose.rot[i], at)
+                                },
+                            );
+                            sole_points[leg]
+                                .iter()
+                                .map(|&point| frame.transform_point3(point).y)
+                                .fold(f32::INFINITY, f32::min)
+                        })
+                        .fold(f32::INFINITY, f32::min)
+                };
+                for seed in [2.0, 7.0] {
+                    for phase in [0.0, 0.20, 0.35, 0.48, 0.62, 0.76, 0.9, 1.0] {
+                        let mut anim = Anim::new(42, Vec3::ZERO);
+                        anim.seed = seed;
+                        anim.preview_death(DeathMotion::Collapse);
+                        anim.dead = Some(phase);
+                        let mut ordinary = Pose::new();
+                        biped_pose(&mut ordinary, &rig, 0.0, 0.0, 0.0, None, anim.carriage);
+                        death_pose(&mut ordinary, &rig, ease(phase), seed);
+                        let shaped = pose(&rig, &mut anim, 0.0, 0.0, false, false);
+                        if model == CreatureModel::Orc || phase == 0.0 || phase >= 0.9 {
+                            assert_eq!(ordinary.off, shaped.off);
+                            assert_eq!(ordinary.rot, shaped.rot);
+                            continue;
+                        }
+                        let (base, actual) = (lowest(&ordinary), lowest(&shaped));
+                        assert!(
+                            actual >= base.min(0.0) - 0.04,
+                            "{model:?} build {build} seed {seed} at {phase}: sole sinks from {base} to {actual}"
+                        );
+                        if phase == 0.48 {
+                            let [left, right] = [J::ShinL, J::ShinR].map(|joint| {
+                                shaped.rot[joint as usize]
+                                    .angle_between(ordinary.rot[joint as usize])
+                            });
+                            let (support, loose) = if seed > 5.0 {
+                                (right, left)
+                            } else {
+                                (left, right)
+                            };
+                            assert!(
+                                loose > support + 0.35,
+                                "{model:?} did not fold the loose knee first"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

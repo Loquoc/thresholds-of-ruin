@@ -174,6 +174,11 @@ pub(super) fn compose(l: &Look) -> Outfit {
         },
         trim: matches!(style, Style::Medusa | Style::Leprechaun).then_some(l.trim),
         cutaway: geometry::cutaway_coat(style),
+        swing_ease: if style == Style::Leprechaun {
+            0.075
+        } else {
+            0.0
+        },
         ..Skirt::PLAIN
     });
     let cloak = match style {

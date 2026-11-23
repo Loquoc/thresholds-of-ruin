@@ -422,8 +422,18 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             kit.rig.rest[hand as usize] = Vec3::Y * -0.31;
         }
         let hand = kit.rig.joint(J::HandR).unwrap();
+        let spear = kit
+            .commands
+            .spawn((
+                Transform::default(),
+                Visibility::default(),
+                AuthoredCentaurSpear,
+            ))
+            .id();
+        kit.commands.entity(hand).add_child(spear);
+        kit.rig.joints[J::CentaurSpear as usize] = Some(spear);
         kit.attach(
-            hand,
+            spear,
             Transform::from_rotation(Quat::from_rotation_x(FRAC_PI_2)),
             "spear",
             |p| {

@@ -296,3 +296,76 @@ fn black_unicorn_horn_has_visible_pigment_between_its_glowing_rings() {
         "horn tip disappears into the dark mane/background: {samples:?}"
     );
 }
+
+#[test]
+fn fallen_equines_rest_on_their_cheek_without_burying_the_horn() {
+    use crate::creatures::rogue_tests::animate_look;
+    for model in [
+        CreatureModel::Equine,
+        CreatureModel::Quagga,
+        CreatureModel::BlackUnicorn,
+    ] {
+        for build in 0..3 {
+            for seed in [2.0, 7.0] {
+                let look = Look::with_choice(model, 42, Some(Variant { build, ..default() }));
+                let (mut app, root) = animate_look(look, 1, |_| Vec3::ZERO);
+                let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+                anim.seed = seed;
+                anim.dead = Some(1.0);
+                app.update();
+                let world = app.world();
+                let rig = world.get::<Rig>(root).unwrap();
+                let meshes = world.resource::<Assets<Mesh>>();
+                let frame = [J::Lift, J::Body, J::Neck, J::Snout].into_iter().fold(
+                    Affine3A::IDENTITY,
+                    |frame, j| {
+                        frame
+                            * world
+                                .get::<Transform>(rig.joint(j).unwrap())
+                                .unwrap()
+                                .compute_affine()
+                    },
+                );
+                let [mut cheek, mut shaft, mut rings, mut whole] = [f32::INFINITY; 4];
+                let snout = rig.joint(J::Snout).unwrap();
+                for surface in super::test_support::joint_meshes(world, rig, meshes, snout) {
+                    let Some(VertexAttributeValues::Float32x3(points)) =
+                        surface.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                    else {
+                        continue;
+                    };
+                    let Some(VertexAttributeValues::Float32x4(colors)) =
+                        surface.mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+                    else {
+                        continue;
+                    };
+                    for (&point, &color) in points.iter().zip(colors) {
+                        let p = surface.transform.transform_point3(point.into());
+                        let y = frame.transform_point3(p).y / rig.scale;
+                        whole = whole.min(y);
+                        if p.y < 0.11 && p.z > 0.02 {
+                            cheek = cheek.min(y);
+                        }
+                        // Separate the solid keratin and the pale accent rings
+                        // above the bare skull and forward of the cupped ears.
+                        if model == CreatureModel::BlackUnicorn && p.y > 0.19 && p.z > 0.15 {
+                            if color[0] > 0.90 && color[1] > 0.90 {
+                                rings = rings.min(y);
+                            } else {
+                                shaft = shaft.min(y);
+                            }
+                        }
+                    }
+                }
+                assert!(
+                    (-0.012..=0.045).contains(&cheek) && whole >= -0.012,
+                    "{model:?} build {build} side {seed}: cheek {cheek:.3}, head {whole:.3}"
+                );
+                if model == CreatureModel::BlackUnicorn {
+                    assert!(shaft > -0.006 && shaft.is_finite(), "shaft floor {shaft}");
+                    assert!(rings > -0.006 && rings.is_finite(), "rings floor {rings}");
+                }
+            }
+        }
+    }
+}

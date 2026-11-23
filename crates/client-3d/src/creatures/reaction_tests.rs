@@ -164,6 +164,23 @@ fn an_unfamiliar_technique_keeps_a_neutral_motion_regardless_of_caption() {
 }
 
 #[test]
+fn fey_theft_uses_the_filch_pose_without_inventing_an_item_or_hit_cue() {
+    for id in ["filch_charm", "filch_gold"] {
+        let (mut app, caster, target) = scene(id, "A technique", true, true);
+        app.update();
+        assert_eq!(
+            app.world().get::<Anim>(caster).unwrap().action.unwrap().0,
+            Move::Filch
+        );
+        assert!(app.world().get::<Anim>(target).unwrap().hurt.is_none());
+        let mut cues = app
+            .world_mut()
+            .query_filtered::<Entity, Or<(With<Fade>, With<Bolt>, With<Mesh3d>)>>();
+        assert_eq!(cues.iter(app.world()).count(), 0);
+    }
+}
+
+#[test]
 fn live_breath_does_not_fabricate_a_path_without_authoritative_geometry() {
     let (mut app, caster, _) = scene("rogue.breath_weapon", "Breath Weapon", true, true);
     app.update();

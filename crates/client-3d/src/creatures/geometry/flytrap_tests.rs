@@ -272,3 +272,69 @@ fn flytrap_wilts_onto_the_floor_without_swallowing_a_lobe_or_lifting_its_roots()
         }
     }
 }
+
+#[test]
+fn flytrap_eases_its_open_lobes_into_death_with_roots_planted() {
+    use crate::creatures::animation::DeathMotion;
+    let strike = Move::Strike;
+    for (action, motion, corridor) in [
+        (None, DeathMotion::Stagger, false),
+        (Some(0.24), DeathMotion::Stagger, false),
+        (Some(0.24), DeathMotion::Collapse, false),
+        (Some(0.24), DeathMotion::Dramatic, true),
+    ] {
+        let (mut app, root) =
+            animate_look(Look::of(CreatureModel::Flytrap, 42), 12, |_| Vec3::ZERO);
+        {
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.yaw = 0.0;
+            anim.target_yaw = None;
+            anim.action = action.map(|phase| (strike, phase - 0.016 / strike.duration()));
+        }
+        app.update();
+        let rig = app.world().get::<Rig>(root).unwrap();
+        let chain =
+            [J::Lift, J::Body, J::Neck, J::Torso, J::Head].map(|joint| rig.joint(joint).unwrap());
+        let jaw = rig.joint(J::Jaw).unwrap();
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let upper_points = direct_points(app.world(), meshes, chain[4], false);
+        let lower_points = direct_points(app.world(), meshes, jaw, false);
+        let jaw_rotation = |app: &App| app.world().get::<Transform>(jaw).unwrap().rotation;
+        let mut prior = jaw_rotation(&app);
+        assert!(prior.angle_between(Quat::IDENTITY) > if action.is_some() { 1.4 } else { 0.65 });
+        let roots = [chain[0], chain[1]].map(|e| *app.world().get::<Transform>(e).unwrap());
+        app.world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .start_death(motion, corridor);
+        for step in 0..25 {
+            app.update();
+            let now = jaw_rotation(&app);
+            assert!(
+                prior.angle_between(now) < 0.20,
+                "{motion:?} bite={action:?} step {step}: hinge snapped {:.3} rad",
+                prior.angle_between(now),
+            );
+            prior = now;
+            let world = app.world();
+            let local = |e| world.get::<Transform>(e).unwrap().compute_affine();
+            let upper = chain
+                .into_iter()
+                .fold(Affine3A::IDENTITY, |p, e| p * local(e));
+            let lower = upper * local(jaw);
+            let low = upper_points
+                .iter()
+                .map(|p| upper.transform_point3(*p).y)
+                .chain(lower_points.iter().map(|p| lower.transform_point3(*p).y))
+                .fold(f32::INFINITY, f32::min);
+            assert!(
+                low >= -0.012,
+                "{motion:?} step {step}: mouth buried at {low:.3}"
+            );
+            assert_eq!(
+                [chain[0], chain[1]].map(|e| *world.get::<Transform>(e).unwrap()),
+                roots
+            );
+        }
+    }
+}

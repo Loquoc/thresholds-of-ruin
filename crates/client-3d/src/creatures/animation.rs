@@ -665,10 +665,18 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     let world_walk = supported && (moving || a.contacts.rig.is_some());
     match rig.plan {
         Plan::Biped => biped_pose(&mut p, rig, s, w, breath, m.map(|m| (m, t)), a.carriage),
-        Plan::Bird if rig.style.flies() => rogue::flier_pose(&mut p, rig, a, s, breath, m, t),
+        Plan::Bird if rig.style.flies() => {
+            if a.dead.is_none() {
+                rogue::flier_pose(&mut p, rig.style, a.time, a.seed, s, a.action);
+            }
+        }
         Plan::Bird => bird_pose(&mut p, s, w, breath, m, t, !world_walk, bird_plant),
         Plan::Quadruped | Plan::Centaur => quad_pose(&mut p, rig, s, w, breath, m, t, !world_walk),
-        Plan::Rooted => rogue::rooted_pose(&mut p, a, breath, m, t),
+        Plan::Rooted => {
+            if a.dead.is_none() {
+                rogue::rooted_pose(&mut p, a.time, a.seed, a.action);
+            }
+        }
         Plan::Serpent | Plan::Floater | Plan::Marker => {}
     }
     if world_walk {
@@ -696,6 +704,11 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
         death_pose(&mut p, rig, ease(a.death_fall()), a.seed);
         if let Some(phase) = a.dead {
             death::perform(&mut p, rig, a, phase);
+            match rig.plan {
+                Plan::Rooted => rogue::release_rooted_pose(&mut p, a),
+                Plan::Bird if rig.style.flies() => rogue::release_flier_pose(&mut p, rig.style, a),
+                _ => {}
+            }
         }
     }
     p
@@ -808,6 +821,17 @@ struct WalkLeg {
     bend: f32,
 }
 
+fn quadruped_cadence(style: Style) -> f32 {
+    // The compact Quagga needs shorter steps so the hind hoof does not
+    // overtrack into the fore hoof. Let it complete steps more frequently at
+    // the same travelling speed, rather than moving an already planted foot.
+    if style == Style::Quagga {
+        1.62
+    } else {
+        1.35
+    }
+}
+
 /// The existing family timing, expressed once for the shared support memory.
 fn walk_legs(rig: &Rig, a: &Anim) -> [Option<WalkLeg>; 4] {
     let mut legs = [None; 4];
@@ -882,6 +906,7 @@ fn walk_legs(rig: &Rig, a: &Anim) -> [Option<WalkLeg>; 4] {
         Plan::Quadruped | Plan::Centaur => {
             let trot = ease((a.speed - 0.38) / 0.45);
             let legs = rig.legs;
+            let cadence = quadruped_cadence(rig.style);
             for (i, (leg, shin, foot, offset)) in [
                 (J::FL, J::FLs, J::HoofFL, 0.0),
                 (J::FR, J::FRs, J::HoofFR, 0.5),
@@ -897,9 +922,9 @@ fn walk_legs(rig: &Rig, a: &Anim) -> [Option<WalkLeg>; 4] {
                     leg,
                     shin,
                     foot,
-                    a.walk * 1.35 / TAU + offset,
+                    a.walk * cadence / TAU + offset,
                     0.69 - 0.12 * trot,
-                    1.35,
+                    cadence,
                     if rig.style == Style::Unicorn {
                         0.11
                     } else {
@@ -2535,6 +2560,7 @@ fn biped_pose(
             p.r(J::ShinL, fwd(-0.7 * load - 0.3 * drive));
             p.r(J::LegR, fwd(-0.6 * drive));
         }
+        Move::Filch => rogue::filch(p, t),
         Move::Gesture => {
             let k = envelope(t, 0.0, 0.25, 0.7, 1.0);
             p.r(J::ArmR, fwd(0.6 * k));
@@ -2848,9 +2874,10 @@ fn quad_pose(
 ) {
     let walk = ease(s * 4.0);
     let trot = ease((s - 0.38) / 0.45);
-    let cycle = w * 1.35;
+    let cadence = quadruped_cadence(rig.style);
+    let cycle = w * cadence;
     let stance = 0.69 - 0.12 * trot;
-    let span = stance / (0.9 * 1.35 * rig.stride.max(0.1));
+    let span = stance / (0.9 * cadence * rig.stride.max(0.1));
     let action = m.map_or(0.0, |_| envelope(t, 0.0, 0.12, 0.86, 1.0));
     let support = walk.max(action);
     let roll = cycle.sin() * 0.022 * walk * (1.0 - 0.6 * trot);
@@ -2906,6 +2933,19 @@ fn quad_pose(
                 Quat::from_rotation_y(0.27 * gather - 0.22 * strike) * bow(0.13 * strike),
             );
             p.r(J::ArmL, fwd(0.22 * gather - 0.12 * strike));
+            // The modeled spear follows the grip's +Z axis. Keep the arm's
+            // reach, but counter its rise so the point, not the shaft, leads.
+            let aim = envelope(t, hit * 0.4, hit, hit + 0.11, 0.95);
+            if aim > 0.0 {
+                let grip = [J::Body, J::Torso, J::ArmR, J::ForeR]
+                    .into_iter()
+                    .fold(Quat::IDENTITY, |frame, joint| frame * p.rot[joint as usize]);
+                // From the right-hand carry, meet the target slightly inward
+                // and downward without driving the shaft through the chest.
+                let toward = Vec3::new(0.10, -0.10, 1.0).normalize();
+                let wrist = Quat::from_rotation_arc(Vec3::Z, grip.inverse() * toward);
+                p.r(J::CentaurSpear, Quat::IDENTITY.slerp(wrist, aim));
+            }
             p.o(
                 J::Lift,
                 Vec3::new(0.0, -0.025 * gather, -0.055 * gather + 0.16 * strike),
@@ -3090,6 +3130,8 @@ fn death_pose(p: &mut Pose, rig: &Rig, d: f32, seed: f32) {
                 bow(1.05 * d) * Quat::from_rotation_z(-side * 0.15 * d),
             );
             p.r(J::Snout, bow(-0.3 * d));
+            rogue::settle_winged_beast_head(p, rig.style, d, side);
+            settle_equine_head(p, rig, d, side);
             rogue::fallen_quadruped_tail(p, rig.style, d, side);
         }
         Plan::Bird if rig.style.flies() => rogue::death(p, rig, d, side),
@@ -3121,6 +3163,25 @@ fn death_pose(p: &mut Pose, rig: &Rig, d: f32, seed: f32) {
         }
         Plan::Serpent | Plan::Floater => {}
     }
+}
+
+/// Let the neck give as the barrel comes to rest. The skull rotates
+/// back independently so an equine settles on its cheek, not its ears
+/// or the Unicorn's horn.
+fn settle_equine_head(p: &mut Pose, rig: &Rig, fall: f32, side: f32) {
+    if !matches!(rig.style, Style::Horse | Style::Quagga | Style::Unicorn) {
+        return;
+    }
+    let settle = ease((fall - 0.25) / 0.75) * side;
+    // A broader barrel keeps the neck joint higher on a sideways fall.
+    let lean = 0.54 + 2.2 * (rig.girth - 0.32);
+    let counter = if rig.style == Style::Unicorn {
+        lean - 0.37
+    } else {
+        0.08
+    };
+    p.r(J::Neck, Quat::from_rotation_z(settle * lean));
+    p.r(J::Snout, Quat::from_rotation_z(-settle * counter));
 }
 
 /// Four legs gone slack: the forelegs reach, the hind legs trail, and the
@@ -3183,10 +3244,11 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
     let (w, gag, _) = antic(a);
     let spring = if gag == 0 { w * fun * calm } else { 0.0 };
     let hit = m.map_or(0.45, Move::impact);
-    let gather = m.map_or(0.0, |_| envelope(t, 0.0, hit * 0.55, hit - 0.1, hit));
-    let strike = m
-        .filter(|m| m.offensive())
-        .map_or(0.0, |_| envelope(t, hit - 0.07, hit, hit + 0.06, 1.0));
+    let attack_weights = |motion: Move, phase: f32| {
+        let (gather, strike, _) = rogue::timing(motion, phase);
+        (gather, if motion.offensive() { strike } else { 0.0 })
+    };
+    let (gather, strike) = m.map_or((0.0, 0.0), |motion| attack_weights(motion, t));
     if rogue::place(rig, a, fun, joints) {
         return;
     }
@@ -3196,11 +3258,21 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             if n == 0 {
                 return;
             }
-            // Keep the raised neck and rattle through the pose's existing
-            // action/idle handoff. A boolean action gate resets their height
-            // in one frame, even though the bite is only starting to gather.
+            // Release the last rendered bite into the fall. Clearing the
+            // cancelled action immediately must not teleport the whole spine
+            // out of its lunge, even during the live corridor-facing pre-roll.
+            let (gather, strike) = match (a.dead, a.death_entry) {
+                (Some(_), Some(entry)) => entry.action.map_or((0.0, 0.0), |(motion, phase)| {
+                    let (g, s) = attack_weights(motion, phase);
+                    let release = 1.0 - ease((a.time - entry.started_at) / 0.22);
+                    (g * release, s * release)
+                }),
+                _ => (gather, strike),
+            };
+            // Keep the rattle on the existing drive-to-idle blend; starting
+            // a death during a lunge must not pop it back to full height.
             let stopped = 1.0 - ease(a.speed * 4.0);
-            let still = stopped * if a.dead.is_some() { 1.0 } else { a.rest };
+            let still = stopped * a.rest;
             let calm = still * f32::from(u8::from(a.dead.is_none() && !a.quiet));
             let rattler = rig.style == Style::Rattlesnake;
             let rear_weight = a.dead.map_or(calm, |phase| {
