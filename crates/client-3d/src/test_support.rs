@@ -51,6 +51,8 @@ pub(crate) fn view(revision: u64) -> View {
         revision,
         events: vec![],
         public_effects: vec![],
+        activity: Default::default(),
+        travel: None,
     }
 }
 

@@ -1187,9 +1187,9 @@ Two production defects and one class of stale pins, counted by root cause:
   combat view, so clients cannot see a scripted victory; that was tutorial
   content, fixed by giving its character a build. One method, one root cause.
 - **Stale version pins (stale tests, expected with the format change).**
-  Protocol 73, save format 72, scenario format 38 and validator
+  The then-new wire revision (73), save format 72, scenario format 38 and validator
   `tor-scenario-52` failed the explicit pin and golden tests until the
-  protocol 73 wire samples and the save format 72 scenario golden were
+  matching wire samples and the save format 72 scenario golden were
   recorded and the pins updated. These are deliberate first-red pins, not defects.
 
 Not counted: a bulk `format = 37` replacement that also rewrote one literal
@@ -1423,3 +1423,16 @@ external outcome-script declaration without supplying script sources; like the
 upstream catalog fixture, it now removes only that unused scripting declaration.
 Its tactical rules and existing medicine/knowledge setup are unchanged. Exact
 integrated Service runtime remains a hosted qualification, not a local claim.
+
+### Package invariants and bounded rewind retention
+
+The every-package invariant test rewound to the initial state after twelve
+played turns, assuming any package's history fits the engine's retained rewind
+window (the latest 128 selectable states). The 26-mob peaceful menagerie logs
+about 626 rewindable entries in those turns, so the engine correctly refused the
+rewind. This was a stale test premise, not a production defect: one root cause,
+one method (`invariants::every_package_rejects_retries_replays_and_rewinds_exactly`),
+two failed executions (hosted Linux debug and release). The test now requires an
+exact rewind whenever history is within the window. Beyond it, rewinding to the
+dropped start must be refused without acting or consuming a sequence, and a
+one-turn game of the same package must rewind exactly.

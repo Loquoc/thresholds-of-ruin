@@ -1,5 +1,5 @@
 mod outcomes;
-pub(crate) use outcomes::outcome_observation;
+pub(crate) use outcomes::outcome_observation_keyed;
 
 use tor_protocol as p;
 use tor_simulation as s;
@@ -710,7 +710,7 @@ pub(crate) fn object_presentation(
 fn effect_frame_anchors(
     view: &s::Observation,
     scene: &[w::SightCell],
-    salt: &str,
+    keys: &mut CellKeys,
 ) -> std::collections::BTreeMap<p::Position, String> {
     if view.combat.as_ref().is_none_or(|combat| {
         !combat
@@ -736,7 +736,7 @@ fn effect_frame_anchors(
             y: cell.offset.y,
             z: cell.offset.z,
         };
-        let key = cell_key(salt, view.actor.0, cell.location);
+        let key = keys.key(cell.location);
         if anchors.get(&position).is_some_and(|old| old != &key) {
             ambiguous.insert(position);
         }
@@ -748,6 +748,7 @@ fn effect_frame_anchors(
     anchors
 }
 
+#[cfg(test)]
 pub(crate) fn observation(
     view: s::Observation,
     scene: &[w::SightCell],
@@ -756,7 +757,23 @@ pub(crate) fn observation(
     terrain: Terrain,
     targets: &crate::wire_adapter::TargetScope,
 ) -> p::Observation {
-    let effect_anchors = effect_frame_anchors(&view, scene, salt);
+    let mut keys = CellKeys::fresh(salt, view.actor.0);
+    observation_keyed(view, scene, &mut keys, ready, terrain, targets)
+}
+
+/// The picture adaptation, taking cell keys from an observer's key memo.
+pub(crate) fn observation_keyed(
+    view: s::Observation,
+    scene: &[w::SightCell],
+    keys: &mut CellKeys,
+    ready: bool,
+    terrain: Terrain,
+    targets: &crate::wire_adapter::TargetScope,
+) -> p::Observation {
+    assert_eq!(keys.actor, view.actor.0, "cell keys belong to the observer");
+    let salt = keys.salt.clone();
+    let salt = salt.as_str();
+    let effect_anchors = effect_frame_anchors(&view, scene, keys);
     let offset = |position: w::Position| p::Position {
         x: position.x,
         y: position.y,
@@ -798,7 +815,7 @@ pub(crate) fn observation(
                 approaches: visible
                     .door_approaches
                     .iter()
-                    .map(|location| cell_key(salt, view.actor.0, *location))
+                    .map(|location| keys.key(*location))
                     .collect(),
                 asset: door_asset,
             }),
@@ -808,7 +825,7 @@ pub(crate) fn observation(
                 reachable: trap.reachable,
             }),
             material: visible.material.into(),
-            key: cell_key(salt, view.actor.0, cell.location),
+            key: keys.key(cell.location),
             position: offset(cell.offset),
             wall: visible.wall,
             place_hint: visible.place_hint,
@@ -1123,7 +1140,7 @@ pub(crate) fn observation(
             goal: c.goal.and_then(|goal| {
                 Some(p::GoalView {
                     segments: message_segments(&goal.segments)?,
-                    cell: goal.cell.map(|at| cell_key(salt, view.actor.0, at)),
+                    cell: goal.cell.map(|at| keys.key(at)),
                 })
             }),
             victory: c.victory,
@@ -1375,6 +1392,91 @@ fn combat_event_view(
     })
 }
 
+/// One observer's salted cell keys from its recent derivations. A key is a
+/// pure function of the salt, the observer and the location, so reusing one
+/// is exact; only locations used in the last two derivations are kept.
+#[derive(Debug, Default)]
+pub(crate) struct CellKeys {
+    salt: String,
+    actor: u64,
+    generation: u64,
+    keys: std::collections::HashMap<w::Location, (u64, String)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static REUSED_CELL_KEYS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static VERIFYING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+impl CellKeys {
+    /// An empty memo: every key is derived.
+    pub(crate) fn fresh(salt: &str, actor: u64) -> Self {
+        Self {
+            salt: salt.to_owned(),
+            actor,
+            generation: 0,
+            keys: Default::default(),
+        }
+    }
+
+    /// The memo to use for this observer, kept only if it was made for the
+    /// same salt and observer. Each call starts a new generation.
+    pub(crate) fn resume(memo: Option<Self>, salt: &str, actor: u64) -> Self {
+        let mut keys = memo
+            .filter(|memo| memo.salt == salt && memo.actor == actor)
+            .unwrap_or_else(|| Self::fresh(salt, actor));
+        keys.generation += 1;
+        let oldest = keys.generation - 1;
+        keys.keys.retain(|_, (used, _)| *used >= oldest);
+        keys
+    }
+
+    pub(crate) fn key(&mut self, location: w::Location) -> String {
+        let generation = self.generation;
+        if let Some((used, key)) = self.keys.get_mut(&location) {
+            *used = generation;
+            #[cfg(test)]
+            {
+                if !VERIFYING.with(std::cell::Cell::get) {
+                    REUSED_CELL_KEYS.with(|count| count.set(count.get() + 1));
+                }
+                assert_eq!(
+                    *key,
+                    cell_key(&self.salt, self.actor, location),
+                    "a reused cell key must equal the derived key"
+                );
+            }
+            return key.clone();
+        }
+        let key = cell_key(&self.salt, self.actor, location);
+        self.keys.insert(location, (generation, key.clone()));
+        key
+    }
+
+    pub(crate) fn salt(&self) -> &str {
+        &self.salt
+    }
+
+    pub(crate) fn actor(&self) -> u64 {
+        self.actor
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reused_count() -> usize {
+        REUSED_CELL_KEYS.with(|count| count.get())
+    }
+
+    /// Runs a test-build verification without counting its reuses.
+    #[cfg(test)]
+    pub(crate) fn verifying<T>(verify: impl FnOnce() -> T) -> T {
+        let was = VERIFYING.with(|flag| flag.replace(true));
+        let verified = verify();
+        VERIFYING.with(|flag| flag.set(was));
+        verified
+    }
+}
+
 pub fn cell_key(salt: &str, actor: u64, location: w::Location) -> String {
     use sha1::{Digest, Sha1};
     let mut digest = Sha1::new();
@@ -1407,6 +1509,50 @@ fn cell_key_hex(digest: [u8; 20]) -> String {
 #[cfg(test)]
 mod cell_key_tests {
     use super::*;
+
+    fn at(x: i32) -> w::Location {
+        w::Location {
+            region: w::RegionId(3),
+            position: w::Position { x, y: 2, z: 0 },
+        }
+    }
+
+    #[test]
+    fn cell_key_memo_reuses_exact_keys_for_two_generations_of_one_observer() {
+        let start = CellKeys::reused_count();
+        let mut keys = CellKeys::resume(None, "salt", 7);
+        assert_eq!(keys.key(at(1)), cell_key("salt", 7, at(1)));
+        assert_eq!(keys.key(at(2)), cell_key("salt", 7, at(2)));
+        assert_eq!(
+            CellKeys::reused_count(),
+            start,
+            "first derivation reuses nothing"
+        );
+        // The next derivation finds both keys; one of them goes unused.
+        let mut keys = CellKeys::resume(Some(keys), "salt", 7);
+        assert_eq!(keys.key(at(1)), cell_key("salt", 7, at(1)));
+        assert_eq!(CellKeys::reused_count(), start + 1);
+        // Two derivations later, a key unused since the first is gone.
+        let keys = CellKeys::resume(Some(keys), "salt", 7);
+        let keys = CellKeys::resume(Some(keys), "salt", 7);
+        assert!(!keys.keys.contains_key(&at(2)), "stale keys are dropped");
+        assert!(
+            !keys.keys.contains_key(&at(1)),
+            "keys unused for two derivations are dropped"
+        );
+        // Another observer or salt never sees this memo.
+        let mut keys = CellKeys::resume(None, "salt", 7);
+        keys.key(at(1));
+        let mut other = CellKeys::resume(Some(keys), "salt", 8);
+        assert_eq!(other.key(at(1)), cell_key("salt", 8, at(1)));
+        let mut resalted = CellKeys::resume(Some(other), "pepper", 8);
+        assert_eq!(resalted.key(at(1)), cell_key("pepper", 8, at(1)));
+        assert_eq!(
+            CellKeys::reused_count(),
+            start + 1,
+            "no key crossed observers or salts"
+        );
+    }
 
     #[test]
     fn cell_key_preserves_salted_sha1_derivation_and_lowercase_encoding() {

@@ -29,6 +29,13 @@ pub struct WorkCounts {
 
     /// Actor snapshots captured only while contextual recovery has watched owners.
     pub perception_witness_captures: usize,
+    /// Awareness observers settled without projecting their view: no
+    /// engagement and no faction enemy present, so no contact is possible.
+    pub awareness_observers_without_hostility: usize,
+    /// Scene cells compared to decide whether navigation must refresh.
+    pub navigation_scene_cells_compared: usize,
+    /// Projection entries kept because the subject's visibility was unchanged.
+    pub actor_disclosures_reused: usize,
     pub descriptor_lookups: usize,
     /// Full Game snapshots, separate from copy-on-write actor table copies.
     pub game_clones: usize,
@@ -152,7 +159,7 @@ pub struct WorkCounts {
     /// Visit entries copied when an idle decision changes its shared region bucket.
     pub ai_visit_entries_copied: usize,
 }
-thread_local! { static COUNTS: Cell<WorkCounts> = const { Cell::new(WorkCounts {own_stats_materializations:0,own_stats_static_entries_copied:0,creature_build_copies:0,permanent_creature_compiles:0,permanent_input_comparisons:0,dynamic_creature_folds:0,raw_hit_die_visits:0,raw_species_lookups:0,advancement_choice_visits:0,health_provenance_copies:0,perception_witness_captures:0,descriptor_lookups:0,game_clones:0,hook_lookups:0,hook_facts_noted:0,hook_handler_calls:0,gear_projections:0,preparation_candidates:0,preparation_owner_visits:0,preparation_validation_evaluations:0,preparation_validations_due:0,preparation_validations_not_due:0,preparation_validations_paused:0,growth_retry_decisions:0,growth_retry_required:0,growth_retry_shared_noops:0,preparation_owner_projection_requests:0,preparation_owner_projections:0,preparation_owner_owned_projections:0,awareness_subject_candidates:0,preparation_residency_proof_hits:0,region_contribution_actor_rebuilds:0,region_contribution_item_rebuilds:0,region_contribution_bucket_visits:0,region_contribution_cold_refreshes:0,mutation_publications:0,mutation_frames:0,mutation_frame_unknowns:0,preparation_residency_evaluations:0,preparation_snapshots:0,strike_resolutions:0,rider_resolutions:0,health_derivations:0,actor_table_copies:0,actor_table_entries_copied:0,physics_steps:0,body_cells:0,control_contact_neighbor_probes:0,observations:0,actor_reference_vectors:0,actor_reference_rows:0,raw_world_fact_builds:0,raw_world_fact_cells:0,hearing_scene_builds:0,hearing_scene_cells:0,scenes:0,scene_membership_lookups:0,scene_membership_cells:0,scene_cells_copied:0,observation_cells_copied:0,item_candidates:0,item_ground_probes:0,portable_fuel_candidates:0,actor_candidates:0,perception_projections:0,projection_location_indexes:0,projection_location_cells:0,actor_disclosures:0,contact_neighborhoods:0,contact_route_probes:0,event_receipt_binding_inspections:0,event_receipt_cow_bindings:0,route_searches:0,stack_candidates:0,knowledge_checks:0,timer_candidates:0,cooldown_deadline_candidates:0,cooldown_entries_advanced:0,cooldown_entries_copied:0,ability_plans:0,decision_scenes:0,ordinary_scenes:0,ai_precommit_ordinary_scenes:0,ai_defense_candidates:0,ai_defense_source_scans:0,ai_visit_entries_copied:0}) }; }
+thread_local! { static COUNTS: Cell<WorkCounts> = const { Cell::new(WorkCounts {own_stats_materializations:0,own_stats_static_entries_copied:0,creature_build_copies:0,permanent_creature_compiles:0,permanent_input_comparisons:0,dynamic_creature_folds:0,raw_hit_die_visits:0,raw_species_lookups:0,advancement_choice_visits:0,health_provenance_copies:0,perception_witness_captures:0,awareness_observers_without_hostility:0,navigation_scene_cells_compared:0,actor_disclosures_reused:0,descriptor_lookups:0,game_clones:0,hook_lookups:0,hook_facts_noted:0,hook_handler_calls:0,gear_projections:0,preparation_candidates:0,preparation_owner_visits:0,preparation_validation_evaluations:0,preparation_validations_due:0,preparation_validations_not_due:0,preparation_validations_paused:0,growth_retry_decisions:0,growth_retry_required:0,growth_retry_shared_noops:0,preparation_owner_projection_requests:0,preparation_owner_projections:0,preparation_owner_owned_projections:0,awareness_subject_candidates:0,preparation_residency_proof_hits:0,region_contribution_actor_rebuilds:0,region_contribution_item_rebuilds:0,region_contribution_bucket_visits:0,region_contribution_cold_refreshes:0,mutation_publications:0,mutation_frames:0,mutation_frame_unknowns:0,preparation_residency_evaluations:0,preparation_snapshots:0,strike_resolutions:0,rider_resolutions:0,health_derivations:0,actor_table_copies:0,actor_table_entries_copied:0,physics_steps:0,body_cells:0,control_contact_neighbor_probes:0,observations:0,actor_reference_vectors:0,actor_reference_rows:0,raw_world_fact_builds:0,raw_world_fact_cells:0,hearing_scene_builds:0,hearing_scene_cells:0,scenes:0,scene_membership_lookups:0,scene_membership_cells:0,scene_cells_copied:0,observation_cells_copied:0,item_candidates:0,item_ground_probes:0,portable_fuel_candidates:0,actor_candidates:0,perception_projections:0,projection_location_indexes:0,projection_location_cells:0,actor_disclosures:0,contact_neighborhoods:0,contact_route_probes:0,event_receipt_binding_inspections:0,event_receipt_cow_bindings:0,route_searches:0,stack_candidates:0,knowledge_checks:0,timer_candidates:0,cooldown_deadline_candidates:0,cooldown_entries_advanced:0,cooldown_entries_copied:0,ability_plans:0,decision_scenes:0,ordinary_scenes:0,ai_precommit_ordinary_scenes:0,ai_defense_candidates:0,ai_defense_source_scans:0,ai_visit_entries_copied:0}) }; }
 
 pub(crate) fn cooldown_deadline_candidates(count: usize) {
     COUNTS.with(|c| {
@@ -219,6 +226,36 @@ pub(crate) fn perception_witness_capture() {
         n.perception_witness_captures += 1;
         c.set(n);
     });
+}
+pub(crate) fn awareness_observers_without_hostility() {
+    COUNTS.with(|c| {
+        let mut n = c.get();
+        n.awareness_observers_without_hostility += 1;
+        c.set(n)
+    });
+}
+pub(crate) fn navigation_scene_cells_compared(cells: usize) {
+    COUNTS.with(|c| {
+        let mut n = c.get();
+        n.navigation_scene_cells_compared += cells;
+        c.set(n)
+    });
+}
+pub(crate) fn actor_disclosure_reused() {
+    COUNTS.with(|c| {
+        let mut n = c.get();
+        n.actor_disclosures_reused += 1;
+        c.set(n)
+    });
+}
+/// Run test-only verification without letting its work show in the counts
+/// that production contracts pin.
+#[cfg(test)]
+pub(crate) fn uncounted<T>(verify: impl FnOnce() -> T) -> T {
+    let saved = COUNTS.with(Cell::get);
+    let result = verify();
+    COUNTS.with(|c| c.set(saved));
+    result
 }
 pub(crate) fn observation() {
     COUNTS.with(|c| {

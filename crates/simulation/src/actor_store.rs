@@ -237,6 +237,11 @@ pub(crate) struct ActorStore {
     guised_owners: Shared<BTreeSet<ActorId>>,
     perception_revision: u64,
     visibility_epoch: u64,
+    /// Each actor's own visibility revision, renewed exactly when its
+    /// visibility inputs change (when it also renews `visibility_epoch`).
+    /// Revisions are globally unique, so equal values on two branches mean
+    /// the inputs were inherited unchanged.
+    visibility_versions: Shared<BTreeMap<ActorId, u64>>,
     bodies: Mutex<Bodies>,
     mutations: MutationLedger<ActorId, ActorMutation>,
 }
@@ -258,6 +263,7 @@ impl Clone for ActorStore {
             guised_owners: self.guised_owners.clone(),
             perception_revision: self.perception_revision,
             visibility_epoch: self.visibility_epoch,
+            visibility_versions: self.visibility_versions.clone(),
             bodies: Mutex::new(
                 self.bodies
                     .lock()
@@ -401,6 +407,10 @@ impl ActorStore {
             .iter()
             .filter_map(|(&id, actor)| actor.motion.active_fall.map(|_| id))
             .collect();
+        let visibility_versions = entries
+            .keys()
+            .map(|&id| (id, fresh_perception_revision()))
+            .collect();
         Self {
             entries: Shared::new(entries),
             regions,
@@ -415,6 +425,7 @@ impl ActorStore {
             guised_owners: Shared::new(guised_owners),
             perception_revision: fresh_perception_revision(),
             visibility_epoch: fresh_perception_revision(),
+            visibility_versions: Shared::new(visibility_versions),
             bodies: Mutex::default(),
             mutations,
         }
@@ -484,6 +495,12 @@ impl ActorStore {
 
     pub(crate) fn visibility_epoch(&self) -> u64 {
         self.visibility_epoch
+    }
+
+    /// One actor's visibility revision: unchanged exactly while its own
+    /// visibility inputs are.
+    pub(crate) fn visibility_version(&self, id: ActorId) -> Option<u64> {
+        self.visibility_versions.get(&id).copied()
     }
 
     pub fn perception_revision(&self) -> u64 {
@@ -619,6 +636,8 @@ impl ActorStore {
             .is_none_or(|old| VisibilityInputs::capture(old) != VisibilityInputs::capture(&actor));
         if visibility_changed {
             self.visibility_epoch = fresh_perception_revision();
+            self.visibility_versions
+                .insert(id, fresh_perception_revision());
         }
         let changed = if self.contextual_recovery.is_empty() {
             // No retained witness can remain valid when the first owner arrives.
@@ -678,6 +697,7 @@ impl ActorStore {
     pub fn remove(&mut self, id: &ActorId) -> Option<Actor> {
         let old = Self::owned_actor(Self::entries_for_write(&mut self.entries).remove(id)?);
         self.visibility_epoch = fresh_perception_revision();
+        self.visibility_versions.remove(id);
         if !self.contextual_recovery.is_empty() {
             self.perception_revision = fresh_perception_revision();
         }
@@ -727,6 +747,7 @@ impl ActorStore {
             before_deadline,
             before_visibility: VisibilityInputs::capture(actor),
             visibility_epoch: &mut self.visibility_epoch,
+            visibility_versions: &mut self.visibility_versions,
             before_perception: (!self.contextual_recovery.is_empty())
                 .then(|| PerceptionInputs::capture(actor)),
             perception_revision: &mut self.perception_revision,
@@ -753,6 +774,7 @@ pub(crate) struct ActorEdit<'a> {
     before_deadline: Option<u64>,
     before_visibility: VisibilityInputs,
     visibility_epoch: &'a mut u64,
+    visibility_versions: &'a mut Shared<BTreeMap<ActorId, u64>>,
     before_perception: Option<PerceptionInputs>,
     perception_revision: &'a mut u64,
     timer_active: bool,
@@ -803,6 +825,8 @@ impl Drop for ActorEdit<'_> {
         let visibility_changed = self.before_visibility != VisibilityInputs::capture(self.actor);
         if visibility_changed {
             *self.visibility_epoch = fresh_perception_revision();
+            self.visibility_versions
+                .insert(self.id, fresh_perception_revision());
         }
         self.mutations.publish(self.id, ActorMutation, true);
         let changed = self.before_perception.as_ref().map_or_else(

@@ -350,6 +350,44 @@ a fresh prompt. Presentation pacing changes when already committed activity is
 shown, not when the simulation acts. Neither pending text chains nor approach
 follow-ups resume after client restart.
 
+The settlement rules above are shared. `tor_client_common::compositor::SettleBoundary`
+is a synchronous decision over messages the connection has already applied;
+the text turn loop only sends, waits, records and asks it whether the request
+has settled.
+
+### Shared beat composition
+
+[`compositor`](../../crates/client-common/src/compositor/mod.rs) distinguishes a
+*settle* (one server input wait for one request) from a *beat*: what a client
+presents as one unit. A beat can span many settles, including actions the
+client supplies itself.
+
+- **Timeline:** `Timeline` records each disclosed actor span in ticks: steps,
+  wind-ups, follow-throughs, item handling, and the observer's own steps and
+  work. It also records strike marks, effect flights (segments are never
+  joined) and hit, miss and death reactions linked to a same-tick flight. Each
+  record keeps the observation frame of the update that disclosed it.
+- **Span ends:** another actor's span ends where its next disclosed activity
+  starts, or at its death, and is otherwise open; a renderer caps an open span
+  from what it has watched, never the timeline. The observer's own span ends at
+  the recovery its status facts report.
+- **Beat ends:** `Compositor` ends a beat when the client's plan ends, when the
+  client's `BeatPolicy` interrupts on authoritative facts (`Caution` stops for
+  a newcomer or a wound), or when a decision is required: another player's
+  turn, lost control, a decision travel phase or a replacement snapshot, which
+  also flushes the timeline.
+
+The [3D client](../../crates/client-3d/README.md#how-it-works) is the first
+consumer. Its timeline ends beats only at the server's own boundaries; the
+scene decides interruptions from the player's settings. Its playback times
+spans and happenings on one tick clock: steps walk continuously, blows land on
+their strike ticks, and missiles fly straight runs of disclosed cells. A pace
+governor slows all presentation, at most twofold, while the server supplies
+the timeline more slowly than it plays or discloses steps late. Input waits
+for playback, and click-to-travel errands step within a bounded lead of what
+is presented. The text client keeps its goal engine as its own beat
+rules.
+
 ### Chronicle and composition
 
 `engine::chronicle` compares consecutive validated views plus explicit disclosed

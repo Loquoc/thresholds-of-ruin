@@ -3179,3 +3179,88 @@ async fn blocked_observe_flush_keeps_ordered_outcomes_live_and_query_identity_st
     client.require_snapshot();
     assert!(!client.completed_observation_request(&identity, &picture));
 }
+
+#[tokio::test]
+async fn automatic_pictures_coalesce_by_interval_and_a_hurry_asks_at_once() {
+    // The 3D client times playback from ordered outcomes. Asking for a full
+    // picture after every visual change made the server adapt one for nearly
+    // every mob action; the interval coalesces them, and handing control
+    // back to the player hurries the last one.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let initial = snapshot();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        assert!(matches!(
+            receive(&mut socket).await,
+            ClientMessage::Hello { .. }
+        ));
+        send(
+            &mut socket,
+            ServerMessage::Welcome {
+                protocol: PROTOCOL_VERSION,
+                capabilities: ServerCapabilities::new(MAX_RESPONSE_BYTES as u32, 16),
+                user: "test".into(),
+                actors: vec![ActorId(1)],
+                role: AccessRole::Spectator,
+            },
+        )
+        .await;
+        assert!(matches!(
+            receive(&mut socket).await,
+            ClientMessage::Request { request, .. } if matches!(*request, Request::Attach { .. })
+        ));
+        send(
+            &mut socket,
+            ServerMessage::Snapshot {
+                request_id: "attach".into(),
+                snapshot: Box::new(initial),
+            },
+        )
+        .await;
+        socket
+    });
+    let mut client = Connection::connect(address, "token".into(), ActorId(1), "test")
+        .await
+        .unwrap();
+    let interval = Duration::from_millis(400);
+    client.set_observation_interval(interval);
+    // A first visual change asks at once.
+    client.observation_demand.dirty = true;
+    assert!(!client.observation_current());
+    let asked = Instant::now();
+    client.prepare_observation_request().unwrap();
+    assert!(
+        client.observation_demand.pending.is_some(),
+        "the first picture is not delayed"
+    );
+    client.observation_demand.published();
+    assert!(client.observation_current());
+    // Later changes inside the interval wait for it instead of asking again.
+    client.observation_demand.dirty = true;
+    client.prepare_observation_request().unwrap();
+    assert!(
+        client.observation_demand.pending.is_none(),
+        "a picture just arrived: the next waits for the interval"
+    );
+    let due = client.observation_due().unwrap().into_std();
+    assert!(due >= asked + interval, "due only after the interval");
+    // Handing control back hurries it.
+    client.hurry_observation();
+    client.prepare_observation_request().unwrap();
+    assert!(
+        client.observation_demand.pending.is_some(),
+        "a hurry asks at once"
+    );
+    // Without an interval a change asks as soon as the last picture arrived.
+    client.observation_demand.published();
+    client.set_observation_interval(Duration::ZERO);
+    client.observation_demand.dirty = true;
+    client.prepare_observation_request().unwrap();
+    assert!(
+        client.observation_demand.pending.is_some(),
+        "zero keeps the eager default"
+    );
+    drop(server.await.unwrap());
+}

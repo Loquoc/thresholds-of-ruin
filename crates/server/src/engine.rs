@@ -51,6 +51,8 @@ mod floor_activation_tests;
 mod input_basis_generation;
 #[path = "intention.rs"]
 mod intention;
+#[path = "outcome_activity.rs"]
+mod outcome_activity;
 use input_basis_generation::InputGenerations;
 #[path = "intention_lifecycle.rs"]
 mod intention_lifecycle;
@@ -1769,6 +1771,14 @@ impl PresentationBoundary {
     pub fn branch(&self) -> &BranchId {
         &self.branch
     }
+    /// Whether both name the very same committed boundary, not merely an
+    /// equal-looking one: a later commit always installs a new boundary.
+    pub(crate) fn same_commit(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.boundary, &other.boundary)
+            && self.branch == other.branch
+            && self.owner == other.owner
+            && self.wizard_game == other.wizard_game
+    }
     pub fn entry(&self) -> Option<&EntryId> {
         self.boundary.id.as_ref()
     }
@@ -2192,6 +2202,149 @@ pub(crate) struct SemanticObservation {
     view: Arc<CachedObservation>,
 }
 
+/// Each observer's outcome facts, keyed by the retained view they were derived
+/// from. A weak key cannot match a later view at a reused address.
+#[derive(Debug, Default)]
+struct SemanticFactsMemo(
+    Mutex<
+        BTreeMap<
+            ActorId,
+            (
+                std::sync::Weak<CachedObservation>,
+                tor_protocol::OutcomeObservation,
+            ),
+        >,
+    >,
+);
+
+impl SemanticFactsMemo {
+    fn get(
+        &self,
+        actor: ActorId,
+        view: &Arc<CachedObservation>,
+    ) -> Option<tor_protocol::OutcomeObservation> {
+        let memo = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (key, facts) = memo.get(&actor)?;
+        (key.upgrade().is_some_and(|key| Arc::ptr_eq(&key, view))).then(|| facts.clone())
+    }
+    fn insert(
+        &self,
+        actor: ActorId,
+        view: &Arc<CachedObservation>,
+        facts: tor_protocol::OutcomeObservation,
+    ) {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(actor, (Arc::downgrade(view), facts));
+    }
+}
+
+/// Each observer's salted cell keys from its recent derivations (see
+/// [`adapt::CellKeys`]): keys are pure functions of salt, observer and
+/// location, so the memo never changes a derived picture or fact.
+#[derive(Debug, Default)]
+struct CellKeyMemo(Mutex<BTreeMap<ActorId, adapt::CellKeys>>);
+
+impl CellKeyMemo {
+    fn with<T>(
+        &self,
+        salt: &str,
+        actor: ActorId,
+        derive: impl FnOnce(&mut adapt::CellKeys) -> T,
+    ) -> T {
+        let memo = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&actor);
+        let mut keys = adapt::CellKeys::resume(memo, salt, actor.0);
+        let derived = derive(&mut keys);
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(actor, keys);
+        derived
+    }
+}
+
+/// Each observer's latest comparison pictures, shared rather than copied,
+/// keyed by the retained view and branch they were adapted from. A picture
+/// is reused only with the same wizard flag and remembered places. Two
+/// entries cover one action's before and after pictures.
+#[derive(Debug, Default)]
+struct SemanticPictureMemo(Mutex<BTreeMap<ActorId, Vec<PictureEntry>>>);
+
+/// A memoized picture: the view it was adapted from, its branch, the picture.
+type PictureEntry = (std::sync::Weak<CachedObservation>, BranchId, Arc<StateView>);
+
+impl SemanticPictureMemo {
+    fn get(
+        &self,
+        actor: ActorId,
+        view: &Arc<CachedObservation>,
+        branch: &BranchId,
+        wizard_game: bool,
+        places: &[PlaceView],
+    ) -> Option<Arc<StateView>> {
+        let memo = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        memo.get(&actor)?
+            .iter()
+            .find(|(key, at, picture)| {
+                at == branch
+                    && picture.wizard_game == wizard_game
+                    && picture.observation.places == places
+                    && key.upgrade().is_some_and(|key| Arc::ptr_eq(&key, view))
+            })
+            .map(|(_, _, picture)| Arc::clone(picture))
+    }
+    fn insert(
+        &self,
+        actor: ActorId,
+        view: &Arc<CachedObservation>,
+        branch: BranchId,
+        picture: Arc<StateView>,
+    ) {
+        let mut memo = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entries = memo.entry(actor).or_default();
+        entries.retain(|(key, _, _)| key.strong_count() > 0);
+        if entries.len() >= 2 {
+            entries.remove(0);
+        }
+        entries.push((Arc::downgrade(view), branch, picture));
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Comparison pictures served from the memo.
+    pub(crate) static REUSED_SEMANTIC_PICTURES: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Captures whose outcome facts were carried over from an unchanged view.
+    pub(crate) static REUSED_SEMANTIC_FACTS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+impl SemanticObservation {
+    /// Whether this capture was taken at `boundary`'s exact commit.
+    pub(crate) fn taken_at(&self, boundary: &PresentationBoundary) -> bool {
+        self.boundary.same_commit(boundary)
+    }
+}
+
 /// Derived views of the committed boundary, never encoded into a save or a
 /// rewind snapshot. The mutex preserves Engine's thread-safe read interface.
 #[derive(Debug, Default)]
@@ -2267,6 +2420,9 @@ pub struct Engine {
     archive: Archive,
 
     observations: ObservationCache,
+    semantic_facts: SemanticFactsMemo,
+    semantic_pictures: SemanticPictureMemo,
+    cell_keys: CellKeyMemo,
     input_generations: InputGenerations,
     history_index: crate::history_index::HistoryIndex,
     receipts: BTreeMap<(String, String), usize>,
@@ -2394,6 +2550,9 @@ impl Engine {
             game,
             receipts: BTreeMap::new(),
             observations: ObservationCache(Mutex::new(initial_views)),
+            semantic_facts: SemanticFactsMemo::default(),
+            semantic_pictures: SemanticPictureMemo::default(),
+            cell_keys: CellKeyMemo::default(),
             input_generations: InputGenerations::default(),
             history_index: crate::history_index::HistoryIndex::default(),
             path: None,
@@ -3179,7 +3338,43 @@ impl Engine {
         display_generation: u64,
         view: &CachedObservation,
     ) -> Result<Observation, Failure> {
+        let mut observation = self.adapt_view_picture(boundary, actor, display_generation, view)?;
+        observation.places = self.remembered_place_views(boundary, actor)?;
+        Ok(observation)
+    }
+
+    /// An observer's remembered places at `boundary`, as presented.
+    fn remembered_place_views(
+        &self,
+        boundary: &PresentationBoundary,
+        actor: ActorId,
+    ) -> Result<Vec<PlaceView>, Failure> {
         let game = self.presentation_game(boundary)?;
+        Ok(game
+            .remembered_places(SimActor(actor.0))
+            .map(|(location, name, origin)| PlaceView {
+                key: adapt::cell_key(&self.archive.view_salt, actor.0, location),
+                name: name.into(),
+                origin: match origin {
+                    tor_simulation::NameOrigin::Invented => PlaceNameOrigin::Invented,
+                    tor_simulation::NameOrigin::Authored => PlaceNameOrigin::Authored,
+                    tor_simulation::NameOrigin::Player => PlaceNameOrigin::Player,
+                },
+            })
+            .collect())
+    }
+
+    /// Everything in a picture except remembered places: a function of the
+    /// retained view, the archive (salt, terrain), the observer, the branch
+    /// and the display generation alone.
+    fn adapt_view_picture(
+        &self,
+        boundary: &PresentationBoundary,
+        actor: ActorId,
+        display_generation: u64,
+        view: &CachedObservation,
+    ) -> Result<Observation, Failure> {
+        self.presentation_game(boundary)?;
         let _span = tor_simulation::diagnostics::spans::span("protocol_picture_adaptation");
         #[cfg(test)]
         FULL_PICTURE_ADAPTATIONS.with(|count| count.set(count.get() + 1));
@@ -3191,32 +3386,23 @@ impl Engine {
                     [t.floor.clone(), t.wall.clone(), t.door.clone()]
                 })
         };
-        let mut observation = adapt::observation(
-            view.observation.clone(),
-            &view.scene,
-            &self.archive.view_salt,
-            view.ready,
-            &terrain,
-            &self.target_scope(actor),
-        );
+        let mut observation = self.cell_keys.with(&self.archive.view_salt, actor, |keys| {
+            adapt::observation_keyed(
+                view.observation.clone(),
+                &view.scene,
+                keys,
+                view.ready,
+                &terrain,
+                &self.target_scope(actor),
+            )
+        });
         observation.charts = view.charts.summaries(
             &self.archive.view_salt,
             actor,
             boundary.branch(),
             display_generation,
         );
-        observation.places = game
-            .remembered_places(SimActor(actor.0))
-            .map(|(location, name, origin)| PlaceView {
-                key: adapt::cell_key(&self.archive.view_salt, actor.0, location),
-                name: name.into(),
-                origin: match origin {
-                    tor_simulation::NameOrigin::Invented => PlaceNameOrigin::Invented,
-                    tor_simulation::NameOrigin::Authored => PlaceNameOrigin::Authored,
-                    tor_simulation::NameOrigin::Player => PlaceNameOrigin::Player,
-                },
-            })
-            .collect();
+        observation.places = Vec::new();
         Ok(observation)
     }
     #[cfg(test)]
@@ -3224,19 +3410,46 @@ impl Engine {
         FULL_PICTURE_ADAPTATIONS.with(|count| count.get())
     }
 
+    /// Outcome facts derive only from the observer's retained view, the
+    /// archive's privacy salt and the observer. They are memoized by the exact
+    /// retained view object, so an action that leaves the observer's view in
+    /// place (an AI admission, a distant step) does not derive them again.
     pub(crate) fn semantic_observation(
         &self,
         actor: ActorId,
     ) -> Result<SemanticObservation, Failure> {
         let boundary = self.presentation_boundary();
         let view = self.revision_view(actor)?;
-        let facts = adapt::outcome_observation(
-            &view.observation,
-            &view.scene,
-            &self.archive.view_salt,
-            view.ready,
-            &self.target_scope(actor),
-        );
+        let derive = || {
+            self.cell_keys.with(&self.archive.view_salt, actor, |keys| {
+                adapt::outcome_observation_keyed(
+                    &view.observation,
+                    &view.scene,
+                    keys,
+                    view.ready,
+                    &self.target_scope(actor),
+                )
+            })
+        };
+        let facts = match self.semantic_facts.get(actor, &view) {
+            Some(facts) => {
+                #[cfg(test)]
+                {
+                    REUSED_SEMANTIC_FACTS.with(|count| count.set(count.get() + 1));
+                    assert_eq!(
+                        facts,
+                        adapt::CellKeys::verifying(derive),
+                        "memoized facts must equal derived facts"
+                    );
+                }
+                facts
+            }
+            None => {
+                let facts = derive();
+                self.semantic_facts.insert(actor, &view, facts.clone());
+                facts
+            }
+        };
         Ok(SemanticObservation {
             facts,
             actor,
@@ -3280,21 +3493,50 @@ impl Engine {
             ))
     }
 
+    /// The internal comparison picture of a capture. Its view-derived part is
+    /// memoized by the exact retained view and branch: one action's before
+    /// picture is the previous action's after picture of the same view.
+    /// Remembered places are always read at the capture's own boundary.
     pub(crate) fn semantic_picture(
         &self,
         capture: &SemanticObservation,
-    ) -> Result<StateView, Failure> {
-        Ok(StateView {
-            snapshot: SnapshotId("internal-unissued".into()),
-            wizard_game: capture.boundary.wizard_game,
-            revision: 0,
-            observation: self.adapt_observation_at(
-                &capture.boundary,
-                capture.actor,
-                0,
-                &capture.view,
-            )?,
-        })
+    ) -> Result<Arc<StateView>, Failure> {
+        let branch = capture.boundary.branch();
+        let places = self.remembered_place_views(&capture.boundary, capture.actor)?;
+        let fresh = || -> Result<StateView, Failure> {
+            let mut observation =
+                self.adapt_view_picture(&capture.boundary, capture.actor, 0, &capture.view)?;
+            observation.places = places.clone();
+            Ok(StateView {
+                snapshot: SnapshotId("internal-unissued".into()),
+                wizard_game: capture.boundary.wizard_game,
+                revision: 0,
+                observation,
+            })
+        };
+        if let Some(picture) = self.semantic_pictures.get(
+            capture.actor,
+            &capture.view,
+            branch,
+            capture.boundary.wizard_game,
+            &places,
+        ) {
+            #[cfg(test)]
+            {
+                REUSED_SEMANTIC_PICTURES.with(|count| count.set(count.get() + 1));
+                let fresh = adapt::CellKeys::verifying(fresh)?;
+                assert_eq!(*picture, fresh, "memoized picture must equal a fresh one");
+            }
+            return Ok(picture);
+        }
+        let picture = Arc::new(fresh()?);
+        self.semantic_pictures.insert(
+            capture.actor,
+            &capture.view,
+            branch.clone(),
+            Arc::clone(&picture),
+        );
+        Ok(picture)
     }
 
     #[cfg(test)]
@@ -4878,6 +5120,9 @@ impl Engine {
 
             receipts: self.receipts.clone(),
             observations: ObservationCache::default(),
+            semantic_facts: SemanticFactsMemo::default(),
+            semantic_pictures: SemanticPictureMemo::default(),
+            cell_keys: CellKeyMemo::default(),
             input_generations: InputGenerations::default(),
             history_index: self.history_index.clone(),
             path: self.path.clone(),
@@ -6324,7 +6569,13 @@ mod semantic_capture_tests {
                     capture.facts,
                     tor_protocol::OutcomeObservation::from(&full.observation)
                 );
-                assert_eq!(engine.semantic_picture(&capture).unwrap(), full);
+                assert_eq!(*engine.semantic_picture(&capture).unwrap(), full);
+                // A second picture of the same capture shares the first
+                // rather than copying it.
+                assert!(Arc::ptr_eq(
+                    &engine.semantic_picture(&capture).unwrap(),
+                    &engine.semantic_picture(&capture).unwrap()
+                ));
             }
         }
     }

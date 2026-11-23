@@ -8,6 +8,7 @@ own implemented behavior. Preserve useful rationale and label future work explic
 | --- | --- |
 | [Hosted CI reduction](hosted-ci-reduction.md) | Workflow audit, local ownership/admission/proof reuse/shared compilation and planned selection reductions |
 | [Shared requirements](requirements.md) | Unfinished reusable capabilities and their acceptance boundaries |
+| [Action compositor](action-compositor.md) | Accepted beat/timeline plan and disclosure amendments; not yet implemented |
 | [Rogue adaptation](rogue.md) | Accepted adaptation decisions and remaining full-run/calibration work |
 | [Python bot API and Rogue-O-Matic](python-bot-api.md) | Proposed API improvements, policy migrations and bundled campaign qualification |
 | [Rogue tuning](rogue-tuning.md) | Proposed locked-reference calibration sequence; not final balance |

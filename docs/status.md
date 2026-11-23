@@ -20,7 +20,7 @@ reuse and the Linux debug 3D smoke check. Domain-specific selection remains
 future work. No hosted
 qualification or measured hosted saving is claimed.
 
-**Current formats:** protocol **73**, save format **72**, scenario format **38**,
+**Current formats:** protocol **74**, save format **72**, scenario format **38**,
 ruleset **`interactions-v72`**, scenario validator **`tor-scenario-52`**.
 Unsupported identities are rejected rather than migrated. Rules-identity
 changes invalidate all saves pinned to the previous identity,
@@ -57,7 +57,7 @@ grid-rooms **1** and world-family **1** are unchanged. The arena run report is
 | Equipment and magic | Explicit primary attack socket, grip capacity, armor/corrosion, curses/enchantment, identification, thrown/projectile/ray attacks, control effects, sensing/mapping and finite portable lights | [Items](reference/items.md), [equipment](reference/equipment.md), [magic](reference/magic-items.md), [effect details](reference/consumable-effects.md) |
 | Forms | Baleful Polymorph, retained personal progression, compatible carried gear, cancellation and pending return | [Polymorph](reference/polymorph.md) |
 | Diagnostics | Privileged inspection/setup/rewind, exact bounded pages, shared-kernel arenas, matrices and search | [Wizard](development/wizard.md), [arena](development/arena.md) |
-| Optional 3D | Independent procedural client with responsive startup, asynchronous model stand-ins, inventory/equipment/portrait, advancement preview/confirmation and combined map/journal; render profiles for hardware of different strength; a standalone menu that hosts the server in-process, with scenario, seed and save selection; an experimental Android build that plays on the device alone; separately qualified from the core workspace | [3D guide](../crates/client-3d/README.md), [art continuation](plans/3d-art-continuation.md) |
+| Optional 3D | Independent procedural client with responsive startup, asynchronous model stand-ins, inventory/equipment/portrait, advancement preview/confirmation and combined map/journal; render profiles for hardware of different strength; a standalone menu that hosts the server in-process, with scenario, seed and save selection; an experimental Android build that plays on the device alone; a peaceful hall showing all 26 Rogue mob archetypes (`scenarios/peaceful-menagerie`); separately qualified from the core workspace | [3D guide](../crates/client-3d/README.md), [art continuation](plans/3d-art-continuation.md) |
 
 Gameplay submissions bind to attachment input authority, not picture revision.
 Changed control/origin/operands can invalidate input; a redraw cannot restore it.
@@ -151,6 +151,17 @@ without granting hidden knowledge. Unsupported utility items remain carried;
 this is not a claim that AI can use every item. Other floor-loot laws remain
 unchanged except the approved dagger quantities and generated-arrow conditions.
 Earlier numerical campaign receipts are historical, not new balance qualification.
+
+### Action compositor
+
+The accepted [action compositor plan](plans/action-compositor.md) adds a past-tense
+`activity` outcome fact (the next protocol version) with category-only wind-up, follow-through
+and item-handling disclosure, a shared client beat/timeline compositor, and 3D
+playback of continuous moves, phase-mapped attacks and straight per-segment
+missiles. All three phases are implemented on the work branch: the activity
+fact, the shared compositor (with the text goal engine as its own beat
+policy), and 3D playback. Sequence follow-through is defined but not yet
+emitted.
 
 ### Other scoped extensions
 

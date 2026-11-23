@@ -14,7 +14,7 @@
   "scripts/ci_python_shards.py": "e6dc055d797f9f4ee5bff7b2fd7f25cecc93bd5d82ce36ca7fab2641e0eaec48",
   "scripts/ci_scope.py": "e183ebe49603b818077ca0c5b44cb85f11f48dc3001b3c4eac01c247218984bb",
   "scripts/ci_selected.py": "3eb0d5565df55c6c40b0f12ad5b4914135b09f3845a82db3352853ab5558a542",
-  "scripts/ci_test_contracts.py": "5a1bb0aa9d95d9538b56cdb4640491c5e17172a23ceb173f14b46b7ff9636c1a",
+  "scripts/ci_test_contracts.py": "cf5ef3426d819b24ce9e7f33eb2ac76add1d18385c9aaf39e0bed70deaf9915e",
   "scripts/ci_test_plan.py": "1d01d019c9b438b5e583da5f027b68940fd9feb4208793a75fbe773e815f9fbd",
   "scripts/ci_usage_review.py": "2844832a48ddee0e84b940cd1ec44735713bb0708c1dc079f0a54e0508f4de04",
   "scripts/test_runner.py": "114ef8b4da80b5297cae808119e6aebc2e129ad8169f9314b723061286526528",

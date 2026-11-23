@@ -203,3 +203,55 @@ fn worn_stealth_edges_are_qualified_for_every_shared_skill_capture() {
     let folded = PerceptionCapabilities::from_modifiers(sources.iter()).unwrap();
     assert_eq!(folded.skill_edge(crate::attributes::Skill::Stealth), 0);
 }
+
+#[test]
+fn one_subject_moving_keeps_every_other_subjects_classification() {
+    // A hall of mutually visible creatures: when one steps, each observer's
+    // other subjects keep their classification, and only the mover (whose
+    // visibility inputs changed) is classified again.
+    use crate::perception::contract_fixtures::{at, fixture, spawn, OWNER, SUBJECT};
+    let mut game = fixture(&[], &[]);
+    let others = [
+        spawn(&mut game, "fixture_perception_subject", at(1, 4, 2)),
+        spawn(&mut game, "fixture_perception_subject", at(1, 2, 3)),
+    ];
+    let scene = game.scene_snapshot_shared(OWNER).unwrap();
+    let first = scene.classified_actors(&game, OWNER).unwrap();
+    for subject in [SUBJECT, others[0], others[1]] {
+        assert_eq!(
+            first.get(&subject).map(|seen| seen.disclosure),
+            Some(ActorDisclosure::Creature),
+            "positive fixture: {subject:?} is seen"
+        );
+    }
+    game.actors.get_mut(&SUBJECT).unwrap().location = at(1, 3, 3);
+    let moved = game.scene_snapshot_shared(OWNER).unwrap();
+    assert!(
+        std::sync::Arc::ptr_eq(&scene, &moved),
+        "positive fixture: another body's step keeps the observer's scene"
+    );
+    let before = crate::diagnostics::work_counts();
+    let second = moved.classified_actors(&game, OWNER).unwrap();
+    let after = crate::diagnostics::work_counts();
+    assert_eq!(*second, game.classified_actors(OWNER).unwrap());
+    assert_eq!(
+        after.actor_disclosures_reused - before.actor_disclosures_reused,
+        first.len() - 1,
+        "every subject but the mover keeps its classification"
+    );
+    assert_eq!(
+        after.actor_disclosures - before.actor_disclosures,
+        1,
+        "only the mover is classified again"
+    );
+    // A change to the observer's own visibility re-classifies everyone.
+    game.actors.get_mut(&OWNER).unwrap().orientation ^= 1;
+    let turned = game.scene_snapshot_shared(OWNER).unwrap();
+    let before = crate::diagnostics::work_counts();
+    turned.classified_actors(&game, OWNER).unwrap();
+    let after = crate::diagnostics::work_counts();
+    assert_eq!(
+        after.actor_disclosures_reused,
+        before.actor_disclosures_reused
+    );
+}

@@ -34,6 +34,8 @@ pub enum Topic {
     Finished,
     /// A disclosed combat event.
     Combat(CombatEventView),
+    /// Another visible actor's item handling, named as the observer sees it.
+    Activity(ActorTarget),
     /// A newly paid historical observation, owned by this observer.
     PublicPlan,
     /// Hit points with preparation, recovery, victory or death.
@@ -435,6 +437,35 @@ pub fn outcome_line(outcomes: &OutcomeFacts, fact: &OutcomeFact) -> Option<Line>
     let mut line = match fact {
         // Goals are standing state: clients show them, not the common log.
         OutcomeFact::Injured { .. } | OutcomeFact::Goal { .. } => return None,
+        // Steps, wind-ups and follow-throughs are presentation timing, not prose.
+        OutcomeFact::Activity {
+            actor,
+            activity: ActivityKind::ItemHandling { work, name },
+            ..
+        } => {
+            let verb = match work {
+                ItemWorkKind::Equip => "equips",
+                ItemWorkKind::Unequip => "removes",
+                ItemWorkKind::Drink => "drinks",
+                ItemWorkKind::Eat => "eats",
+                ItemWorkKind::Read => "reads",
+                ItemWorkKind::Ignite => "lights",
+                ItemWorkKind::Extinguish => "extinguishes",
+                ItemWorkKind::Zap => "zaps",
+            };
+            Line::new(
+                Topic::Activity(*actor),
+                format!(
+                    "The {} {verb} {}.",
+                    actor_name(*actor),
+                    name.as_deref().map_or_else(
+                        || "something".to_owned(),
+                        |name| format!("the {}", label(name, "item"))
+                    )
+                ),
+            )
+        }
+        OutcomeFact::Activity { .. } => return None,
         OutcomeFact::UserMessage { style, segments } => Line::new(
             Topic::UserMessage {
                 style: *style,
@@ -1468,6 +1499,70 @@ mod tests {
             .facts
             .iter()
             .any(|fact| matches!(fact, OutcomeFact::Goal { .. })));
+    }
+
+    #[test]
+    fn only_watched_item_handling_is_narrated_and_names_come_from_the_sighting() {
+        let before = crate::test_support::observation();
+        let row = &before.visible_actors[0];
+        let (actor, seen) = (row.id, row.name.clone());
+        let after = before.clone();
+        let compact = (
+            OutcomeObservation::from(&before),
+            OutcomeObservation::from(&after),
+        );
+        let activity = |activity| OutcomeFact::Activity {
+            actor,
+            started_at: after.tick,
+            activity,
+        };
+        let mut facts = OutcomeFacts::capture(&before, &after, None);
+        facts.extend_activities(
+            vec![
+                activity(ActivityKind::Move {
+                    from: Some(Position { x: 1, y: 0, z: 0 }),
+                    to: Some(Position { x: 2, y: 0, z: 0 }),
+                }),
+                activity(ActivityKind::WindUp {
+                    posture: ActivityPosture::Melee,
+                }),
+                activity(ActivityKind::FollowThrough {
+                    after: ActivityFollowThrough::Strike,
+                }),
+                activity(ActivityKind::ItemHandling {
+                    work: ItemWorkKind::Drink,
+                    name: Some("bubbly potion".into()),
+                }),
+                activity(ActivityKind::ItemHandling {
+                    work: ItemWorkKind::Zap,
+                    name: None,
+                }),
+            ],
+            &compact.0,
+            &compact.1,
+        );
+        facts.validate_at(after.tick).unwrap();
+        // One name row, from the event-time sighting, however many facts cite it.
+        assert_eq!(
+            facts
+                .actor_names
+                .iter()
+                .map(|row| (row.actor, row.name.clone()))
+                .collect::<Vec<_>>(),
+            [(actor, seen.clone())]
+        );
+        let lines: Vec<_> = outcome_lines(&facts)
+            .into_iter()
+            .filter(|line| line.topic == Topic::Activity(actor))
+            .map(|line| line.text)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                format!("The {seen} drinks the bubbly potion."),
+                format!("The {seen} zaps something."),
+            ]
+        );
     }
 
     #[test]

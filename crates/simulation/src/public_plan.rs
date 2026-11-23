@@ -285,7 +285,48 @@ impl ObservationKnowledgeCandidates {
     }
 }
 
+/// The visible stance of a perceived public ability preparation. It is a
+/// category only, never the ability identity, aim, remaining work or timing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublicPosture {
+    Melee,
+    Ranged,
+    Casting,
+    Other,
+}
+
 impl Game {
+    /// The posture category of a living actor's public ability preparation.
+    /// Idle, recovering and item work all yield `None`, so they remain
+    /// indistinguishable. This classifies only: the caller must already hold
+    /// the observer's creature-classified sighting, the same gate as paid plan
+    /// observation, and must not recompute perception for it.
+    pub fn public_posture(&self, subject: ActorId) -> Option<PublicPosture> {
+        let actor = self.actors.get(&subject)?;
+        if !actor.alive() {
+            return None;
+        }
+        let pending = actor.pending.as_ref()?;
+        let ability = pending.plan.ability_id()?;
+        Some(if pending.plan.as_projectile().is_some() {
+            PublicPosture::Ranged
+        } else if pending.plan.as_ray().is_some() {
+            PublicPosture::Casting
+        } else {
+            match self.content.rules.ability(ability).map(|d| &d.reach) {
+                Some(crate::rules::Reach::Melee) => PublicPosture::Melee,
+                Some(crate::rules::Reach::Projectile) => PublicPosture::Ranged,
+                Some(
+                    crate::rules::Reach::Sight { .. }
+                    | crate::rules::Reach::MutualSight { .. }
+                    | crate::rules::Reach::UntilObstruction,
+                ) => PublicPosture::Casting,
+                Some(crate::rules::Reach::SelfOnly | crate::rules::Reach::SelfOrAlly { .. })
+                | None => PublicPosture::Other,
+            }
+        })
+    }
+
     /// Scan the event log once, rather than once for every potential observer.
     /// Valid games contain at most the bounded ability catalog's distinct IDs.
     pub fn observation_knowledge_candidates(

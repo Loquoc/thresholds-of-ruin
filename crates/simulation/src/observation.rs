@@ -57,6 +57,9 @@ struct SourceContactGeometry {
 struct ClassifiedActors {
     visibility: u64,
     projection: Arc<crate::perception::PerceptionProjection>,
+    /// The observer's and every classified subject's visibility revision.
+    observer: Option<u64>,
+    subjects: std::collections::BTreeMap<ActorId, u64>,
 }
 
 #[derive(Debug)]
@@ -123,32 +126,64 @@ impl CachedScene {
         observer: ActorId,
     ) -> Result<Arc<crate::perception::PerceptionProjection>, GameError> {
         let visibility = game.actors.visibility_epoch();
-        let cached = self
-            .classifications
-            .lock()
-            .expect("actor classifications")
-            .as_ref()
-            .filter(|facts| facts.visibility == visibility)
-            .map(|facts| facts.projection.clone());
-        if let Some(cached) = cached {
-            return Ok(cached);
-        }
+        let observer_version = game.actors.visibility_version(observer);
+        let earlier = {
+            let cache = self.classifications.lock().expect("actor classifications");
+            match cache.as_ref() {
+                Some(facts) if facts.visibility == visibility => {
+                    return Ok(facts.projection.clone());
+                }
+                // Another actor's visibility changed, not this observer's:
+                // unchanged subjects keep their classification.
+                Some(facts) if observer_version.is_some() && facts.observer == observer_version => {
+                    Some((facts.projection.clone(), facts.subjects.clone()))
+                }
+                _ => None,
+            }
+        };
         // This scene proves world, emitters, observer body/chart and senses.
         // VisibilityInputs tracks every classify_body input, including actor
         // presence/life, body, invisibility, sight and guise recognition. It
         // intentionally invalidates more broadly than these reference facts.
         // Do not reuse this component for arbitrary/placement scenes.
         let indexes = self.projection();
-        let projection = Arc::new(game.perception_projection_in_cells(
-            observer,
-            &self.cells,
-            &indexes.cells,
-            &indexes.eyes,
-            None,
-        )?);
+        let projection = Arc::new(
+            game.perception_projection_reusing(
+                observer,
+                &self.cells,
+                &indexes.cells,
+                &indexes.eyes,
+                None,
+                earlier
+                    .as_ref()
+                    .map(|(projection, subjects)| (&**projection, subjects)),
+            )?,
+        );
+        #[cfg(test)]
+        if earlier.is_some() {
+            let fresh = crate::diagnostics::uncounted(|| {
+                game.perception_projection_in_cells(
+                    observer,
+                    &self.cells,
+                    &indexes.cells,
+                    &indexes.eyes,
+                    None,
+                )
+            })?;
+            assert_eq!(
+                *projection, fresh,
+                "kept classifications must equal a full projection"
+            );
+        }
+        let subjects = projection
+            .keys()
+            .filter_map(|&subject| Some((subject, game.actors.visibility_version(subject)?)))
+            .collect();
         *self.classifications.lock().expect("actor classifications") = Some(ClassifiedActors {
             visibility,
             projection: projection.clone(),
+            observer: observer_version,
+            subjects,
         });
         Ok(projection)
     }
@@ -973,6 +1008,18 @@ impl Game {
                 name: supply.name.clone(),
             });
         (identified, anonymous_corpse, name, known_supply)
+    }
+
+    /// The name `observer` would give an item another actor carries: its
+    /// identity only when already known, otherwise its unidentified appearance.
+    /// This teaches nothing and grants no targeting handle.
+    pub fn observed_carried_item_name(&self, observer: ActorId, item: ItemId) -> Option<String> {
+        if !self.actors.contains_key(&observer) {
+            return None;
+        }
+        let item = self.items.get(&item)?;
+        let (_, _, name, _) = self.project_item_identity(observer, item, &BTreeSet::new());
+        Some(name.to_owned())
     }
 
     fn project_ground_item(

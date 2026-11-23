@@ -178,6 +178,11 @@ pub struct Connection {
     timing: bool,
     previous_timing_write_ms: f64,
     pace: Duration,
+    /// The shortest wait between automatic picture requests; see
+    /// [`Connection::set_observation_interval`].
+    observation_interval: Duration,
+    /// When the last automatic picture request was made.
+    observation_requested: Option<Instant>,
     /// A received update waiting for its turn on screen.
     held: Option<ServerMessage>,
     last_shown: Option<Instant>,
@@ -293,6 +298,8 @@ impl Connection {
             timing: std::env::var_os("TOR_TIMING_DIAGNOSTICS").is_some(),
             previous_timing_write_ms: 0.,
             pace: Duration::ZERO,
+            observation_interval: Duration::ZERO,
+            observation_requested: None,
             held: None,
             last_shown: None,
             skipping: false,
@@ -332,6 +339,26 @@ impl Connection {
         self.pace = pace;
     }
 
+    /// Coalesce automatic picture requests: after one is made, the next waits
+    /// at least `interval`, however many visual changes arrive meanwhile.
+    /// Ordered outcomes are never held for it. Every picture costs the server a
+    /// full adaptation, so a client that times playback from outcomes need not
+    /// ask after each one. Zero asks as soon as the last picture arrived.
+    pub fn set_observation_interval(&mut self, interval: Duration) {
+        self.observation_interval = interval;
+    }
+
+    /// Whether the applied picture reflects every visual change heard so far.
+    pub fn observation_current(&self) -> bool {
+        !self.observation_demand.dirty && self.observation_demand.pending.is_none()
+    }
+
+    /// Ask for any outstanding picture now instead of after the interval, for
+    /// a client about to hand control back to the player.
+    pub fn hurry_observation(&mut self) {
+        self.observation_requested = None;
+    }
+
     /// Show what has already arrived without waiting, until the next request.
     /// This only changes the display; the server isn't told.
     pub fn skip(&mut self) {
@@ -364,6 +391,7 @@ impl Connection {
         self.chart_request = None;
         self.map_request = None;
         self.observation_demand.reset();
+        self.observation_requested = None;
         if self.recovery.is_none() {
             self.recovery = Some(PendingQuery::new());
         }
@@ -394,10 +422,15 @@ impl Connection {
             && self.observation_demand.pending.is_none()
             && self.recovery.is_none())
         .then(|| {
-            self.last_shown
+            let paced = self
+                .last_shown
                 .filter(|_| !self.skipping)
                 .map(|last| last + self.pace)
-                .unwrap_or_else(Instant::now)
+                .unwrap_or_else(Instant::now);
+            self.observation_requested
+                .map_or(paced, |requested| {
+                    paced.max(requested + self.observation_interval)
+                })
                 .into()
         })
     }
@@ -408,6 +441,7 @@ impl Connection {
             .is_some_and(|due| due <= tokio::time::Instant::now())
         {
             self.observation_demand.ensure_pending();
+            self.observation_requested = Some(Instant::now());
         }
         if self
             .observation_demand
@@ -1088,6 +1122,7 @@ impl Connection {
                             }
                             self.recovery = None;
                             self.observation_demand.reset();
+                            self.observation_requested = None;
                             self.last_shown = None;
                         }
                         Err(error) if recovering => {

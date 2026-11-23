@@ -280,6 +280,8 @@ pub struct MapProjection {
 pub struct MapWorkCounts {
     pub observed_cells: usize,
     pub placement_proposals: usize,
+    /// Neighbor facts unchanged since the actor's last recording, not proposed again.
+    pub placement_proposals_reused: usize,
     pub appearance_changes: usize,
     pub neighbor_changes: usize,
     pub witness_changes: usize,
@@ -303,6 +305,7 @@ pub struct MapWorkCounts {
 
 thread_local! { static COUNTS: std::cell::Cell<MapWorkCounts> = const {
     std::cell::Cell::new(MapWorkCounts { observed_cells:0, placement_proposals:0,
+        placement_proposals_reused:0,
         appearance_changes:0, neighbor_changes:0, witness_changes:0, owner_copies:0,
         directory_entries_copied:0, bucket_entries_copied:0, appearance_payload_copies:0,
         projection_states:0, candidate_relations:0, inverse_checks:0, range_seeks:0,
@@ -334,6 +337,61 @@ pub(crate) fn count_map_validation(cells: usize, relations: usize, world_locatio
 }
 
 type RootProofs = BTreeMap<ActorId, tor_world::SharedIdentity<ExploredMap>>;
+
+/// Derived recording evidence: each actor's last recorded physical scene and
+/// the stored map that recording left. Never serialized or compared as
+/// gameplay state.
+///
+/// A moving observer re-sees almost the same cells each step. A neighbor fact
+/// between two cells whose locations, rotations and relative placement are
+/// unchanged since the last recording, each disclosed once in both scenes,
+/// was proposed then without competition and stored; while the stored map is
+/// still that recording's result, proposing it again only to discard it as
+/// unchanged is skipped. Recording is the only in-place writer of a stored
+/// map; every other path replaces the shared value, so its identity differs.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct MapSceneMemo {
+    scenes: Shared<BTreeMap<ActorId, Shared<SceneMemo>>>,
+}
+impl PartialEq for MapSceneMemo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for MapSceneMemo {}
+
+#[derive(Debug)]
+struct SceneMemo {
+    map: tor_world::SharedIdentity<ExploredMap>,
+    /// Each physical location: how often it was disclosed, and the rotation
+    /// and offset of its (last) occurrence.
+    placed: Placements,
+}
+
+type Placements = std::collections::HashMap<Location, (u32, u8, Position)>;
+
+impl SceneMemo {
+    /// Where a location disclosed exactly once sat: rotation and offset.
+    fn once(&self, location: &Location) -> Option<(u8, Position)> {
+        self.placed
+            .get(location)
+            .filter(|(count, _, _)| *count == 1)
+            .map(|&(_, rotation, offset)| (rotation, offset))
+    }
+}
+
+impl MapSceneMemo {
+    /// The actor's last recorded scene, if its stored map is still what that
+    /// recording left.
+    fn current(&self, actor: ActorId, map: Option<&Shared<ExploredMap>>) -> Option<&SceneMemo> {
+        let memo = self.scenes.get(&actor)?;
+        map.is_some_and(|map| memo.map.matches(map))
+            .then_some(&**memo)
+    }
+    fn remember(&mut self, actor: ActorId, memo: SceneMemo) {
+        self.scenes.insert(actor, Shared::new(memo));
+    }
+}
 
 /// Derived Game-owned validation evidence, never serialized or compared as
 /// gameplay state. Weak roots do not keep detached appearance payloads loaded.
@@ -793,29 +851,83 @@ impl Game {
             }
         }
         let physical: Vec<_> = scene.iter().filter(|c| c.physical).collect();
-        let mut offsets = BTreeMap::new();
-        for (i, cell) in physical.iter().enumerate() {
+        let mut seen_offsets = std::collections::HashSet::with_capacity(physical.len());
+        let mut placed = Placements::with_capacity(physical.len());
+        for cell in &physical {
             if cell.rotation >= 24
                 || !appearances.contains_key(&cell.location)
-                || offsets.insert(cell.offset, i).is_some()
+                || !seen_offsets.insert(cell.offset)
             {
                 return Err(GameError::InvalidLocation);
             }
+            let entry = placed
+                .entry(cell.location)
+                .or_insert((0, cell.rotation, cell.offset));
+            *entry = (entry.0 + 1, cell.rotation, cell.offset);
         }
+        drop(seen_offsets);
+        let index = crate::travel::OffsetIndex::new(
+            &physical
+                .iter()
+                .map(|cell| (cell.offset.x, cell.offset.y, cell.offset.z))
+                .collect::<Vec<_>>(),
+        );
+        let memo = self
+            .map_scenes
+            .current(actor, self.explored_maps.get(&actor));
+        // Each cell is resolved against the last recorded scene once: whether
+        // its location is disclosed once now, and where it sat then if it was
+        // disclosed once there too. Neighbor checks then compare indexes.
+        let once_now: Vec<bool> = physical
+            .iter()
+            .map(|cell| {
+                placed
+                    .get(&cell.location)
+                    .is_some_and(|(count, _, _)| *count == 1)
+            })
+            .collect();
+        let before: Vec<Option<(u8, Position)>> = physical
+            .iter()
+            .zip(&once_now)
+            .map(|(cell, &once)| {
+                memo.filter(|_| once)
+                    .and_then(|memo| memo.once(&cell.location))
+            })
+            .collect();
         let mut parents: Vec<_> = (0..physical.len()).collect();
         let mut neighbors = BTreeMap::new();
+        let mut reused = 0;
         for (i, a) in physical.iter().enumerate() {
+            // Where this cell sat in the last recorded scene, if it is
+            // disclosed once in both and keeps its rotation.
+            let was = before[i]
+                .filter(|(rotation, _)| *rotation == a.rotation)
+                .map(|(_, was)| was);
             for direction in DIRECTIONS {
-                let Some(next) = offset(a.offset, direction_delta(direction)) else {
+                let delta = direction_delta(direction);
+                let Some(next) = offset(a.offset, delta) else {
                     continue;
                 };
-                let Some(&j) = offsets.get(&next) else {
+                let Some(j) = index.get(&(next.x, next.y, next.z)) else {
                     continue;
                 };
                 let b = physical[j];
                 let ar = root(&mut parents, i);
                 let br = root(&mut parents, j);
                 parents[ar] = br;
+                // The neighbor, disclosed once in both scenes, keeps its
+                // rotation and sits at the same step from this cell as then.
+                // Locations are unique there, so this is the very same fact.
+                let unchanged = was.is_some_and(|was| {
+                    once_now[j]
+                        && before[j].is_some_and(|(rotation, then)| {
+                            rotation == b.rotation && offset(was, delta) == Some(then)
+                        })
+                });
+                if unchanged {
+                    reused += 1;
+                    continue;
+                }
                 propose(
                     &mut neighbors,
                     (a.location, direction.rotated(a.rotation)),
@@ -885,7 +997,9 @@ impl Game {
         count(|n| {
             n.observed_cells += cells.len();
             n.placement_proposals += neighbors.len() + witnesses.len();
+            n.placement_proposals_reused += reused;
         });
+        let recorded = placed;
         let previous = self.explored_maps.get(&actor);
         appearances.retain(|at, appearance| {
             previous
@@ -897,6 +1011,14 @@ impl Game {
         if appearances.is_empty() && neighbors.is_empty() && witnesses.is_empty() {
             if let Some(map) = self.explored_maps.get(&actor) {
                 self.map_validation.accept_loaded(actor, map);
+                let map = map.weak_identity();
+                self.map_scenes.remember(
+                    actor,
+                    SceneMemo {
+                        map,
+                        placed: recorded,
+                    },
+                );
             }
             return Ok(());
         }
@@ -944,6 +1066,14 @@ impl Game {
         }
         self.map_validation
             .accept_loaded(actor, &self.explored_maps[&actor]);
+        let map = self.explored_maps[&actor].weak_identity();
+        self.map_scenes.remember(
+            actor,
+            SceneMemo {
+                map,
+                placed: recorded,
+            },
+        );
         Ok(())
     }
 }
@@ -1373,6 +1503,8 @@ fn reset_projection_calls() {
 }
 #[cfg(test)]
 mod projection_cache_tests;
+#[cfg(test)]
+mod scene_memo_tests;
 
 impl ExploredMap {
     #[cfg(test)]

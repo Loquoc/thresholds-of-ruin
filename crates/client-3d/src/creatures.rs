@@ -1624,13 +1624,15 @@ impl Anim {
     }
 
     /// Pick once, independently of appearance, and ignore duplicate death cues.
-    pub fn die(&mut self, face_corridor: bool) -> bool {
+    /// The fall waits `after` seconds, for the blow or missile that causes it.
+    pub fn die(&mut self, face_corridor: bool, after: f32) -> bool {
         if self.dead.is_some() {
             return false;
         }
         use std::hash::{BuildHasher, RandomState};
         let roll = (RandomState::new().hash_one(0_u8) % 100) as u8;
         self.start_death(DeathMotion::choose(roll), face_corridor);
+        self.dead = self.dead.map(|wait| wait - after.max(0.0));
         true
     }
 
@@ -1702,7 +1704,9 @@ pub use animation::{animate, soften, Boredom, WalkingCarriage, BORED_AFTER};
 pub(crate) use animation::{refresh_pose, PoseRefresh};
 pub(crate) use animation::{CloakPacing, MotionProfile};
 pub use corpse::{snuff, spawn_corpse, Snuffed};
-pub use effects::{effects, public_effect, stage, stage_authoritative, Bolt, Fade};
+pub use effects::{
+    effects, public_effect, stage, stage_authoritative, Bolt, Fade, MISSILE_CELLS_PER_SECOND,
+};
 pub use geometry::spawn;
 pub(crate) mod loading;
 pub(crate) use hair_budget::HairSolving;

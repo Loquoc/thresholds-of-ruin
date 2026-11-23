@@ -617,7 +617,7 @@ pub struct ApparentObjectView {
     pub appearance: GuiseAppearance,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PerceivedActor {
     pub disclosure: ActorDisclosure,
     pub body: crate::actor_store::BodyCells,
@@ -892,15 +892,44 @@ impl Game {
         eyes: &BTreeSet<Location>,
         placement: Option<crate::abilities::Placement>,
     ) -> Result<PerceptionProjection, GameError> {
+        self.perception_projection_reusing(observer, scene, cells, eyes, placement, None)
+    }
+
+    /// As [`Self::perception_projection_in_cells`], reusing an earlier
+    /// projection of these exact scene inputs by this observer, with its
+    /// inputs unchanged. A subject's disclosure depends only on those and on
+    /// its own visibility inputs and body, so a subject whose visibility
+    /// version and body are unchanged keeps its entry; any other is
+    /// classified again. Anonymous contacts are always classified again.
+    pub(crate) fn perception_projection_reusing(
+        &self,
+        observer: ActorId,
+        scene: &[SightCell],
+        cells: &BTreeSet<Location>,
+        eyes: &BTreeSet<Location>,
+        placement: Option<crate::abilities::Placement>,
+        earlier: Option<(&PerceptionProjection, &BTreeMap<ActorId, u64>)>,
+    ) -> Result<PerceptionProjection, GameError> {
         let owner = self.actors.get(&observer).ok_or(GameError::UnknownActor)?;
         let capabilities = owner.perception();
         let contact = OnceCell::new();
         crate::diagnostics::perception_projection();
-        Ok(self
-            .actors
-            .perceived(&self.world, cells)
+        let perceived = self.actors.perceived(&self.world, cells);
+        Ok(perceived
             .into_iter()
             .map(|(subject, body)| {
+                if let Some(kept) = earlier.and_then(|(projection, versions)| {
+                    let kept = projection.get(&subject)?;
+                    (versions.get(&subject).copied().is_some()
+                        && versions.get(&subject).copied()
+                            == self.actors.visibility_version(subject)
+                        && kept.disclosure != ActorDisclosure::AnonymousContact
+                        && kept.body == body)
+                        .then(|| kept.clone())
+                }) {
+                    crate::diagnostics::actor_disclosure_reused();
+                    return (subject, kept);
+                }
                 let inputs = DisclosureInputs {
                     observer,
                     scene,

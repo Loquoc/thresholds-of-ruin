@@ -79,6 +79,21 @@ pub struct View {
     pub events: Vec<Happening>,
     /// Complete currently observed public effects. Absence is not proof of world expiry.
     pub public_effects: Vec<PublicEffectView>,
+    /// What the update this view follows added to the shared beat timeline.
+    pub activity: Activity,
+    /// The current or most recent journey, as the server reports it.
+    pub travel: Option<TravelStatus>,
+}
+
+/// One update's contribution to the shared beat timeline, in its view's frame.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Activity {
+    /// Changes whenever the network worker starts a new timeline.
+    pub generation: u64,
+    /// The disclosing update's tick; `None` for a picture without an update.
+    pub tick: Option<u64>,
+    /// Spans this update added or whose end it changed, by timeline index.
+    pub spans: Vec<(usize, tor_client_common::compositor::ActorSpan)>,
 }
 
 /// Something seen to happen, from the combat events the server disclosed.
@@ -405,6 +420,8 @@ pub fn view(state: &ClientState, palette: &Palette) -> View {
         // Snapshot combat history is not a new occurrence. Native playback
         // consumes accepted ordered Outcome facts instead of replaying this list.
         events: vec![],
+        activity: Activity::default(),
+        travel: state.travel().cloned(),
         public_effects: o
             .public_effects
             .iter()

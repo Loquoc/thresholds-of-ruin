@@ -167,7 +167,10 @@ fn observation_classifies_once_then_reuses_only_unchanged_visibility() {
     assert_eq!(warm.perception_projections, cold.perception_projections);
     assert_eq!(warm.actor_disclosures, cold.actor_disclosures);
 
-    // A new actor invalidates the classification witness, including hidden rows.
+    // A new actor invalidates the classification witness. The newcomer is
+    // classified, and so is the invisible subject's anonymous contact, whose
+    // body depends on the observer's reach; the observer and the other
+    // creature, with unchanged visibility inputs, keep their classification.
     spawn(&mut game, "fixture_perception_owner", at(1, 3, 3));
     let before = crate::diagnostics::work_counts();
     let changed = game.observe(OWNER).unwrap();
@@ -179,7 +182,11 @@ fn observation_classifies_once_then_reuses_only_unchanged_visibility() {
         after.perception_projections - before.perception_projections,
         1
     );
-    assert_eq!(after.actor_disclosures - before.actor_disclosures, 4);
+    assert_eq!(after.actor_disclosures - before.actor_disclosures, 2);
+    assert_eq!(
+        after.actor_disclosures_reused - before.actor_disclosures_reused,
+        2
+    );
 }
 
 #[test]

@@ -321,12 +321,12 @@ mod tests {
     fn duplicate_live_death_cue_does_not_reroll_or_restart() {
         let mut anim = Anim::new(21, Vec3::ZERO);
         anim.act(Move::Strike);
-        assert!(anim.die(true));
+        assert!(anim.die(true, 0.0));
         assert_eq!(anim.dead, Some(-0.35));
         assert!(anim.action.is_none());
         let chosen = anim.death_motion;
         anim.dead = Some(0.55);
-        assert!(!anim.die(true));
+        assert!(!anim.die(true, 0.0));
         assert_eq!(anim.death_motion, chosen);
         assert_eq!(anim.dead, Some(0.55));
         anim.preview_death(DeathMotion::Dramatic);

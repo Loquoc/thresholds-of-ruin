@@ -29,6 +29,7 @@ mod interaction;
 mod inventory;
 mod map;
 mod observation;
+pub mod playback;
 mod routing;
 mod wearables;
 pub use wearables::WearableLook;
@@ -51,8 +52,8 @@ pub use interaction::{
 pub use inventory::{InventoryBrowser, InventoryFilter, MAX_INVENTORY_SEARCH};
 pub use map::{map_destinations, MapDestination, MapSelection};
 pub use observation::{
-    happenings, observed_harm, outcome_happenings, view, Ability, Actor, Carried, GroundItem,
-    Happening, Terrain, View,
+    happenings, observed_harm, outcome_happenings, view, Ability, Activity, Actor, Carried,
+    GroundItem, Happening, Terrain, View,
 };
 
 pub use routing::{approach_cells, attack_at_hand, step_toward};

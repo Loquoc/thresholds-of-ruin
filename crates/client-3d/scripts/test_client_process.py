@@ -58,6 +58,50 @@ class AbilityTrace:
 class Native3DProcesses(ProcessTestCase):
     graphical = True
 
+    def test_complete_peaceful_menagerie_renders_and_waits_without_hostility(self):
+        self.server(scenario="peaceful-menagerie")
+        executable = Path(os.environ.get("TOR_3D_TEST_BINARY", CLIENT / "target/debug" / ("tor-client-3d" + self.suffix)))
+        window = self.launch("tor-client-3d", [
+            "--connect", self.address, "--capture", self.directory / "peaceful-hall",
+            "--capture-every", "0.5",
+        ], executable=executable)
+        initial = self.captured(window, lambda frame: frame["has_control"] and not frame["busy"]
+                                and len(frame["actors"]) >= 10
+                                and all(actor["model_ready"] for actor in frame["actors"]))
+        self.assertTrue(all(not actor["hostile"] for actor in initial["actors"]))
+        self.assertEqual(len(initial["actors"]), 27, "all 26 mob types and the visitor must be openly visible")
+        self.assertIn("xeroc", {actor["name"] for actor in initial["actors"]})
+        self.assertIn("phantom", {actor["name"] for actor in initial["actors"]})
+        native = self.native_keys(window)
+        previous = initial
+        for _ in range(3):
+            tick = int(previous["tick"])
+            previous = self.tap(window, native, "space", lambda frame: int(frame["tick"]) > tick)
+            self.assertTrue(all(not actor["hostile"] for actor in previous["actors"]))
+        self.assertEqual(previous["world_feet"], initial["world_feet"])
+
+    def test_a_whole_turn_arrives_before_input_is_released(self):
+        # Every mob's move in a turn must be presented together: input may not
+        # return until the server has run everything due before the player's
+        # next turn, or later moves fall into another batch and lose simultaneity.
+        self.server(scenario="peaceful-menagerie")
+        executable = Path(os.environ.get("TOR_3D_TEST_BINARY", CLIENT / "target/debug" / ("tor-client-3d" + self.suffix)))
+        window = self.launch("tor-client-3d", [
+            "--connect", self.address, "--capture", self.directory / "whole-turn",
+            "--capture-every", "0.5",
+        ], executable=executable)
+        initial = self.captured(window, lambda frame: frame["has_control"] and not frame["busy"]
+                                and all(actor["model_ready"] for actor in frame["actors"]))
+        native = self.native_keys(window)
+        previous = initial
+        for _ in range(3):
+            tick = int(previous["tick"])
+            previous = self.tap(window, native, "space",
+                                lambda frame, tick=tick: int(frame["tick"]) > tick and not frame["busy"])
+        settled = self.captured(window, lambda frame: frame["png"] != previous["png"] and not frame["busy"])
+        self.assertEqual(settled["late_timeline_views"], 0,
+                         "mob moves of a turn arrived after input was already released")
+
     def assert_live_portrait(self, portrait, initial):
         own_actor = next(actor for actor in portrait["actors"] if actor["is_self"])
         self.assertEqual(portrait["portrait"]["target"], own_actor["target"])
@@ -1806,6 +1850,63 @@ class Native3DProcesses(ProcessTestCase):
         finally:
             if window.child.poll() is None:
                 native("Escape", False)
+
+    def test_travel_walks_its_cells_without_stopping_at_each_one(self):
+        # The server runs a journey without pacing; the compositor must play its
+        # steps back to back. A step disclosed while the previous one is still
+        # walking queues behind it rather than replacing it mid-cell.
+        self.assert_travel_walks_without_stopping(scenario=None, name="travel-walk")
+
+    def test_menagerie_travel_walks_the_player_and_mobs_without_stopping(self):
+        # Many peaceful mobs wander while the player travels: every body's
+        # chained steps must play back to back, not pause at each cell.
+        walk = self.assert_travel_walks_without_stopping(scenario="peaceful-menagerie", name="menagerie-walk")
+        self.assertGreater(walk["mob_walks"]["legs"], 0, "positive fixture: mobs walk while the player travels")
+        self.assertEqual(walk["mob_walks"]["stops"], 0, "mobs' chained steps must walk without stopping at each cell")
+
+    def assert_travel_walks_without_stopping(self, scenario, name):
+        self.server(scenario=scenario) if scenario else self.server()
+        executable = Path(os.environ.get("TOR_3D_TEST_BINARY", CLIENT / "target/debug" / ("tor-client-3d" + self.suffix)))
+        window = self.launch("tor-client-3d", ["--connect", self.address, "--capture", self.directory / name, "--capture-every", "0.4", "--quit-after", "600"], executable=executable)
+        initial = self.captured(window, lambda frame: frame["has_control"] and frame["can_act"] and not frame["busy"])
+        native = self.native_keys(window)
+        def route(frame):
+            return (frame.get("map_journal") or {}).get("route") or {}
+        opened = self.tap(window, native, "m", lambda frame: str(frame["screen"]).startswith("Places") and route(frame).get("options"))
+        feet = route(opened)["feet"]
+        options = route(opened)["options"]
+        def distance(row):
+            return max(abs(row["position"][axis] - feet[axis]) for axis in (0, 1))
+        far = {row["key"]: distance(row) for row in options
+               if row["label"] == "Known floor" and row["position"][2] == feet[2] and distance(row) >= 3}
+        self.assertTrue(far, "positive fixture must contain a disclosed floor at least three cells away")
+        frame = opened
+        for _ in range(len(options)):
+            previous = route(frame)["selected"]
+            frame = self.tap(window, native, "Down", lambda current, previous=previous: route(current)["selected"] != previous)
+            if route(frame)["selected"] in far:
+                break
+        target = route(frame)["selected"]
+        self.assertIn(target, far)
+        self.assertTrue(route(frame)["can_travel"])
+        arrived = self.tap(window, native, "Return", lambda current: current["screen"] is None and current["foot_cell"] == target and current["can_act"])
+        # Playback may trail the server's arrival by its buffer: count the legs
+        # once the walk has played out.
+        settled = self.captured(window, lambda current: current["png"] != arrived["png"] and not current["busy"]
+                                and current["own_walk"] is not None and not current["own_walk"]["walking"])
+        settled = self.captured(window, lambda current: current["png"] != settled["png"] and not current["busy"])
+        walk = settled["own_walk"]
+        self.assertGreaterEqual(walk["legs"], far[target], "every travelled cell must be walked as a timed leg")
+        self.assertEqual(walk["stops"], 0, "a journey's chained steps must walk without stopping at each cell"
+                         f" (own {walk}, mobs {settled.get('mob_walks')})")
+        result = settled
+        native("Escape", True)
+        try:
+            self.assertEqual(window.child.wait(timeout=30), 0)
+        finally:
+            if window.child.poll() is None:
+                native("Escape", False)
+        return result
 
     def test_map_journal_shares_the_disclosed_map_and_preserves_note_typing(self):
         self.server()

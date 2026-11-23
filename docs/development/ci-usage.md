@@ -200,6 +200,24 @@ artifact. No workflow commands, runners, triggers, permissions, dependencies,
 caches, retention or budgets change. Updated only the reviewed
 `ci_test_contracts.py` hash after this source review.
 
+## November 21 peaceful menagerie test registration
+
+The peaceful viewing hall registers two planner owners in
+`scripts/ci_test_contracts.py`: `test_peaceful_menagerie` (class
+`PeacefulMenagerie`) and `test_peaceful_menagerie_process` (class
+`PeacefulMenagerieProcesses`). Reviewed their sources:
+
+- `test_peaceful_menagerie` reads the checked-in `peaceful-menagerie` and
+  `rogue-exploration` TOML, and starts nothing.
+- The process owner uses the shared process harness to launch the ordinary
+  `tor-server` and `tor-client-headless` on loopback, and sends 30 waits. It is
+  an ordinary short process test, like the other package process owners.
+
+Neither reaches a network destination or produces a retained artifact. No
+workflow commands, runners, triggers, permissions, dependencies, caches,
+retention or budgets change. Updated only the reviewed `ci_test_contracts.py`
+hash after this source review.
+
 ## Python SDK and bot launch selection
 
 Changes to the five reviewed Python SDK modules select the tests of the

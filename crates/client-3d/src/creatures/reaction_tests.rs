@@ -15,6 +15,8 @@ fn body(app: &mut App, at: Vec3) -> Entity {
                 wearing: Default::default(),
                 hostile: false,
                 goal: at,
+                walk: default(),
+                own: false,
                 label,
                 ring,
                 name: String::new(),
@@ -256,4 +258,69 @@ fn authoritative_target_effect_replaces_canned_visual_but_keeps_actor_motion() {
         1,
         "only authoritative target effect"
     );
+}
+
+#[test]
+fn a_death_waits_for_the_disclosed_flight_that_caused_it() {
+    // A fire bolt flies four cells to a kestrel that dies at once: the fall
+    // must wait for the bolt, never precede it.
+    let mut app = App::new();
+    let mut materials = Assets::<StandardMaterial>::default();
+    let library = PropLibrary::new(PropMaterials::new(&mut materials));
+    app.init_resource::<Game>()
+        .init_resource::<Assets<Mesh>>()
+        .insert_resource(materials)
+        .insert_resource(library)
+        .add_systems(Update, crate::scene::react);
+    let caster = ActorTarget::from_digest([11; 32]);
+    let kestrel = ActorTarget::from_digest([13; 32]);
+    let caster_entity = body(&mut app, crate::scene::stand(IVec3::ZERO));
+    let kestrel_entity = body(&mut app, crate::scene::stand(IVec3::new(4, 0, 0)));
+    {
+        let mut game = app.world_mut().resource_mut::<Game>();
+        game.actors.insert(caster, caster_entity);
+        game.actors.insert(kestrel, kestrel_entity);
+        game.pending.push(Happening::Effect {
+            caster: Some(caster),
+            ability: Some(tor_protocol::ContentRef {
+                id: "fire_bolt".into(),
+                name: "Fire bolt".into(),
+            }),
+            tick: 10,
+            timing: tor_protocol::EffectTiming::Instant,
+            presentation: tor_protocol::EffectPresentation::neutral(
+                tor_protocol::EffectAppearance::Bolt,
+            ),
+            object_model: None,
+            delivery: tor_protocol::EffectDelivery::Ray,
+            cue: tor_protocol::EffectCue::Fire,
+            segments: vec![(0..=4).map(|x| Position { x, y: 0, z: 0 }).collect()],
+        });
+        game.pending.push(Happening::Died(kestrel));
+    }
+    app.update();
+    let travel = 4.0 / MISSILE_CELLS_PER_SECOND as f32;
+    let dead = app
+        .world()
+        .get::<Anim>(kestrel_entity)
+        .unwrap()
+        .dead
+        .unwrap();
+    assert!(
+        (dead - (-0.35 - travel)).abs() < 1e-5,
+        "death phase {dead} must wait {travel}s for the bolt"
+    );
+    // A death that follows in a later batch still waits for the flight.
+    app.world_mut()
+        .resource_mut::<Game>()
+        .pending
+        .push(Happening::Hurt(kestrel));
+    app.update();
+    let hurt = app
+        .world()
+        .get::<Anim>(kestrel_entity)
+        .unwrap()
+        .hurt
+        .unwrap();
+    assert!(hurt < 0.0, "a later hurt still waits for the bolt");
 }

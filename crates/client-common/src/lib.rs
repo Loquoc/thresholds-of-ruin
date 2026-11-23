@@ -31,6 +31,7 @@ pub mod advancement;
 pub mod annotations;
 pub mod captures;
 pub mod charts;
+pub mod compositor;
 mod connection;
 pub mod history;
 pub mod holds;

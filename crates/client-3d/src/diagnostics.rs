@@ -348,6 +348,22 @@ pub(super) fn capture(
         "failed_models": failed_models.iter().count(),
         "fatal": game.as_ref().is_some_and(|game| game.fatal),
         "busy": game.as_ref().is_some_and(|game| game.busy),
+        // Timeline content that arrived after input was released for it.
+        "late_timeline_views": game.as_ref().map_or(0, |game| game.late_timeline_views),
+        // The player's own walk: legs played, stops between chained legs, and
+        // whether legs are still queued or playing.
+        "own_walk": bodies.iter().find(|(_, body, ..)| body.own).map(|(_, body, ..)| serde_json::json!({
+            "legs": body.walk.legs_walked, "stops": body.walk.stops, "walking": body.walk.walking(),
+        })),
+        // Every other body's walks, summed: legs played and stops between them.
+        "mob_walks": bodies.iter().filter(|(_, body, ..)| !body.own).fold(
+            serde_json::json!({"legs": 0, "stops": 0}),
+            |mut total, (_, body, ..)| {
+                total["legs"] = (total["legs"].as_u64().unwrap_or(0) + u64::from(body.walk.legs_walked)).into();
+                total["stops"] = (total["stops"].as_u64().unwrap_or(0) + u64::from(body.walk.stops)).into();
+                total
+            },
+        ),
         "inventory": view.map(|view| view.inventory.iter().map(|item| serde_json::json!({
             "id": item.id, "name": item.name, "model": format!("{:?}", item.model), "quantity": item.quantity.to_string(),
             "equipped":item.equipped,

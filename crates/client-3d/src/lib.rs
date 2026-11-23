@@ -55,8 +55,10 @@ mod test_support;
 use diagnostics::capture;
 mod camera;
 mod character;
+mod playback;
 mod scene;
 mod screen;
+mod settings;
 use camera::{follow_actors, input, rig_camera, torch_flicker, update_cave_params};
 use scene::{animate_props, react, receive, stand, studio_lights, tend_the_dead};
 
@@ -446,6 +448,8 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     .init_resource::<interact::Hover>()
     .init_resource::<interact::Panel>()
     .init_resource::<interact::Pursuit>()
+    .init_resource::<playback::Pace>()
+    .insert_resource(settings::Settings::load(settings::Settings::default_path()))
     .init_resource::<loot_labels::LootLabels>()
     .init_resource::<pile_picker::PilePicker>()
     .insert_resource(autoplay::Autoplay::new(autoplay, hunt))
@@ -486,7 +490,13 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
                 startup::tick,
             )
                 .chain(),
-            react,
+            (
+                playback::release,
+                react,
+                settings::resume_travel,
+                settings::toggles,
+            )
+                .chain(),
             (pile_picker::update, interact::keys, hud::buttons)
                 .chain()
                 .run_if(session::has_input),
@@ -734,8 +744,19 @@ struct Game {
     dying: Vec<DeadBody>,
     /// Corpse models by item, with the cell each lies in, kept between views.
     corpses: HashMap<tor_protocol::ItemTarget, CachedCorpse>,
-    /// Combat events waiting to be acted out, and the revision they came from.
+    /// Combat events due to be acted out now.
     pending: Vec<Happening>,
+    /// Presentation timing for the beat timeline.
+    playback: playback::Playback,
+    /// The journey the player last asked for, kept to resume excused interruptions.
+    journey: Option<settings::Journey>,
+    /// Every mob this character has seen in this game.
+    seen: HashSet<ActorTarget>,
+    /// Whether this game has sent a gameplay command yet.
+    acted: bool,
+    /// Views with spans or happenings that arrived while input was released:
+    /// a turn's moves arriving after the player could already act again.
+    late_timeline_views: u64,
     public_effects: HashMap<String, scene::PublicEffectBody>,
     last_revision: Option<u64>,
     actors: HashMap<ActorTarget, Entity>,
@@ -785,9 +806,37 @@ impl Game {
         if self.busy || self.fatal {
             return false;
         }
+        // Input waits until what already happened has been shown. Trying to act
+        // early fast-forwards it; the next attempt acts on the caught-up scene.
+        if !self.playback.drained() {
+            self.playback.skip();
+            self.status = "Caught up. Act again.".into();
+            return false;
+        }
+        self.dispatch(net, command)
+    }
+
+    /// The client's own plan (a clicked errand) sends while playback is within
+    /// its bounded lead, so a walk keeps moving without racing ahead.
+    fn send_planned(&mut self, net: &Net, command: Cmd) -> bool {
+        if self.busy || self.fatal || !self.playback.within_lead() {
+            return false;
+        }
+        self.dispatch(net, command)
+    }
+
+    fn dispatch(&mut self, net: &Net, command: Cmd) -> bool {
+        // A new journey is remembered so an excused interruption can resume
+        // it; any other action ends that intention.
+        let journey = match &command {
+            Cmd::Travel(destination) => Some(destination.clone()),
+            _ => None,
+        };
         let Some(view) = &self.view else {
             return false;
         };
+        let started_with = settings::in_view(view);
+        let hp = view.hp.map(|(hp, _)| hp);
         let input = Input {
             shown: view.shown.clone(),
             command,
@@ -797,8 +846,23 @@ impl Game {
             return false;
         }
         self.busy = true;
+        self.acted = true;
         self.since_send = 0.0;
         self.status.clear();
+        self.journey = match (journey, self.journey.take()) {
+            // Resending the same journey keeps its resumption count.
+            (Some(destination), Some(previous)) if previous.destination == destination => {
+                Some(previous)
+            }
+            (Some(destination), _) => Some(settings::Journey {
+                destination,
+                started_with,
+                hp,
+                sent_at: self.view_serial,
+                resumed: 0,
+            }),
+            (None, _) => None,
+        };
         true
     }
 }
@@ -918,6 +982,10 @@ struct ActorBody {
     wearing: tor_client_3d_model::Wearing,
     hostile: bool,
     goal: Vec3,
+    /// Timed walks toward goal; without one the body eases there.
+    walk: playback::Walk,
+    /// The player's own body, which the camera follows as it walks.
+    own: bool,
     label: Entity,
     ring: Entity,
     name: String,

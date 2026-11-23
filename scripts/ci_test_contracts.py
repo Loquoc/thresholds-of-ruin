@@ -204,6 +204,8 @@ REVIEWED_OWNERS = {
     'test_rogue_projectile_content': ('RogueProjectileContent',),
     'test_rogue_restoration_content': ('RogueRestorationContent',),
     'test_rogue_restoration_process': ('RogueRestorationProcesses',),
+    'test_peaceful_menagerie': ('PeacefulMenagerie',),
+    'test_peaceful_menagerie_process': ('PeacefulMenagerieProcesses',),
     'test_rogue_roster_content': ('RogueRosterContent',),
     'test_rogue_roster_package': ('RogueRosterPackageTests',),
     'test_rogue_roster_process': ('RogueRosterProcesses',),

@@ -288,6 +288,8 @@ mod tests {
                 wearing: Default::default(),
                 hostile: false,
                 goal: Vec3::ZERO,
+                walk: default(),
+                own: false,
                 label,
                 ring,
                 name: String::new(),

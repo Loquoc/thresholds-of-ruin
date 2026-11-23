@@ -896,6 +896,41 @@ fn recorded_noticed_outcome_has_disclosed_event_time_position() {
 }
 
 #[test]
+fn recorded_watched_step_is_one_named_past_tense_activity() {
+    let mut steps = Vec::new();
+    for sample in samples()["server"].as_array().unwrap() {
+        let message: ServerMessage = round_trip(sample);
+        let ServerMessage::Update { update } = message else {
+            continue;
+        };
+        let UpdateBody::Outcome { facts, .. } = update.body else {
+            continue;
+        };
+        facts.validate_at(update.cursor.tick).unwrap();
+        for fact in &facts.facts {
+            if let OutcomeFact::Activity {
+                actor,
+                started_at,
+                activity,
+            } = fact
+            {
+                assert_ne!(*actor, facts.self_target);
+                assert!(*started_at <= update.cursor.tick);
+                assert!(facts.actor_names.iter().any(|row| row.actor == *actor));
+                steps.push(activity.clone());
+            }
+        }
+    }
+    assert_eq!(
+        steps,
+        [ActivityKind::Move {
+            from: Some(Position { x: 2, y: 0, z: 0 }),
+            to: Some(Position { x: 1, y: 0, z: 0 }),
+        }]
+    );
+}
+
+#[test]
 fn recorded_scripted_user_message_preserves_text_and_control_segments() {
     let expected = serde_json::json!({
         "kind": "user_message", "style": "tutorial",

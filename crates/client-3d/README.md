@@ -207,6 +207,26 @@ and stops it on exit. Other options:
 - `scenarios/menagerie` (in this crate) is a lit hall holding its supported
   creature recipes, wandering at peace except an emu and a snake that fight, with
   items on the floor: `--scenario crates/client-3d/scenarios/menagerie`
+- `scenarios/peaceful-menagerie` (repository root) is a fully lit 32 by 25 cell
+  hall with one of each of the 26 current Rogue mob archetypes:
+  `--scenario scenarios/peaceful-menagerie`.
+  - **Creatures:** they keep their catalog bodies, models and abilities, but
+    every species is passive and no faction has enemies. They explore using
+    ordinary AI (rooted creatures stay rooted), and time advances only when the
+    visitor acts.
+  - **The visitor:** needs no food and can see invisible creatures, including
+    the phantom.
+  - **The xeroc:** shown openly, because this package's rules remove its
+    disguise and touch ambush.
+  - **Regenerating:** the package is derived from `scenarios/rogue-exploration`
+    by `python scripts/generate_peaceful_menagerie.py`. Run it after Rogue
+    catalog changes, then `tor-scenario validate`.
+  - **Tests:** `python -m unittest scripts.test_peaceful_menagerie` checks the
+    roster and peaceful policy. `scripts/test_peaceful_menagerie_process.py`
+    checks 30 ordinary waits through real server and headless processes. The 3D
+    process suite's
+    `test_complete_peaceful_menagerie_renders_and_waits_without_hostility`
+    checks rendered models and native wait input in the real 3D window.
 - `scenarios/crowd` (in this crate) is the smaller rendering diagnostic: 24
   creatures and the player, using the menagerie's palette. Use
   `--scenario crates/client-3d/scenarios/crowd --distance 16` to frame all 25.
@@ -435,6 +455,32 @@ the map and journal, Tab takes control, Esc closes
 the pack or quits. Stepping into
 a hostile creature attacks it, as in the ASCII client.
 
+What already happened plays out before the next action. An action counts as
+done only once the server has run everything due before your next turn, not
+when it acknowledges the request, so every mob's move in a turn arrives and
+plays together. Input then waits until that playback has finished. A turn
+whose messages stop for three seconds reports an uncertain outcome instead of
+waiting further. Acting early fast-forwards to the caught-up
+scene ("Caught up. Act again.") without sending; the next press acts. A
+click-to-travel errand keeps walking while the picture stays within about
+1.5 seconds of the game, so long walks are continuous rather than stepwise.
+
+The Menu's Settings section has two toggles, both on by default and saved in
+`.local/client-3d/settings.json`:
+
+- **Peaceful mobs interrupt:** when off, a non-hostile mob entering view does
+  not interrupt.
+- **New mobs interrupt:** when off, a mob this character has never seen before
+  does not interrupt.
+
+A mob entering view interrupts unless a toggle that matches it is off, so a
+hostile mob already seen always interrupts. Leaving view never interrupts.
+
+The toggles govern fetch errands, and journeys you started. The server still
+ends a journey when anything new appears. If every newcomer is excused and you
+were not hurt, the client sends the same journey again, up to 50 times.
+Wounds and other reasons still stop it.
+
 Objects:
 
 - More than four non-corpse ground stacks share a compact treasure pile and an
@@ -653,6 +699,27 @@ richer resource presentation and pause/accessibility settings remain unfinished.
   and the exact confirmation record; `progression.rs` builds graphical choices
   from those records without parsing prose. The shared reducer remains the final
   admission boundary for every preview and confirmation.
+- The worker feeds every applied message to the shared
+  [beat compositor](../../docs/architecture/clients.md#shared-beat-composition)
+  and attaches the timeline spans each update added or retimed to its `View`.
+  Messages are not paced; `playback.rs` times the presentation instead. One
+  clock maps ticks to seconds (a 100-tick step takes a quarter second) and
+  compresses idle stretches to at most 0.12 seconds. It never schedules a newly
+  disclosed tick in the past.
+  - **Steps:** a disclosed step walks its body from the previous cell to the new
+    one over the step's span, so chained steps and travel are one steady walk.
+    Another actor's step ends where its next disclosed activity starts.
+  - **Combat:** strikes, hurts and deaths wait for their tick, starting early by
+    the move's impact lead so the blow lands on the strike tick.
+  - **Missiles:** a disclosed missile or ray flies straight along each run of a
+    segment's own cells (`model::playback::straight_runs`), at a fixed cosmetic
+    speed. A stepped off-axis path is one heading, and a bounce starts a new
+    run. A hidden gap is not drawn: it only delays the next segment. The flight
+    leaves at the caster's impact frame, and its target reacts when the flight
+    reaches the target's disclosed cell, or at launch if that cell was not
+    disclosed.
+  - **Snaps:** goal changes without a step (resynchronization, teleport) keep
+    the ordinary ease.
 - Observations are in an observer frame that moves with the character. The
   window matches cell keys that appear once in consecutive views to recover the
   shift, so the world stays still and the camera glides after the player.
