@@ -20,7 +20,8 @@ def main():
     args = parser.parse_args()
     if args.retrieval_depth < 1:
         parser.error("Retrieval depth must be positive")
-    from rogue_player import Adventurer, play
+    from rogue_player import Adventurer
+    from rogue_runner import play
     from tor_client_bot import Session
 
     def emit(row):

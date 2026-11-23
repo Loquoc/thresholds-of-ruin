@@ -139,6 +139,28 @@ class CohortSummaryTests(unittest.TestCase):
                 self.assertEqual(hashes[name], hashlib.sha256(data).hexdigest())
             self.assertEqual(script.name, "rogue_o_matic.py")
 
+    def test_snapshot_loads_policy_and_runner_without_workspace_scripts(self):
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        from rogue_o_matic_cohort import snapshot_policy
+
+        scripts = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as directory:
+            cli, hashes = snapshot_policy(scripts, Path(directory))
+            self.assertIn("rogue_runner.py", hashes)
+            probe = """import sys
+sys.path[:0] = sys.argv[1:]
+from rogue_player import Adventurer, play
+from rogue_runner import play as run_session
+assert play is run_session
+"""
+            result = subprocess.run([sys.executable, "-I", "-c", probe, str(cli.parent),
+                                     str(scripts.parent / "crates/client-bot/python")],
+                                    cwd=directory, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_fresh_victory_verification_requires_the_configured_identity(self):
         from types import SimpleNamespace
         from unittest.mock import patch

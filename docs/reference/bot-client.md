@@ -353,7 +353,7 @@ its turn recording. Rebuild the policy's memory from its starting configuration
 by replaying observations, choices and recorded admission receipts in order.
 Ordinary campaigns omit these larger payloads.
 
-The bundled retrieval policy and its decision loop live in
-[`rogue_player.py`](../../scripts/rogue_player.py). The
+The bundled [retrieval policy](../../scripts/rogue_player.py) chooses actions.
+The [session runner](../../scripts/rogue_runner.py) submits them and records their outcomes. The
 [findings log](../development/rogue-o-matic-findings.md) records observations
 worth investigating on the server.
