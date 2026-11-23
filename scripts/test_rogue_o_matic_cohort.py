@@ -324,6 +324,10 @@ class CohortSummaryTests(unittest.TestCase):
                 for tick, square, size, reason, reserve in [
                     (0, "a", 9, "seek_supplies", 20), (100, "b", 9, "explore", 18),
                     (200, "a", 9, "explore", 17), (300, "b", 10, "explore", 16)]]
+        rows[-1]["reason"] = "seek_supplies"
+        rows.append({**rows[-1], "cell": "a", "tick": 400, "nutrition_reserve": 10,
+                     "previous_intention_id": "300", "previous_intention_phase": "cancelled",
+                     "action": {"type": "wait"}})
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "turns.jsonl"
             log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")

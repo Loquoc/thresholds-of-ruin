@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 from collections import Counter
+from dataclasses import dataclass
 from importlib.machinery import EXTENSION_SUFFIXES
 from importlib.util import find_spec
 import json
@@ -121,6 +122,27 @@ def summarize(rows):
     }
 
 
+@dataclass(frozen=True)
+class TraceSite:
+    floor: int
+    known_cells: int
+    cell: str
+
+
+@dataclass(frozen=True)
+class AdmittedMove:
+    intention: str
+    origin: TraceSite
+    reason: str | None
+    tick: int
+    reserve: int | None
+
+    def resolved_at(self, row, site: TraceSite) -> bool:
+        return (row.get("previous_intention_id") == self.intention
+                and row.get("previous_intention_phase") == "resolved"
+                and self.origin.floor == site.floor and self.origin.cell != site.cell)
+
+
 def trace_report(path):
     progress = {"actions": 0, "max_depth": 0, "amulet_acquired": False,
                 "closest_return_floor": None, "floors": {}, "stair_transitions": []}
@@ -143,26 +165,23 @@ def trace_report(path):
             if row.get("cell") is not None and row.get("known_cells") is not None:
                 detours = progress.setdefault("supply_detours", {"ticks": 0, "reserve_spent": 0, "resolved_steps": 0})
                 progress.setdefault("reversals_without_new_terrain", 0)
-                site = row["floor"], row["known_cells"], row["cell"]
-                if (last_move and last_move["intention"] == row.get("previous_intention_id")
-                        and row.get("previous_intention_phase") == "resolved" and last_move["site"][0] == site[0]
-                        and last_move["site"][2] != site[2]):
-                    if previous_origin == site and last_move["site"][1] == site[1]:
+                site = TraceSite(row["floor"], row["known_cells"], row["cell"])
+                if last_move and last_move.resolved_at(row, site):
+                    if previous_origin == site and last_move.origin.known_cells == site.known_cells:
                         progress["reversals_without_new_terrain"] += 1
-                    previous_origin = last_move["site"]
-                    if last_move["reason"] == "seek_supplies":
+                    previous_origin = last_move.origin
+                    if last_move.reason == "seek_supplies":
                         detours["resolved_steps"] += 1
-                        detours["ticks"] += row["tick"] - last_move["tick"]
-                        if row.get("nutrition_reserve") is not None and last_move["reserve"] is not None:
-                            detours["reserve_spent"] += max(0, last_move["reserve"] - row["nutrition_reserve"])
+                        detours["ticks"] += row["tick"] - last_move.tick
+                        if row.get("nutrition_reserve") is not None and last_move.reserve is not None:
+                            detours["reserve_spent"] += max(0, last_move.reserve - row["nutrition_reserve"])
                 else:
                     previous_origin = None
                 last_move = None
                 result = row.get("result", {})
                 intention = result.get("receipt", {}).get("intention")
                 if row.get("action", {}).get("type") == "move" and result.get("status") == "confirmed" and intention:
-                    last_move = {"intention": intention, "site": site, "reason": row.get("reason"),
-                                 "tick": row["tick"], "reserve": row.get("nutrition_reserve")}
+                    last_move = AdmittedMove(intention, site, row.get("reason"), row["tick"], row.get("nutrition_reserve"))
             else:
                 last_move = previous_origin = None
             phase = row.get("previous_intention_phase")
