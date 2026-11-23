@@ -115,6 +115,18 @@ def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
     return None
 
 
+def melee_score(item: Item) -> float:
+    if item.category != "weapon" and item.identity != "item.weapon.mace":
+        return -1
+    if item.identity == "item.weapon.shortbow":
+        return -1
+    attack = item.weapon_attack
+    if attack is None:
+        return 0 if item.identity == "item.weapon.mace" else -1
+    accuracy = max(0.1, 1 + attack.accuracy_bonus / 20)
+    return accuracy * attack.mean_damage / (attack.wind_up + attack.recovery)
+
+
 def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     slot = next((s for s in turn.equipment if s.kind == "weapon"), None)
     if slot is None or slot.removal_blocked:
@@ -127,20 +139,13 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
             return None
         choice = next((c for c in choices if c.item.identity == "item.weapon.shortbow"), None)
     else:
-        def melee_score(item: Item) -> float:
-            if item.category != "weapon" and item.identity != "item.weapon.mace":
-                return -1
-            if item.identity == "item.weapon.shortbow":
-                return -1
-            attack = item.weapon_attack
-            if attack is None:
-                return 0 if item.identity == "item.weapon.mace" else -1
-            accuracy = max(0.1, 1 + attack.accuracy_bonus / 20)
-            return accuracy * attack.mean_damage / (attack.wind_up + attack.recovery)
-
-        threshold = melee_score(worn) if worn else -1
-        choice = max((c for c in choices if melee_score(c.item) > threshold),
-                     key=lambda c: melee_score(c.item), default=None)
+        best_score = melee_score(worn) if worn else -1
+        choice = None
+        for candidate in choices:
+            score = melee_score(candidate.item)
+            if score > best_score:
+                choice = candidate
+                best_score = score
     if choice is None:
         return None
     if worn:

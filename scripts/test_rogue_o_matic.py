@@ -264,6 +264,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[1]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
 
+        # Equal attack ratings preserve the worn weapon, then the first offered upgrade.
+        offers[2] = weapon("dagger", 6, 50)
+        self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
+        del offers[1]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "equip_melee"))
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}
