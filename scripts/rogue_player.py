@@ -796,6 +796,18 @@ class Adventurer:
             return Move(max(routes, key=lambda route: route[0])[1]), MemoryReason.BREAK_CONTACT
         return None
 
+    def recovery_budget(self, turn: Turn, memory: FloorMap, direction: Direction) -> int | None:
+        """Ticks available for rest after reserving travel, or None without a food clock."""
+        if turn.nutrition is None:
+            return None
+        available = turn.nutrition.ticks_until_empty
+        # Even a temporarily guarded stair will cost food to return through.
+        if not memory.stairs(direction):
+            return available
+        travel = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
+                     if direction is Direction.DOWN or floor <= self.depth)
+        return available - travel
+
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.cell is None:
             return None
@@ -810,12 +822,7 @@ class Adventurer:
         returning = self.carrying_objective(turn)
         direction = Direction.UP if returning else Direction.DOWN
         stairs = self.safe_stairs(turn, direction)
-        reserve = turn.nutrition
-        rest_budget = reserve.ticks_until_empty if reserve else None
-        # A guarded exit still counts toward the return budget.
-        if rest_budget is not None and (stairs or memory.stairs(direction)):
-            rest_budget -= sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
-                               if not returning or floor <= self.depth)
+        rest_budget = self.recovery_budget(turn, memory, direction)
 
         def can_afford_recovery(points: int) -> bool:
             ticks = clock.ticks_to_regain(points)
