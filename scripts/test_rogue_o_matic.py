@@ -931,6 +931,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                             "caster": "first", "outcome": "applied"}]))
         self.assertEqual(choose(player, scene("second", 35)), (Move(Direction.WEST), "retreat"))
 
+    def test_damage_estimate_requires_one_distinct_attacker_with_an_applied_hit(self):
+        room = [cell("here"), cell("west", -1), cell("east", 1)]
+        foes = [{"id": who, "name": who, "position": tile["position"]}
+                for who, tile in zip(("orc", "bat"), room[1:])]
+        for other, outcome, expected in (("orc", "applied", {"orc": 6}),
+                                         ("bat", "miss", {"orc": 6}),
+                                         ("bat", "applied", {})):
+            with self.subTest(other=other, outcome=outcome):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(player_turn(room, actors=foes, hostiles=["orc", "bat"]))
+                hit = {"type": "ability", "target": "player", "caster": "orc", "outcome": "applied"}
+                player.observe(player_turn(room, actors=foes, hostiles=["orc", "bat"],
+                                           combat={"hp": 4, "events": [hit, dict(hit, caster=other, outcome=outcome)]}))
+                self.assertEqual(dict(player.observed_loss), expected)
+                self.assertEqual(dict(player.observed_loss_by_name), expected)
+
     def test_makes_a_short_safe_detour_for_a_visible_unidentified_potion(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         potion = {"id": "dose", "class": "potion", "name": "blue potion",

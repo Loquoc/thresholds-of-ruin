@@ -206,13 +206,30 @@ class Adventurer:
                 if gain > 0:
                     self.food_value[identity] = min(gain, self.food_value.get(identity, gain))
             self.pending_meal = None
+        self.observe_combat(turn, turn.recent_combat if combat is None else combat)
+        if self.pending_stair:
+            attempt = self.pending_stair
+            if here is None or not turn.can_act:
+                return
+            arrived = turn.stair_arrival(attempt)
+            if arrived is None:
+                return
+            if arrived:
+                self.record_stair_arrival(turn, attempt, attempt.landing or here.key)
+            self.pending_stair = None
+            self.stair_pursuers = ()
+        self.maps.setdefault(self.depth, FloorMap()).observe(turn)
+        if here and here.lit:
+            self.attempted_room_light.discard(self.depth)
+
+    def observe_combat(self, turn: Turn, report: CombatReport) -> None:
+        here = turn.cell
         health = turn.health
         if health and health.current * 5 >= health.maximum * 4:
             self.recovering_from_pursuit = False
             self.recovery_landing = None
         loss = self.previous_health - health.current if health and self.previous_health is not None else 0
         self.previous_health = health.current if health else None
-        report = turn.recent_combat if combat is None else combat
         for effect in report.outgoing:
             target = effect.target
             if (target is not None and target in self.attempted_polymorph and target not in self.resisted_polymorph
@@ -220,21 +237,7 @@ class Adventurer:
                 self.attempted_polymorph.remove(target)
                 self.resisted_polymorph.add(target)
         incoming = report.incoming
-        losses = turn.restorable_losses
-        lasting_injury = losses and self.previous_losses and losses.increased_since(self.previous_losses)
-        self.previous_losses = losses
-        if loss > 0 or lasting_injury:
-            # Net HP loss is an estimate. Multiple possible sources make attribution ambiguous.
-            sources = {event.caster for event in incoming if event.outcome is AbilityOutcome.APPLIED}
-            if len(sources) == 1 and (source := next(iter(sources))) is not None:
-                if loss > 0:
-                    self.observed_loss[source] = max(loss, self.observed_loss[source])
-                for foe in turn.hostiles:
-                    if foe.target == source:
-                        if loss > 0:
-                            self.observed_loss_by_name[foe.name] = max(loss, self.observed_loss_by_name[foe.name])
-                        if lasting_injury:
-                            self.draining_creatures.add(foe.name)
+        self.record_injury(turn, report, loss)
         if self.danger_until:
             self.danger_until = {
                 key: expiry for key, expiry in self.danger_until.items() if expiry > turn.tick
@@ -253,20 +256,31 @@ class Adventurer:
             for event in incoming
         ):
             self.last_unseen_attack = here.key, turn.tick
-        if self.pending_stair:
-            attempt = self.pending_stair
-            if here is None or not turn.can_act:
-                return
-            arrived = turn.stair_arrival(attempt)
-            if arrived is None:
-                return
-            if arrived:
-                self.record_stair_arrival(turn, attempt, attempt.landing or here.key)
-            self.pending_stair = None
-            self.stair_pursuers = ()
-        self.maps.setdefault(self.depth, FloorMap()).observe(turn)
-        if here and here.lit:
-            self.attempted_room_light.discard(self.depth)
+
+    def record_injury(self, turn: Turn, report: CombatReport, health_loss: int) -> None:
+        losses = turn.restorable_losses
+        previous = self.previous_losses
+        self.previous_losses = losses
+        lasting_injury = losses is not None and previous is not None and losses.increased_since(previous)
+        if health_loss <= 0 and not lasting_injury:
+            return
+
+        # Several attackers can contribute to the same observed change in health.
+        sources = {event.caster for event in report.incoming if event.outcome is AbilityOutcome.APPLIED}
+        if len(sources) != 1:
+            return
+        source, = sources
+        if source is None:
+            return
+        if health_loss > 0:
+            self.observed_loss[source] = max(health_loss, self.observed_loss[source])
+        for foe in turn.hostiles:
+            if foe.target != source:
+                continue
+            if health_loss > 0:
+                self.observed_loss_by_name[foe.name] = max(health_loss, self.observed_loss_by_name[foe.name])
+            if lasting_injury:
+                self.draining_creatures.add(foe.name)
 
     def record_stair_arrival(self, turn: Turn, attempt: StairAttempt, landing: str) -> None:
         if self.stair_pursuers:
