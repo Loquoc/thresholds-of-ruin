@@ -8,6 +8,10 @@ DEFAULT_OBJECTIVE_IDENTITY = "item.amulet.amulet-of-yendor"
 DEFAULT_RETRIEVAL_DEPTH = 26
 
 
+def player_exit_code(terminal: str) -> int:
+    return 0 if terminal == "victory" else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--connect", default="127.0.0.1:4000")
@@ -31,7 +35,7 @@ def main():
         player = Adventurer(args.retrieval_depth, args.objective_identity)
         report = play(game, player, args.budget, emit, record_decisions=args.record_decisions)
         emit(report)
-        return 0 if report["terminal"] == "victory" else 1
+        return player_exit_code(report["terminal"])
 
 
 if __name__ == "__main__":

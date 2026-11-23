@@ -16,7 +16,7 @@ import sys
 import tomllib
 
 from process_harness import Process, ROOT
-from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH
+from rogue_o_matic import DEFAULT_OBJECTIVE_IDENTITY, DEFAULT_RETRIEVAL_DEPTH, player_exit_code
 
 
 POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py", "rogue_runner.py", "rogue_gear.py")
@@ -277,21 +277,18 @@ def play_on_server(server, token, actor, budget, timeout, trace, retrieval_depth
                 env={**os.environ, "PYTHONPATH": os.pathsep.join(policy_imports), "TOR_SERVER_TOKEN": token},
             )
         report, progress = trace_report(trace)
-        if report is None or result.returncode != int(report["terminal"] != "victory"):
+        if report is None or result.returncode != player_exit_code(report["terminal"]):
             return {"terminal": "client_error", "exit_code": result.returncode, **progress}
         report = {**progress, **report}
-        if report["terminal"] == "victory":
-            try:
-                verified = verify_victory(address, token, actor, objective_identity)
-            except RuntimeError as error:
-                return {**report, "terminal": "client_error",
-                        "victory_verified": False, "verification_error": str(error)}
-            if not verified:
-                return {**report, "terminal": "client_error",
-                        "victory_verified": False,
-                        "verification_error": "Fresh player observation did not confirm victory with the retrieval item"}
-            report["victory_verified"] = True
-        return report
+        if report["terminal"] != "victory":
+            return report
+        try:
+            if verify_victory(address, token, actor, objective_identity):
+                return {**report, "victory_verified": True}
+            message = "Fresh player observation did not confirm victory with the retrieval item"
+        except RuntimeError as error:
+            message = str(error)
+        return {**report, "terminal": "client_error", "victory_verified": False, "verification_error": message}
     except subprocess.TimeoutExpired:
         _, progress = trace_report(trace)
         return {"terminal": "wall_timeout", **progress}

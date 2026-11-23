@@ -41,6 +41,29 @@ class CohortSummaryTests(unittest.TestCase):
                 result = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl", 26, "amulet", entry, False)
             self.assertEqual(result["terminal"], "action_budget")
 
+    def test_mismatched_client_exit_keeps_observed_progress_and_discards_terminal_claim(self):
+        from pathlib import Path
+        import tempfile
+        from unittest.mock import Mock, patch
+        from rogue_o_matic_cohort import play_on_server
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = root / "client.py"
+            server = Mock()
+            server.until.return_value = '{"address":"localhost:1"}'
+            for terminal, code in (("victory", 1), ("death", 0), ("action_budget", 2)):
+                with self.subTest(terminal=terminal, code=code):
+                    rows = [{"floor": 4, "action": {"type": "wait"}}, {"terminal": terminal, "max_depth": 99}]
+                    client.write_text("".join(f"print({json.dumps(row)!r})\n" for row in rows)
+                                      + f"raise SystemExit({code})\n", encoding="utf-8")
+                    with patch("rogue_o_matic_cohort.verify_victory") as verify:
+                        report = play_on_server(server, "test", 1, 1, 15, root / "turns.jsonl",
+                                                26, "amulet", client, False)
+                    self.assertEqual((report["terminal"], report["exit_code"], report["max_depth"], report["actions"]),
+                                     ("client_error", code, 4, 1))
+                    verify.assert_not_called()
+
     def test_startup_failure_counts_each_scheduled_seed_in_the_cli_report(self):
         from pathlib import Path
         import subprocess
