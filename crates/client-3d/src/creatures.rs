@@ -1130,7 +1130,7 @@ pub struct Rig {
     /// Continuous caster garment with an owned mesh and shared material.
     robe: Option<robe::RobeRig>,
     aprons: Vec<apron::Panel>,
-    short_garments: Vec<skirt_motion::Panel>,
+    hip_garments: Vec<skirt_motion::Panel>,
     apron_contacts: Vec<visual_contact::Part>,
     /// Instance-owned connected shoulder sheets; materials remain shared.
     cloaks: Vec<cloak::CloakRig>,
@@ -1224,7 +1224,7 @@ impl Rig {
             robe.map_entities(&entity);
             robe.map_mesh(&mut mesh);
         }
-        for panel in &mut self.short_garments {
+        for panel in &mut self.hip_garments {
             panel.map_references(&entity, &mut mesh);
         }
         for apron in &mut self.aprons {
@@ -1242,7 +1242,7 @@ impl Rig {
     }
     /// Re-enter a preloaded review scene without retaining prior cloth/contact caches.
     pub(crate) fn reset_presentation(&mut self) {
-        for panel in &mut self.short_garments {
+        for panel in &mut self.hip_garments {
             panel.invalidate();
         }
         if let Some(hair) = &mut self.hair {
@@ -1500,7 +1500,9 @@ struct StrikeEntry {
     rig: Entity,
     time: f32,
     root: Vec3,
+    action: Move,
     feet: [StrikeEntryFoot; 2],
+    rear_feet: Option<[StrikeEntryFoot; 2]>,
 }
 
 #[derive(Clone, Copy)]
@@ -1611,10 +1613,11 @@ impl Anim {
     }
 
     pub fn act(&mut self, action: Move) {
-        self.strike_entry = if action == Move::Strike && self.action.is_none() {
+        self.strike_entry = if self.action.is_none() {
             self.contacts
                 .strike_entry
                 .take()
+                .filter(|seed| seed.action == action)
                 .and_then(|seed| StrikeEntryTransfer::admit(seed, self.time))
         } else {
             None

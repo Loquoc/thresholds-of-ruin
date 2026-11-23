@@ -140,6 +140,10 @@ impl ShellPlate {
     }
 
     fn faces(&self) -> Vec<[Vec3; 3]> {
+        self.faces_seated(|point, _| point)
+    }
+
+    fn faces_seated(&self, seat: impl Fn(Vec3, Vec3) -> Vec3) -> Vec<[Vec3; 3]> {
         let normal = self.normal.normalize_or(Vec3::Y);
         let forward = (self.forward - normal * self.forward.dot(normal))
             .normalize_or(crate::props::basis(normal).0);
@@ -155,7 +159,9 @@ impl ShellPlate {
             Vec2::new(-0.75, 0.62),
         ];
         let ring = outline.map(|v| {
-            self.center + across * v.x * self.half_size.x + forward * v.y * self.half_size.y
+            let tangent =
+                self.center + across * v.x * self.half_size.x + forward * v.y * self.half_size.y;
+            seat(tangent, normal)
         });
         let crown = self.center + normal * self.rise;
         let back = self.center - normal * self.thickness;
@@ -180,6 +186,22 @@ impl ShellPlate {
 
     pub fn emit(&self, mesh: &mut Builder, color: Vec3) {
         for face in self.faces() {
+            mesh.tri(face, color);
+        }
+    }
+
+    /// Follow a tightly curved support without lowering its raised crown.
+    /// The shell recipe may still use a free overlapping edge elsewhere.
+    pub fn emit_seated(&self, mesh: &mut Builder, support: &crate::sdf::Sculpt, color: Vec3) {
+        let edge = |point: Vec3, normal: Vec3| {
+            let at = support.onto(point + normal * 0.08, -normal);
+            if support.distance(at).abs() <= 0.002 && at.distance(point) < 0.14 {
+                at + normal * 0.004
+            } else {
+                point
+            }
+        };
+        for face in self.faces_seated(edge) {
             mesh.tri(face, color);
         }
     }

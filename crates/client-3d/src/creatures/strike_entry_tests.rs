@@ -118,3 +118,89 @@ fn moving_hero_strike_keeps_support_on_first_gameplay_frame() {
         }
     }
 }
+
+#[test]
+fn aquator_keeps_its_four_solved_feet_when_corrosion_interrupts_a_step() {
+    fn ankles(app: &App, root: Entity) -> [(Vec3, Quat); 4] {
+        let world = app.world();
+        let rig = world.get::<Rig>(root).unwrap();
+        [J::HoofFL, J::HoofFR, J::HoofBL, J::HoofBR].map(|joint| {
+            let mut at = Vec3::ZERO;
+            let mut facing = Quat::IDENTITY;
+            let mut entity = rig.joint(joint).expect("four Aquator feet");
+            loop {
+                let local = world.get::<Transform>(entity).unwrap();
+                at = local.transform_point(at);
+                facing = local.rotation * facing;
+                if entity == root {
+                    return (at, facing);
+                }
+                entity = world.get::<ChildOf>(entity).unwrap().parent();
+            }
+        })
+    }
+
+    let corrode = Move::for_ability("rogue.corrode", None);
+    let mut worst = (0.0f32, 0, 0);
+    let mut worst_twist = (0.0f32, 0, 0);
+    for cue_frame in [26, 29, 32, 35, 38, 41, 44, 47] {
+        let moving = || {
+            animate_look(Look::of(CreatureModel::Aquator, 42), cue_frame, |f| {
+                Vec3::Z * f.min(25) as f32 * 0.026 + Vec3::X * f.saturating_sub(25) as f32 * 0.026
+            })
+        };
+        let (mut attack, root) = moving();
+        let (mut control, control_root) = moving();
+        let before = ankles(&attack, root);
+        assert_eq!(before, ankles(&control, control_root));
+        attack
+            .world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .act(corrode);
+        control
+            .world_mut()
+            .get_mut::<Anim>(control_root)
+            .unwrap()
+            .contacts
+            .strike_entry = None;
+        control
+            .world_mut()
+            .get_mut::<Anim>(control_root)
+            .unwrap()
+            .act(corrode);
+        attack.update();
+        control.update();
+
+        for (i, ((a, turned), (b, old))) in
+            ankles(&attack, root).into_iter().zip(before).enumerate()
+        {
+            let jump = a.distance(b);
+            let twist = turned.angle_between(old);
+            if twist > worst_twist.0 {
+                worst_twist = (twist, cue_frame, i);
+            }
+            if jump > worst.0 {
+                worst = (jump, cue_frame, i);
+            }
+        }
+        for _ in 0..12 {
+            attack.update();
+            control.update();
+        }
+        assert_eq!(
+            ankles(&attack, root),
+            ankles(&control, control_root),
+            "transferred support rejoins the unchanged authored attack before impact"
+        );
+    }
+    eprintln!("Worst foot displacement {worst:?}, worst turn {worst_twist:?}");
+    assert!(
+        worst_twist.0 < 0.32,
+        "first corrosion frame twisted a foot {worst_twist:?} (radians, cue frame, leg)"
+    );
+    assert!(
+        worst.0 < 0.052,
+        "first corrosion frame moved a grounded or swinging foot {worst:?} (distance, cue frame, leg)"
+    );
+}

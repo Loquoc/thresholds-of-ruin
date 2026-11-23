@@ -1461,7 +1461,7 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             if thigh_following {
                 for (mesh, _) in &model.0 {
                     kit.rig
-                        .short_garments
+                        .hip_garments
                         .push(super::super::skirt_motion::Panel::new(
                             entity,
                             mesh.clone(),
@@ -1535,7 +1535,34 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             };
             skirt_cloth(b, surface, skirt);
         };
-        let entity = if thigh_following {
+        let leg_relief = if index == 0
+            && kit.rig.style == Style::Wraith
+            && matches!(
+                outfit.details.hip,
+                Some(outfit::HipDecoration::TornHem { .. })
+            ) {
+            Some(skirt_motion::LegRelief::SHROUD)
+        } else if outfit.robe.is_none()
+            && l.equipment
+                .outerwear()
+                .and_then(equipment_outerwear::lower_length)
+                .is_none()
+        {
+            skirt.leg_relief
+        } else {
+            // A separately fitted overlay owns its own contact surface.
+            None
+        };
+        let entity = if let Some(relief) = leg_relief {
+            kit.leg_relief_panel(
+                hips,
+                Drape::Skirt(skirt.length),
+                &name,
+                skirt_scale,
+                relief,
+                build,
+            )
+        } else if thigh_following {
             kit.short_garment(
                 hips,
                 Drape::Skirt(skirt.length),

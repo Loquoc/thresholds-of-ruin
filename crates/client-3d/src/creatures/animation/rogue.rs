@@ -155,6 +155,15 @@ fn fall_entry(a: &Anim, seconds: f32) -> Option<(DeathEntry, f32)> {
     (fall < 1.0).then_some((entry, fall))
 }
 
+/// Reuse the last contact pose briefly when a trait-specific touch is interrupted.
+pub(super) fn touch_fall_entry(a: &Anim, accent: Accent) -> Option<(DeathEntry, f32, f32)> {
+    let (entry, fall) = fall_entry(a, 0.22)?;
+    let (Move::Touch(contact), phase) = entry.action? else {
+        return None;
+    };
+    (contact == accent).then_some((entry, phase, fall))
+}
+
 /// Carry the last wing stroke and air position into the authored fall.
 pub(super) fn release_flier_pose(p: &mut Pose, style: Style, a: &Anim) {
     let Some((entry, fall)) = fall_entry(a, 0.24) else {
@@ -571,7 +580,7 @@ pub(super) fn drain_with_free_hand(p: &mut Pose, reach: f32, draw: f32) {
     p.r(J::ForeR, fwd(0.46 * draw));
 }
 
-pub(super) fn biped_move(p: &mut Pose, m: Move, t: f32) {
+pub(super) fn biped_move(p: &mut Pose, style: Style, m: Move, t: f32) {
     let (gather, strike, act) = timing(m, t);
     match m {
         Move::Gaze => {
@@ -583,7 +592,9 @@ pub(super) fn biped_move(p: &mut Pose, m: Move, t: f32) {
             p.r(J::ArmR, fwd(0.5 * k) * roll(-0.65 * k));
             p.r(J::ForeL, fwd(0.7 * k));
             p.r(J::ForeR, fwd(0.7 * k));
-            p.o(J::Lift, Vec3::new(0.0, -0.03 * k, 0.06 * k));
+            if style != Style::Medusa {
+                p.o(J::Lift, Vec3::new(0.0, -0.03 * k, 0.06 * k));
+            }
         }
         Move::Bite(_) => {
             p.r(J::Torso, bow(-0.1 * gather + 0.4 * strike));
@@ -1022,6 +1033,11 @@ pub(super) fn place(
             true
         }
         Style::Aquator => {
+            let (gather, strike) =
+                touch_fall_entry(a, Accent::Amber).map_or((gather, strike), |(_, phase, fall)| {
+                    let (g, s, _) = timing(Move::Touch(Accent::Amber), phase);
+                    (g * (1.0 - fall), s * (1.0 - fall))
+                });
             for (i, e) in rig.segments.iter().enumerate() {
                 let (chain, k) = (i / 4, (i % 4) as f32);
                 let side = if chain == 0 { -1.0 } else { 1.0 };

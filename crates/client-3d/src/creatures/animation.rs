@@ -423,7 +423,7 @@ fn present_pose(
     place_segments(rig, anim, fun, joints);
     swing_drapes(rig, anim, dt, joints);
     record_phase(&mut profile, 2, started);
-    if !rig.short_garments.is_empty() {
+    if !rig.hip_garments.is_empty() {
         let roots = [rig.rest[J::LegL as usize], rig.rest[J::LegR as usize]];
         let legs = [J::LegL, J::LegR].map(|j| {
             Affine3A::from_rotation_translation(
@@ -436,11 +436,50 @@ fn present_pose(
             pose.rot[J::Torso as usize],
             pivot + pose.off[J::Torso as usize],
         ) * Affine3A::from_translation(-pivot);
+        // Ease out with the last supported step, including when an action
+        // interrupts it. An action cue alone must not snap the skirt shut.
+        let cloth_travel = ease((anim.speed - 0.006) * 10.0).max(ease(anim.contacts.blend));
+        let relief = (anim.dead.is_none()
+            && cloth_travel > 0.0
+            && rig
+                .hip_garments
+                .iter()
+                .any(|panel| panel.leg_relief.is_some()))
+        .then(|| {
+            let leg_points = |i: usize| {
+                let (_, shin, foot) = BIPED_LEGS[i];
+                let sk = rig.rest[shin as usize];
+                let fk = rig.rest[foot as usize];
+                let knee = legs[i].transform_point3(sk + pose.off[shin as usize]);
+                let ankle = knee
+                    + legs[i].transform_vector3(
+                        pose.rot[shin as usize] * (fk + pose.off[foot as usize]),
+                    );
+                (knee - roots[i] - sk, ankle - roots[i] - sk - fk)
+            };
+            let [left, right] = [0, 1].map(leg_points);
+            let knee_y = roots[0].y + rig.rest[J::ShinL as usize].y;
+            super::skirt_motion::ReliefLegs {
+                knee_y,
+                ankle_y: knee_y + rig.rest[J::FootL as usize].y,
+                knee: [left.0, right.0].map(|d| d * cloth_travel),
+                ankle: [left.1, right.1].map(|d| d * cloth_travel),
+            }
+        });
+        let relief = if anim.dead.is_some() {
+            rig.hip_garments
+                .iter()
+                .find_map(skirt_motion::Panel::last_relief)
+                .and_then(|last| last.settling(dt))
+        } else {
+            relief
+        };
         super::skirt_motion::place(
-            &mut rig.short_garments,
+            &mut rig.hip_garments,
             roots,
             legs,
             torso,
+            relief,
             |entity| joints.get(entity).ok().map(Transform::compute_affine),
             meshes,
         );
@@ -625,7 +664,7 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
         .action
         .filter(|_| a.dead.is_none())
         .map_or((None, 0.0), |(m, t)| (Some(m), t));
-    if m != Some(Move::Strike) || !valid_strike_entry(rig, a, t) {
+    if m.is_none() || !valid_strike_entry(rig, a, t) {
         a.strike_entry = None;
     }
     // At rest each creature idles in its own way, fading out as it moves or acts.
@@ -672,8 +711,18 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
                 rogue::flier_pose(&mut p, rig.style, a.time, a.seed, s, a.action);
             }
         }
-        Plan::Bird => bird_pose(&mut p, s, w, breath, m, t, !world_walk, bird_plant),
-        Plan::Quadruped | Plan::Centaur => quad_pose(&mut p, rig, s, w, breath, m, t, !world_walk),
+        Plan::Bird => {
+            bird_pose(&mut p, s, w, breath, m, t, !world_walk, bird_plant);
+            if let Some(transfer) = a.strike_entry {
+                beast_strike_entry_contacts(&mut p, rig, a, transfer.seed, t);
+            }
+        }
+        Plan::Quadruped | Plan::Centaur => {
+            quad_pose(&mut p, rig, s, w, breath, m, t, !world_walk);
+            if let Some(transfer) = a.strike_entry {
+                beast_strike_entry_contacts(&mut p, rig, a, transfer.seed, t);
+            }
+        }
         Plan::Rooted => {
             if a.dead.is_none() {
                 rogue::rooted_pose(&mut p, a.time, a.seed, a.action);
@@ -709,6 +758,9 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
             match rig.plan {
                 Plan::Rooted => rogue::release_rooted_pose(&mut p, a),
                 Plan::Bird if rig.style.flies() => rogue::release_flier_pose(&mut p, rig.style, a),
+                Plan::Quadruped if rig.style == Style::Aquator => {
+                    release_aquator_lunge(&mut p, rig, a)
+                }
                 _ => {}
             }
         }
@@ -989,10 +1041,17 @@ fn strike_entry_release(elapsed: f32, planted: bool) -> f32 {
     ease((elapsed - start) / (end - start))
 }
 
+fn strike_entry_action(rig: &Rig) -> Option<Move> {
+    match (rig.plan, rig.style) {
+        (Plan::Biped, Style::Hero) | (Plan::Bird, Style::Emu) => Some(Move::Strike),
+        (Plan::Quadruped, Style::Aquator) => Some(Move::Touch(Accent::Amber)),
+        _ => None,
+    }
+}
+
 fn strike_entry_from_walk(p: &Pose, rig: &Rig, a: &Anim) -> Option<StrikeEntry> {
-    if rig.style != Style::Hero
-        || rig.plan != Plan::Biped
-        || a.action.is_some()
+    let action = strike_entry_action(rig)?;
+    if a.action.is_some()
         || a.contacts.blend != 1.0
         || a.contacts.settle.is_some()
         || a.hurt.is_some()
@@ -1005,37 +1064,45 @@ fn strike_entry_from_walk(p: &Pose, rig: &Rig, a: &Anim) -> Option<StrikeEntry> 
     if a.contacts.rig != Some(lift) {
         return None;
     }
-    let [Some(left), Some(right), ..] = walk_legs(rig, a) else {
-        return None;
-    };
-    let [Some(left_contact), Some(right_contact), ..] = a.contacts.feet else {
-        return None;
-    };
+    let legs = walk_legs(rig, a);
     let facing = Quat::from_rotation_y(a.yaw);
-    let feet = [(left, left_contact), (right, right_contact)].map(|(leg, contact)| {
-        let chain = biped_sole_parent(p, leg.thigh, leg.shin);
-        StrikeEntryFoot {
+    let snapshot = |i: usize| {
+        let (leg, contact) = (legs[i]?, a.contacts.feet[i]?);
+        let chain = sole_parent(p, leg.body, leg.thigh, leg.shin);
+        Some(StrikeEntryFoot {
             // Save the actual presented swing pose, not its last ground anchor.
             ankle: a.last + facing * posed_ankle(p, rig, leg) * rig.scale,
             sole: facing * chain * p.rot[leg.foot as usize],
             planted: contact.phase.rem_euclid(1.0) < leg.stance,
-        }
-    });
-    feet.iter().any(|foot| foot.planted).then_some(StrikeEntry {
-        rig: lift,
-        time: a.time,
-        root: a.last,
-        feet,
-    })
+        })
+    };
+    let feet = [snapshot(0)?, snapshot(1)?];
+    let rear_feet = if rig.plan == Plan::Quadruped {
+        Some([snapshot(2)?, snapshot(3)?])
+    } else {
+        None
+    };
+    feet.iter()
+        .chain(rear_feet.iter().flatten())
+        .any(|foot| foot.planted)
+        .then_some(StrikeEntry {
+            rig: lift,
+            time: a.time,
+            root: a.last,
+            action,
+            feet,
+            rear_feet,
+        })
 }
 
 fn valid_strike_entry(rig: &Rig, a: &Anim, phase: f32) -> bool {
     a.strike_entry.is_some_and(|transfer| {
-        let elapsed = phase * Move::Strike.duration();
+        let elapsed = phase * transfer.seed.action.duration();
         let since_cue = a.time - transfer.cue_time;
         let moved = a.last - transfer.seed.root;
         (0.0..STRIKE_ENTRY_RELEASE_SECS).contains(&elapsed)
-            && rig.style == Style::Hero
+            && a.action.is_some_and(|(action, _)| action == transfer.seed.action)
+            && strike_entry_action(rig) == Some(transfer.seed.action)
             && rig.joint(J::Lift) == Some(transfer.seed.rig)
             // The cue may be applied after this presentation step. The
             // phase owns easing; the clock only rejects a pinned stale cue.
@@ -1048,8 +1115,8 @@ fn valid_strike_entry(rig: &Rig, a: &Anim, phase: f32) -> bool {
     })
 }
 
-fn biped_sole_parent(p: &Pose, thigh: J, shin: J) -> Quat {
-    p.rot[J::Lift as usize] * p.rot[J::Hips as usize] * p.rot[thigh as usize] * p.rot[shin as usize]
+fn sole_parent(p: &Pose, body: J, thigh: J, shin: J) -> Quat {
+    p.rot[J::Lift as usize] * p.rot[body as usize] * p.rot[thigh as usize] * p.rot[shin as usize]
 }
 
 /// Hand off the solved feet, not live walking. The ordinary action still
@@ -1081,9 +1148,51 @@ fn strike_entry_contacts(
     fit_biped_support(p, rig, &contacts, 1.0);
     solve_biped_contacts(p, rig, &contacts, 1.0);
     for (i, (leg, shin, foot)) in BIPED_LEGS.into_iter().enumerate() {
-        let parent = biped_sole_parent(p, leg, shin);
+        let parent = sole_parent(p, J::Hips, leg, shin);
         let carried = parent.inverse() * facing * seed.feet[i].sole;
         p.rot[foot as usize] = carried.slerp(p.rot[foot as usize], releases[i]);
+    }
+}
+
+/// Ground-bird pecks and Aquator corrosion both keep their authored local
+/// action contacts. Only their starting positions come from the solved walk.
+fn beast_strike_entry_contacts(p: &mut Pose, rig: &Rig, a: &Anim, seed: StrikeEntry, phase: f32) {
+    let elapsed = phase * seed.action.duration();
+    let facing = Quat::from_rotation_y(a.yaw).inverse();
+    let feet = seed
+        .feet
+        .into_iter()
+        .chain(seed.rear_feet.into_iter().flatten());
+    for (leg, foot) in walk_legs(rig, a).into_iter().zip(feet) {
+        let Some(leg) = leg else { continue };
+        let release = strike_entry_release(elapsed, foot.planted);
+        if release >= 1.0 {
+            continue;
+        }
+        let carried = facing * (foot.ankle - a.last) / rig.scale;
+        let target = carried.lerp(posed_ankle(p, rig, leg), release);
+        let planned_sole = sole_parent(p, leg.body, leg.thigh, leg.shin) * p.rot[leg.foot as usize];
+        beast_limb(
+            p,
+            leg.thigh,
+            leg.shin,
+            leg.foot,
+            rig.rest[leg.body as usize],
+            rig.rest[leg.thigh as usize],
+            rig.rest[leg.shin as usize],
+            rig.rest[leg.foot as usize],
+            target,
+            leg.bend,
+            1.0,
+        );
+        let parent = sole_parent(p, leg.body, leg.thigh, leg.shin);
+        let sole = parent.inverse() * facing * foot.sole;
+        let planned = if seed.rear_feet.is_some() {
+            parent.inverse() * planned_sole
+        } else {
+            p.rot[leg.foot as usize]
+        };
+        p.rot[leg.foot as usize] = sole.slerp(planned, release);
     }
 }
 
@@ -1590,6 +1699,12 @@ fn grounded_action(p: &mut Pose, rig: &Rig, a: &Anim, m: Move, t: f32) {
     let weight = envelope(t, 0.0, ACTION_SUPPORT_IN, 0.92, 1.0);
     if a.speed > 0.0 {
         grounded_walk(p, rig, a);
+    }
+    if m == Move::Gaze && rig.style == Style::Medusa {
+        // Her gaze starts at the shoulders; nothing drives the pelvis.
+        // Preserve the standing legs (or the last fading walk) instead of
+        // solving her already planted ankles into a new knee bend.
+        return;
     }
     let walking = biped_walk_contacts(rig, a);
     if m == Move::Jump {
@@ -2627,10 +2742,14 @@ fn biped_pose(
             }
             p.r(J::Torso, bow(0.25 * reach - 0.2 * draw));
             p.r(J::Head, bow(0.15 * reach - 0.45 * draw));
-            p.o(
-                J::Lift,
-                Vec3::new(0.0, 0.05 * draw, 0.25 * reach - 0.1 * draw),
-            );
+            let step = if rig.style == Style::Wraith {
+                // Pull the energy in with the shoulders, without rocking
+                // the long robe back over the planted knees.
+                Vec3::Z * (0.13 * reach)
+            } else {
+                Vec3::new(0.0, 0.05 * draw, 0.25 * reach - 0.1 * draw)
+            };
+            p.o(J::Lift, step);
         }
         Move::Touch(_) => {
             let coil = envelope(t, 0.0, 0.3, 0.3, 0.35);
@@ -2691,7 +2810,7 @@ fn biped_pose(
             p.r(J::Torso, bow((if upright { 0.12 } else { 0.3 }) * kneel));
             p.r(J::Head, bow((if upright { 0.24 } else { 0.45 }) * kneel));
         }
-        Move::Breath(_) | Move::Gaze | Move::Bite(_) => rogue::biped_move(p, m, t),
+        Move::Breath(_) | Move::Gaze | Move::Bite(_) => rogue::biped_move(p, rig.style, m, t),
         Move::Jump => {
             // The arms swing back into the crouch and up through the
             // spring, ride high in flight and come forward for the landing.
@@ -3027,6 +3146,34 @@ fn quad_pose(
     }
 }
 
+/// Carry the contact lunge and its crouched footing into the fall, using the
+/// same release clock as the tendrils. A recently transferred step still owns
+/// its first few frames, so don't reconstruct those feet from the action pose.
+fn release_aquator_lunge(p: &mut Pose, rig: &Rig, a: &Anim) {
+    let Some((entry, phase, fall)) = rogue::touch_fall_entry(a, Accent::Amber) else {
+        return;
+    };
+    let motion = Move::Touch(Accent::Amber);
+    if entry.speed > 0.02 && phase * motion.duration() < STRIKE_ENTRY_RELEASE_SECS {
+        return;
+    }
+    let mut live = Pose::new();
+    quad_pose(
+        &mut live,
+        rig,
+        entry.speed,
+        a.walk,
+        (entry.started_at * 1.8 + a.seed).sin(),
+        Some(motion),
+        phase,
+        true,
+    );
+    for (index, rot) in p.rot.iter_mut().enumerate() {
+        *rot = live.rot[index].slerp(*rot, fall);
+        p.off[index] = live.off[index].lerp(p.off[index], fall);
+    }
+}
+
 fn death_pose(p: &mut Pose, rig: &Rig, d: f32, seed: f32) {
     let side = if seed > 5.0 { 1.0 } else { -1.0 };
     // A little variety from the seed, so no two bodies lie quite alike.
@@ -3245,7 +3392,6 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
         * f32::from(u8::from(m.is_none() && a.dead.is_none() && !a.quiet));
     let (w, gag, _) = antic(a);
     let spring = if gag == 0 { w * fun * calm } else { 0.0 };
-    let hit = m.map_or(0.45, Move::impact);
     let attack_weights = |motion: Move, phase: f32| {
         let (gather, strike, _) = rogue::timing(motion, phase);
         (gather, if motion.offensive() { strike } else { 0.0 })
@@ -3393,13 +3539,30 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             } else {
                 (phase * 1.8).sin() * 0.055
             };
-            let flare = m.map_or(0.0, |_| envelope(t, 0.0, hit * 0.8, hit + 0.04, 1.0));
-            let freezing_touch = ice && matches!(m, Some(Move::Touch(Accent::Travel)));
-            let reach = if freezing_touch {
-                envelope(t, hit - 0.16, hit, hit + 0.06, 0.88)
+            const FREEZE: Move = Move::Touch(Accent::Travel);
+            // The live action is cleared on death. Release the last reaching
+            // posture and its aura while starting the original fall.
+            let ice_entry = if ice {
+                rogue::touch_fall_entry(a, Accent::Travel)
             } else {
-                0.0
+                None
             };
+            let (cue, keep) = ice_entry
+                .map_or((m.map(|motion| (motion, t)), 1.0), |(_, phase, fall)| {
+                    (Some((FREEZE, phase)), 1.0 - fall)
+                });
+            let freezing_touch = ice && matches!(cue, Some((FREEZE, _)));
+            let (flare, gather, reach) = cue.map_or((0.0, 0.0, 0.0), |(motion, phase)| {
+                let hit = motion.impact();
+                let flare = envelope(phase, 0.0, hit * 0.8, hit + 0.04, 1.0) * keep;
+                let gather = attack_weights(motion, phase).0 * keep;
+                let reach = if freezing_touch {
+                    envelope(phase, hit - 0.16, hit, hit + 0.06, 0.88) * keep
+                } else {
+                    0.0
+                };
+                (flare, gather, reach)
+            });
             // The core braces instead of lunging with the reaching fan.
             let body_strike = if freezing_touch { 0.34 * reach } else { strike };
             let live_core = Vec3::new(
@@ -3758,6 +3921,53 @@ mod support_tests {
             anim.strike_entry.is_none(),
             "stationary action needs no carry"
         );
+    }
+
+    #[test]
+    fn walking_emu_brings_solved_feet_into_its_first_peck() {
+        let (_, rig, _, _) = spawn_one(&Look::of(CreatureModel::Emu, 42));
+        let strike = Move::Strike;
+        for phase in [0.20, 0.70] {
+            let mut anim = Anim::new(42, Vec3::ZERO);
+            anim.yaw = 0.0;
+            anim.time = 1.0;
+            anim.speed = 0.32;
+            anim.walk = phase * TAU / 1.6;
+            for _ in 0..8 {
+                let _ = pose(&rig, &mut anim, 0.0, 0.02, true, true);
+            }
+            let walk = pose(&rig, &mut anim, 0.0, 0.02, true, true);
+            let [Some(left), Some(right), ..] = walk_legs(&rig, &anim) else {
+                panic!("ground bird must have two walk contacts");
+            };
+            let feet = [left, right];
+            let prior = feet.map(|leg| posed_ankle(&walk, &rig, leg));
+            anim.contacts.strike_entry = strike_entry_from_walk(&walk, &rig, &anim);
+            anim.act(strike);
+            anim.time += 0.016;
+            anim.action = Some((strike, 0.016 / strike.duration()));
+            let entry = pose(&rig, &mut anim, 0.0, 0.016, false, false);
+            for (i, leg) in feet.into_iter().enumerate() {
+                let ankle = posed_ankle(&entry, &rig, leg);
+                let shift = ankle.distance(prior[i]);
+                assert!(
+                    shift < 0.035,
+                    "walk phase {phase} foot {i} jumped {shift:.3} m into the peck",
+                );
+            }
+
+            anim.time += 0.19;
+            anim.action = Some((strike, 0.206 / strike.duration()));
+            let released = pose(&rig, &mut anim, 0.0, 0.0, false, false);
+            assert!(anim.strike_entry.is_none(), "release before beak contact");
+            let plain = pose(&rig, &mut anim, 0.0, 0.0, false, false);
+            for leg in feet {
+                assert_eq!(
+                    posed_ankle(&released, &rig, leg),
+                    posed_ankle(&plain, &rig, leg)
+                );
+            }
+        }
     }
 
     #[test]
@@ -4301,6 +4511,65 @@ mod support_tests {
         }
         // Smoothing must preserve the recognizable overhead flight pose.
         assert!(arms(0.5)[0].angle_between(arms(0.0)[0]) > 2.0);
+    }
+
+    #[test]
+    fn medusa_gaze_keeps_its_knees_under_the_skirt_with_both_feet_down() {
+        for build in 0..=2 {
+            let (_, rig, _, _) = spawn_one(&Look::with_choice(
+                CreatureModel::Medusa,
+                42,
+                Some(Variant {
+                    woman: true,
+                    build,
+                    ..default()
+                }),
+            ));
+            let a = Anim::new(42, Vec3::ZERO);
+            let legs = walk_legs(&rig, &a);
+            let sample = |action: Option<(Move, f32)>| {
+                let mut p = Pose::new();
+                biped_pose(&mut p, &rig, 0.0, 0.0, 0.0, action, WalkingCarriage::Native);
+                if let Some((m, t)) = action {
+                    grounded_action(&mut p, &rig, &a, m, t);
+                }
+                p
+            };
+            let knee_z = |p: &Pose, leg: WalkLeg| {
+                let chain =
+                    p.rot[J::Lift as usize] * p.rot[J::Hips as usize] * p.rot[leg.thigh as usize];
+                let at = walk_hip(p, &rig, leg)
+                    + chain * (rig.rest[leg.shin as usize] + p.off[leg.shin as usize]);
+                // Cloth hangs from the hips, so compare in this worn frame.
+                let hips = p.off[J::Lift as usize]
+                    + p.rot[J::Lift as usize]
+                        * (rig.rest[J::Hips as usize] + p.off[J::Hips as usize]);
+                let frame = p.rot[J::Lift as usize] * p.rot[J::Hips as usize];
+                (frame.inverse() * (at - hips)).z
+            };
+            let rest = sample(None);
+            for phase in [0.28, Move::Gaze.impact(), 0.68] {
+                let gaze = sample(Some((Move::Gaze, phase)));
+                assert!(
+                    gaze.rot[J::ArmL as usize].angle_between(rest.rot[J::ArmL as usize]) > 0.20
+                );
+                for leg in legs.into_iter().flatten() {
+                    let push = knee_z(&gaze, leg) - knee_z(&rest, leg);
+                    assert!(
+                        push < 0.052,
+                        "build {build}, phase {phase:.2}, {:?} advanced {push:.3} into the skirt",
+                        leg.foot
+                    );
+                    let foot_slide =
+                        posed_ankle(&gaze, &rig, leg).distance(posed_ankle(&rest, &rig, leg));
+                    assert!(
+                        foot_slide < 0.024,
+                        "build {build}, {:?} moved {foot_slide:.3} during the planted gaze",
+                        leg.foot
+                    );
+                }
+            }
+        }
     }
 
     #[test]

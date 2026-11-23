@@ -2,6 +2,7 @@
 //! small turtle head in front of a smooth, painted dome.
 use super::*;
 use crate::creatures::rogue_tests::{points_under, spawn_one};
+use crate::sdf::Shape::Ellipsoid;
 use bevy::render::mesh::VertexAttributeValues;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -159,4 +160,35 @@ fn xeroc_shell_has_broad_raised_overlapping_armor_masses() {
     }
     assert!(broad >= 5 && left >= 2 && right >= 2,
         "shell plates must cover both shoulders and flanks: broad={broad}, left/right={left}/{right}");
+}
+
+#[test]
+fn xeroc_forehead_scute_rims_follow_the_curved_skull_instead_of_floating() {
+    let look = Look::of(CreatureModel::Xeroc, 42);
+    let (world, rig, _, meshes) = spawn_one(&look);
+    let faces = painted_faces(
+        &world,
+        &meshes,
+        rig.joint(J::Head).unwrap(),
+        look.skin * 1.08,
+    );
+    let proportion = storybook_part(Plan::Quadruped, J::Head);
+    let skull = Ellipsoid(Vec3::new(0.0, 0.07, 0.0), Vec3::new(0.265, 0.21, 0.205));
+    // Test the front rims, not their raised crowns (which are behind the
+    // brow). An open scute should not appear to float above the face.
+    let forward_rims: Vec<_> = faces
+        .into_iter()
+        .flatten()
+        .map(|p| p / proportion)
+        .filter(|p| p.z > 0.045 && p.y > 0.14)
+        .collect();
+    assert!(!forward_rims.is_empty(), "the scutes still shade the brow");
+    let gap = forward_rims
+        .iter()
+        .map(|&p| skull.distance(p))
+        .fold(0.0, f32::max);
+    assert!(
+        gap < 0.02,
+        "front scute rim floats {gap:.3} above the skull"
+    );
 }

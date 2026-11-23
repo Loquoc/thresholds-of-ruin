@@ -60,6 +60,7 @@ pub(super) fn duelist(wearer: &Look) -> Outfit {
             split: 0.18,
             cutaway: true,
             center_panel: Some(0.12),
+            leg_relief: Some(skirt_motion::LegRelief::FITTED.with_hem_yield(0.60)),
             hem: Hem::Points {
                 count: 4,
                 depth: 0.28,
