@@ -1,5 +1,6 @@
 """Policy fixtures use only ordinary observation fields."""
 
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -110,7 +111,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         dark = picture(False)
         action, reason = choose(player, dark)
         self.assertEqual((action, reason), (Zap(dark.devices[0], None), "light_room"))
-        player.admitted(dark, action, reason=reason)
+        trace = json.loads(json.dumps({"reason": reason}))
+        self.assertEqual(trace, {"reason": "light_room"})
+        player.admitted(dark, action, reason=trace["reason"])
         self.assertNotIsInstance(choose(player, dark)[0], Zap)
         choose(player, picture(True))
         self.assertEqual(choose(player, dark)[1], "light_room")
@@ -224,6 +227,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.last_unseen_attack = "here", 0
                 action, _ = choose(player, turn)
                 self.assertEqual(describe_action(action)["type"], expected)
+
+    def test_unseen_attack_delays_descent_only_during_its_evasion_window(self):
+        for tick, expected in ((99, "descend"), (100, "evade_unseen_attack"),
+                               (499, "evade_unseen_attack"), (500, "descend")):
+            with self.subTest(tick=tick):
+                turn = player_turn([cell("stairs", down=True), cell("west", -1)], tick=tick)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.last_unseen_attack = "stairs", 100
+                self.assertEqual(choose(player, turn)[1], expected)
 
     def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
         from tor_client_bot import Equip, Unequip
@@ -631,16 +643,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(policy, turn), (Pickup(turn.ground_items[0].item), "take"))
 
     def test_collects_nearby_gold_before_a_distant_stack_of_arrows(self):
-        cells = [cell(str(i), i) for i in range(-12, 3)]
         bow = {"id": "bow", "name": "bow", "identity": "item.weapon.shortbow",
                "identified": True, "quantity": 1, "class": "weapon"}
         arrow = {**bow, "id": "arrows", "identity": "item.weapon.arrow", "quantity": 4}
         gold = {**bow, "id": "gold", "identity": "item.coin.gold", "class": "coin"}
-        ground = [{**cells[0], "item": arrow, "reachable": False},
-                  {**cells[-1], "item": gold, "reachable": False}]
-        turn = player_turn(cells, inventory=[bow], ground=ground)
-        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
-                         (Move(Direction.EAST), "seek_supplies"))
+        for distance, direction, reason in ((6, Direction.WEST, "recover_arrows"),
+                                            (7, Direction.EAST, "seek_supplies"),
+                                            (12, Direction.EAST, "seek_supplies")):
+            with self.subTest(distance=distance):
+                cells = [cell(str(i), i) for i in range(-distance, 3)]
+                ground = [{**cells[0], "item": arrow, "reachable": False},
+                          {**cells[-1], "item": gold, "reachable": False}]
+                turn = player_turn(cells, inventory=[bow], ground=ground)
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                                 (Move(direction), reason))
 
     def test_collects_visible_spent_arrows_beyond_an_immediate_detour(self):
         cells = [cell(str(i), i, down=i == 0) for i in range(5)]
