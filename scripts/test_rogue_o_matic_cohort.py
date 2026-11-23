@@ -330,6 +330,10 @@ class CohortSummaryTests(unittest.TestCase):
                     "result": {"status": "confirmed", "receipt": {"intention": intention}}}
 
         rows = [search("first"), search("second"), search("third"),
+                {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "first",
+                 "previous_intention_phase": "started"},
+                {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "second",
+                 "previous_intention_phase": "queued"},
                 {"floor": 2, "action": {"type": "wait"}, "previous_intention_id": "first",
                  "previous_intention_phase": "resolved"},
                 {"terminal": "action_budget", "previous_intention_id": "second",

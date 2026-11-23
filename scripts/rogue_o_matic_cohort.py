@@ -158,8 +158,9 @@ def trace_report(path):
             else:
                 last_move = previous_origin = None
             phase = row.get("previous_intention_phase")
-            if phase and (search_floor := pending_searches.pop(row.get("previous_intention_id"), None)) is not None:
-                if phase in {"resolved", "failed"}:
+            if phase in {"resolved", "failed", "cancelled"}:
+                search_floor = pending_searches.pop(row.get("previous_intention_id"), None)
+                if search_floor is not None and phase != "cancelled":
                     progress["floors"][search_floor][f"searches_{phase}"] += 1
             if "terminal" in row:
                 terminal = row
