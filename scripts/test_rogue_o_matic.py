@@ -781,6 +781,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                            actors=[snake], hostiles=["snake"])
         self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "retreat_downstairs"))
 
+    def test_retreat_routes_to_the_farther_stair_until_the_nearer_one_is_safe(self):
+        corridor = [cell(str(x), x, up=x in (-2, 3)) for x in range(-2, 4)]
+        dragon = {"id": "foe", "name": "dragon", "position": {"x": 0, "y": 2, "z": 0}}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        player.unsafe_stairs["-2", Direction.UP] = 100
+        for tick, direction in ((99, Direction.EAST), (100, Direction.WEST)):
+            with self.subTest(tick=tick):
+                turn = player_turn(corridor, actors=[dragon], hostiles=["foe"], tick=tick)
+                player.observe(turn)
+                self.assertEqual(player.retreat_to_stairs(turn), (Move(direction), "retreat_to_stairs"))
+
     def test_recontests_a_guarded_landing_only_with_a_health_margin(self):
         snake = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 1)["position"]}
         strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,

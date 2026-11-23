@@ -695,25 +695,7 @@ class Adventurer:
             avoid.update(cell.key for cell in turn.cells_of(foe))
         memory = self.maps[self.depth]
         exits.difference_update(avoid)
-        nearby = [cell.offset for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
-        step = None
-        if nearby:
-            destination = min(nearby, key=lambda at: sum(map(abs, at)))
-            distance = sum(map(abs, destination))
-            approaches = []
-            for direction in turn.walkable_directions:
-                offset = direction.offset
-                candidate = turn.cell_at(offset)
-                if candidate is None or candidate.key in avoid:
-                    continue
-                remaining = sum(abs(a - b) for a, b in zip(offset, destination))
-                if remaining < distance:
-                    clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-                    approaches.append((clearance, -remaining, direction))
-            if approaches:
-                step = Move(max(approaches)[2])
-        if step is None:
-            step = memory.toward(turn, exits, avoid=avoid)
+        step = self.approach_visible_exit(turn, exits, avoid) or memory.toward(turn, exits, avoid=avoid)
         if step is None:
             return None
         # Opening a door spends the turn in the current cell.
@@ -726,6 +708,25 @@ class Adventurer:
                                   for foe in turn.hostiles):
                 return escape
         return step, MemoryReason.RETREAT_TO_STAIRS
+
+    @staticmethod
+    def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
+        nearby = [cell.offset for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
+        if not nearby:
+            return None
+        destination = min(nearby, key=lambda offset: sum(map(abs, offset)))
+        distance = sum(map(abs, destination))
+        approaches = []
+        for direction in turn.walkable_directions:
+            offset = direction.offset
+            candidate = turn.cell_at(offset)
+            if candidate is None or candidate.key in avoid:
+                continue
+            remaining = sum(abs(a - b) for a, b in zip(offset, destination))
+            if remaining < distance:
+                clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
+                approaches.append((clearance, -remaining, direction))
+        return Move(max(approaches)[2]) if approaches else None
 
     @staticmethod
     def evade(turn: Turn) -> tuple[Move, str] | None:
