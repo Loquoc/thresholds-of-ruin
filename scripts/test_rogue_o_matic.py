@@ -1136,6 +1136,22 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     player.observe(turn, report)
                     self.assertNotEqual(player.choose(turn)[1], "polymorph_threat")
 
+    def test_resisted_polymorph_requires_disclosed_charges_even_on_a_fresh_wand(self):
+        cells = [cell("here"), cell("enemy", 1)]
+        foe = {"id": "hunter", "name": "griffin", "position": cells[1]["position"]}
+        wand = {"id": "fresh", "class": "wand", "identity": "item.wand.wand-polymorph",
+                "identified": True, "quantity": 1, "name": "staff"}
+        offer = {"item": "fresh", "zappable": True, "device_activation": "direction"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss_by_name["griffin"] = 10
+        player.resisted_polymorph.add("hunter")
+        for charges, retry in ((None, False), (0, False), (1, True)):
+            with self.subTest(charges=charges):
+                turn = player_turn(cells, actors=[foe], inventory=[wand],
+                                   interactions={"inventory": [dict(offer, charges=charges)]},
+                                   combat={"actors": [{"actor": "hunter", "hostile": True, "injury": "healthy"}]})
+                self.assertEqual(choose(player, turn)[1] == "polymorph_threat", retry)
+
     def test_polymorph_targets_the_lethal_troll_while_another_foe_is_in_contact(self):
         from tor_client_bot import CombatReport
 

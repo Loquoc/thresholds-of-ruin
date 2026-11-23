@@ -644,16 +644,22 @@ class Adventurer:
             for device, reason in devices:
                 if reason == MemoryReason.SLOW_APPROACH and foe.target in self.attempted_slow:
                     continue
-                if reason == MemoryReason.POLYMORPH_THREAT:
-                    if foe.target in self.attempted_polymorph or foe.injury is not Injury.HEALTHY or damage < health:
-                        continue
-                    if foe.target in self.resisted_polymorph and (device.charges is None or any(
-                        other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
-                    )):
-                        continue
+                if (reason == MemoryReason.POLYMORPH_THREAT
+                        and not self.can_polymorph(turn, foe, device, lethal=damage >= health)):
+                    continue
                 if zap := turn.aim_device(device, foe, clear_horizontal_ray=True):
                     return zap, reason
         return None
+
+    def can_polymorph(self, turn: Turn, foe: Creature, device: Device, lethal: bool) -> bool:
+        if not lethal or foe.injury is not Injury.HEALTHY or foe.target in self.attempted_polymorph:
+            return False
+        if foe.target not in self.resisted_polymorph:
+            return True
+        # A witnessed resistance permits one retry with a measured charge and no other foe in contact.
+        return device.charges is not None and not any(
+            other.target != foe.target and turn.in_contact(other) for other in turn.hostiles
+        )
 
     def safe_stairs(self, turn: Turn, direction: Direction) -> set[str]:
         return {key for key in self.maps[self.depth].stairs(direction)
