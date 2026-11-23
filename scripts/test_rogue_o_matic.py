@@ -2207,6 +2207,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    interactions={"slots": [slot], "inventory": [offer]})
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
 
+    def test_food_estimate_uses_the_lowest_observed_gain_after_consumption(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        identity = "item.food.ration"
+        ration = {"id": "ration", "name": "ration", "identity": identity, "class": "food", "identified": True}
+        def picture(count, reserve):
+            nutrition = {"kind": "required", "unit_ticks": 100, "elapsed": 0, "maximum": 1000,
+                         "hunger": "nourished", "reserve": reserve}
+            return player_turn([cell("here")], inventory=[dict(ration, quantity=count)],
+                               stats={"nutrition": nutrition}, interactions={"inventory": [{"item": "ration", "edible": True}]})
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        before = picture(2, 100)
+        for count, reserve, expected in ((2, 150, None), (1, 95, None), (1, 160, 60), (1, 140, 40), (1, 170, 40)):
+            with self.subTest(count=count, reserve=reserve):
+                player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT))
+                player.observe(picture(count, reserve))
+                self.assertEqual(player.food_value.get(identity), expected)
+
     def test_provisions_known_return_route_before_taking_stairs(self):
         nutrition = {"kind": "required", "unit_ticks": "100", "elapsed": "0",
                      "maximum": 1300, "hunger": "nourished"}

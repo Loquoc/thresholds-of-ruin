@@ -102,6 +102,23 @@ def route_to_food(turn: Turn, memory: FloorMap) -> Action | None:
     return memory.toward(turn, food_cells)
 
 
+def carried_quantity(turn: Turn, identity: str) -> int:
+    return sum(item.quantity for item in turn.inventory if item.identity == identity)
+
+
+@dataclass(frozen=True)
+class PendingMeal:
+    identity: str
+    quantity_before: int
+    reserve_before: int
+
+    def observed_gain(self, turn: Turn) -> int | None:
+        if turn.nutrition is None or carried_quantity(turn, self.identity) >= self.quantity_before:
+            return None
+        gain = turn.nutrition.reserve - self.reserve_before
+        return gain if gain > 0 else None
+
+
 @dataclass
 class LootGoals:
     pickup: Item | None = None
@@ -128,7 +145,7 @@ class Adventurer:
     descent_ticks_by_floor: dict[int, int] = field(default_factory=dict)
     entered_floor_at: int | None = None
     food_value: dict[str, int] = field(default_factory=dict)
-    pending_meal: tuple[str, int, int] | None = None
+    pending_meal: PendingMeal | None = None
     # A floor gets one bounded detour. A confirmed increase in supplies ends it early.
     food_scouts: dict[int, tuple[int, int]] = field(default_factory=dict)
     pending_stair: StairAttempt | None = None
@@ -209,12 +226,10 @@ class Adventurer:
         if self.entered_floor_at is None:
             self.entered_floor_at = turn.tick
         if self.pending_meal and turn.can_act:
-            identity, count, reserve = self.pending_meal
-            remaining = sum(item.quantity for item in turn.inventory if item.identity == identity)
-            if remaining < count and turn.nutrition:
-                gain = turn.nutrition.reserve - reserve
-                if gain > 0:
-                    self.food_value[identity] = min(gain, self.food_value.get(identity, gain))
+            meal = self.pending_meal
+            gain = meal.observed_gain(turn)
+            if gain is not None:
+                self.food_value[meal.identity] = min(gain, self.food_value.get(meal.identity, gain))
             self.pending_meal = None
         self.observe_combat(turn, turn.recent_combat if combat is None else combat)
         if self.pending_stair:
@@ -371,8 +386,8 @@ class Adventurer:
             and action.item.identity
             and turn.nutrition
         ):
-            count = sum(i.quantity for i in turn.inventory if i.identity == action.item.identity)
-            self.pending_meal = action.item.identity, count, turn.nutrition.reserve
+            identity = action.item.identity
+            self.pending_meal = PendingMeal(identity, carried_quantity(turn, identity), turn.nutrition.reserve)
         if isinstance(action, Shot):
             self.last_shot_tick = turn.tick
         if turn.cell and isinstance(action, Move) and action.direction in (Direction.UP, Direction.DOWN):
