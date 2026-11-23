@@ -383,6 +383,27 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(policy, player_turn([cell("exit", up=True)], inventory=[target])),
                          (Move(Direction.UP), "ascend"))
 
+    def test_player_checks_training_on_a_quiet_turn_after_hit_dice_change(self):
+        from unittest.mock import Mock
+        from rogue_player import play
+        from tor_client_bot import Outcome, Result, Session
+
+        foe = {"id": "foe", "name": "orc", "position": cell("east", 1)["position"]}
+        for previous, locked, hostiles, expected in (
+            (None, False, [], 0), (2, False, [], 0), (1, True, [], 0),
+            (1, False, [foe], 0), (1, False, [], 1),
+        ):
+            with self.subTest(previous=previous, locked=locked, hostiles=bool(hostiles)):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, training_checked_at=previous, growth_locked=locked)
+                player.train = Mock(return_value=None)
+                turn = player_turn([cell("here"), cell("east", 1)], actors=hostiles,
+                                   hostiles=[actor["id"] for actor in hostiles], stats={"hit_dice": {"total": "2"}})
+                turn.submit = Mock(return_value=Result(Outcome.CONFIRMED, None, None))
+                session = Session(Mock())
+                session.wait_for_decision = Mock(side_effect=[turn, player_turn([], combat={"terminal": True, "victory": False})])
+                play(session, player, 1, lambda row: None)
+                self.assertEqual(player.train.call_count, expected)
+
     def test_authored_growth_never_requests_a_purchase_or_balance_page(self):
         from rogue_policy_reference import buy_starting_talent, earned_training
 

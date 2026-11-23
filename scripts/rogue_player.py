@@ -180,6 +180,12 @@ class Adventurer:
     training_checked_at: int | None = None
     growth_locked: bool = False
 
+    def ready_to_train(self, turn: Turn, *, stalled: bool) -> bool:
+        if self.growth_locked or turn.hit_dice is None or turn.hit_dice == self.training_checked_at:
+            return False
+        return (not stalled and turn.can_act and not turn.hostiles and not turn.identification
+                and not turn.can_resume and self.pending_stair is None)
+
     def train(self, turn: Turn, training: Training) -> tuple[dict, Result] | None:
         """Try one safe purchase, then let the next observation show the new build."""
         build = training.overview()
@@ -1230,9 +1236,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
             break
         purchase = None
         action = None
-        if (not player.growth_locked and turn.hit_dice is not None and turn.hit_dice != player.training_checked_at
-                and not decision.stalled and turn.can_act and not turn.hostiles and not turn.identification
-                and not turn.can_resume and not player.pending_stair):
+        if player.ready_to_train(turn, stalled=decision.stalled):
             try:
                 purchase = player.train(turn, game.training)
             except TrainingRefused as error:
