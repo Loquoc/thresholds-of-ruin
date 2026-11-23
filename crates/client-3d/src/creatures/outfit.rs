@@ -900,7 +900,7 @@ pub(crate) struct GarmentDetails {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum HipDecoration {
-    /// Rigid scraps of the resolved tunic, including an equipped shirt color.
+    /// A torn edge on the existing tunic drape, tinted after shirt resolution.
     TunicTatters {
         shade: f32,
     },

@@ -1,10 +1,50 @@
 use super::*;
 
+pub(in crate::creatures) const FLOATER_HOVER: f32 = 1.1;
+
+/// Shared aura layout for the generated neutral pose and the moving core.
+pub(in crate::creatures) fn floater_mote(
+    ice: bool,
+    live_core: Vec3,
+    phase: f32,
+    flare: f32,
+    f: f32,
+    count: f32,
+) -> (Vec3, f32) {
+    let angle = phase * if ice { 0.55 } else { 0.9 } + f * TAU / count;
+    if ice {
+        let radius = 0.32 + 0.14 * flare;
+        (
+            live_core
+                + Vec3::new(
+                    angle.cos() * radius,
+                    angle.sin() * 0.13,
+                    angle.sin() * radius,
+                ),
+            0.8,
+        )
+    } else {
+        // Embers rise in a loose column and fade at both ends of
+        // their life, so recycling has no visible positional pop.
+        let life = (phase * 0.28 + f / count).rem_euclid(1.0);
+        let radius = 0.13 + life * 0.16 + flare * 0.1;
+        (
+            live_core
+                + Vec3::new(
+                    angle.cos() * radius,
+                    -0.1 + life * 0.65,
+                    angle.sin() * radius,
+                ),
+            (PI * life).sin().powi(2),
+        )
+    }
+}
+
 /// Things that float: a burning wisp, a drifting knot of ice.
 pub(super) fn floater(kit: &mut Kit, lift: Entity, look: &Look) {
     let l = look.clone();
     let aura = l.aura.unwrap_or(Accent::Ember);
-    let core = kit.joint(J::Core, lift, Vec3::Y * 1.1, "core", |p| {
+    let core = kit.joint(J::Core, lift, Vec3::Y * FLOATER_HOVER, "core", |p| {
         p.accent = Some(aura);
         if l.style == Style::Ice {
             // Dark blue recesses and pale cyan planes keep the cluster
@@ -115,13 +155,68 @@ pub(super) fn floater(kit: &mut Kit, lift: Entity, look: &Look) {
         p.glow
             .blob(Vec3::ZERO, Vec3::splat(0.035), 0, 0.0, Vec3::ONE);
     });
-    for _ in 0..6 {
+    let count = 6;
+    for index in 0..count {
+        let (at, size) = floater_mote(
+            l.style == Style::Ice,
+            Vec3::Y * FLOATER_HOVER,
+            0.0,
+            0.0,
+            index as f32,
+            count as f32,
+        );
         let e = kit
             .commands
-            .spawn((Transform::default(), Visibility::default()))
+            .spawn((
+                Transform::from_translation(at).with_scale(Vec3::splat(size)),
+                Visibility::default(),
+            ))
             .id();
         kit.commands.entity(e).with_children(|p| mote.attach(p));
         kit.commands.entity(lift).add_child(e);
         kit.rig.segments.push(e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::creatures::rogue_tests::spawn_one;
+
+    #[test]
+    fn floater_motes_form_an_aura_before_the_first_update() {
+        for model in [CreatureModel::Ice, CreatureModel::Wisp] {
+            let (world, rig, _, _) = spawn_one(&Look::of(model, 42));
+            let local = |joint| world.get::<Transform>(joint).unwrap();
+            let center = local(rig.joint(J::Core).unwrap()).translation;
+            let motes: Vec<_> = rig.segments.iter().copied().map(local).collect();
+            assert_eq!(motes.len(), 6);
+            for mote in &motes {
+                let offset = mote.translation - center;
+                let radius = offset.with_y(0.0).length();
+                assert!(
+                    mote.translation.y > 0.9 && (0.12..0.37).contains(&radius),
+                    "{model:?}: mote at {:?} is outside the core aura",
+                    mote.translation
+                );
+                assert!(mote.scale.is_finite() && mote.scale.x >= 0.0 && mote.scale.x <= 1.0);
+            }
+            for (i, a) in motes.iter().enumerate() {
+                for b in &motes[i + 1..] {
+                    assert!(
+                        a.translation.distance(b.translation) > 0.10,
+                        "{model:?}: overlapping motes at spawn"
+                    );
+                }
+            }
+            if model == CreatureModel::Wisp {
+                let smallest = motes.iter().map(|m| m.scale.x).fold(1.0, f32::min);
+                let largest = motes.iter().map(|m| m.scale.x).fold(0.0, f32::max);
+                assert!(
+                    largest - smallest > 0.7,
+                    "embers must start at staggered ages"
+                );
+            }
+        }
     }
 }

@@ -453,7 +453,9 @@ fn bridal_veil_reuses_meshes_but_binds_each_loaded_wearer() {
         let mut entities = HashSet::new();
         for (entity, mesh, skin, child) in layers {
             let frame = child.parent();
-            assert_eq!(skin.joints, vec![frame, head]);
+            let train = rig.veil.as_ref().expect("veil floor skin").train;
+            assert_eq!(skin.joints, vec![frame, head, train]);
+            assert_eq!(world.get::<ChildOf>(train).unwrap().parent(), frame);
             assert_eq!(world.get::<ChildOf>(frame).unwrap().parent(), torso);
             assert!(world
                 .resource::<Assets<SkinnedMeshInverseBindposes>>()
@@ -462,7 +464,7 @@ fn bridal_veil_reuses_meshes_but_binds_each_loaded_wearer() {
             let mesh = world.resource::<Assets<Mesh>>().get(&mesh.0).unwrap();
             assert!(mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_some());
             meshes.insert(world.get::<Mesh3d>(entity).unwrap().0.id());
-            entities.insert((entity, frame, head));
+            entities.insert((entity, frame, head, train));
         }
         mesh_sets.push(meshes);
         skin_entities.push(entities);

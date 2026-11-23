@@ -1,11 +1,12 @@
 use super::*;
+use crate::creatures::animation::ease;
 
 /// A banded snake: a smooth tapering body laid along a travelling wave, a
 /// wedge-shaped head with a jaw, and a tongue that flickers.
 pub(super) fn serpent(kit: &mut Kit, lift: Entity, look: &Look) {
     let l = look.clone();
     let rattler = l.style == Style::Rattlesnake;
-    for i in 0..SNAKE {
+    for (i, transform) in snake_rest_pose(l.style).into_iter().enumerate() {
         let r = snake_segment_radius(i);
         let model = kit.part(&format!("seg{i}"), |p| {
             if i == 0 {
@@ -72,10 +73,7 @@ pub(super) fn serpent(kit: &mut Kit, lift: Entity, look: &Look) {
                 );
             }
         });
-        let e = kit
-            .commands
-            .spawn((Transform::default(), Visibility::default()))
-            .id();
+        let e = kit.commands.spawn((transform, Visibility::default())).id();
         kit.commands.entity(e).with_children(|p| model.attach(p));
         kit.commands.entity(lift).add_child(e);
         kit.rig.segments.push(e);
@@ -86,7 +84,7 @@ pub(super) fn serpent(kit: &mut Kit, lift: Entity, look: &Look) {
     let jaw = kit.joint(J::Jaw, head, dimensions.hinge(), "jaw", |p| {
         serpent_jaw(p, &l);
     });
-    kit.joint(J::Fangs, head, dimensions.fangs(), "fangs", |p| {
+    let fangs = kit.joint(J::Fangs, head, dimensions.fangs(), "fangs", |p| {
         p.set_transform(Affine3A::from_scale(dimensions.scale));
         beast_parts::FangArc {
             frame: Transform::from_xyz(0.0, 0.0, -1.3f32.cos() * 0.11)
@@ -105,6 +103,9 @@ pub(super) fn serpent(kit: &mut Kit, lift: Entity, look: &Look) {
         }
         .emit(&mut p.matte, BONE);
     });
+    kit.commands.entity(fangs).insert(
+        Transform::from_translation(dimensions.fangs()).with_rotation(snake_fang_rotation(0.02)),
+    );
     let tongue = kit.part("tongue", |p| {
         let red = Vec3::new(0.7, 0.12, 0.12);
         p.matte.prism(
@@ -131,7 +132,7 @@ pub(super) fn serpent(kit: &mut Kit, lift: Entity, look: &Look) {
     let e = kit
         .commands
         .spawn((
-            Transform::from_translation(dimensions.tongue()),
+            Transform::from_translation(dimensions.tongue()).with_scale(Vec3::new(1.0, 1.0, 0.01)),
             Visibility::default(),
         ))
         .id();
@@ -253,6 +254,7 @@ pub(super) fn serpent_jaw(p: &mut Parts, l: &Look) {
 
 /// Segments in a snake's body.
 pub(in crate::creatures) const SNAKE: usize = 20;
+pub(in crate::creatures) const SNAKE_WARNING_LIFT: f32 = 0.16;
 
 /// Horizontal radius shared by the tapered mesh and its floor placement.
 /// Body sections are three quarters as high as they are wide; the separately
@@ -264,6 +266,89 @@ pub(in crate::creatures) fn snake_segment_radius(index: usize) -> f32 {
         let fraction = index as f32 / SNAKE as f32;
         0.093 * (1.0 - fraction).powf(0.72) + 0.005
     }
+}
+
+/// Clearance under a body band follows the same taper as its geometry.
+/// The separate sculpted skull has a deeper jaw than a body band's ellipse.
+pub(in crate::creatures) fn snake_ground_height(index: usize, roll: f32, style: Style) -> f32 {
+    if index == 0 {
+        super::anatomy::SerpentHead::resolve(style).ground(roll)
+    } else {
+        let radius = snake_segment_radius(index);
+        radius * (roll.sin().powi(2) + (0.75 * roll.cos()).powi(2)).sqrt() + 0.003
+    }
+}
+
+/// A fixed-length band step shared by the stored and animated paths.
+pub(in crate::creatures) fn snake_link(dy: f32, yaw: f32) -> Vec3 {
+    let horizontal = (0.068f32.powi(2) - dy * dy).max(0.0).sqrt();
+    Vec3::new(-yaw.sin() * horizontal, dy, -yaw.cos() * horizontal)
+}
+
+pub(in crate::creatures) fn snake_fang_rotation(gape: f32) -> Quat {
+    Quat::from_rotation_x(-FRAC_PI_2 * (1.0 - (gape / 0.72).clamp(0.0, 1.0)))
+}
+
+/// Present the same spine path in the generated rest pose and during animation.
+#[derive(Default)]
+pub(in crate::creatures) struct SnakeLivePath {
+    pub wave: f32,
+    pub speed: f32,
+    pub neck_lift: f32,
+    pub warning: f32,
+    pub calm: f32,
+    pub idle_phase: f32,
+    pub gather: f32,
+    pub strike: f32,
+}
+
+impl SnakeLivePath {
+    pub fn points(self, style: Style, n: usize) -> impl Iterator<Item = Vec3> {
+        let wave = self.wave;
+        let raised = self.neck_lift;
+        let amplitude = 0.18 + 0.4 * ease(self.speed * 3.0);
+        let head = Vec3::new(
+            0.018 * wave.sin() * self.speed,
+            snake_ground_height(0, 0.0, style) + raised,
+            0.6 - 0.09 * self.gather + 0.24 * self.strike,
+        );
+        (0..n).scan(head, move |at, i| {
+            if i > 0 {
+                let f = i as f32;
+                let front = (1.0 - f / 7.0).max(0.0);
+                let idle = (self.idle_phase - f * 0.24).sin() * 0.003 * self.calm;
+                let tail_lift = (f + 4.0 - n as f32).max(0.0) * 0.04 * self.warning;
+                let y =
+                    snake_ground_height(i, 0.0, style) + raised * ease(front) + idle + tail_lift;
+                let dy = (y - at.y).clamp(-0.06, 0.06);
+                let yaw = (wave - f * 0.42).sin() * amplitude * (0.75 + 0.25 * f / n as f32);
+                *at += snake_link(dy, yaw);
+            }
+            Some(*at)
+        })
+    }
+}
+
+/// Segment nodes are independent children of the lift. Assemble a neutral
+/// body immediately instead of leaving every band at the origin until posing.
+fn snake_rest_pose(style: Style) -> [Transform; SNAKE] {
+    let warning = f32::from(u8::from(style == Style::Rattlesnake));
+    let path = SnakeLivePath {
+        warning,
+        neck_lift: SNAKE_WARNING_LIFT * warning,
+        ..Default::default()
+    };
+    let mut points = [Vec3::ZERO; SNAKE];
+    for (point, at) in points.iter_mut().zip(path.points(style, SNAKE)) {
+        *point = at;
+    }
+    std::array::from_fn(|i| {
+        // Like the live pose, keep a forward-looking skull on the raised neck.
+        let tangent = points[i.saturating_sub(1)] - points[(i + 1).min(SNAKE - 1)];
+        let direction = if i == 0 { tangent.with_y(0.0) } else { tangent }.normalize_or(Vec3::Z);
+        Transform::from_translation(points[i])
+            .with_rotation(Quat::from_rotation_arc(Vec3::Z, direction))
+    })
 }
 
 /// A crystal has broad shaded faces and a sharply terminating cap. Emission

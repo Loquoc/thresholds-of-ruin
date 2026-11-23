@@ -674,8 +674,10 @@ pub(super) fn quadruped(kit: &mut Kit, lift: Entity, look: &Look, centaur: bool)
             if style == Style::Unicorn {
                 p.accent = Some(Accent::Violet);
                 let (a, b) = (Vec3::new(0.0, 0.09, 0.07), Vec3::new(0.0, 0.4, 0.28));
-                p.metal
-                    .prism(a, b, 0.034, 0.0, 10, Vec3::new(0.12, 0.1, 0.16), 0.0);
+                // A moonlit keratin shaft stays readable in low light
+                // without asking its accent rings to draw the silhouette.
+                p.satin
+                    .prism(a, b, 0.034, 0.0, 10, Vec3::new(0.51, 0.44, 0.63), 0.0);
                 for k in 0..4 {
                     let t = 0.12 + k as f32 * 0.2;
                     p.glow.torus(

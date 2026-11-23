@@ -1130,10 +1130,13 @@ pub struct Rig {
     cloaks: Vec<cloak::CloakRig>,
     /// Instance-owned loose hair fitted against the composed torso layers.
     hair: Option<hair_contact::HairRig>,
+    veil: Option<geometry::veil::GroundDrape>,
     visual_contacts: Vec<visual_contact::Part>,
     /// Actual head geometry for dependent study mantle collars only. Kept apart
     /// from arm/hand support so it cannot change legacy hair or cape free edges.
     cloth_head_contacts: Vec<visual_contact::Part>,
+    /// The biped has no crown covering that would obstruct a scalp scratch.
+    scalp_exposed: bool,
     stride: f32,
     hunch: f32,
     style: Style,
@@ -1223,6 +1226,9 @@ impl Rig {
         }
         for cloak in &mut self.cloaks {
             cloak.map_references(&entity, &mut mesh);
+        }
+        if let Some(veil) = &mut self.veil {
+            veil.train = entity(veil.train);
         }
         if let Some(hair) = &mut self.hair {
             hair.map_references(&entity, &mut mesh);
@@ -1524,6 +1530,8 @@ pub struct Anim {
     /// Death progress, 0 to 1. A corpse holds 1.
     pub dead: Option<f32>,
     death_motion: DeathMotion,
+    /// Last displayed gaze phase, retained only for the crown's death release.
+    gaze_death_entry: Option<f32>,
     /// How far down it still is after being revived: it rises out of its
     /// death pose instead of snapping upright.
     fallen: f32,
@@ -1560,6 +1568,7 @@ impl Anim {
             dodge: None,
             dead: None,
             death_motion: DeathMotion::default(),
+            gaze_death_entry: None,
             fallen: 0.0,
             rest: 1.0,
             quiet: false,
@@ -1608,6 +1617,10 @@ impl Anim {
     }
 
     fn start_death(&mut self, motion: DeathMotion, face_corridor: bool) {
+        self.gaze_death_entry = match self.action {
+            Some((Move::Gaze, phase)) => Some(phase),
+            _ => None,
+        };
         self.death_motion = motion;
         self.dead = Some(if face_corridor { -0.35 } else { 0.0 });
         self.action = None;

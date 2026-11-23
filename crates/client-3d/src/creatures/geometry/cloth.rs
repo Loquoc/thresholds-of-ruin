@@ -185,6 +185,7 @@ pub(super) struct ClothSurface {
     pub(super) fit: Option<std::sync::Arc<ClothFit>>,
     pub(super) seam: Option<std::sync::Arc<Vec<Vec3>>>,
     pub(super) paired: bool,
+    pub(super) tucked_waist: Option<std::sync::Arc<Vec<Vec3>>>,
 }
 
 impl ClothSurface {
@@ -199,11 +200,18 @@ impl ClothSurface {
             fit: None,
             seam: None,
             paired: false,
+            tucked_waist: None,
         }
     }
 
     pub(super) fn with_hem(self, hem: Hem) -> Self {
         Self { hem, ..self }
+    }
+
+    /// An equipment panel's top edge is buried inside a fitted belt. Apply
+    /// that stitch after the free panel is fitted so the fit cannot unseat it.
+    pub(super) fn tuck_waist(&mut self, edge: Vec<Vec3>) {
+        self.tucked_waist = Some(std::sync::Arc::new(edge));
     }
 
     pub(super) fn rows(&self) -> usize {
@@ -268,6 +276,15 @@ impl ClothSurface {
             let lift = at(low) + (at(low + 1) - at(low)) * (row - low as f32);
             let direction = Vec3::new(point.x, 0.0, point.z).normalize_or_zero();
             point += direction * lift;
+        }
+        if let Some(edge) = &self.tucked_waist {
+            let column = (angle / TAU).clamp(0.0, 1.0) * 64.0;
+            let low = (column.floor() as usize).min(63);
+            let mut sewn = edge[low].lerp(edge[low + 1], column - low as f32);
+            if inner {
+                sewn -= sewn.with_y(0.0).normalize_or_zero() * 0.007;
+            }
+            point = point.lerp(sewn, 1.0 - ease(t / 0.24));
         }
         point
     }

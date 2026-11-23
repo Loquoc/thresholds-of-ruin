@@ -262,3 +262,37 @@ fn centaur_equipment_preserves_selected_bob_bun_and_braid_on_spawned_head() {
         );
     }
 }
+
+#[test]
+fn black_unicorn_horn_has_visible_pigment_between_its_glowing_rings() {
+    let look = Look::of(CreatureModel::BlackUnicorn, 17);
+    let (world, rig, _, meshes) = spawn_one(&look);
+    let shaft_end = Vec3::new(0.0, 0.4, 0.28) * 1.28;
+    let mut samples = Vec::new();
+    for surface in
+        super::test_support::joint_meshes(&world, &rig, &meshes, rig.joint(J::Snout).unwrap())
+    {
+        let Some(VertexAttributeValues::Float32x3(points)) =
+            surface.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            continue;
+        };
+        let Some(VertexAttributeValues::Float32x4(colors)) =
+            surface.mesh.attribute(Mesh::ATTRIBUTE_COLOR)
+        else {
+            continue;
+        };
+        samples.extend(points.iter().zip(colors).filter_map(|(point, color)| {
+            let at = surface.transform.transform_point3(Vec3::from_array(*point));
+            (at.distance(shaft_end) < 0.010)
+                .then(|| 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2])
+        }));
+    }
+    // This is the actual solid tip beyond the last glow ring. The rings
+    // alone cannot witness that the horn's tapered silhouette still reads.
+    assert!(!samples.is_empty(), "missing solid horn tip");
+    assert!(
+        samples.iter().all(|&luma| luma > 0.12),
+        "horn tip disappears into the dark mane/background: {samples:?}"
+    );
+}

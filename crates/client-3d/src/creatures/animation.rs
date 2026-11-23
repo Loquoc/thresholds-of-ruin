@@ -1,5 +1,9 @@
 use super::anatomy::{BirdBody, FOOT_SCALE, HIP_SCALE};
-use super::geometry::{snake_segment_radius, BIRD_ANKLE, SNAKE};
+use super::geometry::{floater_mote, FLOATER_HOVER};
+use super::geometry::{
+    snake_fang_rotation, snake_ground_height, snake_link, SnakeLivePath, BIRD_ANKLE, SNAKE,
+    SNAKE_WARNING_LIFT,
+};
 use super::*;
 
 mod carriage;
@@ -386,6 +390,30 @@ fn present_pose(
             }
         }
     }
+    if let Some(veil) = &rig.veil {
+        let frame = |j: J| {
+            Affine3A::from_rotation_translation(
+                pose.rot[j as usize],
+                rig.rest[j as usize] + pose.off[j as usize],
+            )
+        };
+        // Up and the floor height are unchanged by the actor's facing yaw.
+        // These matrices keep the animated sheet in actor-local floor space.
+        let lift = Affine3A::from_rotation_translation(
+            pose.rot[J::Lift as usize],
+            pose.off[J::Lift as usize] * rig.scale,
+        ) * Affine3A::from_scale(Vec3::splat(rig.scale));
+        let torso = lift * frame(J::Hips) * frame(J::Torso);
+        let scale = Affine3A::from_scale(super::anatomy::storybook_part(Plan::Biped, J::Torso));
+        let head = torso
+            * frame(J::Head)
+            * Affine3A::from_translation(-rig.rest[J::Head as usize])
+            * scale;
+        if let Ok(mut transform) = joints.get_mut(veil.train) {
+            let train = veil.pose(torso * scale, head, anim.death_fall());
+            publication::joint(&mut transform, train.translation, train.rotation);
+        }
+    }
     record_phase(&mut profile, 0, started);
     // Retained skirt layers must expose their current synchronized transform
     // before the robe/outer-panel contact solver consumes them.
@@ -401,10 +429,16 @@ fn present_pose(
                 rig.rest[j as usize] + pose.off[j as usize],
             )
         });
+        let pivot = rig.rest[J::Torso as usize];
+        let torso = Affine3A::from_rotation_translation(
+            pose.rot[J::Torso as usize],
+            pivot + pose.off[J::Torso as usize],
+        ) * Affine3A::from_translation(-pivot);
         super::skirt_motion::place(
             &mut rig.short_garments,
             roots,
             legs,
+            torso,
             |entity| joints.get(entity).ok().map(Transform::compute_affine),
             meshes,
         );
@@ -654,6 +688,10 @@ fn pose(rig: &Rig, a: &mut Anim, fun: f32, dt: f32, supported: bool, moving: boo
     let side = if a.seed > 5.0 { 1.0 } else { -1.0 };
     p.o(J::Lift, Vec3::new(side * 0.28 * dodge, 0.0, -0.05 * dodge));
     p.r(J::Lift, Quat::from_rotation_z(-side * 0.25 * dodge));
+    if rig.style == Style::Troll && rig.scalp_exposed && !a.quiet {
+        let uninterrupted = 1.0 - hurt.max(dodge).max(m.map_or(0.0, |_| ease(t / 0.12)));
+        rogue::troll_scratch(&mut p, rig, a.time + a.seed * 3.7, calm * uninterrupted);
+    }
     if a.dead.is_some() || a.fallen > 0.0 {
         death_pose(&mut p, rig, ease(a.death_fall()), a.seed);
         if let Some(phase) = a.dead {
@@ -3108,17 +3146,6 @@ fn limp_legs(p: &mut Pose, side: f32, d: f32) {
     p.r(J::Body, Quat::from_rotation_x(0.05 * d));
 }
 
-/// Clearance under a body band follows the same taper as its geometry.
-/// The separate sculpted skull has a deeper jaw than a body band's ellipse.
-fn snake_ground_height(index: usize, roll: f32, style: Style) -> f32 {
-    if index == 0 {
-        super::anatomy::SerpentHead::resolve(style).ground(roll)
-    } else {
-        let radius = snake_segment_radius(index);
-        radius * (roll.sin().powi(2) + (0.75 * roll.cos()).powi(2)).sqrt() + 0.003
-    }
-}
-
 /// Ground the settled crystal core using its generated shard sections. The
 /// circumscribed ring is a conservative bound for each six-sided section;
 /// unlike a sphere bound it stays close to the visibly supporting shard.
@@ -3169,20 +3196,29 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             if n == 0 {
                 return;
             }
-            let wave = a.walk * 2.2 + a.seed;
-            let amplitude = 0.18 + 0.4 * ease(a.speed * 3.0);
             // Keep the raised neck and rattle through the pose's existing
             // action/idle handoff. A boolean action gate resets their height
             // in one frame, even though the bite is only starting to gather.
             let stopped = 1.0 - ease(a.speed * 4.0);
             let still = stopped * if a.dead.is_some() { 1.0 } else { a.rest };
             let calm = still * f32::from(u8::from(a.dead.is_none() && !a.quiet));
-            let rear = every(a.time + a.seed * 3.7, 8.0, 3.0, 6.5) * calm;
             let rattler = rig.style == Style::Rattlesnake;
+            let rear_weight = a.dead.map_or(calm, |phase| {
+                if rattler || a.quiet {
+                    0.0
+                } else {
+                    // The ordinary Snake may already be reared when it
+                    // dies. Hand that lift off to the fall briefly rather
+                    // than dropping the neck before the first authored beat.
+                    let elapsed = phase.max(0.0) * a.death_motion.duration();
+                    stopped * a.rest * (1.0 - ease(elapsed / 0.20))
+                }
+            });
+            let rear = every(a.time + a.seed * 3.7, 8.0, 3.0, 6.5) * rear_weight;
             // Default rest keeps the whole animal extended and readable.
             // Head and rattle lift gently above the same continuous body path.
             let warning = if rattler { still } else { 0.0 };
-            let idle_rise = 0.19 * rear + 0.16 * warning;
+            let idle_rise = 0.19 * rear + SNAKE_WARNING_LIFT * warning;
             let bite_rise = 0.24 * gather + 0.13 * strike;
             // Transfer support rather than stacking the idle rise onto
             // the established apex of the attack pose.
@@ -3190,39 +3226,24 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
                 .dead
                 .map_or((0.0, 0.0), |phase| a.death_motion.beats(phase));
             let raised = idle_rise.max(bite_rise) + 0.18 * brace + 0.30 * flourish;
-            let mut live = Vec3::new(
-                0.018 * wave.sin() * a.speed,
-                snake_ground_height(0, 0.0, rig.style) + raised,
-                0.6 - 0.09 * gather + 0.24 * strike,
-            );
+            let path = SnakeLivePath {
+                wave: a.walk * 2.2 + a.seed,
+                speed: a.speed,
+                neck_lift: raised,
+                warning,
+                calm,
+                idle_phase: a.time * 0.9 + a.seed,
+                gather,
+                strike,
+            };
             let mut settled = Vec3::new(0.0, snake_ground_height(0, 2.6, rig.style), 0.6);
             let mut points = [Vec3::ZERO; SNAKE];
-            let mut previous_y = live.y;
-            for (i, point) in points.iter_mut().enumerate().take(n) {
+            for (i, (point, live)) in points.iter_mut().zip(path.points(rig.style, n)).enumerate() {
                 let f = i as f32;
                 if i > 0 {
-                    let front = (1.0 - f / 7.0).max(0.0);
-                    let idle = (a.time * 0.9 + a.seed - f * 0.24).sin() * 0.003 * calm;
-                    let tail_lift = (f + 4.0 - n as f32).max(0.0) * 0.04 * warning;
-                    let y = snake_ground_height(i, 0.0, rig.style)
-                        + raised * ease(front)
-                        + idle
-                        + tail_lift;
-                    let dy = (y - previous_y).clamp(-0.06, 0.06);
-                    let yaw = (wave - f * 0.42).sin() * amplitude * (0.75 + 0.25 * f / n as f32);
-                    // Advancing a constant length along the tangent keeps the
-                    // painted bands touching through a turn or raised strike.
-                    let horizontal = (0.068f32.powi(2) - dy * dy).sqrt();
-                    live += Vec3::new(-yaw.sin() * horizontal, dy, -yaw.cos() * horizontal);
-                    previous_y = live.y;
                     let fall_yaw = (f * 0.38 + a.seed * 0.2).sin() * 0.48;
                     let fall_dy = snake_ground_height(i, 2.6, rig.style) - settled.y;
-                    let fall_span = (0.068f32.powi(2) - fall_dy * fall_dy).max(0.0).sqrt();
-                    settled += Vec3::new(
-                        -fall_yaw.sin() * fall_span,
-                        fall_dy,
-                        -fall_yaw.cos() * fall_span,
-                    );
+                    settled += snake_link(fall_dy, fall_yaw);
                 }
                 let mut at = live.lerp(settled, d);
                 if spring > 0.0 {
@@ -3274,7 +3295,7 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
                 if let Ok(mut transform) = joints.get_mut(fangs) {
                     // Hinged fangs fold forward along the palate as the mouth
                     // closes, rather than cutting through the lower jaw.
-                    transform.rotation = bow(-FRAC_PI_2 * (1.0 - (gape / 0.72).clamp(0.0, 1.0)));
+                    transform.rotation = snake_fang_rotation(gape);
                 }
             }
             if let Some(tongue) = rig.joint(J::Snout) {
@@ -3309,7 +3330,7 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             let body_strike = if freezing_touch { 0.34 * reach } else { strike };
             let live_core = Vec3::new(
                 (phase * 0.55).sin() * 0.015 * (1.0 - a.speed),
-                1.1 + hover - 0.035 * gather,
+                FLOATER_HOVER + hover - 0.035 * gather,
                 -0.04 * a.speed - 0.065 * gather + 0.25 * body_strike,
             );
             let fallen_rotation =
@@ -3373,34 +3394,7 @@ fn place_segments(rig: &Rig, a: &Anim, fun: f32, joints: &mut Query<&mut Transfo
             }
             let count = rig.segments.len().max(1) as f32;
             for (i, e) in rig.segments.iter().enumerate() {
-                let f = i as f32;
-                let angle = phase * if ice { 0.55 } else { 0.9 } + f * TAU / count;
-                let (at, size) = if ice {
-                    let radius = 0.32 + 0.14 * flare;
-                    (
-                        live_core
-                            + Vec3::new(
-                                angle.cos() * radius,
-                                angle.sin() * 0.13,
-                                angle.sin() * radius,
-                            ),
-                        0.8,
-                    )
-                } else {
-                    // Embers rise in a loose column and fade at both ends of
-                    // their life, so recycling has no visible positional pop.
-                    let life = (phase * 0.28 + f / count).rem_euclid(1.0);
-                    let radius = 0.13 + life * 0.16 + flare * 0.1;
-                    (
-                        live_core
-                            + Vec3::new(
-                                angle.cos() * radius,
-                                -0.1 + life * 0.65,
-                                angle.sin() * radius,
-                            ),
-                        (PI * life).sin().powi(2),
-                    )
-                };
+                let (at, size) = floater_mote(ice, live_core, phase, flare, i as f32, count);
                 if let Ok(mut transform) = joints.get_mut(*e) {
                     transform.translation = at.lerp(fallen, d);
                     transform.scale = Vec3::splat(size * alive);
@@ -4377,6 +4371,97 @@ mod support_tests {
         ] {
             assert!(kissing(model, true), "{model:?}: she blows a kiss");
             assert!(!kissing(model, false), "{model:?}: he does not");
+        }
+    }
+
+    #[test]
+    fn troll_scratch_brings_free_claws_to_the_upper_scalp() {
+        use crate::creatures::rogue_tests::points_under;
+        for (woman, build) in [(false, 0), (false, 2), (true, 1), (true, 2)] {
+            let look = Look::with_choice(
+                CreatureModel::Troll,
+                42,
+                Some(Variant {
+                    woman,
+                    build,
+                    ..default()
+                }),
+            );
+            let (world, rig, _, meshes) = spawn_one(&look);
+            let hand = rig.joint(J::HandL).unwrap();
+            let tips: Vec<_> = points_under(&world, &meshes, hand)
+                .into_iter()
+                .filter(|v| v.y < -0.085)
+                .collect();
+            let scalp: Vec<_> = points_under(&world, &meshes, rig.joint(J::Head).unwrap())
+                .into_iter()
+                .filter(|v| v.x > 0.05 && v.y > 0.24 && v.z.abs() < 0.14)
+                .collect();
+            assert!(!tips.is_empty() && !scalp.is_empty());
+            let frame = |time: f32, quiet: bool| {
+                let mut anim = Anim::new(42, Vec3::ZERO);
+                anim.seed = 0.0;
+                anim.time = time;
+                anim.quiet = quiet;
+                pose(&rig, &mut anim, 0.0, 0.016, false, false)
+            };
+            let gap = |p: &Pose| {
+                let local = |j: J| {
+                    Affine3A::from_rotation_translation(
+                        p.rot[j as usize],
+                        rig.rest[j as usize] + p.off[j as usize],
+                    )
+                };
+                let grip = local(J::ArmL) * local(J::ForeL) * local(J::HandL);
+                let scale = world.get::<Transform>(hand).unwrap().scale;
+                let to_head = local(J::Head).inverse() * grip;
+                tips.iter()
+                    .map(|tip| to_head.transform_point3(*tip * scale))
+                    .flat_map(|tip| scalp.iter().map(move |at| tip.distance(*at)))
+                    .fold(f32::INFINITY, f32::min)
+            };
+            assert!(gap(&frame(5.0, false)) > 0.20, "claws start at the side");
+            assert!(gap(&frame(7.5, false)) > 0.20, "claws return to the side");
+            let peak = frame(6.25, false);
+            let distance = gap(&peak);
+            assert!(
+                distance < 0.055,
+                "Troll woman={woman} build={build}: scalp gap {distance:.3}"
+            );
+            let quiet = frame(6.25, true);
+            for j in [J::ArmR, J::ForeR, J::HandR] {
+                assert!(
+                    peak.rot[j as usize].angle_between(quiet.rot[j as usize]) < 0.01,
+                    "the equipment hand stays in its resting pose"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn troll_scratch_yields_to_a_covered_head_and_an_attack() {
+        let base = Look::of(CreatureModel::Troll, 42);
+        let mut helmet = Equipment::default();
+        helmet.select("helm").unwrap();
+        for (look, action) in [
+            (base.clone().equipped(helmet), None),
+            (base, Some((Move::Strike, 0.26))),
+        ] {
+            let (_, rig, _, _) = spawn_one(&look);
+            let mut anim = Anim::new(42, Vec3::ZERO);
+            anim.seed = 0.0;
+            anim.time = 6.25;
+            anim.action = action;
+            let mut quiet = Anim::new(42, Vec3::ZERO);
+            quiet.seed = anim.seed;
+            quiet.time = anim.time;
+            quiet.action = anim.action;
+            quiet.quiet = true;
+            let active = pose(&rig, &mut anim, 0.0, 0.016, false, false);
+            let reference = pose(&rig, &mut quiet, 0.0, 0.016, false, false);
+            for j in [J::ArmL, J::ForeL, J::HandL] {
+                assert!(active.rot[j as usize].angle_between(reference.rot[j as usize]) < 0.01);
+            }
         }
     }
 

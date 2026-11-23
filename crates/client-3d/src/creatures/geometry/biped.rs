@@ -325,6 +325,7 @@ pub(super) fn biped(kit: &mut Kit, lift: Entity, look: &Look) {
         .expect("biped anatomy resolved before generation");
     let figure = Figure::resolve(body, look);
     let &Figure { body, outfit, .. } = &figure;
+    kit.rig.scalp_exposed = matches!(outfit.head, Headwear::Bare | Headwear::HoodDown(_));
     let hips = kit.joint(J::Hips, lift, body.hips, "hips", |p| hip_parts(p, &figure));
     let detail_support = skirts(kit, &figure, hips);
     let torso = kit.joint(J::Torso, hips, body.torso, "torso", |p| {
@@ -363,7 +364,6 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
         blocky,
         furry,
         cuirass,
-        tunic,
         ref waist_support,
         ..
     } = figure;
@@ -441,8 +441,6 @@ fn hip_parts(p: &mut Parts, figure: &Figure) {
         .emit(p);
         return;
     }
-    // The tunic's own skirt is a separate drape (see below).
-    garment_details::emit_hip_static(p, outfit.details, body, tunic);
     if cuirass && outfit.regalia.is_none() {
         // Long tabard panels front and back, gilt-edged, falling past the belt.
         for (z, lean) in [(0.19f32, -0.07f32), (-0.19, 0.07)] {
@@ -1370,6 +1368,28 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             .outerwear()
             .and_then(equipment_outerwear::lower_length)
             .is_none_or(|length| length <= body.thigh.length);
+    let belted_tassets = thigh_following
+        && outfit.belt
+        && !figure.fitted_robe
+        && figure
+            .armor_item
+            .and_then(outfit::BodyItem::tassets)
+            .is_some();
+    if belted_tassets {
+        for (layer, _, surface) in &mut skirt_stack {
+            let edge = (0..=64)
+                .map(|k| {
+                    let angle = k as f32 * TAU / 64.0;
+                    let h = BELT_BOTTOM_Y + if *layer == 0 { 0.012 } else { 0.015 };
+                    let at = waist_parts::point(body, waist_support, h, angle, 0.003);
+                    // Keep the lining behind the leather/metal edge, not as
+                    // a colored bead on the visible face of the belt.
+                    at - at.with_y(0.0).normalize_or_zero() * (0.006 * f32::from(*layer))
+                })
+                .collect();
+            surface.tuck_waist(edge);
+        }
+    }
     let skirt_layer = skirt_stack.first().map(|(_, _, surface)| surface.clone());
     let skirt_scale = storybook_part(Plan::Biped, J::Hips);
     // Sample the same resolved, fitted surfaces that are actually emitted,
@@ -1516,7 +1536,14 @@ fn skirts(kit: &mut Kit, figure: &Figure, hips: Entity) -> Vec<garment_details::
             skirt_cloth(b, surface, skirt);
         };
         let entity = if thigh_following {
-            kit.short_garment(hips, Drape::Skirt(skirt.length), &name, skirt_scale, build)
+            kit.short_garment(
+                hips,
+                Drape::Skirt(skirt.length),
+                &name,
+                skirt_scale,
+                belted_tassets,
+                build,
+            )
         } else {
             kit.drape_scaled(
                 hips,
@@ -2370,6 +2397,78 @@ fn cloak(kit: &mut Kit, figure: &Figure, torso: Entity) {
 #[cfg(test)]
 mod retained_layer_tests {
     use super::*;
+
+    #[test]
+    fn adventurer_tasset_edge_stays_seated_in_the_belt_at_rest_and_on_a_heavy() {
+        use crate::creatures::rogue_tests::{animate_look, points_under};
+        for armor in ["ring-mail", "leather"] {
+            let mut look = Look::preview_adjusted(CreatureModel::Human, 42, |body| {
+                body.woman = true;
+                body.hair = 1;
+            })
+            .dressed(crate::creatures::Wardrobe::Adventurer);
+            look.equipment.select(armor).unwrap();
+            let body = HumanoidBody::resolve(&look);
+            let figure = Figure::resolve(body, &look);
+            let scale = storybook_part(Plan::Biped, J::Hips);
+            let (mut app, root) = animate_look(look, 6, |_| Vec3::ZERO);
+            let (panel, torso) = {
+                let rig = app.world().get::<Rig>(root).unwrap();
+                (rig.skirt_layers[0], rig.joint(J::Torso).unwrap())
+            };
+            let sample = |app: &App| {
+                let world = app.world();
+                let at = world.get::<Transform>(panel).unwrap().compute_affine();
+                let torso_frame = world.get::<Transform>(torso).unwrap().compute_affine();
+                let points = points_under(world, world.resource::<Assets<Mesh>>(), panel);
+                (
+                    points
+                        .into_iter()
+                        .map(|v| at.transform_point3(v))
+                        .collect::<Vec<_>>(),
+                    torso_frame,
+                )
+            };
+            let (neutral, _) = sample(&app);
+            // The belt is curved in the posed frame. Find the actual upper
+            // edge in several front sectors, not the global rear/side apex.
+            let sectors: Vec<_> = (-2..=2)
+                .map(|sector| {
+                    neutral
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, p)| (p.x.atan2(p.z) - sector as f32 * 0.24).abs() < 0.115)
+                        .max_by(|(_, a), (_, b)| a.y.total_cmp(&b.y))
+                        .map(|(i, _)| i)
+                        .expect("actual emitted front waist edge in each sector")
+                })
+                .collect();
+            for phase in [None, Some(0.57)] {
+                if let Some(phase) = phase {
+                    app.world_mut().get_mut::<Anim>(root).unwrap().action =
+                        Some((Move::Heavy, phase));
+                    app.update();
+                }
+                let (points, torso_frame) = sample(&app);
+                let mut seated = 0;
+                for &i in &sectors {
+                    let v =
+                        (torso_frame.inverse().transform_point3(points[i]) + body.torso) / scale;
+                    let angle = v.x.atan2(v.z);
+                    let radius = waist_parts::point(body, &figure.waist_support, v.y, angle, 0.007)
+                        .xz()
+                        .length();
+                    if (BELT_BOTTOM_Y + 0.002..BELT_TOP_Y - 0.002).contains(&v.y)
+                        && ((radius - 0.018)..(radius + 0.001)).contains(&v.xz().length())
+                    {
+                        seated += 1;
+                    }
+                }
+                assert!(seated == sectors.len(),
+                    "{armor} upper mesh is detached from its actual fitted belt at {phase:?}: {seated}/{} points seat", sectors.len());
+            }
+        }
+    }
 
     #[test]
     fn native_commoner_wrap_support_preserves_both_tail_panels() {
