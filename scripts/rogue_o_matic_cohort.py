@@ -22,27 +22,35 @@ POLICY_FILES = ("rogue_o_matic.py", "rogue_player.py", "rogue_gear.py")
 SELF_DAMAGE_ABILITIES = {"rogue.wand_fire", "rogue.wand_cold", "rogue.wand_lightning", "rogue.breath_weapon"}
 
 
+def preceding_attack(events_before_death, actor):
+    """Read newest first. Only the dying actor's interruptions can follow the attack."""
+    for event in events_before_death:
+        kind = event["type"]
+        if kind == "interrupted" and event.get("actor") == actor:
+            continue
+        if (kind not in {"ability", "unseen_ability"} or event.get("target") != actor
+                or event.get("outcome") != "applied"):
+            return None
+        self_inflicted = event.get("caster") == actor
+        if kind == "unseen_ability" and not self_inflicted:
+            return "unseen_ability"
+        ability = (event.get("ability") or {}).get("id")
+        if self_inflicted and ability not in SELF_DAMAGE_ABILITIES:
+            return None
+        return ability or "unidentified_ability"
+    return None
+
+
 def death_cause(report):
-    events = report.get("last_combat_events", [])
     player = report.get("self_target")
-    for index in range(len(events) - 1, -1, -1):
-        event = events[index]
+    events = reversed(report.get("last_combat_events", []))
+    for event in events:
         if event["type"] != "died" or (player is not None and event["actor"] != player):
             continue
-        actor = event["actor"]
         if event.get("cause") == "starvation":
             return "starvation"
-        for prior in reversed(events[:index]):
-            if prior["type"] == "interrupted" and prior.get("actor") == actor:
-                continue
-            if (prior["type"] in {"ability", "unseen_ability"} and prior.get("target") == actor
-                    and prior.get("outcome") == "applied"):
-                if prior["type"] == "unseen_ability" and prior.get("caster") != actor:
-                    return "unseen_ability"
-                ability = (prior.get("ability") or {}).get("id")
-                if prior.get("caster") != actor or ability in SELF_DAMAGE_ABILITIES:
-                    return ability or "unidentified_ability"
-            break
+        if attack := preceding_attack(events, event["actor"]):
+            return attack
         if event.get("cause") == "injury":
             return "injury"
         break

@@ -224,6 +224,18 @@ class CohortSummaryTests(unittest.TestCase):
         self.assertEqual(death_cause({"last_combat_events": events, "self_target": "player"}),
                          "rogue.venomous_bite")
 
+    def test_only_the_players_interruptions_can_bridge_an_attack_and_death(self):
+        from rogue_o_matic_cohort import death_cause
+
+        attack = {"type": "ability", "caster": "snake", "target": "hero", "outcome": "applied",
+                  "ability": {"id": "rogue.venomous_bite"}}
+        death = {"type": "died", "actor": "hero", "cause": "injury"}
+        for actor, expected in (("hero", "rogue.venomous_bite"), ("other", "injury")):
+            with self.subTest(actor=actor):
+                events = [attack, {"type": "interrupted", "actor": actor},
+                          {"type": "interrupted", "actor": "hero"}, death]
+                self.assertEqual(death_cause({"self_target": "hero", "last_combat_events": events}), expected)
+
     def test_attributes_an_applied_unseen_attack_without_inventing_its_identity(self):
         from rogue_o_matic_cohort import death_cause
 
