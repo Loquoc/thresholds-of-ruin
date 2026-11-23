@@ -1351,6 +1351,11 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("NAR", "test_unknown_magic"))
 
+        # The stall belongs to this floor. An identical inventory on another floor can retry.
+        player.depth += 1
+        action, reason = choose(player, turn)
+        self.assertEqual((action.item.target, reason), ("MIR VEL", "test_unknown_magic"))
+
     def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
         import json
         from tor_client_bot import ActivityChoice, Result

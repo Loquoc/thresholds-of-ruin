@@ -505,9 +505,8 @@ class Adventurer:
                     return shot, "launch_projectile" if shot.launcher else "throw_projectile"
 
         if lethal and not self.tried_unknown_scroll:
-            for item in turn.inventory:
-                if self.can_try_scroll(item):
-                    return UseItem(item, ItemUse.READ), MemoryReason.TEST_UNKNOWN_MAGIC
+            if trial := self.scroll_trial(turn):
+                return trial
 
         if turn.hostiles and not self.has_arrows(turn):
             if decision := ready_weapon(turn, bow=False):
@@ -840,10 +839,7 @@ class Adventurer:
                 and turn.cell.key not in self.danger_until and not turn.holds and not self.trapped(turn)
                 and not turn.has_condition("rogue.levitation")
                 and any(i.identity is None and i.category in {"wand", "ring", "potion"} for i in turn.inventory)):
-            for item in turn.inventory:
-                if (self.can_try_scroll(item)
-                        and (item.appearance or item.name) not in self.sampled_scrolls):
-                    return UseItem(item, ItemUse.READ), MemoryReason.STUDY_SCROLL_AT_EXIT
+            return self.scroll_trial(turn, at_exit=True)
         return None
 
     @staticmethod
@@ -975,9 +971,17 @@ class Adventurer:
                 return step, "scout_for_food"
         return None
 
-    def can_try_scroll(self, item: Item) -> bool:
-        return (item.identity is None and ItemUse.READ in item.uses
-                and (self.depth, item.target) not in self.stalled_scrolls)
+    def scroll_trial(self, turn: Turn, *, at_exit: bool = False) -> tuple[UseItem, MemoryReason] | None:
+        for item in turn.inventory:
+            if item.identity is not None or ItemUse.READ not in item.uses:
+                continue
+            if (self.depth, item.target) in self.stalled_scrolls:
+                continue
+            if at_exit and (item.appearance or item.name) in self.sampled_scrolls:
+                continue
+            reason = MemoryReason.STUDY_SCROLL_AT_EXIT if at_exit else MemoryReason.TEST_UNKNOWN_MAGIC
+            return UseItem(item, ItemUse.READ), reason
+        return None
 
     def stalled(self, turn: Turn, previous: Result | None) -> tuple[Action | None, str]:
         if (previous is None or not turn.can_cancel or len(turn.activities) != 1
@@ -1156,10 +1160,7 @@ class Adventurer:
                     fallback = UseItem(item, ItemUse.READ), "find_return_route"
                     break
         if fallback is None:
-            for item in turn.inventory:
-                if self.can_try_scroll(item):
-                    fallback = UseItem(item, ItemUse.READ), MemoryReason.TEST_UNKNOWN_MAGIC
-                    break
+            fallback = self.scroll_trial(turn)
         if decision := self.search(turn, memory, returning, allow_unseen=fallback is None) or fallback:
             return decision
         if (not returning and not turn.hostiles and memory.stairs(Direction.UP)
