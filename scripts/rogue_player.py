@@ -522,19 +522,8 @@ class Adventurer:
         if turn.hostiles and (trial := self.try_unknown_wand(turn)):
             return trial, MemoryReason.TEST_UNKNOWN_DEVICE
 
-        if turn.hostiles and self.has_arrows(turn):
-            nearest = min(foe.distance for foe in turn.hostiles)
-            if nearest >= 5 or nearest <= 2:
-                if weapon := ready_weapon(turn, bow=nearest >= 5):
-                    return weapon
-
-        if turn.hostiles and turn.tick != self.last_shot_tick:
-            can_strike = any(turn.attack(foe) is not None for foe in adjacent)
-            for shot in turn.ranged_attacks(max_distance=8):
-                if shot.target.hostile and (
-                    shot.launcher or (not can_strike and not shot.equipped_throw and shot.target.distance <= 4)
-                ):
-                    return shot, "launch_projectile" if shot.launcher else "throw_projectile"
+        if decision := self.ranged_combat(turn, adjacent):
+            return decision
 
         if lethal and not self.tried_unknown_scroll:
             if trial := self.scroll_trial(turn):
@@ -553,6 +542,27 @@ class Adventurer:
         if turn.holds:
             return Escape(turn.holds[0]), "escape_hold"
 
+        return None
+
+    def ranged_combat(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:
+        if not turn.hostiles:
+            return None
+        if self.has_arrows(turn):
+            nearest = min(foe.distance for foe in turn.hostiles)
+            if nearest >= 5 or nearest <= 2:
+                if weapon := ready_weapon(turn, bow=nearest >= 5):
+                    return weapon
+
+        if turn.tick == self.last_shot_tick:
+            return None
+        can_strike = any(turn.attack(foe) is not None for foe in adjacent)
+        for shot in turn.ranged_attacks(max_distance=8):
+            if not shot.target.hostile:
+                continue
+            if shot.launcher:
+                return shot, "launch_projectile"
+            if not can_strike and not shot.equipped_throw and shot.target.distance <= 4:
+                return shot, "throw_projectile"
         return None
 
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:

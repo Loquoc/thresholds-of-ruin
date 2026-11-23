@@ -741,6 +741,27 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (turn.attack(target), "melee"))
 
+    def test_throw_range_ends_at_four_and_an_admitted_throw_waits_for_time_to_advance(self):
+        from unittest.mock import Mock
+        from tor_client_bot import Shot
+
+        dart = {"id": "d", "name": "dart", "identity": "item.weapon.dart", "quantity": 2, "identified": True, "class": "weapon"}
+        throw = {"id": "throw", "name": "Throw", "target_kind": "directional_projectile", "reach": {"kind": "projectile"},
+                 "cooldown_remaining": "0", "cost": None, "basic_attack": False}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for distance, tick, expected in ((5, 10, False), (4, 10, True), (4, 10, False), (4, 11, True)):
+            with self.subTest(distance=distance, tick=tick, expected=expected):
+                cells = [cell(str(x), x) for x in range(distance + 1)]
+                foe = {"id": "emu", "name": "emu", "position": cells[-1]["position"]}
+                turn = player_turn(cells, actors=[foe], hostiles=["emu"], inventory=[dart], abilities=[throw], tick=tick)
+                shot = Shot(turn.abilities[0], turn.hostiles[0], (distance, 0, 0), turn.inventory[0], None, 0)
+                turn.ranged_attacks = Mock(return_value=[shot])
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "throw_projectile", expected)
+                if expected:
+                    self.assertEqual(action, shot)
+                    player.admitted(turn, action, reason=reason)
+
     def test_replaces_empty_bow_while_an_enemy_is_visible(self):
         from tor_client_bot import Unequip
 
