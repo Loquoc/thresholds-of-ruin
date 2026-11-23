@@ -1171,12 +1171,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         enemy = {"id": "foe", "name": "centaur", "position": {"x": 1, "y": 0, "z": 0}}
         ration = {"id": "food", "name": "ration", "identity": "item.food.ration",
                   "class": "food", "identified": True, "quantity": "1"}
-        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, recovering_from_pursuit=True)
-        turn = player_turn([cell("here"), cell("away", -1), cell("foe", 1)], actors=[enemy],
-                           hostiles=["foe"], combat={"hp": "24", "max_hp": "35"}, inventory=[ration],
-                           interactions={"inventory": [{"item": "food", "edible": True}]},
-                           stats={"nutrition": {"hunger": "weak"}})
-        self.assertEqual(choose(player, turn), (UseItem(turn.inventory[0], ItemUse.EAT), "eat"))
+        inventory = [dict(ration, id="unavailable"), ration, dict(ration, id="spare")]
+        for foes in ([], [enemy]):
+            with self.subTest(in_combat=bool(foes)):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, recovering_from_pursuit=True)
+                turn = player_turn([cell("here"), cell("away", -1), cell("foe", 1)], actors=foes,
+                                   hostiles=[foe["id"] for foe in foes], combat={"hp": "24", "max_hp": "35"},
+                                   inventory=inventory, stats={"nutrition": {"hunger": "weak"}},
+                                   interactions={"inventory": [{"item": "spare", "edible": True},
+                                                               {"item": "food", "edible": True}]})
+                self.assertEqual(choose(player, turn), (UseItem(turn.inventory[1], ItemUse.EAT), "eat"))
 
     def test_wounded_pursuit_uses_a_remembered_exit_before_running_another_lap(self):
         foe = {"id": "pursuer", "name": "centaur", "position": {"x": 1, "y": 0, "z": 0}}

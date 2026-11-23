@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from statistics import median_low
@@ -90,6 +91,15 @@ CONTROL_DEVICES = (
     ("item.wand.wand-polymorph", MemoryReason.POLYMORPH_THREAT),
     ("item.wand.wand-magic-missile", "magic_missile"),
 )
+
+
+def edible_items(turn: Turn) -> Iterator[Item]:
+    return (item for item in turn.inventory if ItemUse.EAT in item.uses)
+
+
+def route_to_food(turn: Turn, memory: FloorMap) -> Action | None:
+    food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
+    return memory.toward(turn, food_cells)
 
 
 @dataclass
@@ -420,9 +430,8 @@ class Adventurer:
                     return UseItem(item, ItemUse.DRINK), "heal"
 
         if turn.hostiles and not lethal and turn.hunger in {"weak", "empty"}:
-            for item in turn.inventory:
-                if ItemUse.EAT in item.uses:
-                    return UseItem(item, ItemUse.EAT), "eat"
+            if meal := next(edible_items(turn), None):
+                return UseItem(meal, ItemUse.EAT), "eat"
 
         if lethal:
             for item in turn.inventory:
@@ -946,7 +955,7 @@ class Adventurer:
         required = self.estimated_journey_ticks(returning)
         if nutrition.ticks_until_empty >= required:
             return None
-        meals = [item for item in turn.inventory if ItemUse.EAT in item.uses]
+        meals = list(edible_items(turn))
         provisions = 0
         for item in meals:
             if item.identity is None or item.identity not in self.food_value:
@@ -954,10 +963,7 @@ class Adventurer:
             provisions += self.food_value[item.identity] * item.quantity
         if nutrition.ticks_until_empty + provisions * nutrition.ticks_per_unit >= required:
             return None
-        food = {
-            key for key, items in memory.items.items() if any(item.category == "food" for item in items)
-        }
-        if step := memory.toward(turn, food):
+        if step := route_to_food(turn, memory):
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
@@ -1084,16 +1090,12 @@ class Adventurer:
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
         if turn.hunger in {"hungry", "weak", "empty"}:
-            for item in turn.inventory:
-                if ItemUse.EAT in item.uses:
-                    return UseItem(item, ItemUse.EAT), "eat"
+            if meal := next(edible_items(turn), None):
+                return UseItem(meal, ItemUse.EAT), "eat"
             for ground in ground_items:
                 if ground.reachable and ground.item.category == "food":
                     return Pickup(ground.item), "take"
-            food = {
-                key for key, items in memory.items.items() if any(item.category == "food" for item in items)
-            }
-            if not hovering and not self.trapped(turn) and (step := memory.toward(turn, food)):
+            if not hovering and not self.trapped(turn) and (step := route_to_food(turn, memory)):
                 return step, "forage"
 
         returning = self.carrying_objective(turn)
