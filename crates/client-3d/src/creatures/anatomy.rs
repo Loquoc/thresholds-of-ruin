@@ -217,6 +217,14 @@ impl LimbMass {
     }
 }
 
+/// The Aquator's broad outer haunch is also its support when lying on a flank.
+pub(super) fn aquator_haunch(side: f32) -> LimbMass {
+    LimbMass {
+        center: Vec3::new(side * 0.245, -0.035, -0.22),
+        radii: Vec3::new(0.17, 0.18, 0.22),
+    }
+}
+
 /// Four broad masses establish upper attachment, muscle, distal taper and knee.
 #[derive(Clone, Copy)]
 pub(super) struct LimbContour {

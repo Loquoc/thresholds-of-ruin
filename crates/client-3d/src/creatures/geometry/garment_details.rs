@@ -434,32 +434,6 @@ mod panel_fold_tests {
     }
 }
 
-/// Rigid details share the existing hip mesh and its presentation transform.
-/// Keep this separate from `spawn`: no extra attachment or drape is required.
-pub(super) fn emit_hip_static(
-    p: &mut Parts,
-    details: GarmentDetails,
-    body: HumanoidBody,
-    tunic: Vec3,
-) {
-    let Some(HipDecoration::TunicTatters { shade }) = details.hip else {
-        return;
-    };
-    for k in 0..5 {
-        let a = k as f32 * 1.3;
-        let at = Vec3::new(a.cos() * 0.2 * body.profile.hips, -0.2, a.sin() * 0.2);
-        p.matte.prism(
-            at,
-            at + Vec3::new(a.cos() * 0.03 * body.profile.hips, -0.1, a.sin() * 0.03),
-            0.04,
-            0.0,
-            3,
-            tunic * shade,
-            0.0,
-        );
-    }
-}
-
 /// Custom belt hardware shares the band's output frame and fitted support.
 /// An explicit independent pouch takes precedence over the legacy bundled bag.
 pub(super) fn emit_belt_static(

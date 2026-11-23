@@ -205,3 +205,70 @@ fn flytrap_stalk_does_not_flare_at_the_bending_joint() {
         "upper stem should meet the lower stem without a flared cap: {widest:.4}"
     );
 }
+
+#[test]
+fn flytrap_wilts_onto_the_floor_without_swallowing_a_lobe_or_lifting_its_roots() {
+    use crate::creatures::animation::DeathMotion;
+
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Flytrap, 42), 12, |_| Vec3::ZERO);
+    let rig = app.world().get::<Rig>(root).unwrap();
+    let chain =
+        [J::Lift, J::Body, J::Neck, J::Torso, J::Head].map(|joint| rig.joint(joint).unwrap());
+    let jaw = rig.joint(J::Jaw).unwrap();
+    let meshes = app.world().resource::<Assets<Mesh>>();
+    let upper_points = direct_points(app.world(), meshes, chain[4], false);
+    let lower_points = direct_points(app.world(), meshes, jaw, false);
+    {
+        let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+        anim.yaw = 0.0;
+        anim.target_yaw = None;
+    }
+    app.update();
+    let base_rest = *app.world().get::<Transform>(chain[1]).unwrap();
+    let lift_rest = *app.world().get::<Transform>(chain[0]).unwrap();
+    for seed in [2.0, 8.0] {
+        for motion in [
+            DeathMotion::Collapse,
+            DeathMotion::Stagger,
+            DeathMotion::Dramatic,
+        ] {
+            app.world_mut()
+                .get_mut::<Anim>(root)
+                .unwrap()
+                .preview_death(motion);
+            for step in 0..=32 {
+                let phase = step as f32 / 32.0;
+                let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+                anim.seed = seed;
+                anim.yaw = 0.0;
+                anim.target_yaw = None;
+                anim.dead = Some((phase - 0.016 / motion.duration()).max(0.0));
+                app.update();
+                let world = app.world();
+                let local = |e| world.get::<Transform>(e).unwrap().compute_affine();
+                let upper = chain
+                    .into_iter()
+                    .fold(Affine3A::IDENTITY, |p, e| p * local(e));
+                let lower = upper * local(jaw);
+                let low = upper_points
+                    .iter()
+                    .map(|p| upper.transform_point3(*p).y)
+                    .chain(lower_points.iter().map(|p| lower.transform_point3(*p).y))
+                    .fold(f32::INFINITY, f32::min);
+                assert!(
+                    low >= -0.012,
+                    "{motion:?} seed {seed} phase {phase:.3}: mouth buried at {low:.3}"
+                );
+                if step == 32 {
+                    assert!(
+                        low < 0.075,
+                        "{motion:?}: wilted trap hangs above floor at {low:.3}"
+                    );
+                    assert!(upper.translation.z > 0.34, "stalk should wilt forward");
+                }
+                assert_eq!(*world.get::<Transform>(chain[0]).unwrap(), lift_rest);
+                assert_eq!(*world.get::<Transform>(chain[1]).unwrap(), base_rest);
+            }
+        }
+    }
+}

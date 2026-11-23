@@ -33,6 +33,56 @@ fn direct_bounds(world: &World, meshes: &Assets<Mesh>, part: Entity) -> (Vec3, V
 }
 
 #[test]
+fn serpent_is_assembled_and_above_the_floor_before_the_first_update() {
+    for model in [CreatureModel::Snake, CreatureModel::Rattlesnake] {
+        let (world, rig, _, meshes) = spawn_one(&Look::of(model, 42));
+        assert_eq!(rig.segments.len(), SNAKE);
+        let transform = |part| world.get::<Transform>(part).unwrap();
+        let head = transform(rig.segments[0]);
+        let tail = transform(*rig.segments.last().unwrap());
+        assert!(
+            head.translation.z - tail.translation.z > 1.05,
+            "{model:?}: pre-animation body must already be extended"
+        );
+        for mates in rig.segments.windows(2) {
+            let [front, back] = [mates[0], mates[1]];
+            let gap = transform(front)
+                .translation
+                .distance(transform(back).translation);
+            assert!(
+                (0.065..0.071).contains(&gap),
+                "{model:?}: rest band spacing {gap}"
+            );
+        }
+        let low = |part, at: Affine3A| {
+            direct_vertices(&world, &meshes, part)
+                .into_iter()
+                .map(|point| at.transform_point3(point).y)
+                .fold(f32::INFINITY, f32::min)
+        };
+        for &band in &rig.segments {
+            let y = low(band, transform(band).compute_affine());
+            assert!(
+                y > -0.015,
+                "{model:?}: unposed segment sinks below the floor: {y}"
+            );
+        }
+        let jaw = rig.joint(J::Jaw).unwrap();
+        let fangs = rig.joint(J::Fangs).unwrap();
+        let tongue = rig.joint(J::Snout).unwrap();
+        assert!(
+            low(fangs, transform(fangs).compute_affine())
+                > low(jaw, transform(jaw).compute_affine()),
+            "{model:?}: the neutral fangs must start tucked"
+        );
+        assert!(
+            transform(tongue).scale.z < 0.02,
+            "{model:?}: first frame should not show a full flick"
+        );
+    }
+}
+
+#[test]
 fn serpent_skulls_remain_substantial_beside_the_supporting_neck() {
     for model in [CreatureModel::Snake, CreatureModel::Rattlesnake] {
         for build in 0..3 {
@@ -286,5 +336,52 @@ fn rattlesnake_default_rest_has_an_extended_body_with_a_raised_head_and_rattle()
             );
             assert!(tail.y > points[14].y + 0.04, "warning rattle stays lifted");
         }
+    }
+}
+
+#[test]
+fn raised_snake_does_not_snap_down_at_the_start_of_death() {
+    for motion in [
+        DeathMotion::Collapse,
+        DeathMotion::Stagger,
+        DeathMotion::Dramatic,
+    ] {
+        let (mut app, actor) = animate_look(Look::of(CreatureModel::Snake, 23), 12, |_| Vec3::ZERO);
+        {
+            let mut anim = app.world_mut().get_mut::<Anim>(actor).unwrap();
+            anim.seed = 0.0;
+            anim.time = 4.72;
+        }
+        let head = app.world().get::<Rig>(actor).unwrap().segments[0];
+        let at = |app: &App| app.world().get::<Transform>(head).unwrap().translation;
+        app.update();
+        let ready = at(&app);
+        assert!(ready.y > 0.24, "fixture must begin raised: {ready:?}");
+        app.world_mut()
+            .get_mut::<Anim>(actor)
+            .unwrap()
+            .preview_death(motion);
+        app.update();
+        let entry = at(&app);
+        assert!(
+            (entry.y - ready.y).abs() < 0.05,
+            "{motion:?}: raised head snapped at death entry: {ready:?} to {entry:?}"
+        );
+        let mut prior = entry;
+        for _ in 0..8 {
+            app.update();
+            let head = at(&app);
+            assert!(
+                (head.y - prior.y).abs() < 0.05,
+                "{motion:?}: abrupt neck step from {prior:?} to {head:?}"
+            );
+            prior = head;
+        }
+        for _ in 0..200 {
+            app.update();
+        }
+        let settled = at(&app);
+        assert!(settled.y < ready.y - 0.06);
+        assert_eq!(app.world().get::<Anim>(actor).unwrap().dead, Some(1.0));
     }
 }

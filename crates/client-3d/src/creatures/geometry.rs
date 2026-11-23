@@ -78,7 +78,7 @@ mod sleeve_parts;
 mod test_support;
 #[cfg(test)]
 mod tricorn_tests;
-mod veil;
+pub(super) mod veil;
 mod waist_parts;
 mod wedding_groom;
 #[cfg(test)]
@@ -105,7 +105,8 @@ use quadruped::*;
 mod serpent;
 pub(in crate::creatures) use serpent::*;
 mod floater;
-use floater::*;
+use floater::floater;
+pub(in crate::creatures) use floater::{floater_mote, FLOATER_HOVER};
 
 #[cfg(test)]
 mod serpent_tests;
@@ -1074,6 +1075,7 @@ impl Kit<'_, '_, '_> {
         kind: Drape,
         part: &str,
         proportion: Vec3,
+        follow_belt: bool,
         build: impl FnOnce(&mut Parts),
     ) -> Entity {
         let mut model = self.part(part, build);
@@ -1098,14 +1100,10 @@ impl Kit<'_, '_, '_> {
         });
         self.commands.entity(parent).add_child(entity);
         for (mesh, _) in &model.0 {
-            self.rig
-                .short_garments
-                .push(super::skirt_motion::Panel::new(
-                    entity,
-                    mesh.clone(),
-                    proportion,
-                    self.meshes,
-                ));
+            self.rig.short_garments.push(
+                super::skirt_motion::Panel::new(entity, mesh.clone(), proportion, self.meshes)
+                    .with_belt_anchor(follow_belt),
+            );
         }
         self.rig.drapes.push((entity, kind));
         entity
@@ -1184,8 +1182,10 @@ pub fn spawn(
             apron_contacts: Vec::new(),
             cloaks: Vec::new(),
             hair: None,
+            veil: None,
             visual_contacts: Vec::new(),
             cloth_head_contacts: Vec::new(),
+            scalp_exposed: false,
             ankle_floor: 0.081,
             legs: 1.0,
             limb_roles: [LimbRole::Support; 4],

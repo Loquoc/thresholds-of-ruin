@@ -366,13 +366,18 @@ pub(super) fn death(p: &mut Pose, rig: &Rig, d: f32, side: f32) {
             }
         }
         Plan::Rooted => {
-            // Wilted over: the stem bends to the floor and the trap gapes.
-            p.r(J::Neck, bow(0.75 * d) * roll(side * 0.25 * d));
-            p.r(J::Torso, bow(0.95 * d));
-            p.r(J::Head, bow(0.35 * d) * turn(side * 0.4 * d));
-            p.r(J::Jaw, bow(0.55 * d));
+            // Fold the stem partway and let the long lobes finish the drop.
+            // Their rim reaches the floor before the stalk does; folding the
+            // whole stem flat would bury most of the trap under its roots.
+            p.r(J::Neck, bow(0.47 * d) * roll(side * 0.25 * d));
+            p.r(J::Torso, bow(0.33 * d));
+            p.r(J::Head, bow(0.28 * d) * turn(side * 0.4 * d));
+            p.r(J::Jaw, bow(0.52 * d));
         }
         _ => {
+            if rig.style == Style::Aquator {
+                aquator_fall_contacts(p, rig, side, d);
+            }
             p.r(J::Jaw, bow(0.4 * d));
             if matches!(rig.style, Style::Griffin | Style::Dragon) {
                 // The upper wing falls open across the flank.
@@ -385,6 +390,55 @@ pub(super) fn death(p: &mut Pose, rig: &Rig, d: f32, side: f32) {
                 p.r(tip, roll(-side * 0.4 * d));
             }
         }
+    }
+}
+
+/// Fold the two legs under the fallen flank instead of leaving their webbed
+/// feet hanging through the floor. The original roll bears the body's weight.
+fn aquator_fall_contacts(p: &mut Pose, rig: &Rig, side: f32, fall: f32) {
+    // The storybook-scaled outer haunch carries a lateral roll, rather
+    // than the narrower ribcage clearance in the generic fall. Let it take
+    // the weight late in the roll as the body approaches its flank.
+    use crate::creatures::anatomy::{aquator_haunch, storybook_part};
+    let haunch = aquator_haunch(side);
+    let flank =
+        (haunch.center.x.abs() + haunch.radii.x) * storybook_part(rig.plan, J::Body).x + 0.003;
+    p.o(J::Lift, Vec3::Y * ((flank - rig.girth) * fall * fall));
+    let weight = ease((fall - 0.18) / 0.40);
+    if weight <= 0.0 {
+        return;
+    }
+    let legs = if side > 0.0 {
+        [(J::FR, J::FRs, J::HoofFR), (J::BR, J::BRs, J::HoofBR)]
+    } else {
+        [(J::FL, J::FLs, J::HoofFL), (J::BL, J::BLs, J::HoofBL)]
+    };
+    let body_rest = rig.rest[J::Body as usize];
+    let root = p.rot[J::Lift as usize];
+    let body = p.rot[J::Body as usize];
+    for (i, (thigh, shin, foot)) in legs.into_iter().enumerate() {
+        let [hip, upper, lower] = [thigh, shin, foot].map(|j| rig.rest[j as usize]);
+        let ankle = hip
+            + p.off[thigh as usize]
+            + p.rot[thigh as usize] * (upper + p.rot[shin as usize] * lower);
+        let at =
+            root * (body_rest + p.off[J::Body as usize] + body * ankle) + p.off[J::Lift as usize];
+        // The heavier rear calf has a deeper bulge than the front one.
+        // Leave room for it while seating the fore pad close to the floor.
+        let ankle_y = rig.ankle_floor + if i == 0 { 0.0 } else { 0.022 };
+        beast_limb(
+            p,
+            thigh,
+            shin,
+            foot,
+            body_rest,
+            hip,
+            upper,
+            lower,
+            at.with_y(ankle_y),
+            rig.support_bend(shin, foot, if i == 0 { 1.0 } else { -1.0 }),
+            weight,
+        );
     }
 }
 
@@ -461,6 +515,54 @@ pub(super) fn biped_move(p: &mut Pose, m: Move, t: f32) {
 // Idle fidgets: true when this replaces the shared idle; people add their
 // fidget on top of it.
 
+/// Reach the crown with the open, non-equipment hand. Solve in the torso
+/// frame so the claws follow the actual tilted head and each build's arm
+/// lengths rather than describing a fixed arc below the chin.
+pub(super) fn troll_scratch(p: &mut Pose, rig: &Rig, time: f32, calm: f32) {
+    let t = time.rem_euclid(9.0);
+    let weight = envelope(t, 5.0, 5.86, 6.64, 7.5) * calm;
+    if weight <= 0.0 {
+        return;
+    }
+    let Some(body) = rig.humanoid else {
+        return;
+    };
+    p.r(J::Head, roll(-0.14 * weight));
+    let head = p.rot[J::Head as usize];
+    let scratch = ((t - 6.25) * 18.0).sin();
+    let nail = rig.rest[J::Head as usize]
+        + p.off[J::Head as usize]
+        + head * Vec3::new(0.135, 0.282 + 0.018 * scratch, 0.023 - 0.012 * scratch);
+    let fingers = head * Vec3::new(-0.76, -0.64, -0.10).normalize();
+    let wrist = nail - fingers * (0.123 * body.build);
+    let upper = rig.rest[J::ForeL as usize];
+    let lower = rig.rest[J::HandL as usize];
+    let shoulder = rig.rest[J::ArmL as usize] + p.off[J::ArmL as usize];
+    let reach = wrist - shoulder;
+    let axis = reach.normalize();
+    let a = upper.length();
+    let b = lower.length();
+    let distance = reach.length().clamp((a - b).abs() + 0.001, a + b - 0.001);
+    let along = (a * a - b * b + distance * distance) / (2.0 * distance);
+    let outward = Vec3::new(1.0, 0.0, 0.38);
+    let bend = (outward - axis * outward.dot(axis)).normalize();
+    let elbow = axis * along + bend * (a * a - along * along).max(0.0).sqrt();
+    let arm = Quat::from_rotation_arc(upper.normalize(), elbow.normalize());
+    let fore = arm.inverse()
+        * Quat::from_rotation_arc(lower.normalize(), (axis * distance - elbow).normalize());
+
+    let up = -fingers;
+    let right = (Vec3::X - up * up.x).normalize();
+    let hand = Quat::from_mat3(&Mat3::from_cols(right, up, right.cross(up)));
+    for (joint, target) in [
+        (J::ArmL, arm),
+        (J::ForeL, fore),
+        (J::HandL, (arm * fore).inverse() * hand),
+    ] {
+        p.rot[joint as usize] = p.rot[joint as usize].slerp(target, weight);
+    }
+}
+
 pub(super) fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) -> bool {
     let look = (time * 0.37).sin() * 0.3 + (time * 0.13).sin() * 0.2;
     match rig.style {
@@ -476,12 +578,7 @@ pub(super) fn idle(p: &mut Pose, rig: &Rig, time: f32, seed: f32, k: f32) -> boo
             false
         }
         Style::Troll => {
-            // A heavy sway, and a scratch of the scalp.
             p.r(J::Lift, roll((time * 0.5).sin() * 0.05 * k));
-            let f = every(time, 9.0, 5.0, 7.5) * k;
-            p.r(J::ArmR, roll(-1.6 * f) * fwd(0.4 * f));
-            p.r(J::ForeR, fwd((2.0 + (time * 12.0).sin() * 0.15) * f));
-            p.r(J::Head, roll(0.25 * f));
             false
         }
         Style::Leprechaun => {
@@ -795,6 +892,17 @@ pub(super) fn place(
     let fun = w * fun * f32::from(u8::from(m.is_none() && a.dead.is_none()));
     match rig.style {
         Style::Medusa => {
+            let (gather, strike, aiming) = match (a.dead, a.gaze_death_entry) {
+                (Some(phase), Some(gaze_phase)) => {
+                    // Preserve just the crown articulation, not the cancelled
+                    // gaze action or its gameplay/whole-body presentation.
+                    let elapsed = phase.max(0.0) * a.death_motion.duration();
+                    let release = 1.0 - ease(elapsed / 0.18);
+                    let (g, s, _) = timing(Move::Gaze, gaze_phase);
+                    (g * release, s * release, true)
+                }
+                _ => (gather, strike, m == Some(Move::Gaze)),
+            };
             for (i, e) in rig.segments.iter().enumerate() {
                 let f = i as f32;
                 if let Ok(mut transform) = joints.get_mut(*e) {
@@ -802,11 +910,7 @@ pub(super) fn place(
                     // each head on its own side and leave the rear rank fanned
                     // out, rather than pulling all eleven across the crown.
                     let at = transform.translation;
-                    let aim = if m == Some(Move::Gaze) && at.z > 0.01 {
-                        strike
-                    } else {
-                        0.0
-                    };
+                    let aim = if aiming && at.z > 0.01 { strike } else { 0.0 };
                     let focus = turn(-at.x.signum() * 0.92 * aim);
                     // Let the rest of the crown keep its individual weave
                     // while the four front heads momentarily hold their aim.

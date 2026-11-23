@@ -1886,6 +1886,7 @@ fn aquator_body(p: &mut Parts, l: &Look) {
             0.06,
         );
     for side in [-1.0, 1.0] {
+        let haunch = super::anatomy::aquator_haunch(side);
         torso
             .add(
                 Ellipsoid(
@@ -1894,13 +1895,7 @@ fn aquator_body(p: &mut Parts, l: &Look) {
                 ),
                 0.045,
             )
-            .add(
-                Ellipsoid(
-                    Vec3::new(side * 0.245, -0.035, -0.22),
-                    Vec3::new(0.17, 0.18, 0.22),
-                ),
-                0.055,
-            );
+            .add(Ellipsoid(haunch.center, haunch.radii), 0.055);
     }
     let (teal, cream, rust) = (l.skin, l.cloth, l.trim);
     torso.mesh(

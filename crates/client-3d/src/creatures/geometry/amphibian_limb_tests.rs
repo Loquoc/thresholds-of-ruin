@@ -169,3 +169,63 @@ fn amphibian_limbs_end_in_broad_low_grounded_feet() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn fallen_aquator_keeps_its_webbed_feet_above_the_floor() {
+    use crate::creatures::rogue_tests::animate_look;
+    let (mut app, root) = animate_look(Look::of(CreatureModel::Aquator, 42), 2, |_| Vec3::ZERO);
+    let mut failures = Vec::new();
+    for seed in [2.0, 8.0] {
+        for motion in [
+            DeathMotion::Collapse,
+            DeathMotion::Stagger,
+            DeathMotion::Dramatic,
+        ] {
+            for phase in [0.80, 0.90, 1.0] {
+                let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+                anim.seed = seed;
+                anim.preview_death(motion);
+                anim.dead = Some(phase);
+                app.update();
+                let world = app.world();
+                let rig = world.get::<Rig>(root).unwrap();
+                let meshes = world.resource::<Assets<Mesh>>();
+                let local = |j| {
+                    world
+                        .get::<Transform>(rig.joint(j).unwrap())
+                        .unwrap()
+                        .compute_affine()
+                };
+                let body = local(J::Lift) * local(J::Body);
+                let min_at = |joint, at: Affine3A| {
+                    segment_points(world, meshes, rig.joint(joint).unwrap())
+                        .into_iter()
+                        .map(|p| at.transform_point3(p).y)
+                        .fold(f32::INFINITY, f32::min)
+                        / rig.scale
+                };
+                let flank = min_at(J::Body, body);
+                let mut low = f32::INFINITY;
+                for (upper, lower, foot, _) in CHAINS {
+                    let hip = body * local(upper);
+                    let shin = hip * local(lower);
+                    let ankle = shin * local(foot);
+                    let minima = [min_at(upper, hip), min_at(lower, shin), min_at(foot, ankle)];
+                    low = low.min(minima[2]);
+                    if minima.into_iter().any(|y| y < -0.023) {
+                        failures.push(format!(
+                            "seed {seed}, {motion:?} {phase:.2} {foot:?}: ankle {:.3}, thigh/shin/web {minima:.3?}, flank {flank:.3}",
+                            ankle.translation.y / rig.scale
+                        ));
+                    }
+                }
+                if phase == 1.0 && (flank > 0.06 || flank < -0.03 || low > 0.055) {
+                    failures.push(format!(
+                        "settled {seed}, {motion:?}: flank {flank:.3}, lowest foot {low:.3}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

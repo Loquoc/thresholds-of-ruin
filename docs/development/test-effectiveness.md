@@ -220,6 +220,36 @@ their rest placements, and the jaws should clamp during follow-through.
 Matched native views separate this from the unchanged ordinary bite; they
 do not test gameplay disguise release or combat contact.
 
+The Adventurer's equipment tassets hung below the fitted belt even at rest,
+and their hip-frame attachment opened a larger gap when the torso bowed.
+Sample actual emitted waist-edge points in several front sectors and move the
+witness into the posed belt frame; measuring against the hips can miss a
+detached opening. Native comparisons preserve the lower green lining and
+split, while separate thigh tests still own lower-panel clearance.
+
+The Troll's scripted scalp scratch lifted a fist only to chest height.
+Compare the emitted free-hand fingertips with the posed upper scalp across
+different body builds, not the arm's angle alone. A shoulder lift can test
+green while the gesture remains unreadable. The geometric reach check does
+not establish clearance by itself; inspect matched approach, contact and
+release from the front and the moving-hand side, including glove coverage.
+Keep separate controls for headwear and active strikes.
+
+The Flytrap's death pose kept its roots planted but put the lower lobe
+through the ground. Measure both emitted lobes, including their teeth, along
+the entire fall for both lean directions and all three death timings. Checking
+only the head joint or the final root position misses visible penetration.
+Require the settled rim to reach the floor, not merely avoid it, and keep the
+living bite's reach and ordinary clearance independent of the death pose.
+
+The Royal Bride's veil kept its crown attachment through the fall but
+the terrain hid the trailing sheet. Measure weighted mesh vertices for the
+cloth, border and settings in posed floor space rather than only checking
+joint motion. A fixed tilt and lift cleared the ground but left too
+much cloth hovering. Require some of the train to rest near the floor and
+retain independent witnesses for the unchanged head anchor and shared mesh
+with per-wearer skin joints. Native views are still needed to judge the drape.
+
 ### Retain failed optimization lessons
 
 A contour-query shortcut reused the last crossing interval and found a different

@@ -2143,98 +2143,75 @@ fn copied_native_neck_cut_preserves_torso_and_waist_consumers() {
 }
 
 #[test]
-fn zombie_hip_rags_survive_explicit_outfit_copy() {
-    for woman in [false, true] {
-        let native = Look::with_choice(
-            CreatureModel::Zombie,
-            42,
-            Some(Variant { woman, ..default() }),
-        );
-        let mut copied = native.clone();
-        copied.outfit = Some(outfit::Outfit::native(&native));
-        let original = joint_surface_samples(&native, J::Hips);
-        let actual = joint_surface_samples(&copied, J::Hips);
-        assert!(original.len() > 100 && actual.len() > 100);
-        assert_eq!(
-            surface_signature(actual),
-            surface_signature(original),
-            "explicit outfit copy must retain the hip rags"
-        );
-    }
-}
-
-#[test]
-fn tunic_tatters_transfer_remove_and_follow_resolved_shirt_without_extra_attachments() {
+fn tunic_tatters_are_cut_into_the_existing_cloth_instead_of_riding_the_hips() {
     let donor = Look::of(CreatureModel::Zombie, 42);
     let detail = outfit::Outfit::native(&donor).details.hip;
-    assert!(matches!(
-        detail,
-        Some(outfit::HipDecoration::TunicTatters { shade: 0.7 })
-    ));
     let sample = |look: &Look| {
         let (world, rig, _, meshes) = spawn_one(look);
+        assert_eq!(rig.skirt_layers.len(), 1, "one continuous tunic drape");
         (
+            points_under(&world, &meshes, rig.skirt_layers[0]),
             surface_signature(joint_surface_samples_in(
                 &world,
                 &rig,
                 &meshes,
                 J::Hips,
-                true,
+                false,
             )),
             world.entities().len(),
             rig.drapes.len(),
         )
     };
     for (model, woman, build) in [
+        (CreatureModel::Zombie, false, 0),
+        (CreatureModel::Zombie, true, 2),
         (CreatureModel::Human, true, 0),
         (CreatureModel::Orc, false, 2),
     ] {
         let mut recipient = Look::with_choice(
             model,
-            91,
+            42,
             Some(Variant {
                 woman,
                 build,
                 ..default()
             }),
         );
-        let mut recipe = outfit::Outfit::from_wardrobe(Wardrobe::Commoner, &recipient);
+        let mut recipe = if model == CreatureModel::Zombie {
+            outfit::Outfit::native(&recipient)
+        } else {
+            outfit::Outfit::from_wardrobe(Wardrobe::Commoner, &recipient)
+        };
         recipe.details.hip = detail;
         recipient.outfit = Some(recipe);
-        for shirt in [None, Some("t-shirt"), Some("hawaiian-shirt")] {
+        for shirt in [None, Some("hawaiian-shirt")] {
             let mut gear = Equipment::default();
             if let Some(shirt) = shirt {
                 gear.select(shirt).unwrap();
             }
             let dressed = recipient.clone().equipped(gear);
-            let (with, entities, drapes) = sample(&dressed);
+            let (with, hips, entities, drapes) = sample(&dressed);
             let mut removed = dressed.clone();
             removed.outfit.as_mut().unwrap().details.hip = None;
-            let (without, base_entities, base_drapes) = sample(&removed);
+            let (without, base_hips, base_entities, base_drapes) = sample(&removed);
+            assert!(with.len() > 100 && without.len() > 100);
             assert!(
-                without.is_subset(&with),
-                "static detail must not replace unrelated hip geometry"
+                with != without,
+                "the torn shape must be in the moving cloth"
             );
-            let scraps: BTreeSet<_> = with.difference(&without).copied().collect();
-            assert!(
-                scraps.len() >= 15,
-                "five visible geometric scraps, not an empty recipe"
-            );
+            assert_eq!(hips, base_hips, "no rigid scraps attached to the pelvis");
             assert_eq!((entities, drapes), (base_entities, base_drapes));
-            let mut resolved = dressed.clone();
-            resolved.outfit = Some(outfit::Composition::resolve(&dressed).outfit);
-            resolved.equipment = Equipment::default();
-            assert_eq!(
-                with,
-                sample(&resolved).0,
-                "scraps use the resolved tunic, not species pigment"
-            );
-            let restored = dressed.equipped(Equipment::default());
-            assert_eq!(sample(&restored).0, sample(&recipient).0);
+            let resolved = outfit::Composition::resolve(&dressed).outfit;
+            let skirt = resolved.skirt.unwrap();
+            assert!(matches!(skirt.hem, outfit::Hem::Points { count: 5, .. }));
+            assert_eq!(skirt.color, resolved.tunic * 0.7);
+            let mut copied = dressed.clone().equipped(Equipment::default());
+            copied.outfit = Some(resolved);
+            assert_eq!(with, sample(&copied).0, "resolved cloth replays as-is");
             assert_eq!(
                 recipient.outfit.unwrap(),
                 recipe,
-                "composition must not mutate the base recipe"
+                "base recipe is immutable"
             );
         }
     }
@@ -5752,6 +5729,93 @@ fn medusa_front_serpents_turn_toward_their_gaze_target() {
             recovery[i].1.z < reach.z - 0.06,
             "serpent {i} did not release its gaze"
         );
+    }
+}
+
+#[test]
+fn medusa_crown_releases_the_gaze_smoothly_when_death_interrupts_it() {
+    for death in [
+        DeathMotion::Collapse,
+        DeathMotion::Stagger,
+        DeathMotion::Dramatic,
+    ] {
+        let model = Look::of(CreatureModel::Medusa, 42);
+        let (mut app, root) = animate_look(model.clone(), 12, |_| Vec3::ZERO);
+        let front: Vec<_> = {
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let meshes = world.resource::<Assets<Mesh>>();
+            rig.segments
+                .iter()
+                .copied()
+                .filter(|&e| world.get::<Transform>(e).unwrap().translation.z > 0.01)
+                .map(|e| {
+                    let tip = points_under(world, meshes, e)
+                        .into_iter()
+                        .max_by(|a, b| a.x.hypot(a.z).total_cmp(&b.x.hypot(b.z)))
+                        .expect("emitted crown serpent");
+                    (e, tip)
+                })
+                .collect()
+        };
+        assert_eq!(front.len(), 4);
+        let tips = |app: &App| {
+            front
+                .iter()
+                .map(|&(segment, tip)| {
+                    app.world()
+                        .get::<Transform>(segment)
+                        .unwrap()
+                        .transform_point(tip)
+                })
+                .collect::<Vec<_>>()
+        };
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((Move::Gaze, Move::Gaze.impact() - 0.016));
+        app.update();
+        let mut prior = tips(&app);
+        app.world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .preview_death(death);
+        for step in 0..12 {
+            app.update();
+            assert!(app.world().get::<Anim>(root).unwrap().action.is_none());
+            let here = tips(&app);
+            for (i, (&new, &old)) in here.iter().zip(&prior).enumerate() {
+                assert!(
+                    new.distance(old) < 0.045,
+                    "{death:?} step {step}, serpent {i}: tip snapped from {old:?} to {new:?}"
+                );
+            }
+            prior = here;
+        }
+        for _ in 0..210 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Anim>(root).unwrap().dead, Some(1.0));
+        let (mut control, control_root) = animate_look(model, 12, |_| Vec3::ZERO);
+        let mut anim = control.world_mut().get_mut::<Anim>(control_root).unwrap();
+        anim.preview_death(death);
+        anim.dead = Some(1.0);
+        control.update();
+        let control_world = control.world();
+        let control_rig = control_world.get::<Rig>(control_root).unwrap();
+        for (&segment, &other) in app
+            .world()
+            .get::<Rig>(root)
+            .unwrap()
+            .segments
+            .iter()
+            .zip(&control_rig.segments)
+        {
+            let settled = app.world().get::<Transform>(segment).unwrap();
+            assert_eq!(
+                *settled,
+                *control_world.get::<Transform>(other).unwrap(),
+                "{death:?}: interrupted gaze must settle like any other death"
+            );
+        }
     }
 }
 

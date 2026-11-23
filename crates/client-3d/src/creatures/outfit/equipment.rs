@@ -120,12 +120,26 @@ pub(crate) struct Composition {
 impl Composition {
     pub fn resolve(look: &Look) -> Self {
         let preset = look.outfit.unwrap_or_else(|| Outfit::native(look));
+        let mut outfit = look
+            .equipment
+            .shirt
+            .map_or(preset, |shirt| shirt.compose(preset, look.v.woman));
+        if let Some(HipDecoration::TunicTatters { shade }) = outfit.details.hip {
+            // Cut the damage into the tunic's own drape, after resolving its
+            // dye but before adding armour over it. With no cloth to cut, there
+            // is no decoration to emit or carry into armour composition.
+            outfit.details.hip = None;
+            if let Some(skirt) = &mut outfit.skirt {
+                skirt.length *= 1.4;
+                skirt.hem = Hem::Points {
+                    count: 5,
+                    depth: 0.32,
+                };
+                skirt.color = outfit.tunic * shade;
+            }
+        }
         Self {
-            outfit: look.equipment.compose(
-                look.equipment
-                    .shirt
-                    .map_or(preset, |shirt| shirt.compose(preset, look.v.woman)),
-            ),
+            outfit: look.equipment.compose(outfit),
             body: look.equipment.body,
         }
     }
@@ -463,7 +477,8 @@ mod tests {
             ));
             let mut explicit = look.clone();
             explicit.outfit = Some(original);
-            assert_eq!(Composition::resolve(&explicit).outfit, original);
+            let resolved = Outfit::worn(&look);
+            assert_eq!(Outfit::worn(&explicit), resolved);
             let mut equipment = Equipment::default();
             equipment.select("breastplate").unwrap();
             let covered = equipment.compose(original);
@@ -477,6 +492,29 @@ mod tests {
             );
             assert_eq!(Equipment::default().compose(original), original);
         }
+    }
+
+    #[test]
+    fn tunic_damage_does_not_cut_the_armour_or_invent_cloth() {
+        let look = Look::of(CreatureModel::Zombie, 42);
+        let mut gear = Equipment::default();
+        gear.select("ring-mail").unwrap();
+        let equipped = Outfit::worn(&look.clone().equipped(gear));
+        let panels = equipped.skirt.unwrap();
+        assert_eq!(panels.hem, Hem::Even);
+        assert!(matches!(
+            panels.layers[0].unwrap().hem,
+            Hem::Points { count: 5, .. }
+        ));
+
+        let mut no_skirt = look;
+        let mut recipe = Outfit::native(&no_skirt);
+        recipe.skirt = None;
+        no_skirt.outfit = Some(recipe);
+        assert!(Outfit::worn(&no_skirt).skirt.is_none());
+        let panels = Outfit::worn(&no_skirt.equipped(gear)).skirt.unwrap();
+        assert_eq!(panels.hem, Hem::Even);
+        assert_eq!(panels.layers, [None, None]);
     }
 
     #[test]

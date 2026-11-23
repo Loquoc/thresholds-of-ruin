@@ -12,7 +12,8 @@ pub(super) struct Panel {
     scale: Vec3,
     rest: Vec<Vec3>,
     normals: Vec<[f32; 3]>,
-    last: Option<[Affine3A; 3]>,
+    last: Option<[Affine3A; 4]>,
+    follow_belt: bool,
 }
 impl Panel {
     pub fn new(entity: Entity, mesh: Handle<Mesh>, scale: Vec3, meshes: &Assets<Mesh>) -> Self {
@@ -34,7 +35,12 @@ impl Panel {
             rest: points.iter().map(|p| Vec3::from_array(*p)).collect(),
             normals: normals.clone(),
             last: None,
+            follow_belt: false,
         }
+    }
+    pub fn with_belt_anchor(mut self, follow_belt: bool) -> Self {
+        self.follow_belt = follow_belt;
+        self
     }
     pub fn invalidate(&mut self) {
         self.last = None;
@@ -69,6 +75,7 @@ pub(super) fn place(
     panels: &mut [Panel],
     roots: [Vec3; 2],
     legs: [Affine3A; 2],
+    torso_delta: Affine3A,
     frame: impl Fn(Entity) -> Option<Affine3A>,
     meshes: &mut Assets<Mesh>,
 ) {
@@ -76,7 +83,12 @@ pub(super) fn place(
         let Some(transform) = frame(panel.entity) else {
             continue;
         };
-        let key = [transform, legs[0], legs[1]];
+        let anchor = if panel.follow_belt {
+            torso_delta
+        } else {
+            Affine3A::IDENTITY
+        };
+        let key = [transform, legs[0], legs[1], anchor];
         if panel.last == Some(key) {
             continue;
         }
@@ -85,9 +97,13 @@ pub(super) fn place(
             .rest
             .iter()
             .map(|p| {
-                inverse
-                    .transform_point3(follow(*p * panel.scale, roots, legs))
-                    .to_array()
+                let rest = *p * panel.scale;
+                let mut worn = follow(rest, roots, legs);
+                if panel.follow_belt {
+                    let attach = animation::ease((p.y + 0.025) / 0.072);
+                    worn = worn.lerp(anchor.transform_point3(rest), attach);
+                }
+                inverse.transform_point3(worn).to_array()
             })
             .collect();
         let Some(mesh) = meshes.get_mut(&panel.mesh) else {
@@ -307,6 +323,7 @@ mod tests {
             &mut rig.short_garments,
             roots,
             moving,
+            Affine3A::IDENTITY,
             |_| Some(Affine3A::IDENTITY),
             &mut meshes,
         );
@@ -350,6 +367,7 @@ mod tests {
             &mut rig.short_garments,
             roots,
             neutral,
+            Affine3A::IDENTITY,
             |_| Some(Affine3A::IDENTITY),
             &mut meshes,
         );
