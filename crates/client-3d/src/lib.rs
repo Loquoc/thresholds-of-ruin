@@ -571,6 +571,11 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
             .after(bevy::render::view::VisibilitySystems::CheckVisibility)
             .run_if(|diagnostics: Res<Diagnostics>| diagnostics.frame_stats.is_some()),
     )
+    .add_systems(
+        PostUpdate,
+        scene::prefer_disclosed_weapon
+            .before(bevy::render::view::VisibilitySystems::VisibilityPropagate),
+    )
     .add_systems(Last, (props::maintain_cache, shutdown_on_exit));
     // Timing frames also attributes the animation work in them.
     if app.world().resource::<Diagnostics>().frame_stats.is_some() {

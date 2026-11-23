@@ -677,6 +677,49 @@ fn dead_fliers_settle_on_their_body_not_a_wingtip() {
 }
 
 #[test]
+fn flying_bodies_carry_the_last_wing_stroke_into_the_fall() {
+    for (model, rate) in [(CreatureModel::Bat, 3.4), (CreatureModel::Kestrel, 2.6)] {
+        for motion in [
+            DeathMotion::Collapse,
+            DeathMotion::Stagger,
+            DeathMotion::Dramatic,
+        ] {
+            let (mut app, root) = animate_look(Look::of(model, 42), 2, |_| Vec3::ZERO);
+            let rig = app.world().get::<Rig>(root).unwrap();
+            let joints = [J::WingL, J::WingR, J::WingTipL, J::WingTipR]
+                .map(|joint| rig.joint(joint).unwrap());
+            let rotations = |app: &App| {
+                joints.map(|joint| app.world().get::<Transform>(joint).unwrap().rotation)
+            };
+            {
+                let mut a = app.world_mut().get_mut::<Anim>(root).unwrap();
+                a.seed = 0.0;
+                a.time = FRAC_PI_2 / (TAU * rate) - 0.016;
+            }
+            app.update();
+            let mut previous = rotations(&app);
+            assert!(previous[0].angle_between(Quat::IDENTITY) > 0.48);
+            app.world_mut()
+                .get_mut::<Anim>(root)
+                .unwrap()
+                .preview_death(motion);
+            for step in 0..16 {
+                app.update();
+                let now = rotations(&app);
+                for (before, after) in previous.into_iter().zip(now) {
+                    assert!(
+                        before.angle_between(after) < 0.19,
+                        "{model:?} {motion:?} step {step}: wing rotation snapped by {:.3} rad",
+                        before.angle_between(after)
+                    );
+                }
+                previous = now;
+            }
+        }
+    }
+}
+
+#[test]
 fn fliers_stay_on_the_wing_without_ground_contacts() {
     for model in [CreatureModel::Bat, CreatureModel::Kestrel] {
         let (app, root) = animate_along(model, 90, |f| Vec3::Z * f as f32 * 0.03);
@@ -697,6 +740,52 @@ fn fliers_stay_on_the_wing_without_ground_contacts() {
             wing.rotation.angle_between(Quat::IDENTITY) > 0.01,
             "{model:?} wings must beat"
         );
+    }
+}
+
+#[test]
+fn kestrel_presents_both_talons_ahead_of_its_beak_at_contact() {
+    for movement in [Move::Strike, Move::Heavy] {
+        let sample = |phase: f32| {
+            let (mut app, root) =
+                animate_look(Look::of(CreatureModel::Kestrel, 42), 8, |_| Vec3::ZERO);
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.yaw = 0.0;
+            anim.action = Some((movement, phase - 0.016 / movement.duration()));
+            app.update();
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let meshes = world.resource::<Assets<Mesh>>();
+            let front = |joint: J| {
+                let entity = rig.joint(joint).unwrap();
+                let mut frame = Affine3A::IDENTITY;
+                let mut at = entity;
+                while at != root {
+                    frame = world.get::<Transform>(at).unwrap().compute_affine() * frame;
+                    at = world.get::<ChildOf>(at).unwrap().parent();
+                }
+                points_under(world, meshes, entity)
+                    .into_iter()
+                    .map(|point| frame.transform_point3(point))
+                    .max_by(|a, b| a.z.total_cmp(&b.z))
+                    .expect("rendered beak or talons")
+            };
+            (front(J::Head), [front(J::ShinL), front(J::ShinR)])
+        };
+        let (head, feet) = sample(movement.impact());
+        for foot in feet {
+            assert!(
+                foot.z > head.z + 0.015 && foot.y < head.y - 0.06,
+                "{movement:?} must connect with the feet, not the beak: head {head:?}, foot {foot:?}"
+            );
+        }
+        for phase in [movement.impact() - 0.09, 0.96] {
+            let (head, feet) = sample(phase);
+            assert!(
+                feet.iter().all(|f| f.z < head.z - 0.06),
+                "{movement:?} should keep the feet out of the way while climbing and recovering"
+            );
+        }
     }
 }
 
@@ -5875,6 +5964,48 @@ fn emu_settles_its_head_and_body_on_the_ground() {
 }
 
 #[test]
+fn fallen_winged_beasts_rest_their_heads_on_the_floor() {
+    let mut failures = Vec::new();
+    for model in [CreatureModel::Dragon, CreatureModel::Griffin] {
+        for seed in [2.0, 7.0] {
+            let (mut app, root) = animate_look(Look::of(model, 42), 2, |_| Vec3::ZERO);
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.seed = seed;
+            anim.dead = Some(1.0);
+            app.update();
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let meshes = world.resource::<Assets<Mesh>>();
+            let transforms = |chain: &[J]| {
+                chain.iter().fold(Affine3A::IDENTITY, |parent, &joint| {
+                    let entity = rig.joint(joint).unwrap();
+                    parent * world.get::<Transform>(entity).unwrap().compute_affine()
+                })
+            };
+            let lowest = |chain: &[J]| {
+                let joint = rig.joint(*chain.last().unwrap()).unwrap();
+                let points = points_under(world, meshes, joint);
+                assert!(!points.is_empty());
+                let frame = transforms(chain);
+                points
+                    .into_iter()
+                    .map(|p| frame.transform_point3(p).y / rig.scale)
+                    .fold(f32::INFINITY, f32::min)
+            };
+            let base = [J::Lift, J::Body, J::Neck, J::Head];
+            let head = lowest(&base);
+            let neck = lowest(&base[..3]);
+            if !(-0.035..=0.055).contains(&head) || neck < -0.035 {
+                failures.push(format!(
+                    "{model:?} seed {seed}: head {head:.3}, neck {neck:.3}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn long_winged_beast_tails_settle_without_piercing_the_floor() {
     use bevy::render::mesh::VertexAttributeValues;
 
@@ -6093,6 +6224,123 @@ fn death_families_play_distinct_motions_and_keep_their_settled_pose() {
             assert!(
                 difference(&settled, &end) < 0.004,
                 "{model:?}: variant changed settled pose"
+            );
+        }
+    }
+}
+
+#[test]
+fn centaur_spear_points_toward_its_target_at_melee_contact() {
+    for woman in [false, true] {
+        for build in 0..3 {
+            let look = Look::with_choice(
+                CreatureModel::Centaur,
+                42,
+                Some(Variant {
+                    woman,
+                    build,
+                    ..default()
+                }),
+            );
+            let (mut app, root) = animate_look(look, 2, |_| Vec3::ZERO);
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let hand = rig.joint(J::HandR).unwrap();
+            let spear = rig.joint(J::CentaurSpear).unwrap();
+            let tip = points_under(world, world.resource::<Assets<Mesh>>(), spear)
+                .into_iter()
+                .max_by(|a, b| a.z.total_cmp(&b.z))
+                .unwrap();
+            assert!(
+                tip.z > 1.0,
+                "the modeled spearhead must extend past its shaft"
+            );
+
+            let mut shaft_direction = |action: Option<(Move, f32)>| {
+                let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+                anim.yaw = 0.0;
+                anim.quiet = true;
+                anim.action = action;
+                app.update();
+                let world = app.world();
+                assert_eq!(
+                    world.get::<Transform>(hand).unwrap().rotation,
+                    Quat::IDENTITY,
+                    "thrust aiming belongs only to the authored spear, not a disclosed item"
+                );
+                let mut entity = spear;
+                let mut grip = Affine3A::IDENTITY;
+                while entity != root {
+                    grip = world.get::<Transform>(entity).unwrap().compute_affine() * grip;
+                    entity = world.get::<ChildOf>(entity).unwrap().parent();
+                }
+                grip.transform_vector3(tip).normalize()
+            };
+            let carry = shaft_direction(None);
+            assert!(
+                carry.y > 0.7 && carry.z > 0.0,
+                "resting spear lost its raised carry: {carry:?}"
+            );
+            for motion in [Move::Strike, Move::Combo(true), Move::Combo(false)] {
+                let aim =
+                    shaft_direction(Some((motion, motion.impact() - 0.016 / motion.duration())));
+                assert!(
+                    aim.z > 0.92 && aim.y.abs() < 0.25,
+                    "spear misses its forward thrust for {motion:?}, woman={woman}, build={build}: {aim:?}"
+                );
+            }
+            let recovered = shaft_direction(None);
+            assert!(
+                carry.distance(recovered) < 0.015,
+                "spear did not regain its resting carry"
+            );
+        }
+    }
+}
+
+#[test]
+fn fey_filch_feints_reaches_and_withdraws_without_a_step() {
+    for model in [CreatureModel::Nymph, CreatureModel::Leprechaun] {
+        let (mut app, root) = animate_look(Look::of(model, 42), 2, |_| Vec3::ZERO);
+        let mut sample = |motion: Move, phase: f32| {
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.quiet = true;
+            // The fixture starts at a seeded arbitrary heading. Measure reach
+            // along the actor’s forward axis, here fixed to world +Z.
+            anim.yaw = 0.0;
+            anim.action = Some((motion, phase - 0.016 / motion.duration()));
+            app.update();
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            [J::HandR, J::HandL, J::FootR, J::FootL].map(|joint| {
+                let mut entity = rig.joint(joint).unwrap();
+                let mut frame = Affine3A::IDENTITY;
+                while entity != root {
+                    frame = world.get::<Transform>(entity).unwrap().compute_affine() * frame;
+                    entity = world.get::<ChildOf>(entity).unwrap().parent();
+                }
+                frame.transform_point3(Vec3::ZERO) / rig.scale
+            })
+        };
+        let plain = sample(Move::Gesture, Move::Gesture.impact());
+        let reach = sample(Move::Filch, Move::Filch.impact());
+        let pocket = sample(Move::Filch, 0.70);
+        assert!(
+            reach[0].z > plain[0].z + 0.10,
+            "{model:?}: no quick forward reach"
+        );
+        assert!(
+            reach[1].y > plain[1].y + 0.12,
+            "{model:?}: missing offhand feint"
+        );
+        assert!(
+            reach[0].z > pocket[0].z + 0.14,
+            "{model:?}: reaching hand did not withdraw"
+        );
+        for foot in 2..4 {
+            assert!(
+                reach[foot].distance(plain[foot]) < 0.005,
+                "{model:?}: reach displaced a foot"
             );
         }
     }

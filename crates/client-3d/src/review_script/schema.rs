@@ -430,8 +430,10 @@ impl Script {
             }
             if let Some(kind) = &actor.held_item {
                 item_model(kind)?;
-                if timeline == Timeline::Live || actor.model != "Human" {
-                    return Err("held item review requires capture-only Human actor".into());
+                if timeline == Timeline::Live
+                    || !matches!(actor.model.as_str(), "Human" | "Centaur")
+                {
+                    return Err("held item review requires a capture-only Human or Centaur".into());
                 }
             }
         }

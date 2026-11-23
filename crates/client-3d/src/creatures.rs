@@ -1096,8 +1096,10 @@ pub enum J {
     Jaw,
     /// Paired upper fangs that fold into a closed serpent mouth.
     Fangs,
+    /// The Centaur's cosmetic spear pivots independently of its actual grip.
+    CentaurSpear,
 }
-const JOINTS: usize = 39;
+const JOINTS: usize = J::CentaurSpear as usize + 1;
 
 /// A beast's terminal limb can support weight or remain free to grasp.
 /// Joint names stay stable; recipes choose behavior independently of species.
@@ -1111,6 +1113,10 @@ enum LimbRole {
 /// Loose deformation bounds are excluded separately by camera measurements.
 #[derive(Component)]
 pub(crate) struct BodySurface;
+
+/// Default Centaur weapon decoration, hidden when a real weapon is visible.
+#[derive(Component)]
+pub(crate) struct AuthoredCentaurSpear;
 
 #[derive(Component)]
 pub struct Rig {
@@ -1285,6 +1291,8 @@ impl Rig {
 pub enum Move {
     /// Neutral action for an unfamiliar authored technique.
     Gesture,
+    /// A fey feint, a quick reach, then a close-handed withdrawal.
+    Filch,
     /// A plain swing, bite, peck or kick.
     Strike,
     /// A straight lunge with the point (Measured Cut).
@@ -1346,6 +1354,7 @@ impl Move {
             "spark_lance_fire" => Move::Cast(Accent::Ember),
             "spark_lance_cold" => Move::Cast(Accent::Travel),
             "falter" => Move::Hex,
+            "filch_charm" | "filch_gold" => Move::Filch,
             "rogue.fear" => Move::Fear,
             "rogue.drain_vitality" => Move::Drain,
             "rogue.freezing_touch" => Move::Touch(Accent::Travel),
@@ -1365,7 +1374,7 @@ impl Move {
 
     pub fn duration(self) -> f32 {
         match self {
-            Move::Gesture => 0.8,
+            Move::Gesture | Move::Filch => 0.8,
             Move::Strike => 0.62,
             Move::Thrust => 0.5,
             Move::Combo(_) => 0.55,
@@ -1392,7 +1401,7 @@ impl Move {
     /// When in the move the blow lands or the spell leaves the hand.
     pub fn impact(self) -> f32 {
         match self {
-            Move::Gesture => 0.4,
+            Move::Gesture | Move::Filch => 0.4,
             Move::Strike => 0.42,
             Move::Thrust => 0.38,
             Move::Combo(_) => 0.38,
@@ -1417,11 +1426,17 @@ impl Move {
         }
     }
 
-    /// Whether the move is aimed at someone else.
+    /// Whether the move uses an attack’s drive into its target.
     pub fn offensive(self) -> bool {
         !matches!(
             self,
-            Move::Gesture | Move::Guard(_) | Move::Step | Move::Focus | Move::Mend | Move::Jump
+            Move::Gesture
+                | Move::Filch
+                | Move::Guard(_)
+                | Move::Step
+                | Move::Focus
+                | Move::Mend
+                | Move::Jump
         )
     }
 }
@@ -1512,6 +1527,14 @@ struct WalkContacts {
     strike_entry: Option<StrikeEntry>,
 }
 
+/// The last live clock, speed and action that can contribute to a fall.
+#[derive(Clone, Copy)]
+struct DeathEntry {
+    started_at: f32,
+    speed: f32,
+    action: Option<(Move, f32)>,
+}
+
 #[derive(Component)]
 pub struct Anim {
     pub yaw: f32,
@@ -1530,8 +1553,8 @@ pub struct Anim {
     /// Death progress, 0 to 1. A corpse holds 1.
     pub dead: Option<f32>,
     death_motion: DeathMotion,
-    /// Last displayed gaze phase, retained only for the crown's death release.
-    gaze_death_entry: Option<f32>,
+    /// Last live frame used by appendages that blend into their fall.
+    death_entry: Option<DeathEntry>,
     /// How far down it still is after being revived: it rises out of its
     /// death pose instead of snapping upright.
     fallen: f32,
@@ -1568,7 +1591,7 @@ impl Anim {
             dodge: None,
             dead: None,
             death_motion: DeathMotion::default(),
-            gaze_death_entry: None,
+            death_entry: None,
             fallen: 0.0,
             rest: 1.0,
             quiet: false,
@@ -1617,10 +1640,11 @@ impl Anim {
     }
 
     fn start_death(&mut self, motion: DeathMotion, face_corridor: bool) {
-        self.gaze_death_entry = match self.action {
-            Some((Move::Gaze, phase)) => Some(phase),
-            _ => None,
-        };
+        self.death_entry = Some(DeathEntry {
+            started_at: self.time,
+            speed: self.speed,
+            action: self.action,
+        });
         self.death_motion = motion;
         self.dead = Some(if face_corridor { -0.35 } else { 0.0 });
         self.action = None;

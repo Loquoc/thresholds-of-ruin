@@ -250,6 +250,11 @@ fn run(path: &Path, output: &Path, offscreen: bool) -> Result<(), crate::Error> 
                 .after(bevy::render::camera::CameraUpdateSystem)
                 .before(bevy::ui::UiSystem::Prepare),
         )
+        .add_systems(
+            PostUpdate,
+            crate::scene::prefer_disclosed_weapon
+                .before(bevy::render::view::VisibilitySystems::VisibilityPropagate),
+        )
         .add_systems(Last, (track_drawn_meshes, capture).chain());
     configure_animation(&mut app);
     app.sub_app_mut(RenderApp)
@@ -340,7 +345,7 @@ fn setup(
             &spec.look().expect("validated actor"),
         );
         if let Some(kind) = &spec.held_item {
-            let hand = rig.joint(J::HandR).expect("validated Human hand");
+            let hand = rig.joint(J::HandR).expect("validated actor hand");
             crate::scene::spawn_held_item(
                 &mut commands,
                 &mut library,

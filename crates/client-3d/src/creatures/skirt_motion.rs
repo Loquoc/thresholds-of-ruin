@@ -14,6 +14,7 @@ pub(super) struct Panel {
     normals: Vec<[f32; 3]>,
     last: Option<[Affine3A; 4]>,
     follow_belt: bool,
+    front_swing: Option<Vec<f32>>,
 }
 impl Panel {
     pub fn new(entity: Entity, mesh: Handle<Mesh>, scale: Vec3, meshes: &Assets<Mesh>) -> Self {
@@ -36,10 +37,34 @@ impl Panel {
             normals: normals.clone(),
             last: None,
             follow_belt: false,
+            front_swing: None,
         }
     }
     pub fn with_belt_anchor(mut self, follow_belt: bool) -> Self {
         self.follow_belt = follow_belt;
+        self
+    }
+    pub fn with_front_swing(mut self, kind: Drape, amount: f32) -> Self {
+        let Drape::Skirt(length) = kind else {
+            return self;
+        };
+        if amount > 0.0 {
+            self.front_swing = Some(
+                self.rest
+                    .iter()
+                    .map(|p| {
+                        // Retain waist seam and hem, and release only the
+                        // upper panels in front of the thighs.
+                        let t = (0.04 - p.y) / (0.04 + length);
+                        let front = Vec2::new(p.x * 0.8, p.z).normalize_or_zero().y.max(0.0);
+                        amount
+                            * front.sqrt()
+                            * animation::ease((t - 0.045) / 0.095)
+                            * animation::ease((0.62 - t) / 0.35)
+                    })
+                    .collect(),
+            );
+        }
         self
     }
     pub fn invalidate(&mut self) {
@@ -93,12 +118,23 @@ pub(super) fn place(
             continue;
         }
         let inverse = (transform * Affine3A::from_scale(panel.scale)).inverse();
+        let [left_swing, right_swing] = panel.front_swing.as_ref().map_or([0.0; 2], |_| {
+            legs.map(|leg| {
+                let forward = leg.transform_vector3(Vec3::NEG_Y).z;
+                animation::ease((forward - 0.04) / 0.43)
+            })
+        });
         let points: Vec<_> = panel
             .rest
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(i, p)| {
                 let rest = *p * panel.scale;
                 let mut worn = follow(rest, roots, legs);
+                if let Some(weights) = &panel.front_swing {
+                    let side = animation::ease((rest.x + 0.04) / 0.08);
+                    worn.z += weights[i] * (right_swing + (left_swing - right_swing) * side);
+                }
                 if panel.follow_belt {
                     let attach = animation::ease((p.y + 0.025) / 0.072);
                     worn = worn.lerp(anchor.transform_point3(rest), attach);

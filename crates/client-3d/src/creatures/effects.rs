@@ -339,7 +339,8 @@ pub fn stage(
     let toward = to.map_or(Vec3::Z, |(at, _)| (at - caster).normalize_or(Vec3::Z));
     let hand = caster + Vec3::Y * height * 0.7 + toward * 0.35;
     match action {
-        Move::Gesture => return None,
+        // A theft cue does not reveal the actual object, nor add a strike flash.
+        Move::Gesture | Move::Filch => return None,
         Move::Guard(accent) => {
             ward(commands, library, meshes, caster, accent);
             return None;

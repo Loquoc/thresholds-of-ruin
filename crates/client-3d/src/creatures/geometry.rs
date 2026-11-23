@@ -1076,6 +1076,7 @@ impl Kit<'_, '_, '_> {
         part: &str,
         proportion: Vec3,
         follow_belt: bool,
+        swing_ease: f32,
         build: impl FnOnce(&mut Parts),
     ) -> Entity {
         let mut model = self.part(part, build);
@@ -1102,7 +1103,8 @@ impl Kit<'_, '_, '_> {
         for (mesh, _) in &model.0 {
             self.rig.short_garments.push(
                 super::skirt_motion::Panel::new(entity, mesh.clone(), proportion, self.meshes)
-                    .with_belt_anchor(follow_belt),
+                    .with_belt_anchor(follow_belt)
+                    .with_front_swing(kind, swing_ease),
             );
         }
         self.rig.drapes.push((entity, kind));

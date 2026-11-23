@@ -591,11 +591,18 @@ fn live_review_rejects_ignored_floor_customization_but_accepts_default_stage() {
 }
 
 #[test]
-fn held_item_capture_is_explicit_human_only_and_never_ignored_live() {
+fn held_item_capture_supports_explicit_grips_and_is_never_ignored_live() {
     let mut value = fixture();
     value["actors"][0]["held_item"] = json!("Staff");
-    assert!(parse(value.clone()).is_ok());
-    assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap()).is_err());
+    for kind in ["Human", "Centaur"] {
+        value["actors"][0]["model"] = json!(kind);
+        value["actors"][0]["outfit"] = json!("native");
+        assert!(parse(value.clone()).is_ok(), "{kind}");
+        assert!(Script::parse_live(&serde_json::to_vec(&value).unwrap()).is_err());
+    }
+    value["actors"][0]["model"] = json!("Dragon");
+    assert!(parse(value.clone()).is_err(), "no claimed item grip");
+    value["actors"][0]["model"] = json!("Human");
     value["actors"][0]["held_item"] = json!("SecretTrueIdentity");
     assert!(parse(value).is_err());
 }
@@ -827,6 +834,8 @@ fn scripted_abilities_replay_the_gameplay_move_without_caption_fallback() {
         ("rogue.venomous_bite", Move::Bite(Accent::Teal)),
         ("basic_melee", Move::Strike),
         ("read_the_rhythm", Move::Focus),
+        ("filch_charm", Move::Filch),
+        ("filch_gold", Move::Filch),
     ] {
         let mut v = fixture();
         v["captures"][0]["tick"] = json!(10);
