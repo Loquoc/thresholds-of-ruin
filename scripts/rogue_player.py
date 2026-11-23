@@ -352,20 +352,8 @@ class Adventurer:
             self.wait_after_cancel = False
         if isinstance(action, Zap):
             self.remember_zap(turn, action, reason)
-        if isinstance(action, Move) and turn.cell:
-            if reason == MemoryReason.SEEK_STAIRS and self.depth in self.food_scouts:
-                deadline, stock = self.food_scouts[self.depth]
-                if turn.tick < deadline:
-                    self.food_scouts[self.depth] = turn.tick, stock
-            self.last_exploration_origin = turn.cell.key if reason == MemoryReason.EXPLORE else None
-            self.corridor_stand = None
-            if reason == MemoryReason.TAKE_CORRIDOR and (entrance := turn.cell_at(action.direction.offset)):
-                # Allow pursuers to reach the choke even when the doorway breaks sight.
-                self.corridor_stand = entrance.key, turn.tick + 600
-            self.last_retreat_origin = turn.cell.key if reason == MemoryReason.RETREAT_TO_STAIRS else None
-            if (reason in {MemoryReason.RETREAT, MemoryReason.BREAK_CONTACT} and turn.health
-                    and turn.health.current * 2 < turn.health.maximum):
-                self.recovering_from_pursuit = True
+        if isinstance(action, Move):
+            self.remember_move(turn, action, receipt, reason)
         if isinstance(action, UseItem) and action.use is ItemUse.DRINK and action.item.identity is None:
             self.sampled_potions.add(action.item.appearance or action.item.name)
         if turn.cell and isinstance(action, UseAbility) and action.ability.identity == "rogue.search":
@@ -393,7 +381,24 @@ class Adventurer:
             self.pending_meal = PendingMeal(identity, carried_quantity(turn, identity), turn.nutrition.reserve)
         if isinstance(action, Shot):
             self.last_shot_tick = turn.tick
-        if turn.cell and isinstance(action, Move) and action.direction in (Direction.UP, Direction.DOWN):
+
+    def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
+        if turn.cell is None:
+            return
+        if reason == MemoryReason.SEEK_STAIRS and self.depth in self.food_scouts:
+            deadline, stock = self.food_scouts[self.depth]
+            if turn.tick < deadline:
+                self.food_scouts[self.depth] = turn.tick, stock
+        self.last_exploration_origin = turn.cell.key if reason == MemoryReason.EXPLORE else None
+        self.corridor_stand = None
+        if reason == MemoryReason.TAKE_CORRIDOR and (entrance := turn.cell_at(action.direction.offset)):
+            # Allow pursuers to reach the choke even when the doorway breaks sight.
+            self.corridor_stand = entrance.key, turn.tick + 600
+        self.last_retreat_origin = turn.cell.key if reason == MemoryReason.RETREAT_TO_STAIRS else None
+        if (reason in {MemoryReason.RETREAT, MemoryReason.BREAK_CONTACT} and turn.health
+                and turn.health.current * 2 < turn.health.maximum):
+            self.recovering_from_pursuit = True
+        if action.direction in (Direction.UP, Direction.DOWN):
             self.pending_stair = turn.stair_attempt(action, receipt)
             self.stair_pursuers = (tuple(foe.target for foe in turn.hostiles)
                                    if reason in {MemoryReason.RETREAT_UPSTAIRS, MemoryReason.RETREAT_DOWNSTAIRS} else ())

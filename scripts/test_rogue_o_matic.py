@@ -319,7 +319,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         foes = [{"id": str(i), "name": "troll", "position": c["position"]} for i, c in enumerate(cells[-2:])]
         turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "take_corridor"))
+        move, reason = choose(player, turn)
+        self.assertEqual((move, reason), (Move(Direction.WEST), "take_corridor"))
+        player.admitted(turn, move, reason=reason)
+        entrance = [cell("-1,0"), cell("-2,0", -1)]
+        self.assertEqual(choose(player, player_turn(entrance, tick=599)), (Wait(), "hold_corridor"))
+        self.assertNotEqual(choose(player, player_turn(entrance, tick=600))[1], "hold_corridor")
+
         cells[2]["wall"] = True
         turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
         self.assertNotEqual(choose(player, turn)[1], "take_corridor")
