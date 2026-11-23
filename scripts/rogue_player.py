@@ -53,6 +53,11 @@ from rogue_gear import (
 
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
 LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
+MELEE_INJURY_PRIORITY = {
+    Injury.NEAR_DEATH: 0,
+    Injury.BADLY_WOUNDED: 1,
+    Injury.WOUNDED: 2,
+}
 DEAD_END_SEARCHES = 6
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
 ELEMENTAL_RAY_RANGE = 6
@@ -490,28 +495,8 @@ class Adventurer:
             if decision := ready_weapon(turn, bow=False):
                 return decision
 
-        injury_priority: dict[Injury | None, int] = {
-            Injury.NEAR_DEATH: 0,
-            Injury.BADLY_WOUNDED: 1,
-            Injury.WOUNDED: 2,
-        }
-        def attack_order(foe: Creature):
-            opens_exit = any(
-                (cell.stairs_up and self.depth > 1) or
-                (cell.stairs_down and self.depth < self.retrieval_depth and not self.carrying_objective(turn))
-                for cell in turn.cells_of(foe)
-            )
-            return injury_priority.get(foe.injury, 3), not opens_exit, foe.distance
-
-        for foe in sorted(turn.hostiles, key=attack_order):
-            if (surrounded or two_hit_threat) and foe.injury is not Injury.NEAR_DEATH:
-                push = turn.attack(foe, technique="dislocating_strike")
-                if push and self.has_push_space(turn, foe):
-                    return push, "melee"
-            if attack := turn.attack(foe, technique="rattling_blow"):
-                return attack, "melee"
-            if attack := turn.attack(foe):
-                return attack, "melee"
+        if attack := self.melee_attack(turn, make_space=surrounded or two_hit_threat):
+            return attack, "melee"
 
         if decision := self.respond_to_unseen_attack(turn):
             return decision
@@ -519,6 +504,25 @@ class Adventurer:
         if turn.holds:
             return Escape(turn.holds[0]), "escape_hold"
 
+        return None
+
+    def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
+        def attack_order(foe: Creature) -> tuple[int, bool, int]:
+            opens_exit = any(
+                (cell.stairs_up and self.depth > 1) or
+                (cell.stairs_down and self.depth < self.retrieval_depth and not self.carrying_objective(turn))
+                for cell in turn.cells_of(foe)
+            )
+            return MELEE_INJURY_PRIORITY.get(foe.injury, 3), not opens_exit, foe.distance
+
+        for foe in sorted(turn.hostiles, key=attack_order):
+            if make_space and foe.injury is not Injury.NEAR_DEATH:
+                push = turn.attack(foe, technique="dislocating_strike")
+                if push and self.has_push_space(turn, foe):
+                    return push
+            attack = turn.attack(foe, technique="rattling_blow") or turn.attack(foe)
+            if attack:
+                return attack
         return None
 
     def respond_to_unseen_attack(self, turn: Turn) -> tuple[Action, str] | None:

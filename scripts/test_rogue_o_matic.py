@@ -1217,20 +1217,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(Policy().choose(data)[1], "melee")
 
     def test_prioritizes_a_disclosed_near_death_foe_when_cornered(self):
-        north = cell("north")
+        north = cell("north", down=True)
         north["position"]["y"] = -1
         east = cell("east", 1)
         foes = [{"id": position["key"], "position": position["position"]} for position in (north, east)]
         melee = {"id": "strike", "name": "Strike", "cooldown_remaining": "0", "cost": None,
                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        push = {**melee, "id": "dislocating_strike", "basic_attack": False}
         for foe in foes:
             foe["name"] = "opponent"
-        turn = player_turn([cell("here"), north, east], actors=foes, abilities=[melee],
+        turn = player_turn([cell("here"), north, east, cell("beyond", 2)], actors=foes, abilities=[melee, push],
                            combat={"actors": [{"actor": "north", "injury": "healthy", "hostile": True},
                                               {"actor": "east", "injury": "near_death", "hostile": True}]})
         action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
         self.assertEqual(reason, "melee")
-        self.assertEqual(action.target.target, "east")
+        self.assertEqual((action.target.target, action.ability.identity), ("east", "strike"))
 
     def test_bear_trap_prevents_retreat_but_allows_melee_until_it_expires(self):
         foe = {"id": "foe", "name": "Wraith", "position": {"x": 1, "y": 0, "z": 0}}
