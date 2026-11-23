@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import TYPE_CHECKING
 
 from rogue_gear import EquipmentHistory
+from rogue_player import Adventurer
 from tor_client_bot import Direction, Outcome, Result, Session, TrainingRefused, describe_action
-
-if TYPE_CHECKING:
-    from rogue_player import Adventurer
 
 
 def trace_result(result: Result) -> dict:

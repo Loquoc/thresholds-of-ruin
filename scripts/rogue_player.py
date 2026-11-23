@@ -43,7 +43,6 @@ from tor_client_bot import (
 )
 
 
-from rogue_runner import play as play, trace_result as trace_result
 from rogue_gear import (
     IDENTIFY_CATEGORIES, choose_armor, choose_ring, improve_worn_gear,
     needs_identification, ready_weapon, ring_upgrades,
@@ -1197,3 +1196,11 @@ class Adventurer:
             if decision := self.search(turn, memory, returning, allow_unseen=False, wall_limit=6):
                 return decision
         return None, "no_disclosed_route"
+
+
+def __getattr__(name: str):
+    """Support callers that imported runner functions from the original policy module."""
+    if name in {"play", "trace_result"}:
+        import rogue_runner
+        return getattr(rogue_runner, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -151,15 +151,21 @@ class CohortSummaryTests(unittest.TestCase):
             cli, hashes = snapshot_policy(scripts, Path(directory))
             self.assertIn("rogue_runner.py", hashes)
             probe = """import sys
-sys.path[:0] = sys.argv[1:]
+from importlib import import_module
+from typing import get_type_hints
+sys.path[:0] = sys.argv[2:]
+import_module(sys.argv[1])
 from rogue_player import Adventurer, play
 from rogue_runner import play as run_session
 assert play is run_session
+assert get_type_hints(play)["player"] is Adventurer
 """
-            result = subprocess.run([sys.executable, "-I", "-c", probe, str(cli.parent),
-                                     str(scripts.parent / "crates/client-bot/python")],
-                                    cwd=directory, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            for first in ("rogue_player", "rogue_runner"):
+                with self.subTest(first=first):
+                    result = subprocess.run([sys.executable, "-I", "-c", probe, first, str(cli.parent),
+                                             str(scripts.parent / "crates/client-bot/python")],
+                                            cwd=directory, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_fresh_victory_verification_requires_the_configured_identity(self):
         from types import SimpleNamespace
