@@ -1392,6 +1392,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(trace[0]["events_since_previous_action"], [event])
         self.assertEqual(report["events_since_previous_action"], [])
 
+    def test_equipment_report_counts_distinct_items_and_retains_last_device_offers(self):
+        from rogue_gear import EquipmentHistory
+
+        wand = {"class": "wand", "identity": "item.wand.wand-light", "identified": True,
+                "name": "staff of light", "quantity": 1}
+        inventory = [dict(wand, id=target) for target in ("spent", "unknown-charges", "unavailable")]
+        offer = {"zappable": True, "device_activation": "self_target"}
+        turn = player_turn([cell("here")], inventory=inventory, tick=100,
+                           interactions={"inventory": [dict(offer, item="spent", charges=0),
+                                                       dict(offer, item="unknown-charges")]})
+        history = EquipmentHistory()
+        history.observe(turn)
+        history.observe(turn)
+        history.observe(player_turn([cell("here")], tick=200, combat={"terminal": True}))
+
+        self.assertEqual(history.counts(), {"wand": {"carried": 3, "recognized": 3}})
+        self.assertEqual(history.last_inventory_tick, 100)
+        self.assertEqual([(row["activation_offered"], row["charges"]) for row in history.last_devices],
+                         [(True, 0), (True, None), (False, None)])
+
     def test_a_terminal_only_attachment_reports_the_carried_objective(self):
         from unittest.mock import Mock
         from rogue_player import play

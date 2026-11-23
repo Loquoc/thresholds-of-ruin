@@ -1,6 +1,6 @@
 """Rogue equipment decisions using disclosed player information."""
 
-from collections import Counter
+from collections import Counter, defaultdict
 
 from tor_client_bot import Action, Item, ItemUse, Turn, Unequip, UseItem, Zap
 
@@ -157,13 +157,13 @@ class EquipmentHistory:
     """Count distinct player-visible items reaching each stage of a run."""
 
     def __init__(self) -> None:
-        self.stages: dict[str, dict[str, set[str]]] = {}
+        self.stages: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
         self.last_devices: list[dict] = []
         self.last_inventory_tick: int | None = None
 
     def record(self, item: Item, stage: str) -> None:
         if item.category in {"armor", "weapon", "wand", "ring", "potion", "scroll", "food"}:
-            self.stages.setdefault(item.category, {}).setdefault(stage, set()).add(item.target)
+            self.stages[item.category][stage].add(item.target)
 
     def admitted(self, action: Action) -> None:
         if isinstance(action, Zap):
@@ -174,11 +174,11 @@ class EquipmentHistory:
     def observe(self, turn: Turn) -> None:
         if not turn.terminal:
             self.last_inventory_tick = turn.tick
-            offered = {device.item.target: device for device in turn.devices}
+            offered_charges = {device.item.target: device.charges for device in turn.devices}
             self.last_devices = [
-                {"identity": item.identity, "name": item.name, "activation_offered": item.target in offered,
-                 "charges": offered[item.target].charges if item.target in offered else None}
-                for item in turn.inventory if item.category == "wand" or item.target in offered
+                {"identity": item.identity, "name": item.name, "activation_offered": item.target in offered_charges,
+                 "charges": offered_charges.get(item.target)}
+                for item in turn.inventory if item.category == "wand" or item.target in offered_charges
             ]
         for ground in turn.ground_items:
             self.record(ground.item, "seen_on_ground")
