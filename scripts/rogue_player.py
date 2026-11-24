@@ -143,6 +143,13 @@ def trial_appearance(item: Item) -> str:
     return item.appearance or item.name
 
 
+@dataclass(frozen=True)
+class PendingScrollTrial:
+    receipt: Result
+    target: str
+    newly_sampled_appearance: str | None
+
+
 class MeleeRank(NamedTuple):
     """Higher fields win in order. Equal ranks preserve the observed target order."""
 
@@ -203,7 +210,7 @@ class Adventurer:
     observed_loss_by_name: Counter[str] = field(default_factory=Counter)
     tried_unknown_scroll: bool = False
     sampled_potions: set[str] = field(default_factory=set)
-    pending_scroll_trial: tuple[Result, str] | None = None
+    pending_scroll_trial: PendingScrollTrial | None = None
     stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
     sampled_scrolls: set[str] = field(default_factory=set)
     sampled_wands: set[str] = field(default_factory=set)
@@ -409,7 +416,10 @@ class Adventurer:
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
         if reason == MemoryReason.CANCEL_STALLED_SCROLL and self.pending_scroll_trial:
-            self.stalled_scrolls.add((self.depth, self.pending_scroll_trial[1]))
+            trial = self.pending_scroll_trial
+            self.stalled_scrolls.add((self.depth, trial.target))
+            if trial.newly_sampled_appearance is not None:
+                self.sampled_scrolls.discard(trial.newly_sampled_appearance)
         self.pending_scroll_trial = None
         if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
             self.cancelled_stair_origin = self.pending_stair.origin
@@ -432,10 +442,12 @@ class Adventurer:
         if action.use is ItemUse.DRINK and item.identity is None:
             self.sampled_potions.add(trial_appearance(item))
         elif action.use is ItemUse.READ and item.identity is None:
+            appearance = trial_appearance(item)
             if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
-                self.pending_scroll_trial = receipt, item.target
+                newly_sampled = appearance if appearance not in self.sampled_scrolls else None
+                self.pending_scroll_trial = PendingScrollTrial(receipt, item.target, newly_sampled)
             self.tried_unknown_scroll = True
-            self.sampled_scrolls.add(trial_appearance(item))
+            self.sampled_scrolls.add(appearance)
         elif action.use is ItemUse.EAT and item.identity and turn.nutrition:
             self.pending_meal = PendingMeal(item.identity, carried_quantity(turn, item.identity), turn.nutrition.reserve)
 
@@ -1157,7 +1169,7 @@ class Adventurer:
         if (previous is None or not turn.can_cancel or len(turn.activities) != 1
                 or turn.outcome_of(previous) is not ActivityPhase.QUEUED):
             return None, "readiness_timeout"
-        if self.pending_scroll_trial and self.pending_scroll_trial[0] == previous:
+        if self.pending_scroll_trial and self.pending_scroll_trial.receipt == previous:
             return ActivityChoice.CANCEL, MemoryReason.CANCEL_STALLED_SCROLL
         stair = self.pending_stair
         if stair and stair.receipt == previous and stair.origin != self.cancelled_stair_origin:

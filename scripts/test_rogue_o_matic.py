@@ -2041,6 +2041,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("MIR VEL", "test_unknown_magic"))
 
+    def test_cancelled_first_read_leaves_the_appearance_available_for_stair_study(self):
+        from tor_client_bot import ActivityChoice, Result
+
+        scroll = {"id": "one", "name": "runed scroll", "class": "scroll", "identified": False, "quantity": 1}
+        second = {**scroll, "id": "two"}
+        turn = player_turn([cell("stairs", down=True)], inventory=[scroll, second], interactions={
+            "inventory": [{"item": item["id"], "readable": True} for item in (scroll, second)]})
+        result = Result.from_reply({"status": "confirmed", "receipt": {
+            "type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}})
+        for previously_sampled in (False, True):
+            with self.subTest(previously_sampled=previously_sampled):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+                if previously_sampled:
+                    player.sampled_scrolls.add(scroll["name"])
+                action, reason = player.scroll_trial(turn)
+                player.admitted(turn, action, result, reason=reason)
+                player.admitted(turn, ActivityChoice.CANCEL, reason="cancel_stalled_scroll")
+                retry = player.scroll_trial(turn, at_exit=True)
+                if previously_sampled:
+                    self.assertIsNone(retry)
+                else:
+                    self.assertEqual(retry[0].item.target, "two")
+
     def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
         import json
         from tor_client_bot import ActivityChoice, Result
