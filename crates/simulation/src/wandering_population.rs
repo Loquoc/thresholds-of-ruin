@@ -1157,11 +1157,11 @@ mod tests {
         let preview = (0..128)
             .find_map(|seed| {
                 let mut rng = seed;
-                if crate::dice::random_word(&mut rng) % 2 != 0 {
+                if !crate::dice::random_word(&mut rng).is_multiple_of(2) {
                     return None;
                 }
                 crate::dice::random_word(&mut rng);
-                if crate::dice::random_word(&mut rng) % 2 != 1 {
+                if crate::dice::random_word(&mut rng).is_multiple_of(2) {
                     return None;
                 }
                 game.actors.get_mut(&bat).unwrap().behavior.rng = seed;
