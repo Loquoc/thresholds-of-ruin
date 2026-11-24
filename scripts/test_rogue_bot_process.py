@@ -1387,8 +1387,11 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
         lore["identity"] = "item.scroll.fixture-lore"
         character, = manifest["characters"]
         character["known_identities"] = [lore["identity"]]
-        character["loadout"] = [{"archetype": item, "quantity": 1}
-                                for item in ("rogue.identify_potion", "rogue.extra_healing")]
+        character["loadout"] = [
+            {"archetype": "rogue.identify_potion", "quantity": 1},
+            {"archetype": "rogue.blindness", "quantity": 1},
+            {"archetype": "rogue.extra_healing", "quantity": 3},
+        ]
         contents["regions"][0]["actors"] = []
         return self.server(scenario=write_package(self, contents, "rogue-bot-rename-identify"))
 
@@ -1433,13 +1436,28 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
                                      "TOR_SERVER_TOKEN": TOKEN},
             text=True, capture_output=True, timeout=55,
         )
-        server.stop(save=False)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         read, identify, terminal = (json.loads(line) for line in result.stdout.splitlines())
         self.assertEqual((read["action"]["type"], read["reason"]), ("read", "identify_gear"))
         self.assertEqual(identify["action"]["type"], "identify")
         self.assertEqual(identify["result"]["status"], "confirmed")
         self.assertEqual(terminal["terminal"], "action_budget")
+
+        probe = """
+import json, os, sys
+from tor_client_bot import Session
+
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    potions = [item for item in game.observe().inventory if item.category == "potion"]
+    print(json.dumps(sorted((item.quantity, item.identity) for item in potions)))
+"""
+        observed = subprocess.run(
+            [sys.executable, "-c", probe, self.address], cwd=self.directory,
+            env={**os.environ, "TOR_SERVER_TOKEN": TOKEN}, text=True, capture_output=True, timeout=30,
+        )
+        server.stop(save=False)
+        self.assertEqual(observed.returncode, 0, observed.stderr)
+        self.assertEqual(json.loads(observed.stdout), [[1, None], [3, "item.potion.extra-healing"]])
 
     def test_bot_walks_to_a_nearby_potion_and_collects_it(self):
         self.check_supply_detour("rogue.healing", [], "test_unknown_potion")
