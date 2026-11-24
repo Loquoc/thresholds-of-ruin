@@ -1811,6 +1811,8 @@ fn canonical_wraith_earned_regrowth_survives_source_free_service_reopen() {
             .hit_dice
             .push(serde_json::from_value(json!({"source":"warrior","purchases":[]})).unwrap());
         manifest.procedural_worlds.clear();
+        // This authored-only fixture has no generated levels.
+        manifest.levels = None;
         manifest.generation_recipes.clear();
         manifest.generation_groups.clear();
         manifest.stair_pairs.clear();
