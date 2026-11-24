@@ -3640,6 +3640,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (Move(direction), "retreat"))
 
+    def test_stair_retreat_routes_to_a_clear_exit_beyond_a_trapped_exit(self):
+        cells = [cell("clear", -2, down=True), cell("west", -1), cell("here"), cell("pit", 1, down=True)]
+        cells[-1]["trap"] = {"id": "pit", "family": None, "reachable": True}
+        foe = {"id": "foe", "name": "wraith", "position": {"x": 0, "y": 3, "z": 0}}
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"], combat={"hp": 8, "max_hp": 20})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.WEST), "retreat_to_stairs"))
+
     def test_stair_retreat_avoids_a_trapped_shortcut_with_equal_clearance(self):
         east = cell("east", 1)
         south = cell("south")

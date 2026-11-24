@@ -826,18 +826,18 @@ class Adventurer:
 
     @staticmethod
     def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
-        nearby = [cell.offset for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
+        nearby = [cell for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
         if not nearby:
             return None
-        destination = min(nearby, key=lambda offset: sum(map(abs, offset)))
-        distance = sum(map(abs, destination))
+        destination = min(nearby, key=lambda cell: (cell.trap is not None, sum(map(abs, cell.offset))))
+        distance = sum(map(abs, destination.offset))
         approaches = []
         for direction in turn.walkable_directions:
             offset = direction.offset
             candidate = turn.cell_at(offset)
             if candidate is None or candidate.key in avoid:
                 continue
-            remaining = sum(abs(a - b) for a, b in zip(offset, destination))
+            remaining = sum(abs(a - b) for a, b in zip(offset, destination.offset))
             if remaining < distance:
                 clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
                 # With equal clearance, avoid a known trap before favoring a shorter approach.
