@@ -2489,9 +2489,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                stats={"nutrition": nutrition}, interactions={"inventory": [{"item": "ration", "edible": True}]})
 
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-        before = picture(2, 100)
-        for count, reserve, expected in ((2, 150, None), (1, 95, None), (1, 160, 60), (1, 140, 40), (1, 170, 40)):
-            with self.subTest(count=count, reserve=reserve):
+        observations = (
+            (100, 2, 150, None),  # The stack did not shrink.
+            (100, 1, 95, None),
+            (990, 1, 1000, None),  # The reserve cap hides the full gain.
+            (100, 1, 160, 60),
+            (995, 1, 1000, 60),
+            (100, 1, 140, 40),
+            (100, 1, 170, 40),
+        )
+        for starting_reserve, count, reserve, expected in observations:
+            with self.subTest(starting_reserve=starting_reserve, count=count, reserve=reserve):
+                before = picture(2, starting_reserve)
                 player.admitted(before, UseItem(before.inventory[0], ItemUse.EAT))
                 player.observe(picture(count, reserve))
                 self.assertEqual(player.food_value.get(identity), expected)

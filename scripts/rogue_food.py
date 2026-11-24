@@ -35,9 +35,13 @@ class PendingMeal:
     reserve_before: int
 
     def observed_gain(self, turn: Turn) -> int | None:
-        if turn.nutrition is None or carried_quantity(turn, self.identity) >= self.quantity_before:
+        nutrition = turn.nutrition
+        if nutrition is None or nutrition.reserve >= nutrition.maximum:
+            # At the cap, the reserve change only gives a lower bound on the meal's value.
             return None
-        gain = turn.nutrition.reserve - self.reserve_before
+        if carried_quantity(turn, self.identity) >= self.quantity_before:
+            return None
+        gain = nutrition.reserve - self.reserve_before
         return gain if gain > 0 else None
 
 
