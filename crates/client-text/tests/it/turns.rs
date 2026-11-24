@@ -355,7 +355,7 @@ impl Link for Scripted {
                     },
                     request_id: None,
                     code,
-                    message: "Earned growth exceeds the supported resource limit".into(),
+                    message: "Earned growth exceeds the supported resource limit. Your action is still queued. You can cancel it to choose another action.".into(),
                 },
                 Frame::Waiting(on) => ServerMessage::Waiting { on },
                 Frame::Control(has_control) => {
