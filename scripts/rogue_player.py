@@ -275,6 +275,7 @@ class Adventurer:
             if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
                 self.mark_scroll_trial_unsuccessful(trial)
             elif phase is ActivityPhase.RESOLVED:
+                self.tried_unknown_scroll = True
                 self.pending_scroll_trial = None
         self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
@@ -455,7 +456,8 @@ class Adventurer:
             if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
                 newly_sampled = appearance if appearance not in self.sampled_scrolls else None
                 self.pending_scroll_trial = PendingScrollTrial(self.depth, receipt, item.target, newly_sampled)
-            self.tried_unknown_scroll = True
+            else:
+                self.tried_unknown_scroll = True
             self.sampled_scrolls.add(appearance)
         elif action.use is ItemUse.EAT and item.identity and turn.nutrition:
             self.pending_meal = PendingMeal(item.identity, carried_quantity(turn, item.identity), turn.nutrition.reserve)
@@ -598,7 +600,7 @@ class Adventurer:
         if decision := self.ranged_combat(turn, adjacent):
             return decision
 
-        if lethal and not self.tried_unknown_scroll:
+        if lethal and not self.tried_unknown_scroll and self.pending_scroll_trial is None:
             if trial := self.scroll_trial(turn):
                 return trial
 

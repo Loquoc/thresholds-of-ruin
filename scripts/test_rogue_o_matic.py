@@ -2083,6 +2083,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 choice = player.scroll_trial(after, at_exit=True)
                 self.assertEqual(choice[0].item.target if choice else None, expected)
 
+    def test_failed_emergency_read_allows_a_different_scroll_in_the_same_fight(self):
+        import json
+        from tor_client_bot import Result
+
+        foe = {"id": "orc", "name": "orc", "position": cell("orc", 1)["position"]}
+        scrolls = [{"id": key, "name": key, "class": "scroll", "quantity": 1, "identified": False}
+                   for key in ("first", "second")]
+        turn = player_turn([cell("here"), cell("orc", 1)], actors=[foe], hostiles=["orc"],
+                           inventory=scrolls, combat={"hp": 1, "max_hp": 10}, interactions={
+                               "inventory": [{"item": item["id"], "readable": True} for item in scrolls]})
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss["orc"] = 2
+        action, reason = choose(player, turn)
+        self.assertEqual((action.item.target, reason), ("first", "test_unknown_magic"))
+        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        player.admitted(turn, action, result, reason=reason)
+        after = Turn({**json.loads(turn.recording()), "finished_intentions": [dict(receipt, phase="failed")]})
+        player.observe(after)
+        retry = player.combat(after)
+        self.assertIsNotNone(retry)
+        self.assertEqual((retry[0].item.target, retry[1]), ("second", "test_unknown_magic"))
+
     def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
         import json
         from tor_client_bot import ActivityChoice, Result
