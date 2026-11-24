@@ -1445,3 +1445,14 @@ two failed executions (hosted Linux debug and release). The test now requires an
 exact rewind whenever history is within the window. Beyond it, rewinding to the
 dropped start must be refused without acting or consuming a sequence, and a
 one-turn game of the same package must rewind exactly.
+
+### Identify turn's scripted outcome (2026-11-24)
+
+The hosted Linux debug Rust lane exposed one stale Text fixture: after a paid
+Read, its mocked Identify updated item knowledge but omitted the server-authored
+narration. The old test had relied on the client inventing a line from the
+action. The fixture now sends the existing outcome message used by the server
+and requires the exact line once, while preserving its no-extra-turn, charge
+and request-count checks. The live service and source-free replay separately
+check that the server produces and retains the cue. No production change was
+needed for this test failure.
