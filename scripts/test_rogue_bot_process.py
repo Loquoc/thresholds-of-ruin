@@ -2316,6 +2316,13 @@ with ExitStack() as clients:
     assert len(turn.hostiles) == 2 and not turn.walkable_directions
     player = Adventurer(26, "item.amulet.amulet-of-yendor")
     player.observe(turn)
+    # At retrieval depth the down stair has no tactical value. Prefer the harder hitter.
+    at_goal = Adventurer(26, "item.amulet.amulet-of-yendor", depth=26)
+    at_goal.observe(turn)
+    harder = turn.hostiles[1]
+    at_goal.observed_loss[harder.target] = 3
+    attack_at_goal, why = at_goal.choose(turn)
+    assert why == "melee" and attack_at_goal.target == harder, (attack_at_goal, why)
     action, reason = player.choose(turn)
     assert reason == "melee" and any(c.stairs_down for c in turn.cells_of(action.target))
     assert action.ability.identity == os.environ["EXPECTED_MELEE"], (action, turn.abilities)

@@ -1446,6 +1446,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                      actors=[foe, top], hostiles=["foe"], abilities=[melee])
         self.assertEqual(Policy().choose(data)[1], "melee")
 
+    def test_melee_breaks_a_tie_using_damage_observed_from_each_foe(self):
+        cells = [cell("here"), cell("left", -1), cell("right", 1)]
+        foes = [{"id": tile["key"], "name": "orc", "position": tile["position"]} for tile in cells[1:]]
+        strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
+                  "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
+        turn = player_turn(cells, actors=foes, hostiles=["left", "right"], abilities=[strike])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        preferred = turn.hostiles[1]
+        player.observed_loss_by_name[preferred.name] = 3
+        player.observed_loss[preferred.target] = 3
+        action, reason = choose(player, turn)
+        self.assertEqual((reason, action.target.target), ("melee", preferred.target))
+
     def test_prioritizes_a_disclosed_near_death_foe_when_cornered(self):
         north = cell("north", down=True)
         north["position"]["y"] = -1

@@ -616,13 +616,17 @@ class Adventurer:
         return None
 
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
-        def attack_order(foe: Creature) -> tuple[int, bool, int]:
+        can_descend = self.depth < self.retrieval_depth and not self.carrying_objective(turn)
+
+        def attack_order(foe: Creature) -> tuple[int, bool, int, int, int]:
             opens_exit = any(
                 (cell.stairs_up and self.depth > 1) or
-                (cell.stairs_down and self.depth < self.retrieval_depth and not self.carrying_objective(turn))
+                (cell.stairs_down and can_descend)
                 for cell in turn.cells_of(foe)
             )
-            return MELEE_INJURY_PRIORITY.get(foe.injury, 3), not opens_exit, foe.distance
+            # Break tactical ties by threat, favoring direct evidence when foes share a species estimate.
+            return (MELEE_INJURY_PRIORITY.get(foe.injury, 3), not opens_exit, foe.distance,
+                    -self.damage_estimate(foe), -self.observed_loss[foe.target])
 
         for foe in sorted(turn.hostiles, key=attack_order):
             if make_space and foe.injury is not Injury.NEAR_DEATH:
