@@ -1572,12 +1572,6 @@ pub struct Anim {
     pub antic: Option<u32>,
 }
 
-/// Presentation time advanced by a single animation frame. Large time steps
-/// would destabilize contact and cloth, so animated-body cleanup uses it too.
-pub(crate) fn animation_frame_delta(dt: f32) -> f32 {
-    dt.min(0.05)
-}
-
 impl Anim {
     pub fn new(seed: u64, at: Vec3) -> Self {
         Self {

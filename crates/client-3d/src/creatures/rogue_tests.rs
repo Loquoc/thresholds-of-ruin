@@ -6769,3 +6769,68 @@ fn bat_opens_its_jaw_for_the_bite_and_recovers() {
     );
     assert!(after.angle_between(rest) < 0.08, "bite doesn't close again");
 }
+
+#[test]
+fn signature_touches_finish_their_reach_until_a_delayed_lethal_hit() {
+    let step = 0.016;
+    let wait = 18.0 * step;
+    let mut premature = Vec::new();
+    for (model, ability) in [
+        (CreatureModel::Ice, "rogue.freezing_touch"),
+        (CreatureModel::Aquator, "rogue.corrode"),
+    ] {
+        let cue = Move::for_ability(ability, None);
+        let (mut app, root) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+        let (mut plain, control) = animate_look(Look::of(model, 42), 12, |_| Vec3::ZERO);
+        app.world_mut().get_mut::<Anim>(root).unwrap().action = Some((cue, 0.10));
+        for (app, root) in [(&mut app, root), (&mut plain, control)] {
+            let mut anim = app.world_mut().get_mut::<Anim>(root).unwrap();
+            assert!(anim.die(true, wait));
+            // Settle both test actors with the same authored fall.
+            anim.death_motion = DeathMotion::Collapse;
+            anim.hit(wait);
+        }
+        let sample = |app: &App, root| {
+            let world = app.world();
+            let rig = world.get::<Rig>(root).unwrap();
+            let joint = if model == CreatureModel::Ice {
+                rig.joint(J::ArmR).unwrap()
+            } else {
+                rig.segments[0]
+            };
+            *world.get::<Transform>(joint).unwrap()
+        };
+        for i in 1..=35 {
+            app.update();
+            plain.update();
+            let armed = sample(&app, root);
+            let neutral = sample(&plain, control);
+            if i == 15 || i == 18 {
+                assert!(app.world().get::<Anim>(root).unwrap().dead.unwrap() < 0.0);
+                let reach = if model == CreatureModel::Ice {
+                    armed.translation.z - neutral.translation.z
+                } else {
+                    armed.rotation.angle_between(neutral.rotation)
+                };
+                let min = if model == CreatureModel::Ice {
+                    0.18
+                } else {
+                    0.55
+                };
+                if reach < min {
+                    premature.push((model, i, reach));
+                }
+            }
+            if i == 35 {
+                assert_eq!(
+                    armed, neutral,
+                    "{model:?} rejoins the ordinary fall after release"
+                );
+            }
+        }
+    }
+    assert!(
+        premature.is_empty(),
+        "touch folded before impact: {premature:?}"
+    );
+}

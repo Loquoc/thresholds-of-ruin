@@ -155,13 +155,23 @@ fn fall_entry(a: &Anim, seconds: f32) -> Option<(DeathEntry, f32)> {
     (fall < 1.0).then_some((entry, fall))
 }
 
-/// Reuse the last contact pose briefly when a trait-specific touch is interrupted.
+/// Advance an authored attack until the disclosed impact, then release its
+/// impact pose. A replay already in the fall cannot resurrect the entry.
+fn impact_fall_entry(a: &Anim, seconds: f32) -> Option<(DeathEntry, Move, f32, f32)> {
+    let (entry, death_phase) = (a.death_entry?, a.dead?);
+    let (motion, phase) = entry.action?;
+    let elapsed = (a.time - entry.started_at).max(0.0);
+    let phase = phase + elapsed.min(entry.impact_delay) / motion.duration();
+    let release =
+        (elapsed - entry.impact_delay).max(death_phase.max(0.0) * a.death_motion.duration());
+    let fall = ease(release / seconds);
+    (fall < 1.0 && phase < 1.0).then_some((entry, motion, phase, fall))
+}
+
+/// Keep a signature touch alive until impact, then fold from the reached pose.
 pub(super) fn touch_fall_entry(a: &Anim, accent: Accent) -> Option<(DeathEntry, f32, f32)> {
-    let (entry, fall) = fall_entry(a, 0.22)?;
-    let (Move::Touch(contact), phase) = entry.action? else {
-        return None;
-    };
-    (contact == accent).then_some((entry, phase, fall))
+    let (entry, motion, phase, fall) = impact_fall_entry(a, 0.22)?;
+    (motion == Move::Touch(accent)).then_some((entry, phase, fall))
 }
 
 /// Carry the last wing stroke and air position into the authored fall.
@@ -387,27 +397,13 @@ pub(super) fn release_winged_display(p: &mut Pose, rig: &Rig, a: &Anim) {
     if !matches!(rig.style, Style::Dragon | Style::Griffin) {
         return;
     }
-    let (Some(entry), Some(death_phase)) = (a.death_entry, a.dead) else {
-        return;
-    };
-    let Some((motion, phase)) = entry.action else {
+    let Some((_, motion, phase, fall)) = impact_fall_entry(a, 0.24) else {
         return;
     };
     if !matches!(
         (rig.style, motion),
         (Style::Dragon, Move::Breath(_)) | (Style::Griffin, Move::Fear)
     ) {
-        return;
-    }
-    // A disclosed death can arrive before its projectile. Continue the
-    // display along its authored clock until impact, then release from the
-    // pose it reached, not a frozen snapshot from the receipt of the cue.
-    let elapsed = (a.time - entry.started_at).max(0.0);
-    let phase = phase + elapsed.min(entry.impact_delay) / motion.duration();
-    let release =
-        (elapsed - entry.impact_delay).max(death_phase.max(0.0) * a.death_motion.duration());
-    let fall = ease(release / 0.24);
-    if fall >= 1.0 || phase >= 1.0 {
         return;
     }
     let mut neutral = Pose::new();
