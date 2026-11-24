@@ -895,11 +895,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         slot = {"id": "weapon", "name": "Weapon"}
         offers = [{"item": "shortbow", "slot": slot, "equipped_slot": 0},
                   {"item": "mace", "slot": slot, "equipped_slot": None}]
-        foe = {"id": "snake", "name": "snake", "position": cell("snake", 2)["position"]}
-        turn = player_turn([cell("here")], actors=[foe], hostiles=["snake"], inventory=inventory,
-                           interactions={"slots": [slot], "inventory": offers})
-        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
-                         (Unequip(turn.equipment[0]), "change_weapon"))
+        body = {"id": "player", "name": "you", "position": cell("body", 1)["position"]}
+        for distance, extra_body, switch in ((2, [], True), (3, [], False), (3, [body], True)):
+            with self.subTest(distance=distance, extended=bool(extra_body)):
+                foe = {"id": "snake", "name": "snake", "position": cell("snake", distance)["position"]}
+                turn = player_turn([cell("here"), cell("body", 1)], actors=[foe, *extra_body],
+                                   hostiles=["snake"], inventory=inventory,
+                                   interactions={"slots": [slot], "inventory": offers})
+                decision = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(decision == (Unequip(turn.equipment[0]), "change_weapon"), switch)
 
     def test_retreats_when_a_known_drainer_closes_on_any_part_of_the_player(self):
         cells = [cell("stairs", up=True), cell("body", 1), cell("hall", 2), cell("snake", 3)]

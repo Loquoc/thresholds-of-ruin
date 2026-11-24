@@ -565,7 +565,7 @@ class Adventurer:
         if not turn.hostiles:
             return None
         if self.has_arrows(turn):
-            nearest = min(foe.distance for foe in turn.hostiles)
+            nearest = min(turn.distance_to(foe) for foe in turn.hostiles)
             if nearest >= 5 or nearest <= 2:
                 if weapon := ready_weapon(turn, bow=nearest >= 5):
                     return weapon
