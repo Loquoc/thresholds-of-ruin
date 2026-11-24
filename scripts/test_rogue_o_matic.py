@@ -46,6 +46,17 @@ def player_turn(cells, *, inventory=(), ground=(), actors=(), hostiles=(), abili
     return Turn({"state": picture, "readiness": {"admission": True}})
 
 
+def scroll_trial_turn(cells, *scrolls, **observation):
+    items = [{"id": target, "name": appearance, "class": "scroll", "identified": False, "quantity": 1}
+             for target, appearance in scrolls]
+    offers = [{"item": item["id"], "readable": True} for item in items]
+    return player_turn(cells, inventory=items, interactions={"inventory": offers}, **observation)
+
+
+def read_activity(phase="queued"):
+    return {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": phase}
+
+
 def choose(player, turn):
     player.observe(turn)
     return player.choose(turn)
@@ -2044,17 +2055,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_cancelled_first_read_leaves_the_appearance_available_for_stair_study(self):
         from tor_client_bot import ActivityChoice, Result
 
-        scroll = {"id": "one", "name": "runed scroll", "class": "scroll", "identified": False, "quantity": 1}
-        second = {**scroll, "id": "two"}
-        turn = player_turn([cell("stairs", down=True)], inventory=[scroll, second], interactions={
-            "inventory": [{"item": item["id"], "readable": True} for item in (scroll, second)]})
-        result = Result.from_reply({"status": "confirmed", "receipt": {
-            "type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}})
+        turn = scroll_trial_turn([cell("stairs", down=True)], ("one", "runed scroll"), ("two", "runed scroll"))
+        result = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
         for previously_sampled in (False, True):
             with self.subTest(previously_sampled=previously_sampled):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
                 if previously_sampled:
-                    player.sampled_scrolls.add(scroll["name"])
+                    player.sampled_scrolls.add("runed scroll")
                 action, reason = player.scroll_trial(turn)
                 player.admitted(turn, action, result, reason=reason)
                 player.admitted(turn, ActivityChoice.CANCEL, reason="cancel_stalled_scroll")
@@ -2068,17 +2075,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         import json
         from tor_client_bot import Result
 
-        items = [{"id": name, "name": name, "class": "scroll", "quantity": 1, "identified": False}
-                 for name in ("first", "second")]
-        turn = player_turn([cell("here")], inventory=items, interactions={
-            "inventory": [{"item": item["id"], "readable": True} for item in items]})
-        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        turn = scroll_trial_turn([cell("here")], ("first", "MIR"), ("second", "NAR"))
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         action, reason = choose(player, turn)
-        player.admitted(turn, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
-        for phase in ("queued", "started", "paused"):
+        player.admitted(turn, action, Result.from_reply({"status": "confirmed", "receipt": read_activity()}), reason=reason)
+        for phase in ("queued", "started", "paused", "suspended"):
             with self.subTest(phase=phase):
-                active = Turn({**json.loads(turn.recording()), "intentions": [dict(receipt, phase=phase)]})
+                active = Turn({**json.loads(turn.recording()), "intentions": [read_activity(phase)]})
                 player.observe(active)
                 self.assertIsNone(player.route_scroll(active, player.maps[player.depth], returning=False))
                 self.assertIsNone(player.scroll_trial(active, at_exit=True))
@@ -2086,17 +2089,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_scroll_receipt_outside_retained_history_does_not_block_future_stair_study(self):
         from tor_client_bot import Result
 
-        items = [{"id": key, "name": key, "class": "scroll", "quantity": 1, "identified": False}
-                 for key in ("first", "second")]
         def picture(tick):
-            return player_turn([cell("stairs", down=True)], tick=tick, inventory=items, interactions={
-                "inventory": [{"item": item["id"], "readable": True} for item in items]})
+            return scroll_trial_turn([cell("stairs", down=True)], ("first", "MIR"), ("second", "NAR"), tick=tick)
 
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         before = picture(100)
         action, reason = player.scroll_trial(before, at_exit=True)
-        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
-        player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
+        player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": read_activity()}), reason=reason)
         player.observe(before)
         self.assertIsNone(player.scroll_trial(before, at_exit=True))
         later = picture(200)
@@ -2109,17 +2108,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         import json
         from tor_client_bot import Result
 
-        scroll = {"id": "one", "name": "runed", "class": "scroll", "identified": False, "quantity": 1}
-        turn = player_turn([cell("here")], inventory=[scroll, {**scroll, "id": "two"}], interactions={
-            "inventory": [{"item": key, "readable": True} for key in ("one", "two")]})
-        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "trial", "phase": "queued"}
-        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        turn = scroll_trial_turn([cell("here")], ("one", "runed"), ("two", "runed"))
+        result = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
         for phase, expected in (("failed", "two"), ("cancelled", "two"), ("resolved", None)):
             with self.subTest(phase=phase):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
                 action, reason = choose(player, turn)
                 player.admitted(turn, action, result, reason=reason)
-                after = Turn({**json.loads(turn.recording()), "finished_intentions": [dict(receipt, phase=phase)]})
+                after = Turn({**json.loads(turn.recording()), "finished_intentions": [read_activity(phase)]})
                 player.observe(after)
                 choice = player.scroll_trial(after, at_exit=True)
                 self.assertEqual(choice[0].item.target if choice else None, expected)
@@ -2129,19 +2125,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         from tor_client_bot import Result
 
         foe = {"id": "orc", "name": "orc", "position": cell("orc", 1)["position"]}
-        scrolls = [{"id": key, "name": key, "class": "scroll", "quantity": 1, "identified": False}
-                   for key in ("first", "second")]
-        turn = player_turn([cell("here"), cell("orc", 1)], actors=[foe], hostiles=["orc"],
-                           inventory=scrolls, combat={"hp": 1, "max_hp": 10}, interactions={
-                               "inventory": [{"item": item["id"], "readable": True} for item in scrolls]})
-        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        turn = scroll_trial_turn([cell("here"), cell("orc", 1)], ("first", "MIR"), ("second", "NAR"),
+                                 actors=[foe], hostiles=["orc"], combat={"hp": 1, "max_hp": 10})
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
         player.observed_loss["orc"] = 2
         action, reason = choose(player, turn)
         self.assertEqual((action.item.target, reason), ("first", "test_unknown_magic"))
-        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        result = Result.from_reply({"status": "confirmed", "receipt": read_activity()})
         player.admitted(turn, action, result, reason=reason)
-        after = Turn({**json.loads(turn.recording()), "finished_intentions": [dict(receipt, phase="failed")]})
+        after = Turn({**json.loads(turn.recording()), "finished_intentions": [read_activity("failed")]})
         player.observe(after)
         retry = player.combat(after)
         self.assertIsNotNone(retry)
