@@ -983,6 +983,27 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (launch, "launch_projectile"))
 
+    def test_prefers_a_short_range_shot_when_two_hostiles_are_in_range(self):
+        from unittest.mock import Mock
+        from tor_client_bot import ProjectileRange, Shot
+
+        cells = [cell(str(x), x) for x in range(5)]
+        foes = [{"id": name, "name": name, "position": cells[x]["position"]}
+                for name, x in (("far", 4), ("near", 2))]
+        ability = {"id": "shoot", "name": "shoot", "target_kind": "directional_projectile",
+                   "reach": {"kind": "projectile"}, "cooldown_remaining": "0", "basic_attack": False, "cost": None}
+        pack = [{"id": name, "name": name, "class": "weapon", "quantity": 1, "identified": False} for name in ("dart", "bow")]
+        turn = player_turn(cells, actors=foes, hostiles=["far", "near"], abilities=[ability], inventory=pack)
+        dart, bow = turn.inventory
+        for launcher, reason in ((bow, "launch_projectile"), (None, "throw_projectile")):
+            with self.subTest(reason=reason):
+                shots = [Shot(turn.abilities[0], foe, (turn.distance_to(foe), 0, 0), dart, launcher, 0,
+                              range=ProjectileRange(2, 4)) for foe in turn.hostiles]
+                shots.sort(key=lambda shot: shot.offset, reverse=True)
+                for offers, expected in ((shots, shots[1]), (shots[:1], shots[0])):
+                    turn.ranged_attacks = Mock(return_value=iter(offers))
+                    self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn), (expected, reason))
+
     def test_throw_range_ends_at_four_and_an_admitted_throw_waits_for_time_to_advance(self):
         from unittest.mock import Mock
         from tor_client_bot import Shot

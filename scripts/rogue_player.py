@@ -587,18 +587,24 @@ class Adventurer:
         if turn.tick == self.last_shot_tick:
             return None
         can_strike = any(turn.attack(foe) is not None for foe in adjacent)
-        first_throw = None
+        best_shot = None
+        best_rank = None
         for shot in turn.ranged_attacks(max_distance=8):
             if not shot.target.hostile:
                 continue
-            if shot.launcher:
-                return shot, "launch_projectile"
-            if first_throw is not None or can_strike or shot.equipped_throw:
+            distance = max(map(abs, shot.offset))
+            launched = shot.launcher is not None
+            if not launched and (can_strike or shot.equipped_throw or distance > 4):
                 continue
-            if max(map(abs, shot.offset)) <= 4:
-                first_throw = shot
-        if first_throw is not None:
-            return first_throw, "throw_projectile"
+            # Prefer a launcher, then avoid a disclosed long-range penalty.
+            in_normal_range = shot.range is None or distance <= shot.range.short_cells
+            rank = launched, in_normal_range
+            if launched and in_normal_range:
+                return shot, "launch_projectile"
+            if best_rank is None or rank > best_rank:
+                best_shot, best_rank = shot, rank
+        if best_shot is not None:
+            return best_shot, "launch_projectile" if best_shot.launcher else "throw_projectile"
         return None
 
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
