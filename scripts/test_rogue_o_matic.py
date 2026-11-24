@@ -2579,6 +2579,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.danger_until["passage"] = 900
         self.assertEqual(player.choose(turn), (Wait(), "recover"))
 
+    def test_injured_scout_resumes_its_food_route_after_levitation_expires(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.descent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        cells = [cell("hall"), cell("stairs", -1, down=True), cell("passage", 1), cell("frontier", 2)]
+        recovery = {"period_ticks": 1000, "elapsed_ticks": 0, "reset_percent": 100, "stopped": False}
+        nutrition = {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+                     "hunger": "nourished", "elapsed": 0}
+        levitation = {"condition": {"id": "rogue.levitation", "name": "Levitation"}, "phase": "active"}
+        for tick, remaining, expected in (
+            (100, 100, (Move(Direction.WEST), "recover_en_route")),
+            (200, 0, (Move(Direction.EAST), "scout_for_food")),
+        ):
+            with self.subTest(remaining=remaining):
+                turn = player_turn(cells, tick=tick, combat={"hp": 6}, stats={
+                    "health_recovery": recovery, "nutrition": nutrition,
+                    "conditions": [{**levitation, "remaining_ticks": remaining}],
+                })
+                player.observe(turn)
+                player.maps[3].visited.update({"stairs", "passage"})
+                self.assertEqual(player.choose(turn), expected)
+
     def test_scouts_for_food_before_an_underfunded_descent(self):
         data = state([cell("stairs", down=True), cell("frontier", 1)])
         view = data["observation"]

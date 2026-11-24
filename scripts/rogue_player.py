@@ -1096,7 +1096,7 @@ class Adventurer:
 
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
-        if nutrition is None:
+        if nutrition is None or turn.has_condition("rogue.levitation"):
             return None
         required = self.estimated_journey_ticks(returning)
         if nutrition.ticks_until_empty >= required:
@@ -1270,7 +1270,7 @@ class Adventurer:
         if decision := self.route_to_loot(turn, memory, loot):
             return decision
 
-        if not hovering and not turn.hostiles and (decision := self.provision(turn, memory, returning)):
+        if not turn.hostiles and (decision := self.provision(turn, memory, returning)):
             return decision
 
         direction = Direction.UP if returning else Direction.DOWN
