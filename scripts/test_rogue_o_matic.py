@@ -384,6 +384,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 pinned.admitted(turn, action, reason=reason)
                 self.assertIsNone(pinned.corridor_stand)
 
+        # The lead body cell gains a step of clearance even though the new distance
+        # only equals the distance the pursuers previously had from the player's origin.
+        extended_body = {"id": "player", "name": "you", "position": tile(1, 0)["position"]}
+        pursuers = [{**foe, "position": tile(3, y)["position"]} for y, foe in enumerate(foes)]
+        turn = player_turn([*cells, tile(1, 0), tile(3, 0), tile(3, 1)],
+                           actors=[extended_body, *pursuers], hostiles=["0", "1"])
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.WEST), "take_corridor"))
+
         cells[2]["wall"] = True
         turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
         self.assertNotEqual(choose(player, turn)[1], "take_corridor")

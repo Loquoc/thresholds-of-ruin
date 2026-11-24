@@ -482,12 +482,14 @@ class Adventurer:
             return decision
         if decision := self.fight_stair_guard(turn, adjacent):
             return decision
-        close_pursuit = bool(adjacent) and sum(turn.distance_to(foe) <= 2 for foe in turn.hostiles) >= 2
+        distances = [(foe, turn.distance_to(foe)) for foe in turn.hostiles]
+        close_pursuit = bool(adjacent) and sum(distance <= 2 for _, distance in distances) >= 2
         if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
             return escape
-        approaching_group = not adjacent and sum(turn.distance_to(foe) <= 3 for foe in turn.hostiles) >= 2
+        pursuers = [(foe, distance) for foe, distance in distances if distance <= 3]
+        approaching_group = not adjacent and len(pursuers) >= 2
         if approaching_group and not self.trapped(turn):
-            if step := self.take_corridor(turn):
+            if step := self.take_corridor(turn, pursuers):
                 return step, MemoryReason.TAKE_CORRIDOR
         if turn.hostiles and not adjacent and health and (decision := self.counter_threat(turn, health.current)):
             return decision
@@ -630,14 +632,13 @@ class Adventurer:
         return None
 
     @staticmethod
-    def take_corridor(turn: Turn) -> Move | None:
+    def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | None:
         """Enter a narrow passage with a clear retreat and the pursuers on the far side."""
         for direction in turn.walkable_directions:
             dx, dy, _ = direction.offset
             if dx and dy:
                 continue
-            if not all(turn.distance_to(foe, from_offset=direction.offset) > foe.distance
-                       for foe in turn.hostiles if foe.distance <= 3):
+            if any(turn.distance_to(foe, from_offset=direction.offset) <= distance for foe, distance in pursuers):
                 continue
             entrance = turn.cell_at(direction.offset)
             if entrance is None or entrance.trap or direction not in turn.walkable_from(entrance):
