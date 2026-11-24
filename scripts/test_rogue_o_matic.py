@@ -393,9 +393,13 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.WEST), "take_corridor"))
 
-        cells[2]["wall"] = True
-        turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
-        self.assertNotEqual(choose(player, turn)[1], "take_corridor")
+        pit = {"id": "pit", "family": None, "reachable": True}
+        for obstruction in ({"wall": True}, {"trap": pit}):
+            with self.subTest(obstruction=obstruction):
+                blocked = [*cells]
+                blocked[2] = {**cells[2], **obstruction}
+                turn = player_turn(blocked, actors=foes, hostiles=["0", "1"])
+                self.assertNotEqual(choose(player, turn)[1], "take_corridor")
 
     def test_missed_corridor_move_does_not_reserve_the_entrance_for_a_later_visit(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)

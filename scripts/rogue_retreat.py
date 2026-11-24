@@ -14,6 +14,9 @@ def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | No
         entrance = turn.cell_at(direction.offset)
         if entrance is None or entrance.trap or direction not in turn.walkable_from(entrance):
             continue
+        retreat = turn.cell_at((2 * dx, 2 * dy, 0))
+        if retreat is None or retreat.trap:
+            continue
         flanks = [turn.cell_at((dx + sign * dy, dy + sign * dx, 0)) for sign in (-1, 1)]
         if not all(c is not None and c.wall for c in flanks):
             continue
