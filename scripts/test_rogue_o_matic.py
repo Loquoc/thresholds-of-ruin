@@ -2444,6 +2444,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                          ({"type": "identify", "choice": "current-choice", "item": "offered"},
                           "identify"))
 
+    def test_identification_prefers_the_larger_unknown_potion_stack(self):
+        potion = {"class": "potion", "identified": False, "quantity": 1}
+        single = {**potion, "id": "single", "name": "blue flask"}
+        stack = {**potion, "id": "stack", "name": "pink flask", "quantity": 3}
+        prompt = {"choice": "lore", "classes": ["potion"], "items": ["single", "stack"]}
+        for inventory in ([single, stack], [stack, single]):
+            with self.subTest(first=inventory[0]["id"]):
+                turn = player_turn([cell("here")], inventory=inventory, interactions={"identification": prompt})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.item.target, reason), ("stack", "identify"))
+
     def test_identification_prompt_with_no_useful_offers_declines_the_choice(self):
         known = {"id": "band", "name": "band", "class": "ring", "identity": "item.ring.ring-searching",
                  "quantity": 1, "identified": True}
