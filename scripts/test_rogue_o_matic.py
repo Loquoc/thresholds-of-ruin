@@ -2083,6 +2083,28 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertIsNone(player.route_scroll(active, player.maps[player.depth], returning=False))
                 self.assertIsNone(player.scroll_trial(active, at_exit=True))
 
+    def test_scroll_receipt_outside_retained_history_does_not_block_future_stair_study(self):
+        from tor_client_bot import Result
+
+        items = [{"id": key, "name": key, "class": "scroll", "quantity": 1, "identified": False}
+                 for key in ("first", "second")]
+        def picture(tick):
+            return player_turn([cell("stairs", down=True)], tick=tick, inventory=items, interactions={
+                "inventory": [{"item": item["id"], "readable": True} for item in items]})
+
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        before = picture(100)
+        action, reason = player.scroll_trial(before, at_exit=True)
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        player.admitted(before, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
+        player.observe(before)
+        self.assertIsNone(player.scroll_trial(before, at_exit=True))
+        later = picture(200)
+        player.observe(later)
+        trial = player.scroll_trial(later, at_exit=True)
+        self.assertIsNotNone(trial)
+        self.assertEqual(trial[0].item.target, "second")
+
     def test_failed_scroll_trial_skips_the_failed_item_but_can_study_another_copy(self):
         import json
         from tor_client_bot import Result
