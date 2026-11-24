@@ -323,7 +323,7 @@ of this wire representation.
 The first frame authenticates and declares a frontend label:
 
 ```json client-message
-{"type":"hello","protocol":75,"token":"<session token>","frontend":"text"}
+{"type":"hello","protocol":76,"token":"<session token>","frontend":"text"}
 ```
 
 The server sends `welcome` with the authenticated user, authorized actor IDs, and
@@ -623,6 +623,11 @@ before changing presentation state. A new connection establishes a fresh model.
 An exhausted reset counter closes the attachment rather than wrapping.
 
 ### View deltas
+
+The observation may include a scenario-authored `level_name`: a nonempty
+printable label of at most 80 UTF-8 bytes, without leading or trailing
+whitespace. Deltas use the same optional field, and absence clears a former
+label. This is presentation, not a stable level identifier.
 
 Demanded visual updates may be `observation_delta`s. Scalars and optional combat
 and motion fields are carried in full. `visible_cells` is replaced with `cells`:
@@ -1796,7 +1801,9 @@ A missing or false capability cannot be inferred from food/corpse class or name.
 Only personal `own_stats` and authorized creature inspection include required
 `nutrition`: `{ "kind": "exempt" }`, or `kind: "required"` with integer `reserve`,
 `maximum`, `starve_at`, `hunger` (`nourished`, `hungry`, `weak`, `empty`), and
-unsigned decimal-string `unit_ticks` and `elapsed`. Health recovery is validated
+unsigned decimal-string `unit_ticks` and `elapsed`. The optional boolean
+`fainting` is true only while the nutrition-driven restriction on voluntary
+actions is active. Omission means false, including during protection. Health recovery is validated
 independently; hunger labels do not disclose its authored slowdown/stop policy.
 Ordinary actor sightings have no nutrition field.
 Nourish diagnostics carry the actual added amount through the existing private

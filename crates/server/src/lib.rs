@@ -61,6 +61,7 @@ pub mod region_streaming;
 mod regions;
 mod runner;
 pub use regions::{RegionAcquisitionProfile, Streaming};
+pub mod scenario_levels;
 pub mod scenario_package;
 mod semantic_visual;
 mod session;

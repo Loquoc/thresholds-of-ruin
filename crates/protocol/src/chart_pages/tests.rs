@@ -748,6 +748,7 @@ fn state() -> crate::StateView {
                 inactive(ChartKind::Food),
                 inactive(ChartKind::Magic),
             ],
+            level_name: None,
             known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,

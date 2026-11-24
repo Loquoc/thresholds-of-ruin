@@ -1083,6 +1083,7 @@ mod outcome_stream_tests {
         let observation = Observation {
             public_effects: vec![],
             charts: vec![],
+            level_name: None,
             known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,

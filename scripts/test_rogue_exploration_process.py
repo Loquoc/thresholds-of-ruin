@@ -7,7 +7,9 @@ import tomllib
 import unittest
 from contextlib import closing
 
-from process_harness import DIRECTIONS, ProcessTestCase, ROOT, SPECTATOR_TOKEN, SUFFIX, explore_to_stairs, underfoot
+from process_harness import (
+    DIRECTIONS, ProcessTestCase, ROOT, SPECTATOR_TOKEN, SUFFIX, explore_to_stairs, underfoot,
+)
 
 
 class RogueBundledPolicy(unittest.TestCase):
@@ -96,6 +98,83 @@ class RogueExplorationProcess(ProcessTestCase):
                                 capture_output=True, text=True, encoding="utf-8", timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
+
+    def capture_named_level(self, player, expected):
+        start = len(player.transcript)
+        snapshot = self.request(player, {"type": "snapshot"})
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual(snapshot["state"]["observation"]["level_name"], expected)
+        messages = [json.loads(line).get("message") for line in player.transcript[start:]
+                    if line.startswith("{")]
+        message, = [row for row in messages if row and row["type"] == "snapshot"]
+        return message
+
+    def test_authored_level_name_changes_only_at_a_level_boundary_and_survives_reload(self):
+        package = self.directory / "named-levels"
+        shutil.copytree(ROOT / "scenarios/two-room", package, ignore=shutil.ignore_patterns(".compiled"))
+        manifest = package / "scenario.toml"
+        manifest.write_text(manifest.read_text(encoding="utf-8") + """
+
+[levels.names]
+old-mine = "The Old Mine"
+keep = "The Keep"
+
+[levels.regions]
+1 = "old-mine"
+2 = "old-mine"
+3 = "keep"
+""", encoding="utf-8")
+        region2 = package / "regions/2.toml"
+        region2.write_text(region2.read_text(encoding="utf-8")
+                           .replace('"landing" = [0, 1, 0]', '"landing" = [0, 1, 0], "east" = [4, 1, 0]')
+                           .replace('"height" = 2 }]', '"height" = 2 }, '
+                                    '{ at = [4, 1, 0], direction = "east", to = "3/landing", height = 2 }]'),
+                           encoding="utf-8")
+        (package / "regions/3.toml").write_text("""
+id = 3
+name = "Keep entry"
+size = [5, 3, 2]
+chamber = true
+gravity = [0, 0, -1]
+anchors = { landing = [0, 1, 0] }
+portals = [{ at = [0, 1, 0], direction = "west", to = "2/east", height = 2 }]
+""", encoding="utf-8")
+        self.compiler("validate", package)
+        server = self.server("--checkpoint-interval", 0, scenario=package, seed=42)
+        player, current = self.client()
+        self.assertEqual(current["state"]["observation"]["level_name"], "The Old Mine")
+        self.named_level_samples = {"zz.level_named_start": self.capture_named_level(player, "The Old Mine")}
+        # From x=1, reach region 2 in five steps, then region 3 in five more.
+        for step in range(1, 11):
+            current = self.act(player, {"type": "move", "direction": "east"})
+            self.assertIsNone(current["error"])
+            expected = "The Old Mine" if step < 10 else "The Keep"
+            self.assertEqual(current["state"]["observation"]["level_name"], expected)
+        self.assertIsNone(self.request(player, {"type": "save"})["error"])
+        player.stop(save=False)
+        server.stop(save=False)
+        shutil.rmtree(package)
+        self.server("--checkpoint-interval", 0, scenario=ROOT / "scenarios/two-room", seed=None)
+        player, restored = self.client()
+        self.assertEqual(restored["state"]["observation"]["level_name"], "The Keep")
+        self.named_level_samples["zz.level_named_restart"] = self.capture_named_level(player, "The Keep")
+
+    def test_generated_roguish_levels_use_the_same_snapshot_field(self):
+        package = self.geometry_copy("named-dungeon")
+        manifest = package / "scenario.toml"
+        manifest.write_text(manifest.read_text(encoding="utf-8").replace("dungeon/1/start", "dungeon/1/down")
+                            + '\n[levels.procedural]\ndungeon = "Dungeon Level {depth}"\n', encoding="utf-8")
+        self.compiler("validate", package)
+        self.server(scenario=package, seed=42)
+        player, current = self.client()
+        self.assertEqual(current["state"]["observation"]["level_name"], "Dungeon Level 1")
+        self.assertTrue(underfoot(current["state"])["stairs_down"])
+        descended = self.act(player, {"type": "move", "direction": "down"})
+        self.assertIsNone(descended["error"])
+        self.assertEqual(descended["state"]["observation"]["level_name"], "Dungeon Level 2")
+        self.named_level_samples = {
+            "zz.level_generated_descent": self.capture_named_level(player, "Dungeon Level 2"),
+        }
 
     def test_compiler_keeps_future_depth_queries_bounded_without_enumerating_the_dungeon(self):
         # These are offline authoring queries, never a client navigation oracle.

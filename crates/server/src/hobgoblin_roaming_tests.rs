@@ -31,6 +31,8 @@ fn fixture_with_seed(allow_stairs: bool, foes: u64, seed: u64) -> Game {
     manifest.characters.retain(|character| character.id == 1);
     manifest.characters[0].anchor = "2/start".into();
     manifest.procedural_worlds.clear();
+    // This authored-only fixture has no generated levels.
+    manifest.levels = None;
     manifest.generation_recipes.clear();
     manifest.generation_groups.clear();
     manifest.stair_pairs.clear();

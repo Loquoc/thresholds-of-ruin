@@ -4445,7 +4445,7 @@ pub fn status_lines_at_width(app: &App, state: &ClientState, columns: usize) -> 
         }
     }
     fields.sort_by_key(|field| {
-        if field.starts_with("HP:") {
+        if field.starts_with("HP:") || matches!(field.as_str(), "Starving" | "Fainting") {
             0
         } else if matches!(
             field.as_str(),
@@ -4504,11 +4504,33 @@ pub fn status_lines_at_width(app: &App, state: &ClientState, columns: usize) -> 
     }
 
     let mut rows = [String::new(), String::new(), String::new()];
-    fit(
-        first.split_whitespace().map(str::to_owned),
-        columns,
-        &mut rows[..1],
-    );
+    if let Some(label) = state.state().observation.level_name.as_deref() {
+        let length = label.chars().count();
+        if columns > 0 && length > columns {
+            rows[0] = label.chars().take(columns - 1).chain(['~']).collect();
+        } else if columns > 0 {
+            rows[0].push_str(label);
+            let rest = first.strip_prefix(label).unwrap_or(&first);
+            if let Some(available) = columns.checked_sub(length + 1).filter(|n| *n > 0) {
+                let mut details = [String::new()];
+                fit(
+                    rest.split_whitespace().map(str::to_owned),
+                    available,
+                    &mut details,
+                );
+                if !details[0].is_empty() {
+                    rows[0].push(' ');
+                    rows[0].push_str(&details[0]);
+                }
+            }
+        }
+    } else {
+        fit(
+            first.split_whitespace().map(str::to_owned),
+            columns,
+            &mut rows[..1],
+        );
+    }
     fit(fields, columns, &mut rows[1..]);
     rows
 }

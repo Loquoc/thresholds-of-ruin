@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 75;
+pub const PROTOCOL_VERSION: u32 = 76;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -840,6 +840,13 @@ pub struct KnownItemUse {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Observation {
+    /// Scenario-authored name of the observer's current level, never a region ID.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "read_level_name"
+    )]
+    pub level_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_item_uses: Vec<KnownItemUse>,
     /// Read-only chart catalog; never sight, ordinary map memory or action offers.
@@ -874,6 +881,28 @@ pub struct Observation {
     pub inventory: Vec<ItemView>,
     pub visible_actors: Vec<ActorView>,
     pub ready: bool,
+}
+
+/// The display and authoring limits are shared so a valid package cannot put an
+/// invalid label in a snapshot or delta.
+pub fn valid_level_name(value: &str) -> bool {
+    !value.is_empty()
+        && value == value.trim()
+        && value.len() <= 80
+        && !value.chars().any(char::is_control)
+}
+
+pub(crate) fn read_level_name<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<String>, D::Error> {
+    let name = Option::<String>::deserialize(d)?;
+    if name
+        .as_deref()
+        .is_some_and(|value| !valid_level_name(value))
+    {
+        return Err(serde::de::Error::custom("invalid level name"));
+    }
+    Ok(name)
 }
 
 pub const MAX_LINKED_HOLDS: usize = 128;

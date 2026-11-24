@@ -221,6 +221,7 @@ pub fn nutrition_line(nutrition: NutritionView) -> Option<String> {
             unit_ticks,
             elapsed,
             starve_at,
+            ..
         } => Some(format!(
             "Nutrition: {reserve}/{maximum} ({}); next unit in {} active ticks; starvation at {starve_at}",
             hunger_label(hunger),

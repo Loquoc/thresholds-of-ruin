@@ -20,6 +20,8 @@ fn nutrition_and_eat_wire_shapes_are_strict_and_personal() {
         ("maximum", json!(0)),
         ("reserve", json!(-4)),
         ("hunger", json!("empty")),
+        ("fainting", json!("true")),
+        ("fainting", json!(null)),
         ("private", json!(true)),
     ] {
         let mut bad = good.clone();
@@ -30,6 +32,19 @@ fn nutrition_and_eat_wire_shapes_are_strict_and_personal() {
         );
     }
     assert!(serde_json::from_value::<NutritionView>(json!({"kind":"exempt","reserve":0})).is_err());
+    assert!(
+        serde_json::from_value::<NutritionView>(json!({"kind":"exempt","fainting":true})).is_err()
+    );
+    let mut fainting = good.clone();
+    fainting["reserve"] = json!(0);
+    fainting["hunger"] = json!("empty");
+    fainting["fainting"] = json!(true);
+    let parsed: NutritionView = serde_json::from_value(fainting.clone()).unwrap();
+    assert!(matches!(
+        parsed,
+        NutritionView::Required { fainting: true, .. }
+    ));
+    assert_eq!(serde_json::to_value(parsed).unwrap(), fainting);
     let item = ItemTarget::from_digest([7; 32]);
     let action = json!({"type":"eat","item":item});
     assert_eq!(

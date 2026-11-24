@@ -785,6 +785,9 @@ pub fn brief_place_with(
         lines.push(prose::paragraph(&about));
     }
     lines.extend(contents(state, palette, &place));
+    if let Some(warning) = tor_client_common::status::hunger_warning(&state.current().observation) {
+        lines.push(warning.description().into());
+    }
     lines.join("\n")
 }
 
@@ -857,5 +860,8 @@ pub fn describe_place_with(state: &dyn ScenicView, palette: &Palette, places: &P
     about.extend(exit_sentence(state));
     lines.push(prose::paragraph(&about));
     lines.extend(contents(state, palette, &place));
+    if let Some(warning) = tor_client_common::status::hunger_warning(&state.current().observation) {
+        lines.push(warning.description().into());
+    }
     lines.join("\n")
 }

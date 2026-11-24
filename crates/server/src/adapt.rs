@@ -968,6 +968,7 @@ pub(crate) fn observation_keyed(
         })
         .collect();
     p::Observation {
+        level_name: None,
         known_item_uses: view
             .interactions
             .iter()

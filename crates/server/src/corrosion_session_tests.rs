@@ -36,6 +36,8 @@ fn scenario() -> crate::Scenario {
     ] {
         manifest[key] = json!({});
     }
+    // This authored-only fixture has no generated levels.
+    manifest["levels"] = Value::Null;
     for key in ["floor_activation", "unique_retrieval", "scripting"] {
         manifest[key] = Value::Null;
     }

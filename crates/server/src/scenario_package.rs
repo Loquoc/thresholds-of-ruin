@@ -141,6 +141,8 @@ fn label(s: &str) -> bool {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub levels: Option<crate::scenario_levels::LevelLabels>,
     #[serde(
         default,
         skip_serializing_if = "BTreeMap::is_empty",
@@ -2861,6 +2863,13 @@ impl Package {
     fn check_identity_with_origin(&self, origin: Option<Origin<'_>>) -> Result<(), Failure> {
         crate::storage::schema::scenario::check_metadata_capacity(self)?;
         check_manifest_header(&self.manifest)?;
+        require(
+            self.manifest
+                .levels
+                .as_ref()
+                .is_none_or(|levels| levels.valid(&self.index, &self.manifest.procedural_worlds)),
+            "Invalid level names, authored region membership, or procedural level template",
+        )?;
         self.check_scripts()?;
         require(
             self.certificate.files.get("index.json") == Some(&digest(&self.index.to_bytes()?))

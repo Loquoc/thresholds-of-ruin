@@ -379,6 +379,8 @@ struct SpatialOwnedRun {
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "source::Manifest", deny_unknown_fields)]
 struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    levels: Option<crate::scenario_levels::LevelLabels>,
     #[serde(with = "mapped")]
     spatial_scopes: BTreeMap<String, source::spatial_authoring::AuthoredSpatialScope>,
     #[serde(with = "mapped")]
@@ -5096,7 +5098,7 @@ mod tests {
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 75);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 76);
         assert_eq!(super::RULES_INPUT_FORMAT, 27);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently

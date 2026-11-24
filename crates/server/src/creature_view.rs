@@ -158,6 +158,23 @@ pub(crate) fn expertise_rows(
 
 pub(crate) fn own_stats(stats: s::creatures::OwnStats) -> p::OwnStats {
     let rules = &stats.rules;
+    // The condition is authored. Neither the displayed name nor generic
+    // action denial identifies the scenario's hunger-induced faint.
+    let fainting = match &rules.document().nutrition_condition_trigger {
+        s::nutrition::NutritionConditionTrigger::OnEmptyDepletion { condition, .. }
+            if rules.condition(condition).is_some_and(|definition| {
+                definition
+                    .restrictions
+                    .contains(&s::rules::ConditionRestriction::VoluntaryActions)
+            }) =>
+        {
+            stats.conditions.iter().any(|entry| {
+                &entry.condition == condition
+                    && entry.phase == s::conditions::ConditionPhase::Active
+            })
+        }
+        _ => false,
+    };
     let mut sources: Vec<_> = stats
         .hit_dice
         .classes
@@ -225,6 +242,7 @@ pub(crate) fn own_stats(stats: s::creatures::OwnStats) -> p::OwnStats {
             } => p::NutritionView::Required {
                 reserve,
                 maximum,
+                fainting,
                 unit_ticks,
                 elapsed,
                 starve_at,

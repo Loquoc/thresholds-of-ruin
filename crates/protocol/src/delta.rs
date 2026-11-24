@@ -33,6 +33,13 @@ pub struct CollectionEdit<T> {
 /// A state view expressed as cell changes and exact ordered collection edits.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateDelta {
+    /// Full replacement, including clearing a formerly named level.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::read_level_name"
+    )]
+    pub level_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_item_uses: Vec<KnownItemUse>,
     /// Exact visual allocation this delta was derived from, independent of revisions.
@@ -222,6 +229,7 @@ impl StateDelta {
         Some(Self {
             base_snapshot: base.snapshot.clone(),
             snapshot: next.snapshot.clone(),
+            level_name: observation.level_name.clone(),
             known_item_uses: observation.known_item_uses.clone(),
             self_appearance: observation.self_appearance.clone(),
             interactions: observation.interactions.clone(),
@@ -326,6 +334,7 @@ impl StateDelta {
             wizard_game: self.wizard_game,
             revision: self.revision,
             observation: Observation {
+                level_name: self.level_name,
                 known_item_uses: self.known_item_uses,
                 self_appearance: self.self_appearance,
                 interactions: self.interactions,
