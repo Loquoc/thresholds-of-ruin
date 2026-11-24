@@ -45,7 +45,7 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_food import FoodScout, PendingMeal, carried_quantity, edible_items, estimate_carried_food
+from rogue_food import FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food
 from rogue_gear import (
     IDENTIFY_CATEGORIES, choose_armor, choose_ring, improve_worn_gear,
     needs_identification, ready_weapon, ring_upgrades,
@@ -466,7 +466,7 @@ class Adventurer:
                     return UseItem(item, ItemUse.DRINK), "heal"
 
         if turn.hostiles and not lethal and turn.hunger in {"weak", "empty"}:
-            if meal := next(edible_items(turn), None):
+            if meal := choose_meal(turn, self.food_value):
                 return UseItem(meal, ItemUse.EAT), "eat"
 
         if lethal:
@@ -1215,7 +1215,7 @@ class Adventurer:
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
         if turn.hunger in {"hungry", "weak", "empty"}:
-            if meal := next(edible_items(turn), None):
+            if meal := choose_meal(turn, self.food_value):
                 return UseItem(meal, ItemUse.EAT), "eat"
             for ground in ground_items:
                 if ground.reachable and ground.item.category == "food":

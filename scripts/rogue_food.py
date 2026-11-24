@@ -10,6 +10,20 @@ def edible_items(turn: Turn) -> Iterator[Item]:
     return (item for item in turn.inventory if ItemUse.EAT in item.uses)
 
 
+def choose_meal(turn: Turn, food_value: Mapping[str, int]) -> Item | None:
+    """Prefer the greatest usable gain, then the meal that wastes less food."""
+    nutrition = turn.nutrition
+
+    def rank(item: Item) -> tuple[int, int]:
+        if item.identity is None or item.identity not in food_value:
+            return -1, 0
+        gain = food_value[item.identity]
+        usable = min(gain, nutrition.maximum - nutrition.reserve) if nutrition else gain
+        return usable, -gain
+
+    return max(edible_items(turn), key=rank, default=None)
+
+
 def carried_quantity(turn: Turn, identity: str) -> int:
     return sum(item.quantity for item in turn.inventory if item.identity == identity)
 

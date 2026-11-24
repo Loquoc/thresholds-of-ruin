@@ -1375,6 +1375,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                                                {"item": "food", "edible": True}]})
                 self.assertEqual(choose(player, turn), (UseItem(turn.inventory[1], ItemUse.EAT), "eat"))
 
+    def test_selects_the_most_useful_measured_meal_for_the_available_capacity(self):
+        from tor_client_bot import ItemUse, UseItem
+
+        meals = [{"id": name, "name": name, "identity": name, "class": "food", "identified": True,
+                  "quantity": 1} for name in ("unknown", "snack", "feast", "ration")]
+        foe = {"id": "foe", "name": "centaur", "position": cell("east", 1)["position"]}
+        for reserve, expected in ((5, "feast"), (65, "ration"), (95, "snack")):
+            for foes in ([], [foe]):
+                with self.subTest(reserve=reserve, in_combat=bool(foes)):
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                    player.food_value.update(snack=10, feast=80, ration=40)
+                    turn = player_turn([cell("here"), cell("east", 1)], actors=foes, hostiles=["foe"] if foes else [],
+                                       inventory=meals, interactions={"inventory": [
+                                           {"item": meal["id"], "edible": True} for meal in meals]},
+                                       stats={"nutrition": {"kind": "required", "hunger": "weak", "reserve": reserve,
+                                                            "maximum": 100, "unit_ticks": 100, "elapsed": 0}})
+                    item = next(item for item in turn.inventory if item.target == expected)
+                    self.assertEqual(choose(player, turn), (UseItem(item, ItemUse.EAT), "eat"))
+
     def test_wounded_pursuit_uses_a_remembered_exit_before_running_another_lap(self):
         foe = {"id": "pursuer", "name": "centaur", "position": {"x": 1, "y": 0, "z": 0}}
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=10, recovering_from_pursuit=True)
