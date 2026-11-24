@@ -32,6 +32,7 @@ pub(crate) struct MapMemory {
     pub records: BTreeMap<String, RememberedCell>,
     pub cells: BTreeMap<Position, String>,
     previous: BTreeMap<String, Vec<Position>>,
+    previous_viewport: Option<MapWindow>,
     record_sizes: BTreeMap<String, usize>,
     bytes: usize,
     pub limited: bool,
@@ -74,13 +75,32 @@ pub(crate) fn appearance(cell: &CellView, items: &[&GroundItemView]) -> Remember
     }
 }
 
+/// Distance to a viewport, used only when displaced occurrences exceed the
+/// same placement budget that bounded the old viewport-only cache.
+fn distance_to(position: Position, viewport: MapWindow) -> i64 {
+    let axis = |at: i32, min: i32, max: i32| {
+        let at = i64::from(at);
+        (i64::from(min) - at).max(at - i64::from(max)).max(0)
+    };
+    axis(position.x, viewport.min.x, viewport.max.x)
+        .max(axis(position.y, viewport.min.y, viewport.max.y))
+        .max(axis(position.z, viewport.min.z, viewport.max.z))
+}
+
 impl MapMemory {
-    pub fn positioned(&self) -> impl Iterator<Item = MapCell<'_>> {
-        self.cells.iter().filter_map(|(position, key)| {
-            self.records.get(key).map(|cell| MapCell {
-                position: *position,
-                cell,
-            })
+    pub fn positioned_in(&self, window: Option<MapWindow>) -> impl Iterator<Item = MapCell<'_>> {
+        window.into_iter().flat_map(move |window| {
+            self.cells
+                .range(window.min..=window.max)
+                .filter_map(move |(position, key)| {
+                    if !window.contains(*position) {
+                        return None;
+                    }
+                    self.records.get(key).map(|cell| MapCell {
+                        position: *position,
+                        cell,
+                    })
+                })
         })
     }
     pub fn at(&self, position: Position) -> Option<RememberedMapCell> {
@@ -142,9 +162,17 @@ impl MapMemory {
                     })
                 })
         });
-        let lost_orientation = self.coverage.is_some() && !oriented;
-        if !oriented {
+        let certified = oriented && translation.is_some();
+        let lost_orientation = self.coverage.is_some() && !certified;
+        if !certified {
             self.coverage = None;
+            // Weak alignment retains the old viewport-only behavior. Discard
+            // previously offscreen positions before any tentative shift, or
+            // that shift could bring unprovably aligned terrain back into view.
+            self.cells.retain(|position, _| {
+                self.previous_viewport
+                    .is_some_and(|old| old.contains(*position))
+            });
         }
         if translation != Some((0, 0, 0)) {
             let old = std::mem::take(&mut self.cells);
@@ -164,9 +192,13 @@ impl MapMemory {
             }
         }
         let window = MapWindow::normal().checked_translate(view.position);
-        // The whole normal footprint is retained, at all six height planes.
-        self.cells
-            .retain(|p, _| window.as_ref().is_some_and(|w| w.contains(*p)));
+        // A verified translation keeps offscreen positions for the first
+        // reverse frame. Without orientation evidence, keep the original
+        // viewport-only behavior rather than extending a potentially rotated chart.
+        if !certified {
+            self.cells
+                .retain(|p, _| window.is_some_and(|w| w.contains(*p)));
+        }
         self.coverage = self.coverage.and_then(|old| {
             let window = window?;
             let clipped = MapWindow {
@@ -185,6 +217,7 @@ impl MapMemory {
         });
         self.overlay(view, revision);
         self.previous = current;
+        self.previous_viewport = window;
         translation != Some((0, 0, 0)) || lost_orientation
     }
     pub fn overlay(&mut self, view: &Observation, revision: u64) {
@@ -206,7 +239,7 @@ impl MapMemory {
                 self.cells.insert(cell.position, cell.key.clone());
             }
         }
-        self.trim();
+        self.trim(window);
     }
     fn remove(&mut self, key: &str) {
         self.records.remove(key);
@@ -234,9 +267,31 @@ impl MapMemory {
             self.coverage = None;
         }
     }
-    fn trim(&mut self) {
-        let placed: BTreeSet<_> = self.cells.values().cloned().collect();
-        if self.records.len() > MAX_MAP_TRANSFER_CELLS || self.bytes > MAX_MAP_TRANSFER_BYTES {
+    fn trim(&mut self, viewport: Option<MapWindow>) {
+        if let Some(window) = viewport {
+            let excess = self.cells.len().saturating_sub(MAX_MAP_TRANSFER_CELLS);
+            if excess > 0 {
+                let mut offscreen: Vec<_> = self
+                    .cells
+                    .keys()
+                    .copied()
+                    .filter(|position| !window.contains(*position))
+                    .collect();
+                offscreen.sort_unstable_by_key(|position| {
+                    std::cmp::Reverse((distance_to(*position, window), *position))
+                });
+                for position in offscreen.into_iter().take(excess) {
+                    self.cells.remove(&position);
+                }
+            }
+        } else {
+            self.cells.clear();
+        }
+        let over_budget = |this: &Self| {
+            this.records.len() > MAX_MAP_TRANSFER_CELLS || this.bytes > MAX_MAP_TRANSFER_BYTES
+        };
+        if over_budget(self) {
+            let placed: BTreeSet<_> = self.cells.values().cloned().collect();
             let keys: Vec<_> = self
                 .records
                 .keys()
@@ -247,6 +302,28 @@ impl MapMemory {
                 if self.records.len() <= MAX_MAP_TRANSFER_CELLS
                     && self.bytes <= MAX_MAP_TRANSFER_BYTES
                 {
+                    break;
+                }
+                self.remove(&key);
+            }
+        }
+        if over_budget(self) {
+            // Offscreen memory never squeezes out a known position in view.
+            // Evict those extra appearances first, without invalidating coverage.
+            let on_screen: BTreeSet<_> = self
+                .cells
+                .iter()
+                .filter(|(position, _)| viewport.is_some_and(|w| w.contains(**position)))
+                .map(|(_, key)| key.as_str())
+                .collect();
+            let offscreen: BTreeSet<_> = self
+                .cells
+                .values()
+                .filter(|key| !on_screen.contains(key.as_str()))
+                .cloned()
+                .collect();
+            for key in offscreen {
+                if !over_budget(self) {
                     break;
                 }
                 self.remove(&key);
@@ -318,20 +395,40 @@ impl MapMemory {
         self.cells.retain(|position, _| !window.contains(*position));
         self.coverage = Some(coverage);
         self.install_cells(cells);
-        self.trim();
+        self.trim(Some(viewport));
         Ok(())
     }
-    /// Native presentation receives a complete positioned snapshot, including
-    /// honest partial coverage; it never receives unfinished transfer staging.
+    /// Copy each appearance once for the native thread, even when several
+    /// projected offsets refer to the same opaque cell key.
+    pub fn snapshot_records(&self) -> BTreeMap<String, RememberedCell> {
+        self.cells
+            .values()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|key| {
+                self.records
+                    .get(key)
+                    .map(|record| (key.clone(), record.clone()))
+            })
+            .collect()
+    }
+
+    /// Native presentation installs all verified local positions, including
+    /// offscreen ones. This never includes unfinished transfer staging.
     pub fn install_snapshot(
         &mut self,
+        viewport: Option<MapWindow>,
         coverage: Option<MapWindow>,
-        cells: BTreeMap<Position, RememberedMapCell>,
+        placements: BTreeMap<Position, String>,
+        records: BTreeMap<String, RememberedCell>,
     ) {
-        self.cells.clear();
+        self.cells = placements;
         self.coverage = coverage;
-        self.install_cells(cells);
-        self.trim();
+        self.limited = false;
+        for (key, record) in records {
+            self.put(key, record);
+        }
+        self.trim(viewport);
     }
     fn install_cells(&mut self, cells: BTreeMap<Position, RememberedMapCell>) {
         self.limited = false;
@@ -377,5 +474,79 @@ fn bounds(min: [i32; 3], max: [i32; 3]) -> MapWindow {
             y: max[1],
             z: max[2],
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offscreen_placement_budget_drops_farthest_aliased_occurrences_not_visible_ones() {
+        let viewport = MapWindow::normal();
+        let mut memory = MapMemory {
+            coverage: Some(viewport),
+            ..Default::default()
+        };
+        let appearance = RememberedMapCell {
+            object_presentation: None,
+            key: "same".into(),
+            position: viewport.min,
+            wall: true,
+            material: "stone".into(),
+            asset: None,
+            place_hint: false,
+            stairs_up: false,
+            stairs_down: false,
+            trap: None,
+            door: None,
+            ground_items: vec![],
+        };
+        memory.put(
+            appearance.key.clone(),
+            RememberedCell {
+                appearance,
+                last_seen_tick: None,
+                last_seen_revision: None,
+            },
+        );
+        for x in viewport.min.x..=viewport.max.x {
+            for y in viewport.min.y..=viewport.max.y {
+                for z in viewport.min.z..=viewport.max.z {
+                    if (x, y, z) != (0, 0, 0) {
+                        memory.cells.insert(Position { x, y, z }, "same".into());
+                    }
+                }
+            }
+        }
+        let near = Position {
+            x: viewport.max.x + 1,
+            y: 0,
+            z: 0,
+        };
+        let far = Position {
+            x: viewport.max.x + 80,
+            y: 0,
+            z: 0,
+        };
+        for position in [near, far] {
+            memory.cells.insert(position, "same".into());
+        }
+        memory.trim(Some(viewport));
+        assert_eq!(memory.cells.len(), MAX_MAP_TRANSFER_CELLS);
+        assert_eq!(
+            memory.positioned_in(Some(viewport)).count(),
+            MAX_MAP_TRANSFER_CELLS - 1
+        );
+        assert!(memory.at(near).is_some());
+        assert!(memory.at(far).is_none());
+        assert!(memory.at(Position { x: 0, y: 0, z: 0 }).is_none());
+        assert_eq!(memory.coverage, Some(viewport));
+        assert_eq!(
+            memory.snapshot_records().len(),
+            1,
+            "aliases share one handoff record"
+        );
+        assert!(!memory.limited);
     }
 }

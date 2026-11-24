@@ -22,7 +22,8 @@ pub struct MapMemoryUpdate {
     pub(crate) branch: BranchId,
     pub(crate) base: ObservationBase,
     pub(crate) coverage: Option<MapWindow>,
-    pub(crate) cells: BTreeMap<Position, RememberedMapCell>,
+    pub(crate) placements: BTreeMap<Position, String>,
+    pub(crate) records: BTreeMap<String, crate::RememberedCell>,
     pub(crate) status: MapHydrationStatus,
 }
 /// One atomically validated region, separate from the native viewport snapshot.
