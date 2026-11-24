@@ -2901,6 +2901,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        stats={"nutrition": dict(nutrition, reserve=reserve)})
                     self.assertEqual(choose(player, turn)[0], Move(expected))
 
+    def test_provisions_for_a_previously_measured_floor_after_retreating(self):
+        player = Adventurer(4, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.descent_ticks_by_floor.update({1: 100, 2: 100, 3: 8000})
+        player.ascent_ticks_by_floor.update({1: 100, 2: 100, 3: 100})
+        for reserve, reason in ((82, "scout_for_food"), (83, "descend")):
+            with self.subTest(reserve=reserve):
+                turn = player_turn([cell("stairs", down=True), cell("passage", 1)], stats={"nutrition": {
+                    "kind": "required", "reserve": reserve, "maximum": 1300, "unit_ticks": 100,
+                    "hunger": "nourished", "elapsed": 0}})
+                self.assertEqual(choose(player, turn)[1], reason)
+
     def test_carried_meals_count_toward_the_scouting_budget(self):
         cells = [cell("stairs", down=True), cell("frontier", 1)]
         nutrition = {"kind": "required", "reserve": 100, "maximum": 1300,

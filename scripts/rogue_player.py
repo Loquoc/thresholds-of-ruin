@@ -1054,12 +1054,14 @@ class Adventurer:
         if returning or floors_ahead <= 0 or not self.descent_ticks_by_floor:
             return known_return
 
-        recent_floors = sorted(self.descent_ticks_by_floor)[-5:]
-        round_trip = median_low(
-            self.descent_ticks_by_floor[floor] + self.ascent_ticks_by_floor.get(floor, 0)
-            for floor in recent_floors
-        )
-        return known_return + floors_ahead * round_trip
+        round_trips = {
+            floor: descent + self.ascent_ticks_by_floor.get(floor, 0)
+            for floor, descent in self.descent_ticks_by_floor.items()
+        }
+        measured_ahead = [ticks for floor, ticks in round_trips.items() if self.depth <= floor < self.retrieval_depth]
+        unmeasured_floors = floors_ahead - len(measured_ahead)
+        recent_typical_trip = median_low(round_trips[floor] for floor in sorted(round_trips)[-5:])
+        return known_return + sum(measured_ahead) + unmeasured_floors * recent_typical_trip
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}
