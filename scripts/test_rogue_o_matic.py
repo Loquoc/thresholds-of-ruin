@@ -876,6 +876,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(decision("z", "a"), expected)
         self.assertEqual(decision("z", "a", reverse_observation=True), expected)
 
+    def test_equivalent_wall_searches_prefer_the_route_without_a_disclosed_trap(self):
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
+        pit = {"id": "pit", "family": "pit", "reachable": True}
+        for trapped, safe_direction in ((-1, Direction.EAST), (1, Direction.WEST)):
+            with self.subTest(trapped=trapped):
+                cells = [cell("here")]
+                for x in (-1, 1):
+                    site = cell(str(x), x)
+                    if x == trapped:
+                        site["trap"] = pit
+                    cells.extend([site, {**cell(f"wall-{x}", 2 * x), "wall": True}])
+                turn = player_turn(cells, abilities=[ability])
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(turn)
+                self.assertEqual(player.search(turn, player.maps[1], returning=False),
+                                 (Move(safe_direction), "search"))
+
     def test_waits_on_the_stair_for_levitation_to_end(self):
         condition = {"condition": {"id": "rogue.levitation", "name": "Levitating"},
                      "phase": "active", "remaining_ticks": "1958"}

@@ -148,7 +148,7 @@ class MeleeRank(NamedTuple):
 
 
 class SearchRank(NamedTuple):
-    """Higher fields win, in declaration order. Exact ties keep map traversal order."""
+    """Higher fields win, in declaration order. Tied sites share a routing query."""
 
     near_return_stairs: bool
     has_searchable_walls: bool
@@ -1005,16 +1005,16 @@ class Adventurer:
         search = self.ready_search(turn)
         if search is None or turn.cell is None:
             return None
-        for key in self.ranked_search_sites(turn, memory, returning, allow_unseen, wall_limit):
-            if key == turn.cell.key:
+        for sites in self.ranked_search_sites(turn, memory, returning, allow_unseen, wall_limit):
+            if turn.cell.key in sites:
                 return search, "search"
-            if step := memory.toward(turn, {key}):
+            if step := memory.toward(turn, sites):
                 return step, "search"
         return None
 
     def ranked_search_sites(self, turn: Turn, memory: FloorMap, returning: bool,
-                           allow_unseen: bool, wall_limit: int) -> list[str]:
-        sites = []
+                           allow_unseen: bool, wall_limit: int) -> Iterator[set[str]]:
+        sites_by_rank: dict[SearchRank, set[str]] = {}
         for site, distance in memory.reachable(turn.cell.key):
             attempts = self.searches[site.key]
             neighbors = memory.adjacent(site.key)
@@ -1043,10 +1043,10 @@ class Adventurer:
                 value_after_travel=value - distance * 2,
                 negative_distance=-distance,
             )
-            sites.append((rank, site.key))
-        # Equal ranks retain traversal order, independent of opaque cell keys.
-        sites.sort(key=lambda site: site[0], reverse=True)
-        return [key for _, key in sites]
+            sites_by_rank.setdefault(rank, set()).add(site.key)
+        # Route to tied destinations together so a clear path wins over a trapped one.
+        for rank in sorted(sites_by_rank, reverse=True):
+            yield sites_by_rank[rank]
 
     def estimated_journey_ticks(self, returning: bool) -> int:
         known_return = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
