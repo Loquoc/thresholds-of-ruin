@@ -1,10 +1,12 @@
 """Native ASCII remembered map, using only server-disclosed appearances."""
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import unittest
 
-from process_harness import ProcessTestCase, TOKEN, SPECTATOR_TOKEN, read_capture
+from process_harness import ProcessTestCase, ROOT, TOKEN, SPECTATOR_TOKEN, read_capture
 
 
 class AsciiMemoryProcesses(ProcessTestCase):
@@ -97,6 +99,67 @@ class AsciiMemoryProcesses(ProcessTestCase):
         colors = [pixels[(y * 1200 + x) * 3:(y * 1200 + x) * 3 + 3]
                   for y in range(cy - 4, cy + 4) for x in range(cx - 4, cx + 4)]
         self.assertIn(bytes([98, 98, 98]), colors)
+
+    def test_native_run_draws_a_known_wall_on_the_first_returning_frame(self):
+        source = self.directory / "wide-memory-chamber"
+        shutil.copytree(ROOT / "scenarios/two-room", source, ignore=shutil.ignore_patterns(".compiled"))
+        manifest = source / "scenario.toml"
+        manifest.write_text(manifest.read_text(encoding="utf-8").replace('id = "two-room"',
+                                                                         'id = "wide-memory-chamber"'),
+                            encoding="utf-8")
+        (source / "regions/1.toml").write_text("""
+id = 1
+name = "Wide memory chamber"
+size = [24, 5, 2]
+chamber = true
+gravity = [0, 0, -1]
+anchors = { start = [2, 2, 0], east = [23, 2, 0] }
+walls = [[2, 1, 0], [2, 1, 1]]
+portals = [{ at = [23, 2, 0], direction = "east", to = "2/west", height = 2 }]
+""", encoding="utf-8")
+        (source / "regions/2.toml").write_text("""
+id = 2
+name = "Far hall"
+size = [22, 5, 2]
+chamber = true
+gravity = [0, 0, -1]
+anchors = { west = [0, 2, 0] }
+portals = [{ at = [0, 2, 0], direction = "west", to = "1/east", height = 2 }]
+""", encoding="utf-8")
+        checked = subprocess.run([self.bin / ("tor-scenario" + self.suffix), "validate", source],
+                                 capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        self.server(scenario=source, seed=42)
+        window, initial = self.window()
+        self.assertEqual(self.tile(initial, 0, -1)["glyph"], "#")
+        self.assertFalse(self.tile(initial, 0, -1)["remembered"])
+
+        def tick(frame):
+            return int(frame["state"]["observation"]["tick"])
+
+        initial_tick = tick(initial)
+        # Issue a single run. The target wall is gone from the viewport for
+        # the final 12 steps; it cannot move back in until we retrace the path.
+        outbound = self.key(window, "run_right", wait_for_admission=True)
+        if outbound["screen"]["running"] is not None:
+            outbound = self.ascii_frame(window, lambda f: f["screen"]["running"] is None)
+        self.assertEqual(tick(outbound) - initial_tick, 4300)
+
+        window.write(json.dumps({"type": "key", "key": "run_left"}))
+        boundary_tick = tick(outbound) + 1200
+        # No readiness filter: the very first canvas with the new viewport
+        # counts, even if its input has not settled yet.
+        first = self.ascii_frame(window, lambda frame:
+                                 frame.get("state") is not None and tick(frame) >= boundary_tick)
+        self.assertEqual(tick(first), boundary_tick, "the first viewport boundary must be presented")
+        self.assertEqual(first["screen"]["running"], "west")
+        wall = self.tile(first, -31, -1)
+        self.assertEqual(wall["glyph"], "#")
+        self.assertTrue(wall["remembered"], "the square is not directly visible on first return")
+        stopped = self.key(window, "escape", wait_for_simulation=False)
+        self.assertIsNone(stopped["screen"]["running"])
+        distance = 43 - (tick(stopped) - tick(outbound)) // 100
+        self.assertTrue(self.tile(stopped, -distance, -1)["remembered"])
 
     def test_rotated_crossing_keeps_item_aligned_and_rewind_clears_chart(self):
         self.server(wizard=True, scenario="ascii-memory-rotated")

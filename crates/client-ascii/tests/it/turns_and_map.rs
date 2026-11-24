@@ -1057,6 +1057,99 @@ fn running_refuses_with_a_creature_in_view_and_stops_at_walls() {
     assert_eq!(app.status, "You can't run that way.");
 }
 
+fn route_door(name: &str, open: bool) -> DoorView {
+    DoorView {
+        id: DoorTarget::from_digest([17; 32]),
+        name: name.into(),
+        description: String::new(),
+        open,
+        reachable: true,
+        approaches: vec![],
+        asset: None,
+    }
+}
+
+#[test]
+fn shift_and_run_prefix_start_through_open_doors_and_stop_at_blockers() {
+    for prefix in [false, true] {
+        for name in ["wooden door", "secret entrance"] {
+            let mut app = app();
+            update(&mut app, 1, |o| {
+                o.visible_actors.retain(|a| a.id == o.self_target);
+                for cell in &mut o.visible_cells {
+                    if cell.position.y == 0 && cell.position.z == 0 && cell.position.x < 0 {
+                        cell.door = Some(route_door(name, cell.position.x != -3));
+                    }
+                }
+            });
+            let key = if prefix {
+                assert_eq!(
+                    app.input(Input::Key {
+                        key: Key::RunPrefix
+                    }),
+                    Effect::None
+                );
+                Key::Left
+            } else {
+                Key::RunLeft
+            };
+            let assert_west = |effect| {
+                assert!(matches!(
+                    super::request(effect),
+                    Some(Request::Command {
+                        command: Command::Act {
+                            action: Action::Move {
+                                direction: Direction::West
+                            },
+                            ..
+                        },
+                        ..
+                    })
+                ))
+            };
+            assert_west(app.input(Input::Key { key }));
+            assert_eq!(app.running, Some(Direction::West));
+
+            app.ready();
+            update(&mut app, 2, |o| o.position.x = -1);
+            assert_west(app.continue_run());
+
+            app.ready();
+            update(&mut app, 3, |o| o.position.x = -2);
+            assert_eq!(app.continue_run(), Effect::None);
+            assert_eq!(app.running, None);
+
+            update(&mut app, 4, |o| {
+                let next = o
+                    .visible_cells
+                    .iter_mut()
+                    .find(|c| c.position == Position { x: -3, y: 0, z: 0 })
+                    .unwrap();
+                next.door = None;
+                next.wall = true;
+            });
+            assert_eq!(app.input(Input::Key { key: Key::RunLeft }), Effect::None);
+        }
+    }
+}
+
+#[test]
+fn a_remembered_item_is_not_a_run_permission_without_live_terrain() {
+    let mut app = app();
+    update(&mut app, 1, |o| {
+        o.visible_actors.retain(|a| a.id == o.self_target)
+    });
+    update(&mut app, 2, |o| {
+        o.visible_cells
+            .retain(|c| c.position != Position { x: -1, y: 0, z: 0 });
+        o.ground_items.clear();
+    });
+    assert!(render::map_tiles(app.state.as_ref().unwrap(), &app.palette)
+        .iter()
+        .any(|tile| (tile.position.x, tile.position.y) == (-1, 0) && tile.kind == map::Kind::Item));
+    assert_eq!(app.input(Input::Key { key: Key::RunLeft }), Effect::None);
+}
+
 #[test]
 fn automatic_run_waits_for_character_readiness_after_acknowledgement_and_execution() {
     fn apply(app: &mut App, body: UpdateBody) {
