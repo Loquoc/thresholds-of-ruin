@@ -28,6 +28,15 @@ def needs_identification(item: Item) -> bool:
     )
 
 
+def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
+    if ItemUse.READ not in scroll.uses:
+        return False
+    categories = scroll.identifies or IDENTIFY_CATEGORIES.get(scroll.identity, ())
+    return bool(categories) and any(
+        item.category in categories and needs_identification(item) for item in turn.inventory
+    )
+
+
 def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | None:
     if item.physical_reduction is not None:
         return item.physical_reduction

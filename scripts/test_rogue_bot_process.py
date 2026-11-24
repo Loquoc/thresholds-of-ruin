@@ -1382,9 +1382,11 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
 
         contents = fixture()
         manifest = contents["manifest"]
-        manifest["archetypes"]["rogue.identify_potion"]["name"] = "Lore of draughts"
+        lore = manifest["archetypes"]["rogue.identify_potion"]
+        lore["name"] = "Lore of draughts"
+        lore["identity"] = "item.scroll.fixture-lore"
         character, = manifest["characters"]
-        character["known_identities"] = ["item.scroll.identify-potion"]
+        character["known_identities"] = [lore["identity"]]
         character["loadout"] = [{"archetype": item, "quantity": 1}
                                 for item in ("rogue.identify_potion", "rogue.extra_healing")]
         contents["regions"][0]["actors"] = []

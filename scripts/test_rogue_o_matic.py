@@ -32,11 +32,12 @@ def state(cells, *, actors=(), hostiles=(), abilities=(), inventory=(), ground=(
 
 
 def player_turn(cells, *, inventory=(), ground=(), actors=(), hostiles=(), abilities=(), tick=0,
-                combat=None, stats=None, interactions=None):
+                combat=None, stats=None, interactions=None, known_item_uses=()):
     picture = state(cells, inventory=inventory, ground=ground, actors=actors,
                     hostiles=hostiles, abilities=abilities)
     view = picture["observation"]
     view["interactions"] = interactions or {}
+    view["known_item_uses"] = known_item_uses
     view["combat"].update(combat or {})
     view["combat"]["own_stats"].update(stats or {})
     view["tick"] = str(tick)
@@ -176,6 +177,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                           "identity": f"item.{category}.unknown", "quantity": 1}]
                 turn = player_turn([cell("stairs", down=True)], inventory=items,
                                    interactions={"inventory": [{"item": "scroll", "readable": True}]})
+                _, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason == "identify_gear", should_read)
+
+    def test_identification_scroll_uses_the_disclosed_categories_before_catalog_defaults(self):
+        scroll = {"id": "lore", "class": "scroll", "identity": "item.scroll.identify-wand",
+                  "name": "lore", "identified": True, "quantity": 1}
+        for category, should_read in (("potion", True), ("wand", False)):
+            with self.subTest(category=category):
+                unknown = {"id": "unknown", "class": category, "name": "mystery", "identified": False, "quantity": 1}
+                turn = player_turn([cell("stairs", down=True)], inventory=[scroll, unknown],
+                                   interactions={"inventory": [{"item": "lore", "readable": True}]},
+                                   known_item_uses=[{"item": "lore", "identifies": ["potion"]}])
                 _, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
                 self.assertEqual(reason == "identify_gear", should_read)
 

@@ -48,7 +48,7 @@ from tor_client_bot import (
 from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
 from rogue_food import FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food
 from rogue_gear import (
-    IDENTIFY_CATEGORIES, choose_armor, choose_ring, improve_worn_gear,
+    can_identify_carried_item, choose_armor, choose_ring, improve_worn_gear,
     needs_identification, ready_weapon, reveal_unseen_attacker, ring_upgrades,
 )
 
@@ -916,10 +916,8 @@ class Adventurer:
                 "item.potion.raise-level",
             }:
                 return UseItem(item, ItemUse.DRINK), "permanent_growth"
-            if ItemUse.READ in item.uses and item.identity in IDENTIFY_CATEGORIES:
-                categories = IDENTIFY_CATEGORIES[item.identity]
-                if any(other.category in categories and needs_identification(other) for other in turn.inventory):
-                    return UseItem(item, ItemUse.READ), "identify_gear"
+            if can_identify_carried_item(item, turn):
+                return UseItem(item, ItemUse.READ), "identify_gear"
         if improvement := improve_worn_gear(turn):
             return improvement
         health = turn.health
