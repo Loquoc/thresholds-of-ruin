@@ -7,7 +7,7 @@ from dataclasses import asdict
 
 from rogue_gear import EquipmentHistory
 from rogue_player import Adventurer
-from tor_client_bot import Direction, Outcome, Result, Session, TrainingRefused, Turn, describe_action
+from tor_client_bot import Decision, Direction, Outcome, Result, Session, TrainingRefused, Turn, describe_action
 
 
 def trace_result(result: Result) -> dict:
@@ -31,6 +31,27 @@ def trace_position(turn: Turn, player: Adventurer) -> dict:
     }
 
 
+def trace_decision(decision: Decision, player: Adventurer, *, record_decisions: bool) -> dict:
+    """Describe what was visible when the player chose the current action."""
+    turn = decision.turn
+    return {
+        **({"recording": turn.recording()} if record_decisions else {}),
+        **trace_position(turn, player),
+        "tick": turn.tick,
+        "reachable_pickups": [
+            {"item": ground.item.target, "category": ground.item.category,
+             "identity": ground.item.identity, "quantity": ground.item.quantity,
+             "cell": ground.cell.key if ground.cell else None}
+            for ground in turn.ground_items if ground.reachable
+        ],
+        **({"stalled": True} if decision.stalled else {}),
+        "previous_intention_id": decision.previous.intention if decision.previous else None,
+        "previous_intention_phase": decision.previous_phase,
+        "health_recovery": asdict(turn.recovery) if turn.recovery else None,
+        "events_since_previous_action": decision.combat.records(),
+    }
+
+
 def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], None],
          *, record_decisions: bool = False) -> dict:
     """Observe the outcome after the last budgeted submission, including victory."""
@@ -45,9 +66,9 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
         if player.training_checked_at is None:
             player.training_checked_at = turn.hit_dice
         previous = decision.previous
-        events = combat.records()
         acquired |= player.carrying_objective(turn)
         if turn.terminal:
+            events = combat.records()
             reason = "terminal"
             if turn.victorious:
                 reason = "victory"
@@ -92,28 +113,13 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
             result = turn.submit(action)
             command = describe_action(action)
         count += 1
-        emit(
-            {
-                **({"recording": turn.recording()} if record_decisions else {}),
-                **trace_position(turn, player),
-                "tick": turn.tick,
-                "reachable_pickups": [
-                    {"item": ground.item.target, "category": ground.item.category,
-                     "identity": ground.item.identity, "quantity": ground.item.quantity,
-                     "cell": ground.cell.key if ground.cell else None}
-                    for ground in turn.ground_items if ground.reachable
-                ],
-                **({"stalled": True} if decision.stalled else {}),
-                "reason": reason,
-                "action": command,
-                "result": trace_result(result),
-                "previous_intention_id": previous.intention if previous else None,
-                "previous_intention_phase": decision.previous_phase,
-                "health_recovery": asdict(turn.recovery) if turn.recovery else None,
-                "events_since_previous_action": events,
-                "amulet_acquired": acquired,
-            }
-        )
+        emit({
+            **trace_decision(decision, player, record_decisions=record_decisions),
+            "reason": reason,
+            "action": command,
+            "result": trace_result(result),
+            "amulet_acquired": acquired,
+        })
         if result.status is Outcome.CONFIRMED:
             if action is not None:
                 player.admitted(turn, action, result, reason=reason)

@@ -2401,7 +2401,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                   {**far, "item": {**meal, "id": "ration-b"}, "reachable": False}]
         picture = json.loads(player_turn([here, far], ground=ground).recording())
         paused.data.return_value = {**picture, "can_resume": True, "readiness": {"admission": False}}
-        ready.data.return_value = picture
+        ready.data.return_value = json.loads(player_turn([far], tick=100).recording())
         native.observe.side_effect = [paused, ready]
         native.resume.return_value = {"status": "confirmed"}
         trace = []
@@ -2409,6 +2409,9 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         native.resume.assert_called_once_with(paused)
         native.act.assert_not_called()
         self.assertEqual(report["terminal"], "action_budget")
+        self.assertEqual(trace[0]["tick"], 0)
+        self.assertEqual(report["tick"], 100)
+        self.assertIsNone(trace[0]["previous_intention_phase"])
         self.assertEqual(trace[0]["action"], {"type": "resume"})
         self.assertEqual(trace[0]["reachable_pickups"], [
             {"item": "ration-a", "category": "food", "identity": None, "quantity": 2, "cell": "here"}])
