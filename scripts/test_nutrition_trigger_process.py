@@ -26,6 +26,10 @@ class NutritionTriggerProcesses(ProcessTestCase):
         for key in ("zz.condition_active", "zz.condition_protection"):
             self.assertEqual(samples[key]["type"], "snapshot")
         self.assertEqual(samples["zz.condition_event"]["type"], "update")
+        active = combat(samples["zz.condition_active"]["snapshot"])["own_stats"]["nutrition"]
+        protected = combat(samples["zz.condition_protection"]["snapshot"])["own_stats"]["nutrition"]
+        self.assertTrue(active["fainting"])
+        self.assertNotIn("fainting", protected)
 
     def test_fainting_pauses_tied_meal_and_survives_queries_reconnect_and_source_free_restart(self):
         package = trigger_package(self)
@@ -37,6 +41,7 @@ class NutritionTriggerProcesses(ProcessTestCase):
         self.assertIsNone(self.act(peer, {"type": "wait"})["error"])
         paused = self.request(player, {"type": "snapshot"})
         self.assertEqual(combat(paused)["own_stats"]["nutrition"]["reserve"], -1)
+        self.assertTrue(combat(paused)["own_stats"]["nutrition"]["fainting"])
         self.assertFalse(combat(paused)["preparation_active"])
         self.assertEqual(paused["intentions"][0]["phase"], "paused")
         saved = checkpoint(self, player)
@@ -67,6 +72,9 @@ class NutritionTriggerProcesses(ProcessTestCase):
         player, restored = self.client()
         peer, _ = self.client(actor=2)
         self.assertDisclosedStateEqual(restored["state"], paused["state"])
+        text, first_description = self.adventure(SPECTATOR_TOKEN)
+        self.assertIn("You are fainting from hunger.", first_description)
+        text.stop()
         self.assertEqual(checkpoint(self, player), saved)
         for _ in range(851):
             saved = checkpoint(self, player)
@@ -77,10 +85,13 @@ class NutritionTriggerProcesses(ProcessTestCase):
             self.fail("The finite empty episode did not reach a permitted decision")
         released = self.request(player, {"type": "snapshot"})
         self.assertFalse(combat(released)["preparation_active"])
+        self.assertEqual(combat(released)["own_stats"]["nutrition"]["hunger"], "empty")
+        self.assertFalse(combat(released)["own_stats"]["nutrition"].get("fainting", False))
         self.assertEqual(released["intentions"][0]["phase"], "paused")
         self.assertIsNone(self.command(player, {"type": "resume_intention"})["error"])
         finished = self.request(player, {"type": "snapshot"})
         self.assertEqual(combat(finished)["own_stats"]["nutrition"]["reserve"], 6)
+        self.assertFalse(combat(finished)["own_stats"]["nutrition"].get("fainting", False))
         self.assertEqual(next(item for item in observation(finished)["inventory"]
                               if item["id"] == meal["id"])["quantity"], "1")
 
@@ -91,6 +102,7 @@ class NutritionTriggerProcesses(ProcessTestCase):
         peer, _ = self.client(actor=2)
         observer, _ = self.client(observe=True)
         self.assertIn("Nutrition: 0/2000 (empty)", text.command("stats"))
+        self.assertIn("You are starving.", text.command("look"))
         text.command("wait")
         # The text player publishes a new revision on a different connection.
         self.assertIsNone(self.request(peer, {"type": "snapshot"})["error"])
@@ -98,6 +110,7 @@ class NutritionTriggerProcesses(ProcessTestCase):
         shown = text.command("stats")
         self.assertIn("Nutrition: -1/2000 (empty)", shown)
         self.assertIn("Fixture Faint: 1100 active ticks remaining", shown)
+        self.assertIn("You are fainting from hunger.", text.command("look"))
         self.assertNotIn("Protection against Fixture Faint", shown)
         before = checkpoint(self, observer)
         text.command("wait")

@@ -78,6 +78,9 @@ lighting = { darkness_roll = 10, darkness_start = 1 }
 secret_entrances = { chance_per_mille = 250, maximum = 2, dc = 12 }
 hidden_traps = { count = [1, 2], dc = 12, rust_slot = "body_armor", rust_amount = 1, sleep_condition = "rogue.sleep", sleep_duration = 200, sleep_exposure = "poison", hazards = { avoidance_dc = 12, bear_condition = "rogue.bear_trap", bear_duration = 300, arrow_ammunition = "rogue.arrow", attack_bonus = 0, poison_exposure = "poison" } }
 
+[levels.procedural]
+dungeon = "Dungeon Level {depth}"
+
 [procedural_worlds.dungeon]
 gravity = [0, 0, -1]
 kind = "grid_chain"

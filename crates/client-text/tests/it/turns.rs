@@ -1978,6 +1978,22 @@ async fn a_place_is_described_in_full_once_and_then_named_unless_verbose() {
                     g.reachable = g.position == Position { x: 0, y: 0, z: 0 };
                 }
                 back.observation.tick += 60;
+                back.observation
+                    .combat
+                    .as_mut()
+                    .unwrap()
+                    .own_stats
+                    .as_mut()
+                    .unwrap()
+                    .nutrition = NutritionView::Required {
+                    reserve: 0,
+                    maximum: 2000,
+                    hunger: Hunger::Empty,
+                    unit_ticks: 100,
+                    elapsed: 0,
+                    starve_at: -852,
+                    fainting: false,
+                };
                 (back, Direction::West)
             } else {
                 (east(now.clone(), 6), Direction::East)
@@ -2004,6 +2020,8 @@ async fn a_place_is_described_in_full_once_and_then_named_unless_verbose() {
         "{back}"
     );
     assert!(back.contains("A copper token lies at your feet"), "{back}");
+    assert!(back.contains("You are starving."), "{back}");
+    assert!(!there.contains("You are starving."), "{there}");
     assert_eq!(
         play(&mut link, &mut engine, "verbose").await,
         "Places are described in full every time you arrive."
@@ -4761,4 +4779,71 @@ async fn explicit_status_reports_recovery_without_adding_it_to_normal_exploratio
     let inspected = play(&mut link, &mut engine, "status").await;
     assert!(inspected.contains("37 ticks"), "{inspected}");
     assert!(link.sent.is_empty());
+}
+
+#[tokio::test]
+async fn initial_and_repeated_descriptions_distinguish_starving_from_active_fainting() {
+    for (hunger, phase, expected) in [
+        (Hunger::Empty, None, Some("You are starving.")),
+        (
+            Hunger::Empty,
+            Some(ConditionPhase::Active),
+            Some("You are fainting from hunger."),
+        ),
+        (
+            Hunger::Empty,
+            Some(ConditionPhase::Protection),
+            Some("You are starving."),
+        ),
+        (Hunger::Weak, None, None),
+    ] {
+        let mut current = state();
+        let stats = current
+            .observation
+            .combat
+            .as_mut()
+            .unwrap()
+            .own_stats
+            .as_mut()
+            .unwrap();
+        stats.nutrition = NutritionView::Required {
+            reserve: if hunger == Hunger::Empty { -7 } else { 100 },
+            maximum: 2000,
+            hunger,
+            fainting: phase == Some(ConditionPhase::Active),
+            unit_ticks: 100,
+            elapsed: 0,
+            starve_at: -852,
+        };
+        if let Some(phase) = phase {
+            stats.conditions.push(PersonalCondition {
+                condition: ContentRef {
+                    id: "rogue.faint".into(),
+                    name: "Fainted".into(),
+                },
+                phase,
+                remaining_ticks: Some(17),
+                appearance: EffectAppearance::StatusIndicator,
+                cue: EffectCue::Status,
+            });
+        }
+        let mut link = Scripted::new(current, |request, _| {
+            panic!("local description sent {request:?}")
+        });
+        let mut engine = Engine::default();
+        let initial = engine.welcome(&link);
+        let first = play(&mut link, &mut engine, "look").await;
+        let again = play(&mut link, &mut engine, "look").await;
+        let condition = play(&mut link, &mut engine, "condition").await;
+        for description in [&initial, &first, &again, &condition] {
+            for line in ["You are starving.", "You are fainting from hunger."] {
+                assert_eq!(
+                    description.contains(line),
+                    expected == Some(line),
+                    "{description}"
+                );
+            }
+        }
+        assert!(link.sent.is_empty());
+    }
 }

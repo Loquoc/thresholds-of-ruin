@@ -739,6 +739,9 @@ pub fn describe(state: &StateView) -> String {
             tor_client_common::narration::goal_text(&goal.segments, &crate::controls::command)
         }));
     }
+    if let Some(warning) = tor_client_common::status::hunger_warning(o) {
+        lines.push(warning.description().into());
+    }
     for item in &o.ground_items {
         lines.push(format!(
             "You see {} x {} (#{}), at offset ({}, {}, {}).{}",

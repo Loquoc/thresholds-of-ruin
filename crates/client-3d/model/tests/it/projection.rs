@@ -864,3 +864,47 @@ fn public_effect_lifecycle_replaces_shared_state_and_model_without_start_or_end_
     let reset = from_observation(observed);
     assert!(view(&reset, &Palette::default()).public_effects.is_empty());
 }
+
+#[test]
+fn restored_hud_distinguishes_starving_and_fainting_without_color() {
+    use tor_protocol::{
+        ConditionPhase, ContentRef, EffectAppearance, EffectCue, Hunger, NutritionView,
+        PersonalCondition,
+    };
+    for (hunger, fainting, label) in [
+        (Hunger::Empty, false, Some("Starving")),
+        (Hunger::Empty, true, Some("Fainting")),
+        (Hunger::Nourished, false, None),
+    ] {
+        let mut observed = observation();
+        let mut stats = tor_client_common::test_support::stats();
+        stats.nutrition = NutritionView::Required {
+            reserve: if hunger == Hunger::Empty { -1 } else { 500 },
+            maximum: 2000,
+            hunger,
+            fainting,
+            unit_ticks: 100,
+            elapsed: 0,
+            starve_at: -852,
+        };
+        if fainting {
+            stats.conditions.push(PersonalCondition {
+                condition: ContentRef {
+                    id: "rogue.faint".into(),
+                    name: "Fainted".into(),
+                },
+                phase: ConditionPhase::Active,
+                remaining_ticks: Some(12),
+                appearance: EffectAppearance::StatusIndicator,
+                cue: EffectCue::Status,
+            });
+        }
+        observed.combat.as_mut().unwrap().own_stats = Some(stats);
+        let hud = view(&from_observation(observed), &Palette::default())
+            .status
+            .join(" ");
+        for severity in ["Starving", "Fainting"] {
+            assert_eq!(hud.contains(severity), label == Some(severity), "{hud}");
+        }
+    }
+}

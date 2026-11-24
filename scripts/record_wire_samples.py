@@ -932,6 +932,13 @@ class Recorder(ProcessTestCase):
         server_samples["zz.nutrition"] = next(message for message in reversed(messages) if message and message["type"] == "snapshot")
         player.stop(); server.stop()
 
+    def record_named_levels(self, server_samples):
+        from test_rogue_exploration_process import RogueExplorationProcess
+
+        for test in ("test_authored_level_name_changes_only_at_a_level_boundary_and_survives_reload",
+                     "test_generated_roguish_levels_use_the_same_snapshot_field"):
+            server_samples.update(run_recording_case(RogueExplorationProcess(test), "named_level_samples"))
+
     def record_personal_conditions(self, server_samples):
         self.save = self.save.parent / "condition-samples.db"
         server = self.server(scenario=prepare_trigger(self, protection_ticks=400), seed=ZERO_WORD_SEED)
@@ -944,6 +951,7 @@ class Recorder(ProcessTestCase):
         active = self.request(player, {"type": "snapshot"})
         self.assertIsNone(active["error"])
         self.assertFalse(active["state"]["wizard_game"])
+        self.assertIs(combat(active)["own_stats"]["nutrition"]["fainting"], True)
         self.assertEqual(combat(active)["own_stats"]["conditions"], [{
             "condition": {"id": "fixture_stupor", "name": "Fixture Faint"},
             "phase": "active", "appearance": "status_indicator", "cue": "status", "remaining_ticks": "1100"}])
@@ -957,6 +965,7 @@ class Recorder(ProcessTestCase):
         protected = self.request(player, {"type": "snapshot"})
         self.assertIsNone(protected["error"])
         self.assertEqual(int(observation(protected)["tick"]) - int(observation(active)["tick"]), 1100)
+        self.assertNotIn("fainting", combat(protected)["own_stats"]["nutrition"])
         self.assertEqual(combat(protected)["own_stats"]["conditions"], [{
             "condition": {"id": "fixture_stupor", "name": "Fixture Faint"},
             "phase": "protection", "appearance": "status_indicator", "cue": "status", "remaining_ticks": "400"}])
@@ -1258,6 +1267,7 @@ class Recorder(ProcessTestCase):
         self.record_advancement(server_samples)
         self.record_public_plan(server_samples)
         self.record_nutrition(server_samples)
+        self.record_named_levels(server_samples)
         self.record_magic_items(server_samples)
         self.record_self_device(server_samples)
         self.record_polymorph(server_samples)

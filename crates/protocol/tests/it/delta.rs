@@ -258,6 +258,7 @@ fn room(ox: i32, oy: i32, revision: u64) -> StateView {
         wizard_game: false,
         revision,
         observation: Observation {
+            level_name: None,
             known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,
@@ -285,6 +286,27 @@ fn round_trip(base: &StateView, next: &StateView) -> StateDelta {
     let wire: StateDelta = serde_json::from_str(&serde_json::to_string(&delta).unwrap()).unwrap();
     assert_eq!(wire.clone().apply(base).unwrap(), *next);
     wire
+}
+
+#[test]
+fn level_name_is_replaced_and_cleared_by_an_ordinary_delta() {
+    let mut first = room(5, 5, 1);
+    first.observation.level_name = Some("The Old Mine".into());
+    let mut second = room(6, 5, 2);
+    second.observation.level_name = Some("Dungeon Level 2".into());
+    assert_eq!(
+        round_trip(&first, &second).level_name.as_deref(),
+        Some("Dungeon Level 2")
+    );
+    let unnamed = room(7, 5, 3);
+    assert_eq!(round_trip(&second, &unnamed).level_name, None);
+
+    let mut invalid = serde_json::to_value(&second.observation).unwrap();
+    invalid["level_name"] = serde_json::json!("Dungeon\nLevel 2");
+    assert!(serde_json::from_value::<Observation>(invalid).is_err());
+    let mut invalid = serde_json::to_value(round_trip(&first, &second)).unwrap();
+    invalid["level_name"] = serde_json::json!("x".repeat(81));
+    assert!(serde_json::from_value::<StateDelta>(invalid).is_err());
 }
 
 #[test]

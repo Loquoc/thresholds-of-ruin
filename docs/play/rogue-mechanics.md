@@ -73,9 +73,11 @@ also consumes one reserve unit. Full pools cost nothing extra; direct healing an
 restoration from abilities or consumables have no regeneration tax. Recovery
 intervals and these costs are provisional and will need tuning together.
 Stats show your reserve and hunger. Below 300 is Hungry; below 150 is Weak; at zero
-or below it is Empty. Health recovery remains Normal in every band. Empty depletion
-can cause Fainted, temporarily preventing voluntary action and pausing paid work;
-status rows distinguish active conditions from any later protection. When a faint
+or below it is Empty. The ASCII and 3D HUDs show **Starving** when the reserve
+is empty and **Fainting** while a hunger faint is active. Text Adventure includes
+the current warning in room and condition descriptions. Health recovery remains
+Normal in every band. Fainting temporarily prevents voluntary action and pauses
+paid work; the active faint is distinct from later protection. When a faint
 ends, explicitly resume paused work or cancel eligible work under the ordinary
 commitment cost rules. Paused Eat requires Resume or a successful ordinary
 replacement; it has no explicit cancellation. Eating still needs time, and reaching
