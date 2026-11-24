@@ -977,9 +977,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         target, = turn.hostiles
         throw = Shot(turn.abilities[0], target, (3, 0, 0), dart, None, 0)
         launch = Shot(turn.abilities[1], target, (3, 0, 0), arrow, bow, 0)
-        for offers in ((throw, launch), (launch, throw)):
-            with self.subTest(first=offers[0].ability.identity):
-                turn.ranged_attacks = Mock(return_value=iter(offers))
+        def offers_until_launch(first):
+            if first is throw:
+                yield throw
+            yield launch
+            self.fail("A usable short-range launch should end the projectile query")
+
+        for first in (throw, launch):
+            with self.subTest(first=first.ability.identity):
+                turn.ranged_attacks = Mock(return_value=offers_until_launch(first))
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (launch, "launch_projectile"))
 

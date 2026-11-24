@@ -94,6 +94,26 @@ CONTROL_DEVICES = (
 )
 
 
+def choose_projectile(shots: Iterable[Shot], *, can_strike: bool) -> Shot | None:
+    """Prefer launched shots, then short range, preserving offer order on ties."""
+    best_shot = None
+    best_rank = None
+    for shot in shots:
+        if not shot.target.hostile:
+            continue
+        distance = max(map(abs, shot.offset))
+        launched = shot.launcher is not None
+        if not launched and (can_strike or shot.equipped_throw or distance > 4):
+            continue
+        in_normal_range = shot.range is None or distance <= shot.range.short_cells
+        if launched and in_normal_range:
+            return shot
+        rank = launched, in_normal_range
+        if best_rank is None or rank > best_rank:
+            best_shot, best_rank = shot, rank
+    return best_shot
+
+
 def training_choices(training: Training, skill: str) -> Iterator[tuple[PointPool, TrainingOption]]:
     priorities = (
         (TrainingKind.TALENT, ("rattling_blow", "dislocating_strike")),
@@ -587,25 +607,10 @@ class Adventurer:
         if turn.tick == self.last_shot_tick:
             return None
         can_strike = any(turn.attack(foe) is not None for foe in adjacent)
-        best_shot = None
-        best_rank = None
-        for shot in turn.ranged_attacks(max_distance=8):
-            if not shot.target.hostile:
-                continue
-            distance = max(map(abs, shot.offset))
-            launched = shot.launcher is not None
-            if not launched and (can_strike or shot.equipped_throw or distance > 4):
-                continue
-            # Prefer a launcher, then avoid a disclosed long-range penalty.
-            in_normal_range = shot.range is None or distance <= shot.range.short_cells
-            rank = launched, in_normal_range
-            if launched and in_normal_range:
-                return shot, "launch_projectile"
-            if best_rank is None or rank > best_rank:
-                best_shot, best_rank = shot, rank
-        if best_shot is not None:
-            return best_shot, "launch_projectile" if best_shot.launcher else "throw_projectile"
-        return None
+        shot = choose_projectile(turn.ranged_attacks(max_distance=8), can_strike=can_strike)
+        if shot is None:
+            return None
+        return shot, "launch_projectile" if shot.launcher else "throw_projectile"
 
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
         can_descend = self.depth < self.retrieval_depth and not self.carrying_objective(turn)
