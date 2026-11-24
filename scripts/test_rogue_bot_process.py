@@ -1738,7 +1738,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(terminal["previous_intention_phase"], "resolved")
 
     def test_player_identifies_cursed_ground_plate_and_keeps_starting_mail(self):
-        self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 42, cursed=True)
+        self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 42, found_cursed=True)
 
     def test_player_identifies_ground_long_sword_and_upgrades_primary_weapon(self):
         self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43)
@@ -1747,7 +1747,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43, enchant_weapon=True)
 
     def test_player_lifts_a_weapon_curse_then_equips_the_ground_upgrade(self):
-        self.check_ground_gear("weapon", "rogue.shortbow", "rogue.long_sword", 43, cursed_start=True)
+        self.check_ground_gear("weapon", "rogue.shortbow", "rogue.long_sword", 43, starting_cursed=True)
 
     def test_player_equips_unmeasured_plate_without_an_identification_scroll(self):
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, identify=False)
@@ -1755,18 +1755,18 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_player_protects_an_identified_upgrade_against_rust(self):
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, protect=True)
 
-    def check_ground_gear(self, category, starting, found, seed, *, cursed=False, identify=True, protect=False,
-                          cursed_start=False, enchant_weapon=False):
+    def check_ground_gear(self, category, starting, found, seed, *, found_cursed=False, identify=True, protect=False,
+                          starting_cursed=False, enchant_weapon=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
         contents = fixture()
         contents["seed"] = seed
         archetypes = contents["manifest"]["archetypes"]
-        if not cursed:
+        if not found_cursed:
             archetypes[found]["equipment_generation"] = {"kind": "authored"}
         found_id = archetypes[found]["identity"]
-        expected = archetypes[starting]["identity"] if cursed else found_id
+        expected = archetypes[starting]["identity"] if found_cursed else found_id
         character, = contents["manifest"]["characters"]
         character["known_identities"] = [archetypes[starting]["identity"], found_id, f"item.scroll.identify-{category}"]
         character["loadout"] = [
@@ -1775,7 +1775,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         if enchant_weapon:
             character["known_identities"].append("item.scroll.enchant-weapon")
             character["loadout"].append({"archetype": "rogue.enchant_weapon", "quantity": 1})
-        if cursed_start:
+        if starting_cursed:
             archetypes[starting]["equipment_generation"] = {
                 "kind": "weapon", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}
             character["known_identities"].append("item.scroll.remove-curse")
@@ -1798,40 +1798,53 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         rows = [json.loads(line) for line in run.stdout.splitlines()]
         actions = [row["action"]["type"] for row in rows if "action" in row]
         self.assertEqual("identify" in actions, identify)
+        reasons = [row.get("reason") for row in rows]
         if enchant_weapon:
-            reasons = [row.get("reason") for row in rows]
             self.assertLess(reasons.index("equip_melee"), reasons.index("enchant_weapon"))
-        if cursed_start:
-            self.assertIn("remove_weapon_curse", [row.get("reason") for row in rows])
+        if starting_cursed:
+            self.assertLess(reasons.index("remove_weapon_curse"), reasons.index("equip_melee"))
         if not identify:
-            self.assertIn("try_armor", [row.get("reason") for row in rows])
+            self.assertIn("try_armor", reasons)
         if protect:
-            self.assertIn("protect_armor", [row.get("reason") for row in rows])
+            self.assertIn("protect_armor", reasons)
         equipment = rows[-1]["equipment_opportunities"][category]
         self.assertEqual(equipment["seen_on_ground"], 1)
         self.assertEqual(equipment["carried"], 2)
-        self.assertEqual(equipment["worn"], 1 if cursed else 2)
-        check = """
-import os, sys
-from tor_client_bot import Session
-with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
-    turn = game.observe()
-    worn = next(slot.occupant for slot in turn.equipment if slot.kind == sys.argv[4])
-    assert worn and worn.identity == sys.argv[2], (worn, turn.inventory)
-    found = next(item for item in turn.inventory if item.identity == sys.argv[3])
-    if sys.argv[5] == "True":
-        assert found.known_cursed == (worn is not found), found
-    else:
-        assert found.physical_reduction == 6 and found.known_cursed is None, found
-    if sys.argv[6] == "True":
-        assert found.known_protected is True, found
-"""
+        self.assertEqual(equipment["worn"], 1 if found_cursed else 2)
         kind = "body_armor" if category == "armor" else "weapon"
-        final = subprocess.run([sys.executable, "-c", check, self.address, expected, found_id, kind, str(identify), str(protect)], cwd=self.directory,
-                               env=env, text=True, capture_output=True, timeout=30)
-        self.assertEqual(final.returncode, 0, f"{final.stderr}\n{[(r.get('reason'), r.get('result')) for r in rows]}")
-        self.assertEqual("unequip" in actions, not cursed)
-        self.assertEqual("equip" in actions, not cursed)
+        observed = self.observe_ground_gear(found_id, kind, env)
+        self.assertEqual(observed["worn_identity"], expected)
+        self.assertIs(observed["known_cursed"], found_cursed if identify else None)
+        if not identify:
+            self.assertEqual(observed["physical_reduction"], 6)
+        if protect:
+            self.assertIs(observed["known_protected"], True)
+        self.assertEqual("unequip" in actions, not found_cursed)
+        self.assertEqual("equip" in actions, not found_cursed)
+
+    def observe_ground_gear(self, found_id, slot_kind, env):
+        probe = """
+import json, os, sys
+from tor_client_bot import Session
+
+address, found_id, slot_kind = sys.argv[1:]
+with Session.connect(address, os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.observe()
+    worn = next(slot.occupant for slot in turn.equipment if slot.kind == slot_kind)
+    found = next(item for item in turn.inventory if item.identity == found_id)
+    print(json.dumps({
+        "worn_identity": worn.identity if worn else None,
+        "known_cursed": found.known_cursed,
+        "physical_reduction": found.physical_reduction,
+        "known_protected": found.known_protected,
+    }))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", probe, self.address, found_id, slot_kind],
+            cwd=self.directory, env=env, text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
 
     def test_bot_equips_a_renamed_searching_ring(self):
         self.check_searching_ring(occupied=False)
