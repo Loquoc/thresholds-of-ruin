@@ -55,9 +55,9 @@ from rogue_gear import (
 DETOUR_STOCK = {"potion": 4, "scroll": 4, "wand": 2}
 LOOT_CLASSES = {"amulet", "armor", "coin", "food", "potion", "ring", "scroll", "tool", "wand", "weapon"}
 MELEE_INJURY_PRIORITY = {
-    Injury.NEAR_DEATH: 0,
-    Injury.BADLY_WOUNDED: 1,
-    Injury.WOUNDED: 2,
+    Injury.NEAR_DEATH: 3,
+    Injury.BADLY_WOUNDED: 2,
+    Injury.WOUNDED: 1,
 }
 DEAD_END_SEARCHES = 6
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
@@ -114,6 +114,16 @@ def training_choices(training: Training, skill: str) -> Iterator[tuple[PointPool
 def trial_appearance(item: Item) -> str:
     """Recognize a sampled item type even when a different instance is offered."""
     return item.appearance or item.name
+
+
+class MeleeRank(NamedTuple):
+    """Higher fields win in order. Equal ranks preserve the observed target order."""
+
+    injury_priority: int
+    opens_exit: bool
+    negative_distance: int
+    estimated_damage: int
+    damage_from_this_foe: int
 
 
 class SearchRank(NamedTuple):
@@ -590,17 +600,21 @@ class Adventurer:
     def melee_attack(self, turn: Turn, *, make_space: bool) -> UseAbility | None:
         can_descend = self.depth < self.retrieval_depth and not self.carrying_objective(turn)
 
-        def attack_order(foe: Creature) -> tuple[int, bool, int, int, int]:
+        def attack_order(foe: Creature) -> MeleeRank:
             opens_exit = any(
                 (cell.stairs_up and self.depth > 1) or
                 (cell.stairs_down and can_descend)
                 for cell in turn.cells_of(foe)
             )
-            # Break tactical ties by threat, favoring direct evidence when foes share a species estimate.
-            return (MELEE_INJURY_PRIORITY.get(foe.injury, 3), not opens_exit, turn.distance_to(foe),
-                    -self.damage_estimate(foe), -self.observed_loss[foe.target])
+            return MeleeRank(
+                injury_priority=MELEE_INJURY_PRIORITY.get(foe.injury, 0),
+                opens_exit=opens_exit,
+                negative_distance=-turn.distance_to(foe),
+                estimated_damage=self.damage_estimate(foe),
+                damage_from_this_foe=self.observed_loss[foe.target],
+            )
 
-        for foe in sorted(turn.hostiles, key=attack_order):
+        for foe in sorted(turn.hostiles, key=attack_order, reverse=True):
             if make_space and foe.injury is not Injury.NEAR_DEATH:
                 push = turn.attack(foe, technique="dislocating_strike")
                 if push and self.has_push_space(turn, foe):

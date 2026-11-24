@@ -1278,7 +1278,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
 
     def test_melee_breaks_equal_body_distance_by_observed_damage(self):
         cells = [cell(str(x), x) for x in range(-1, 3)]
-        actors = [{"id": name, "name": name, "position": cell(name, x)["position"]}
+        actors = [{"id": name, "name": "troll", "position": cell(name, x)["position"]}
                   for name, x in (("west", -1), ("player", 1), ("east", 2))]
         melee = {"id": "basic_melee", "name": "Attack", "basic_attack": True,
                  "reach": {"kind": "melee"}, "target_kind": "actor", "cooldown_remaining": "0", "cost": None}
@@ -1286,12 +1286,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 "phase": "active", "remaining_ticks": 100}
         turn = player_turn(cells, actors=actors, hostiles=["west", "east"], abilities=[melee],
                            stats={"conditions": [trap]})
-        for dangerous in ("east", "west"):
+        for dangerous in ("east", "west", None):
             with self.subTest(dangerous=dangerous):
                 player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
-                player.observed_loss[dangerous] = 4
+                player.observed_loss_by_name["troll"] = 6
+                if dangerous:
+                    player.observed_loss[dangerous] = 4
                 attack, reason = choose(player, turn)
-                self.assertEqual((reason, attack.target.target), ("melee", dangerous))
+                self.assertEqual((reason, attack.target.target), ("melee", dangerous or "west"))
 
     def test_slow_wand_reacts_to_distance_from_the_players_nearest_body_cell(self):
         cells = [cell(str(x), x) for x in range(5)]
