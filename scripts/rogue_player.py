@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from statistics import median_low
+from typing import NamedTuple
 
 from tor_client_bot import (
     AbilityOutcome,
@@ -125,6 +126,15 @@ class PendingMeal:
 class FoodScout:
     deadline: int
     starting_meals: int
+
+
+class SearchRank(NamedTuple):
+    """Higher fields win, in declaration order. Exact ties keep map traversal order."""
+
+    near_return_stairs: bool
+    has_searchable_walls: bool
+    value_after_travel: int
+    negative_distance: int
 
 
 @dataclass
@@ -996,7 +1006,7 @@ class Adventurer:
                 untested = walls
                 value = remaining * len(walls)
             else:
-                if attempts >= wall_limit + 1:
+                if attempts > wall_limit:
                     continue
                 untested = [c for c in walls if attempts < wall_limit and self.wall_searches[c.key] < wall_limit]
                 value = sum(wall_limit - self.wall_searches[c.key] for c in untested)
@@ -1006,7 +1016,12 @@ class Adventurer:
                 n.stairs_up for wall in untested for n in memory.adjacent(wall.key)
             )
             # One search checks several boundaries. Favor corridor ends, especially near a lost exit.
-            rank = near_exit, bool(untested), value - distance * 2, -distance
+            rank = SearchRank(
+                near_return_stairs=near_exit,
+                has_searchable_walls=bool(untested),
+                value_after_travel=value - distance * 2,
+                negative_distance=-distance,
+            )
             sites.append((rank, site.key))
         # Equal ranks retain traversal order, independent of opaque cell keys.
         sites.sort(key=lambda site: site[0], reverse=True)

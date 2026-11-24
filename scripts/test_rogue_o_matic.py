@@ -675,16 +675,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_equivalent_search_sites_are_ranked_independently_of_opaque_cell_keys(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
-        def decision(left, right):
+        def decision(left, right, *, reverse_observation=False):
             player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
             cells = [cell("here"), cell(left, -1), cell(right, 1),
                      {**cell("left-wall", -2), "wall": True}, {**cell("right-wall", 2), "wall": True}]
-            turn = player_turn(cells, abilities=[ability])
+            turn = player_turn(list(reversed(cells)) if reverse_observation else cells, abilities=[ability])
             player.observe(turn)
             return player.search(turn, player.maps[1], returning=False)
 
-        self.assertEqual(decision("a", "z"), decision("z", "a"))
-        self.assertIsInstance(decision("a", "z")[0], Move)
+        expected = decision("a", "z")
+        self.assertIsInstance(expected[0], Move)
+        self.assertEqual(decision("z", "a"), expected)
+        self.assertEqual(decision("z", "a", reverse_observation=True), expected)
 
     def test_waits_on_the_stair_for_levitation_to_end(self):
         condition = {"condition": {"id": "rogue.levitation", "name": "Levitating"},
