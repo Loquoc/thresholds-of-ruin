@@ -706,7 +706,7 @@ class Adventurer:
             return None
         for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
             damage = self.damage_estimate(foe)
-            if foe.distance > 3:
+            if turn.distance_to(foe) > 3:
                 continue
             if 2 * damage < health and foe.name not in self.draining_creatures:
                 continue

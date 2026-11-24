@@ -1222,6 +1222,26 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual((reason, action.target.target), ("melee", "blocker"))
         self.assertEqual(turn.cells_of(action.target), (turn.cell_at((-1, 0, 0)),))
 
+    def test_slow_wand_reacts_to_distance_from_the_players_nearest_body_cell(self):
+        cells = [cell(str(x), x) for x in range(5)]
+        foe = {"id": "troll", "name": "troll", "position": cells[4]["position"]}
+        body = {"id": "player", "name": "you", "position": cells[1]["position"]}
+        wand = {"id": "slow", "class": "wand", "name": "staff", "identity": "item.wand.wand-slow",
+                "identified": True, "quantity": 1}
+        offer = {"item": "slow", "zappable": True, "device_activation": "direction", "charges": 2}
+        for actors, should_slow in (([foe], False), ([body, foe], True)):
+            with self.subTest(should_slow=should_slow):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss["troll"] = 7
+                turn = player_turn(cells, actors=actors, hostiles=["troll"], inventory=[wand],
+                                   interactions={"inventory": [offer]})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "slow_approach", should_slow)
+                if should_slow:
+                    self.assertEqual(action.target, turn.cell_at((4, 0, 0)))
+                    player.admitted(turn, action, reason=reason)
+                    self.assertIn("troll", player.attempted_slow)
+
     def test_control_a_dangerous_approach_or_step_to_an_exit(self):
         from tor_client_bot import Zap
         here, lane, distant = cell("here"), cell("lane", 1), cell("enemy", 2)
