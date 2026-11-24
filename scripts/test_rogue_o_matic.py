@@ -1554,6 +1554,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual([(row["activation_offered"], row["charges"]) for row in history.last_devices],
                          [(True, 0), (True, None), (False, None)])
 
+    def test_equipment_report_distinguishes_empty_inventory_from_no_live_observation(self):
+        from rogue_gear import EquipmentHistory
+
+        history = EquipmentHistory()
+        history.observe(player_turn([], tick=300, combat={"terminal": True}))
+        self.assertEqual(history.report(), {
+            "equipment_opportunities": {}, "last_inventory_tick": None, "last_carried_devices": [],
+        })
+
+        wand = {"id": "wand", "class": "wand", "identified": False, "name": "staff", "quantity": 1}
+        history.observe(player_turn([cell("here")], inventory=[wand], tick=400))
+        history.observe(player_turn([cell("here")], tick=500))
+        self.assertEqual(history.report(), {
+            "equipment_opportunities": {"wand": {"carried": 1}},
+            "last_inventory_tick": 500,
+            "last_carried_devices": [],
+        })
+
     def test_a_terminal_only_attachment_reports_the_carried_objective(self):
         from unittest.mock import Mock
         from rogue_player import play

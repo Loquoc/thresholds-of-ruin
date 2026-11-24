@@ -1574,7 +1574,11 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(rows[take + 1]["reason"], use)
         self.assertEqual(rows[take + 1]["previous_intention_phase"], "resolved")
         if use == "conserve_food":
-            self.assertEqual(rows[-1]["equipment_opportunities"]["ring"]["worn"], 1)
+            report = rows[-1]
+            self.assertEqual(report["equipment_opportunities"]["ring"],
+                             {"seen_on_ground": 1, "carried": 1, "recognized": 1, "worn": 1})
+            self.assertEqual(report["last_inventory_tick"], report["tick"])
+            self.assertEqual(report["last_carried_devices"], [])
 
     def start_levitation_stair_fixture(self):
         from discovery_package import write_package

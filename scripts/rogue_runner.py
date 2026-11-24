@@ -119,9 +119,7 @@ def play(game: Session, player: Adventurer, budget: int, emit: Callable[[dict], 
     else:
         raise RuntimeError("The decision stream ended before a terminal picture")
     detail.update(
-        equipment_opportunities=equipment.counts(),
-        last_inventory_tick=equipment.last_inventory_tick,
-        last_carried_devices=equipment.last_devices,
+        **equipment.report(),
         estimated_ascent_ticks_by_floor=player.ascent_ticks_by_floor,
         estimated_ascent_ticks=sum(player.ascent_ticks_by_floor.values()),
     )

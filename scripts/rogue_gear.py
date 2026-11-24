@@ -204,3 +204,11 @@ class EquipmentHistory:
     def counts(self) -> dict[str, dict[str, int]]:
         return {category: {stage: len(items) for stage, items in stages.items()}
                 for category, stages in self.stages.items()}
+
+    def report(self) -> dict[str, object]:
+        """Report whole-run stage counts alongside the last nonterminal inventory."""
+        return {
+            "equipment_opportunities": self.counts(),
+            "last_inventory_tick": self.last_inventory_tick,
+            "last_carried_devices": self.last_devices,
+        }
