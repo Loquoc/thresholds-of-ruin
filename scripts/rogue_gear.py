@@ -59,15 +59,22 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     return best
 
 
+def _ring_ranks(*preferred: str) -> dict[str, int]:
+    order = (*preferred, "sustain-strength", "see-invisible", "maintain-armor", "stealth")
+    return {f"item.ring.ring-{name}": len(order) - index for index, name in enumerate(order)}
+
+
+_NORMAL_RING_RANKS = _ring_ranks("slow-digestion", "protection", "searching", "regeneration")
+_RECOVERY_RING_RANKS = _ring_ranks("regeneration", "slow-digestion", "protection", "searching")
+
+
 def ring_upgrades(turn: Turn) -> dict[str, dict[int, int]]:
     """Positive gains by recognized ring identity and replaceable finger slot."""
     worn = Counter(slot.occupant.identity for slot in turn.equipment if slot.kind == "ring" and slot.occupant)
-    priorities = ["slow-digestion", "protection", "searching", "regeneration", "sustain-strength",
-                  "see-invisible", "maintain-armor", "stealth"]
-    if turn.health and turn.health.current < turn.health.maximum and any(
-            ItemUse.EAT in item.uses for item in turn.inventory):
-        priorities.insert(0, priorities.pop(priorities.index("regeneration")))
-    ranks = {"item.ring.ring-" + name: len(priorities) - i for i, name in enumerate(priorities)}
+    injured = turn.health is not None and turn.health.current < turn.health.maximum
+    ranks = _NORMAL_RING_RANKS
+    if injured and any(ItemUse.EAT in item.uses for item in turn.inventory):
+        ranks = _RECOVERY_RING_RANKS
     upgrades: dict[str, dict[int, int]] = {}
     for slot in turn.equipment:
         if slot.kind != "ring" or slot.removal_blocked:
