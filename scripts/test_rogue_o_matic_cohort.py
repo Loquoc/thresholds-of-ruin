@@ -331,6 +331,26 @@ assert get_type_hints(play)["player"] is Adventurer
                 _, report = trace_report(path)
                 self.assertEqual(report["closest_return_floor"], expected)
 
+    def test_final_landing_updates_return_distance_and_food_reserve(self):
+        from pathlib import Path
+        import tempfile
+        from rogue_o_matic_cohort import trace_report
+
+        departing = {"floor": 3, "action": {"type": "move", "direction": "up"},
+                     "amulet_acquired": True, "nutrition_reserve": 20}
+        arriving = {"terminal": "action_budget", "floor": 2, "cell": "landing",
+                    "known_cells": 5, "tick": 150, "nutrition_reserve": 18, "amulet_acquired": True}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "turns.jsonl"
+            path.write_text("\n".join(map(json.dumps, (departing, arriving))), encoding="utf-8")
+            _, progress = trace_report(path)
+        self.assertEqual(progress["actions"], 1)
+        self.assertEqual(progress["closest_return_floor"], 2)
+        self.assertEqual(progress["stair_transitions"], [
+            {"from": 3, "to": 2, "before_reserve": 20, "after_reserve": 18},
+        ])
+        self.assertEqual(progress["floors"]["2"]["first_reserve"], 18)
+
     def test_unverified_claim_does_not_count_as_a_victory(self):
         self.assertEqual(summarize([{"terminal": "victory"}])["victories"], 0)
 

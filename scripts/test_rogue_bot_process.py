@@ -1599,7 +1599,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
             self.assertEqual(report["last_inventory_tick"], report["tick"])
             self.assertEqual(report["last_carried_devices"], [])
 
-    def start_levitation_stair_fixture(self):
+    def start_paired_stair_fixture(self, *, loadout):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1607,16 +1607,34 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         manifest = contents["manifest"]
         character, = manifest["characters"]
         character["known_identities"] = []
-        character["loadout"] = [{"archetype": "rogue.levitation", "quantity": 1}]
+        character["loadout"] = loadout
         manifest["stair_pairs"] = {"passage": {"upper": "1/start", "lower": "2/up"}}
         contents["regions"][0]["actors"] = []
         contents["regions"].append({"id": 2, "name": "Landing", "size": [5, 5, 2],
                                     "chamber": True, "anchors": {"up": [2, 2, 0]}})
-        self.server(scenario=write_package(self, contents, "levitating-on-stairs"))
+        self.server(scenario=write_package(self, contents, "paired-stairs"))
         self.install_bot_extension()
 
+    def test_cohort_records_landing_on_last_budgeted_descent(self):
+        from rogue_o_matic_cohort import trace_report
+
+        self.start_paired_stair_fixture(loadout=[])
+        run = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address, "--budget", "1"],
+            cwd=self.directory, env={**os.environ, "PYTHONPATH": str(self.directory), "TOR_SERVER_TOKEN": TOKEN},
+            text=True, capture_output=True, timeout=55,
+        )
+        self.assertEqual(run.returncode, 1, run.stderr)
+        trace = self.directory / "turns.jsonl"
+        trace.write_text(run.stdout, encoding="utf-8")
+        terminal, progress = trace_report(trace)
+        self.assertEqual((terminal["terminal"], terminal["floor"]), ("action_budget", 2))
+        self.assertEqual((progress["actions"], progress["max_depth"]), (1, 2))
+        self.assertEqual([(s["from"], s["to"]) for s in progress["stair_transitions"]], [(1, 2)])
+        self.assertEqual(progress["floors"]["2"]["moves_admitted"], 0)
+
     def test_levitating_player_gets_a_ground_contact_reason_at_the_stair(self):
-        self.start_levitation_stair_fixture()
+        self.start_paired_stair_fixture(loadout=[{"archetype": "rogue.levitation", "quantity": 1}])
         code = """
 import os, sys
 from tor_client_bot import Direction, ItemUse, Move, Outcome, Session, UseItem
@@ -1639,7 +1657,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_bot_descends_after_its_sampled_potion_stops_levitation(self):
-        self.start_levitation_stair_fixture()
+        self.start_paired_stair_fixture(loadout=[{"archetype": "rogue.levitation", "quantity": 1}])
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/rogue_o_matic.py"), "--connect", self.address,
              "--budget", "100"], cwd=self.directory,

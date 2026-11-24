@@ -160,7 +160,7 @@ class FloorVisits:
             if search_floor is not None and phase != "cancelled":
                 self.floors[search_floor][f"searches_{phase}"] += 1
 
-    def record_action(self, row: dict) -> None:
+    def record_observation(self, row: dict) -> None:
         floor = row["floor"]
         reserve = row.get("nutrition_reserve")
         metrics = self.floors.setdefault(str(floor), {
@@ -172,7 +172,7 @@ class FloorVisits:
             metrics["last_reserve"] = reserve
             low = metrics["lowest_reserve"]
             metrics["lowest_reserve"] = reserve if low is None else min(low, reserve)
-        if row.get("result", {}).get("status") == "confirmed":
+        if "action" in row and row.get("result", {}).get("status") == "confirmed":
             action = row["action"]
             if action["type"] == "move":
                 metrics["moves_admitted"] += 1
@@ -233,15 +233,20 @@ def trace_report(path):
             visits.resolve_search(row)
             if "terminal" in row:
                 terminal = row
+                # Older summaries have no observed position. Their max_depth is a run total.
+                if row.get("cell") is None or row.get("floor") is None:
+                    continue
             elif "action" in row:
                 progress["actions"] += 1
-                progress["amulet_acquired"] |= row.get("amulet_acquired") is True
-                floor = row["floor"]
-                if progress["amulet_acquired"]:
-                    closest = progress["closest_return_floor"]
-                    progress["closest_return_floor"] = floor if closest is None else min(closest, floor)
-                progress["max_depth"] = max(progress["max_depth"], floor)
-                visits.record_action(row)
+            else:
+                continue
+            visits.record_observation(row)
+            floor = row["floor"]
+            progress["max_depth"] = max(progress["max_depth"], floor)
+            progress["amulet_acquired"] |= row.get("amulet_acquired") is True
+            if progress["amulet_acquired"]:
+                closest = progress["closest_return_floor"]
+                progress["closest_return_floor"] = floor if closest is None else min(closest, floor)
     progress.update(floors=visits.floors, stair_transitions=visits.transitions)
     return terminal, progress
 
