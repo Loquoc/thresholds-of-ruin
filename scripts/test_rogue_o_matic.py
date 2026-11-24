@@ -118,6 +118,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         choose(player, picture(True))
         self.assertEqual(choose(player, dark)[1], "light_room")
 
+    def test_potion_trials_remember_appearance_across_distinct_items(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        for target, name, appearance, should_sample in (
+            ("first", "first bottle", "amber", True),
+            ("second", "other bottle", "amber", False),
+            ("third", "other bottle", "cloudy", True),
+            ("fourth", "plain flask", None, True),
+            ("fifth", "plain flask", None, False),
+        ):
+            with self.subTest(target=target):
+                item = {"id": target, "class": "potion", "name": name, "appearance": appearance,
+                        "quantity": 1, "identified": False}
+                turn = player_turn([cell("exit", down=True)], inventory=[item],
+                                   interactions={"inventory": [{"item": target, "drinkable": True}]})
+                action, reason = choose(player, turn)
+                self.assertEqual(reason == "test_unknown_potion", should_sample)
+                if should_sample:
+                    player.admitted(turn, action, reason=reason)
+
     def test_unknown_scroll_trial_uses_a_safe_outbound_stair_once_per_appearance(self):
         scroll = {"id": "scroll", "class": "scroll", "name": "runed scroll", "quantity": 2, "identified": False}
         ring = {"id": "ring", "class": "ring", "name": "opal ring", "quantity": 1, "identified": False}

@@ -90,6 +90,11 @@ CONTROL_DEVICES = (
 )
 
 
+def trial_appearance(item: Item) -> str:
+    """Recognize a sampled item type even when a different instance is offered."""
+    return item.appearance or item.name
+
+
 def edible_items(turn: Turn) -> Iterator[Item]:
     return (item for item in turn.inventory if ItemUse.EAT in item.uses)
 
@@ -366,7 +371,7 @@ class Adventurer:
         if isinstance(action, Move):
             self.remember_move(turn, action, receipt, reason)
         if isinstance(action, UseItem) and action.use is ItemUse.DRINK and action.item.identity is None:
-            self.sampled_potions.add(action.item.appearance or action.item.name)
+            self.sampled_potions.add(trial_appearance(action.item))
         if turn.cell and isinstance(action, UseAbility) and action.ability.identity == "rogue.search":
             self.searches[turn.cell.key] += 1
             if receipt and self.maps[self.depth].is_dead_end(turn.cell.key):
@@ -381,7 +386,7 @@ class Adventurer:
             if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
                 self.pending_scroll_trial = receipt, action.item.target
             self.tried_unknown_scroll = True
-            self.sampled_scrolls.add(action.item.appearance or action.item.name)
+            self.sampled_scrolls.add(trial_appearance(action.item))
         if (
             isinstance(action, UseItem)
             and action.use is ItemUse.EAT
@@ -416,7 +421,7 @@ class Adventurer:
         if action.device.charges is None:
             self.tried_unmeasured_devices.add(action.device.item.target)
         if reason == MemoryReason.TEST_UNKNOWN_DEVICE:
-            self.sampled_wands.add(action.device.item.appearance or action.device.item.name)
+            self.sampled_wands.add(trial_appearance(action.device.item))
         elif reason == MemoryReason.LIGHT_ROOM:
             self.attempted_room_light.add(self.depth)
         elif isinstance(action.target, Cell):
@@ -673,7 +678,7 @@ class Adventurer:
         for device in turn.devices:
             item = device.item
             if (item.category != "wand" or item.identity is not None or device.activation is not DeviceActivation.DIRECTION
-                    or not self.can_spend_charge(device) or (item.appearance or item.name) in self.sampled_wands):
+                    or not self.can_spend_charge(device) or trial_appearance(item) in self.sampled_wands):
                 continue
             for foe in turn.hostiles:
                 if turn.distance_to(foe) <= 4:
@@ -903,7 +908,7 @@ class Adventurer:
         if can_experiment:
             for item in turn.inventory:
                 if (item.identity is None and ItemUse.DRINK in item.uses
-                        and (item.appearance or item.name) not in self.sampled_potions):
+                        and trial_appearance(item) not in self.sampled_potions):
                     return UseItem(item, ItemUse.DRINK), "test_unknown_potion"
         if weapon := ready_weapon(turn, bow=False):
             return weapon
@@ -1058,7 +1063,7 @@ class Adventurer:
                 continue
             if (self.depth, item.target) in self.stalled_scrolls:
                 continue
-            if at_exit and (item.appearance or item.name) in self.sampled_scrolls:
+            if at_exit and trial_appearance(item) in self.sampled_scrolls:
                 continue
             reason = MemoryReason.STUDY_SCROLL_AT_EXIT if at_exit else MemoryReason.TEST_UNKNOWN_MAGIC
             return UseItem(item, ItemUse.READ), reason
