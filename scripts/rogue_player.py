@@ -1184,17 +1184,19 @@ class Adventurer:
         goals = LootGoals()
         carried: Counter[str | None] = Counter()
         stock: Counter[str] = Counter()
+        usable_gear: set[str] = set()
         for item in turn.inventory:
             carried[item.identity] += item.quantity
             stock[item.category] += item.quantity
+            if item.category in {"armor", "ring"} and item.identity is not None and not item.known_cursed:
+                usable_gear.add(item.identity)
 
         @cache
         def wanted_rings() -> set[str]:
-            usable = {item.identity for item in turn.inventory if item.category == "ring" and not item.known_cursed}
-            return ring_upgrades(turn).keys() - usable
+            return ring_upgrades(turn).keys() - usable_gear
 
         spare_armor_to_identify = any(
-            choice.slot.kind == "body_armor" and choice.item.physical_reduction is None
+            choice.slot.kind == "body_armor" and not choice.item.known_cursed and choice.item.physical_reduction is None
             for choice in turn.equip_choices()
         )
         goals.recover_arrows = (not returning and not turn.hostiles and not turn.has_condition("rogue.levitation")
@@ -1209,9 +1211,7 @@ class Adventurer:
             elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.supplies_guarded_until:
                 if useful_loot(item) and not turn.cell.stairs_down:
                     goals.nearby.add(ground.cell.key)
-                seek_armor = item.category == "armor" and not spare_armor_to_identify and (
-                    item.identity is None or not carried[item.identity]
-                )
+                seek_armor = item.category == "armor" and not spare_armor_to_identify and item.identity not in usable_gear
                 seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
                 if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
                     goals.supplies.add(ground.cell.key)

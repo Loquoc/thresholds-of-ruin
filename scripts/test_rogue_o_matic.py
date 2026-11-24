@@ -439,6 +439,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Move(Direction.EAST), "seek_supplies"))
 
+    def test_only_a_usable_unmeasured_spare_can_defer_an_armor_detour(self):
+        stairs, near = cell("stairs", down=True), cell("plate", 1)
+        slot = {"id": "body_armor", "name": "Armor"}
+        plate = {"id": "plate", "name": "plate", "identity": "item.armor.plate-mail",
+                 "class": "armor", "identified": True, "quantity": 1}
+        ground = [{**near, "item": plate, "reachable": False}]
+        for identity in ("item.armor.ring-mail", plate["identity"]):
+            for cursed, expected_sites in ((True, {"plate"}), (False, set())):
+                with self.subTest(identity=identity, cursed=cursed):
+                    spare = {**plate, "id": "spare", "identity": identity}
+                    turn = player_turn([stairs, near], inventory=[spare], ground=ground, interactions={
+                        "slots": [slot], "inventory": [{"item": "spare", "slot": slot, "known_cursed": cursed}]})
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                    player.observe(turn)
+                    goals = player.loot_goals(turn, turn.ground_items, returning=False)
+                    self.assertEqual(goals.supplies, expected_sites)
+
     def test_nearby_armor_detour_depends_on_retrieval_phase(self):
         here, nearby = cell("exit", up=True, down=True), cell("mail", 1)
         armor = {"id": "plate", "identity": "item.armor.plate-mail", "name": "plate",
