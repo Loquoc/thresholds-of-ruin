@@ -2549,6 +2549,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         after = player_turn(cells, stats=stats, tick=200)
         self.assertEqual(choose(player, after), (Move(Direction.DOWN), "descend"))
 
+    def test_a_stair_round_trip_does_not_revive_the_departed_floors_food_scout(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.ascent_ticks_by_floor[2] = 50000
+        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
+        stairs = [cell("stairs", down=True), cell("passage", 1)]
+        origin = player_turn(stairs)
+        down, reason = choose(player, origin)
+        self.assertEqual((down, reason), (Move(Direction.DOWN), "descend"))
+        player.admitted(origin, down, reason=reason)
+        player.observe(origin)
+        self.assertIsInstance(player.food_scouts[3], FoodScout)
+
+        below = player_turn([cell("below", up=True)], tick=100)
+        player.observe(below)
+        self.assertEqual(player.depth, 4)
+        self.assertNotIn(4, player.food_scouts)
+        player.admitted(below, Move(Direction.UP), reason="retreat_upstairs")
+        revisit = player_turn(stairs, tick=200, stats={"nutrition": {
+            "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
+            "hunger": "nourished", "elapsed": 0}})
+        self.assertEqual(choose(player, revisit), (Move(Direction.DOWN), "descend"))
+        self.assertEqual(player.depth, 3)
+
     def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.ascent_ticks_by_floor[2] = 50000

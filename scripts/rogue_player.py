@@ -281,7 +281,7 @@ class Adventurer:
         if scout is not None and (
             turn.tick >= scout.deadline or sum(item.quantity for item in edible_items(turn)) > scout.starting_meals
         ):
-            self.food_scouts[self.depth] = None
+            self.finish_food_scout()
         self.maps.setdefault(self.depth, FloorMap()).observe(turn)
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
@@ -364,6 +364,7 @@ class Adventurer:
             reverse = Direction.UP if attempt.direction is Direction.DOWN else Direction.DOWN
             self.unsafe_stairs[landing, reverse] = self.danger_until.get(
                 attempt.origin, turn.tick)
+        self.finish_food_scout()
         self.cancelled_stair_origin = None
         if attempt.direction is Direction.DOWN:
             self.record_descent_timing(attempt, turn.tick)
@@ -426,8 +427,8 @@ class Adventurer:
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:
             return
-        if reason == MemoryReason.SEEK_STAIRS and self.depth in self.food_scouts:
-            self.food_scouts[self.depth] = None
+        if reason == MemoryReason.SEEK_STAIRS:
+            self.finish_food_scout()
         self.last_exploration_origin = turn.cell.key if reason == MemoryReason.EXPLORE else None
         self.corridor_stand = None
         if reason == MemoryReason.TAKE_CORRIDOR and (entrance := turn.cell_at(action.direction.offset)):
@@ -1093,6 +1094,11 @@ class Adventurer:
                 return None
             reserve += self.food_value[meal.identity] * meal.quantity
         return reserve
+
+    def finish_food_scout(self) -> None:
+        """A completed scout stays closed on later visits to the same floor."""
+        if self.depth in self.food_scouts:
+            self.food_scouts[self.depth] = None
 
     def provision(self, turn: Turn, memory: FloorMap, returning: bool) -> tuple[Action, str] | None:
         nutrition = turn.nutrition
