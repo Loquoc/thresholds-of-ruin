@@ -45,7 +45,7 @@ from tor_client_bot import (
     Zap,
 )
 
-from rogue_retreat import approach_visible_exit, take_corridor
+from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_corridor
 from rogue_food import FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food
 from rogue_gear import (
     IDENTIFY_CATEGORIES, choose_armor, choose_ring, improve_worn_gear,
@@ -645,10 +645,8 @@ class Adventurer:
 
         if turn.holds or self.trapped(turn):
             return None
-        for direction in turn.walkable_directions:
-            destination = turn.cell_at(direction.offset)
-            if destination is not None and destination.key != origin:
-                return Move(direction), "evade_unseen_attack"
+        if step := evade_unseen_attacker(turn, origin):
+            return step, "evade_unseen_attack"
         return None
 
     @staticmethod

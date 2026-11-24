@@ -284,6 +284,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.last_unseen_attack = "stairs", 100
                 self.assertEqual(choose(player, turn)[1], expected)
 
+    def test_unseen_attack_prefers_a_clear_step_and_can_escape_through_the_only_trap(self):
+        pit = {"id": "pit", "family": None, "reachable": True}
+        east = {**cell("east", 1), "trap": pit}
+        for west, expected in (([cell("west", -1)], Direction.WEST), ([], Direction.EAST)):
+            with self.subTest(west_open=bool(west)):
+                turn = player_turn([cell("here"), east, *west], tick=100)
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.last_unseen_attack = "here", 100
+                self.assertEqual(choose(player, turn), (Move(expected), "evade_unseen_attack"))
+
     def test_melee_upgrade_compares_disclosed_damage_accuracy_and_timing(self):
         from tor_client_bot import Equip, Unequip
 
