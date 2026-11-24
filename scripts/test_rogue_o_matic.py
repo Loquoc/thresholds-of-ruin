@@ -2064,6 +2064,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 else:
                     self.assertEqual(retry[0].item.target, "two")
 
+    def test_failed_scroll_trial_skips_the_failed_item_but_can_study_another_copy(self):
+        import json
+        from tor_client_bot import Result
+
+        scroll = {"id": "one", "name": "runed", "class": "scroll", "identified": False, "quantity": 1}
+        turn = player_turn([cell("here")], inventory=[scroll, {**scroll, "id": "two"}], interactions={
+            "inventory": [{"item": key, "readable": True} for key in ("one", "two")]})
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "trial", "phase": "queued"}
+        result = Result.from_reply({"status": "confirmed", "receipt": receipt})
+        for phase, expected in (("failed", "two"), ("cancelled", "two"), ("resolved", None)):
+            with self.subTest(phase=phase):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                action, reason = choose(player, turn)
+                player.admitted(turn, action, result, reason=reason)
+                after = Turn({**json.loads(turn.recording()), "finished_intentions": [dict(receipt, phase=phase)]})
+                player.observe(after)
+                choice = player.scroll_trial(after, at_exit=True)
+                self.assertEqual(choice[0].item.target if choice else None, expected)
+
     def test_cancels_only_its_own_stalled_queued_stair_and_waits_once_before_retry(self):
         import json
         from tor_client_bot import ActivityChoice, Result

@@ -145,6 +145,7 @@ def trial_appearance(item: Item) -> str:
 
 @dataclass(frozen=True)
 class PendingScrollTrial:
+    floor: int
     receipt: Result
     target: str
     newly_sampled_appearance: str | None
@@ -269,6 +270,12 @@ class Adventurer:
                 self.completed_end_searches[origin] += 1
             if phase in (ActivityPhase.RESOLVED, ActivityPhase.FAILED, ActivityPhase.CANCELLED):
                 self.pending_end_search = None
+        if trial := self.pending_scroll_trial:
+            phase = turn.outcome_of(trial.receipt)
+            if phase in (ActivityPhase.FAILED, ActivityPhase.CANCELLED):
+                self.mark_scroll_trial_unsuccessful(trial)
+            elif phase is ActivityPhase.RESOLVED:
+                self.pending_scroll_trial = None
         self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
             self.entered_floor_at = turn.tick
@@ -413,14 +420,16 @@ class Adventurer:
         )
         self.entered_floor_at = turn.tick
 
+    def mark_scroll_trial_unsuccessful(self, trial: PendingScrollTrial) -> None:
+        self.stalled_scrolls.add((trial.floor, trial.target))
+        if trial.newly_sampled_appearance is not None:
+            self.sampled_scrolls.discard(trial.newly_sampled_appearance)
+        self.pending_scroll_trial = None
+
     def admitted(self, turn: Turn, action: Action, receipt: Result | None = None,
                  *, reason: str | None = None) -> None:
         if reason == MemoryReason.CANCEL_STALLED_SCROLL and self.pending_scroll_trial:
-            trial = self.pending_scroll_trial
-            self.stalled_scrolls.add((self.depth, trial.target))
-            if trial.newly_sampled_appearance is not None:
-                self.sampled_scrolls.discard(trial.newly_sampled_appearance)
-        self.pending_scroll_trial = None
+            self.mark_scroll_trial_unsuccessful(self.pending_scroll_trial)
         if reason == MemoryReason.CANCEL_STALLED_STAIR and self.pending_stair:
             self.cancelled_stair_origin = self.pending_stair.origin
             self.wait_after_cancel = True
@@ -445,7 +454,7 @@ class Adventurer:
             appearance = trial_appearance(item)
             if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
                 newly_sampled = appearance if appearance not in self.sampled_scrolls else None
-                self.pending_scroll_trial = PendingScrollTrial(receipt, item.target, newly_sampled)
+                self.pending_scroll_trial = PendingScrollTrial(self.depth, receipt, item.target, newly_sampled)
             self.tried_unknown_scroll = True
             self.sampled_scrolls.add(appearance)
         elif action.use is ItemUse.EAT and item.identity and turn.nutrition:
