@@ -3247,6 +3247,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         escape["wall"] = True
         self.assertEqual(decision(2)[1], "melee")
 
+    def test_retreat_checks_the_next_square_for_a_disclosed_trap(self):
+        cells = [cell("here"), cell("enemy", 1)]
+        foe = {"id": "hunter", "name": "hunter", "position": cells[1]["position"]}
+        for y in (-2, -1, 1, 2):
+            tile = cell(str(y))
+            tile["position"]["y"] = y
+            if y == -2:
+                tile["trap"] = {"id": "pit", "family": None, "reachable": True}
+            cells.append(tile)
+        turn = player_turn(cells, actors=[foe], hostiles=["hunter"], combat={"hp": 2})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.SOUTH), "retreat"))
+
     def test_when_two_steps_break_contact_choose_the_one_with_a_continuing_escape(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
         cells = [cell("here"), cell("enemy", 1)]

@@ -847,11 +847,15 @@ class Adventurer:
                 if offset == (0, 0, 0):
                     continue
                 after = safety(offset)
-                if after >= best and (best_onward is None or after > best_onward):
-                    first, best_onward = direction, after
+                if after < best or after <= current:
+                    continue
+                # Compare trap exposure only when both routes offer the same protection from foes.
+                rank = after, cell.trap is None, turn.cell_at(offset).trap is None
+                if best_onward is None or rank > best_onward:
+                    first, best_onward = direction, rank
         if best > current:
             return Move(first), MemoryReason.RETREAT
-        if best_onward is not None and best_onward > current:
+        if best_onward is not None:
             return Move(first), MemoryReason.BREAK_CONTACT
         return None
 
