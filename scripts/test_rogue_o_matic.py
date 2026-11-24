@@ -959,6 +959,37 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         policy.observe(later)
         self.assertNotEqual(policy.combat(later), (Move(Direction.WEST), "retreat_to_stairs"))
 
+    def test_retreat_prefers_adjacent_stairs_outside_melee_contact(self):
+        north = cell("north")
+        north["position"]["y"] = -1
+        exits = [cell("west", -1, down=True), cell("east", 1, down=True)]
+        for x, escape in ((-1, Direction.EAST), (1, Direction.WEST)):
+            with self.subTest(enemy_x=x):
+                enemy = cell("enemy", x)
+                enemy["position"]["y"] = -1
+                foe = {"id": "foe", "name": "orc", "position": enemy["position"]}
+                turn = player_turn([cell("here"), north, enemy, *exits], actors=[foe], hostiles=["foe"],
+                                   combat={"hp": 8, "max_hp": 20})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss["foe"] = 2
+                self.assertEqual(choose(player, turn), (Move(escape), "retreat_to_stairs"))
+
+    def test_retreat_chooses_lower_observed_damage_when_both_stairs_are_guarded(self):
+        cells = [cell("here"), cell("west", -1, down=True), cell("east", 1, down=True)]
+        foes = []
+        for x in (-1, 0, 1):
+            tile = cell(f"north-{x}", x)
+            tile["position"]["y"] = -1
+            cells.append(tile)
+            if x:
+                foes.append({"id": str(x), "name": "orc", "position": tile["position"]})
+        turn = player_turn(cells, actors=foes, hostiles=["-1", "1"], combat={"hp": 8, "max_hp": 20})
+        for safer, direction in (("-1", Direction.WEST), ("1", Direction.EAST)):
+            with self.subTest(safer=safer):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observed_loss.update({"-1": 3, "1": 3, safer: 1})
+                self.assertEqual(choose(player, turn), (Move(direction), "retreat_to_stairs"))
+
     def test_outnumbered_player_steps_onto_nearby_downstairs_then_descends(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         for on_stair in (False, True):

@@ -769,15 +769,8 @@ class Adventurer:
                 if returning:
                     return Move(Direction.UP), MemoryReason.RETREAT_UPSTAIRS
                 return Move(Direction.DOWN), MemoryReason.RETREAT_DOWNSTAIRS
-            contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
-            for direction in turn.walkable_directions:
-                cell = turn.cell_at(direction.offset)
-                if cell is None or cell.key not in onward or cell.trap:
-                    continue
-                threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
-                exposure = sum(self.damage_estimate(foe) for foe in threats)
-                if not threats or (turn.health and len(threats) <= contacts and 2 * exposure < turn.health.current):
-                    return Move(direction), MemoryReason.RETREAT_TO_STAIRS
+            if step := self.step_onto_retreat_stair(turn, onward):
+                return step, MemoryReason.RETREAT_TO_STAIRS
         if self.depth <= 1:
             return None
         dangerous = any(
@@ -812,6 +805,24 @@ class Adventurer:
                                   for foe in turn.hostiles):
                 return escape
         return step, MemoryReason.RETREAT_TO_STAIRS
+
+    def step_onto_retreat_stair(self, turn: Turn, exits: set[str]) -> Move | None:
+        contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
+        guarded = []
+        for direction in turn.walkable_directions:
+            cell = turn.cell_at(direction.offset)
+            if cell is None or cell.key not in exits or cell.trap:
+                continue
+            threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
+            if not threats:
+                return Move(direction)
+            exposure = sum(self.damage_estimate(foe) for foe in threats)
+            if turn.health and len(threats) <= contacts and 2 * exposure < turn.health.current:
+                guarded.append(((exposure, len(threats)), direction))
+        if not guarded:
+            return None
+        _, direction = min(guarded, key=lambda candidate: candidate[0])
+        return Move(direction)
 
     @staticmethod
     def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
