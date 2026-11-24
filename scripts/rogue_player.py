@@ -405,16 +405,8 @@ class Adventurer:
             self.remember_move(turn, action, receipt, reason)
         if isinstance(action, UseItem) and action.use is ItemUse.DRINK and action.item.identity is None:
             self.sampled_potions.add(trial_appearance(action.item))
-        if turn.cell and isinstance(action, UseAbility) and action.ability.identity == "rogue.search":
-            self.searches[turn.cell.key] += 1
-            if receipt and self.maps[self.depth].is_dead_end(turn.cell.key):
-                self.pending_end_search = turn.cell.key, receipt
-            # Search covers visible walls. Credit the near and middle distance bands
-            # on this floor, leaving distant or unseen walls for a closer look.
-            self.wall_searches.update({
-                cell.key for cell in turn.visible_cells
-                if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3
-            })
+        if isinstance(action, UseAbility) and action.ability.identity == "rogue.search" and turn.cell:
+            self.remember_search(turn, turn.cell.key, receipt)
         if isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None:
             if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
                 self.pending_scroll_trial = receipt, action.item.target
@@ -430,6 +422,16 @@ class Adventurer:
             self.pending_meal = PendingMeal(identity, carried_quantity(turn, identity), turn.nutrition.reserve)
         if isinstance(action, Shot):
             self.last_shot_tick = turn.tick
+
+    def remember_search(self, turn: Turn, origin: str, receipt: Result | None) -> None:
+        self.searches[origin] += 1
+        if receipt and self.maps[self.depth].is_dead_end(origin):
+            self.pending_end_search = origin, receipt
+        # Credit each visible wall once in the near and middle search bands.
+        self.wall_searches.update({
+            cell.key for cell in turn.visible_cells
+            if cell.wall and cell.offset[2] == 0 and max(map(abs, cell.offset)) <= 3
+        })
 
     def remember_move(self, turn: Turn, action: Move, receipt: Result | None, reason: str | None) -> None:
         if turn.cell is None:

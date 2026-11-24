@@ -851,6 +851,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, UseAbility(turn.abilities[0]))
         self.assertEqual(dict(player.wall_searches), {"diagonal": 1, "middle": 1})
 
+        # A second site contributes another attempt to the same visible wall.
+        next_room = [cell("other"), {**cell("diagonal"), "wall": True,
+                                     "position": {"x": 0, "y": 1, "z": 0}}]
+        next_turn = player_turn(next_room, abilities=[search])
+        player.observe(next_turn)
+        player.admitted(next_turn, UseAbility(next_turn.abilities[0]))
+        self.assertEqual(dict(player.searches), {"here": 1, "other": 1})
+        self.assertEqual(dict(player.wall_searches), {"diagonal": 2, "middle": 1})
+
     def test_equivalent_search_sites_are_ranked_independently_of_opaque_cell_keys(self):
         ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
                    "basic_attack": False, "reach": {"kind": "self_only"}, "target_kind": "self_only"}
