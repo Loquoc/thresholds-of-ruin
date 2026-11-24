@@ -949,6 +949,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     self.assertEqual(action, shot)
                     player.admitted(turn, action, reason=reason)
 
+    def test_distant_foe_prompts_the_best_weapon_the_player_can_equip(self):
+        inventory = [{"id": name, "name": name, "identity": f"item.weapon.{name}", "class": "weapon",
+                      "identified": True, "quantity": 1} for name in ("shortbow", "mace", "arrow")]
+        slot = {"id": "weapon", "name": "Weapon"}
+        foe = {"id": "enemy", "name": "orc", "position": cell("enemy", 5)["position"]}
+        for offered, expected in ((["mace"], "equip_melee"), (["mace", "shortbow"], "equip_bow")):
+            with self.subTest(offered=offered):
+                turn = player_turn([cell("here")], actors=[foe], hostiles=["enemy"], inventory=inventory,
+                                   interactions={"slots": [slot], "inventory": [
+                                       {"item": name, "slot": slot} for name in offered]})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual(reason, expected)
+                self.assertEqual(action.item.target, offered[-1])
+
     def test_replaces_empty_bow_while_an_enemy_is_visible(self):
         from tor_client_bot import Unequip
 

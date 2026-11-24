@@ -159,14 +159,13 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
         return None
     worn = slot.occupant
     choices = [c for c in turn.equip_choices() if c.slot is slot and not c.item.known_cursed]
-    bow = bow and any(i.identity == "item.weapon.shortbow" and not i.known_cursed for i in turn.inventory)
+    if bow and worn and worn.identity == "item.weapon.shortbow":
+        return None
+    choice = None
     if bow:
-        if worn and worn.identity == "item.weapon.shortbow":
-            return None
         choice = next((c for c in choices if c.item.identity == "item.weapon.shortbow"), None)
-    else:
+    if choice is None:
         best_score = melee_score(worn) if worn else -1
-        choice = None
         for candidate in choices:
             score = melee_score(candidate.item)
             if score > best_score:
@@ -181,7 +180,7 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
         return None
     if worn:
         return Unequip(slot), "change_weapon"
-    return choice, "equip_bow" if bow else "equip_melee"
+    return choice, "equip_bow" if choice.item.identity == "item.weapon.shortbow" else "equip_melee"
 
 
 class EquipmentHistory:
