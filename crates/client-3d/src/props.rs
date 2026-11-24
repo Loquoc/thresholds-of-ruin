@@ -98,6 +98,20 @@ pub struct PropMaterials {
     /// Leather and other surfaces with a soft sheen.
     satin: Handle<StandardMaterial>,
     metal: Handle<StandardMaterial>,
+    /// Organic skin and hide.
+    skin: Handle<StandardMaterial>,
+    /// Wood shafts, handles, staves, and chests.
+    wood: Handle<StandardMaterial>,
+    /// Insectoid/reptilian carapace and scales.
+    chitin: Handle<StandardMaterial>,
+    /// Polished steel blades and bright armor.
+    steel: Handle<StandardMaterial>,
+    /// Gold, brass, and gilded fittings.
+    gold: Handle<StandardMaterial>,
+    /// Carved stone and bone.
+    stone: Handle<StandardMaterial>,
+    /// Potion flasks and crystal/glass.
+    glass: Handle<StandardMaterial>,
     /// Translucent spectral surfaces, faintly lit from within.
     ghost: Handle<StandardMaterial>,
     /// Sheer fabric: chiffon, gauze and veils, seen through from both sides.
@@ -152,41 +166,18 @@ impl PropMaterials {
             })
             .collect();
         Self {
-            matte: materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                perceptual_roughness: 0.92,
-                reflectance: 0.28,
-                ..default()
-            }),
-            satin: materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                perceptual_roughness: 0.46,
-                reflectance: 0.42,
-                ..default()
-            }),
-            metal: materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                metallic: 0.78,
-                perceptual_roughness: 0.27,
-                reflectance: 0.5,
-                ..default()
-            }),
-            ghost: materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 1.0, 1.0, 0.78),
-                emissive: LinearRgba::rgb(0.035, 0.05, 0.09),
-                perceptual_roughness: 0.6,
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            }),
-            sheer: materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 1.0, 1.0, 0.52),
-                perceptual_roughness: 0.85,
-                reflectance: 0.3,
-                alpha_mode: AlphaMode::Blend,
-                cull_mode: None,
-                double_sided: true,
-                ..default()
-            }),
+            matte: materials.add(crate::surface::SurfaceRecipe::WOOL.to_standard_material()),
+            satin: materials.add(crate::surface::SurfaceRecipe::LEATHER.to_standard_material()),
+            metal: materials.add(crate::surface::SurfaceRecipe::FORGED_IRON.to_standard_material()),
+            skin: materials.add(crate::surface::SurfaceRecipe::SKIN.to_standard_material()),
+            wood: materials.add(crate::surface::SurfaceRecipe::WOOD.to_standard_material()),
+            chitin: materials.add(crate::surface::SurfaceRecipe::CHITIN.to_standard_material()),
+            steel: materials.add(crate::surface::SurfaceRecipe::POLISHED_STEEL.to_standard_material()),
+            gold: materials.add(crate::surface::SurfaceRecipe::GOLD.to_standard_material()),
+            stone: materials.add(crate::surface::SurfaceRecipe::STONE.to_standard_material()),
+            glass: materials.add(crate::surface::SurfaceRecipe::GLASS.to_standard_material()),
+            ghost: materials.add(crate::surface::SurfaceRecipe::SPECTRAL.to_standard_material()),
+            sheer: materials.add(crate::surface::SurfaceRecipe::SHEER.to_standard_material()),
             glow,
             dim,
         }
@@ -206,6 +197,40 @@ impl PropMaterials {
 
     pub fn glow(&self, accent: Accent) -> Handle<StandardMaterial> {
         self.glow[&accent].clone()
+    }
+
+    /// Registers `ModelMaterial` equivalents for the core surface families so
+    /// runtime meshes automatically receive procedural micro-detail.
+    pub(crate) fn register_model_surfaces(
+        &self,
+        table: &mut crate::surface::ModelSurfaceTable,
+        model_materials: &mut Assets<crate::surface::ModelMaterial>,
+        noise: Option<Handle<Image>>,
+        detail_enabled: bool,
+    ) {
+        use crate::surface::SurfaceRecipe;
+        for (handle, recipe) in [
+            (&self.matte, SurfaceRecipe::WOOL),
+            (&self.satin, SurfaceRecipe::LEATHER),
+            (&self.metal, SurfaceRecipe::FORGED_IRON),
+            (&self.skin, SurfaceRecipe::SKIN),
+            (&self.wood, SurfaceRecipe::WOOD),
+            (&self.chitin, SurfaceRecipe::CHITIN),
+            (&self.steel, SurfaceRecipe::POLISHED_STEEL),
+            (&self.gold, SurfaceRecipe::GOLD),
+            (&self.stone, SurfaceRecipe::STONE),
+            (&self.glass, SurfaceRecipe::GLASS),
+            (&self.ghost, SurfaceRecipe::SPECTRAL),
+            (&self.sheer, SurfaceRecipe::SHEER),
+        ] {
+            table.register(
+                handle,
+                &recipe,
+                model_materials,
+                noise.clone(),
+                detail_enabled,
+            );
+        }
     }
 
     /// The leather and sheened cloth material.
@@ -405,6 +430,13 @@ pub(crate) struct Parts {
     pub matte: Builder,
     pub satin: Builder,
     pub metal: Builder,
+    pub skin: Builder,
+    pub wood: Builder,
+    pub chitin: Builder,
+    pub steel: Builder,
+    pub gold: Builder,
+    pub stone: Builder,
+    pub glass: Builder,
     pub glow: Builder,
     /// Seen through: drawn with the translucent spectral material.
     pub ghost: Builder,
@@ -444,27 +476,84 @@ impl Parts {
                 model.0.push((meshes.add(mesh), material));
             }
         };
-        add(self.matte.finish(), materials.matte.clone());
-        add(self.satin.finish(), materials.satin.clone());
-        add(self.metal.finish(), materials.metal.clone());
-        add(self.ghost.finish(), materials.ghost.clone());
-        add(self.sheer.finish(), materials.sheer.clone());
+        for (builder, material) in [
+            (self.matte, &materials.matte),
+            (self.satin, &materials.satin),
+            (self.metal, &materials.metal),
+            (self.skin, &materials.skin),
+            (self.wood, &materials.wood),
+            (self.chitin, &materials.chitin),
+            (self.steel, &materials.steel),
+            (self.gold, &materials.gold),
+            (self.stone, &materials.stone),
+            (self.glass, &materials.glass),
+            (self.ghost, &materials.ghost),
+            (self.sheer, &materials.sheer),
+        ] {
+            add(builder.finish(), material.clone());
+        }
         if let Some(accent) = self.accent {
             add(self.glow.finish(), materials.glow(accent));
         }
         model
     }
 
-    /// Soft, finely tessellated shading for organic forms.
-    pub(crate) fn soften(&mut self) {
-        for b in [
+    #[cfg(test)]
+    pub(crate) fn all_builders(&self) -> [&Builder; 13] {
+        [
+            &self.matte,
+            &self.satin,
+            &self.metal,
+            &self.skin,
+            &self.wood,
+            &self.chitin,
+            &self.steel,
+            &self.gold,
+            &self.stone,
+            &self.glass,
+            &self.glow,
+            &self.ghost,
+            &self.sheer,
+        ]
+    }
+
+    fn all_builders_mut(&mut self) -> [&mut Builder; 13] {
+        [
             &mut self.matte,
             &mut self.satin,
             &mut self.metal,
+            &mut self.skin,
+            &mut self.wood,
+            &mut self.chitin,
+            &mut self.steel,
+            &mut self.gold,
+            &mut self.stone,
+            &mut self.glass,
             &mut self.glow,
             &mut self.ghost,
             &mut self.sheer,
-        ] {
+        ]
+    }
+
+    fn opaque_builders_mut(&mut self) -> [&mut Builder; 11] {
+        [
+            &mut self.matte,
+            &mut self.satin,
+            &mut self.metal,
+            &mut self.skin,
+            &mut self.wood,
+            &mut self.chitin,
+            &mut self.steel,
+            &mut self.gold,
+            &mut self.stone,
+            &mut self.glass,
+            &mut self.sheer,
+        ]
+    }
+
+    /// Soft, finely tessellated shading for organic forms.
+    pub(crate) fn soften(&mut self) {
+        for b in self.all_builders_mut() {
             b.res = (9, 16);
             b.sides_mul = 2;
             b.smooth = true;
@@ -472,25 +561,20 @@ impl Parts {
     }
 
     pub(crate) fn set_transform(&mut self, xf: Affine3A) {
-        self.matte.xf = xf;
-        self.satin.xf = xf;
-        self.metal.xf = xf;
-        self.glow.xf = xf;
-        self.ghost.xf = xf;
-        self.sheer.xf = xf;
+        for b in self.all_builders_mut() {
+            b.xf = xf;
+        }
     }
 
     /// Move every opaque surface into the translucent spectral layer; glowing
     /// eyes and accents stay solid so they still read through the body.
     pub(crate) fn ghostify(&mut self) {
-        for b in [
-            &mut self.matte,
-            &mut self.satin,
-            &mut self.metal,
-            &mut self.sheer,
-        ] {
-            let taken = std::mem::take(b);
-            self.ghost.absorb(taken);
+        let mut absorbed = Vec::new();
+        for b in self.opaque_builders_mut() {
+            absorbed.push(std::mem::take(b));
+        }
+        for b in absorbed {
+            self.ghost.absorb(b);
         }
     }
 }
@@ -1065,7 +1149,7 @@ fn mace(p: &mut Parts) {
 fn sword(p: &mut Parts, scale: f32) {
     p.set_transform(Affine3A::from_scale(Vec3::splat(scale)));
     let y = 0.024;
-    p.metal.extrude(
+    p.steel.extrude(
         &[
             Vec2::new(-0.2, -0.04),
             Vec2::new(0.36, -0.034),
@@ -1394,22 +1478,21 @@ fn seal(p: &mut Parts) {
 /// A small stack of struck tokens in the metal they are named for.
 fn coins(p: &mut Parts, name: &str) {
     let n = name.to_ascii_lowercase();
-    let metal = if n.contains("copper") {
-        Vec3::new(0.78, 0.45, 0.27)
+    let (metal, slot) = if n.contains("copper") {
+        (Vec3::new(0.78, 0.45, 0.27), &mut p.gold)
     } else if n.contains("silver") {
-        Vec3::new(0.82, 0.84, 0.88)
+        (Vec3::new(0.82, 0.84, 0.88), &mut p.steel)
     } else if n.contains("iron") {
-        IRON
+        (IRON, &mut p.metal)
     } else {
-        GOLD
+        (GOLD, &mut p.gold)
     };
     let key = hash(name);
     for k in 0..4 {
         let jitter = Vec3::new(rand(key, k) - 0.5, 0.0, rand(key, k + 9) - 0.5) * 0.02;
         let base = Vec3::new(0.0, k as f32 * 0.013, 0.0) + jitter;
-        p.metal
-            .prism(base, base + Vec3::Y * 0.012, 0.055, 0.055, 12, metal, 0.0);
-        p.metal.prism(
+        slot.prism(base, base + Vec3::Y * 0.012, 0.055, 0.055, 12, metal, 0.0);
+        slot.prism(
             base + Vec3::Y * 0.012,
             base + Vec3::Y * 0.014,
             0.022,
@@ -1420,7 +1503,7 @@ fn coins(p: &mut Parts, name: &str) {
         );
     }
     let lean = Vec3::new(0.09, 0.0, 0.05);
-    p.metal.prism(
+    slot.prism(
         lean + Vec3::new(0.0, 0.05, 0.0),
         lean + Vec3::new(0.012, 0.05, 0.0),
         0.05,
@@ -1638,7 +1721,7 @@ fn potion(p: &mut Parts, name: &str) {
         0.0,
         Vec3::ONE,
     );
-    p.matte.prism(
+    p.glass.prism(
         Vec3::new(0.0, 0.15, 0.0),
         Vec3::new(0.0, 0.22, 0.0),
         0.028,
@@ -1647,7 +1730,7 @@ fn potion(p: &mut Parts, name: &str) {
         Vec3::new(0.2, 0.24, 0.26),
         0.0,
     );
-    p.matte.prism(
+    p.wood.prism(
         Vec3::new(0.0, 0.215, 0.0),
         Vec3::new(0.0, 0.25, 0.0),
         0.03,
@@ -1669,7 +1752,7 @@ fn potion(p: &mut Parts, name: &str) {
 
 fn ring(p: &mut Parts) {
     p.accent = Some(Accent::Violet);
-    p.metal.torus(
+    p.gold.torus(
         Vec3::new(0.0, 0.014, 0.0),
         Vec3::Y,
         0.05,
@@ -1689,7 +1772,7 @@ fn ring(p: &mut Parts) {
 
 fn amulet(p: &mut Parts) {
     p.accent = Some(Accent::Teal);
-    p.metal.torus(
+    p.gold.torus(
         Vec3::new(-0.04, 0.006, 0.0),
         Vec3::Y,
         0.12,
@@ -1698,7 +1781,7 @@ fn amulet(p: &mut Parts) {
         3,
         GOLD,
     );
-    p.metal.prism(
+    p.gold.prism(
         Vec3::new(0.1, 0.0, 0.0),
         Vec3::new(0.1, 0.016, 0.0),
         0.045,

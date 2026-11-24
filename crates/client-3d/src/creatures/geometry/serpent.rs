@@ -186,7 +186,7 @@ pub(super) fn serpent_skull(p: &mut Parts, l: &Look) {
         Vec3::new(0.84, 0.10, 0.54),
     );
     skull.mesh(
-        &mut p.satin,
+        &mut p.chitin,
         Vec3::new(-0.13, -0.022, -0.13),
         Vec3::new(0.13, 0.125, 0.23),
         0.005,
@@ -220,7 +220,7 @@ pub(super) fn serpent_skull(p: &mut Parts, l: &Look) {
         radius: 0.004,
         count: 7,
     }
-    .emit(&mut p.matte, BONE);
+    .emit(&mut p.stone, BONE);
 }
 
 pub(super) fn serpent_jaw(p: &mut Parts, l: &Look) {
@@ -238,7 +238,7 @@ pub(super) fn serpent_jaw(p: &mut Parts, l: &Look) {
         0.0,
     );
     jaw.mesh(
-        &mut p.satin,
+        &mut p.chitin,
         Vec3::new(-0.083, -0.066, -0.055),
         Vec3::new(0.083, -0.01, 0.225),
         0.005,

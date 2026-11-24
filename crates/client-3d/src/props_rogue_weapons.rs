@@ -39,7 +39,7 @@ fn blade(p: &mut Parts, dagger: bool) {
     } else {
         (-0.21, -0.19, 0.37, 0.52, 0.041, -0.415)
     };
-    p.metal.extrude(
+    p.steel.extrude(
         &[
             Vec2::new(heel, -width),
             Vec2::new(shoulder, -width * 0.78),
@@ -59,11 +59,11 @@ fn blade(p: &mut Parts, dagger: bool) {
     for sign in [-1.0, 1.0] {
         let edge_a = Vec3::new(heel, 0.035, width * sign);
         let edge_b = Vec3::new(shoulder, 0.035, width * 0.78 * sign);
-        p.metal
+        p.steel
             .tri_out([ridge_a, edge_a, edge_b], Vec3::ZERO, STEEL * 0.92);
-        p.metal
+        p.steel
             .tri_out([ridge_a, edge_b, ridge_b], Vec3::ZERO, STEEL * 1.08);
-        p.metal.tri_out(
+        p.steel.tri_out(
             [ridge_b, edge_b, Vec3::new(tip, 0.034, 0.0)],
             Vec3::ZERO,
             STEEL,
@@ -77,7 +77,7 @@ fn blade(p: &mut Parts, dagger: bool) {
         IRON,
     );
     for sign in [-1.0, 1.0] {
-        p.metal.prism(
+        p.steel.prism(
             Vec3::new(guard, 0.036, half_guard * sign),
             Vec3::new(guard + 0.025, 0.036, (half_guard + 0.025) * sign),
             0.018,
@@ -132,10 +132,10 @@ fn shortbow(p: &mut Parts) {
     ];
     for (i, pair) in limb.windows(2).enumerate() {
         let radius = if i == 0 || i == 6 { 0.016 } else { 0.025 };
-        p.matte
+        p.wood
             .prism(pair[0], pair[1], radius, radius, 7, WOOD * 1.18, 0.0);
         // A pale laminated belly separates the curve from dark floors.
-        p.matte.prism(
+        p.wood.prism(
             pair[0] - Vec3::X * 0.017,
             pair[1] - Vec3::X * 0.017,
             radius * 0.28,
@@ -154,7 +154,7 @@ fn shortbow(p: &mut Parts) {
         Vec3::new(0.73, 0.67, 0.52),
         0.0,
     );
-    p.matte.prism(
+    p.satin.prism(
         Vec3::new(0.12, 0.035, -0.075),
         Vec3::new(0.12, 0.035, 0.075),
         0.032,
@@ -164,7 +164,7 @@ fn shortbow(p: &mut Parts) {
         0.0,
     );
     for z in [-0.06, -0.03, 0.0, 0.03, 0.06] {
-        p.matte.prism(
+        p.wood.prism(
             Vec3::new(0.12, 0.035, z),
             Vec3::new(0.12, 0.035, z + 0.007),
             0.034,
@@ -175,7 +175,7 @@ fn shortbow(p: &mut Parts) {
         );
     }
     for tip in [limb[0], limb[7]] {
-        p.matte.blob(tip, Vec3::splat(0.019), 0, 0.0, BONE * 0.8);
+        p.stone.blob(tip, Vec3::splat(0.019), 0, 0.0, BONE * 0.8);
     }
 }
 
@@ -185,7 +185,7 @@ fn projectile(p: &mut Parts, dart: bool) {
     } else {
         (-0.38, 0.29, 0.40, 0.009, 0.044)
     };
-    p.matte.prism(
+    p.wood.prism(
         Vec3::new(tail, 0.024, 0.0),
         Vec3::new(head, 0.024, 0.0),
         radius,
@@ -201,7 +201,7 @@ fn projectile(p: &mut Parts, dart: bool) {
         Vec2::new(head, 0.0),
     ];
     // Separate triangular faces avoid a concave fan across the socket notch.
-    p.metal.extrude(
+    p.steel.extrude(
         &outline[..3],
         Vec3::new(0.0, 0.024, 0.0),
         Vec3::X,
@@ -250,7 +250,7 @@ fn projectile(p: &mut Parts, dart: bool) {
 }
 
 fn spear(p: &mut Parts) {
-    p.matte.prism(
+    p.wood.prism(
         Vec3::new(-0.66, 0.035, 0.0),
         Vec3::new(0.43, 0.035, 0.0),
         0.019,
@@ -268,7 +268,7 @@ fn spear(p: &mut Parts) {
         IRON,
         0.0,
     );
-    p.matte.prism(
+    p.satin.prism(
         Vec3::new(-0.23, 0.035, 0.0),
         Vec3::new(-0.01, 0.035, 0.0),
         0.025,
@@ -278,7 +278,7 @@ fn spear(p: &mut Parts) {
         0.0,
     );
     for x in [-0.20, -0.15, -0.10, -0.05] {
-        p.matte.prism(
+        p.wood.prism(
             Vec3::new(x, 0.035, 0.0),
             Vec3::new(x + 0.008, 0.035, 0.0),
             0.027,
@@ -297,7 +297,7 @@ fn spear(p: &mut Parts) {
         IRON,
         0.0,
     );
-    p.metal.extrude(
+    p.steel.extrude(
         &[
             Vec2::new(0.41, 0.0),
             Vec2::new(0.48, -0.052),
@@ -310,7 +310,7 @@ fn spear(p: &mut Parts) {
         0.018,
         STEEL,
     );
-    p.metal.prism(
+    p.steel.prism(
         Vec3::new(0.44, 0.046, 0.0),
         Vec3::new(0.66, 0.046, 0.0),
         0.007,
@@ -329,7 +329,7 @@ fn shuriken(p: &mut Parts) {
             Vec2::new(angle.cos() * radius, angle.sin() * radius)
         })
         .collect();
-    p.metal.extrude(
+    p.steel.extrude(
         &outline,
         Vec3::new(0.0, 0.025, 0.0),
         Vec3::X,
@@ -340,7 +340,7 @@ fn shuriken(p: &mut Parts) {
     for i in 0..4 {
         let a = i as f32 * TAU / 4.0;
         let dir = Vec3::new(a.cos(), 0.0, a.sin());
-        p.metal.tri_out(
+        p.steel.tri_out(
             [
                 Vec3::new(0.0, 0.039, 0.0),
                 dir * 0.145 + Vec3::Y * 0.032,

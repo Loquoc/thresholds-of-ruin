@@ -1784,14 +1784,14 @@ fn dragon_body(p: &mut Parts, l: &Look) {
     }
     let (red, belly) = (l.skin, l.cloth);
     torso.mesh(
-        &mut p.matte,
+        &mut p.chitin,
         Vec3::new(-0.43, -0.37, -0.68),
         Vec3::new(0.43, 0.36, 0.59),
         0.012,
         &|at, normal| scaled(red, belly, at, normal),
     );
     spines(
-        &mut p.matte,
+        &mut p.stone,
         Vec3::new(0.0, 0.27, 0.40),
         Vec3::new(0.0, 0.25, -0.55),
         9,

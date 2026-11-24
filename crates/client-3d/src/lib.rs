@@ -50,6 +50,7 @@ mod sdf;
 mod session;
 mod showcase;
 mod startup;
+mod surface;
 #[cfg(test)]
 mod test_support;
 use diagnostics::capture;
@@ -418,6 +419,7 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
     }))
     .add_plugins(startup::PresentationPlugin)
     .add_plugins(MaterialPlugin::<CaveMaterial>::default())
+    .add_plugins(surface::ModelMaterialPlugin)
     .insert_resource(ClearColor(FOG))
     .insert_resource(AmbientLight {
         color: Color::srgb(0.5, 0.6, 0.85),
@@ -550,6 +552,7 @@ pub fn run_with(arguments: Vec<String>) -> Result<(), Error> {
                 torch_flicker,
                 lighting::effects,
                 lighting::shade,
+                lighting::shade_models,
                 lighting::lamps,
                 hud::update,
                 loot_labels::show,

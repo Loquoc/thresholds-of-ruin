@@ -47,7 +47,7 @@ fn flask(p: &mut Parts) {
     }
     p.satin
         .torus(Vec3::Y * 0.22, Vec3::Y, 0.034, 0.008, 10, 4, glass * 1.4);
-    p.matte.prism(
+    p.wood.prism(
         Vec3::Y * 0.218,
         Vec3::Y * 0.266,
         0.027,
@@ -56,7 +56,7 @@ fn flask(p: &mut Parts) {
         WOOD * 1.5,
         0.0,
     );
-    p.matte.prism(
+    p.wood.prism(
         Vec3::Y * 0.258,
         Vec3::Y * 0.269,
         0.031,
@@ -160,7 +160,7 @@ fn device(p: &mut Parts, staff: bool) {
                 BRONZE,
             );
         }
-        p.matte.prism(
+        p.stone.prism(
             Vec3::new(0.18, 0.028, 0.0),
             Vec3::new(0.27, 0.028, 0.0),
             0.021,
@@ -183,11 +183,11 @@ fn pendant(p: &mut Parts) {
         } else {
             Vec3::new(a.cos(), 0.7, a.sin()).normalize()
         };
-        p.metal
+        p.gold
             .torus(center, normal, 0.019, 0.004, 8, 4, GOLD * 0.88);
     }
     let at = Vec3::new(0.13, 0.024, 0.0);
-    p.metal.prism(
+    p.gold.prism(
         at - Vec3::Y * 0.017,
         at + Vec3::Y * 0.017,
         0.073,
@@ -196,7 +196,7 @@ fn pendant(p: &mut Parts) {
         GOLD * 0.72,
         0.0,
     );
-    p.metal.prism(
+    p.gold.prism(
         at + Vec3::Y * 0.017,
         at + Vec3::Y * 0.023,
         0.056,
@@ -205,7 +205,7 @@ fn pendant(p: &mut Parts) {
         GOLD * 1.06,
         0.0,
     );
-    p.metal.torus(
+    p.gold.torus(
         at + Vec3::Y * 0.025,
         Vec3::Y,
         0.052,
@@ -342,11 +342,9 @@ mod tests {
     use super::*;
 
     fn points(p: &Parts) -> impl Iterator<Item = &[f32; 3]> {
-        p.matte
-            .positions
-            .iter()
-            .chain(&p.satin.positions)
-            .chain(&p.metal.positions)
+        p.all_builders()
+            .into_iter()
+            .flat_map(|builder| builder.positions.iter())
     }
 
     #[test]

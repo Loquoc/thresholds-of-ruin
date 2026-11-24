@@ -282,7 +282,19 @@ struct Profiled;
 
 /// The baked rock textures, once any material needs them.
 #[derive(Resource, Default)]
-struct Baked(Option<(Handle<Image>, Handle<Image>)>);
+pub(crate) struct Baked(Option<(Handle<Image>, Handle<Image>)>);
+
+impl Baked {
+    pub(crate) fn sums(&mut self, images: &mut Assets<Image>) -> Handle<Image> {
+        let (_, sums) = self.0.get_or_insert_with(|| {
+            (
+                images.add(baked::lattice_image()),
+                images.add(baked::sums_image()),
+            )
+        });
+        sums.clone()
+    }
+}
 
 /// Seconds between frame-timing reports.
 #[derive(Resource)]
