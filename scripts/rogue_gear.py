@@ -62,6 +62,22 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     return best
 
 
+def reveal_unseen_attacker(turn: Turn) -> Action | None:
+    """Use a free sight ring before spending a potion."""
+    if turn.has_condition("rogue.blindness") or turn.has_condition("rogue.see_invisible"):
+        return None
+    sight_ring = "item.ring.ring-see-invisible"
+    if any(slot.occupant and slot.occupant.identity == sight_ring for slot in turn.equipment):
+        return None
+    for choice in turn.equip_choices():
+        if choice.item.identity == sight_ring and not choice.item.known_cursed and choice.slot.occupant is None:
+            return choice
+    for item in turn.inventory:
+        if item.identity == "item.potion.see-invisible" and ItemUse.DRINK in item.uses:
+            return UseItem(item, ItemUse.DRINK)
+    return None
+
+
 def _ring_ranks(*preferred: str) -> dict[str, int]:
     order = (*preferred, "sustain-strength", "see-invisible", "maintain-armor", "stealth")
     return {f"item.ring.ring-{name}": len(order) - index for index, name in enumerate(order)}

@@ -49,7 +49,7 @@ from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_cor
 from rogue_food import FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food
 from rogue_gear import (
     IDENTIFY_CATEGORIES, choose_armor, choose_ring, improve_worn_gear,
-    needs_identification, ready_weapon, ring_upgrades,
+    needs_identification, ready_weapon, reveal_unseen_attacker, ring_upgrades,
 )
 
 
@@ -635,16 +635,8 @@ class Adventurer:
         if not attack_tick <= turn.tick < attack_tick + 400:
             return None
 
-        sight_ring = "item.ring.ring-see-invisible"
-        wearing_sight = any(slot.occupant and slot.occupant.identity == sight_ring for slot in turn.equipment)
-        if (not wearing_sight and not turn.has_condition("rogue.see_invisible")
-                and not turn.has_condition("rogue.blindness")):
-            for choice in turn.equip_choices():
-                if choice.item.identity == sight_ring and not choice.item.known_cursed and choice.slot.occupant is None:
-                    return choice, "reveal_attacker"
-            for item in turn.inventory:
-                if ItemUse.DRINK in item.uses and item.identity == "item.potion.see-invisible":
-                    return UseItem(item, ItemUse.DRINK), "reveal_attacker"
+        if action := reveal_unseen_attacker(turn):
+            return action, "reveal_attacker"
 
         if turn.holds or self.trapped(turn):
             return None

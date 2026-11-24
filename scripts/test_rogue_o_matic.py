@@ -275,6 +275,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 action, _ = choose(player, turn)
                 self.assertEqual(describe_action(action)["type"], expected)
 
+        worn = {**ring, "id": "other", "identity": "item.ring.ring-protection"}
+        offers = [{"item": "other", "slot": slot, "equipped_slot": 0},
+                  {"item": "band", "slot": slot}, {"item": "dose", "drinkable": True}]
+        turn = player_turn([cell("here")], inventory=[worn, ring, dose],
+                           interactions={"slots": [slot], "inventory": offers})
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.last_unseen_attack = "here", 0
+        action, reason = choose(player, turn)
+        self.assertEqual((describe_action(action)["type"], reason), ("drink", "reveal_attacker"))
+
     def test_unseen_attack_delays_descent_only_during_its_evasion_window(self):
         for tick, expected in ((99, "descend"), (100, "evade_unseen_attack"),
                                (499, "evade_unseen_attack"), (500, "descend")):
