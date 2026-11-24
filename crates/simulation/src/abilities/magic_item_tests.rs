@@ -1605,6 +1605,7 @@ fn identify_consumes_before_choice_and_only_selected_instance_reveals_charges() 
     assert_eq!(choice.classes, vec![ItemClass::Tool]);
     assert_eq!(choice.items, vec![first, second]);
     assert_eq!(game, roundtrip(&game));
+    game.take_script_report();
     execute(
         &mut game,
         Action::Identify {
@@ -1613,6 +1614,19 @@ fn identify_consumes_before_choice_and_only_selected_instance_reveals_charges() 
         },
     );
     assert!(game.identification_view(ActorId(1)).is_none());
+    let report = game.take_script_report();
+    assert_eq!(report.gameplay_narration.len(), 1);
+    let message = &report.gameplay_narration[0];
+    assert_eq!(
+        message.audience,
+        crate::scripting::Audience::Actor(ActorId(1))
+    );
+    assert_eq!(
+        message.segments,
+        [crate::scripting::MessageSegment::Text(
+            "You identify the plain stick: test elemental device.".into(),
+        )]
+    );
     let view = game.observe(ActorId(1)).unwrap();
     assert!(view.inventory.iter().all(|i| i.identified));
     let rows = view.interactions.unwrap().inventory;
@@ -1645,6 +1659,7 @@ fn identify_wrong_owner_category_stale_and_decline_never_refund_or_duplicate() {
     assert!(game
         .plan_work(ActorId(1), Work::Read { item: scroll })
         .is_err());
+    game.take_script_report();
     execute(
         &mut game,
         Action::Identify {
@@ -1653,6 +1668,7 @@ fn identify_wrong_owner_category_stale_and_decline_never_refund_or_duplicate() {
         },
     );
     assert_eq!(game.items[&scroll].quantity, 1);
+    assert!(game.take_script_report().gameplay_narration.is_empty());
     let before = game.clone();
     assert!(game
         .resolve_identification(ActorId(1), origin, None)
