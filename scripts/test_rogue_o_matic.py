@@ -2526,6 +2526,27 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(policy.choose(data),
                          ({"type": "identify", "choice": "armor-offer", "item": "plate"}, "identify"))
 
+    def test_identification_scroll_is_saved_for_usable_or_worn_armor(self):
+        scroll = {"id": "scroll", "name": "robes", "class": "scroll", "identified": True,
+                  "identity": "item.scroll.identify-armor", "quantity": 1}
+        armor = {"id": "mail", "name": "mail", "class": "armor", "identified": True,
+                 "identity": "item.armor.ring-mail", "quantity": 1}
+        slot = {"id": "body_armor", "name": "Armor"}
+        for equipped, reason in ((None, "descend"), (0, "identify_gear")):
+            with self.subTest(equipped=equipped):
+                offers = [{"item": "scroll", "readable": True},
+                          {"item": "mail", "slot": slot, "known_cursed": True, "equipped_slot": equipped}]
+                turn = player_turn([cell("exit", down=True)], inventory=[armor, scroll],
+                                   interactions={"inventory": offers, "slots": [slot]})
+                self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], reason)
+
+        spare = {**armor, "id": "spare"}
+        prompt = {"choice": "identify", "items": ["mail", "spare"], "classes": ["armor"]}
+        turn = player_turn([cell("here")], inventory=[armor, spare], interactions={
+            "identification": prompt, "inventory": [{"item": "mail", "known_cursed": True}]})
+        action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+        self.assertEqual((action.item.target, reason), ("spare", "identify"))
+
     def test_keeps_a_spear_for_ranged_combat_even_when_weapon_stock_is_full(self):
         inventory = [{"id": key, "name": "mace", "class": "weapon", "quantity": 1,
                       "identity": "item.weapon.mace", "identified": True} for key in ("one", "two", "three")]

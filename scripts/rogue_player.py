@@ -1254,7 +1254,7 @@ class Adventurer:
 
     def choose(self, turn: Turn) -> tuple[Action | None, str]:
         if turn.needs_identification and (prompt := turn.identification):
-            unknown = next((item for item in prompt.items if needs_identification(item)), None)
+            unknown = next((item for item in prompt.items if needs_identification(item, turn)), None)
             return prompt.select(unknown), "identify"
         if turn.can_resume:
             return ActivityChoice.RESUME, "resume"

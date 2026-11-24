@@ -23,10 +23,14 @@ BASE_PROTECTION = {
 }
 
 
-def needs_identification(item: Item) -> bool:
-    return item.identity is None or (
-        (item.category == "armor" or item.identity in MELEE_WEAPONS) and not item.equipment_identified
-    )
+def needs_identification(item: Item, turn: Turn) -> bool:
+    if item.identity is None:
+        return True
+    if item.equipment_identified or (item.category != "armor" and item.identity not in MELEE_WEAPONS):
+        return False
+    if item.known_cursed:
+        return any(slot.occupant and slot.occupant.target == item.target for slot in turn.equipment)
+    return True
 
 
 def identification_categories(scroll: Item) -> Collection[str]:
@@ -38,7 +42,7 @@ def identification_categories(scroll: Item) -> Collection[str]:
 def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
     categories = identification_categories(scroll)
     return bool(categories) and any(
-        item.category in categories and needs_identification(item) for item in turn.inventory
+        item.category in categories and needs_identification(item, turn) for item in turn.inventory
     )
 
 
@@ -63,7 +67,7 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
             continue
         worn = slot.occupant
         estimated = item.physical_reduction is None or (worn is not None and worn.physical_reduction is None)
-        if estimated and can_identify_armor and (needs_identification(item) or (worn and needs_identification(worn))):
+        if estimated and can_identify_armor and (needs_identification(item, turn) or (worn and needs_identification(worn, turn))):
             continue
         current = _armor_protection(worn) if worn else 0
         rating = _armor_protection(item, account_for_curse=cure is None)
