@@ -697,16 +697,20 @@ class Adventurer:
         return None
 
     def counter_threat(self, turn: Turn, health: int, *, in_melee: bool = False) -> tuple[Zap, str] | None:
-        devices = [(device, reason) for identity, reason in CONTROL_DEVICES
-                   if not in_melee or reason == MemoryReason.POLYMORPH_THREAT
-                   for device in turn.devices
-                   if device.item.identity == identity and self.can_spend_charge(device)]
+        devices = []
+        for identity, reason in CONTROL_DEVICES:
+            if in_melee and reason != MemoryReason.POLYMORPH_THREAT:
+                continue
+            for device in turn.devices:
+                if device.item.identity == identity and self.can_spend_charge(device):
+                    devices.append((device, reason))
         if not devices:
             return None
         for foe in sorted(turn.hostiles, key=self.damage_estimate, reverse=True):
             damage = self.damage_estimate(foe)
-            if (foe.distance > 3 or
-                    (2 * damage < health and foe.name not in self.draining_creatures)):
+            if foe.distance > 3:
+                continue
+            if 2 * damage < health and foe.name not in self.draining_creatures:
                 continue
             for device, reason in devices:
                 if reason == MemoryReason.SLOW_APPROACH and foe.target in self.attempted_slow:

@@ -1172,6 +1172,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, action, reason=reason)
         self.assertNotIsInstance(choose(player, turn)[0], Zap)
 
+    def test_control_wands_respect_priority_and_fall_back_after_a_slow_attempt(self):
+        cells = [cell("here"), cell("lane", 1), cell("enemy", 2)]
+        foe = {"id": "dragon", "name": "dragon", "position": cells[2]["position"]}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observed_loss["dragon"] = 7
+        # The missile is offered first, but slowing this approach takes priority.
+        names = ["magic-missile", "slow"]
+        inventory = [{"id": name, "name": name, "class": "wand", "identified": True,
+                      "identity": f"item.wand.wand-{name}", "quantity": 1} for name in names]
+        offers = [{"item": name, "zappable": True, "device_activation": "direction", "charges": 2}
+                  for name in names]
+        turn = player_turn(cells, actors=[foe], hostiles=["dragon"], inventory=inventory,
+                           interactions={"inventory": offers})
+        action, reason = choose(player, turn)
+        self.assertEqual((action.device.item.target, reason), ("slow", "slow_approach"))
+        player.admitted(turn, action, reason=reason)
+        action, reason = choose(player, turn)
+        self.assertEqual((action.device.item.target, reason), ("magic-missile", "magic_missile"))
+
     def test_elemental_wand_requires_a_recognized_effect_and_an_available_charge(self):
         cells = [cell(str(i), i) for i in range(6)]
         foe = {"id": "foe", "name": "hunter", "position": cells[3]["position"]}
