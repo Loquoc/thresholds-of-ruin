@@ -1513,6 +1513,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(policy, player_turn(tiles, stats={"conditions": [trap]})),
                          (Move(Direction.NORTH), "escape_bear_trap"))
 
+        for phase, remaining in (("active", "0"), ("inactive", None)):
+            with self.subTest(phase=phase, remaining=remaining):
+                expired = {**trap, "phase": phase, "remaining_ticks": remaining}
+                turn = player_turn(tiles, stats={"conditions": [expired]})
+                self.assertEqual(choose(policy, turn), (Move(Direction.DOWN), "descend"))
+
     def test_stalled_campaign_reports_the_last_picture_and_the_admitted_stair_phase(self):
         import json
         from unittest.mock import Mock

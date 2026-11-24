@@ -1220,6 +1220,7 @@ class Adventurer:
                 return Wait(), "hold_corridor"
 
         memory = self.maps[self.depth]
+        trapped = self.trapped(turn)
         hovering = turn.has_condition("rogue.levitation")
         ground_items = () if hovering else turn.ground_items
         if turn.hunger in {"hungry", "weak", "empty"}:
@@ -1228,21 +1229,21 @@ class Adventurer:
             for ground in ground_items:
                 if ground.reachable and ground.item.category == "food":
                     return Pickup(ground.item), "take"
-            if not hovering and not self.trapped(turn) and (step := route_to_food(turn, memory)):
+            if not hovering and not trapped and (step := route_to_food(turn, memory)):
                 return step, "forage"
 
         returning = self.carrying_objective(turn)
         loot = self.loot_goals(turn, ground_items, returning)
         if loot.pickup is not None:
             return Pickup(loot.pickup), "take"
-        if not returning and not hovering and not turn.hostiles and not self.trapped(turn):
+        if not returning and not hovering and not turn.hostiles and not trapped:
             objective_cells = {key for key, items in memory.items.items()
                                if any(item.identity == self.objective for item in items)}
             if objective_cells and (step := memory.toward(turn, objective_cells, avoid=self.danger_until.keys())):
                 return step, "seek_objective"
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
-        if self.trapped(turn):
+        if trapped:
             if not turn.holds and any(c.identity == "rogue.bear_trap" and c.active
                                       and c.remaining_ticks is None for c in turn.conditions):
                 # While pinned, any Move is a paid attempt in place. Do not
