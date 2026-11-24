@@ -133,14 +133,16 @@ pub fn animate(
     if let Some(profile) = profile.as_deref_mut() {
         *profile = MotionProfile::default();
     }
-    // Every animation plays at the presentation pace, which slows to match a
-    // server that supplies the timeline more slowly than it plays.
-    let dt = animation_frame_delta(crate::playback::Pace::of(pace, time.delta_secs()));
+    // Authored poses and effects share elapsed presentation time. A slow frame
+    // must not let a projectile land before the matching hurt or death pose.
+    let elapsed = crate::playback::Pace::of(pace, time.delta_secs());
     // A held presentation frame must retain contact history and cloth transforms,
     // not re-evaluate the pose with a zero step.
-    if dt <= 0.0 {
+    if elapsed <= 0.0 {
         return;
     }
+    // Only numerical smoothing and the contact/cloth solve need a bounded step.
+    let dt = elapsed.min(0.05);
 
     // Left alone for a minute, everyone starts to amuse themselves.
     let fun = bored.map_or(0.0, |b| ease((b.0 - BORED_AFTER) / 3.0));
@@ -212,20 +214,20 @@ pub fn animate(
             }
             anim.yaw += d * (1.0 - (-dt * 12.0).exp());
         }
-        anim.time += dt;
+        anim.time += elapsed;
         if let Some((m, t)) = anim.action {
-            let t = t + dt / m.duration();
+            let t = t + elapsed / m.duration();
             anim.action = (t < 1.0).then_some((m, t));
         }
-        anim.hurt = anim.hurt.map(|t| t + dt).filter(|t| *t < 0.4);
-        anim.dodge = anim.dodge.map(|t| t + dt).filter(|t| *t < 0.45);
+        anim.hurt = anim.hurt.map(|t| t + elapsed).filter(|t| *t < 0.4);
+        anim.dodge = anim.dodge.map(|t| t + elapsed).filter(|t| *t < 0.45);
         let death_motion = anim.death_motion;
         if let Some(d) = anim.dead.as_mut() {
-            *d = death_motion.advance(*d, dt);
+            *d = death_motion.advance(*d, elapsed);
             anim.fallen = death_motion.fall(*d);
         } else {
             // A revived creature gets up over most of a second.
-            anim.fallen = (anim.fallen - dt / 0.8).max(0.0);
+            anim.fallen = (anim.fallen - elapsed / 0.8).max(0.0);
         }
         let moving = step > dt * 0.04 * rig.scale.max(0.2);
         let fit_cloaks = rig.cloaks.is_empty()

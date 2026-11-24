@@ -1120,15 +1120,14 @@ pub(super) fn tend_the_dead(
 ) {
     let dt = crate::playback::Pace::of(pace, time.delta_secs());
     game.dying.retain_mut(|body| {
-        let (pose_step, linger, settled) = match animations.get(body.entity) {
-            Ok((anim, true)) if anim.dead.is_some() => (
-                creatures::animation_frame_delta(dt),
+        let (linger, settled) = match animations.get(body.entity) {
+            Ok((anim, true)) => (
                 anim.death_linger(),
-                anim.dead.is_some_and(|phase| phase >= 1.0),
+                anim.dead.is_none_or(|phase| phase >= 1.0),
             ),
             // Without an active pose, keep a finite elapsed-time deadline.
-            Ok((anim, _)) => (dt, anim.death_linger(), true),
-            Err(_) => (dt, 2.0, true),
+            Ok((anim, false)) => (anim.death_linger(), true),
+            Err(_) => (2.0, true),
         };
         if body.holds {
             body.claimed = true;
@@ -1139,15 +1138,11 @@ pub(super) fn tend_the_dead(
             }
         }
         if !settled {
-            body.age = (body.age + pose_step).min(linger);
+            // Wait for the actual pose before spending time on the dissolve.
+            body.age = (body.age + dt).min(linger);
             return true;
         }
-        if body.age < linger {
-            body.age += pose_step;
-        } else {
-            // Dissolving follows elapsed time, not the capped fall clock.
-            body.age += dt;
-        }
+        body.age += dt;
         if body.holds || body.age <= linger {
             return true;
         }

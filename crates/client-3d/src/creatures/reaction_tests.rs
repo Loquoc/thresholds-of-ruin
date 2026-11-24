@@ -324,3 +324,117 @@ fn a_death_waits_for_the_disclosed_flight_that_caused_it() {
         .unwrap();
     assert!(hurt < 0.0, "a later hurt still waits for the bolt");
 }
+
+#[test]
+fn disclosed_bolt_and_griffin_reaction_stay_aligned_across_a_long_frame() {
+    use bevy::time::TimeUpdateStrategy;
+    use std::time::Duration;
+    use tor_protocol::{
+        EffectAppearance, EffectCue, EffectDelivery, EffectPresentation, EffectTiming,
+    };
+
+    let run = |steps_after_approach: &[u64]| {
+        let at = crate::scene::stand(IVec3::new(4, 0, 0));
+        let (mut app, griffin) =
+            rogue_tests::animate_look(Look::of(CreatureModel::Griffin, 42), 12, |_| at);
+        let mut materials = Assets::<StandardMaterial>::default();
+        let library = PropLibrary::new(PropMaterials::new(&mut materials));
+        app.insert_resource(materials)
+            .insert_resource(library)
+            .init_resource::<Game>()
+            .add_systems(
+                Update,
+                (crate::scene::react.before(animate), effects.after(animate)),
+            );
+        let target = ActorTarget::from_digest([13; 32]);
+        let caster = ActorTarget::from_digest([11; 32]);
+        let caster_entity = body(&mut app, crate::scene::stand(IVec3::ZERO));
+        let template = body(&mut app, at);
+        let target_body = app
+            .world_mut()
+            .entity_mut(template)
+            .take::<ActorBody>()
+            .unwrap();
+        app.world_mut().despawn(template);
+        app.world_mut().entity_mut(griffin).insert(target_body);
+        let mut game = app.world_mut().resource_mut::<Game>();
+        game.actors.insert(caster, caster_entity);
+        game.actors.insert(target, griffin);
+        game.pending.push(Happening::Effect {
+            caster: Some(caster),
+            ability: None,
+            tick: 10,
+            timing: EffectTiming::Instant,
+            presentation: EffectPresentation::neutral(EffectAppearance::Bolt),
+            object_model: None,
+            delivery: EffectDelivery::Ray,
+            cue: EffectCue::Fire,
+            segments: vec![(0..=4).map(|x| Position { x, y: 0, z: 0 }).collect()],
+        });
+        game.pending.push(Happening::Hurt(target));
+        game.pending.push(Happening::Died(target));
+        let motion = Move::for_ability("rogue.fear", None);
+        app.world_mut().get_mut::<Anim>(griffin).unwrap().action = Some((motion, 0.28));
+        let update = |app: &mut App, ms| {
+            *app.world_mut().resource_mut::<TimeUpdateStrategy>() =
+                TimeUpdateStrategy::ManualDuration(Duration::from_millis(ms));
+            app.update();
+        };
+        update(&mut app, 0);
+        let bolt = {
+            let world = app.world_mut();
+            world
+                .query_filtered::<Entity, With<Bolt>>()
+                .single(world)
+                .unwrap()
+        };
+        for _ in 0..14 {
+            update(&mut app, 16);
+        }
+        let before = app.world().get::<Anim>(griffin).unwrap();
+        assert!(app.world().get::<Bolt>(bolt).is_some());
+        assert!(before.hurt.unwrap() < 0.0, "no hurt before contact");
+        let before_death = before.dead.unwrap();
+        for &ms in steps_after_approach {
+            update(&mut app, ms);
+        }
+        assert!(
+            app.world().get::<Bolt>(bolt).is_none(),
+            "the staged projectile reached the Griffin"
+        );
+        let anim = app.world().get::<Anim>(griffin).unwrap();
+        let wing = app
+            .world()
+            .get::<Rig>(griffin)
+            .unwrap()
+            .joint(J::WingL)
+            .unwrap();
+        let rotation = app.world().get::<Transform>(wing).unwrap().rotation;
+        (
+            anim.hurt.unwrap(),
+            anim.dead.unwrap() - before_death,
+            rotation,
+        )
+    };
+    let steady = run(&[16, 16, 16, 16, 16, 16, 16, 8]);
+    let hitch = run(&[120]);
+    assert!(
+        (steady.0 - 0.024).abs() < 0.002,
+        "steady impact age {}",
+        steady.0
+    );
+    assert!(
+        (hitch.0 - steady.0).abs() < 0.002,
+        "at bolt arrival the Griffin's hurt clock was {}s, expected {}s",
+        hitch.0,
+        steady.0
+    );
+    assert!(
+        (hitch.1 - steady.1).abs() < 0.002,
+        "death pre-roll follows the same clock as impact"
+    );
+    assert!(
+        hitch.2.angle_between(steady.2) < 0.002,
+        "wing release on impact stays in phase"
+    );
+}

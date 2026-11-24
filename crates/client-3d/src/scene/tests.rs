@@ -1628,7 +1628,15 @@ fn a_dramatic_death_finishes_before_cleanup_at_normal_and_low_frame_rates() {
                     starts.get_or_insert(frame);
                 }
             } else {
-                let frames = frame - starts.expect("the body should visibly fade");
+                let first_fade = starts.expect("the body should visibly fade");
+                // Dramatic linger is 3.18 seconds plus 0.60 seconds. The
+                // displayed fall and fade must not stretch at low frame rates.
+                let fade_start = (first_fade + 1) as f32 / hz as f32;
+                assert!(
+                    (fade_start - 3.78).abs() <= 1.0 / hz as f32,
+                    "{hz} Hz fade started at {fade_start}s"
+                );
+                let frames = frame - first_fade;
                 assert!((frames as f32 / hz as f32 - CORPSE_FADE_SECS).abs() < 0.11);
                 assert_eq!(
                     previous, 1.0,
