@@ -3640,6 +3640,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (Move(direction), "retreat"))
 
+    def test_stair_retreat_counts_diagonal_moves_when_choosing_an_exit(self):
+        cells = [cell("west-exit", -3, up=True), cell("west-hall", -2), cell("west", -1)]
+        for x in range(3):
+            for y in range(3):
+                tile = cell(f"{x},{y}", x, up=(x, y) == (2, 2))
+                tile["position"]["y"] = y
+                cells.append(tile)
+        foe = {"id": "foe", "name": "wraith", "position": {"x": 0, "y": -3, "z": 0}}
+        turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        self.assertEqual(choose(player, turn), (Move(Direction.SOUTH_EAST), "retreat_to_stairs"))
+
     def test_stair_retreat_routes_to_a_clear_exit_beyond_a_trapped_exit(self):
         cells = [cell("clear", -2, down=True), cell("west", -1), cell("here"), cell("pit", 1, down=True)]
         cells[-1]["trap"] = {"id": "pit", "family": None, "reachable": True}

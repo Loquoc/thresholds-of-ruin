@@ -829,7 +829,10 @@ class Adventurer:
         nearby = [cell for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
         if not nearby:
             return None
-        destination = min(nearby, key=lambda cell: (cell.trap is not None, sum(map(abs, cell.offset))))
+        # A diagonal covers both axes in one move. Prefer a straighter route on a tie.
+        destination = min(nearby, key=lambda cell: (
+            cell.trap is not None, max(map(abs, cell.offset)), sum(map(abs, cell.offset))
+        ))
         distance = sum(map(abs, destination.offset))
         approaches = []
         for direction in turn.walkable_directions:
