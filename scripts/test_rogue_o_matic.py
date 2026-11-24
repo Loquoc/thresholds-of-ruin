@@ -388,6 +388,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = player_turn(cells, actors=foes, hostiles=["0", "1"])
         self.assertNotEqual(choose(player, turn)[1], "take_corridor")
 
+    def test_missed_corridor_move_does_not_reserve_the_entrance_for_a_later_visit(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        start = player_turn([cell("room"), cell("entrance", -1)])
+        player.observe(start)
+        player.admitted(start, Move(Direction.WEST), reason="take_corridor")
+
+        still_in_room = player_turn([cell("room"), cell("entrance", -1)], tick=100)
+        player.observe(still_in_room)
+        later_visit = player_turn([cell("entrance"), cell("room", 1)], tick=200)
+        self.assertNotEqual(choose(player, later_visit)[1], "hold_corridor")
+
     def test_player_compares_disclosed_armor_and_respects_blocked_removal(self):
         from tor_client_bot import Equip, Unequip
 

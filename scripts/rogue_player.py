@@ -247,6 +247,10 @@ class Adventurer:
 
     def observe(self, turn: Turn, combat: CombatReport | None = None) -> None:
         here = turn.cell
+        if self.corridor_stand and here and turn.can_act:
+            entrance, until = self.corridor_stand
+            if here.key != entrance or turn.tick >= until:
+                self.corridor_stand = None
         if self.pending_end_search:
             origin, receipt = self.pending_end_search
             phase = turn.outcome_of(receipt)
