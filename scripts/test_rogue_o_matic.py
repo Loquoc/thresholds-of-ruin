@@ -860,15 +860,23 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         snake = {"id": "snake", "name": "rattlesnake", "position": cell("snake", 1)["position"]}
         strike = {"id": "strike", "name": "Strike", "cooldown_remaining": 0, "cost": None,
                   "basic_attack": True, "reach": {"kind": "melee"}, "target_kind": "actor"}
-        for hp, damage, guard, expected in [(23, 2, "snake", "melee"), (10, 2, "snake", "retreat_upstairs"),
-                                             (23, 8, "snake", "retreat_upstairs"), (23, 2, "other", "retreat_upstairs")]:
+        cases = [
+            (21, 5, "snake", "melee"),  # Exactly three quarters of maximum health.
+            (20, 5, "snake", "retreat_upstairs"),
+            (24, 6, "snake", "retreat_upstairs"),  # Four estimated hits would be lethal.
+            (24, 5, "snake", "melee"),
+            (24, 0, "snake", "retreat_upstairs"),
+            (24, 5, "other", "retreat_upstairs"),
+        ]
+        for hp, damage, guard, expected in cases:
             player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
             player.draining_creatures.add("rattlesnake")
             player.observed_loss["snake"] = damage
             player.last_guarded_landing = "landing", guard
             turn = player_turn([cell("landing", up=True), cell("snake", 1)], actors=[snake], hostiles=["snake"],
-                               abilities=[strike], combat={"hp": str(hp), "max_hp": "26"})
-            self.assertEqual(choose(player, turn)[1], expected)
+                               abilities=[strike], combat={"hp": str(hp), "max_hp": "28"})
+            with self.subTest(hp=hp, damage=damage, guard=guard):
+                self.assertEqual(choose(player, turn)[1], expected)
 
     def test_explores_past_a_landing_when_a_known_drainer_is_distant(self):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=3)

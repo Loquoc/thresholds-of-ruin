@@ -480,15 +480,8 @@ class Adventurer:
 
         if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
             return decision
-        # Leaving by this stair already failed to shake this opponent.
-        if (len(turn.hostiles) == 1 and adjacent and turn.cell and turn.cell.stairs_up
-                and self.last_guarded_landing == (turn.cell.key, adjacent[0].target)
-                and not self.carrying_objective(turn) and health and health.current * 4 >= health.maximum * 3):
-            guard = adjacent[0]
-            if guard.name in self.draining_creatures and 0 < self.damage_estimate(guard) * 4 < health.current:
-                attack = turn.attack(guard, technique="rattling_blow") or turn.attack(guard)
-                if attack:
-                    return ready_weapon(turn, bow=False) or (attack, "melee")
+        if decision := self.fight_stair_guard(turn, adjacent):
+            return decision
         close_pursuit = bool(adjacent) and sum(turn.distance_to(foe) <= 2 for foe in turn.hostiles) >= 2
         if escape := self.retreat_to_stairs(turn, pressed=injured or close_pursuit or two_hit_threat):
             return escape
@@ -552,6 +545,23 @@ class Adventurer:
             return Escape(turn.holds[0]), "escape_hold"
 
         return None
+
+    def fight_stair_guard(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:
+        """Fight a lone drainer when using this stair already failed to shake it."""
+        if len(turn.hostiles) != 1 or not adjacent or turn.cell is None or not turn.cell.stairs_up:
+            return None
+        guard = adjacent[0]
+        if self.last_guarded_landing != (turn.cell.key, guard.target) or guard.name not in self.draining_creatures:
+            return None
+        health = turn.health
+        if health is None or health.current * 4 < health.maximum * 3 or self.carrying_objective(turn):
+            return None
+        if not 0 < self.damage_estimate(guard) * 4 < health.current:
+            return None
+        attack = turn.attack(guard, technique="rattling_blow") or turn.attack(guard)
+        if attack is None:
+            return None
+        return ready_weapon(turn, bow=False) or (attack, "melee")
 
     def ranged_combat(self, turn: Turn, adjacent: list[Creature]) -> tuple[Action, str] | None:
         if not turn.hostiles:
