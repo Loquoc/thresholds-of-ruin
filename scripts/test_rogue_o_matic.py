@@ -639,6 +639,21 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(policy.depth, 2)
         self.assertTrue(policy.maps[2].cells["landing"].stairs_up)
 
+    def test_stair_arrival_only_evades_an_unseen_attack_at_the_new_landing(self):
+        from tor_client_bot import CombatReport
+
+        origin = player_turn([cell("old-floor", down=True)])
+        arrival = player_turn([cell("landing", up=True, down=True), cell("passage", 1)], tick=100)
+        miss = {"type": "unseen_ability", "target": "player", "outcome": "miss"}
+        for events, expected in (((), "descend"), ((miss,), "evade_unseen_attack")):
+            with self.subTest(attacked_on_arrival=bool(events)):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(origin, CombatReport("player", (miss,)))
+                player.admitted(origin, Move(Direction.DOWN))
+                player.observe(arrival, CombatReport("player", events))
+                self.assertEqual(player.depth, 2)
+                self.assertEqual(player.choose(arrival)[1], expected)
+
     def test_receipt_phase_limits_what_a_landing_can_establish(self):
         from tor_client_bot import Result
 

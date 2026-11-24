@@ -342,6 +342,9 @@ class Adventurer:
             self.descent_ticks_by_floor.setdefault(floor, arrival_tick - self.entered_floor_at)
 
     def record_stair_arrival(self, turn: Turn, attempt: StairAttempt, landing: str) -> None:
+        # Combat on the arrival picture has already been observed.
+        if self.last_unseen_attack and turn.cell and self.last_unseen_attack[0] != turn.cell.key:
+            self.last_unseen_attack = None
         if self.stair_pursuers:
             if attempt.direction is Direction.UP and len(self.stair_pursuers) == 1:
                 self.last_guarded_landing = attempt.origin, self.stair_pursuers[0]
