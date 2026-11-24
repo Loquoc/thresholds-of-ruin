@@ -43,24 +43,28 @@ def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | No
 
 
 def approach_visible_exit(turn: Turn, exits: set[str], avoid: set[str]) -> Move | None:
-    nearby = [cell for cell in turn.visible_cells if cell.key in exits and cell.offset[2] == 0]
-    if not nearby:
-        return None
     def distance(offset, goal):
         # A diagonal covers both axes in one move. Prefer a straighter route on a tie.
         dx, dy = abs(goal[0] - offset[0]), abs(goal[1] - offset[1])
         return max(dx, dy), dx + dy
 
-    origin = (0, 0, 0)
-    destination = min(nearby, key=lambda cell: (cell.trap is not None, distance(origin, cell.offset)))
-    current = distance(origin, destination.offset)
+    exits_by_rank = {}
+    for cell in turn.visible_cells:
+        if cell.key in exits and cell.offset[2] == 0:
+            rank = cell.trap is not None, distance((0, 0, 0), cell.offset)
+            exits_by_rank.setdefault(rank, []).append(cell.offset)
+    if not exits_by_rank:
+        return None
+    best_rank = min(exits_by_rank)
+    destinations = exits_by_rank[best_rank]
+    _, current = best_rank
     approaches = []
     for direction in turn.walkable_directions:
         offset = direction.offset
         candidate = turn.cell_at(offset)
         if candidate is None or candidate.key in avoid:
             continue
-        remaining = distance(offset, destination.offset)
+        remaining = min(distance(offset, goal) for goal in destinations)
         if remaining < current:
             clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
             # With equal clearance, avoid a known trap before favoring a shorter approach.

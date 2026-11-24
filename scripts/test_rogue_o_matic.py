@@ -3953,6 +3953,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
         self.assertEqual(choose(player, turn), (Move(Direction.SOUTH_EAST), "retreat_to_stairs"))
 
+    def test_equally_close_stairs_favor_an_approach_away_from_the_pursuer(self):
+        corridor = [cell(str(x), x, up=abs(x) == 3) for x in range(-3, 4)]
+        for foe_x, escape in ((-2, Direction.EAST), (2, Direction.WEST)):
+            foe = {"id": "foe", "name": "wraith", "position": {"x": foe_x, "y": 0, "z": 0}}
+            for cells in (corridor, corridor[::-1]):
+                with self.subTest(foe_x=foe_x, first=cells[0]["key"]):
+                    turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+                    player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                    self.assertEqual(choose(player, turn), (Move(escape), "retreat_to_stairs"))
+
     def test_stair_approach_can_gain_clearance_with_an_off_axis_step(self):
         cells = [cell(str(x), x, up=x == 3) for x in range(4)]
         for x in range(3):
