@@ -142,6 +142,7 @@ def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
 
 
 def melee_score(item: Item) -> float:
+    """Rank weapons by accuracy-adjusted damage per tick across wind-up and recovery."""
     if item.category != "weapon" and item.identity != "item.weapon.mace":
         return -1
     if item.identity == "item.weapon.shortbow":
@@ -165,14 +166,10 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     if bow:
         choice = next((c for c in choices if c.item.identity == "item.weapon.shortbow"), None)
     if choice is None:
-        best_score = melee_score(worn) if worn else -1
-        for candidate in choices:
-            score = melee_score(candidate.item)
-            if score > best_score:
-                choice = candidate
-                best_score = score
-    if choice is None:
-        return None
+        choice = max(choices, key=lambda candidate: melee_score(candidate.item), default=None)
+        worn_score = melee_score(worn) if worn else -1
+        if choice is None or melee_score(choice.item) <= worn_score:
+            return None
     if slot.removal_blocked:
         for item in turn.inventory:
             if item.identity == "item.scroll.remove-curse" and ItemUse.READ in item.uses:

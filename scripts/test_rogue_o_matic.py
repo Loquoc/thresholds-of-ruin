@@ -346,6 +346,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = picture()
         self.assertEqual(choose(player, turn), (Equip(turn.inventory[1], turn.equipment[0]), "equip_melee"))
 
+        # At equal damage and speed, a more accurate dagger is worth switching to.
+        offers[1]["equipped_slot"] = 0
+        offers[2]["known_equipment"]["attack"]["bonus"] += 1
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "change_weapon"))
+        del offers[1]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[2], turn.equipment[0]), "equip_melee"))
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}
