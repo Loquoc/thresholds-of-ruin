@@ -796,20 +796,20 @@ class Adventurer:
 
     def step_onto_retreat_stair(self, turn: Turn, exits: set[str]) -> Move | None:
         contacts = sum(turn.in_contact(foe) for foe in turn.hostiles)
-        guarded = []
+        candidates = []
         for direction in turn.walkable_directions:
             cell = turn.cell_at(direction.offset)
             if cell is None or cell.key not in exits or cell.trap:
                 continue
             threats = [foe for foe in turn.hostiles if turn.in_contact(foe, from_offset=cell.offset)]
-            if not threats:
-                return Move(direction)
             exposure = sum(self.damage_estimate(foe) for foe in threats)
-            if turn.health and len(threats) <= contacts and 2 * exposure < turn.health.current:
-                guarded.append(((exposure, len(threats)), direction))
-        if not guarded:
+            if threats and (not turn.health or len(threats) > contacts or 2 * exposure >= turn.health.current):
+                continue
+            clearance = min((turn.distance_to(foe, from_offset=cell.offset) for foe in turn.hostiles), default=0)
+            candidates.append(((exposure, len(threats), -clearance), direction))
+        if not candidates:
             return None
-        _, direction = min(guarded, key=lambda candidate: candidate[0])
+        _, direction = min(candidates, key=lambda candidate: candidate[0])
         return Move(direction)
 
     @staticmethod

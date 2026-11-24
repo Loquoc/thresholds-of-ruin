@@ -1184,6 +1184,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.observed_loss["foe"] = 2
                 self.assertEqual(choose(player, turn), (Move(escape), "retreat_to_stairs"))
 
+    def test_unguarded_adjacent_retreat_stairs_favor_more_distance_from_pursuit(self):
+        cells = [cell(str(x), x, down=abs(x) == 1) for x in range(-3, 4)]
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+        for foe_x, escape in ((-3, Direction.EAST), (3, Direction.WEST)):
+            with self.subTest(foe_x=foe_x):
+                foe = {"id": "foe", "name": "orc", "position": cell("enemy", foe_x)["position"]}
+                turn = player_turn(cells, actors=[foe], hostiles=["foe"])
+                player.observe(turn)
+                self.assertEqual(player.retreat_to_stairs(turn, pressed=True), (Move(escape), "retreat_to_stairs"))
+
     def test_retreat_chooses_lower_observed_damage_when_both_stairs_are_guarded(self):
         cells = [cell("here"), cell("west", -1, down=True), cell("east", 1, down=True)]
         foes = []
