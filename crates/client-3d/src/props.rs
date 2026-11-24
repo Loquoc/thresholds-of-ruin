@@ -1114,12 +1114,12 @@ fn mace(p: &mut Parts) {
     let b = Vec3::new(0.26, 0.072, 0.0);
     let at = |t: f32| a.lerp(b, t);
     let axis = (b - a).normalize();
-    p.matte
+    p.wood
         .prism(at(0.05), at(0.72), 0.024, 0.027, 6, WOOD, 0.0);
-    p.matte
+    p.satin
         .prism(at(0.04), at(0.27), 0.031, 0.031, 6, LEATHER, 0.5);
     for t in [0.08, 0.15, 0.22] {
-        p.matte
+        p.wood
             .prism(at(t), at(t + 0.025), 0.034, 0.034, 6, WOOD_DARK, 0.5);
     }
     p.metal.prism(at(0.0), at(0.05), 0.036, 0.03, 6, IRON, 0.0);
@@ -1129,7 +1129,7 @@ fn mace(p: &mut Parts) {
     for k in 0..6 {
         let angle = (k as f32 + 0.5) * TAU / 6.0;
         let radial = e1 * angle.cos() + e2 * angle.sin();
-        p.metal.extrude(
+        p.steel.extrude(
             &[
                 Vec2::new(-0.075, 0.03),
                 Vec2::new(0.075, 0.03),
@@ -1660,7 +1660,7 @@ fn ground_item_parts(kind: Kind) -> Parts {
 /// A standing stone tablet with runes that glow in the cave's teal.
 fn tablet(p: &mut Parts) {
     p.accent = Some(Accent::Teal);
-    p.matte.cuboid(
+    p.stone.cuboid(
         Vec3::new(0.0, 0.03, 0.0),
         Vec3::new(0.25, 0.03, 0.09),
         Quat::IDENTITY,
@@ -1679,7 +1679,7 @@ fn tablet(p: &mut Parts) {
         outline.push(Vec2::new(0.19 * a.cos(), 0.4 + 0.19 * a.sin()));
     }
     outline.push(Vec2::new(-0.19, 0.4));
-    p.matte
+    p.stone
         .extrude(&outline, Vec3::ZERO, Vec3::X, Vec3::Y, 0.08, STONE);
     let key = 41;
     for row in 0..4 {
@@ -1810,7 +1810,7 @@ fn scroll(p: &mut Parts) {
         Vec3::new(0.88, 0.8, 0.6),
         0.0,
     );
-    p.matte.prism(
+    p.wood.prism(
         Vec3::new(0.0, 0.035, -0.14),
         Vec3::new(0.0, 0.035, -0.12),
         0.02,
@@ -1819,7 +1819,7 @@ fn scroll(p: &mut Parts) {
         WOOD_DARK,
         0.0,
     );
-    p.matte.prism(
+    p.wood.prism(
         Vec3::new(0.0, 0.035, 0.12),
         Vec3::new(0.0, 0.035, 0.14),
         0.02,
@@ -1839,7 +1839,7 @@ fn scroll(p: &mut Parts) {
 
 fn spellbook(p: &mut Parts) {
     p.accent = Some(Accent::Violet);
-    p.matte.cuboid(
+    p.satin.cuboid(
         Vec3::new(0.0, 0.045, 0.0),
         Vec3::new(0.12, 0.045, 0.16),
         Quat::from_rotation_y(0.15),
@@ -1970,7 +1970,7 @@ fn door_frame() -> Parts {
             let y = 0.2 + k as f32 * 0.38;
             let jitter = rand(k as u64 + 7, side.to_bits()) * 0.03;
             let shade = if k % 2 == 0 { STONE } else { STONE_DARK };
-            p.matte.cuboid(
+            p.stone.cuboid(
                 Vec3::new(side * (0.47 + jitter), y, 0.0),
                 Vec3::new(0.07 + jitter, 0.18, 0.17),
                 Quat::from_rotation_y(jitter),
@@ -1988,7 +1988,7 @@ fn door_frame() -> Parts {
                 if k % 2 == 0 { STONE } else { STONE_DARK },
             )
         };
-        p.matte
+        p.stone
             .cuboid(Vec3::new(x, 2.0, 0.0), half, Quat::IDENTITY, color);
     }
     p.metal.cuboid(
@@ -2012,7 +2012,7 @@ fn door_leaf() -> Parts {
     let mut p = Parts::default();
     for k in 0..4 {
         let shade = if k % 2 == 0 { WOOD } else { WOOD * 0.85 };
-        p.matte.cuboid(
+        p.wood.cuboid(
             Vec3::new(0.11 + k as f32 * 0.205, 0.97, 0.0),
             Vec3::new(0.1, 0.94, 0.035),
             Quat::IDENTITY,

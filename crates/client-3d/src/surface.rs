@@ -421,13 +421,14 @@ pub(crate) fn cavern_environment_light(images: &mut Assets<Image>) -> Environmen
     };
 
     let sample_cavern = |dir: Vec3, mip_blur: f32| -> [u8; 4] {
-        // Warm torch-amber around the horizon, cool slate overhead, dark umber floor.
+        // Balanced warm torch-amber horizon with cool slate-blue cavern bounce
+        // so silver/steel read cool-neutral while gold/copper stay rich.
         let up = dir.y;
         let horizon = (1.0 - up.abs()).powf(1.8 - 0.8 * mip_blur);
-        let torch = Vec3::new(0.45, 0.27, 0.14) * horizon * (0.65 + 0.35 * dir.z.max(0.0));
-        let ceiling = Vec3::new(0.11, 0.14, 0.22) * up.max(0.0);
-        let floor = Vec3::new(0.05, 0.04, 0.035) * (-up).max(0.0);
-        let base = Vec3::new(0.06, 0.06, 0.08) * 0.35;
+        let torch = Vec3::new(0.32, 0.25, 0.19) * horizon * (0.65 + 0.35 * dir.z.max(0.0));
+        let ceiling = Vec3::new(0.14, 0.18, 0.28) * up.max(0.0);
+        let floor = Vec3::new(0.05, 0.045, 0.04) * (-up).max(0.0);
+        let base = Vec3::new(0.06, 0.065, 0.085) * 0.35;
         let linear = base + torch + ceiling + floor;
         let to_srgb = |c: f32| -> u8 {
             let s = c.clamp(0.0, 1.0).powf(1.0 / 2.2);
