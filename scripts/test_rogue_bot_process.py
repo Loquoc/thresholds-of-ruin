@@ -2882,6 +2882,53 @@ with Session.connect(address, token, 1) as game, Session.connect(address, token,
         server.stop(save=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_bot_launches_within_short_range_when_both_ranges_offer_a_target(self):
+        from discovery_package import write_package
+        from utility_potions_package import fixture
+
+        contents = fixture()
+        manifest = contents["manifest"]
+        character, = manifest["characters"]
+        character["loadout"] = [
+            {"archetype": "rogue.shortbow", "equipped_slot": 0, "quantity": 1},
+            {"archetype": "rogue.arrow", "quantity": 3},
+        ]
+        character["known_identities"].extend(("item.weapon.shortbow", "item.weapon.arrow"))
+        launcher = manifest["archetypes"]["rogue.shortbow"]["equipment"]["weapon_profile"]["launcher"]
+        launcher["range"] = {"short_feet": 15, "long_feet": 25}
+        region, = contents["regions"]
+        region["actors"] = [
+            {"archetype": "rogue.hobgoblin", "id": actor, "controller": "external",
+             "at": position, "turn_ticks": 1000000}
+            for actor, position in ((3, [5, 1, 0]), (4, [4, 3, 0]))
+        ]
+        self.server(scenario=write_package(self, contents, "two-bow-targets"))
+        self.install_bot_extension()
+        code = """
+import os, sys
+from rogue_player import Adventurer
+from tor_client_bot import Outcome, Session
+
+with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
+    turn = game.wait_for_decision()
+    offers = [shot for shot in turn.ranged_attacks() if shot.launcher and shot.target.hostile]
+    assert {max(map(abs, shot.offset)) for shot in offers} == {3, 4}, offers
+    assert all(shot.range.short_cells == 3 for shot in offers), offers
+    player = Adventurer(26, "item.amulet.amulet-of-yendor")
+    player.observe(turn)
+    shot, reason = player.choose(turn)
+    assert reason == "launch_projectile" and shot in offers, (shot, reason)
+    assert max(map(abs, shot.offset)) == 3, shot
+    receipt = turn.submit(shot)
+    assert receipt.status is Outcome.CONFIRMED, receipt
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, self.address], cwd=self.directory,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "scripts"), "TOR_SERVER_TOKEN": TOKEN},
+            text=True, capture_output=True, timeout=45,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_bot_launches_at_a_dangerous_enemy_from_a_clear_distance(self):
         from discovery_package import write_package
         from utility_potions_package import fixture
