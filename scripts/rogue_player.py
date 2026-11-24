@@ -1049,6 +1049,7 @@ class Adventurer:
             yield sites_by_rank[rank]
 
     def estimated_journey_ticks(self, returning: bool) -> int:
+        """Budget the shallower return legs and the round trips still ahead."""
         known_return = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items() if floor < self.depth)
         floors_ahead = self.retrieval_depth - self.depth
         if returning or floors_ahead <= 0 or not self.descent_ticks_by_floor:
@@ -1058,10 +1059,16 @@ class Adventurer:
             floor: descent + self.ascent_ticks_by_floor.get(floor, 0)
             for floor, descent in self.descent_ticks_by_floor.items()
         }
-        measured_ahead = [ticks for floor, ticks in round_trips.items() if self.depth <= floor < self.retrieval_depth]
+        measured_ahead = [
+            ticks for floor, ticks in round_trips.items() if self.depth <= floor < self.retrieval_depth
+        ]
+        measured_ticks = known_return + sum(measured_ahead)
         unmeasured_floors = floors_ahead - len(measured_ahead)
-        recent_typical_trip = median_low(round_trips[floor] for floor in sorted(round_trips)[-5:])
-        return known_return + sum(measured_ahead) + unmeasured_floors * recent_typical_trip
+        if not unmeasured_floors:
+            return measured_ticks
+        deepest_floors = sorted(round_trips)[-5:]
+        typical_round_trip = median_low(round_trips[floor] for floor in deepest_floors)
+        return measured_ticks + unmeasured_floors * typical_round_trip
 
     def route_to_food(self, turn: Turn, memory: FloorMap) -> Action | None:
         food_cells = {key for key, items in memory.items.items() if any(item.category == "food" for item in items)}

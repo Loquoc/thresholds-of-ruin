@@ -2912,6 +2912,15 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                     "hunger": "nourished", "elapsed": 0}})
                 self.assertEqual(choose(player, turn)[1], reason)
 
+    def test_journey_budget_combines_measured_floors_and_an_unexplored_floor(self):
+        player = Adventurer(8, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
+        player.descent_ticks_by_floor.update({1: 9000, 2: 100, 3: 200, 4: 300, 5: 400, 6: 2000})
+        player.ascent_ticks_by_floor.update({floor: 50 for floor in range(1, 7)})
+        # Five shallower return legs, floor six's measured round trip, and
+        # floor seven at the median round trip of the five deepest measured floors.
+        self.assertEqual(player.estimated_journey_ticks(returning=False), 250 + 2050 + 350)
+        self.assertEqual(player.estimated_journey_ticks(returning=True), 250)
+
     def test_carried_meals_count_toward_the_scouting_budget(self):
         cells = [cell("stairs", down=True), cell("frontier", 1)]
         nutrition = {"kind": "required", "reserve": 100, "maximum": 1300,
