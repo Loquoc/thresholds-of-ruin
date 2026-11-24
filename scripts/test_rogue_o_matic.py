@@ -428,6 +428,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                        {"item": worn, "slot": slot, "equipped_slot": 0}]})
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)[1], expected)
 
+    def test_cursed_spare_ring_does_not_rule_out_another_copy_of_an_upgrade(self):
+        here, near = cell("stairs", down=True), cell("ring", 1)
+        slot = {"id": "ring", "name": "Finger"}
+        band = {"id": "spare", "name": "searching", "identity": "item.ring.ring-searching",
+                "quantity": 1, "class": "ring", "identified": True}
+        ground = [{**near, "item": {**band, "id": "found"}, "reachable": False}]
+        turn = player_turn([here, near], inventory=[band], ground=ground, interactions={
+            "slots": [slot], "inventory": [{"item": "spare", "slot": slot, "known_cursed": True}]})
+        self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
+                         (Move(Direction.EAST), "seek_supplies"))
+
     def test_nearby_armor_detour_depends_on_retrieval_phase(self):
         here, nearby = cell("exit", up=True, down=True), cell("mail", 1)
         armor = {"id": "plate", "identity": "item.armor.plate-mail", "name": "plate",

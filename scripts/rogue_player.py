@@ -1187,6 +1187,12 @@ class Adventurer:
         for item in turn.inventory:
             carried[item.identity] += item.quantity
             stock[item.category] += item.quantity
+
+        @cache
+        def wanted_rings() -> set[str]:
+            usable = {item.identity for item in turn.inventory if item.category == "ring" and not item.known_cursed}
+            return ring_upgrades(turn).keys() - usable
+
         spare_armor_to_identify = any(
             choice.slot.kind == "body_armor" and choice.item.physical_reduction is None
             for choice in turn.equip_choices()
@@ -1206,8 +1212,7 @@ class Adventurer:
                 seek_armor = item.category == "armor" and not spare_armor_to_identify and (
                     item.identity is None or not carried[item.identity]
                 )
-                seek_ring = (item.category == "ring" and item.identity is not None and not carried[item.identity]
-                             and not item.known_cursed and item.identity in ring_upgrades(turn))
+                seek_ring = item.category == "ring" and not item.known_cursed and item.identity in wanted_rings()
                 if seek_armor or seek_ring or stock[item.category] < DETOUR_STOCK.get(item.category, 0):
                     goals.supplies.add(ground.cell.key)
             # Outbound arrows use the same recovery radius after leaving sight.
