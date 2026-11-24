@@ -2929,6 +2929,8 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         _, progress = trace_report(output / "seed-42" / "turns.jsonl")
         self.assertTrue(progress["amulet_acquired"])
         self.assertEqual(report["max_depth"], 26)
+        self.assertEqual(progress["max_depth"], report["max_depth"])
+        self.assertEqual(set(progress["floors"]), {str(floor) for floor in range(1, 27)})
         self.assertGreaterEqual(report["estimated_ascent_ticks"], 25 * 100)
         by_floor = report["estimated_ascent_ticks_by_floor"]
         self.assertGreaterEqual(by_floor["4"], 100)

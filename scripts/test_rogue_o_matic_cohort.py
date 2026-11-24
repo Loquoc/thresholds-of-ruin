@@ -397,6 +397,10 @@ assert get_type_hints(play)["player"] is Adventurer
                     "result": {"status": "confirmed", "receipt": {"intention": intention}}}
 
         rows = [search("first"), search("second"), search("third"),
+                {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "third",
+                 "previous_intention_phase": "cancelled"},
+                {"floor": 2, "action": {"type": "wait"}, "previous_intention_id": "third",
+                 "previous_intention_phase": "resolved"},
                 {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "first",
                  "previous_intention_phase": "started"},
                 {"floor": 1, "action": {"type": "wait"}, "previous_intention_id": "second",

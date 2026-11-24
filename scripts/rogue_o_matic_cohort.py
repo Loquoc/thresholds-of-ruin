@@ -143,12 +143,58 @@ class AdmittedMove:
                 and self.origin.floor == site.floor and self.origin.cell != site.cell)
 
 
+class FloorVisits:
+    """Accumulate travel, nutrition, and search outcomes by floor across repeat visits."""
+
+    def __init__(self) -> None:
+        self.floors: dict[str, dict[str, int | None]] = {}
+        self.transitions: list[dict[str, int | None]] = []
+        self.previous_floor: int | None = None
+        self.previous_reserve: int | None = None
+        self.pending_searches: dict[str, str] = {}
+
+    def resolve_search(self, row: dict) -> None:
+        phase = row.get("previous_intention_phase")
+        if phase in {"resolved", "failed", "cancelled"}:
+            search_floor = self.pending_searches.pop(row.get("previous_intention_id"), None)
+            if search_floor is not None and phase != "cancelled":
+                self.floors[search_floor][f"searches_{phase}"] += 1
+
+    def record_action(self, row: dict) -> None:
+        floor = row["floor"]
+        reserve = row.get("nutrition_reserve")
+        metrics = self.floors.setdefault(str(floor), {
+            "searches_admitted": 0, "searches_resolved": 0, "searches_failed": 0,
+            "moves_admitted": 0,
+            "first_reserve": reserve, "last_reserve": reserve, "lowest_reserve": reserve,
+        })
+        if reserve is not None:
+            metrics["last_reserve"] = reserve
+            low = metrics["lowest_reserve"]
+            metrics["lowest_reserve"] = reserve if low is None else min(low, reserve)
+        if row.get("result", {}).get("status") == "confirmed":
+            action = row["action"]
+            if action["type"] == "move":
+                metrics["moves_admitted"] += 1
+            elif action["type"] == "use_ability" and action.get("id") == "rogue.search":
+                metrics["searches_admitted"] += 1
+                receipt = row["result"].get("receipt") or {}
+                if intention := receipt.get("intention"):
+                    self.pending_searches[intention] = str(floor)
+        if self.previous_floor is not None and self.previous_floor != floor:
+            self.transitions.append({
+                "from": self.previous_floor, "to": floor,
+                "before_reserve": self.previous_reserve, "after_reserve": reserve,
+            })
+        self.previous_floor = floor
+        self.previous_reserve = reserve
+
+
 def trace_report(path):
     progress = {"actions": 0, "max_depth": 0, "amulet_acquired": False,
-                "closest_return_floor": None, "floors": {}, "stair_transitions": []}
-    previous = None
+                "closest_return_floor": None}
+    visits = FloorVisits()
     terminal = None
-    pending_searches = {}
     last_move = None
     previous_origin = None
     with path.open(encoding="utf-8") as log:
@@ -184,11 +230,7 @@ def trace_report(path):
                     last_move = AdmittedMove(intention, site, row.get("reason"), row["tick"], row.get("nutrition_reserve"))
             else:
                 last_move = previous_origin = None
-            phase = row.get("previous_intention_phase")
-            if phase in {"resolved", "failed", "cancelled"}:
-                search_floor = pending_searches.pop(row.get("previous_intention_id"), None)
-                if search_floor is not None and phase != "cancelled":
-                    progress["floors"][search_floor][f"searches_{phase}"] += 1
+            visits.resolve_search(row)
             if "terminal" in row:
                 terminal = row
             elif "action" in row:
@@ -199,31 +241,8 @@ def trace_report(path):
                     closest = progress["closest_return_floor"]
                     progress["closest_return_floor"] = floor if closest is None else min(closest, floor)
                 progress["max_depth"] = max(progress["max_depth"], floor)
-                reserve = row.get("nutrition_reserve")
-                metrics = progress["floors"].setdefault(str(floor), {
-                    "searches_admitted": 0, "searches_resolved": 0, "searches_failed": 0,
-                    "moves_admitted": 0,
-                    "first_reserve": reserve, "last_reserve": reserve, "lowest_reserve": reserve,
-                })
-                if reserve is not None:
-                    metrics["last_reserve"] = reserve
-                    low = metrics["lowest_reserve"]
-                    metrics["lowest_reserve"] = reserve if low is None else min(low, reserve)
-                if row.get("result", {}).get("status") == "confirmed":
-                    action = row["action"]
-                    if action["type"] == "move":
-                        metrics["moves_admitted"] += 1
-                    elif action["type"] == "use_ability" and action.get("id") == "rogue.search":
-                        metrics["searches_admitted"] += 1
-                        receipt = row["result"].get("receipt") or {}
-                        if intention := receipt.get("intention"):
-                            pending_searches[intention] = str(floor)
-                if previous is not None and previous[0] != floor:
-                    progress["stair_transitions"].append({
-                        "from": previous[0], "to": floor,
-                        "before_reserve": previous[1], "after_reserve": reserve,
-                    })
-                previous = floor, reserve
+                visits.record_action(row)
+    progress.update(floors=visits.floors, stair_transitions=visits.transitions)
     return terminal, progress
 
 
