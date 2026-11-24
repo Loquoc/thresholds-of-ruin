@@ -538,7 +538,9 @@ pub(super) fn spatial_effect_enabled(package: &Package) -> Result<bool, Failure>
         }
         for trap in &region.traps {
             match &trap.kind {
-                TrapKind::BearTrap { condition, .. } | TrapKind::SleepingGas { condition, .. } => {
+                TrapKind::BearTrap { condition, .. }
+                | TrapKind::BearTrapEscape { condition, .. }
+                | TrapKind::SleepingGas { condition, .. } => {
                     sources.add(Source::Condition(condition.clone()))
                 }
                 TrapKind::Arrow { ammunition, .. } => sources.add(Source::Item(ammunition.clone())),

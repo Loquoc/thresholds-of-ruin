@@ -342,10 +342,7 @@ pub(super) fn place_concealed_features(
                                 attack_bonus: hazards.attack_bonus,
                                 ammunition: hazards.arrow_ammunition.clone(),
                             },
-                            TrapKind::BearTrap {
-                                condition: hazards.bear_condition.clone(),
-                                duration: hazards.bear_duration,
-                            },
+                            hazards.bear_trap_kind()?,
                             TrapKind::Teleport {},
                             TrapKind::PoisonDart {
                                 attack_bonus: hazards.attack_bonus,

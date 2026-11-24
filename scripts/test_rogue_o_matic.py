@@ -1238,6 +1238,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                          (Wait(), "wait_for_restraint"))
         self.assertEqual(choose(policy, player_turn(tiles)), (Move(Direction.DOWN), "descend"))
 
+        trap["remaining_ticks"] = None
+        self.assertEqual(choose(policy, player_turn(tiles, stats={"conditions": [trap]})),
+                         (Move(Direction.NORTH), "escape_bear_trap"))
+
     def test_stalled_campaign_reports_the_last_picture_and_the_admitted_stair_phase(self):
         import json
         from unittest.mock import Mock

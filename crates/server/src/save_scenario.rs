@@ -880,7 +880,10 @@ struct HiddenTraps {
 struct HazardTraps {
     avoidance_dc: i32,
     bear_condition: String,
-    bear_duration: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bear_duration: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bear_escape_dc: Option<i32>,
     arrow_ammunition: String,
     attack_bonus: i32,
     poison_exposure: String,
@@ -2748,6 +2751,10 @@ enum TrapKind {
     BearTrap {
         condition: String,
         duration: u64,
+    },
+    BearTrapEscape {
+        condition: String,
+        escape_dc: i32,
     },
     Teleport {},
     PoisonDart {

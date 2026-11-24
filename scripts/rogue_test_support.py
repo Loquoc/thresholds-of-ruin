@@ -7,6 +7,42 @@ import json
 from scalar_wire import u64
 
 
+def fixed_walkthrough_start(manifest):
+    """Keep a flat, seed-specific acceptance route on its authored survey entry.
+
+    These fixtures prove combat or particular traversal and save behavior, not
+    the production birth location. Starting at the live up stair changes the
+    path and exposes these flat-floor drivers to vertical trapdoor travel.
+    The caller owns the manifest copy; no terrain, traps or rules change here.
+    """
+    for character in manifest["characters"]:
+        if character["anchor"] != "dungeon/1/up":
+            raise ValueError("Expected the production Rogue opening staircase")
+        character["anchor"] = "dungeon/1/start"
+
+
+def fixed_walkthrough_package(test):
+    """Copy the current stock package, pin only its route entry, and certify it."""
+    import shutil
+    import subprocess
+    import tomllib
+
+    from arena_matrix import toml_source
+    from process_harness import ROOT
+
+    package = test.directory / "fixed-walkthrough-rogue"
+    shutil.copytree(ROOT / "scenarios/rogue-exploration", package,
+                    ignore=shutil.ignore_patterns(".compiled"))
+    manifest = package / "scenario.toml"
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    fixed_walkthrough_start(data)
+    manifest.write_text(toml_source(data), encoding="utf-8", newline="\n")
+    result = subprocess.run([test.bin / ("tor-scenario" + test.suffix), "validate", package],
+                            capture_output=True, text=True, encoding="utf-8", timeout=60)
+    test.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    return package
+
+
 def disclosed_frames(player, start):
     """Keep transient resolved events even when the later ready frame replaces them."""
     for line in player.transcript[start:]:
@@ -257,18 +293,21 @@ def disclosed_step_action(observation, direction, *, wait_for_restraint=False):
     This is not a movement solver: callers still select a disclosed route and
     the server validates it. A paid opening replaces, never accompanies, the
     old move; the caller must reconsider the resulting observation. Rogue
-    walkthroughs may opt into waiting out their authored bear-trap condition;
-    admission readiness alone does not imply that movement is permitted.
+    walkthroughs may opt into handling their authored bear-trap condition:
+    wait for a timed trap or try to break free of a persistent trap before
+    opening a door. Admission readiness alone does not imply free movement.
     """
     offset = next(((dx, dy, 0) for dx, dy, name in DisclosedFloorGraph.directions
                    if name == direction), None)
     if offset is None:
         raise ValueError("Expected a cardinal disclosed step")
-    if wait_for_restraint and any(
-            row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
-            and row["remaining_ticks"] is not None and u64(row["remaining_ticks"]) > 0
-            for row in observation.get("combat", {}).get("own_stats", {}).get("conditions", [])):
-        return {"type": "wait"}
+    if wait_for_restraint:
+        restraints = [row for row in observation.get("combat", {}).get("own_stats", {}).get("conditions", [])
+                      if row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"]
+        if any(row["remaining_ticks"] is None for row in restraints):
+            return {"type": "move", "direction": direction}
+        if any(u64(row["remaining_ticks"]) > 0 for row in restraints):
+            return {"type": "wait"}
     closed = [cell["door"] for cell in observation["visible_cells"]
               if tuple(cell["position"][axis] for axis in ("x", "y", "z")) == offset
               and not cell["wall"] and cell.get("door") and not cell["door"]["open"]]

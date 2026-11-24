@@ -27,7 +27,7 @@ class RogueDiscoveryContent(unittest.TestCase):
         self.assertEqual(recipe["hidden_traps"], {
             "count": [1, 2], "dc": 12, "rust_slot": "body_armor", "rust_amount": 1,
             "sleep_condition": "rogue.sleep", "sleep_duration": 200, "sleep_exposure": "poison",
-            "hazards": {"avoidance_dc": 12, "bear_condition": "rogue.bear_trap", "bear_duration": 300,
+            "hazards": {"avoidance_dc": 12, "bear_condition": "rogue.bear_trap", "bear_escape_dc": 14,
                         "arrow_ammunition": "rogue.arrow", "attack_bonus": 0, "poison_exposure": "poison"}})
 
     def test_hazards_have_explicit_gravity_and_movement_only_restraint(self):
@@ -37,9 +37,8 @@ class RogueDiscoveryContent(unittest.TestCase):
                          if row["path"] == ["conditions", "rogue.bear_trap"])
         self.assertEqual(condition["restrictions"], ["ordinary_movement", "movement_abilities"])
         self.assertEqual(condition["preparation"], "preserve")
-        self.assertEqual(condition["stacking"], {"kind": "extend"})
-        self.assertEqual(condition["timing"], {
-            "kind": "actor_active", "on_expiry": {"kind": "remove"}})
+        self.assertEqual(condition["stacking"], {"kind": "keep"})
+        self.assertEqual(condition["timing"], {"kind": "until_removed"})
 
     def test_sleeping_gas_reuses_source_owned_timed_incapacity_and_pause(self):
         recipe = source("scenario.toml")["generation_recipes"]["exploration"]["hidden_traps"]

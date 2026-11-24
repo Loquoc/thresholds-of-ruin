@@ -7,7 +7,7 @@ import unittest
 from rogue_test_support import (
     assert_room_gold_receipt, cardinal_melee_candidate, disclosed_body_cells, disclosed_melee_candidate,
     disclosed_sight_candidate, ground_sight_candidate, disclosed_frames, resolved_events,
-    ordered_combat_events, decision_boundary,
+    ordered_combat_events, decision_boundary, fixed_walkthrough_start,
 )
 
 
@@ -353,6 +353,16 @@ class DisclosedStepActions(unittest.TestCase):
                 view["combat"]["own_stats"]["conditions"] = [{**row, **change}]
                 self.assertEqual(disclosed_step_action(view, "east", wait_for_restraint=True), ordinary)
 
+    def test_escape_move_precedes_paid_opening_for_a_persistent_trap(self):
+        from rogue_test_support import disclosed_step_action
+        row = {"condition": {"id": "rogue.bear_trap"}, "phase": "active", "remaining_ticks": None}
+        view = {"visible_cells": [self.gate()], "combat": {"own_stats": {"conditions": [row]}}}
+        self.assertEqual(disclosed_step_action(view, "east", wait_for_restraint=True),
+                         {"type": "move", "direction": "east"})
+        view["combat"]["own_stats"]["conditions"] = []
+        self.assertEqual(disclosed_step_action(view, "east", wait_for_restraint=True),
+                         {"type": "set_door", "door": "observed-gate", "open": True})
+
     def test_restraint_expiry_and_a_new_contact_are_reobserved_not_cached(self):
         from rogue_test_support import disclosed_step_action
         row = {"condition": {"id": "rogue.bear_trap"}, "phase": "active", "remaining_ticks": "200"}
@@ -384,6 +394,17 @@ class DisclosedStepActions(unittest.TestCase):
 
 
 class DisclosedFloorRoutes(unittest.TestCase):
+    def test_fixed_entry_changes_only_the_character_anchor(self):
+        manifest = {"characters": [
+            {"id": 1, "anchor": "dungeon/1/up", "equipment": ["weapon"]},
+            {"id": 2, "anchor": "dungeon/1/up", "equipment": ["staff"]},
+        ], "generation_recipes": {"exploration": {"hidden_traps": {"dc": 12}}}}
+        expected = copy.deepcopy(manifest)
+        for character in expected["characters"]:
+            character["anchor"] = "dungeon/1/start"
+        fixed_walkthrough_start(manifest)
+        self.assertEqual(manifest, expected)
+
     def graph(self, *cells):
         from rogue_test_support import DisclosedFloorGraph
         graph = DisclosedFloorGraph()
