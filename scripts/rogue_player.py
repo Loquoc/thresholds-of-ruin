@@ -29,6 +29,7 @@ from tor_client_bot import (
     Move,
     Outcome,
     Pickup,
+    PointPool,
     RestorableLosses,
     Result,
     StairAttempt,
@@ -36,6 +37,7 @@ from tor_client_bot import (
     Turn,
     Training,
     TrainingKind,
+    TrainingOption,
     TrainingRefused,
     UseAbility,
     UseItem,
@@ -89,6 +91,24 @@ CONTROL_DEVICES = (
     ("item.wand.wand-polymorph", MemoryReason.POLYMORPH_THREAT),
     ("item.wand.wand-magic-missile", "magic_missile"),
 )
+
+
+def training_choices(training: Training, skill: str) -> Iterator[tuple[PointPool, TrainingOption]]:
+    priorities = (
+        (TrainingKind.TALENT, ("rattling_blow", "dislocating_strike")),
+        (TrainingKind.SKILL, (skill,)),
+    )
+    pools = training.pools()
+    for kind, identities in priorities:
+        eligible = [pool for pool in pools if pool.available and kind in pool.allowed]
+        if not eligible:
+            continue
+        options = training.options(kind)
+        for identity in identities:
+            option = next((item for item in options if item.identity == identity and not item.forms), None)
+            if option is not None:
+                for pool in eligible:
+                    yield pool, option
 
 
 def trial_appearance(item: Item) -> str:
@@ -212,25 +232,16 @@ class Adventurer:
             self.training_checked_at = turn.hit_dice
             return None
         skill = "spellcasting" if "spellcasting" in build.starting_skills else "heavy_weaponry"
-        priorities = [(TrainingKind.TALENT, "rattling_blow"), (TrainingKind.TALENT, "dislocating_strike"),
-                      (TrainingKind.SKILL, skill)]
-        pools = training.pools()
-        for kind, identity in priorities:
-            eligible = [p for p in pools if p.available and kind in p.allowed]
-            if not eligible:
-                continue
-            option = next((o for o in training.options(kind) if o.identity == identity and not o.forms), None)
-            if option is None:
-                continue
-            for pool in eligible:
-                try:
-                    preview = training.preview(pool, option)
-                except TrainingRefused as error:
-                    if error.result.status is Outcome.REJECTED and not error.result.stale:
-                        continue
-                    raise
-                if not preview.would_die:
-                    return {"type": "purchase", "kind": kind.value, "id": identity}, training.confirm(preview)
+        for pool, option in training_choices(training, skill):
+            try:
+                preview = training.preview(pool, option)
+            except TrainingRefused as error:
+                if error.result.status is Outcome.REJECTED and not error.result.stale:
+                    continue
+                raise
+            if not preview.would_die:
+                purchase = {"type": "purchase", "kind": option.kind.value, "id": option.identity}
+                return purchase, training.confirm(preview)
         self.training_checked_at = turn.hit_dice
         return None
 

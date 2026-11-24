@@ -457,6 +457,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 play(session, player, 1, lambda row: None)
                 self.assertEqual(player.train.call_count, expected)
 
+    def test_training_reads_the_talent_options_once_when_choosing_its_second_preference(self):
+        from unittest.mock import Mock
+        from tor_client_bot import PointPool, Training, TrainingKind, TrainingOption
+
+        kind = TrainingKind.TALENT
+        training = Mock(spec=Training)
+        training.overview.return_value = Mock(locked=False, unspent=1, starting_skills=())
+        pool = PointPool(1, "growth", "Growth", 1, (kind,), ())
+        talent = TrainingOption(kind, "dislocating_strike", "Dislocating strike", (), ())
+        training.pools.return_value = (pool,)
+        training.options.return_value = (talent,)
+        training.preview.return_value = Mock(would_die=False)
+        turn = player_turn([cell("here")])
+        purchase, result = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY).train(turn, training)
+        self.assertEqual(purchase, {"type": "purchase", "kind": kind.value, "id": talent.identity})
+        self.assertIs(result, training.confirm.return_value)
+        training.preview.assert_called_once_with(pool, talent)
+        training.options.assert_called_once_with(kind)
+
     def test_authored_growth_never_requests_a_purchase_or_balance_page(self):
         from rogue_policy_reference import buy_starting_talent, earned_training
 
