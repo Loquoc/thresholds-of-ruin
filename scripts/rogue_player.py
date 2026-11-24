@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from statistics import median_low
@@ -881,15 +881,19 @@ class Adventurer:
 
     def recovery_budget(self, turn: Turn, memory: FloorMap, direction: Direction) -> int | None:
         """Ticks available for rest after reserving travel, or None without a food clock."""
-        if turn.nutrition is None:
+        nutrition = turn.nutrition
+        if nutrition is None:
             return None
-        available = turn.nutrition.ticks_until_empty
+        available = nutrition.ticks_until_empty
         # Even a temporarily guarded stair will cost food to return through.
         if not memory.stairs(direction):
             return available
         travel = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
                      if direction is Direction.DOWN or floor <= self.depth)
-        return available - travel
+        # Meals can pay for later travel. A rest must still fit the current food clock.
+        packed_reserve = self.carried_food_reserve(edible_items(turn)) or 0
+        travel_from_current_reserve = max(0, travel - packed_reserve * nutrition.ticks_per_unit)
+        return available - travel_from_current_reserve
 
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
         if turn.cell is None:
@@ -1086,7 +1090,7 @@ class Adventurer:
                 return step
         return memory.toward(turn, food_cells)
 
-    def carried_food_reserve(self, meals: list[Item]) -> int | None:
+    def carried_food_reserve(self, meals: Iterable[Item]) -> int | None:
         """Estimate reserve gained from all carried meals, in nutrition units."""
         reserve = 0
         for meal in meals:

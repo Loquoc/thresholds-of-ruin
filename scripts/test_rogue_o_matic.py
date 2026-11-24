@@ -2740,6 +2740,29 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.ascent_ticks_by_floor[1] = 1500
         self.assertEqual(player.choose(turn), (Move(Direction.UP), "ascend"))
 
+    def test_carried_rations_can_cover_travel_while_rest_uses_current_nutrition(self):
+        ration = {"id": "food", "identity": "item.food.ration", "name": "ration", "class": "food",
+                  "identified": True, "quantity": 2}
+        for reserve, value, expected in (
+            (20, 10, "recover"),
+            (20, 5, "descend"),
+            (10, 20, "descend"),
+            (20, None, "descend"),
+        ):
+            with self.subTest(reserve=reserve, value=value):
+                turn = player_turn([cell("exit", down=True)], inventory=[ration],
+                                   interactions={"inventory": [{"item": "food", "edible": True}]},
+                                   combat={"hp": 7, "max_hp": 10}, stats={
+                                       "nutrition": {"kind": "required", "reserve": reserve, "maximum": 1300,
+                                                     "unit_ticks": 100, "elapsed": 0, "hunger": "nourished"},
+                                       "health_recovery": {"period_ticks": 1000, "elapsed_ticks": 0,
+                                                           "reset_percent": 100, "stopped": False}})
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                player.ascent_ticks_by_floor[1] = 2000
+                if value is not None:
+                    player.food_value[ration["identity"]] = value
+                self.assertEqual(choose(player, turn)[1], expected)
+
     def test_guarded_stair_keeps_its_travel_reserve_while_resting(self):
         turn = player_turn([cell("exit", down=True)], combat={"hp": 7, "max_hp": 10}, stats={
             "nutrition": {"kind": "required", "reserve": 20, "maximum": 1300, "unit_ticks": 100,
