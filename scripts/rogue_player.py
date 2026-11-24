@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from statistics import median_low
@@ -475,12 +475,8 @@ class Adventurer:
                     return UseItem(item, ItemUse.READ), "escape_pursuit"
 
         if adjacent and (two_hit_threat or injured or surrounded):
-            foe = max(adjacent, key=self.damage_estimate)
-            for device in turn.devices:
-                if device.item.identity != "item.wand.wand-teleport-away" or not self.can_spend_charge(device):
-                    continue
-                if zap := turn.aim_device(device, foe):
-                    return zap, "displace_threat"
+            if zap := self.aim_combat_wand(turn, adjacent, {"item.wand.wand-teleport-away"}):
+                return zap, "displace_threat"
 
         if adjacent and health and (decision := self.counter_threat(turn, health.current, in_melee=True)):
             return decision
@@ -517,8 +513,9 @@ class Adventurer:
             if decision := self.evade(turn):
                 return decision
 
-        if turn.hostiles and (zap := self.elemental_ray(turn)):
-            return zap, "elemental_ray"
+        if turn.hostiles:
+            if zap := self.aim_combat_wand(turn, turn.hostiles, ELEMENTAL_WANDS, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                return zap, "elemental_ray"
 
         if turn.hostiles and (trial := self.try_unknown_wand(turn)):
             return trial, MemoryReason.TEST_UNKNOWN_DEVICE
@@ -667,15 +664,16 @@ class Adventurer:
                 return False
         return True
 
-    def elemental_ray(self, turn: Turn) -> Zap | None:
+    def aim_combat_wand(self, turn: Turn, foes: Iterable[Creature], identities: set[str],
+                        *, reflected_ray_range: int | None = None) -> Zap | None:
         devices = [device for device in turn.devices
-                   if device.item.identity in ELEMENTAL_WANDS and self.can_spend_charge(device)]
+                   if device.item.identity in identities and self.can_spend_charge(device)]
         if not devices:
             return None
-        targets = sorted(turn.hostiles, key=self.damage_estimate, reverse=True)
+        targets = sorted(foes, key=self.damage_estimate, reverse=True)
         for device in devices:
             for foe in targets:
-                if zap := turn.aim_device(device, foe, reflected_ray_range=ELEMENTAL_RAY_RANGE):
+                if zap := turn.aim_device(device, foe, reflected_ray_range=reflected_ray_range):
                     return zap
         return None
 
