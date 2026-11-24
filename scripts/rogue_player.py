@@ -982,15 +982,16 @@ class Adventurer:
         if turn.cell is None or search is None:
             return None
         sites: set[str] = set()
-        for stair in upstairs:
-            passages = {c.key for c, _ in memory.reachable(stair)}
+        remaining_stairs = upstairs.copy()
+        while remaining_stairs:
+            passages = {cell.key for cell, _ in memory.reachable(remaining_stairs.pop())}
+            remaining_stairs.difference_update(passages)
             if turn.cell.key in passages:
                 continue
-            for key in passages:
-                for wall in memory.adjacent(key):
-                    if wall.wall:
-                        sites.update(c.key for c in memory.adjacent(wall.key)
-                                     if not c.wall and c.key not in passages and self.searches[c.key] < 3)
+            boundary_walls = {cell.key for key in passages for cell in memory.adjacent(key) if cell.wall}
+            for wall in boundary_walls:
+                sites.update(cell.key for cell in memory.adjacent(wall)
+                             if not cell.wall and cell.key not in passages and self.searches[cell.key] < 3)
         if turn.cell.key in sites:
             return search, "search"
         if step := memory.toward(turn, sites):

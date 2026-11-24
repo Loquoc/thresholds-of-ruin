@@ -3070,6 +3070,24 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(player.choose(turn), (Move(Direction.SOUTH), "explore"))
 
 
+    def test_return_search_traverses_a_shared_stair_passage_once(self):
+        from unittest.mock import patch
+
+        cells = [cell("here"), {**cell("wall", 1), "wall": True},
+                 cell("first", 2, up=True), cell("second", 3, up=True)]
+        ability = {"id": "rogue.search", "name": "Search", "cooldown_remaining": "0", "cost": None,
+                   "basic_attack": False, "reach": {"kind": "personal"}, "target_kind": "self"}
+        turn = player_turn(cells, abilities=[ability])
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        player.observe(turn)
+        memory = player.maps[player.depth]
+        upstairs = memory.stairs(Direction.UP)
+        with patch.object(memory, "reachable", wraps=memory.reachable) as traverse:
+            self.assertEqual(player.search_return_connection(turn, memory, upstairs),
+                             (UseAbility(turn.abilities[0]), "search"))
+            self.assertEqual(traverse.call_count, 1)
+        self.assertEqual(upstairs, {"first", "second"})
+
     def test_uses_known_teleportation_when_the_remembered_return_route_is_disconnected(self):
         items = [{"id": "objective", "identity": DEFAULT_OBJECTIVE_IDENTITY, "name": AMULET,
                   "quantity": 1, "identified": True},
