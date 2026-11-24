@@ -438,6 +438,14 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.maps[player.depth].visited.add("unknown-east")
         self.assertEqual(player.choose(turn), (Move(Direction.WEST), "explore"))
 
+    def test_explores_through_recent_danger_when_it_blocks_the_only_frontier(self):
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        turn = player_turn([cell("here"), cell("passage", 1), cell("frontier", 2)])
+        player.observe(turn)
+        player.maps[player.depth].visited.add("passage")
+        player.danger_until["passage"] = turn.tick + 100
+        self.assertEqual(player.choose(turn), (Move(Direction.EAST), "explore"))
+
     def test_take_corridor_before_two_foes_make_contact(self):
         def tile(x, y, wall=False):
             return {**cell(f"{x},{y}", x), "position": {"x": x, "y": y, "z": 0}, "wall": wall}

@@ -1186,6 +1186,19 @@ class Adventurer:
             return action, "seek_supplies"
         return None
 
+    def explore_frontier(self, turn: Turn, memory: FloorMap) -> Action | None:
+        avoid = self.danger_until.keys()
+        step = memory.toward_unexplored(turn, avoid=avoid)
+        if step is None and avoid:
+            # Cross a recent threat only when it blocks every remaining route.
+            return memory.toward_unexplored(turn)
+        if isinstance(step, Move) and self.last_exploration_origin is not None:
+            destination = turn.cell_at(step.direction.offset)
+            if destination and destination.key == self.last_exploration_origin:
+                detour = memory.toward(turn, memory.frontier, avoid=avoid | {destination.key}, max_steps=3)
+                return detour or step
+        return step
+
     def choose(self, turn: Turn) -> tuple[Action | None, str]:
         if turn.needs_identification and (prompt := turn.identification):
             unknown = next((item for item in prompt.items if needs_identification(item)), None)
@@ -1268,18 +1281,8 @@ class Adventurer:
                 if (device.item.identity == "item.wand.wand-light" and device.activation is DeviceActivation.SELF_TARGET
                         and device.charges != 0):
                     return Zap(device, None), MemoryReason.LIGHT_ROOM
-        avoid = self.danger_until.keys()
-        if action := memory.toward_unexplored(turn, avoid=avoid):
-            if isinstance(action, Move) and (next_cell := turn.cell_at(action.direction.offset)):
-                if next_cell.key == self.last_exploration_origin:
-                    alternate = memory.toward(turn, memory.frontier, avoid=avoid | {next_cell.key}, max_steps=3)
-                    if alternate:
-                        return alternate, MemoryReason.EXPLORE
+        if action := self.explore_frontier(turn, memory):
             return action, MemoryReason.EXPLORE
-        if avoid:
-            # Accept the risk when every remaining route crosses a recent threat.
-            if action := memory.toward_unexplored(turn):
-                return action, MemoryReason.EXPLORE
         fallback = None
         if returning and memory.stairs(Direction.UP):
             for item in turn.inventory:
