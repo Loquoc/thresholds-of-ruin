@@ -528,11 +528,17 @@ with Session.connect(sys.argv[1], token, 1) as game, Session.connect(sys.argv[1]
         self.assertGreater(report["tick"], 2920, report)
         trace = (output / "seed-47" / "turns.jsonl").read_text(encoding="utf-8")
         turns = [json.loads(line) for line in trace.splitlines()]
+        self.assertEqual([i for i, row in enumerate(turns) if "terminal" in row], [len(turns) - 1])
+        self.assertEqual(turns[-1]["terminal"], report["terminal"])
+        self.assertEqual(len(turns) - 1, report["actions"])
         shots = [row for row in turns if row.get("reason") in {"throw_projectile", "launch_projectile"}
                  and row["result"]["status"] == "confirmed"]
-        self.assertTrue(shots, turns)
+        self.assertTrue(shots, "Seed 47 produced no confirmed projectile actions")
+        for shot in shots:
+            self.assertTrue(json.loads(shot["recording"]).get("queried_projectiles"),
+                            f"Missing recorded projectile choices at tick {shot['tick']}")
         ticks = [row["tick"] for row in shots]
-        self.assertEqual(len(ticks), len(set(ticks)), shots)
+        self.assertEqual(len(ticks), len(set(ticks)), ticks)
         # Begin with fresh policy memory and rebuild it from the same observed decisions.
         replay = """
 import json
@@ -549,8 +555,10 @@ for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     row = json.loads(line)
     turn = Turn.replay(row["recording"])
     combat = journal.read(turn)
-    if previous:
-        assert turn.outcome_of(previous) == row["previous_intention_phase"]
+    expected_id = previous.intention if previous else None
+    assert row.get("previous_intention_id") == expected_id, (turn.tick, expected_id)
+    expected_phase = turn.outcome_of(previous) if previous else None
+    assert row.get("previous_intention_phase") == expected_phase, (turn.tick, expected_phase)
     player.observe(turn, combat)
     deepest = max(deepest, player.depth)
     if "terminal" in row:
