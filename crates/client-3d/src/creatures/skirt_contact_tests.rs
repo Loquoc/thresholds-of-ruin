@@ -53,13 +53,17 @@ fn fixture(chain: bool) -> (World, Entity) {
     })
     .composed(Wardrobe::Native, equipment)
     .unwrap();
-    let (mut world, rig, _, meshes) = rogue_tests::spawn_one(&look);
+    spawn_fixture(&look, 22)
+}
+
+fn spawn_fixture(look: &Look, seed: u64) -> (World, Entity) {
+    let (mut world, rig, _, meshes) = rogue_tests::spawn_one(look);
     let root = world
         .get::<ChildOf>(rig.joint(J::Lift).unwrap())
         .unwrap()
         .parent();
     let at = Vec3::new(0.0, -0.5, 0.0);
-    let mut anim = Anim::new(22, at);
+    let mut anim = Anim::new(seed, at);
     anim.yaw = 0.0;
     anim.target_yaw = Some(0.0);
     *world.get_mut::<Transform>(root).unwrap() = Transform::from_translation(at);
@@ -102,6 +106,88 @@ fn crossing(a: [Vec3; 3], b: [Vec3; 3]) -> Option<Vec3> {
         edge_hit(a[i], a[(i + 1) % 3], b).or_else(|| edge_hit(b[i], b[(i + 1) % 3], a))
     })
 }
+fn front_depth(mesh: &[[Vec3; 3]], x: f32, y: f32) -> Option<f32> {
+    mesh.iter()
+        .filter_map(|&tri| {
+            let hit = edge_hit(Vec3::new(x, y, -1.0), Vec3::new(x, y, 1.0), tri)?;
+            Some(hit.z)
+        })
+        .reduce(f32::max)
+}
+
+#[test]
+fn native_medusa_skirt_clears_the_knee_sweep() {
+    let mut failures = Vec::new();
+    for build in [0, 2] {
+        let look = Look::preview_adjusted(CreatureModel::Medusa, 7, |v| {
+            v.woman = true;
+            v.build = build;
+        });
+        let (mut world, root) = spawn_fixture(&look, 7);
+        let mut advance = crate::review_script::animation_schedule();
+        let mut velocity = Vec3::ZERO;
+        let mut peak = 0.0_f32;
+        let mut sampled_body = 0;
+        let mut worst = (0, 0.0, 0.0);
+        for tick in 0..=27 {
+            world.resource_mut::<Time>().advance_by(if tick == 0 {
+                Duration::ZERO
+            } else {
+                Duration::from_millis(20)
+            });
+            world.get_mut::<Transform>(root).unwrap().translation += velocity / 50.0;
+            advance.run(&mut world);
+            match tick {
+                2 => velocity = Vec3::Z * 1.15,
+                18 => velocity = Vec3::new(0.95, 0.0, 0.3),
+                _ => {}
+            }
+            if ![12, 16, 18, 22, 27].contains(&tick) {
+                continue;
+            }
+            let rig = world.get::<Rig>(root).unwrap();
+            let inverse = world
+                .get::<GlobalTransform>(rig.joint(J::Hips).unwrap())
+                .unwrap()
+                .affine()
+                .inverse();
+            let body: Vec<_> = [J::LegL, J::LegR, J::ShinL, J::ShinR]
+                .into_iter()
+                .flat_map(|j| triangles(&world, rig.joint(j).unwrap(), inverse))
+                .collect();
+            let cloth = triangles(&world, rig.skirt_layers[0], inverse);
+            assert!(body.len() > 100);
+            assert!(cloth.len() > 100);
+            // Do not sample the deliberate center split or the boots below
+            // the hem. Measure the forward leg against the actual front panel.
+            for xi in [-15, -12, -9, 9, 12, 15] {
+                for yi in [-38, -33, -28, -23] {
+                    let x = xi as f32 * 0.01 + 0.0003;
+                    let y = yi as f32 * 0.01 + 0.0004;
+                    let Some(leg) = front_depth(&body, x, y) else {
+                        continue;
+                    };
+                    let Some(skirt) = front_depth(&cloth, x, y).filter(|z| *z > 0.0) else {
+                        continue; // Some opening is authored at the seam.
+                    };
+                    sampled_body += 1;
+                    if leg - skirt > peak {
+                        peak = leg - skirt;
+                        worst = (tick, x, y);
+                    }
+                }
+            }
+        }
+        assert!(sampled_body >= 65, "no useful body and cloth samples");
+        if peak > 0.045 {
+            failures.push(format!(
+                "build={build} knee penetration {peak:.3} at {worst:?}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[test]
 fn native_short_skirt_and_tassets_do_not_cross_actual_thigh_faces() {
     let mut failures = Vec::new();

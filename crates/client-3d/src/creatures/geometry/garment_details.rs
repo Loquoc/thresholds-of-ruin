@@ -594,24 +594,37 @@ pub(super) fn spawn(
                 (0.208 + length * 0.045) * b * body.hips_width,
                 (0.208 + length * 0.045) * 0.74 * b,
             );
-            kit.drape(
-                hips,
-                Transform::IDENTITY,
-                Drape::Skirt(length + 0.24),
-                "tatters",
-                |p| {
-                    tatters(
-                        &mut p.matte,
-                        Vec3::Y * (0.06 - length),
-                        hem,
-                        22,
-                        0.24,
-                        0.035,
-                        cloth,
-                        21,
-                    );
-                },
-            );
+            let build = |p: &mut Parts| {
+                tatters(
+                    &mut p.matte,
+                    Vec3::Y * (0.06 - length),
+                    hem,
+                    22,
+                    0.24,
+                    0.035,
+                    cloth,
+                    21,
+                );
+            };
+            if kit.rig.style == Style::Wraith {
+                let tatters = kit.leg_relief_panel(
+                    hips,
+                    Drape::Skirt(length),
+                    "tatters",
+                    Vec3::ONE,
+                    skirt_motion::LegRelief::SHROUD,
+                    build,
+                );
+                kit.rig.skirt_layers.push(tatters);
+            } else {
+                kit.drape(
+                    hips,
+                    Transform::IDENTITY,
+                    Drape::Skirt(length + 0.24),
+                    "tatters",
+                    build,
+                );
+            }
         }
         Some(HipDecoration::TunicTatters { .. } | HipDecoration::BucklePouch { .. }) | None => {}
     }

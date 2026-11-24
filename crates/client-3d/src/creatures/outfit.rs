@@ -599,6 +599,8 @@ pub(crate) struct Skirt {
     pub cutaway: bool,
     /// Extra room that opens over the upper fronts as the thighs swing.
     pub swing_ease: f32,
+    /// Long cloth that yields to the knees and shins without shifting its seam.
+    pub(super) leg_relief: Option<skirt_motion::LegRelief>,
     /// Narrow central drape between a pair of thigh openings, angular half-width.
     pub center_panel: Option<f32>,
     /// Explicit level waist seam; otherwise paired panels use the raised royal cut.
@@ -634,6 +636,7 @@ impl Skirt {
         trim: None,
         cutaway: false,
         swing_ease: 0.0,
+        leg_relief: None,
         center_panel: None,
         waistline: None,
         hem: Hem::Even,

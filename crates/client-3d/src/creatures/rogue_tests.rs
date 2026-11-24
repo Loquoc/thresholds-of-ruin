@@ -617,6 +617,89 @@ fn freezing_touch_reaches_with_one_ice_fan_and_returns_it() {
 }
 
 #[test]
+fn freezing_touch_releases_the_reaching_fan_into_each_fall() {
+    let touch = Move::for_ability("rogue.freezing_touch", None);
+    let sample = |app: &App, root: Entity| {
+        let world = app.world();
+        let rig = world.get::<Rig>(root).unwrap();
+        let meshes = world.resource::<Assets<Mesh>>();
+        let core = *world.get::<Transform>(rig.joint(J::Core).unwrap()).unwrap();
+        let fans = [J::ArmR, J::ArmL].map(|joint| {
+            let entity = rig.joint(joint).unwrap();
+            let parent = world.get::<Transform>(entity).unwrap().compute_affine();
+            let points = points_under(world, meshes, entity);
+            core.transform_point(
+                parent.transform_point3(
+                    points
+                        .into_iter()
+                        .max_by(|a, b| a.y.abs().total_cmp(&b.y.abs()))
+                        .expect("each fan has an authored shard tip"),
+                ),
+            )
+        });
+        (core, fans)
+    };
+    for death in [
+        DeathMotion::Collapse,
+        DeathMotion::Stagger,
+        DeathMotion::Dramatic,
+    ] {
+        for preroll in [false, true] {
+            let look = Look::of(CreatureModel::Ice, 42);
+            let (mut app, root) = animate_look(look.clone(), 12, |_| Vec3::ZERO);
+            let (mut plain, control) = animate_look(look, 13, |_| Vec3::ZERO);
+            let anim = &mut *app.world_mut().get_mut::<Anim>(root).unwrap();
+            anim.act(touch);
+            anim.action = Some((touch, touch.impact() - 0.016 / touch.duration()));
+            app.update();
+            let (before, tips) = sample(&app, root);
+            app.world_mut()
+                .get_mut::<Anim>(root)
+                .unwrap()
+                .start_death(death, preroll);
+            plain
+                .world_mut()
+                .get_mut::<Anim>(control)
+                .unwrap()
+                .start_death(death, preroll);
+            app.update();
+            plain.update();
+            let (after, entering) = sample(&app, root);
+            let jump = tips[0].distance(entering[0]);
+            assert!(
+                jump < 0.058 && before.translation.distance(after.translation) < 0.025,
+                "{death:?} preroll={preroll}: the reaching shard snapped {jump:.3} on death"
+            );
+            assert!(
+                tips[1].distance(entering[1]) < 0.035,
+                "the guard fan must keep its brace as well"
+            );
+            for _ in 0..48 {
+                app.update();
+                plain.update();
+            }
+            let (released, tips) = sample(&app, root);
+            let (ordinary, ordinary_tips) = sample(&plain, control);
+            assert!(released.translation.distance(ordinary.translation) < 1e-5);
+            assert!(released.scale.distance(ordinary.scale) < 1e-5);
+            // Direct quaternion distance also works for a slerped quaternion
+            // whose squared length is slightly under one from float rounding.
+            let released = Vec4::from_array(released.rotation.to_array());
+            let ordinary = Vec4::from_array(ordinary.rotation.to_array());
+            assert!(
+                released
+                    .distance(ordinary)
+                    .min(released.distance(-ordinary))
+                    < 1e-5
+            );
+            for (tip, ordinary) in tips.into_iter().zip(ordinary_tips) {
+                assert!(tip.distance(ordinary) < 1e-5);
+            }
+        }
+    }
+}
+
+#[test]
 fn dead_fliers_settle_on_their_body_not_a_wingtip() {
     use bevy::render::mesh::VertexAttributeValues;
 
@@ -5653,32 +5736,33 @@ fn bare_feet_do_not_emit_boot_shafts_on_fitted_legs() {
     }
 }
 
+fn aquator_tendril_tips(world: &World, root: Entity) -> [Vec3; 2] {
+    let segments = &world.get::<Rig>(root).unwrap().segments;
+    assert_eq!(segments.len(), 8, "two four-segment tendrils");
+    [0, 4].map(|start| {
+        let chain = &segments[start..start + 4];
+        let local = |e| world.get::<Transform>(e).unwrap();
+        // Chain steps are identical; the distal segment ends one step
+        // beyond its hinge. Measure in the head frame, not just the lunge.
+        let end = local(chain[1]).translation;
+        let path = chain.iter().fold(Affine3A::IDENTITY, |path, e| {
+            path * local(*e).compute_affine()
+        });
+        path.transform_point3(end)
+    })
+}
+
 #[test]
 fn aquator_corrosion_tendrils_extend_toward_contact() {
     let (mut app, root) = animate_look(Look::of(CreatureModel::Aquator, 42), 12, |_| Vec3::ZERO);
     let motion = Move::for_ability("rogue.corrode", None);
     assert_eq!(motion, Move::Touch(Accent::Amber));
-    let segments = app.world().get::<Rig>(root).unwrap().segments.clone();
-    assert_eq!(segments.len(), 8, "two four-segment tendrils");
-    let relative_tips = |world: &World| {
-        [0, 4].map(|start| {
-            let chain = &segments[start..start + 4];
-            let local = |e| world.get::<Transform>(e).unwrap();
-            // Chain steps are identical; the distal segment ends one step
-            // beyond its hinge. Measure in the head frame, not just the lunge.
-            let end = local(chain[1]).translation;
-            let path = chain.iter().fold(Affine3A::IDENTITY, |path, e| {
-                path * local(*e).compute_affine()
-            });
-            path.transform_point3(end)
-        })
-    };
-    let rest = relative_tips(app.world());
+    let rest = aquator_tendril_tips(app.world(), root);
     let mut sample = |phase| {
         app.world_mut().get_mut::<Anim>(root).unwrap().action =
             Some((motion, phase - 0.016 / motion.duration()));
         app.update();
-        relative_tips(app.world())
+        aquator_tendril_tips(app.world(), root)
     };
     let wind_up = sample(0.30);
     let contact = sample(motion.impact());
@@ -5694,6 +5778,72 @@ fn aquator_corrosion_tendrils_extend_toward_contact() {
             contact[i].y > rest[i].y + 0.07,
             "tendril {i} folds down rather than sweeping up at contact: {:?}",
             contact[i],
+        );
+    }
+}
+
+#[test]
+fn aquator_releases_its_corrosion_sweep_into_each_death() {
+    let motion = Move::for_ability("rogue.corrode", None);
+    for death in [
+        DeathMotion::Collapse,
+        DeathMotion::Stagger,
+        DeathMotion::Dramatic,
+    ] {
+        let (mut app, root) =
+            animate_look(Look::of(CreatureModel::Aquator, 42), 12, |_| Vec3::ZERO);
+        let lift = app
+            .world()
+            .get::<Rig>(root)
+            .unwrap()
+            .joint(J::Lift)
+            .unwrap();
+        let sample = |app: &App| {
+            let p = app.world().get::<Transform>(lift).unwrap().translation;
+            (p, aquator_tendril_tips(app.world(), root))
+        };
+        app.world_mut().get_mut::<Anim>(root).unwrap().act(motion);
+        app.world_mut().get_mut::<Anim>(root).unwrap().action =
+            Some((motion, motion.impact() - 0.016 / motion.duration()));
+        app.update();
+        let live = sample(&app);
+        app.world_mut()
+            .get_mut::<Anim>(root)
+            .unwrap()
+            .preview_death(death);
+        app.update();
+        let entering = sample(&app);
+        let gap = live.0.distance(entering.0);
+        let tip = live
+            .1
+            .into_iter()
+            .zip(entering.1)
+            .map(|(live, after)| live.distance(after))
+            .fold(0.0_f32, f32::max);
+        assert!(
+            gap < 0.055 && tip < 0.038,
+            "{death:?} release jumped lift={gap:.3}, tip={tip:.3}"
+        );
+        let (mut control, body) =
+            animate_look(Look::of(CreatureModel::Aquator, 42), 13, |_| Vec3::ZERO);
+        control
+            .world_mut()
+            .get_mut::<Anim>(body)
+            .unwrap()
+            .preview_death(death);
+        for _ in 0..50 {
+            app.update();
+            control.update();
+        }
+        control.update();
+        let after = aquator_tendril_tips(app.world(), root);
+        let reference = aquator_tendril_tips(control.world(), body);
+        assert!(
+            after
+                .into_iter()
+                .zip(reference)
+                .all(|(a, b)| a.distance(b) < 1e-5),
+            "only the first part of the fall should carry the action"
         );
     }
 }
@@ -6062,6 +6212,45 @@ fn long_winged_beast_tails_settle_without_piercing_the_floor() {
             assert!(
                 floor >= -0.035,
                 "{model:?} seed {seed} tail pierces the floor: {floor:.3}"
+            );
+        }
+    }
+}
+
+#[test]
+fn wraith_draws_energy_back_without_rocking_its_robe_over_its_knees() {
+    for woman in [false, true] {
+        let look = Look::with_choice(
+            CreatureModel::Wraith,
+            42,
+            Some(Variant {
+                woman,
+                build: 1,
+                ..default()
+            }),
+        );
+        let (mut app, root) = animate_look(look, 12, |_| Vec3::ZERO);
+        let lift = app
+            .world()
+            .get::<Rig>(root)
+            .unwrap()
+            .joint(J::Lift)
+            .unwrap();
+        let mut sample = |phase: Option<f32>| {
+            let action = Move::Drain;
+            let mut a = app.world_mut().get_mut::<Anim>(root).unwrap();
+            a.yaw = 0.0;
+            a.target_yaw = None;
+            a.action = phase.map(|t| (action, t - 0.016 / action.duration()));
+            app.update();
+            app.world().get::<Transform>(lift).unwrap().translation.z
+        };
+        let rest = sample(None);
+        assert!(sample(Some(Move::Drain.impact())) > rest + 0.075);
+        for t in [0.61, 0.72, 0.83] {
+            assert!(
+                (sample(Some(t)) - rest).abs() < 0.012,
+                "Wraith hips should stay over the feet through the draw phase"
             );
         }
     }

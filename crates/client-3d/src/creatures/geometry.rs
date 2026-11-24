@@ -1101,13 +1101,30 @@ impl Kit<'_, '_, '_> {
         });
         self.commands.entity(parent).add_child(entity);
         for (mesh, _) in &model.0 {
-            self.rig.short_garments.push(
+            self.rig.hip_garments.push(
                 super::skirt_motion::Panel::new(entity, mesh.clone(), proportion, self.meshes)
                     .with_belt_anchor(follow_belt)
                     .with_front_swing(kind, swing_ease),
             );
         }
         self.rig.drapes.push((entity, kind));
+        entity
+    }
+
+    fn leg_relief_panel(
+        &mut self,
+        parent: Entity,
+        kind: Drape,
+        part: &str,
+        proportion: Vec3,
+        relief: skirt_motion::LegRelief,
+        build: impl FnOnce(&mut Parts),
+    ) -> Entity {
+        let first = self.rig.hip_garments.len();
+        let entity = self.short_garment(parent, kind, part, proportion, false, 0.0, build);
+        for panel in &mut self.rig.hip_garments[first..] {
+            panel.leg_relief = Some(relief);
+        }
         entity
     }
 
@@ -1180,7 +1197,7 @@ pub fn spawn(
             scale: look.scale,
             robe: None,
             aprons: Vec::new(),
-            short_garments: Vec::new(),
+            hip_garments: Vec::new(),
             apron_contacts: Vec::new(),
             cloaks: Vec::new(),
             hair: None,

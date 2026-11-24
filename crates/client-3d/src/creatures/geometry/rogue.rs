@@ -2395,7 +2395,7 @@ fn xeroc_head(p: &mut Parts, l: &Look) {
             0.025,
             0.012,
         )
-        .emit(&mut p.matte, plate * 1.08);
+        .emit_seated(&mut p.matte, &skull, plate * 1.08);
     }
     animal_eyes(p, frames, 0.036, Vec3::new(0.96, 0.78, 0.12), plate, None);
 }
