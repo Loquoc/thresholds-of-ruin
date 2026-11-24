@@ -3203,6 +3203,11 @@ with Session.connect(os.environ["BOT_TEST_ADDRESS"], os.environ["TOR_SERVER_TOKE
         assert reason == "recover_en_route" and action.direction.offset[0] == -1, (action, reason)
     else:
         assert reason == "seek_stairs", (action, reason)
+    if scouting:
+        meal = next(item for item in turn.inventory if ItemUse.EAT in item.uses)
+        turn = advance(turn, UseItem(meal, ItemUse.EAT))
+        action, reason = player.choose(turn)
+        assert reason in {"seek_stairs", "recover_en_route"}, (action, reason)
     advance(turn, action)
 """
         result = subprocess.run(

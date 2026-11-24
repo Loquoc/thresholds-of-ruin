@@ -116,6 +116,12 @@ class PendingMeal:
         return gain if gain > 0 else None
 
 
+@dataclass(frozen=True)
+class FoodScout:
+    deadline: int
+    starting_meals: int
+
+
 @dataclass
 class LootGoals:
     pickup: Item | None = None
@@ -143,8 +149,8 @@ class Adventurer:
     entered_floor_at: int | None = None
     food_value: dict[str, int] = field(default_factory=dict)
     pending_meal: PendingMeal | None = None
-    # A floor gets one bounded detour. A confirmed increase in supplies ends it early.
-    food_scouts: dict[int, tuple[int, int]] = field(default_factory=dict)
+    # A missing floor can start a detour. None records a finished detour.
+    food_scouts: dict[int, FoodScout | None] = field(default_factory=dict)
     pending_stair: StairAttempt | None = None
     stair_pursuers: tuple[str, ...] = ()
     last_guarded_landing: tuple[str, str] | None = None
@@ -246,6 +252,11 @@ class Adventurer:
                 self.record_stair_arrival(turn, attempt, attempt.landing or here.key)
             self.pending_stair = None
             self.stair_pursuers = ()
+        scout = self.food_scouts.get(self.depth)
+        if scout is not None and (
+            turn.tick >= scout.deadline or sum(item.quantity for item in edible_items(turn)) > scout.starting_meals
+        ):
+            self.food_scouts[self.depth] = None
         self.maps.setdefault(self.depth, FloorMap()).observe(turn)
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
@@ -386,9 +397,7 @@ class Adventurer:
         if turn.cell is None:
             return
         if reason == MemoryReason.SEEK_STAIRS and self.depth in self.food_scouts:
-            deadline, stock = self.food_scouts[self.depth]
-            if turn.tick < deadline:
-                self.food_scouts[self.depth] = turn.tick, stock
+            self.food_scouts[self.depth] = None
         self.last_exploration_origin = turn.cell.key if reason == MemoryReason.EXPLORE else None
         self.corridor_stand = None
         if reason == MemoryReason.TAKE_CORRIDOR and (entrance := turn.cell_at(action.direction.offset)):
@@ -1013,13 +1022,15 @@ class Adventurer:
             return step, "forage"
         if returning or self.depth >= self.retrieval_depth:
             return None
-        count = sum(item.quantity for item in meals)
         if self.depth not in self.food_scouts:
             if turn.cell is None or not turn.cell.stairs_down:
                 return None
-            self.food_scouts[self.depth] = turn.tick + nutrition.ticks_until_empty // 4, count
-        deadline, starting_count = self.food_scouts[self.depth]
-        if turn.tick < deadline and count <= starting_count:
+            self.food_scouts[self.depth] = FoodScout(
+                deadline=turn.tick + nutrition.ticks_until_empty // 4,
+                starting_meals=sum(item.quantity for item in meals),
+            )
+        scout = self.food_scouts[self.depth]
+        if scout is not None and turn.tick < scout.deadline:
             if step := memory.toward(turn, memory.frontier):
                 return step, "scout_for_food"
         return None

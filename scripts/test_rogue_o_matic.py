@@ -7,7 +7,7 @@ import unittest
 
 # The public policy and model can be tested from source without loading the native extension.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "crates/client-bot/python"))
-from rogue_player import Adventurer
+from rogue_player import Adventurer, FoodScout
 from tor_client_bot import Direction, Move, Pickup, Turn, UseAbility, Wait
 
 from rogue_policy_reference import DEFAULT_OBJECTIVE_IDENTITY, Floor, Policy
@@ -2344,7 +2344,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
                                "hunger": "nourished", "elapsed": 0}}
         player.ascent_ticks_by_floor[2] = 50000
-        player.food_scouts[3] = 1000, 0
+        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         for tick, expected in [(100, (Move(Direction.EAST), "scout_for_food")),
                                (1000, (Move(Direction.WEST), "recover_en_route"))]:
             with self.subTest(tick=tick):
@@ -2353,10 +2353,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 player.maps[3].visited.add("stairs")
                 self.assertEqual(player.choose(turn), expected)
 
+    def test_food_scout_stays_finished_after_eating_the_ration_it_found(self):
+        player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
+        player.ascent_ticks_by_floor[2] = 50000
+        cells = [cell("stairs", down=True), cell("frontier", 1)]
+        stats = {"nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
+                               "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
+        ration = {"id": "ration", "name": "ration", "class": "food", "quantity": 1, "identified": False}
+        before = player_turn(cells, stats=stats)
+        self.assertEqual(choose(player, before), (Move(Direction.EAST), "scout_for_food"))
+        stocked = player_turn(cells, stats=stats, tick=100, inventory=[ration],
+                              interactions={"inventory": [{"item": "ration", "edible": True}]})
+        player.observe(stocked)
+        after = player_turn(cells, stats=stats, tick=200)
+        self.assertEqual(choose(player, after), (Move(Direction.DOWN), "descend"))
+
     def test_food_scout_finishes_once_the_bot_heads_back_to_the_stairs(self):
         player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
         player.ascent_ticks_by_floor[2] = 50000
-        player.food_scouts[3] = 1000, 0
+        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         cells = [cell("hall"), cell("stairs", -1, down=True), cell("frontier", 1)]
         turn = player_turn(cells, tick=100, stats={"nutrition": {
             "kind": "required", "reserve": 400, "maximum": 2000, "unit_ticks": 100,
@@ -2375,7 +2390,7 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                  "nutrition": {"kind": "required", "reserve": 400, "maximum": 2000,
                                "unit_ticks": 100, "hunger": "nourished", "elapsed": 0}}
         player.descent_ticks_by_floor[2] = 50000
-        player.food_scouts[3] = 1000, 0
+        player.food_scouts[3] = FoodScout(deadline=1000, starting_meals=0)
         turn = player_turn(cells, tick=100, combat={"hp": 6}, stats=stats)
         player.observe(turn)
         player.maps[3].visited.update({"stairs", "passage"})
