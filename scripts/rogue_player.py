@@ -420,25 +420,24 @@ class Adventurer:
             self.remember_zap(turn, action, reason)
         if isinstance(action, Move):
             self.remember_move(turn, action, receipt, reason)
-        if isinstance(action, UseItem) and action.use is ItemUse.DRINK and action.item.identity is None:
-            self.sampled_potions.add(trial_appearance(action.item))
+        if isinstance(action, UseItem):
+            self.remember_item_use(turn, action, receipt, reason)
         if isinstance(action, UseAbility) and action.ability.identity == "rogue.search" and turn.cell:
             self.remember_search(turn, turn.cell.key, receipt)
-        if isinstance(action, UseItem) and action.use is ItemUse.READ and action.item.identity is None:
-            if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
-                self.pending_scroll_trial = receipt, action.item.target
-            self.tried_unknown_scroll = True
-            self.sampled_scrolls.add(trial_appearance(action.item))
-        if (
-            isinstance(action, UseItem)
-            and action.use is ItemUse.EAT
-            and action.item.identity
-            and turn.nutrition
-        ):
-            identity = action.item.identity
-            self.pending_meal = PendingMeal(identity, carried_quantity(turn, identity), turn.nutrition.reserve)
         if isinstance(action, Shot):
             self.last_shot_tick = turn.tick
+
+    def remember_item_use(self, turn: Turn, action: UseItem, receipt: Result | None, reason: str | None) -> None:
+        item = action.item
+        if action.use is ItemUse.DRINK and item.identity is None:
+            self.sampled_potions.add(trial_appearance(item))
+        elif action.use is ItemUse.READ and item.identity is None:
+            if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
+                self.pending_scroll_trial = receipt, item.target
+            self.tried_unknown_scroll = True
+            self.sampled_scrolls.add(trial_appearance(item))
+        elif action.use is ItemUse.EAT and item.identity and turn.nutrition:
+            self.pending_meal = PendingMeal(item.identity, carried_quantity(turn, item.identity), turn.nutrition.reserve)
 
     def remember_search(self, turn: Turn, origin: str, receipt: Result | None) -> None:
         self.searches[origin] += 1

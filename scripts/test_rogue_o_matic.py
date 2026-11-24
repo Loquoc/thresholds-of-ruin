@@ -2025,9 +2025,10 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         player.admitted(turn, action, result, reason=reason)
         picture = json.loads(turn.recording())
         picture.update(can_cancel=True, readiness={"admission": False})
-        for phase, intention in (("started", "read"), ("queued", "other")):
-            stalled = Turn({**picture, "intentions": [dict(receipt, phase=phase, intention=intention)]})
-            self.assertEqual(player.stalled(stalled, result), (None, "readiness_timeout"))
+        for change in ({"phase": "started"}, {"intention": "other"}, {"branch": "other"}, {"actor": 2}):
+            with self.subTest(change=change):
+                stalled = Turn({**picture, "intentions": [{**receipt, **change}]})
+                self.assertEqual(player.stalled(stalled, result), (None, "readiness_timeout"))
         stalled = Turn({**picture, "intentions": [receipt]})
         cancel, reason = player.stalled(stalled, result)
         self.assertEqual((cancel, reason), (ActivityChoice.CANCEL, "cancel_stalled_scroll"))
