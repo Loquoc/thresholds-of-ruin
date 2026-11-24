@@ -11,13 +11,7 @@ use std::sync::Arc;
 use tor_protocol::*;
 
 fn samples() -> Value {
-    let path = format!(
-        "{}/tests/fixtures/wire-v{PROTOCOL_VERSION}.json",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    crate::fixture::load(&path, PROTOCOL_VERSION).unwrap_or_else(|error| {
-        panic!("{path} is invalid ({error}): record it with scripts/record_wire_samples.py")
-    })
+    crate::fixture::current(PROTOCOL_VERSION).expect("regenerate current wire samples")
 }
 
 /// Decode, encode, and require the same JSON back.
@@ -235,6 +229,21 @@ fn server_kind(message: &ServerMessage) -> ServerSampleKind {
         ServerMessage::Palette { .. } => Kind::Palette,
         ServerMessage::Waiting { .. } => Kind::Waiting,
     }
+}
+
+#[test]
+fn failed_turn_carries_its_rollback_reason() {
+    let book = samples();
+    let sample = book["server"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| {
+            m["update"]["body"]["failure"] == serde_json::json!({"rolled_back": "use_ability"})
+        })
+        .expect("recorded owner rollback");
+    round_trip::<ServerMessage>(sample);
+    assert_eq!(sample["update"]["body"]["status"]["phase"], "failed");
 }
 
 #[test]

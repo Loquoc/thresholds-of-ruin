@@ -30,6 +30,12 @@ fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+pub fn current(version: u32) -> io::Result<Value> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../protocol/tests/fixtures/wire-v{version}.json"));
+    load(path, version)
+}
+
 pub fn load(path: impl AsRef<Path>, expected_protocol: u32) -> io::Result<Value> {
     let path = path.as_ref();
     let manifest = read_bounded(path)?;

@@ -27,7 +27,7 @@ use crate::journal::{
     WizardResult,
 };
 
-pub(crate) const ARCHIVE_VERSION: u32 = 73;
+pub(crate) const ARCHIVE_VERSION: u32 = 74;
 #[path = "action_resolution.rs"]
 mod action_resolution;
 #[path = "advancement_query.rs"]
@@ -812,6 +812,8 @@ mod seed_equivalence_tests {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
+    /// Only deterministic simulation refusals before publication may retire an admission.
+    rollback_error: Option<tor_simulation::GameError>,
     pub code: ErrorCode,
     pub message: String,
 }
@@ -887,16 +889,38 @@ impl Failure {
                 "Simulation resource capacity exhausted",
             ));
         }
-        matches!(error, GameError::Growth(_)).then(|| {
-            Self::new(
+        matches!(error, GameError::Growth(_)).then(|| Self::rejected_candidate(error))
+    }
+
+    fn rejected_candidate(error: tor_simulation::GameError) -> Self {
+        Self {
+            rollback_error: Some(error),
+            ..Self::new(
                 ErrorCode::InvalidAction,
                 "Simulation state could not be updated; no changes were committed",
+            )
+        }
+    }
+
+    /// Region settlement may reject an otherwise successful action before publication.
+    /// Keep simulation evidence distinct from a failed region read or journal write.
+    pub(crate) fn region_rule_failure(error: tor_simulation::GameError) -> Self {
+        if error
+            == tor_simulation::GameError::Rule(tor_simulation::abilities::RuleError::InvalidPlan)
+        {
+            return Self::rejected_candidate(error);
+        }
+        Self::simulation_failure(error).unwrap_or_else(|| {
+            Self::new(
+                ErrorCode::InvalidAction,
+                "The game could not complete the region transition",
             )
         })
     }
 
     pub(crate) fn new(code: ErrorCode, message: &str) -> Self {
         Self {
+            rollback_error: None,
             code,
             message: message.into(),
         }
@@ -1448,6 +1472,7 @@ impl Record {
             | JournalContent::IntentionFailed {
                 admission,
                 intention,
+                ..
             }
             | JournalContent::IntentionContinued {
                 admission,
@@ -1457,6 +1482,7 @@ impl Record {
             | JournalContent::IntentionContinuationFailed {
                 admission,
                 intention,
+                ..
             } => Some((admission, *intention)),
             _ => None,
         }
@@ -1675,6 +1701,7 @@ pub struct CommandResult {
 #[derive(Clone, Debug)]
 pub(crate) enum OwnerIntentionFailure {
     Status(IntentionFailure),
+    RolledBack(tor_protocol::RollbackAction, tor_simulation::GameError),
     Requirement(Failure),
 }
 
@@ -2978,14 +3005,24 @@ impl Engine {
                 if !record.valid_resolution(&engine.archive.records[index]) {
                     return Err(invalid_archive());
                 }
-                engine
-                    .execute_intention_profiled(
-                        Some(record.entry.id.clone()),
-                        None,
-                        matches!(record.entry.content, JournalContent::IntentionFailed { .. }),
-                    )?
-                    .ok_or_else(invalid_archive)
-                    .map(|result| result.entry)
+                if record.entry.content.is_host_rollback() {
+                    engine
+                        .retire_rolled_back_intention(
+                            record.entry.actor,
+                            Some(record.entry.id.clone()),
+                            None,
+                        )
+                        .map(|result| result.entry)
+                } else {
+                    engine
+                        .execute_intention_profiled(
+                            Some(record.entry.id.clone()),
+                            None,
+                            matches!(record.entry.content, JournalContent::IntentionFailed { .. }),
+                        )?
+                        .ok_or_else(invalid_archive)
+                        .map(|result| result.entry)
+                }
             } else if let JournalContent::TravelIntentionAdmitted {
                 journey,
                 step,

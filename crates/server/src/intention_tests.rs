@@ -5,6 +5,62 @@ mod intention_admission_tests {
     use super::*;
 
     #[test]
+    fn region_rule_failure_retains_recovery_evidence_without_misclassifying_io() {
+        use tor_simulation::{abilities::RuleError, GameError};
+        let failure = Failure::region_rule_failure(GameError::Rule(RuleError::InvalidPlan));
+        assert!(failure.rollback_error.is_some());
+        assert_eq!(failure.code, ErrorCode::InvalidAction);
+        assert!(storage_failure().rollback_error.is_none());
+        assert!(Failure::region_rule_failure(GameError::UnknownActor)
+            .rollback_error
+            .is_none());
+        assert!(Failure::simulation_failure(GameError::Rule(RuleError::InvalidPlan)).is_none());
+    }
+
+    #[test]
+    fn host_rollback_replay_retires_only_the_selected_admission_without_repeating_it() {
+        let actor = ActorId(1);
+        let mut engine = Engine::memory(Scenario::two_room(42)).unwrap();
+        let branch = engine.branch().clone();
+        engine
+            .command(
+                "owner",
+                "text",
+                actor,
+                "admit-wait",
+                &branch,
+                Command::AdmitIntention {
+                    expected_boundary: engine.causal_boundary(actor).unwrap(),
+                    action: Action::Wait,
+                },
+            )
+            .unwrap();
+        let tick = engine.game.tick();
+        engine
+            .retire_rolled_back_intention(actor, None, None)
+            .unwrap();
+        let reopened = Engine::replay(engine.archive.clone(), None, None).unwrap();
+        assert_eq!(reopened.game, engine.game);
+        assert_eq!(reopened.game.tick(), tick);
+        assert!(reopened.pending_intentions(actor).is_empty());
+
+        let mut forged = engine.archive.clone();
+        forged.records.last_mut().unwrap().entry.actor = ActorId(2);
+        assert!(Engine::replay(forged, None, None).is_err());
+        let mut ordinary_failure = engine.archive.clone();
+        let JournalContent::IntentionFailed { cause, .. } =
+            &mut ordinary_failure.records.last_mut().unwrap().entry.content
+        else {
+            panic!("expected a failed intention")
+        };
+        *cause = crate::journal::FailureCause::Simulation;
+        assert!(
+            Engine::replay(ordinary_failure, None, None).is_err(),
+            "a successful wait cannot replay as a simulation refusal"
+        );
+    }
+
+    #[test]
     fn immediate_receipt_retry_retains_its_original_actor_and_branch_after_rewind() {
         let actor = ActorId(1);
         let mut engine = Engine::memory(Scenario::two_room(42)).unwrap();

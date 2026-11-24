@@ -55,7 +55,7 @@ fn history_actions_preserve_the_tagged_wire_shape_and_validate_event_payload() {
 
 #[test]
 fn current_wire_protocol_revision_is_explicitly_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 76);
+    assert_eq!(PROTOCOL_VERSION, 77);
 }
 
 #[test]
@@ -533,11 +533,8 @@ fn immediate_completion_is_distinct_from_admitted_gameplay() {
 
 #[test]
 fn readiness_is_required_and_does_not_accept_extra_authority() {
-    let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v76.json"),
-        tor_protocol::PROTOCOL_VERSION,
-    )
-    .expect("regenerate current wire samples");
+    let samples = crate::fixture::current(tor_protocol::PROTOCOL_VERSION)
+        .expect("regenerate current wire samples");
     assert_eq!(samples["protocol"], PROTOCOL_VERSION);
     let snapshot = samples["server"]
         .as_array()
@@ -567,11 +564,8 @@ fn readiness_is_required_and_does_not_accept_extra_authority() {
 
 #[test]
 fn current_corpus_records_live_level_names_and_hunger_fainting() {
-    let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v76.json"),
-        PROTOCOL_VERSION,
-    )
-    .expect("regenerate current wire samples");
+    let samples =
+        crate::fixture::current(PROTOCOL_VERSION).expect("regenerate current wire samples");
     let pictures: Vec<_> = samples["server"]
         .as_array()
         .unwrap()

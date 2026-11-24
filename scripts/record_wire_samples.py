@@ -1283,6 +1283,9 @@ class Recorder(ProcessTestCase):
         self.record_persistent_conditions(server_samples)
         self.record_amulet_escape(server_samples)
         self.record_discovery(server_samples)
+        from test_growth_failure_process import GrowthFailureProcesses
+        rollback = GrowthFailureProcesses("test_rolled_back_growth_preserves_world_and_stays_retired_after_restart")
+        server_samples["zz.host_rollback"] = run_recording_case(rollback, "rollback_sample")
         self.record_scare_crumble(server_samples)
         from test_living_dungeon_process import LivingDungeonProcesses
         scroll = run_recording_case(LivingDungeonProcesses(

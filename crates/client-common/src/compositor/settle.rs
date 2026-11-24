@@ -31,11 +31,13 @@ pub enum Settled {
     /// Execution was refused, but the queued intention remains pending.
     Deferred,
     /// The server's detail is carried only for a correlated rejection on
-    /// the current attachment. A lifecycle-derived rejection has no prose.
+    /// the current attachment.
     Rejected {
         code: ErrorCode,
         detail: Option<String>,
     },
+    /// An admitted action ended with an owner-visible failure.
+    Failed(IntentionFailure),
     /// A journey ended this way.
     Journey(TravelPhase),
     /// Control was lost, or the state replaced.
@@ -68,6 +70,7 @@ pub struct SettleBoundary {
     acked: bool,
     admission: Option<AdmissionBoundary>,
     execution_failed: bool,
+    failure_reason: Option<IntentionFailure>,
     receipt: Option<EntryId>,
     ended: Option<TravelPhase>,
 }
@@ -88,6 +91,7 @@ impl SettleBoundary {
             acked: false,
             admission: None,
             execution_failed: false,
+            failure_reason: None,
             receipt: None,
             ended: None,
         }
@@ -102,13 +106,20 @@ impl SettleBoundary {
         self.receipt.as_ref()
     }
 
-    /// Play stopped, and not for this player: the turn is over.
-    fn others(&self) -> Settled {
-        if self.execution_failed {
+    fn rejected_execution(&self) -> Settled {
+        self.failure_reason.map_or(
             Settled::Rejected {
                 code: ErrorCode::InvalidAction,
                 detail: None,
-            }
+            },
+            Settled::Failed,
+        )
+    }
+
+    /// Play stopped, and not for this player: the turn is over.
+    fn others(&self) -> Settled {
+        if self.execution_failed {
+            self.rejected_execution()
         } else {
             match self.ended {
                 Some(phase) => Settled::Journey(phase),
@@ -204,6 +215,9 @@ impl SettleBoundary {
                     && self.receipt.as_ref() == Some(&status.entry_id)) =>
             {
                 self.execution_failed = true;
+                if let UpdateBody::Intention { failure, .. } = &update.body {
+                    self.failure_reason = *failure;
+                }
             }
             ServerMessage::Snapshot { request_id, .. } if *request_id == self.id => {
                 return Some(Settled::Done);
@@ -282,10 +296,7 @@ impl SettleBoundary {
             permissions_ready
         };
         if self.execution_failed && failure_settled && (self.until != Until::Answered || answered) {
-            return Some(Settled::Rejected {
-                code: ErrorCode::InvalidAction,
-                detail: None,
-            });
+            return Some(self.rejected_execution());
         }
         let gameplay_ready = ready && permissions_ready;
         match self.until {
@@ -671,6 +682,29 @@ mod tests {
         assert_eq!(
             boundary.observe(&active, false, false, &none),
             Some(Settled::Journey(TravelPhase::Failed))
+        );
+    }
+
+    #[test]
+    fn rollback_reason_settles_with_the_failed_admission() {
+        let unready = state(false, false, None);
+        let ready = state(true, true, None);
+        let mut boundary = SettleBoundary::new(ID, Until::Acted, false);
+        boundary.observe(&unready, false, false, &immediate(&unready, "work-entry"));
+        let mut message = intention(&unready, 2, IntentionPhase::Failed);
+        let ServerMessage::Update { update } = &mut message else {
+            unreachable!()
+        };
+        let UpdateBody::Intention { failure, .. } = &mut update.body else {
+            unreachable!()
+        };
+        *failure = Some(IntentionFailure::RolledBack(RollbackAction::Read));
+        boundary.observe(&unready, false, false, &message);
+        assert_eq!(
+            boundary.silence(&ready),
+            Ok(Settled::Failed(IntentionFailure::RolledBack(
+                RollbackAction::Read
+            )))
         );
     }
 

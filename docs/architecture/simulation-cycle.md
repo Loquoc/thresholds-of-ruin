@@ -471,10 +471,17 @@ Source: [sequence_execution.rs](../../crates/simulation/src/sequence_execution.r
 | --- | --- | --- |
 | Decode, authority, context, disclosure or admission validation rejects | No new action effects or accepted intention. | Typed host error where available; malformed/oversized wire can end transport without a correlated reply. |
 | Ordinary queued work becomes unavailable | No substitute target/action. Queue retirement and failed-intention journal commit if save admission succeeds; failed continuation can discard retained preparation. | Terminal intention status, not another admission or an invisible retry loop. |
-| Typed simulation-capacity/growth execution refusal | Outer candidate is discarded, including queue removal and RNG/effects. | Queue remains retryable; controller receives execution error, not false storage warning. |
+| A human action reaches a rollback-safe simulation invariant failure | The host discards the candidate and commits a failed intention against the original world. The record identifies the selected admission and whether this was its initial action or a continuation. | The controller can choose another action after the failure commits. |
+| Simulation capacity is exhausted | The host discards the candidate, including RNG and effects. | The action stays queued. The controller receives the capacity error. |
 | Region settlement, projection validation or storage admission fails before publication | Candidate, knowledge, history append and staged input generations do not publish. | Error/waiting or save warning according to the failing path. |
 | Background save fails after acceptance | Accepted gameplay remains; pending save work is retained and save gate blocks later mutations. | Warning and explicit save/retry; acceptance was not durability. |
 | Causal projection/serialization/output admission fails after commit | No gameplay rollback. | Affected stream disconnects; healthy peers continue; reconnect/resynchronize. |
+
+Archive v73 records the cause of a failed intention. Replay verifies an ordinary
+simulation refusal by executing the selected work. For a host rollback it
+verifies the selected human admission and phase, retires that work, and preserves
+the pre-attempt world. A failure to commit that retirement leaves the admission
+queued.
 
 “All rejection leaves everything unchanged” does not describe a committed
 `IntentionFailed`. Failed execution and rejected publication are different

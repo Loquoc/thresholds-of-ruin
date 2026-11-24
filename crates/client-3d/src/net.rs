@@ -331,8 +331,26 @@ fn publish(tx: &Outlet<'_>, event: Event) -> Result<(), Error> {
 }
 
 fn present(connection: &Connection, message: &ServerMessage, tx: &Outlet<'_>) -> Result<(), Error> {
+    deliver_presentation(connection, message, tx, |event| publish(tx, event))
+}
+
+fn deliver_presentation(
+    connection: &Connection,
+    message: &ServerMessage,
+    tx: &Outlet<'_>,
+    mut deliver: impl FnMut(Event) -> Result<(), Error>,
+) -> Result<(), Error> {
     if let Some(event) = presentation_event(connection, message, tx) {
-        publish(tx, event)?;
+        deliver(event)?;
+    }
+    if let ServerMessage::Update { update } = message {
+        if let UpdateBody::Intention {
+            failure: Some(reason),
+            ..
+        } = &update.body
+        {
+            deliver(Event::Status(reason.message()))?;
+        }
     }
     Ok(())
 }
@@ -666,13 +684,11 @@ async fn settle(
                 return Ok(());
             }
         };
-        if let Some(event) = presentation_event(connection, &message, tx) {
-            publish(tx, event)?;
-        }
+        present(connection, &message, tx)?;
         if !connection.is_synchronized() {
             continue;
         }
-        let refused = execution_refused(connection, &message);
+        let refused = connection.state.queued_execution_notice(&message).is_some();
         if let Some(result) = boundary.observe(&connection.state, false, refused, &message) {
             if result == tor_client_common::compositor::Settled::Pending {
                 publish(
@@ -699,30 +715,9 @@ async fn current_picture(connection: &mut Connection, tx: &Outlet<'_>) -> Result
             return Ok(());
         };
         let message = message?;
-        if let Some(event) = presentation_event(connection, &message, tx) {
-            publish(tx, event)?;
-        }
+        present(connection, &message, tx)?;
     }
     Ok(())
-}
-
-/// A scoped notice that the server could not execute a queued action: an
-/// explicit stop that keeps the intention, not a settlement to wait out.
-fn execution_refused(connection: &Connection, message: &ServerMessage) -> bool {
-    matches!(
-        message,
-        ServerMessage::Error {
-            scope: ErrorScope::Attached { context },
-            request_id: None,
-            code: ErrorCode::InvalidAction | ErrorCode::ResourceLimit,
-            ..
-        } if connection.state.validate_reply_context(context).is_ok()
-            && connection
-                .state
-                .intentions()
-                .iter()
-                .any(|status| status.phase == IntentionPhase::Queued)
-    )
 }
 
 async fn transact(
@@ -758,9 +753,7 @@ async fn transact_with(
             inspect(connection, &id, &message);
             let complete = completion.is_some();
             let unknown = matches!(completion, Some(RequestCompletion::Unknown));
-            if let Some(event) = presentation_event(connection, &message, tx) {
-                deliver(event)?;
-            }
+            deliver_presentation(connection, &message, tx, &mut deliver)?;
             if unknown {
                 deliver(Event::Status(
                     "Resynchronized; the last request may have completed.".into(),

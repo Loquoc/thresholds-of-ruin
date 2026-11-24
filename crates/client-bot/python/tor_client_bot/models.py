@@ -508,10 +508,16 @@ class Activity:
     intention: str
     phase: ActivityPhase
     failure: str | None = None
+    failed_action: str | None = None
 
     @classmethod
-    def from_row(cls, row: dict, failure: str | None = None) -> Activity:
-        return cls(int(row["actor"]), row["branch"], row["intention"], ActivityPhase(row["phase"]), failure)
+    def from_row(cls, row: dict, failure: str | dict | None = None) -> Activity:
+        action = None
+        if isinstance(failure, dict):
+            action = failure["rolled_back"]
+            failure = "rolled_back"
+        return cls(int(row["actor"]), row["branch"], row["intention"],
+                   ActivityPhase(row["phase"]), failure, action)
 
 
 class Outcome(str, Enum):

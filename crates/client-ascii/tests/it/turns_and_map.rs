@@ -61,6 +61,43 @@ fn app() -> App {
     app
 }
 
+#[test]
+fn rollback_displays_the_owner_reason_on_the_failed_turn() {
+    let mut app = app();
+    let initial = snapshot();
+    let mut status = IntentionStatus {
+        actor: initial.actor,
+        branch: initial.branch.clone(),
+        intention: IntentionId("read".into()),
+        entry_id: EntryId("read".into()),
+        phase: IntentionPhase::Queued,
+    };
+    for (sequence, failure) in [
+        (1, None),
+        (2, Some(IntentionFailure::RolledBack(RollbackAction::Read))),
+    ] {
+        if failure.is_some() {
+            status.phase = IntentionPhase::Failed;
+        }
+        app.update(StreamUpdate {
+            context: initial.context.clone(),
+            actor: initial.actor,
+            branch: initial.branch.clone(),
+            cursor: StreamCursor {
+                sequence,
+                tick: initial.cursor.tick,
+            },
+            body: UpdateBody::Intention {
+                status: status.clone(),
+                failure,
+            },
+        })
+        .unwrap();
+    }
+    assert_eq!(app.messages.text(), app.status);
+    assert_eq!(app.status, "Reading the scroll failed. This attempt used no turn or item. You can choose another action.");
+}
+
 fn view() -> Observation {
     snapshot().state.observation.clone()
 }

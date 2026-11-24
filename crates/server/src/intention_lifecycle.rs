@@ -433,6 +433,7 @@ impl<'a> JournalLifecycle<'a> {
             JournalContent::IntentionFailed {
                 admission,
                 intention,
+                ..
             } => {
                 self.validate_source(record, admission, *intention, true)?;
                 if self.phase(*intention)? != Phase::InitialQueued {
@@ -447,6 +448,7 @@ impl<'a> JournalLifecycle<'a> {
             | JournalContent::IntentionContinuationFailed {
                 admission,
                 intention,
+                ..
             } => {
                 self.validate_source(record, admission, *intention, true)?;
                 if self.phase(*intention)? != Phase::ProgressQueued {
