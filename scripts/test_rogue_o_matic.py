@@ -1462,8 +1462,12 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                                    {**room[1], "item": scroll, "reachable": False}])
         self.assertEqual(choose(player, turn), (Pickup(turn.ground_items[0].item), "take"))
         stairs = [cell("stairs", down=True), cell("potion", 1), cell("scroll", 2)]
-        later = player_turn(stairs, ground=[{**stairs[2], "item": scroll, "reachable": False}])
-        self.assertEqual(choose(player, later), (Move(Direction.DOWN), "descend"))
+        ground = [{**stairs[2], "item": scroll, "reachable": False}]
+        for elapsed, expected in ((1199, (Move(Direction.DOWN), "descend")),
+                                  (1200, (Move(Direction.EAST), "seek_supplies"))):
+            with self.subTest(elapsed=elapsed):
+                later = player_turn(stairs, ground=ground, tick=turn.tick + elapsed)
+                self.assertEqual(choose(player, later), expected)
 
     def test_prefers_a_known_teleport_to_another_step_in_a_lethal_pursuit(self):
         from tor_client_bot import ItemUse, UseItem

@@ -62,6 +62,7 @@ MELEE_INJURY_PRIORITY = {
     Injury.WOUNDED: 1,
 }
 DEAD_END_SEARCHES = 6
+RECENT_DANGER_TICKS = 1200
 ELEMENTAL_WANDS = {"item.wand.wand-fire", "item.wand.wand-cold", "item.wand.wand-lightning"}
 ELEMENTAL_RAY_RANGE = 6
 
@@ -203,7 +204,7 @@ class Adventurer:
     stalled_scrolls: set[tuple[int, str]] = field(default_factory=set)
     sampled_scrolls: set[str] = field(default_factory=set)
     sampled_wands: set[str] = field(default_factory=set)
-    guarded_supplies: set[str] = field(default_factory=set)
+    supplies_guarded_until: dict[str, int] = field(default_factory=dict)
     tried_unmeasured_devices: set[str] = field(default_factory=set)
     attempted_slow: set[str] = field(default_factory=set)
     attempted_polymorph: set[str] = field(default_factory=set)
@@ -258,10 +259,7 @@ class Adventurer:
                 self.completed_end_searches[origin] += 1
             if phase in (ActivityPhase.RESOLVED, ActivityPhase.FAILED, ActivityPhase.CANCELLED):
                 self.pending_end_search = None
-        for ground in turn.ground_items:
-            if (ground.cell and (ground.item.category in DETOUR_STOCK or ground.item.category in {"armor", "ring"}) and
-                    any(turn.distance_to(foe, from_offset=ground.offset) <= 1 for foe in turn.hostiles)):
-                self.guarded_supplies.add(ground.cell.key)
+        self.observe_guarded_supplies(turn)
         if self.entered_floor_at is None:
             self.entered_floor_at = turn.tick
         if self.pending_meal and turn.can_act:
@@ -291,6 +289,17 @@ class Adventurer:
         if here and here.lit:
             self.attempted_room_light.discard(self.depth)
 
+    def observe_guarded_supplies(self, turn: Turn) -> None:
+        self.supplies_guarded_until = {
+            key: expiry for key, expiry in self.supplies_guarded_until.items() if expiry > turn.tick
+        }
+        for ground in turn.ground_items:
+            category = ground.item.category
+            if ground.cell is None or (category not in DETOUR_STOCK and category not in {"armor", "ring"}):
+                continue
+            if any(turn.distance_to(foe, from_offset=ground.offset) <= 1 for foe in turn.hostiles):
+                self.supplies_guarded_until[ground.cell.key] = turn.tick + RECENT_DANGER_TICKS
+
     def observe_combat(self, turn: Turn, report: CombatReport) -> None:
         here = turn.cell
         health = turn.health
@@ -312,7 +321,7 @@ class Adventurer:
                 key: expiry for key, expiry in self.danger_until.items() if expiry > turn.tick
             }
         if here and (turn.hostiles or (loss > 0 and incoming)):
-            self.danger_until[here.key] = turn.tick + 1200
+            self.danger_until[here.key] = turn.tick + RECENT_DANGER_TICKS
         if not turn.hostiles:
             self.tried_unknown_scroll = False
             self.last_retreat_origin = None
@@ -1177,7 +1186,7 @@ class Adventurer:
             wanted = item.identity == self.objective or item.category == "food"
             if item.identity in {"item.potion.healing", "item.potion.extra-healing"}:
                 wanted = carried[item.identity] < 2
-            elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.guarded_supplies:
+            elif not returning and not turn.hostiles and ground.cell and ground.cell.key not in self.supplies_guarded_until:
                 if useful and not turn.cell.stairs_down:
                     goals.nearby.add(ground.cell.key)
                 seek_armor = item.category == "armor" and not spare_armor_to_identify and (
