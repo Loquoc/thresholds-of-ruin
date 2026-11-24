@@ -3,7 +3,7 @@
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
-from tor_client_bot import Item, ItemUse, Turn
+from tor_client_bot import Item, ItemUse, Nutrition, Turn
 
 
 def edible_items(turn: Turn) -> Iterator[Item]:
@@ -50,6 +50,10 @@ class PendingMeal:
 class FoodEstimate:
     known_reserve: int
     has_unmeasured_meals: bool
+    meal_count: int
+
+    def known_ticks(self, nutrition: Nutrition) -> int:
+        return self.known_reserve * nutrition.ticks_per_unit
 
 
 @dataclass(frozen=True)
@@ -61,9 +65,11 @@ class FoodScout:
 def estimate_carried_food(meals: Iterable[Item], food_value: Mapping[str, int]) -> FoodEstimate:
     known_reserve = 0
     has_unmeasured_meals = False
+    meal_count = 0
     for meal in meals:
+        meal_count += meal.quantity
         if meal.identity is None or meal.identity not in food_value:
             has_unmeasured_meals = True
         else:
             known_reserve += food_value[meal.identity] * meal.quantity
-    return FoodEstimate(known_reserve, has_unmeasured_meals)
+    return FoodEstimate(known_reserve, has_unmeasured_meals, meal_count)

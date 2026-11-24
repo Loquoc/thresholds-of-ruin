@@ -868,7 +868,7 @@ class Adventurer:
                      if direction is Direction.DOWN or floor <= self.depth)
         # Meals can pay for later travel. A rest must still fit the current food clock.
         packed = estimate_carried_food(edible_items(turn), self.food_value)
-        travel_from_current_reserve = max(0, travel - packed.known_reserve * nutrition.ticks_per_unit)
+        travel_from_current_reserve = max(0, travel - packed.known_ticks(nutrition))
         return available - travel_from_current_reserve
 
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
@@ -1084,11 +1084,10 @@ class Adventurer:
         required = self.estimated_journey_ticks(returning)
         if nutrition.ticks_until_empty >= required:
             return None
-        meals = list(edible_items(turn))
-        packed = estimate_carried_food(meals, self.food_value)
+        packed = estimate_carried_food(edible_items(turn), self.food_value)
         if packed.has_unmeasured_meals:
             return None
-        available_ticks = nutrition.ticks_until_empty + packed.known_reserve * nutrition.ticks_per_unit
+        available_ticks = nutrition.ticks_until_empty + packed.known_ticks(nutrition)
         if available_ticks >= required:
             return None
         if step := self.route_to_food(turn, memory):
@@ -1100,7 +1099,7 @@ class Adventurer:
                 return None
             self.food_scouts[self.depth] = FoodScout(
                 deadline=turn.tick + nutrition.ticks_until_empty // 4,
-                starting_meals=sum(item.quantity for item in meals),
+                starting_meals=packed.meal_count,
             )
         scout = self.food_scouts[self.depth]
         if scout is not None and turn.tick < scout.deadline:

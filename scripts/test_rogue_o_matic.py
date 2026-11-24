@@ -2907,15 +2907,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                      "unit_ticks": 100, "elapsed": 0, "hunger": "nourished"}
         ration = {"id": "meal", "name": "ration", "class": "food", "identity": "item.food.ration",
                   "identified": True, "quantity": 2}
-        for gain, reason in ((49, "scout_for_food"), (50, "descend"), (None, "descend")):
-            with self.subTest(gain=gain):
+        for gain, elapsed, reason in (
+            (49, 0, "scout_for_food"), (50, 0, "descend"), (50, 1, "scout_for_food"), (None, 0, "descend"),
+        ):
+            with self.subTest(gain=gain, elapsed=elapsed):
                 player = Adventurer(6, DEFAULT_OBJECTIVE_IDENTITY, depth=3)
                 player.ascent_ticks_by_floor[2] = 20000
                 if gain is not None:
                     player.food_value[ration["identity"]] = gain
-                turn = player_turn(cells, stats={"nutrition": nutrition}, inventory=[ration],
+                turn = player_turn(cells, stats={"nutrition": dict(nutrition, elapsed=elapsed)}, inventory=[ration],
                                    interactions={"inventory": [{"item": "meal", "edible": True}]})
                 self.assertEqual(choose(player, turn)[1], reason)
+                if reason == "scout_for_food":
+                    self.assertEqual(player.food_scouts[3].starting_meals, 2)
 
     def test_food_scout_prefers_a_clear_frontier_over_a_recent_threat(self):
         cells = [cell("stairs", down=True), cell("near", -1), cell("hall", 1), cell("far", 2)]
