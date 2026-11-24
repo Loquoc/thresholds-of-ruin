@@ -138,6 +138,12 @@ class PendingMeal:
 
 
 @dataclass(frozen=True)
+class FoodEstimate:
+    known_reserve: int
+    has_unmeasured_meals: bool
+
+
+@dataclass(frozen=True)
 class FoodScout:
     deadline: int
     starting_meals: int
@@ -891,8 +897,8 @@ class Adventurer:
         travel = sum(ticks for floor, ticks in self.ascent_ticks_by_floor.items()
                      if direction is Direction.DOWN or floor <= self.depth)
         # Meals can pay for later travel. A rest must still fit the current food clock.
-        packed_reserve = self.carried_food_reserve(edible_items(turn)) or 0
-        travel_from_current_reserve = max(0, travel - packed_reserve * nutrition.ticks_per_unit)
+        packed = self.estimate_carried_food(edible_items(turn))
+        travel_from_current_reserve = max(0, travel - packed.known_reserve * nutrition.ticks_per_unit)
         return available - travel_from_current_reserve
 
     def recovery_action(self, turn: Turn) -> tuple[Action, str] | None:
@@ -925,8 +931,11 @@ class Adventurer:
                 food_route = self.provision(turn, memory, returning)
             action = food_route[0] if food_route else memory.toward(turn, stairs)
             if isinstance(action, Move) and (cell := turn.cell_at(action.direction.offset)):
-                if (cell.key in memory.visited or cell.key in stairs) and cell.key not in self.danger_until:
-                    return food_route or (action, "recover_en_route")
+                if cell.key not in self.danger_until:
+                    if food_route:
+                        return food_route
+                    if cell.key in memory.visited or cell.key in stairs:
+                        return action, "recover_en_route"
                 if (cell.key in self.danger_until and turn.cell.key not in self.danger_until
                         and can_afford_recovery(1)):
                     # Stay in shelter while a single point of recovery is still affordable.
@@ -1090,14 +1099,15 @@ class Adventurer:
                 return step
         return memory.toward(turn, food_cells)
 
-    def carried_food_reserve(self, meals: Iterable[Item]) -> int | None:
-        """Estimate reserve gained from all carried meals, in nutrition units."""
-        reserve = 0
+    def estimate_carried_food(self, meals: Iterable[Item]) -> FoodEstimate:
+        known_reserve = 0
+        has_unmeasured_meals = False
         for meal in meals:
             if meal.identity is None or meal.identity not in self.food_value:
-                return None
-            reserve += self.food_value[meal.identity] * meal.quantity
-        return reserve
+                has_unmeasured_meals = True
+            else:
+                known_reserve += self.food_value[meal.identity] * meal.quantity
+        return FoodEstimate(known_reserve, has_unmeasured_meals)
 
     def finish_food_scout(self) -> None:
         """A completed scout stays closed on later visits to the same floor."""
@@ -1112,10 +1122,10 @@ class Adventurer:
         if nutrition.ticks_until_empty >= required:
             return None
         meals = list(edible_items(turn))
-        carried_reserve = self.carried_food_reserve(meals)
-        if carried_reserve is None:
+        packed = self.estimate_carried_food(meals)
+        if packed.has_unmeasured_meals:
             return None
-        available_ticks = nutrition.ticks_until_empty + carried_reserve * nutrition.ticks_per_unit
+        available_ticks = nutrition.ticks_until_empty + packed.known_reserve * nutrition.ticks_per_unit
         if available_ticks >= required:
             return None
         if step := self.route_to_food(turn, memory):

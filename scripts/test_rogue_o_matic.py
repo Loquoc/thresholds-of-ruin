@@ -2743,15 +2743,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
     def test_carried_rations_can_cover_travel_while_rest_uses_current_nutrition(self):
         ration = {"id": "food", "identity": "item.food.ration", "name": "ration", "class": "food",
                   "identified": True, "quantity": 2}
-        for reserve, value, expected in (
-            (20, 10, "recover"),
-            (20, 5, "descend"),
-            (10, 20, "descend"),
-            (20, None, "descend"),
+        unknown = {"id": "other", "name": "mystery meal", "class": "food", "identified": False, "quantity": 3}
+        for reserve, value, inventory, expected in (
+            (20, 10, [ration], "recover"),
+            (20, 10, [unknown, ration], "recover"),
+            (20, 5, [ration, unknown], "descend"),
+            (20, 5, [ration], "descend"),
+            (10, 20, [ration], "descend"),
+            (20, None, [ration], "descend"),
         ):
-            with self.subTest(reserve=reserve, value=value):
-                turn = player_turn([cell("exit", down=True)], inventory=[ration],
-                                   interactions={"inventory": [{"item": "food", "edible": True}]},
+            with self.subTest(reserve=reserve, value=value, items=[item["id"] for item in inventory]):
+                offers = [{"item": item["id"], "edible": True} for item in inventory]
+                turn = player_turn([cell("exit", down=True)], inventory=inventory, interactions={"inventory": offers},
                                    combat={"hp": 7, "max_hp": 10}, stats={
                                        "nutrition": {"kind": "required", "reserve": reserve, "maximum": 1300,
                                                      "unit_ticks": 100, "elapsed": 0, "hunger": "nourished"},
