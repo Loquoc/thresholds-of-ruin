@@ -124,6 +124,11 @@ pub enum TrapKind {
         condition: String,
         duration: u64,
     },
+    /// Holds the creature until a successful escape check or spatial separation.
+    BearTrapEscape {
+        condition: String,
+        escape_dc: i32,
+    },
     Teleport {},
     PoisonDart {
         attack_bonus: i32,
@@ -146,7 +151,7 @@ impl TrapKind {
         match self {
             Self::TrapDoor { .. } => TrapFamily::TrapDoor,
             Self::Arrow { .. } => TrapFamily::Arrow,
-            Self::BearTrap { .. } => TrapFamily::BearTrap,
+            Self::BearTrap { .. } | Self::BearTrapEscape { .. } => TrapFamily::BearTrap,
             Self::Teleport { .. } => TrapFamily::Teleport,
             Self::PoisonDart { .. } => TrapFamily::PoisonDart,
             Self::Mysterious { .. } => TrapFamily::Mysterious,
@@ -171,6 +176,10 @@ impl TrapKind {
                 condition,
                 duration,
             } => reference(condition) && (1..=1_000_000).contains(duration),
+            Self::BearTrapEscape {
+                condition,
+                escape_dc,
+            } => reference(condition) && (0..=100).contains(escape_dc),
             Self::Teleport {} | Self::Mysterious {} => true,
             Self::PoisonDart {
                 attack_bonus,

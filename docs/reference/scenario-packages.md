@@ -822,12 +822,16 @@ for bounds, independent streams and provisional Rogue defaults.
 
 Additional typed trap payloads are `trap_door` (`destination` named anchor and
 `open`), `arrow` (authored `attack_bonus` and `ammunition` catalog key),
-`bear_trap` (`condition`, `duration`), `teleport`, `poison_dart` (independent
+`bear_trap` (`condition`, `duration`), `bear_trap_escape` (`condition`, `escape_dc`),
+`teleport`, `poison_dart` (independent
 `attack_bonus` and `poison_bonus`) and `mysterious`. These are shared mechanisms,
 not item/species name switches. Ammunition references resolve to ordinary pinned
 item definitions; missed arrow shots leave recoverable arrows. Traps are reusable.
-Bear conditions own their actor-active duration; a separate spatial anchor only
-releases that condition when the body actually leaves, never when it merely hovers.
+A timed bear trap uses an actor-active condition. An escape-check trap uses an
+until-removed condition with keep stacking. A movement attempt checks the higher
+skill bonus of Athletics and Thievery; success ends the restraint without moving.
+Both kinds release the creature if its body leaves the trap, not if it merely
+hovers. Generated hazards specify exactly one of `bear_duration` or `bear_escape_dc`.
 
 Items specify `at`, `name` or an `archetype`, and optional `carried_by`. A carried
 item is authored in the region file where its carrier starts, so building a
@@ -835,6 +839,30 @@ region reads only that region's file and its neighbours'. Archetype
 names and actor `turn_ticks` are overridden by instance fields. `seed_names` is
 an explicit deterministic name pool selected by `seed % length`, used to preserve
 the original fixture's three material variants. It is not world generation.
+
+### Level names
+
+Level labels are presentation only. They do not change room or streaming scope,
+encounters, or geography. An authored region can belong to one named level;
+regions without an entry keep their usual location display.
+
+```toml
+[levels.names]
+old-mine = "The Old Mine"
+
+[levels.regions]
+12 = "old-mine"
+13 = "old-mine"
+
+[levels.procedural]
+dungeon = "Dungeon Level {depth}"
+```
+
+Region memberships reference actual authored region IDs and names defined under
+`levels.names`. A template refers to a declared procedural family and contains
+exactly one `{depth}`. Every generated region on that depth has the same name.
+The current level name, not the region or family ID, reaches the player's ASCII
+status line. The same package data supplies it after loading.
 
 Characters specify `id`, starting `anchor`, and optional `turn_ticks` (100).
 Procedural starts may use an existing `family/depth/up` or `family/depth/down`

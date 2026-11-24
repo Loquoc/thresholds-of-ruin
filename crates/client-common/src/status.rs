@@ -65,6 +65,48 @@ fn sequence_label(combat: &CombatView) -> Option<String> {
     ))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HungerWarning {
+    Starving,
+    Fainting,
+}
+
+impl HungerWarning {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Starving => "Starving",
+            Self::Fainting => "Fainting",
+        }
+    }
+
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Starving => "You are starving.",
+            Self::Fainting => "You are fainting from hunger.",
+        }
+    }
+}
+
+/// Use current disclosed facts, never a prior event or a generic input pause.
+pub fn hunger_warning(observation: &Observation) -> Option<HungerWarning> {
+    let combat = observation
+        .combat
+        .as_ref()
+        .filter(|combat| !combat.dead && !combat.terminal)?;
+    let stats = combat.own_stats.as_ref()?;
+    let NutritionView::Required {
+        hunger, fainting, ..
+    } = stats.nutrition
+    else {
+        return None;
+    };
+    if fainting {
+        Some(HungerWarning::Fainting)
+    } else {
+        (hunger == Hunger::Empty).then_some(HungerWarning::Starving)
+    }
+}
+
 /// Two rows of status fields separated by two spaces. Client activities,
 /// such as a run, follow travel and precede the wizard marker.
 pub fn lines(state: &ClientState, activities: &[&str]) -> [String; 2] {
@@ -75,6 +117,9 @@ pub fn lines(state: &ClientState, activities: &[&str]) -> [String; 2] {
         .find(|a| a.id == o.self_target && !a.name.trim().is_empty())
         .map(|a| a.name.as_str());
     let mut first = Vec::new();
+    if let Some(level) = &o.level_name {
+        first.push(level.clone());
+    }
     if let Some(stats) = o
         .combat
         .as_ref()
@@ -133,7 +178,9 @@ pub fn lines(state: &ClientState, activities: &[&str]) -> [String; 2] {
         .map(|item| u128::from(item.quantity))
         .sum();
     second.push(format!("Gold:{gold}"));
-    if let Some(NutritionView::Required { hunger, .. }) = o
+    if let Some(warning) = hunger_warning(o) {
+        second.push(warning.label().into());
+    } else if let Some(NutritionView::Required { hunger, .. }) = o
         .combat
         .as_ref()
         .and_then(|combat| combat.own_stats.as_ref())

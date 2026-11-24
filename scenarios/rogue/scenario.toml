@@ -14,7 +14,7 @@ ai_profiles = { rogue_hostile = { flee_percent = 0 } }
 [[characters]]
 asset = "creature.humanoid.human"
 id = 1
-anchor = "dungeon/1/start"
+anchor = "dungeon/1/up"
 turn_ticks = 100
 unselected = "omit"
 body = { cells = [[0,0,0], [0,0,1]], eye = [0,0,1], mass = 80 }
@@ -74,7 +74,10 @@ extra_connections = [0, 2]
 lighting = { darkness_roll = 10, darkness_start = 1 }
 # Provisional TOR discovery balance, not approved historical numerical parity.
 secret_entrances = { chance_per_mille = 250, maximum = 2, dc = 12 }
-hidden_traps = { count = [1, 2], dc = 12, rust_slot = "body_armor", rust_amount = 1, sleep_condition = "rogue.sleep", sleep_duration = 200, sleep_exposure = "poison", hazards = { avoidance_dc = 12, bear_condition = "rogue.bear_trap", bear_duration = 300, arrow_ammunition = "rogue.arrow", attack_bonus = 0, poison_exposure = "poison" } }
+hidden_traps = { count = [1, 2], dc = 12, rust_slot = "body_armor", rust_amount = 1, sleep_condition = "rogue.sleep", sleep_duration = 200, sleep_exposure = "poison", hazards = { avoidance_dc = 12, bear_condition = "rogue.bear_trap", bear_escape_dc = 14, arrow_ammunition = "rogue.arrow", attack_bonus = 0, poison_exposure = "poison" } }
+
+[levels.procedural]
+dungeon = "Dungeon Level {depth}"
 
 [procedural_worlds.dungeon]
 gravity = [0, 0, -1]

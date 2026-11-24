@@ -897,10 +897,18 @@ class Policy:
                        tuple(a + b for a, b in zip(pos, offset)) in obstacles for offset in body)}
 
         holds = view.get("linked_holds", [])
-        movement_restricted = bool(holds) or any(
-            row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
-            and int(row.get("remaining_ticks") or 0) > 0
-            for row in combat["own_stats"].get("conditions", []))
+        bear_restraints = tuple(
+            row for row in combat["own_stats"].get("conditions", [])
+            if row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
+            and (row["remaining_ticks"] is None or int(row["remaining_ticks"]) > 0)
+        )
+        movement_restricted = bool(holds or bear_restraints)
+
+        def restraint_action():
+            if not holds and any(row["remaining_ticks"] is None for row in bear_restraints):
+                return {"type": "move", "direction": "north"}, "escape_bear_trap"
+            return {"type": "wait"}, "wait_for_restraint"
+
         stair_hazards = {}
 
         @cache
@@ -1261,7 +1269,7 @@ class Policy:
             if holds:
                 return {"type": "escape", "hold": holds[0]["target"]}, "escape_hold"
             if movement_restricted:
-                return {"type": "wait"}, "wait_for_restraint"
+                return restraint_action()
             if critical_health:
                 return {"type": "wait"}, "hold_position"
 
@@ -1469,7 +1477,7 @@ class Policy:
                 return preparation
 
         if movement_restricted:
-            return {"type": "wait"}, "wait_for_restraint"
+            return restraint_action()
         if stair_delayed:
             return {"type": "wait"}, "stair_backoff"
 

@@ -194,6 +194,55 @@ fn unknown_models_keep_disclosed_targets_text_and_inventory_actions_available() 
 }
 
 #[test]
+fn the_first_returning_3d_projection_draws_remembered_terrain_without_a_map_reply() {
+    use tor_protocol::*;
+
+    let picture = |offset: i32, first: bool| {
+        let mut observed = observation();
+        observed.position = Position { x: 0, y: 0, z: 0 };
+        observed.visible_cells = [
+            ("anchor-a", offset, 0, false),
+            ("anchor-b", offset + 1, 0, false),
+            ("anchor-c", offset, 1, false),
+        ]
+        .into_iter()
+        .chain(first.then_some(("stone-stair", -31, 0, true)))
+        .map(|(key, x, y, stairs_down)| CellView {
+            object_presentation: None,
+            lit: true,
+            door: None,
+            trap: None,
+            material: "granite".into(),
+            key: key.into(),
+            stairs_up: false,
+            stairs_down,
+            position: Position { x, y, z: 0 },
+            wall: false,
+            place_hint: false,
+            asset: None,
+        })
+        .collect();
+        observed
+    };
+    let mut client = from_observation(picture(0, true));
+    for (epoch, offset) in [(1, -8), (2, 0), (3, 0)] {
+        let new = from_observation(picture(offset, false));
+        let mut snapshot = new.reset_snapshot().unwrap();
+        snapshot.context.epoch = epoch;
+        client.replace_snapshot(snapshot).unwrap();
+        let projected = view(&client, &Palette::default());
+        let stair = projected.terrain().find(|c| c.key == "stone-stair");
+        if offset < 0 {
+            assert!(stair.is_none());
+        } else {
+            let stair = stair.expect("a returning stair must appear before a map reply");
+            assert!(!stair.seen && !stair.lit && stair.stairs_down);
+            assert_eq!(stair.position, Position { x: -31, y: 0, z: 0 });
+        }
+    }
+}
+
+#[test]
 fn hydrated_terrain_is_dim_and_never_grants_live_occupants_or_door_controls() {
     use tor_protocol::*;
     let mut client = state();
@@ -863,4 +912,48 @@ fn public_effect_lifecycle_replaces_shared_state_and_model_without_start_or_end_
     observed.visible_cells.clear();
     let reset = from_observation(observed);
     assert!(view(&reset, &Palette::default()).public_effects.is_empty());
+}
+
+#[test]
+fn restored_hud_distinguishes_starving_and_fainting_without_color() {
+    use tor_protocol::{
+        ConditionPhase, ContentRef, EffectAppearance, EffectCue, Hunger, NutritionView,
+        PersonalCondition,
+    };
+    for (hunger, fainting, label) in [
+        (Hunger::Empty, false, Some("Starving")),
+        (Hunger::Empty, true, Some("Fainting")),
+        (Hunger::Nourished, false, None),
+    ] {
+        let mut observed = observation();
+        let mut stats = tor_client_common::test_support::stats();
+        stats.nutrition = NutritionView::Required {
+            reserve: if hunger == Hunger::Empty { -1 } else { 500 },
+            maximum: 2000,
+            hunger,
+            fainting,
+            unit_ticks: 100,
+            elapsed: 0,
+            starve_at: -852,
+        };
+        if fainting {
+            stats.conditions.push(PersonalCondition {
+                condition: ContentRef {
+                    id: "rogue.faint".into(),
+                    name: "Fainted".into(),
+                },
+                phase: ConditionPhase::Active,
+                remaining_ticks: Some(12),
+                appearance: EffectAppearance::StatusIndicator,
+                cue: EffectCue::Status,
+            });
+        }
+        observed.combat.as_mut().unwrap().own_stats = Some(stats);
+        let hud = view(&from_observation(observed), &Palette::default())
+            .status
+            .join(" ");
+        for severity in ["Starving", "Fainting"] {
+            assert_eq!(hud.contains(severity), label == Some(severity), "{hud}");
+        }
+    }
 }

@@ -3461,6 +3461,18 @@ impl Engine {
                 &self.target_scope(actor),
             )
         });
+        observation.level_name = package.and_then(|package| {
+            package
+                .manifest
+                .levels
+                .as_ref()?
+                .at(
+                    view.observation.location.region.0,
+                    &package.manifest.procedural_worlds,
+                    self.archive.scenario.seed,
+                )
+                .map(std::borrow::Cow::into_owned)
+        });
         observation.charts = view.charts.summaries(
             &self.archive.view_salt,
             actor,

@@ -141,6 +141,8 @@ fn label(s: &str) -> bool {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub levels: Option<crate::scenario_levels::LevelLabels>,
     #[serde(
         default,
         skip_serializing_if = "BTreeMap::is_empty",
@@ -592,6 +594,10 @@ pub enum TrapKind {
         condition: String,
         duration: u64,
     },
+    BearTrapEscape {
+        condition: String,
+        escape_dc: i32,
+    },
     Teleport {},
     PoisonDart {
         attack_bonus: i32,
@@ -628,6 +634,13 @@ impl TrapKind {
             } => tor_world::TrapKind::BearTrap {
                 condition: condition.clone(),
                 duration: *duration,
+            },
+            Self::BearTrapEscape {
+                condition,
+                escape_dc,
+            } => tor_world::TrapKind::BearTrapEscape {
+                condition: condition.clone(),
+                escape_dc: *escape_dc,
             },
             Self::Teleport {} => tor_world::TrapKind::Teleport {},
             Self::PoisonDart {
@@ -1534,13 +1547,7 @@ impl Package {
                             },
                         )?;
                         if let Some(hazards) = &config.hazards {
-                            check_trap_effect(
-                                &rules,
-                                &TrapKind::BearTrap {
-                                    condition: hazards.bear_condition.clone(),
-                                    duration: hazards.bear_duration,
-                                },
-                            )?;
+                            check_trap_effect(&rules, &hazards.bear_trap_kind()?)?;
                             self.check_trap_ammunition(&hazards.arrow_ammunition)?;
                             check_trap_effect(
                                 &rules,
@@ -2856,6 +2863,13 @@ impl Package {
     fn check_identity_with_origin(&self, origin: Option<Origin<'_>>) -> Result<(), Failure> {
         crate::storage::schema::scenario::check_metadata_capacity(self)?;
         check_manifest_header(&self.manifest)?;
+        require(
+            self.manifest
+                .levels
+                .as_ref()
+                .is_none_or(|levels| levels.valid(&self.index, &self.manifest.procedural_worlds)),
+            "Invalid level names, authored region membership, or procedural level template",
+        )?;
         self.check_scripts()?;
         require(
             self.certificate.files.get("index.json") == Some(&digest(&self.index.to_bytes()?))
@@ -6302,7 +6316,7 @@ mod tests {
         assert!(package.index.regions.is_empty());
         assert!(package.manifest.generation_groups.is_empty());
         assert!(package.manifest.stair_pairs.is_empty());
-        assert_eq!(package.manifest.characters[0].anchor, "dungeon/1/start");
+        assert_eq!(package.manifest.characters[0].anchor, "dungeon/1/up");
         assert_eq!(package.manifest.procedural_worlds.len(), 1);
         let family = &package.manifest.procedural_worlds["dungeon"];
         assert_eq!(family.grid, [3, 3]);
@@ -6421,7 +6435,11 @@ mod tests {
             .expect("the actual authored rules are a valid baseline");
         let id = tor_simulation::content_ids::ConditionId::new("rogue.bear_trap").unwrap();
         let definition = rules.condition(&id).unwrap();
-        assert_eq!(definition.stacking, tor_simulation::rules::Stacking::Extend);
+        assert!(matches!(
+            definition.timing,
+            tor_simulation::rules::ConditionTiming::UntilRemoved
+        ));
+        assert_eq!(definition.stacking, tor_simulation::rules::Stacking::Keep);
         assert_eq!(
             definition.preparation,
             tor_simulation::rules::ConditionPreparation::Preserve
@@ -6437,7 +6455,7 @@ mod tests {
             .unwrap()
             .stacking = tor_simulation::rules::Stacking::Refresh;
         assert!(matches!(tor_simulation::rules::Ruleset::validate(invalid),
-            Err(tor_simulation::rules::RulesetError::Bound { field }) if field == "protected_condition_shape"));
+            Err(tor_simulation::rules::RulesetError::Bound { field }) if field == "persistent_condition_shape"));
     }
 
     #[test]
@@ -8705,8 +8723,10 @@ mod region_lifecycle_tests {
     }
 
     /// Visit order legitimately changes allocation IDs of published detached
-    /// records. Compare their complete contents by stable region identity, then
-    /// load every already-published record frozen to compare the entire game.
+    /// records. Compare complete record contents by stable region identity, then
+    /// compare the games with only those allocation IDs canonicalized. Loading
+    /// their union would promote supplemental trap destinations into roots and
+    /// require new terrain outside the selection being compared.
     fn assert_same_procedural_game(
         actual: &Game,
         actual_records: &mut crate::regions::Regions,
@@ -8714,7 +8734,7 @@ mod region_lifecycle_tests {
         expected_records: &mut crate::regions::Regions,
         context: &str,
     ) {
-        use tor_simulation::{RecordStore, RegionState};
+        use tor_simulation::RecordStore;
         let membership = |game: &Game| {
             game.loaded_regions()
                 .map(|id| (id, game.region_state(id).unwrap()))
@@ -8741,29 +8761,29 @@ mod region_lifecycle_tests {
             detached(expected, expected_records),
             "{context}"
         );
-        let expand = |game: &Game, records: &mut crate::regions::Regions| {
-            let active = game
-                .loaded_regions()
-                .filter(|id| game.region_state(*id) == Some(RegionState::Active))
-                .collect();
-            let loaded = game
-                .loaded_regions()
-                .chain(game.detached_records().map(|(region, _)| region))
-                .collect();
-            let mut game = game.clone();
-            game.transition_regions(
-                &RegionTransition { active, loaded },
-                &mut SavedRecords(records),
-            )
-            .unwrap();
-            assert_eq!(game.detached_records().count(), 0);
-            game
+        let canonical_records = |game: &Game| {
+            let mut shared = tor_simulation::checkpoint::SharedState::default();
+            let snapshot = game.checkpoint(&mut shared);
+            let mut shared = serde_json::to_value(shared).unwrap();
+            if let Some(lifecycles) = shared.get_mut("lifecycles") {
+                for lifecycle in lifecycles.as_array_mut().unwrap() {
+                    let detached = lifecycle["detached"].as_object_mut().unwrap();
+                    for (index, record) in detached.values_mut().enumerate() {
+                        *record = serde_json::json!(index + 1);
+                    }
+                    let next_record = detached.len() + 1;
+                    lifecycle["next_record"] = serde_json::json!(next_record);
+                }
+            }
+            let shared = serde_json::from_value(shared).unwrap();
+            Game::restore_checkpoint(snapshot, &shared, game.content().clone())
+                .unwrap_or_else(|error| panic!("{context}: {error}"))
         };
-        let mut actual = expand(actual, actual_records);
-        let mut expected = expand(expected, expected_records);
-        actual.continue_record_ids(&expected);
-        expected.continue_record_ids(&actual);
-        assert_same_game(&actual, &expected, context);
+        assert_same_game(
+            &canonical_records(actual),
+            &canonical_records(expected),
+            context,
+        );
     }
 
     fn assert_same_game(actual: &Game, expected: &Game, context: &str) {

@@ -1943,7 +1943,12 @@ pub fn diagnose(state: &StateView) -> String {
     } else {
         "You are close to death."
     };
-    format!("{condition} (HP {}/{})", c.hp, c.max_hp)
+    let mut text = format!("{condition} (HP {}/{})", c.hp, c.max_hp);
+    if let Some(warning) = tor_client_common::status::hunger_warning(&state.observation) {
+        text.push(' ');
+        text.push_str(warning.description());
+    }
+    text
 }
 
 fn session_command(session: &SessionCommand, scene: &Scene) -> Interpretation {

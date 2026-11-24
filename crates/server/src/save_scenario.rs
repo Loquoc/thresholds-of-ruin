@@ -379,6 +379,8 @@ struct SpatialOwnedRun {
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "source::Manifest", deny_unknown_fields)]
 struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    levels: Option<crate::scenario_levels::LevelLabels>,
     #[serde(with = "mapped")]
     spatial_scopes: BTreeMap<String, source::spatial_authoring::AuthoredSpatialScope>,
     #[serde(with = "mapped")]
@@ -880,7 +882,10 @@ struct HiddenTraps {
 struct HazardTraps {
     avoidance_dc: i32,
     bear_condition: String,
-    bear_duration: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bear_duration: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bear_escape_dc: Option<i32>,
     arrow_ammunition: String,
     attack_bonus: i32,
     poison_exposure: String,
@@ -2748,6 +2753,10 @@ enum TrapKind {
     BearTrap {
         condition: String,
         duration: u64,
+    },
+    BearTrapEscape {
+        condition: String,
+        escape_dc: i32,
     },
     Teleport {},
     PoisonDart {
@@ -5089,7 +5098,7 @@ mod tests {
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 75);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 76);
         assert_eq!(super::RULES_INPUT_FORMAT, 27);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently

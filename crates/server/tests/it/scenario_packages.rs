@@ -386,12 +386,29 @@ fn rogue_selected_presets_publish_real_equipped_kits_and_four_ordinary_foes() {
             false,
         )
         .unwrap();
-        let engine = Engine::memory(scenario).unwrap();
+        let save = tempfile::tempdir().unwrap();
+        let path = save.path().join("rogue.sqlite");
+        let engine = Engine::open(&path, scenario).unwrap();
+        let archive = tor_server::inspect_save(&path).unwrap();
+        let records = archive["initial_activations"].as_array().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["entrant"], selected);
+        let species = records[0]["decisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|stage| stage["id"] == "rogue.eight_species_foes")
+            .unwrap();
+        let attempts = species["result"]["attempts"].as_array().unwrap();
         assert_eq!(
-            engine.actors().len(),
-            5,
-            "seed 42 must place all four authored foes"
+            attempts.len(),
+            4,
+            "seed 42 must attempt all four authored foes"
         );
+        // Residency depends on the selected character's view. The initial
+        // activation receipt also counts foes outside the loaded neighborhood.
+        assert!(attempts.iter().all(|attempt| attempt["kind"] == "placed"));
+        assert!(engine.actors().contains(&tor_protocol::ActorId(selected)));
         assert!(
             !engine
                 .actors()

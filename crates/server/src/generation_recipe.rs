@@ -116,23 +116,42 @@ pub struct HiddenTraps {
 #[serde(deny_unknown_fields)]
 pub struct HazardTraps {
     pub bear_condition: String,
-    pub bear_duration: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bear_duration: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bear_escape_dc: Option<i32>,
     pub arrow_ammunition: String,
     pub attack_bonus: i32,
     pub poison_exposure: String,
     pub avoidance_dc: i32,
 }
 impl HazardTraps {
+    pub(crate) fn bear_trap_kind(&self) -> Result<crate::scenario_package::TrapKind, Failure> {
+        use crate::scenario_package::TrapKind;
+        let condition = self.bear_condition.clone();
+        match (self.bear_duration, self.bear_escape_dc) {
+            (Some(duration), None) => Ok(TrapKind::BearTrap {
+                condition,
+                duration,
+            }),
+            (None, Some(escape_dc)) => Ok(TrapKind::BearTrapEscape {
+                condition,
+                escape_dc,
+            }),
+            _ => Err(fail(
+                "A bear trap requires exactly one of bear_duration or bear_escape_dc",
+            )),
+        }
+    }
+
     fn valid(&self) -> bool {
         tor_world::Concealment {
             dc: self.avoidance_dc,
         }
         .valid()
-            && tor_world::TrapKind::BearTrap {
-                condition: self.bear_condition.clone(),
-                duration: self.bear_duration,
-            }
-            .valid()
+            && self
+                .bear_trap_kind()
+                .is_ok_and(|kind| kind.compiled().valid())
             && tor_world::TrapKind::Arrow {
                 attack_bonus: self.attack_bonus,
                 ammunition: self.arrow_ammunition.clone(),
@@ -1380,7 +1399,8 @@ mod tests {
                 sleep_exposure: None,
                 hazards: Some(HazardTraps {
                     bear_condition: "bear".into(),
-                    bear_duration: 300,
+                    bear_duration: Some(300),
+                    bear_escape_dc: None,
                     arrow_ammunition: "arrow".into(),
                     attack_bonus: 0,
                     poison_exposure: "poison".into(),
@@ -2277,7 +2297,8 @@ mod tests {
                 sleep_exposure: None,
                 hazards: Some(HazardTraps {
                     bear_condition: "bear".into(),
-                    bear_duration: 300,
+                    bear_duration: Some(300),
+                    bear_escape_dc: None,
                     arrow_ammunition: "arrow".into(),
                     attack_bonus: 0,
                     poison_exposure: "poison".into(),

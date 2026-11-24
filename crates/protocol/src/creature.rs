@@ -638,6 +638,9 @@ pub enum NutritionView {
         reserve: i32,
         maximum: u32,
         hunger: Hunger,
+        /// The scenario's active hunger-induced faint, not its protection phase.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        fainting: bool,
         #[serde(with = "crate::integers::unsigned")]
         unit_ticks: u64,
         #[serde(with = "crate::integers::unsigned")]
@@ -656,6 +659,7 @@ impl NutritionView {
                 unit_ticks,
                 elapsed,
                 starve_at,
+                ..
             } => {
                 (1..=1_000_000).contains(&maximum)
                     && (-1_000_000..=0).contains(&starve_at)
@@ -688,6 +692,8 @@ impl<'de> Deserialize<'de> for NutritionView {
                 reserve: i32,
                 maximum: u32,
                 hunger: Hunger,
+                #[serde(default)]
+                fainting: bool,
                 #[serde(with = "crate::integers::unsigned")]
                 unit_ticks: u64,
                 #[serde(with = "crate::integers::unsigned")]
@@ -701,6 +707,7 @@ impl<'de> Deserialize<'de> for NutritionView {
                 reserve,
                 maximum,
                 hunger,
+                fainting,
                 unit_ticks,
                 elapsed,
                 starve_at,
@@ -708,6 +715,7 @@ impl<'de> Deserialize<'de> for NutritionView {
                 reserve,
                 maximum,
                 hunger,
+                fainting,
                 unit_ticks,
                 elapsed,
                 starve_at,

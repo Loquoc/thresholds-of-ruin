@@ -305,11 +305,42 @@ impl Canvas {
             // yield to health, warnings, gold and resources rather than shrinking.
             let scale = 2;
             let columns = (WIDTH.saturating_sub(48)) / (8 * scale);
+            use tor_client_common::status::{hunger_warning, HungerWarning};
+            let warning = hunger_warning(&state.state().observation);
             for (row, line) in crate::status_lines_at_width(app, state, columns)
                 .iter()
                 .enumerate()
             {
-                self.text(24, 696 + row * 20, line, TEXT, scale, columns);
+                let y = 696 + row * 20;
+                self.text(24, y, line, TEXT, scale, columns);
+                if let Some(warning) = warning.filter(|_| row != 0) {
+                    let label = warning.label();
+                    let at = line.match_indices(label).find_map(|(at, _)| {
+                        (line[..at]
+                            .chars()
+                            .next_back()
+                            .is_none_or(char::is_whitespace)
+                            && line[at + label.len()..]
+                                .chars()
+                                .next()
+                                .is_none_or(char::is_whitespace))
+                        .then(|| line[..at].chars().count())
+                    });
+                    if let Some(column) = at {
+                        let color = match warning {
+                            HungerWarning::Starving => GOLD,
+                            HungerWarning::Fainting => DANGER,
+                        };
+                        self.text(
+                            24 + column * 8 * scale,
+                            y,
+                            label,
+                            color,
+                            scale,
+                            columns - column,
+                        );
+                    }
+                }
             }
         }
         let hint = if app.role == AccessRole::Spectator {

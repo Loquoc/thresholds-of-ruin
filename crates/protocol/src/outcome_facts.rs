@@ -1350,6 +1350,7 @@ impl OutcomeFacts {
             (*velocity != [0; 3]).then_some((*velocity, *units_per_cell))
         }
         let Observation {
+            level_name: _,
             known_item_uses,
             charts,
             self_appearance,
@@ -1396,6 +1397,7 @@ mod tests {
     fn observation() -> Observation {
         Observation {
             charts: vec![],
+            level_name: None,
             known_item_uses: Vec::new(),
             self_appearance: None,
             interactions: None,

@@ -181,15 +181,16 @@ fn every_authored_package_has_usable_structural_metadata() {
     for path in crate::support::all_packages() {
         let scenario = scenario_package::load(&path, 42, None, false).unwrap();
         let package = scenario.package.unwrap();
-        let catalog = RegionCatalog::from_package(&package)
+        let catalog = RegionCatalog::from_package_seed(&package, scenario.seed)
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         for character in &package.manifest.characters {
-            let start = catalog.resolve_anchor(&character.anchor).unwrap();
+            // Horizons need the owning region, not generated anchor coordinates.
+            let start = catalog.anchor_region(&character.anchor).unwrap();
             assert!(catalog
-                .plan(&ids(&[start.region.0]), 1, &ids(&[]))
+                .plan(&ids(&[start.0]), 1, &ids(&[]))
                 .unwrap()
                 .required
-                .contains(&start.region));
+                .contains(&start));
         }
     }
 }

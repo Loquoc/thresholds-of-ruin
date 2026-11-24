@@ -3383,6 +3383,7 @@ mod tests {
             base_snapshot: base.snapshot.clone(),
             snapshot: next.snapshot.clone(),
             charts: o.charts.clone(),
+            level_name: None,
             known_item_uses: o.known_item_uses.clone(),
             self_appearance: o.self_appearance.clone(),
             interactions: None,

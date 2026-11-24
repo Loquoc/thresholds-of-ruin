@@ -25,6 +25,57 @@ fn creature_snapshot() -> Snapshot {
 }
 
 #[test]
+fn narrow_status_keeps_the_authored_level_whole_and_current() {
+    let app = App::default();
+    for name in ["The Old Mine", "Dungeon Level 2"] {
+        let mut snapshot = creature_snapshot();
+        Arc::make_mut(&mut snapshot.state).observation.level_name = Some(name.into());
+        let state = ClientState::from_snapshot(snapshot).unwrap();
+        let rows = tor_client_ascii::status_lines_at_width(&app, &state, 21);
+        assert!(rows[0].starts_with(name), "{rows:?}");
+        assert!(rows[0].chars().count() <= 21);
+        assert!(rows[1].starts_with("HP:7(12)"));
+        assert_eq!(
+            tor_client_ascii::status_lines_at_width(&app, &state, name.len())[0],
+            name
+        );
+        assert!(tor_client_ascii::status_lines_at_width(&app, &state, 8)[0].ends_with('~'));
+    }
+
+    let state = ClientState::from_snapshot(creature_snapshot()).unwrap();
+    assert!(tor_client_ascii::status_lines_at_width(&app, &state, 21)[0].starts_with("Str:"));
+}
+
+#[test]
+fn clipped_level_name_uses_a_supported_glyph_in_the_frame() {
+    use tor_client_ascii::render::{Canvas, WIDTH};
+    const COLUMNS: usize = (WIDTH - 48) / 16;
+    let make_frame = |label: String| {
+        let mut snapshot = creature_snapshot();
+        Arc::make_mut(&mut snapshot.state).observation.level_name = Some(label);
+        let mut app = App::default();
+        app.set_state(ClientState::from_snapshot(snapshot).unwrap());
+        let rows =
+            tor_client_ascii::status_lines_at_width(&app, app.state.as_ref().unwrap(), COLUMNS);
+        assert!(rows[1].starts_with("HP:7(12)"));
+        let mut canvas = Canvas::default();
+        canvas.draw(&app);
+        let x = 24 + (COLUMNS - 1) * 16;
+        (696..712)
+            .flat_map(|y| {
+                canvas.pixels[y * WIDTH + x..y * WIDTH + x + 16]
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>()
+    };
+    let expected = make_frame(format!("{}~", "a".repeat(COLUMNS - 1)));
+    let fallback = make_frame(format!("{}?", "a".repeat(COLUMNS - 1)));
+    assert_ne!(expected, fallback);
+    assert_eq!(make_frame("a".repeat(COLUMNS + 1)), expected);
+}
+
+#[test]
 fn stats_screen_is_readonly_scrollable_and_available_to_spectators() {
     let snapshot = creature_snapshot();
     let mut app = App::default();
@@ -2285,6 +2336,7 @@ fn eat_picker_and_hunger_status_use_only_disclosed_nutrition() {
         reserve: 6,
         maximum: 12,
         hunger: Hunger::Hungry,
+        fainting: false,
         unit_ticks: 100,
         elapsed: 0,
         starve_at: -3,
@@ -2861,4 +2913,63 @@ fn screenshot_is_explicit_bounded_and_not_an_annotation_submission() {
         }),
         Effect::None
     );
+}
+
+#[test]
+fn restored_hunger_warnings_fit_and_have_distinct_color_until_recovery() {
+    let mut app = App::new();
+    app.role = AccessRole::Player;
+    let mut canvas = tor_client_ascii::render::Canvas::default();
+    for (hunger, fainting, label, color) in [
+        (Hunger::Empty, false, Some("Starving"), Some(0xedc579)),
+        (Hunger::Empty, true, Some("Fainting"), Some(0xef958c)),
+        (Hunger::Nourished, false, None, None),
+    ] {
+        let mut snap = creature_snapshot();
+        let stats = Arc::make_mut(&mut snap.state)
+            .observation
+            .combat
+            .as_mut()
+            .unwrap()
+            .own_stats
+            .as_mut()
+            .unwrap();
+        stats.nutrition = NutritionView::Required {
+            reserve: if hunger == Hunger::Empty { -1 } else { 500 },
+            maximum: 2000,
+            hunger,
+            fainting,
+            unit_ticks: 100,
+            elapsed: 0,
+            starve_at: -852,
+        };
+        if fainting {
+            stats.conditions.push(PersonalCondition {
+                condition: ContentRef {
+                    id: "rogue.faint".into(),
+                    name: "Fainted".into(),
+                },
+                phase: ConditionPhase::Active,
+                remaining_ticks: Some(12),
+                appearance: EffectAppearance::StatusIndicator,
+                cue: EffectCue::Status,
+            });
+        }
+        app.set_state(ClientState::from_snapshot(snap).unwrap());
+        app.ready();
+        let rows = tor_client_ascii::status_lines_at_width(&app, app.state.as_ref().unwrap(), 22);
+        for severity in ["Starving", "Fainting"] {
+            assert_eq!(
+                rows.iter().any(|row| row.contains(severity)),
+                label == Some(severity),
+                "{rows:?}"
+            );
+        }
+        canvas.draw(&app);
+        let width = tor_client_ascii::render::WIDTH;
+        let status = &canvas.pixels[696 * width..756 * width];
+        for urgent in [0xedc579, 0xef958c] {
+            assert_eq!(status.contains(&urgent), color == Some(urgent));
+        }
+    }
 }

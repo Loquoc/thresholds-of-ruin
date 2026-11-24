@@ -55,7 +55,7 @@ fn history_actions_preserve_the_tagged_wire_shape_and_validate_event_payload() {
 
 #[test]
 fn current_wire_protocol_revision_is_explicitly_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 75);
+    assert_eq!(PROTOCOL_VERSION, 76);
 }
 
 #[test]
@@ -534,7 +534,7 @@ fn immediate_completion_is_distinct_from_admitted_gameplay() {
 #[test]
 fn readiness_is_required_and_does_not_accept_extra_authority() {
     let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v75.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v76.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");
@@ -562,6 +562,41 @@ fn readiness_is_required_and_does_not_accept_extra_authority() {
             .unwrap()
             .remove(field);
         assert!(serde_json::from_value::<ServerMessage>(missing).is_err());
+    }
+}
+
+#[test]
+fn current_corpus_records_live_level_names_and_hunger_fainting() {
+    let samples = crate::fixture::load(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v76.json"),
+        PROTOCOL_VERSION,
+    )
+    .expect("regenerate current wire samples");
+    let pictures: Vec<_> = samples["server"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["type"] == "snapshot")
+        .map(|message| &message["snapshot"]["state"]["observation"])
+        .collect();
+    for level in ["The Old Mine", "The Keep", "Dungeon Level 2"] {
+        assert!(pictures
+            .iter()
+            .any(|picture| picture["level_name"] == level));
+    }
+    for (phase, fainting) in [("active", true), ("protection", false)] {
+        assert!(pictures.iter().any(|picture| {
+            let own = &picture["combat"]["own_stats"];
+            own["conditions"].as_array().is_some_and(|conditions| {
+                conditions.iter().any(|condition| {
+                    condition["condition"]["id"] == "fixture_stupor" && condition["phase"] == phase
+                })
+            }) && if fainting {
+                own["nutrition"]["fainting"] == true
+            } else {
+                own["nutrition"].get("fainting").is_none()
+            }
+        }));
     }
 }
 
