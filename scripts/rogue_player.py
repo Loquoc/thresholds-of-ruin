@@ -293,11 +293,15 @@ class Adventurer:
         self.supplies_guarded_until = {
             key: expiry for key, expiry in self.supplies_guarded_until.items() if expiry > turn.tick
         }
+        guard_cells = [cell for foe in turn.hostiles for cell in foe.cells]
+        if not guard_cells:
+            return
         for ground in turn.ground_items:
             category = ground.item.category
             if ground.cell is None or (category not in DETOUR_STOCK and category not in {"armor", "ring"}):
                 continue
-            if any(turn.distance_to(foe, from_offset=ground.offset) <= 1 for foe in turn.hostiles):
+            x, y, z = ground.offset
+            if any(abs(x - gx) <= 1 and abs(y - gy) <= 1 and abs(z - gz) <= 1 for gx, gy, gz in guard_cells):
                 self.supplies_guarded_until[ground.cell.key] = turn.tick + RECENT_DANGER_TICKS
 
     def observe_combat(self, turn: Turn, report: CombatReport) -> None:

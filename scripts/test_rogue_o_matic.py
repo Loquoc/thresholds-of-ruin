@@ -1469,6 +1469,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 later = player_turn(stairs, ground=ground, tick=turn.tick + elapsed)
                 self.assertEqual(choose(player, later), expected)
 
+    def test_guarded_scroll_uses_its_own_position_and_every_cell_of_the_guard(self):
+        room = [cell(str(x), x, down=x == 0) for x in range(5)]
+        scroll = {"id": "roll", "name": "scroll", "class": "scroll", "quantity": 1, "identified": False}
+        ground = [{**room[2], "item": scroll, "reachable": False}]
+        body = {"id": "player", "name": "you", "position": room[1]["position"]}
+        for guard_positions, expected in (((4,), "seek_supplies"), ((4, 3), "descend")):
+            with self.subTest(guard_positions=guard_positions):
+                guard = [{"id": "guard", "name": "orc", "position": room[x]["position"]} for x in guard_positions]
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+                player.observe(player_turn(room, actors=[body, *guard], hostiles=["guard"], ground=ground))
+                later = player_turn(room, actors=[body], ground=ground, tick=1)
+                self.assertEqual(choose(player, later)[1], expected)
+
     def test_prefers_a_known_teleport_to_another_step_in_a_lethal_pursuit(self):
         from tor_client_bot import ItemUse, UseItem
 
