@@ -4,16 +4,19 @@ from tor_client_bot import Creature, Move, Turn
 
 
 def evade_unseen_attacker(turn: Turn, attack_origin: str) -> Move | None:
-    trapped_step = None
+    origin = next((cell for cell in turn.visible_cells if cell.key == attack_origin), None)
+    best_rank = None
+    step = None
     for direction in turn.walkable_directions:
         cell = turn.cell_at(direction.offset)
         if cell is None or cell.key == attack_origin:
             continue
-        if cell.trap is None:
-            return Move(direction)
-        if trapped_step is None:
-            trapped_step = Move(direction)
-    return trapped_step
+        distance = max(abs(a - b) for a, b in zip(cell.offset, origin.offset)) if origin else 0
+        rank = cell.trap is None, distance
+        if best_rank is None or rank > best_rank:
+            best_rank = rank
+            step = Move(direction)
+    return step
 
 
 def take_corridor(turn: Turn, pursuers: list[tuple[Creature, int]]) -> Move | None:
