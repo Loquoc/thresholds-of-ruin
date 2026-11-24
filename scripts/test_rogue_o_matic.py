@@ -2444,6 +2444,17 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                          ({"type": "identify", "choice": "current-choice", "item": "offered"},
                           "identify"))
 
+    def test_identification_prompt_with_no_useful_offers_declines_the_choice(self):
+        known = {"id": "band", "name": "band", "class": "ring", "identity": "item.ring.ring-searching",
+                 "quantity": 1, "identified": True}
+        unknown = {"id": "wand", "name": "staff", "class": "wand", "quantity": 1, "identified": False}
+        for offered in ([], ["band"]):
+            with self.subTest(offered=offered):
+                turn = player_turn([cell("here")], inventory=[known, unknown], interactions={
+                    "identification": {"choice": "current", "items": offered, "classes": ["ring", "wand"]}})
+                action, reason = choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn)
+                self.assertEqual((action.choice, action.item, reason), ("current", None, "identify"))
+
     def test_reads_matching_identification_scroll_for_held_unidentified_item(self):
         inventory = [{"id": "scroll", "class": "scroll", "identified": True,
                       "identity": "item.scroll.identify-armor", "name": "lore of robes"},

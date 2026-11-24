@@ -50,7 +50,7 @@ from rogue_retreat import approach_visible_exit, evade_unseen_attacker, take_cor
 from rogue_food import FoodScout, PendingMeal, carried_quantity, choose_meal, edible_items, estimate_carried_food
 from rogue_gear import (
     can_identify_carried_item, choose_armor, choose_ring, improve_worn_gear,
-    needs_identification, ready_weapon, reveal_unseen_attacker, ring_upgrades,
+    identification_target, ready_weapon, reveal_unseen_attacker, ring_upgrades,
 )
 
 
@@ -1254,8 +1254,7 @@ class Adventurer:
 
     def choose(self, turn: Turn) -> tuple[Action | None, str]:
         if turn.needs_identification and (prompt := turn.identification):
-            unknown = next((item for item in prompt.items if needs_identification(item, turn)), None)
-            return prompt.select(unknown), "identify"
+            return prompt.select(identification_target(turn, prompt.items)), "identify"
         if turn.can_resume:
             return ActivityChoice.RESUME, "resume"
         if not turn.can_act or turn.cell is None:

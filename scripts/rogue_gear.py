@@ -1,7 +1,7 @@
 """Rogue equipment decisions using disclosed player information."""
 
 from collections import Counter, defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 
 from tor_client_bot import Action, Item, ItemUse, Turn, Unequip, UseItem, Zap
 
@@ -33,6 +33,10 @@ def needs_identification(item: Item, turn: Turn) -> bool:
     return True
 
 
+def identification_target(turn: Turn, candidates: Iterable[Item]) -> Item | None:
+    return next((item for item in candidates if needs_identification(item, turn)), None)
+
+
 def identification_categories(scroll: Item) -> Collection[str]:
     if ItemUse.READ not in scroll.uses:
         return ()
@@ -41,9 +45,10 @@ def identification_categories(scroll: Item) -> Collection[str]:
 
 def can_identify_carried_item(scroll: Item, turn: Turn) -> bool:
     categories = identification_categories(scroll)
-    return bool(categories) and any(
-        item.category in categories and needs_identification(item, turn) for item in turn.inventory
-    )
+    if not categories:
+        return False
+    matching_items = (item for item in turn.inventory if item.category in categories)
+    return identification_target(turn, matching_items) is not None
 
 
 def _armor_protection(item: Item, *, account_for_curse: bool = False) -> int | None:
