@@ -3912,6 +3912,20 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                                  (Move(direction), "retreat"))
 
+    def test_overlapping_escape_routes_evaluate_each_pursuer_once_per_destination(self):
+        from unittest.mock import patch
+
+        cells = [{**cell(f"{x},{y}"), "position": {"x": x, "y": y, "z": 0}}
+                 for x in range(-2, 3) for y in range(-2, 3)]
+        foes = [{"id": name, "name": name, "position": {"x": 2, "y": y, "z": 0}}
+                for name, y in (("orc", -1), ("troll", 1))]
+        turn = player_turn(cells, actors=foes, hostiles=["orc", "troll"])
+        with patch.object(turn, "distance_to", wraps=turn.distance_to) as distance:
+            step, reason = Adventurer.evade(turn)
+        self.assertEqual((step.direction.offset[0], reason), (-1, "retreat"))
+        evaluated = [(call.args[0].target, call.kwargs["from_offset"]) for call in distance.call_args_list]
+        self.assertEqual(len(evaluated), len(set(evaluated)))
+
     def test_equal_escape_routes_prefer_the_untrapped_second_step(self):
         foe = {"id": "foe", "name": "hunter", "position": cell("enemy", 1)["position"]}
         for trap_y, expected in ((-2, Direction.SOUTH), (2, Direction.NORTH)):

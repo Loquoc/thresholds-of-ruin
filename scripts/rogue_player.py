@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import cache
 from statistics import median_low
 from typing import NamedTuple
 
@@ -813,7 +814,8 @@ class Adventurer:
 
     @staticmethod
     def evade(turn: Turn) -> tuple[Move, str] | None:
-        def safety(offset):
+        @cache
+        def safety(offset: tuple[int, int, int]) -> tuple[int, int]:
             contacts = sum(turn.in_contact(foe, from_offset=offset) for foe in turn.hostiles)
             clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
             return -contacts, clearance
