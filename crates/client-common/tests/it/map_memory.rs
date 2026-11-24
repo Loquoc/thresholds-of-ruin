@@ -684,30 +684,100 @@ fn completed_ambiguous_map_publishes_certified_cells_and_failure_does_not_loop()
 }
 
 #[test]
-fn clipped_coverage_does_not_claim_evicted_cells_after_reversing_direction() {
-    let mut client = ClientState::from_snapshot(oriented_snapshot(0, 0, 0, 0)).unwrap();
-    bind_map(&mut client, "initial");
-    let page = map_page(
-        &client,
-        vec![map_cell(Position { x: -31, y: 0, z: 0 }, "left-edge")],
-        1,
-        0,
-        0,
-    );
-    accept_map(&mut client, "initial", &page).unwrap();
-    advance(&mut client, oriented_snapshot(-1, 0, 0, 1));
-    let query = bind_map(&mut client, "limited");
-    let mut limited = map_page(&client, vec![], 0, 0, 0);
+fn reentry_shows_positioned_memory_on_the_first_frame_without_claiming_coverage() {
+    let initial = oriented_snapshot(0, 0, 0, 0);
+    let mut worker = ClientState::from_snapshot(initial.clone()).unwrap();
+    let mut shown = ClientState::from_snapshot(initial).unwrap();
+    let edge = Position { x: -31, y: 0, z: 0 };
+    let unknown = Position { x: -31, y: 1, z: 0 };
+    let mut remembered = map_cell(edge, "left-edge");
+    remembered.wall = true;
+    remembered.material = "mining timbers".into();
+    finish_region(&mut worker, "initial", vec![remembered]);
+    for (offset, revision) in [(-1, 1), (-80, 2)] {
+        let view = oriented_snapshot(offset, 0, 0, revision);
+        advance(&mut worker, view.clone());
+        advance(&mut shown, view);
+    }
+
+    // Transfer the complete positioned state while the witness is offscreen.
+    // Native presentation has not independently hydrated any map pages.
+    let query = bind_map(&mut worker, "limited");
+    let mut limited = map_page(&worker, vec![], 0, 0, 0);
     limited.window = query.window;
     limited.complete = false;
     limited.limited = true;
-    accept_map(&mut client, "limited", &limited).unwrap();
-    assert!(client.map_memory().all(|c| c.key != "left-edge"));
-    advance(&mut client, oriented_snapshot(0, 0, 0, 2));
-    assert!(
-        client.next_map_query().is_some(),
-        "reverse travel cannot claim cropped-away coverage"
-    );
+    accept_map(&mut worker, "limited", &limited).unwrap();
+    assert!(worker.map_memory().all(|c| c.key != "left-edge"));
+    assert!(worker
+        .map_cell(Position {
+            x: -111,
+            y: 0,
+            z: 0
+        })
+        .is_none());
+    assert!(shown.map_memory().all(|c| c.key != "left-edge"));
+    shown
+        .apply_map_memory_update(worker.map_memory_update().unwrap())
+        .unwrap();
+
+    let first_return = oriented_snapshot(0, 0, 0, 3);
+    for client in [&mut worker, &mut shown] {
+        advance(client, first_return.clone());
+        let cell = client
+            .map_cell(edge)
+            .expect("first frame must show prior terrain");
+        assert_eq!(cell.key, "left-edge");
+        assert!(cell.wall);
+        assert_eq!(cell.material, "mining timbers");
+        assert!(
+            client.map_cell(unknown).is_none(),
+            "unseen terrain stays blank"
+        );
+        assert!(
+            client.next_map_query().is_some(),
+            "retained positions cannot certify cropped-away coverage"
+        );
+
+        advance(client, oriented_snapshot(0, 0, 0, 4));
+        assert_eq!(
+            client.map_cell(edge).unwrap().key,
+            "left-edge",
+            "remains after stop"
+        );
+    }
+}
+
+#[test]
+fn sparse_return_does_not_project_previously_offscreen_terrain() {
+    let start = oriented_snapshot(0, 0, 0, 0);
+    let mut worker = ClientState::from_snapshot(start.clone()).unwrap();
+    let mut native = ClientState::from_snapshot(start).unwrap();
+    let edge = Position { x: -31, y: 1, z: 0 };
+    finish_region(&mut worker, "initial", vec![map_cell(edge, "offscreen")]);
+    let moved = oriented_snapshot(-1, 0, 0, 1);
+    advance(&mut worker, moved.clone());
+    advance(&mut native, moved);
+    native
+        .apply_map_memory_update(worker.map_memory_update().unwrap())
+        .unwrap();
+
+    let mut sparse = oriented_snapshot(0, 0, 0, 2);
+    Arc::make_mut(&mut sparse.state)
+        .observation
+        .visible_cells
+        .truncate(1);
+    for client in [&mut worker, &mut native] {
+        advance(client, sparse.clone());
+        assert!(
+            client.map_cell(edge).is_none(),
+            "one anchor cannot place previously offscreen terrain"
+        );
+        let query = client
+            .next_map_query()
+            .expect("weak alignment needs a new map region");
+        assert_eq!(query.window, MapWindow::normal());
+    }
 }
 
 fn oriented_snapshot(dx: i32, dy: i32, dz: i32, revision: u64) -> Snapshot {

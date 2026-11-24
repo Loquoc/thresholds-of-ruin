@@ -21,6 +21,60 @@ fn snapshot(hidden: bool) -> Snapshot {
 }
 
 #[test]
+fn returning_known_terrain_is_drawn_on_the_first_reentry_frame() {
+    let position = |x, y| Position { x, y, z: 0 };
+    let at = |offset: i32, epoch: u64, first: bool| {
+        let mut snapshot = snapshot(false);
+        snapshot.context.epoch = epoch;
+        let obs = &mut Arc::make_mut(&mut snapshot.state).observation;
+        let cell = obs.visible_cells[0].clone();
+        obs.visible_cells = [
+            ("anchor-a", position(offset, 0), false),
+            ("anchor-b", position(offset + 1, 0), false),
+            ("anchor-c", position(offset, 1), false),
+        ]
+        .into_iter()
+        .chain(first.then_some(("remembered-wall", position(-31, 0), true)))
+        .map(|(key, position, wall)| CellView {
+            key: key.into(),
+            position,
+            wall,
+            ..cell.clone()
+        })
+        .collect();
+        obs.ground_items.clear();
+        obs.visible_actors.clear();
+        snapshot
+    };
+    let mut worker = ClientState::from_snapshot(at(0, 0, true)).unwrap();
+    let mut shown = ClientState::from_snapshot(at(0, 0, false)).unwrap();
+    for (epoch, offset) in [(1, -1), (2, -80)] {
+        worker.replace_snapshot(at(offset, epoch, false)).unwrap();
+        shown.replace_snapshot(at(offset, epoch, false)).unwrap();
+    }
+    shown
+        .apply_map_memory_update(worker.map_memory_update().unwrap())
+        .unwrap();
+    assert!(render::map_tiles(&shown, &Default::default())
+        .iter()
+        .all(|t| t.position.x >= -31));
+
+    for (epoch, offset) in [(3, -1), (4, 0), (5, 0)] {
+        shown.replace_snapshot(at(offset, epoch, false)).unwrap();
+        let tiles = render::map_tiles(&shown, &Default::default());
+        let edge = tiles.iter().find(|t| t.position == position(-31, 0));
+        if offset < 0 {
+            assert!(edge.is_none());
+        } else {
+            let edge = edge.expect("known wall on the first returning frame and after stopping");
+            assert_eq!(edge.glyph, '#');
+            assert!(edge.remembered);
+        }
+        assert!(tiles.iter().all(|t| t.position != position(-31, 1)));
+    }
+}
+
+#[test]
 fn item_classes_use_disclosed_pile_order_and_keep_their_remembered_glyph() {
     let mut snapshot = snapshot(false);
     let observation = &mut Arc::make_mut(&mut snapshot.state).observation;
