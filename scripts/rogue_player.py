@@ -453,7 +453,7 @@ class Adventurer:
             self.sampled_potions.add(trial_appearance(item))
         elif action.use is ItemUse.READ and item.identity is None:
             appearance = trial_appearance(item)
-            if receipt and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
+            if receipt and receipt.activity and reason in {MemoryReason.TEST_UNKNOWN_MAGIC, MemoryReason.STUDY_SCROLL_AT_EXIT}:
                 newly_sampled = appearance if appearance not in self.sampled_scrolls else None
                 self.pending_scroll_trial = PendingScrollTrial(self.depth, receipt, item.target, newly_sampled)
             else:
@@ -600,7 +600,7 @@ class Adventurer:
         if decision := self.ranged_combat(turn, adjacent):
             return decision
 
-        if lethal and not self.tried_unknown_scroll and self.pending_scroll_trial is None:
+        if lethal and not self.tried_unknown_scroll:
             if trial := self.scroll_trial(turn):
                 return trial
 
@@ -1157,6 +1157,8 @@ class Adventurer:
         return None
 
     def scroll_trial(self, turn: Turn, *, at_exit: bool = False) -> tuple[UseItem, MemoryReason] | None:
+        if self.pending_scroll_trial is not None:
+            return None
         for item in turn.inventory:
             if item.identity is not None or ItemUse.READ not in item.uses:
                 continue

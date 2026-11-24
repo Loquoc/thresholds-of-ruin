@@ -2064,6 +2064,25 @@ class RogueOMaticPolicyTests(unittest.TestCase):
                 else:
                     self.assertEqual(retry[0].item.target, "two")
 
+    def test_unresolved_scroll_trial_blocks_both_stair_study_and_route_experiments(self):
+        import json
+        from tor_client_bot import Result
+
+        items = [{"id": name, "name": name, "class": "scroll", "quantity": 1, "identified": False}
+                 for name in ("first", "second")]
+        turn = player_turn([cell("here")], inventory=items, interactions={
+            "inventory": [{"item": item["id"], "readable": True} for item in items]})
+        receipt = {"type": "admitted", "actor": 1, "branch": "game", "intention": "read", "phase": "queued"}
+        player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY)
+        action, reason = choose(player, turn)
+        player.admitted(turn, action, Result.from_reply({"status": "confirmed", "receipt": receipt}), reason=reason)
+        for phase in ("queued", "started", "paused"):
+            with self.subTest(phase=phase):
+                active = Turn({**json.loads(turn.recording()), "intentions": [dict(receipt, phase=phase)]})
+                player.observe(active)
+                self.assertIsNone(player.route_scroll(active, player.maps[player.depth], returning=False))
+                self.assertIsNone(player.scroll_trial(active, at_exit=True))
+
     def test_failed_scroll_trial_skips_the_failed_item_but_can_study_another_copy(self):
         import json
         from tor_client_bot import Result
