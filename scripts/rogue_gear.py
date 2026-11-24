@@ -56,7 +56,7 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
     cure = scrolls.get("item.scroll.remove-curse")
     can_identify_armor = any("armor" in identification_categories(item) for item in turn.inventory)
     best = None
-    best_gain = 0
+    best_rank = None
     for choice in turn.equip_choices():
         slot, item = choice.slot, choice.item
         if slot.kind != "body_armor" or item.known_cursed or (slot.removal_blocked and not cure):
@@ -67,9 +67,12 @@ def choose_armor(turn: Turn) -> tuple[Action, str] | None:
             continue
         current = _armor_protection(worn) if worn else 0
         rating = _armor_protection(item, account_for_curse=cure is None)
-        if rating is None or current is None or rating - current <= best_gain:
+        if rating is None or current is None or rating <= current:
             continue
-        best_gain = rating - current
+        rank = rating - current, item.physical_reduction is not None
+        if best_rank is not None and rank <= best_rank:
+            continue
+        best_rank = rank
         if slot.removal_blocked and cure is not None:
             best = UseItem(cure, ItemUse.READ), "remove_armor_curse"
         else:

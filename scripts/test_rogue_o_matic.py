@@ -511,6 +511,16 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         offers[1]["equipped_slot"] = 0
         self.assertEqual(choose(player, picture()), (Move(Direction.DOWN), "descend"))
 
+        # An unmeasured plate offers six estimated points when known to be uncursed.
+        del offers[1]["equipped_slot"]
+        inventory[0]["identity"] = "item.armor.plate-mail"
+        offers[0] = {"item": "worn", "slot": slot, "known_cursed": False}
+        for measured, index, reason in ((6, 1, "upgrade_armor"), (5, 0, "try_armor")):
+            with self.subTest(measured=measured):
+                offers[1] = offer("plate", measured)
+                turn = picture()
+                self.assertEqual(choose(player, turn), (Equip(turn.inventory[index], turn.equipment[0]), reason))
+
     def test_bot_extension_uses_test_profile_with_downloaded_binaries(self):
         from pathlib import Path
         from types import SimpleNamespace
