@@ -829,8 +829,12 @@ class Adventurer:
             remaining = sum(abs(a - b) for a, b in zip(offset, destination))
             if remaining < distance:
                 clearance = min(turn.distance_to(foe, from_offset=offset) for foe in turn.hostiles)
-                approaches.append((clearance, -remaining, direction))
-        return Move(max(approaches)[2]) if approaches else None
+                # With equal clearance, avoid a known trap before favoring a shorter approach.
+                approaches.append((clearance, candidate.trap is None, -remaining, direction))
+        if not approaches:
+            return None
+        *_, direction = max(approaches)
+        return Move(direction)
 
     @staticmethod
     def evade(turn: Turn) -> tuple[Move, str] | None:
