@@ -440,9 +440,9 @@ class Adventurer:
     def damage_estimate(self, foe: Creature) -> int:
         return max(self.observed_loss[foe.target], self.observed_loss_by_name[foe.name])
 
-    def nearby_drainer(self, foe: Creature) -> bool:
+    def nearby_drainer(self, turn: Turn, foe: Creature) -> bool:
         # Allow one closing step before a creature can strike in contact.
-        return foe.distance <= 2 and foe.name in self.draining_creatures
+        return foe.name in self.draining_creatures and turn.distance_to(foe) <= 2
 
     def can_spend_charge(self, device: Device) -> bool:
         if device.charges is None:
@@ -507,7 +507,7 @@ class Adventurer:
                 or self.recovering_from_pursuit
                 or surrounded
                 or two_hit_threat
-                or any(self.nearby_drainer(foe) for foe in turn.hostiles)
+                or any(self.nearby_drainer(turn, foe) for foe in turn.hostiles)
             )
             and not self.trapped(turn)
             and not turn.holds
@@ -763,7 +763,7 @@ class Adventurer:
             return None
         dangerous = any(
             foe.name.casefold() in {"griffin", "dragon", "jabberwock", "wraith"}
-            or self.nearby_drainer(foe)
+            or self.nearby_drainer(turn, foe)
             for foe in turn.hostiles
         )
         if not (dangerous or self.recovering_from_pursuit):

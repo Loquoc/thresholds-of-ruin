@@ -901,6 +901,18 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         self.assertEqual(choose(Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY), turn),
                          (Unequip(turn.equipment[0]), "change_weapon"))
 
+    def test_retreats_when_a_known_drainer_closes_on_any_part_of_the_player(self):
+        cells = [cell("stairs", up=True), cell("body", 1), cell("hall", 2), cell("snake", 3)]
+        snake = {"id": "snake", "name": "rattlesnake", "position": cells[3]["position"]}
+        body = {"id": "player", "name": "you", "position": cells[1]["position"]}
+        for actors, should_retreat in (([snake], False), ([body, snake], True)):
+            with self.subTest(should_retreat=should_retreat):
+                player = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=2)
+                player.draining_creatures.add("rattlesnake")
+                turn = player_turn(cells, actors=actors, hostiles=["snake"])
+                decision = choose(player, turn)
+                self.assertEqual(decision == (Move(Direction.UP), "retreat_upstairs"), should_retreat)
+
     def test_stair_retreat_does_not_reverse_into_the_same_pursuit(self):
         snake = {"id": "snake", "name": "rattlesnake", "position": {"x": 2, "y": 0, "z": 0}}
         policy = Adventurer(26, DEFAULT_OBJECTIVE_IDENTITY, depth=6)
