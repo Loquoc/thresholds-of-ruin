@@ -406,7 +406,10 @@ monsters accumulates. At most eight **living wandering-born** monsters occupy a
 floor. Initial inhabitants and Create Monster births do not count, and deaths
 free wandering slots. Wandering excludes the source's I/L/N/F/X/D species,
 places outside your current room and sight, grants ordinary kill XP, and creates
-no carried birth loot. Its first location lead is a finite snapshot, not tracking.
+no carried birth loot. Any starting location lead is a finite snapshot, not
+tracking. A wandering monster that spots the player pursues and attacks even if
+an initially placed monster of its species would wait for provocation. Erratic
+movement can still interrupt the pursuit for a turn.
 Leaving an inactive floor freezes the clock; saving/restarting does not reroll it
 or charge wall-clock time.
 On a partly resident floor, an unknown placement candidate costs one bounded
@@ -648,7 +651,15 @@ Stand on a dropped **Scare monster** scroll to make approaching hostile AI
 creatures flee briefly, without a resistance roll. Mind-affecting immunity still
 applies, and cornered creatures can defend themselves. Standing in range does not
 keep refreshing the fear. The scroll's recorded location is the threat; its
-occupant is not continuously tracked. Reading this scroll merely wastes it.
+occupant is not continuously tracked.
+
+Reading **Scare monster** affects monsters on visible squares; an ordinary read
+makes susceptible monsters flee if they fail the Lore contest, while a cursed
+scroll or a confused reader disperses fear and can wake sleeping or frozen
+monsters. Hallucination only changes the wording. Laughter or wailing sounds
+nearby when a non-allied monster is on a visible square, even if the monster
+itself is invisible. The sound gives neither the monster’s identity nor its
+position. History retains the cue as it was originally perceived.
 
 The first pickup of non-cursed Scare units makes them cursed. Picking up cursed
 units crumbles them instead of collecting them. Stacks preserve this curse through

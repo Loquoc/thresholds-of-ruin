@@ -5,7 +5,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 74;
+pub const PROTOCOL_VERSION: u32 = 75;
 /// The maximum disclosed primary strike ordinal plus one.
 pub const MAX_SEQUENCE_STRIKES: u16 = 16;
 
@@ -2033,6 +2033,8 @@ pub enum Event {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HistoryContent {
+    /// A disclosed perception without access to the action that triggered it.
+    Narration {},
     PlaceRenamed {
         key: String,
         name: String,
@@ -2071,6 +2073,30 @@ pub struct HistoryEntry {
     pub author: Author,
     pub audience: Audience,
     pub content: HistoryContent,
+    /// Literal actor-scoped wording captured at the committed action boundary.
+    /// A history query must not project it again against current senses.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "read_history_narration"
+    )]
+    pub narration: Vec<String>,
+}
+
+pub const MAX_HISTORY_NARRATION_LINES: usize = 16;
+
+pub fn valid_history_narration_line(text: &str) -> bool {
+    !text.trim().is_empty()
+        && text.len() <= crate::user_message::MAX_USER_MESSAGE_SEGMENT_BYTES
+        && !text.chars().any(char::is_control)
+}
+
+fn read_history_narration<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    let lines = crate::bounded::bounded::<D, String, MAX_HISTORY_NARRATION_LINES>(d)?;
+    if !lines.iter().all(|line| valid_history_narration_line(line)) {
+        return Err(serde::de::Error::custom("invalid history narration"));
+    }
+    Ok(lines)
 }
 
 impl HistoryEntry {

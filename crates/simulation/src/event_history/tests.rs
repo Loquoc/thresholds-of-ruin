@@ -23,6 +23,14 @@ fn fixture() -> Game {
             value: PerceptionValue::Invisible { enabled: true },
         },
     });
+    let mut blind = crate::creatures::Template::new(TemplateId::new("event_blind").unwrap(), 0);
+    blind.modifiers.push(Modifier {
+        cancellable: false,
+        scope: Scope::Always,
+        op: ModifierOp::Perception {
+            value: PerceptionValue::Sight { enabled: false },
+        },
+    });
     let mut detecting =
         crate::creatures::Template::new(TemplateId::new("event_detecting").unwrap(), 0);
     detecting.modifiers.push(Modifier {
@@ -84,6 +92,7 @@ fn fixture() -> Game {
             species: [(species_id.clone(), species)].into(),
             templates: [
                 (invisible.id.clone(), invisible),
+                (blind.id.clone(), blind),
                 (detecting.id.clone(), detecting),
                 (guised.id.clone(), guised),
                 (caster.id.clone(), caster),
@@ -149,6 +158,101 @@ fn damage(actor: ActorId, target: ActorId, amount: u32) -> Outcome {
 fn events(game: &Game, actor: ActorId) -> Vec<DisclosedCombatEvent> {
     game.observe(actor).unwrap().combat.unwrap().events
 }
+#[test]
+fn rattling_blow_projects_only_a_real_status_change_to_its_recipient() {
+    let caster = ActorId(1);
+    let target = ActorId(2);
+    let witness = ActorId(3);
+    let rattled = crate::content_ids::ConditionId::new("rattled").unwrap();
+    for (invisible, blind, already_rattled, miss) in [
+        (false, false, false, false),
+        (true, false, false, false),
+        (false, true, false, false),
+        (false, true, true, false),
+        (false, false, true, false),
+        (false, false, false, true),
+    ] {
+        let mut game = fixture();
+        if invisible {
+            template(&mut game, caster, Some("event_invisible"));
+        }
+        if blind {
+            template(&mut game, target, Some("event_blind"));
+        }
+        if already_rattled {
+            game.apply_condition(target, &rattled, caster, 600).unwrap();
+        }
+        let hp = game.health(target).unwrap().0;
+        let mut outcome = damage(caster, target, 1);
+        outcome.ability = Some(AbilityId::new("rattling_blow").unwrap());
+        if miss {
+            outcome.result = OutcomeStatus::Miss;
+            outcome.check = Some(crate::abilities::ResolvedCheck {
+                actor: crate::rules::CheckActor::User,
+                success: false,
+                opposed: false,
+            });
+            outcome.participation = crate::abilities::AttemptedParticipation {
+                check: crate::abilities::CheckParticipation::TargetInvolved,
+                payload: crate::abilities::PayloadParticipation::Empty,
+            };
+            outcome.effects.clear();
+        } else {
+            outcome.effects.push(ResolvedEffect::ApplyCondition {
+                id: rattled.clone(),
+                duration: 200,
+            });
+        }
+        game.apply(outcome).unwrap();
+        assert_eq!(
+            game.health(target).unwrap().0,
+            hp - u64::from(!miss),
+            "the recipient experiences the real health change even when blind"
+        );
+        let received = events(&game, target);
+        assert!(!received
+            .iter()
+            .any(|event| matches!(event, DisclosedCombatEvent::Effect { .. })));
+        let expected = if miss {
+            OutcomeStatus::Miss
+        } else {
+            OutcomeStatus::Applied
+        };
+        if invisible || blind {
+            assert!(received.iter().any(|event| matches!(
+                event, DisclosedCombatEvent::UnseenAbility { target: actor, outcome, .. }
+                    if *actor == target && *outcome == expected
+            )));
+            assert!(!received
+                .iter()
+                .any(|event| matches!(event, DisclosedCombatEvent::Ability { .. })));
+        } else {
+            assert!(received.iter().any(|event| matches!(
+                event, DisclosedCombatEvent::Ability { id, outcome, .. }
+                    if id.as_str() == "rattling_blow" && *outcome == expected
+            )));
+        }
+        assert_eq!(
+            received
+                .iter()
+                .filter(|event| matches!(
+                    event, DisclosedCombatEvent::Condition { id, .. } if *id == rattled
+                ))
+                .count(),
+            usize::from(!already_rattled && !miss),
+        );
+        assert!(!game.event_log.iter().any(|event| matches!(event,
+            CombatEvent::Effect { effect } if effect.ability.as_str() == "rattling_blow"
+        )));
+        for bystander in [caster, witness] {
+            assert!(!events(&game, bystander).iter().any(|event| matches!(
+                event,
+                DisclosedCombatEvent::Effect { .. } | DisclosedCombatEvent::Condition { .. }
+            )));
+        }
+    }
+}
+
 fn restored(game: &Game) -> Game {
     let mut shared = crate::checkpoint::SharedState::default();
     let snapshot = game.checkpoint(&mut shared);

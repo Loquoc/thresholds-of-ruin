@@ -16,6 +16,11 @@ enum Frame {
     Readiness(Readiness),
     Intention(IntentionPhase),
     Reject(ErrorCode),
+    RejectActionWithDetail {
+        message: &'static str,
+        correlated: bool,
+        current_scope: bool,
+    },
     ExecutionRefusal(ErrorCode),
     /// The next observation, with the action event it follows.
     View(StateView, Option<Event>),
@@ -55,6 +60,7 @@ fn branch() -> BranchId {
 
 fn entry(id: String, tick: u64, content: HistoryContent) -> HistoryEntry {
     HistoryEntry {
+        narration: vec![],
         id: EntryId(id),
         branch: branch(),
         actor: ActorId(1),
@@ -315,6 +321,26 @@ impl Link for Scripted {
                     code,
                     message: String::new(),
                 },
+                Frame::RejectActionWithDetail {
+                    message,
+                    correlated,
+                    current_scope,
+                } => {
+                    let mut context = self.reply_context();
+                    if !current_scope {
+                        context.branch = BranchId("another-branch".into());
+                    }
+                    ServerMessage::Error {
+                        scope: ErrorScope::Attached { context },
+                        request_id: Some(if correlated {
+                            id.clone()
+                        } else {
+                            "other-action".into()
+                        }),
+                        code: ErrorCode::InvalidAction,
+                        message: message.into(),
+                    }
+                }
                 Frame::ExecutionRefusal(code) => ServerMessage::Error {
                     scope: ErrorScope::Attached {
                         context: self.reply_context(),
@@ -1714,6 +1740,7 @@ async fn waiting_for_another_actor_never_completes_a_pending_pickup_or_chains_in
             !text.contains("pick"),
             "a queued pickup has not happened: {text}"
         );
+        assert!(text.contains("Your action is still pending."), "{text}");
         assert_eq!(link.sent.len(), 1);
         assert!(link.client.has_pending_intention());
         assert!(link.queue.is_empty());
@@ -4405,6 +4432,57 @@ async fn projectile_text_throw_and_launch_show_terms_before_one_identical_confir
     }
 }
 #[tokio::test]
+async fn confirmed_launch_keeps_only_its_own_current_refusal_detail() {
+    const DETAIL: &str = "Choose available, compatible ammunition before firing.";
+    for (correlated, current_scope) in [(true, true), (false, true), (true, false)] {
+        let mut link = Scripted::new(projectile_state(), move |request, _| {
+            if let Some(page) = projectile_page(request, true) {
+                vec![Frame::ProjectileChoices(page)]
+            } else if let Some(preview) = weapon_preview_response(request) {
+                vec![Frame::WeaponPreview(preview)]
+            } else if matches!(
+                request,
+                Request::Command {
+                    command: Command::Act {
+                        action: Action::UseAbility { .. }
+                    },
+                    ..
+                }
+            ) {
+                let mut frames = vec![Frame::RejectActionWithDetail {
+                    message: DETAIL,
+                    correlated,
+                    current_scope,
+                }];
+                if !correlated {
+                    frames.push(Frame::Reject(ErrorCode::InvalidAction));
+                }
+                frames
+            } else {
+                panic!("unexpected request: {request:?}");
+            }
+        });
+        let mut engine = Engine::default();
+        for line in ["fixture projectile", "1", "1", "north"] {
+            play(&mut link, &mut engine, line).await;
+        }
+        assert!(
+            ability_actions(&link).is_empty(),
+            "confirmation is required"
+        );
+        let text = play(&mut link, &mut engine, "yes").await;
+        assert_eq!(ability_actions(&link).len(), 1);
+        assert_eq!(text.contains(DETAIL), correlated && current_scope, "{text}");
+        if !correlated || !current_scope {
+            assert!(
+                text.contains("You can't use that ability right now."),
+                "{text}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn projectile_text_empty_pages_navigation_and_cancel_never_send_gameplay() {
     let mut link = Scripted::new(projectile_state(), |request, _| {
         let mut page = projectile_page(request, false).expect("only read-only menu queries");
@@ -4661,4 +4739,26 @@ async fn report_body_is_not_executed_as_a_command_chain() {
     assert!(matches!(&link.sent[0], Request::Command {
         command: Command::Annotate { text, category: AnnotationCategory::Note, audience: Audience::Actor, .. }, ..
     } if text == "PLAY TEST REPORT\n\nDoor stuck. Then wait; and LOOK!"));
+}
+
+#[tokio::test]
+async fn explicit_status_reports_recovery_without_adding_it_to_normal_exploration() {
+    let mut current = state();
+    current.observation.ready = false;
+    current
+        .observation
+        .combat
+        .as_mut()
+        .unwrap()
+        .recovery_remaining = 37;
+    let mut link = Scripted::new(current, |request, _| {
+        panic!("Local status should not advance time: {request:?}")
+    });
+    let mut engine = Engine::default();
+
+    let ambient = play(&mut link, &mut engine, "look").await;
+    assert!(!ambient.contains("37 ticks"), "{ambient}");
+    let inspected = play(&mut link, &mut engine, "status").await;
+    assert!(inspected.contains("37 ticks"), "{inspected}");
+    assert!(link.sent.is_empty());
 }

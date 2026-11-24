@@ -26,9 +26,16 @@ pub enum Settled {
     /// The server yielded to another actor; no further work may be sent.
     /// Preserve an observed journey ending for narration, not permission.
     Waiting(Option<TravelPhase>),
+    /// Play yielded and the same admitted work is still explicitly queued.
+    Pending,
     /// Execution was refused, but the queued intention remains pending.
     Deferred,
-    Rejected(ErrorCode),
+    /// The server's detail is carried only for a correlated rejection on
+    /// the current attachment. A lifecycle-derived rejection has no prose.
+    Rejected {
+        code: ErrorCode,
+        detail: Option<String>,
+    },
     /// A journey ended this way.
     Journey(TravelPhase),
     /// Control was lost, or the state replaced.
@@ -98,7 +105,10 @@ impl SettleBoundary {
     /// Play stopped, and not for this player: the turn is over.
     fn others(&self) -> Settled {
         if self.execution_failed {
-            Settled::Rejected(ErrorCode::InvalidAction)
+            Settled::Rejected {
+                code: ErrorCode::InvalidAction,
+                detail: None,
+            }
         } else {
             match self.ended {
                 Some(phase) => Settled::Journey(phase),
@@ -160,9 +170,24 @@ impl SettleBoundary {
         }
         match message {
             ServerMessage::Error {
-                request_id, code, ..
+                request_id,
+                code,
+                scope,
+                message,
             } if request_id.as_deref() == Some(self.id.as_str()) => {
-                return Some(Settled::Rejected(*code))
+                let detail = match scope {
+                    ErrorScope::Attached { context }
+                        if !message.trim().is_empty()
+                            && state.validate_reply_context(context).is_ok() =>
+                    {
+                        Some(message.clone())
+                    }
+                    _ => None,
+                };
+                return Some(Settled::Rejected {
+                    code: *code,
+                    detail,
+                });
             }
             ServerMessage::Ack {
                 request_id,
@@ -208,11 +233,22 @@ impl SettleBoundary {
                 if self.until == Until::Journey {
                     self.ended = self.journey_end(state);
                 }
-                return Some(if self.until == Until::Answered || self.execution_failed {
-                    self.others()
-                } else {
-                    Settled::Waiting(self.ended)
-                });
+                return Some(
+                    if self.until != Until::Answered
+                        && !self.execution_failed
+                        && super::is_input_yield(*on)
+                        && self
+                            .admission
+                            .as_ref()
+                            .is_some_and(|work| work.remains_queued(state))
+                    {
+                        Settled::Pending
+                    } else if self.until == Until::Answered || self.execution_failed {
+                        self.others()
+                    } else {
+                        Settled::Waiting(self.ended)
+                    },
+                );
             }
             ServerMessage::Update { update } => {
                 if let UpdateBody::Control { has_control: false } = update.body {
@@ -246,7 +282,10 @@ impl SettleBoundary {
             permissions_ready
         };
         if self.execution_failed && failure_settled && (self.until != Until::Answered || answered) {
-            return Some(Settled::Rejected(ErrorCode::InvalidAction));
+            return Some(Settled::Rejected {
+                code: ErrorCode::InvalidAction,
+                detail: None,
+            });
         }
         let gameplay_ready = ready && permissions_ready;
         match self.until {
@@ -463,6 +502,79 @@ mod tests {
     }
 
     #[test]
+    fn only_matching_live_queued_work_is_pending_on_a_gameplay_yield() {
+        for (entry, phase, waiting_on, until, expected) in [
+            (
+                "work-entry",
+                IntentionPhase::Queued,
+                Waiting::Others,
+                Until::Acted,
+                Settled::Pending,
+            ),
+            (
+                "other-entry",
+                IntentionPhase::Queued,
+                Waiting::Others,
+                Until::Acted,
+                Settled::Waiting(None),
+            ),
+            (
+                "work-entry",
+                IntentionPhase::Started,
+                Waiting::Others,
+                Until::Acted,
+                Settled::Waiting(None),
+            ),
+            (
+                "work-entry",
+                IntentionPhase::Queued,
+                Waiting::Stopped,
+                Until::Acted,
+                Settled::Waiting(None),
+            ),
+            (
+                "work-entry",
+                IntentionPhase::Queued,
+                Waiting::Others,
+                Until::Answered,
+                Settled::Done,
+            ),
+        ] {
+            let mut state = state(false, false, None);
+            let receipt = ack(
+                &state,
+                RequestReceipt::Admitted {
+                    actor: state.actor(),
+                    branch: state.branch().clone(),
+                    intention: IntentionId("work".into()),
+                    entry_id: EntryId(entry.into()),
+                    phase: IntentionPhase::Queued,
+                },
+            );
+            let mut boundary = SettleBoundary::new(ID, until, false);
+            assert_eq!(boundary.observe(&state, false, false, &receipt), None);
+            let queued = intention(&state, 1, IntentionPhase::Queued);
+            let ServerMessage::Update { update } = &queued else {
+                unreachable!()
+            };
+            state.apply(*update.clone()).unwrap();
+            assert_eq!(boundary.observe(&state, false, false, &queued), None);
+            if phase != IntentionPhase::Queued {
+                let started = intention(&state, 2, phase);
+                let ServerMessage::Update { update } = &started else {
+                    unreachable!()
+                };
+                state.apply(*update.clone()).unwrap();
+                assert_eq!(boundary.observe(&state, false, false, &started), None);
+            }
+            assert_eq!(
+                boundary.observe(&state, false, false, &waiting(waiting_on)),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
     fn rejection_waits_losses_and_replies_have_their_own_endings() {
         let ready = state(true, true, None);
         let error = |request: Option<&str>| ServerMessage::Error {
@@ -478,7 +590,10 @@ mod tests {
         );
         assert_eq!(
             boundary.observe(&ready, false, false, &error(Some(ID))),
-            Some(Settled::Rejected(ErrorCode::ActorBusy))
+            Some(Settled::Rejected {
+                code: ErrorCode::ActorBusy,
+                detail: None
+            })
         );
         // A wait for someone else ends an acknowledged turn, not an unacknowledged one.
         let unready = state(true, false, None);
@@ -598,7 +713,10 @@ mod tests {
         );
         assert_eq!(
             failed.silence(&ready),
-            Ok(Settled::Rejected(ErrorCode::InvalidAction))
+            Ok(Settled::Rejected {
+                code: ErrorCode::InvalidAction,
+                detail: None
+            })
         );
     }
 }

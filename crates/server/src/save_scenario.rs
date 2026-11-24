@@ -1775,6 +1775,11 @@ enum ControlSpec {
         #[serde(deserialize_with = "read_control_duration")]
         duration: u64,
     },
+    ScareVisible {
+        #[serde(with = "mapped")]
+        fear: tor_simulation::control_scrolls::ConditionPayload,
+        wake_conditions: [tor_simulation::content_ids::ConditionId; 2],
+    },
     Aggravate {},
     CreateMonster {},
     Nothing {},
@@ -5084,7 +5089,7 @@ mod tests {
 
     #[test]
     fn discovery_formats_preserve_physical_envelopes() {
-        assert_eq!(tor_protocol::PROTOCOL_VERSION, 74);
+        assert_eq!(tor_protocol::PROTOCOL_VERSION, 75);
         assert_eq!(super::RULES_INPUT_FORMAT, 27);
         assert_eq!(super::REGION_INPUT_FORMAT, 10);
         // Semantic rule, region and package payload versions advance independently
@@ -10216,6 +10221,7 @@ mod control_scroll_schema_tests {
         for good in [
             json!({"kind":"hold_nearby","condition":"fixture.held","duration":1000,"radius":2}),
             json!({"kind":"arm_confusion","condition":"fixture.confused","duration":2000}),
+            json!({"kind":"scare_visible","fear":{"condition":"fixture.scared","duration":1000},"wake_conditions":["fixture.sleep","fixture.frozen"]}),
             json!({"kind":"aggravate"}),
             json!({"kind":"create_monster"}),
             json!({"kind":"nothing"}),
@@ -10234,6 +10240,8 @@ mod control_scroll_schema_tests {
         }
         for bad in [
             json!(["arm_confusion", "fixture.confused", 2000]),
+            json!({"kind":"scare_visible","fear":{"condition":"fixture.scared","duration":0},"wake_conditions":["fixture.sleep","fixture.frozen"]}),
+            json!({"kind":"scare_visible","fear":{"condition":"fixture.scared","duration":1000},"wake_conditions":["fixture.sleep"]}),
             json!({"kind":"arm_confusion","condition":"fixture.confused","duration":0}),
             json!({"kind":"arm_confusion","condition":"fixture.confused"}),
             json!({"kind":"hold_nearby","condition":"fixture.held","duration":1000,"radius":9}),

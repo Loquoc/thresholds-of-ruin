@@ -502,12 +502,19 @@ pub struct DispatchRecord {
     pub effects: Vec<ScriptEffect>,
 }
 
+/// Keep all disclosed built-in cues representable on the recipient's history row.
+pub const MAX_GAMEPLAY_NARRATION_LINES: usize = 16;
+
 /// Everything a boundary produced for the host: delivered messages, handler
 /// calls and rejected roots. Drained by the host after each transaction.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScriptReport {
     pub messages: Vec<ScriptMessage>,
+    /// Event-time built-in narration. Like script output, replay compares the
+    /// exact emitted wording; unlike tutorials, this also belongs in history.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub gameplay_narration: Vec<ScriptMessage>,
     pub dispatches: Vec<DispatchRecord>,
     pub failures: Vec<ScriptFailure>,
 }
@@ -539,7 +546,10 @@ impl std::ops::DerefMut for ReportSlot {
 
 impl ScriptReport {
     pub fn is_empty(&self) -> bool {
-        self.messages.is_empty() && self.dispatches.is_empty() && self.failures.is_empty()
+        self.messages.is_empty()
+            && self.gameplay_narration.is_empty()
+            && self.dispatches.is_empty()
+            && self.failures.is_empty()
     }
 }
 

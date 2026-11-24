@@ -1102,6 +1102,7 @@ mod tests {
 
     fn action(event: Event) -> HistoryEntry {
         HistoryEntry {
+            narration: vec![],
             id: EntryId("e".into()),
             branch: BranchId("main".into()),
             actor: ActorId(1),

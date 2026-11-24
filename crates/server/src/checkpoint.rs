@@ -732,9 +732,7 @@ impl DiskCheckpoint {
             return Err(invalid_archive());
         }
         Ok(Engine {
-            history_index: crate::history_index::HistoryIndex::rebuild(
-                archive.records.iter().map(|record| &record.entry),
-            ),
+            history_index: crate::history_index::HistoryIndex::rebuild_records(&archive.records),
             recovery: RecoveryProfile::default(),
             current_branch: self.current_branch,
             wizard_enabled: false,

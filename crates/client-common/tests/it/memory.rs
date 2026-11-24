@@ -45,6 +45,7 @@ fn free_rename_updates_and_authoritative_place_snapshots_survive_reconnect() {
             origin: PlaceNameOrigin::Authored,
         });
     let entry = HistoryEntry {
+        narration: vec![],
         id: EntryId("rename".into()),
         branch: next.branch.clone(),
         actor: ActorId(1),

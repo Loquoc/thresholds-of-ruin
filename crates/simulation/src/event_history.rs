@@ -581,6 +581,9 @@ impl EventOrigin {
     pub(crate) fn cap_contact_target(&mut self) {
         self.source_target = self.source_target.map(|_| ActorReferenceKind::Contact);
     }
+    pub(crate) fn cap_contact_source(&mut self) {
+        self.target_source = self.target_source.map(|_| ActorReferenceKind::Contact);
+    }
     fn reference(&self, observer: ActorId, subject: ActorId) -> Reference {
         if observer == subject {
             Some(ActorReferenceKind::Creature)
@@ -1586,168 +1589,206 @@ impl Game {
         }) else {
             return Vec::new();
         };
-        row.entries
-            .iter()
-            .filter_map(|receipt| {
-                crate::diagnostics::event_receipt_binding_inspections(1);
-                if receipt.index >= row.through {
-                    return None;
+        let mut disclosed = Vec::new();
+        for (event, receipt) in row.entries.iter().filter_map(|receipt| {
+            crate::diagnostics::event_receipt_binding_inspections(1);
+            if receipt.index >= row.through {
+                return None;
+            }
+            let event = self.event_log.get(receipt.index)?;
+            if receipt.key != EventKey::capture(event)
+                || receipt.disclosed_ability.as_ref()
+                    != permitted_ability(event, observer, receipt.source)
+            {
+                return None;
+            }
+            Some((event, receipt))
+        }) {
+            let primary = (|| match event {
+                CombatEvent::Effect { effect } => {
+                    let frozen = receipt.spatial.as_ref()?;
+                    let snapshot = self.scene_snapshot_shared(observer).ok()?;
+                    let mut cells = BTreeMap::new();
+                    for cell in snapshot.shared_cells().iter().filter(|cell| cell.physical) {
+                        cells
+                            .entry(cell.location)
+                            .or_insert((cell.offset, cell.rotation));
+                    }
+                    let segments = project_segments(frozen, &cells);
+                    if segments.is_empty() {
+                        return None;
+                    }
+                    let ability = receipt.disclosed_ability.as_ref().and_then(|id| {
+                        self.content
+                            .rules
+                            .ability(id)
+                            .map(|definition| (id.clone(), definition.name.clone()))
+                    });
+                    Some(DisclosedCombatEvent::Effect {
+                        caster: receipt.source.map(|_| effect.actor),
+                        caster_reference: receipt.source,
+                        cue: if ability.is_some() {
+                            effect.cue
+                        } else {
+                            crate::combat::EffectCue::Neutral
+                        },
+                        ability,
+                        tick: effect.tick,
+                        timing: effect.timing,
+                        appearance: effect.appearance,
+                        visual: self.content.rules.ability(&effect.ability)?.effect_visual,
+                        style: self
+                            .content
+                            .rules
+                            .ability(&effect.ability)?
+                            .effect_style
+                            .clone(),
+                        object: effect
+                            .object_origin
+                            .as_ref()
+                            .and_then(|object| self.effect_object_presentation(observer, object)),
+                        delivery: effect.delivery,
+                        segments,
+                    })
                 }
-                let event = self.event_log.get(receipt.index)?;
-                if receipt.key != EventKey::capture(event)
-                    || receipt.disclosed_ability.as_ref()
-                        != permitted_ability(event, observer, receipt.source)
+                CombatEvent::Resolved { outcome, .. }
+                    if outcome.ability.is_none()
+                        && outcome.actor == observer
+                        && outcome.target == observer
+                        && outcome.result == crate::abilities::OutcomeStatus::Applied =>
                 {
-                    return None;
+                    let crate::abilities::ResolvedEffect::ApplyCondition { id, .. } =
+                        outcome.effects.first()?
+                    else {
+                        return None;
+                    };
+                    let definition = self.content.rules.condition(id)?;
+                    Some(DisclosedCombatEvent::Condition {
+                        id: id.clone(),
+                        name: definition.name.clone(),
+                    })
                 }
-                match event {
-                    CombatEvent::Effect { effect } => {
-                        let frozen = receipt.spatial.as_ref()?;
-                        let snapshot = self.scene_snapshot_shared(observer).ok()?;
-                        let mut cells = BTreeMap::new();
-                        for cell in snapshot.shared_cells().iter().filter(|cell| cell.physical) {
-                            cells
-                                .entry(cell.location)
-                                .or_insert((cell.offset, cell.rotation));
-                        }
-                        let segments = project_segments(frozen, &cells);
-                        if segments.is_empty() {
-                            return None;
-                        }
-                        let ability = receipt.disclosed_ability.as_ref().and_then(|id| {
-                            self.content
-                                .rules
-                                .ability(id)
-                                .map(|definition| (id.clone(), definition.name.clone()))
-                        });
-                        Some(DisclosedCombatEvent::Effect {
-                            caster: receipt.source.map(|_| effect.actor),
-                            caster_reference: receipt.source,
-                            cue: if ability.is_some() {
-                                effect.cue
-                            } else {
-                                crate::combat::EffectCue::Neutral
-                            },
-                            ability,
-                            tick: effect.tick,
-                            timing: effect.timing,
-                            appearance: effect.appearance,
-                            visual: self.content.rules.ability(&effect.ability)?.effect_visual,
-                            style: self
-                                .content
-                                .rules
-                                .ability(&effect.ability)?
-                                .effect_style
-                                .clone(),
-                            object: effect.object_origin.as_ref().and_then(|object| {
-                                self.effect_object_presentation(observer, object)
-                            }),
-                            delivery: effect.delivery,
-                            segments,
-                        })
-                    }
-                    CombatEvent::Resolved { outcome, .. }
-                        if outcome.ability.is_none()
-                            && outcome.actor == observer
-                            && outcome.target == observer
-                            && outcome.result == crate::abilities::OutcomeStatus::Applied =>
+                CombatEvent::Resolved {
+                    outcome,
+                    strike,
+                    source_disclosure,
+                } => {
+                    outcome.ability.as_ref()?;
+                    if !receipt.participant
+                        && (receipt.source != Some(ActorReferenceKind::Creature)
+                            || receipt.target != Some(ActorReferenceKind::Creature))
                     {
-                        let crate::abilities::ResolvedEffect::ApplyCondition { id, .. } =
-                            outcome.effects.first()?
-                        else {
-                            return None;
-                        };
-                        let definition = self.content.rules.condition(id)?;
-                        Some(DisclosedCombatEvent::Condition {
-                            id: id.clone(),
-                            name: definition.name.clone(),
-                        })
+                        return None;
                     }
-                    CombatEvent::Resolved {
-                        outcome,
-                        strike,
-                        source_disclosure,
-                    } => {
-                        outcome.ability.as_ref()?;
-                        if !receipt.participant
-                            && (receipt.source != Some(ActorReferenceKind::Creature)
-                                || receipt.target != Some(ActorReferenceKind::Creature))
-                        {
-                            return None;
-                        }
-                        // A private device's hidden/contact interception is not
-                        // evidence that its initiator saw a target or an effect.
-                        if *source_disclosure != SourceAbilityDisclosure::Public
-                            && outcome.actor == observer
-                            && receipt.target != Some(ActorReferenceKind::Creature)
-                        {
-                            return None;
-                        }
-                        if *source_disclosure != SourceAbilityDisclosure::Public
-                            && receipt.disclosed_ability.is_none()
-                        {
-                            return Some(DisclosedCombatEvent::AnonymousAbility {
-                                caster: receipt.source.map(|_| outcome.actor),
-                                caster_reference: receipt.source,
-                                target: receipt.target.map(|_| outcome.target),
-                                target_reference: receipt.target,
-                                outcome: outcome.result,
-                            });
-                        }
-                        if outcome.actor != observer
-                            && receipt.source != Some(ActorReferenceKind::Creature)
-                        {
-                            return (outcome.target == observer && outcome.target_participated())
-                                .then_some(DisclosedCombatEvent::UnseenAbility {
-                                    caster: receipt.source.map(|_| outcome.actor),
-                                    target: observer,
-                                    outcome: outcome.result,
-                                });
-                        }
-                        let Some(ability) = receipt.disclosed_ability.as_ref() else {
-                            return Some(DisclosedCombatEvent::AnonymousAbility {
-                                caster: receipt.source.map(|_| outcome.actor),
-                                caster_reference: receipt.source,
-                                target: receipt.target.map(|_| outcome.target),
-                                target_reference: receipt.target,
-                                outcome: outcome.result,
-                            });
-                        };
-                        let definition = self.content.rules.ability(ability)?;
-                        Some(DisclosedCombatEvent::Ability {
+                    // A private device's hidden/contact interception is not
+                    // evidence that its initiator saw a target or an effect.
+                    if *source_disclosure != SourceAbilityDisclosure::Public
+                        && outcome.actor == observer
+                        && receipt.target != Some(ActorReferenceKind::Creature)
+                    {
+                        return None;
+                    }
+                    if *source_disclosure != SourceAbilityDisclosure::Public
+                        && receipt.disclosed_ability.is_none()
+                    {
+                        return Some(DisclosedCombatEvent::AnonymousAbility {
                             caster: receipt.source.map(|_| outcome.actor),
                             caster_reference: receipt.source,
                             target: receipt.target.map(|_| outcome.target),
                             target_reference: receipt.target,
-                            id: ability.clone(),
-                            name: definition.name.clone(),
                             outcome: outcome.result,
-                            strike: *strike,
-                        })
+                        });
                     }
-                    CombatEvent::EscapeResolved {
-                        actor,
-                        hold,
-                        success,
-                        ..
-                    } if *actor == observer => Some(DisclosedCombatEvent::EscapeResolved {
-                        hold: *hold,
-                        success: *success,
-                    }),
-                    CombatEvent::Interrupted { actor, .. } if *actor == observer => {
-                        Some(DisclosedCombatEvent::Interrupted { actor: *actor })
+                    if outcome.actor != observer
+                        && receipt.source != Some(ActorReferenceKind::Creature)
+                    {
+                        return (outcome.target == observer && outcome.target_participated())
+                            .then_some(DisclosedCombatEvent::UnseenAbility {
+                                caster: receipt.source.map(|_| outcome.actor),
+                                target: observer,
+                                outcome: outcome.result,
+                            });
                     }
-                    CombatEvent::Died { actor, cause } => {
-                        receipt.source.map(|reference| DisclosedCombatEvent::Died {
-                            actor: *actor,
-                            reference,
-                            cause: *cause,
-                        })
-                    }
-                    _ => None,
+                    let Some(ability) = receipt.disclosed_ability.as_ref() else {
+                        return Some(DisclosedCombatEvent::AnonymousAbility {
+                            caster: receipt.source.map(|_| outcome.actor),
+                            caster_reference: receipt.source,
+                            target: receipt.target.map(|_| outcome.target),
+                            target_reference: receipt.target,
+                            outcome: outcome.result,
+                        });
+                    };
+                    let definition = self.content.rules.ability(ability)?;
+                    Some(DisclosedCombatEvent::Ability {
+                        caster: receipt.source.map(|_| outcome.actor),
+                        caster_reference: receipt.source,
+                        target: receipt.target.map(|_| outcome.target),
+                        target_reference: receipt.target,
+                        id: ability.clone(),
+                        name: definition.name.clone(),
+                        outcome: outcome.result,
+                        strike: *strike,
+                    })
                 }
-            })
-            .collect()
+                CombatEvent::EscapeResolved {
+                    actor,
+                    hold,
+                    success,
+                    ..
+                } if *actor == observer => Some(DisclosedCombatEvent::EscapeResolved {
+                    hold: *hold,
+                    success: *success,
+                }),
+                CombatEvent::Interrupted { actor, .. } if *actor == observer => {
+                    Some(DisclosedCombatEvent::Interrupted { actor: *actor })
+                }
+                CombatEvent::Died { actor, cause } => {
+                    receipt.source.map(|reference| DisclosedCombatEvent::Died {
+                        actor: *actor,
+                        reference,
+                        cause: *cause,
+                    })
+                }
+                _ => None,
+            })();
+            disclosed.extend(primary);
+            if receipt.participant {
+                disclosed.extend(self.own_rattled_cue(event, observer));
+            }
+        }
+        disclosed
+    }
+
+    /// Only the recipient can feel this condition. The resolved payload has
+    /// already dropped unchanged applications (e.g. a longer existing timer).
+    fn own_rattled_cue(
+        &self,
+        event: &CombatEvent,
+        observer: ActorId,
+    ) -> Option<DisclosedCombatEvent> {
+        let CombatEvent::Resolved { outcome, .. } = event else {
+            return None;
+        };
+        if outcome.target != observer
+            || !outcome
+                .ability
+                .as_ref()
+                .is_some_and(|id| id.as_str() == "rattling_blow")
+        {
+            return None;
+        }
+        let id = outcome.effects.iter().find_map(|effect| match effect {
+            crate::abilities::ResolvedEffect::ApplyCondition { id, .. }
+                if id.as_str() == "rattled" =>
+            {
+                Some(id)
+            }
+            _ => None,
+        })?;
+        Some(DisclosedCombatEvent::Condition {
+            id: id.clone(),
+            name: self.content.rules.condition(id)?.name.clone(),
+        })
     }
 
     pub(crate) fn event_receipts_valid(&self) -> bool {

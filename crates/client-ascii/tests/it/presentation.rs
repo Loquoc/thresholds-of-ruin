@@ -237,6 +237,7 @@ fn ability_preparation_history_names_the_technique() {
         ),
     ] {
         let entry = HistoryEntry {
+            narration: vec![],
             id: EntryId("ability".into()),
             branch: BranchId("test".into()),
             actor: ActorId(1),
@@ -602,6 +603,25 @@ fn validated_lifecycle_updates_refresh_action_status_without_changing_spectator_
         };
         app.update(update(1, IntentionPhase::Queued, initial.actor))
             .unwrap();
+        let receipt = |id: &str| RequestReceipt::Admitted {
+            actor: initial.actor,
+            branch: initial.branch.clone(),
+            intention: IntentionId("original".into()),
+            entry_id: EntryId(id.into()),
+            phase: IntentionPhase::Queued,
+        };
+        let pending = |app: &App| {
+            app.intention_hint()
+                .is_some_and(|text| text.contains(tor_client_common::compositor::ACTION_PENDING))
+        };
+        assert!(!pending(&app), "an ordinary queued update stays quiet");
+        app.note_admission(&receipt("other-entry"));
+        app.input_yielded();
+        assert!(!pending(&app), "unrelated outstanding work stays quiet");
+        app.note_admission(&receipt("admission"));
+        assert!(!pending(&app), "the matching receipt alone stays quiet");
+        app.input_yielded();
+        assert_eq!(pending(&app), role == AccessRole::Player);
         let before = app.status.clone();
         assert!(app
             .update(update(2, IntentionPhase::Resolved, ActorId(999)))
@@ -666,7 +686,7 @@ fn mixed_intention_hints_and_keys_select_queue_before_paused_progress() {
                 let hint = app.intention_hint().unwrap();
                 assert!(
                     hint.starts_with(if phase == IntentionPhase::Queued {
-                        "Action queued."
+                        " F9 cancel;"
                     } else {
                         "Action suspended."
                     }),
@@ -1454,6 +1474,7 @@ fn keys_skip_an_active_journey_and_changed_observations_clear_selection() {
                     phase: TravelPhase::Active,
                 },
                 entry: Some(Box::new(HistoryEntry {
+                    narration: vec![],
                     id: EntryId("trip".into()),
                     branch: BranchId("test".into()),
                     actor: ActorId(1),

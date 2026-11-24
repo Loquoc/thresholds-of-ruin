@@ -1273,6 +1273,14 @@ class Recorder(ProcessTestCase):
         self.record_amulet_escape(server_samples)
         self.record_discovery(server_samples)
         self.record_scare_crumble(server_samples)
+        from test_living_dungeon_process import LivingDungeonProcesses
+        scroll = run_recording_case(LivingDungeonProcesses(
+            "test_paid_blind_scroll_cue_is_unchanged_in_history_after_sight_returns"),
+            "scroll_narration_samples")
+        server_samples.update({"zz.scroll_narration_" + key: value for key, value in scroll.items()})
+        server_samples["zz.ward_narration_history"] = run_recording_case(LivingDungeonProcesses(
+            "test_foreign_ward_recoil_is_persisted_without_the_other_actors_action"),
+            "ward_narration_sample")
         self.record_noticed(server_samples)
         self.record_observer_door(server_samples)
         self.record_observed_activity(server_samples)

@@ -6,6 +6,15 @@ fn menu_scenario(
     concealed_launcher: bool,
     concealed_ammunition: bool,
 ) -> crate::Scenario {
+    menu_scenario_with_launcher(ammunition, concealed_launcher, concealed_ammunition, true)
+}
+
+fn menu_scenario_with_launcher(
+    ammunition: usize,
+    concealed_launcher: bool,
+    concealed_ammunition: bool,
+    wielded: bool,
+) -> crate::Scenario {
     let mut scenario = projectile_scenario(ProjectileDeliveryKind::Launch);
     let package = scenario.package.take().unwrap();
     let mut manifest = serde_json::to_value(&package.manifest).unwrap();
@@ -17,8 +26,11 @@ fn menu_scenario(
     }
     manifest["characters"][0]["loadout"] = json!([
         {"archetype":"fixture.primary","quantity":1,"equipped_slot":0},
-        {"archetype":"fixture.secondary","quantity":1,"equipped_slot":10}
+        {"archetype":"fixture.secondary","quantity":1}
     ]);
+    if wielded {
+        manifest["characters"][0]["loadout"][1]["equipped_slot"] = json!(10);
+    }
     for index in 0..ammunition {
         let id = format!("fixture.arrow_{index}");
         let mut archetype = manifest["archetypes"]["fixture.arrow"].clone();
@@ -189,6 +201,153 @@ fn encoded_projectile_choices_page_inventory_order_without_cross_product_or_muta
     let bad = request(&wire, SOURCE, query);
     denied(&mut wire, bad, ErrorCode::InvalidRequest);
 }
+#[test]
+fn encoded_launch_menu_explains_known_missing_requirements() {
+    let expect_reason = |wire: &mut Wire, phase, expected| {
+        let before = saved(&wire.service);
+        let request = request(wire, SOURCE, query(phase));
+        let messages = wire.send(SOURCE, "requirement", request);
+        assert!(
+            messages.iter().any(|message| matches!(
+                message,
+                ServerMessage::Error { code: ErrorCode::InvalidAction, message, .. }
+                    if message == expected
+            )),
+            "{messages:?}"
+        );
+        assert_eq!(
+            saved(&wire.service),
+            before,
+            "menu guidance never mutates state"
+        );
+    };
+    let mut carrying =
+        Wire::connect(Engine::memory(menu_scenario_with_launcher(1, false, false, false)).unwrap());
+    expect_reason(
+        &mut carrying,
+        ProjectileChoicePhase::Sources {},
+        "Wield a compatible launcher before using Launch.",
+    );
+    let mut wielding = Wire::connect(Engine::memory(menu_scenario(0, false, false)).unwrap());
+    let launcher = launcher(&mut wielding);
+    expect_reason(
+        &mut wielding,
+        ProjectileChoicePhase::Ammunition { launcher },
+        "Choose available, compatible ammunition before firing.",
+    );
+    // Holding a hidden launcher type is not evidence of a known wielding option.
+    let mut hidden =
+        Wire::connect(Engine::memory(menu_scenario_with_launcher(1, true, false, false)).unwrap());
+    assert!(fetch(&mut hidden, query(ProjectileChoicePhase::Sources {}))
+        .choices
+        .is_empty());
+}
+
+#[test]
+fn encoded_launch_refusal_explains_known_operands_and_hides_unknown_types() {
+    for (wielded, concealed, expected) in [
+        (
+            false,
+            false,
+            "Wield a compatible launcher before using Launch.",
+        ),
+        (
+            true,
+            false,
+            "Choose available, compatible ammunition before firing.",
+        ),
+        (false, true, "Target is unavailable"),
+    ] {
+        let scenario = menu_scenario_with_launcher(1, concealed, false, wielded);
+        let mut wire = Wire::connect(Engine::memory(scenario).unwrap());
+        let view = wire.service.engine.observation(SOURCE).unwrap();
+        let item = |name| {
+            view.inventory
+                .iter()
+                .find(|item| item.name == name)
+                .unwrap()
+                .id
+        };
+        let launcher = item(if concealed {
+            "unknown weapon"
+        } else {
+            "secondary sword"
+        });
+        let ammunition = item(if wielded { "primary sword" } else { "arrow 0" });
+        let request = wire.request(
+            SOURCE,
+            Action::UseAbility {
+                id: "fixture.launch".into(),
+                invocation: AbilityInvocation::directional_projectile(
+                    Direction::East,
+                    ProjectileDeliverySelection::Launch {
+                        launcher: EquippedProjectileWeapon {
+                            item: launcher,
+                            socket: 10,
+                        },
+                        ammunition,
+                    },
+                ),
+                supplies: SupplySelection::Carried,
+            },
+        );
+        let before = saved(&wire.service);
+        wire.drain(TARGET);
+        let messages = wire.send(SOURCE, "try-launch", request);
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            ServerMessage::Error { request_id: Some(id), code: ErrorCode::InvalidAction, message, .. }
+                if id == "try-launch" && message == expected
+        )), "wielded={wielded} concealed={concealed}: {messages:?}");
+        assert_eq!(saved(&wire.service), before);
+        assert!(
+            wire.drain(TARGET).is_empty(),
+            "no private refusal reaches another controller"
+        );
+    }
+}
+
+#[test]
+fn encoded_equip_refusal_suggests_freeing_a_known_grip() {
+    let mut scenario = projectile_scenario(ProjectileDeliveryKind::Throw);
+    let package = scenario.package.take().unwrap();
+    let mut manifest = serde_json::to_value(&package.manifest).unwrap();
+    manifest["characters"][0]["loadout"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("equipped_slot");
+    manifest["archetypes"]["fixture.secondary"]["equipment"]["weapon_profile"]["base_traits"] =
+        json!([{"kind":"two_handed"}]);
+    scenario.package = Some(Arc::new(
+        crate::scenario_package::Package::from_parts(
+            serde_json::from_value(manifest).unwrap(),
+            package.region_defs().unwrap(),
+            &toml::to_string(package.rules().unwrap().document()).unwrap(),
+        )
+        .unwrap(),
+    ));
+    let mut wire = Wire::connect(Engine::memory(scenario).unwrap());
+    let view = wire.service.engine.observation(SOURCE).unwrap();
+    let item = view
+        .inventory
+        .iter()
+        .find(|item| item.name == "secondary sword")
+        .unwrap()
+        .id;
+    let before = saved(&wire.service);
+    let request = wire.request(SOURCE, Action::Equip { item, slot: 10 });
+    let messages = wire.send(SOURCE, "needs-a-grip", request);
+    assert!(
+        messages.iter().any(|message| matches!(
+            message,
+            ServerMessage::Error { code: ErrorCode::InvalidAction, message, .. }
+                if message.contains("Unequip another held item")
+        )),
+        "{messages:?}"
+    );
+    assert_eq!(saved(&wire.service), before);
+}
+
 #[test]
 fn encoded_projectile_choices_require_current_owner_launcher_and_controller_context() {
     let mut wire = Wire::connect(Engine::memory(menu_scenario(1, false, false)).unwrap());

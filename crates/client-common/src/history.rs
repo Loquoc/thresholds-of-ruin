@@ -16,9 +16,18 @@ fn direction_name(direction: Direction) -> &'static str {
     }
 }
 
+/// The exact wording the actor previously received, when the server recorded it.
+pub fn recorded_narration(entry: &HistoryEntry) -> Option<String> {
+    (!entry.narration.is_empty()).then(|| entry.narration.join(" "))
+}
+
 /// One history entry as a line.
 pub fn text(entry: &HistoryEntry) -> String {
+    if let Some(text) = recorded_narration(entry) {
+        return text;
+    }
     match &entry.content {
+        HistoryContent::Narration {} => "No narration was recorded.".into(),
         HistoryContent::PlaceRenamed { name, .. } => format!("Place named {}.", name),
         HistoryContent::Travel { .. } => "Travel requested.".into(),
         HistoryContent::Wizard { summary, .. } => summary.clone(),

@@ -43,29 +43,51 @@ impl Game {
         } = inputs;
         let actor = self.actors.get(&id)?;
         let view = &snapshot.view;
-        let candidate = view
-            .visible_actors
-            .iter()
-            .filter(|other| {
-                other.id != id
-                    && self.awareness_allows_target(id, other.id)
-                    && self.perceived_hostile(id, other.id, other.disclosure)
-            })
-            .min_by_key(|other| {
-                (
-                    // Rooted creatures cannot rank foes by pursuit distance:
-                    // every off-cell route is unavailable. Prefer disclosed
-                    // contact before the existing route/identity tie-breaks.
-                    !has_retained
-                        && actor.locomotion().stationary
-                        && !self.attack_available_in_scene(id, other.id, &snapshot.sight),
-                    route(other.location).map_or(usize::MAX, |r| r.len()),
-                    other.id,
-                )
-            });
+        let eligible = |other: &&crate::observation::ActorView| {
+            other.id != id
+                && self.awareness_allows_target(id, other.id)
+                && self.perceived_hostile(id, other.id, other.disclosure)
+        };
+        let refresh = !has_retained && self.condition_allows_voluntary_input(id);
+        // A periodic wanderer acquires the protagonist on sight, independent
+        // of its species disposition or its anonymous spawn-time lead.
+        let wandering_target = if refresh && policy.memory_ticks > 0 {
+            self.wandering_pursuit_target(id)
+                .filter(|target| {
+                    behavior
+                        .engagement
+                        .is_none_or(|entry| entry.target != *target)
+                })
+                .and_then(|target| {
+                    view.visible_actors.iter().find(|other| {
+                        other.id == target
+                            && eligible(other)
+                            && self.actor_visible_in_sight(id, target, &snapshot.sight)
+                    })
+                })
+        } else {
+            None
+        };
+        let candidate = wandering_target.or_else(|| {
+            view.visible_actors
+                .iter()
+                .filter(eligible)
+                .min_by_key(|other| {
+                    (
+                        // Rooted creatures cannot rank foes by pursuit distance:
+                        // every off-cell route is unavailable. Prefer disclosed
+                        // contact before the existing route/identity tie-breaks.
+                        !has_retained
+                            && actor.locomotion().stationary
+                            && !self.attack_available_in_scene(id, other.id, &snapshot.sight),
+                        route(other.location).map_or(usize::MAX, |r| r.len()),
+                        other.id,
+                    )
+                })
+        });
         // Retained work resumes its frozen operands; it does not acquire a new
         // enemy, refresh memory or reroll a sensory cue.
-        if !has_retained && self.condition_allows_voluntary_input(id) {
+        if refresh {
             if let Some(engagement) = behavior.engagement.as_mut() {
                 if let Some(visible) = view.visible_actors.iter().find(|other| {
                     other.id == engagement.target
@@ -80,26 +102,25 @@ impl Game {
             }
             // A greedy species pursues known Gold it can safely collect and
             // acquires a visible hostile only when there is none.
-            let acquires = match policy.disposition {
-                crate::behavior::Disposition::Passive => false,
-                crate::behavior::Disposition::Mean => true,
-                crate::behavior::Disposition::Greedy => {
-                    self.exposed_to_visible_hostile(id, view.location, view)
-                        || !gold_choice.has_action_or_choose(|| {
-                            self.choose_known_gold(id, view, &ai.profile, route)
-                        })
-                }
-            };
+            let acquires = wandering_target.is_some()
+                || match policy.disposition {
+                    crate::behavior::Disposition::Passive => false,
+                    crate::behavior::Disposition::Mean => true,
+                    crate::behavior::Disposition::Greedy => {
+                        self.exposed_to_visible_hostile(id, view.location, view)
+                            || !gold_choice.has_action_or_choose(|| {
+                                self.choose_known_gold(id, view, &ai.profile, route)
+                            })
+                    }
+                };
             if behavior.engagement.is_none() && policy.memory_ticks > 0 && acquires {
                 if let Some(visible) = candidate {
-                    {
-                        behavior.engagement = Some(crate::behavior::Engagement {
-                            target: visible.id,
-                            reference: visible.disclosure.reference().expect("disclosed foe"),
-                            location: visible.location,
-                            last_seen: self.actor_clock(id),
-                        });
-                    }
+                    behavior.engagement = Some(crate::behavior::Engagement {
+                        target: visible.id,
+                        reference: visible.disclosure.reference().expect("disclosed foe"),
+                        location: visible.location,
+                        last_seen: self.actor_clock(id),
+                    });
                 }
             }
         }

@@ -19,6 +19,8 @@ pub enum Event {
     ChartPresentation(tor_client_common::charts::ChartPresentation),
     ChartCancelled(chart_pages::ChartQuery),
     Status(String),
+    Admission(tor_protocol::RequestReceipt),
+    InputYield,
     /// The server refused a request, in the player's words.
     Refused(String),
     Ready,
@@ -375,6 +377,12 @@ async fn next_with_chart_timeout(
         }
         publish_chart_result(was_loading, &connection.charts, &message, tx)?;
         publish_palette_change(shown, &connection.palette, tx)?;
+        if matches!(&message, ServerMessage::Waiting { on }
+            if tor_client_common::compositor::is_input_yield(*on))
+            && connection.is_synchronized()
+        {
+            publish(tx, Event::InputYield)?;
+        }
         return Ok(message);
     }
 }
@@ -477,6 +485,12 @@ async fn transact_observation_result(
             observed |= connection.completed_observation_request(&id, &message);
             let completion = pending.observe(connection, &message);
             let complete = completion.is_some();
+            if let Some(tor_client_common::RequestCompletion::Reply(
+                tor_client_common::ConfirmedReply::Receipt(receipt @ tor_protocol::RequestReceipt::Admitted { .. }),
+            )) = completion.as_ref()
+            {
+                publish(tx, Event::Admission((*receipt).clone()))?;
+            }
             let unknown = matches!(completion, Some(tor_client_common::RequestCompletion::Unknown));
             let stale_preview = refresh_preview && complete && matches!(&message, ServerMessage::Error {
                 code: ErrorCode::StaleRevision | ErrorCode::StaleContext | ErrorCode::WrongBranch, ..
@@ -541,12 +555,9 @@ fn present(message: ServerMessage, tx: &SyncSender<Event>) -> Result<(), Error> 
         ServerMessage::Update { update } => publish(tx, Event::Update(update)),
         ServerMessage::Snapshot { snapshot, .. } => publish(tx, Event::Snapshot(snapshot)),
         ServerMessage::Ack {
-            receipt: tor_protocol::RequestReceipt::Admitted { phase, .. },
+            receipt: tor_protocol::RequestReceipt::Admitted { .. },
             ..
-        } => publish(
-            tx,
-            Event::Status(tor_client_ascii::phase_status(phase).into()),
-        ),
+        } => Ok(()),
         ServerMessage::Ack {
             receipt: tor_protocol::RequestReceipt::Immediate { .. },
             ..
@@ -1179,12 +1190,10 @@ mod tests {
                 };
                 if match event {
                     Event::Fatal(error) => panic!("stale query became a fatal error: {error}"),
-                    Event::Status(status)
-                        if movement
-                            && status == tor_client_ascii::phase_status(IntentionPhase::Queued) =>
-                    {
-                        true
-                    }
+                    Event::Admission(tor_protocol::RequestReceipt::Admitted {
+                        phase: IntentionPhase::Queued,
+                        ..
+                    }) if movement => true,
                     Event::Refused(status) if movement => {
                         panic!("display-only update incorrectly refused queued movement: {status}")
                     }

@@ -1281,11 +1281,14 @@ impl Engine {
                 if execution.intention.origin == tor_simulation::IntentionOrigin::Human {
                     use tor_simulation::{abilities::RuleError, GameError};
                     let reason = match error {
-                        GameError::Rule(RuleError::Unfunded) => Some(IntentionFailure::Unfunded),
-                        GameError::Rule(RuleError::CoolingDown) => {
-                            Some(IntentionFailure::CoolingDown)
+                        GameError::Rule(RuleError::Unfunded) => {
+                            Some(OwnerIntentionFailure::Status(IntentionFailure::Unfunded))
                         }
-                        _ => None,
+                        GameError::Rule(RuleError::CoolingDown) => {
+                            Some(OwnerIntentionFailure::Status(IntentionFailure::CoolingDown))
+                        }
+                        _ => Failure::disclosed_action_refusal(error)
+                            .map(OwnerIntentionFailure::Requirement),
                     };
                     intention_failure = reason.map(|reason| (admission.clone(), reason));
                 }

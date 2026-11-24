@@ -285,6 +285,7 @@ fn hold_escape_modal_draws_the_selected_row_and_scrolls_with_long_offers() {
 #[test]
 fn hold_escape_history_keeps_the_start_generic() {
     let entry = HistoryEntry {
+        narration: vec![],
         id: EntryId("escape-entry".into()),
         branch: BranchId("holds".into()),
         actor: ActorId(1),

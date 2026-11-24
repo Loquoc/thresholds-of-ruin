@@ -153,17 +153,24 @@ async fn query(
                     return;
                 }
             }
-            if let ServerMessage::ProjectileChoices {
-                context,
-                request_id,
-                page,
-            } = message
-            {
-                if request_id == id {
+            match message {
+                ServerMessage::ProjectileChoices {
+                    context,
+                    request_id,
+                    page,
+                } if request_id == id => {
                     if let Err(reason) = m.accept(&connection.state, context, id, page) {
                         refused = Some(reason);
                     }
                 }
+                ServerMessage::Error {
+                    request_id: Some(request_id),
+                    message,
+                    ..
+                } if request_id == id => {
+                    refused = Some(message.clone());
+                }
+                _ => {}
             }
         },
     )

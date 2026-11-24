@@ -167,8 +167,6 @@ pub fn lines(state: &ClientState, activities: &[&str]) -> [String; 2] {
                 }
                 .into(),
             );
-        } else if combat.recovery_remaining > 0 {
-            second.push("Recovering".into());
         }
     }
     if state
@@ -199,6 +197,15 @@ mod tests {
         }))
         .unwrap();
         ClientState::from_snapshot(snapshot).unwrap()
+    }
+
+    #[test]
+    fn live_rows_keep_health_readable_during_routine_recovery() {
+        let mut observation = crate::test_support::observation();
+        observation.tick = 42;
+        observation.combat.as_mut().unwrap().recovery_remaining = 37;
+        let [_, second] = lines(&state(observation, false), &[]);
+        assert_eq!(second, "HP:12(12)  Gold:0  T:42");
     }
 
     #[test]

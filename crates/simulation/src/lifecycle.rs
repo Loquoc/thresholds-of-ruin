@@ -594,8 +594,21 @@ impl Game {
         transfer: Option<crate::theft::TransferReceipt>,
         disclosure_origin: Option<crate::event_history::EventOrigin>,
     ) -> Result<PublishedResolution, GameError> {
-        let disclosure_origin = disclosure_origin
+        let mut disclosure_origin = disclosure_origin
             .unwrap_or_else(|| self.capture_event_origin(outcome.actor, outcome.target));
+        if outcome
+            .ability
+            .as_ref()
+            .is_some_and(|id| id.as_str() == "rattling_blow")
+            && self
+                .actors
+                .get(&outcome.target)
+                .is_some_and(|target| !target.perception().sight)
+        {
+            // A blind recipient can feel this contact, but not identify the
+            // attacker's technique from the body's near-field presence.
+            disclosure_origin.cap_contact_source();
+        }
         let recorded_transfer = outcome.effects.iter().find_map(|effect| match effect {
             ResolvedEffect::Theft { quantity, .. } => Some(*quantity),
             _ => None,

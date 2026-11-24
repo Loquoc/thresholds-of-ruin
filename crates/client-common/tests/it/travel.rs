@@ -24,6 +24,7 @@ fn update(sequence: u64, steps: u64, phase: TravelPhase, entry: bool) -> StreamU
             },
             entry: entry.then(|| {
                 Box::new(HistoryEntry {
+                    narration: vec![],
                     id: EntryId("trip".into()),
                     branch: BranchId("branch".into()),
                     actor: ActorId(1),

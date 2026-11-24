@@ -32,14 +32,16 @@ class RogueLivingDungeonContent(unittest.TestCase):
                 "kind": "aggravation", "interval": 500, "chance_denominator": 3, "stealth_disadvantage": 1}}}])
         self.assertEqual(items["rogue.ring_aggravation"]["equipment_generation"], {"kind": "cursed"})
 
-    def test_five_control_scrolls_are_finite_and_scare_has_no_check_operand(self):
+    def test_five_control_scrolls_are_finite_and_scare_is_authored_in_every_variant(self):
         items, manifest = source("catalog/items.toml")["items"], source("scenario.toml")
         expected = {
             "aggravate_monster": {"kind": "aggravate"},
             "create_monster": {"kind": "create_monster"},
             "hold_monster": {"kind": "hold_nearby", "condition": "rogue.held", "duration": 1000, "radius": 2},
             "monster_confusion": {"kind": "arm_confusion", "condition": "rogue.potion_confusion", "duration": 2000},
-            "scare_monster": {"kind": "nothing"},
+            "scare_monster": {"kind": "scare_visible",
+                              "fear": {"condition": "rogue.scared", "duration": 1000},
+                              "wake_conditions": ["rogue.sleep", "rogue.frozen"]},
         }
         for name, control in expected.items():
             item = items["rogue." + name]
@@ -51,6 +53,12 @@ class RogueLivingDungeonContent(unittest.TestCase):
                 self.assertNotIn("rogue." + name, [v["archetype"] for v in character["loadout"]])
         self.assertEqual(items["rogue.scare_monster"]["ground_scare"], {
             "condition": "rogue.scared", "duration": 1000})
+        for variant in ("rogue", "peaceful-menagerie"):
+            with self.subTest(variant=variant):
+                catalog = ROOT.parent / variant / "catalog/items.toml"
+                other = tomllib.loads(catalog.read_text(encoding="utf-8"))["items"]
+                self.assertEqual(other["rogue.scare_monster"]["readable"],
+                                 items["rogue.scare_monster"]["readable"])
         stage = manifest["floor_activation"]["profiles"]["rogue.low_depth"]["stages"][12]
         self.assertEqual(stage, {"id": "rogue.control_scrolls", "version": 1, "kind": "items",
             "count": [1, 1], "quantity": 1, "bands": [{"depth": {"kind": "open", "minimum": 1},

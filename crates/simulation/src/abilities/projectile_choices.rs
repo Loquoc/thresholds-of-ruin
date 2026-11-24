@@ -4,7 +4,7 @@ use super::{EquippedProjectileWeapon, ProjectileDeliverySelection, ThrownSourceS
 use crate::content_ids::AbilityId;
 use crate::projectile_profiles::ProjectileDeliveryKind;
 use crate::weapon_profiles::EffectiveWeaponProfile;
-use crate::{ActorId, EquipmentSlotId, Game, ItemId, ItemLocation};
+use crate::{ActionRequirement, ActorId, EquipmentSlotId, Game, GameError, ItemId, ItemLocation};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectileChoiceQuery {
@@ -66,6 +66,117 @@ impl Game {
         }
         self.projectile_item_profile(actor, weapon.item)
     }
+    fn carried_projectile_unit_available(&self, actor: ActorId, item: ItemId) -> bool {
+        self.items.get(&item).is_some_and(|item| {
+            item.location == ItemLocation::Carried(actor)
+                && item
+                    .free_quantity(None)
+                    .is_some_and(|quantity| quantity > 0)
+        })
+    }
+
+    fn available_ammunition(
+        &self,
+        actor: ActorId,
+        ammunition: ItemId,
+    ) -> Option<&crate::projectile_profiles::ProjectileSpec> {
+        let item = self.items.get(&ammunition)?;
+        let payload = item.spec.projectile.as_ref()?;
+        let owner = self.actors.get(&actor)?;
+        (item.location == ItemLocation::Carried(actor)
+            && item
+                .free_quantity(None)
+                .is_some_and(|quantity| quantity > 0)
+            && !owner.equipment.values().any(|item| *item == ammunition))
+        .then_some(payload)
+    }
+
+    fn equipped_launcher(
+        &self,
+        actor: ActorId,
+        launcher: EquippedProjectileWeapon,
+    ) -> Option<crate::weapon_profiles::LauncherProfile> {
+        self.projectile_equipped_profile(actor, launcher)?
+            .launcher()
+            .cloned()
+    }
+
+    fn launch_requirements(
+        &self,
+        actor: ActorId,
+        launcher: EquippedProjectileWeapon,
+        ammunition: ItemId,
+    ) -> Result<(), ActionRequirement> {
+        let profile = self
+            .equipped_launcher(actor, launcher)
+            .ok_or(ActionRequirement::WieldLauncher)?;
+        self.available_ammunition(actor, ammunition)
+            .filter(|payload| payload.compatible_with(&profile))
+            .map(|_| ())
+            .ok_or(ActionRequirement::CompatibleAmmunition)
+    }
+
+    fn knows_carried_projectile_type(&self, actor: ActorId, item: ItemId) -> bool {
+        self.items.get(&item).is_some_and(|item| {
+            item.location == ItemLocation::Carried(actor)
+                && (!item.spec.concealed
+                    || self
+                        .actors
+                        .get(&actor)
+                        .is_some_and(|owner| owner.knowledge.contains(&item.spec.identity)))
+        })
+    }
+
+    /// This is a positive hint about a known item, not a census of inventory.
+    /// Unidentified types and false or stale item references imply no hint.
+    pub fn known_unwielded_launcher(&self, actor: ActorId, item: ItemId) -> bool {
+        self.knows_carried_projectile_type(actor, item)
+            && self
+                .actors
+                .get(&actor)
+                .is_some_and(|owner| !owner.equipment.values().any(|equipped| *equipped == item))
+            && self
+                .projectile_item_profile(actor, item)
+                .is_some_and(|profile| profile.launcher().is_some())
+    }
+
+    /// Explain only requirements the owner could infer from known carried
+    /// types. The structural result does not consult curses, numeric item
+    /// details, a target or a collision.
+    pub(super) fn check_projectile_source(
+        &self,
+        actor: ActorId,
+        selection: ProjectileDeliverySelection,
+    ) -> Result<(), GameError> {
+        if let ProjectileDeliverySelection::Launch {
+            launcher,
+            ammunition,
+        } = selection
+        {
+            return self
+                .launch_requirements(actor, launcher, ammunition)
+                .map_err(|reason| {
+                    let disclosed = match reason {
+                        ActionRequirement::WieldLauncher => {
+                            self.known_unwielded_launcher(actor, launcher.item)
+                        }
+                        ActionRequirement::CompatibleAmmunition => {
+                            self.knows_carried_projectile_type(actor, launcher.item)
+                                && self.knows_carried_projectile_type(actor, ammunition)
+                        }
+                    };
+                    if disclosed {
+                        GameError::ActionRequirement(reason)
+                    } else {
+                        GameError::ItemUnavailable
+                    }
+                });
+        }
+        self.projectile_source_eligible(actor, selection)
+            .then_some(())
+            .ok_or(GameError::ItemUnavailable)
+    }
+
     /// Shared with fresh capture. Curse, enchantments, funding, targets and future
     /// collisions cannot change this capability decision.
     pub(super) fn projectile_source_eligible(
@@ -76,19 +187,11 @@ impl Game {
         if !selection.valid() {
             return false;
         }
-        let free = |id| {
-            self.items.get(&id).is_some_and(|item| {
-                item.location == ItemLocation::Carried(actor)
-                    && item
-                        .free_quantity(None)
-                        .is_some_and(|quantity| quantity > 0)
-            })
-        };
         match selection {
             ProjectileDeliverySelection::Throw {
                 source: ThrownSourceSelection::Equipped { item, socket },
             } => {
-                free(item)
+                self.carried_projectile_unit_available(actor, item)
                     && self
                         .projectile_equipped_profile(
                             actor,
@@ -99,7 +202,7 @@ impl Game {
             ProjectileDeliverySelection::Throw {
                 source: ThrownSourceSelection::Carried { item, socket },
             } => {
-                free(item)
+                self.carried_projectile_unit_available(actor, item)
                     && self
                         .projectile_item_profile(actor, item)
                         .is_some_and(|profile| profile.thrown().is_some())
@@ -111,20 +214,13 @@ impl Game {
                 launcher,
                 ammunition,
             } => {
-                free(ammunition)
-                    && self
-                        .actors
-                        .get(&actor)
-                        .is_some_and(|owner| !owner.equipment.values().any(|id| *id == ammunition))
-                    && self
-                        .projectile_equipped_profile(actor, launcher)
-                        .and_then(|profile| profile.launcher().cloned())
-                        .is_some_and(|launcher| {
-                            self.items
-                                .get(&ammunition)
-                                .and_then(|item| item.spec.projectile.as_ref())
-                                .is_some_and(|payload| payload.compatible_with(&launcher))
-                        })
+                // Menu scans inspect many unrelated carried rows. Eliminate
+                // those cheaply before materializing the launcher profile.
+                self.available_ammunition(actor, ammunition)
+                    .is_some_and(|payload| {
+                        self.equipped_launcher(actor, launcher)
+                            .is_some_and(|profile| payload.compatible_with(&profile))
+                    })
             }
         }
     }

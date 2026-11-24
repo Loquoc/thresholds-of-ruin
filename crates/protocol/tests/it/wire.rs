@@ -55,7 +55,7 @@ fn history_actions_preserve_the_tagged_wire_shape_and_validate_event_payload() {
 
 #[test]
 fn current_wire_protocol_revision_is_explicitly_pinned() {
-    assert_eq!(PROTOCOL_VERSION, 74);
+    assert_eq!(PROTOCOL_VERSION, 75);
 }
 
 #[test]
@@ -534,7 +534,7 @@ fn immediate_completion_is_distinct_from_admitted_gameplay() {
 #[test]
 fn readiness_is_required_and_does_not_accept_extra_authority() {
     let samples = crate::fixture::load(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v74.json"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/wire-v75.json"),
         tor_protocol::PROTOCOL_VERSION,
     )
     .expect("regenerate current wire samples");
@@ -869,5 +869,31 @@ fn anonymous_ability_feedback_requires_complete_named_identity_free_fields() {
             serde_json::from_str::<CombatEventView>(raw).is_err(),
             "{raw}"
         );
+    }
+}
+
+#[test]
+fn history_narration_is_literal_and_bounded() {
+    let mut entry = serde_json::json!({
+        "id": "heard-while-blind",
+        "branch": "main",
+        "actor": "1",
+        "tick": "123",
+        "author": {"type": "backend", "component": "fixture"},
+        "audience": "actor",
+        "content": {"type": "action", "action": {"type": "wait"}, "event": {"type": "waited"}},
+        "narration": ["Your hands begin to tingle."]
+    });
+    let decoded: HistoryEntry = serde_json::from_value(entry.clone()).unwrap();
+    assert_eq!(decoded.narration, ["Your hands begin to tingle."]);
+    assert_eq!(serde_json::to_value(decoded).unwrap(), entry);
+    for bad in [
+        serde_json::json!(["bad\nline"]),
+        serde_json::json!(["   "]),
+        serde_json::json!(["x".repeat(513)]),
+        serde_json::json!(vec!["x"; MAX_HISTORY_NARRATION_LINES + 1]),
+    ] {
+        entry["narration"] = bad;
+        assert!(serde_json::from_value::<HistoryEntry>(entry.clone()).is_err());
     }
 }

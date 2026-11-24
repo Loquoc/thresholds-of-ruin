@@ -304,6 +304,23 @@ Earlier stage IDs, order and choices remain unchanged, preserving their
 independent generation streams. The four alteration scrolls use `discovery = "never"`; the two class-identification scrolls use
 `discovery = "on_use"` and no direct effects.
 
+## Explaining unavailable actions
+
+Launch menus and refused attempts use the same launcher and ammunition
+requirements. A known carried launcher must be wielded, and a wielded launcher
+needs an available compatible stack. A later page with no rows does not mean
+the inventory has no usable ammunition: continue paging or return to the
+earlier choices. A known weapon that cannot be equipped for lack of grip
+capacity reports the grip requirement and suggests removing held equipment.
+
+The server explains only what the owner can know. Unknown item types, unknown
+charges or curses, stale handles, and undisclosed targets do not get more
+specific refusals. Ordinary use menus for eating, drinking, reading and zapping
+still use the disclosed interaction offers; the absence of an offer is not a
+reason to infer the item's type. Cost, timing and cooldown are checked
+separately for the exact ability. This does not add a separate requirement
+diagnosis for every unavailable consumable, ability, or equipment slot.
+
 ## Paid item work and finite supply claims
 
 One unit of a supply stack provides one unit of its named supply. Supply identity

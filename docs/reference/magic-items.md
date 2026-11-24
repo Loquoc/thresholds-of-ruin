@@ -314,7 +314,7 @@ attempt per first-entered floor; its five equal weights are provisional tuning.
 | Create monster | One depth-appropriate prepared creature in a legal adjacent horizontal cell, without birth loot. Failed placement still consumes the scroll. Created creatures neither consume wandering slots nor obey the eight-live-wanderer cap. |
 | Hold monster | Intellect + Lore against each engaged, disclosed hostile's Spiritual Defense within two horizontal cells and unobstructed sight. An ordinary actor-active condition denies voluntary actions and pauses preparations; a committed hostile attack attempt releases it whether the attempt hits or misses. |
 | Monster confusion | Arms one next-successful-physical-hit charge. Misses retain it; the first successful natural, selected-melee or projectile primary consumes it, including when the mental application is resisted. Another read replaces rather than banks a charge. Delivery uses Intellect + Lore against Spiritual Defense and the same ordinary Confused movement condition as the PC's confusion potion. |
-| Scare monster | Reading wastes one unit. Its useful capability belongs to an occupied ground scroll, described below. |
+| Scare monster | An ordinary read checks Intellect + Lore against Spiritual Defense for susceptible monsters on physically visible squares and starts finite flight on success. A cursed scroll or confused reader instead ends flight and removes ordinary sleep and freeze. Hallucination does not change the effect. |
 
 Authored spells, rays and gaze attacks are not physical-hit delivery. Multi-strike
 sequences test each committed primary in order; riders do not spend another charge.
@@ -329,6 +329,10 @@ roll**; ordinary mind-affecting immunity remains effective. The objective retain
 the scroll location, not its occupant's identity. It neither cancels magical sleep
 nor activates an intact stationary Xeroc ambush, and it does not lock player input.
 The ordinary Flee policy prefers retreat but can defend when cornered.
+The grounded recoil cue requires sight of the creature and uses its appearance
+at that moment. The separate reading cue gives only the sound and coarse
+distance, even when a nearby creature is itself unseen on a visible square.
+Both cues are retained as perceived, not reinterpreted by later senses.
 
 An exact scroll/recipient approach triggers at most once. Remaining adjacent,
 changing occupants, querying, reconnecting or restoring cannot reroll or refresh

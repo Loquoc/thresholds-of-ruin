@@ -188,21 +188,17 @@ impl Game {
                     };
                     *item = singleton;
                 }
-                // Capture identification before an exact last unit disappears. Effects
-                // may kill the drinker and drop only the unconsumed remainder.
-                let consumed_identity = match &resolved.plan {
+                // Capture identity and the exact source's curse before its last
+                // unit can disappear. Effects may also kill the consumer.
+                let (consumed_identity, source_cursed) = match &resolved.plan {
                     crate::abilities::Plan::Read { item, .. }
                     | crate::abilities::Plan::Zap { item, .. }
                     | crate::abilities::Plan::Drink { item, .. }
-                    | crate::abilities::Plan::Eat { item, .. } => Some(
-                        self.items
-                            .get(item)
-                            .ok_or(GameError::ItemUnavailable)?
-                            .spec
-                            .identity
-                            .clone(),
-                    ),
-                    _ => None,
+                    | crate::abilities::Plan::Eat { item, .. } => {
+                        let source = self.items.get(item).ok_or(GameError::ItemUnavailable)?;
+                        (Some(source.spec.identity.clone()), source.condition.cursed)
+                    }
+                    _ => (None, false),
                 };
                 let drain_refused = matches!(&resolved.plan, crate::abilities::Plan::Zap { charges, .. } if *charges > 0)
                     && resolved
@@ -381,7 +377,7 @@ impl Game {
                         else {
                             unreachable!("control read")
                         };
-                        let effective = self.resolve_control_read(id, control)?;
+                        let effective = self.resolve_control_read(id, control, source_cursed)?;
                         self.finish_item_work(
                             id,
                             &resolved.plan,
@@ -464,6 +460,9 @@ impl Game {
                                 )),
                             consumed_identity,
                         )?;
+                        if matches!(&resolved.plan, crate::abilities::Plan::Read { .. }) {
+                            self.narrate_read_effects(id, &outcome.outcome)?;
+                        }
                         self.finish_combat_diagnostic(diagnostic, outcome.outcome);
                     }
                     Work::Equip { .. }

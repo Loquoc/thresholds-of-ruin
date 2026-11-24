@@ -22,6 +22,7 @@ fn note(sequence: u64) -> StreamUpdate {
         cursor: StreamCursor { sequence, tick: 0 },
         body: UpdateBody::Annotation {
             entry: Box::new(HistoryEntry {
+                narration: vec![],
                 id: EntryId("note-1".into()),
                 actor: ActorId(1),
                 branch: BranchId("branch-1".into()),

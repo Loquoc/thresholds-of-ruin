@@ -4,6 +4,16 @@ use tor_protocol::{
     StreamContext, UpdateBody,
 };
 
+pub const ACTION_PENDING: &str = "Your action is still pending.";
+
+pub fn is_input_yield(waiting: tor_protocol::Waiting) -> bool {
+    use tor_protocol::Waiting;
+    matches!(
+        waiting,
+        Waiting::Others | Waiting::Unclaimed | Waiting::Paused
+    )
+}
+
 /// Wait for this admission to leave the queue and disclose its resulting input
 /// permissions. This does not wait out timed preparation or infer its outcome.
 /// Call only with messages already validated and applied by the connection.
@@ -60,6 +70,20 @@ impl AdmissionBoundary {
     /// a Started envelope alone must never settle a newly ready observation.
     pub fn settled(&self) -> bool {
         self.execution_stopped && self.permissions_received
+    }
+
+    /// Only this exact admitted work, on the current controlled attachment.
+    pub fn remains_queued(&self, state: &crate::ClientState) -> bool {
+        state.has_control()
+            && state.actor() == self.actor
+            && state.branch() == &self.branch
+            && state.intentions().iter().any(|status| {
+                status.actor == self.actor
+                    && status.branch == self.branch
+                    && status.intention == self.intention
+                    && status.entry_id == self.entry_id
+                    && status.phase == IntentionPhase::Queued
+            })
     }
 
     /// Consume a message already validated and applied by the connection.
