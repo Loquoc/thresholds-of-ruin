@@ -155,7 +155,7 @@ def melee_score(item: Item) -> float:
 
 def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
     slot = next((s for s in turn.equipment if s.kind == "weapon"), None)
-    if slot is None or slot.removal_blocked:
+    if slot is None or (slot.removal_blocked and turn.hostiles):
         return None
     worn = slot.occupant
     choices = [c for c in turn.equip_choices() if c.slot is slot and not c.item.known_cursed]
@@ -173,6 +173,11 @@ def ready_weapon(turn: Turn, *, bow: bool) -> tuple[Action, str] | None:
                 choice = candidate
                 best_score = score
     if choice is None:
+        return None
+    if slot.removal_blocked:
+        for item in turn.inventory:
+            if item.identity == "item.scroll.remove-curse" and ItemUse.READ in item.uses:
+                return UseItem(item, ItemUse.READ), "remove_weapon_curse"
         return None
     if worn:
         return Unequip(slot), "change_weapon"

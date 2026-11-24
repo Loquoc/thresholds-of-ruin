@@ -1741,13 +1741,17 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_player_identifies_ground_long_sword_and_upgrades_primary_weapon(self):
         self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43)
 
+    def test_player_lifts_a_weapon_curse_then_equips_the_ground_upgrade(self):
+        self.check_ground_gear("weapon", "rogue.shortbow", "rogue.long_sword", 43, cursed_start=True)
+
     def test_player_equips_unmeasured_plate_without_an_identification_scroll(self):
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, identify=False)
 
     def test_player_protects_an_identified_upgrade_against_rust(self):
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, protect=True)
 
-    def check_ground_gear(self, category, starting, found, seed, *, cursed=False, identify=True, protect=False):
+    def check_ground_gear(self, category, starting, found, seed, *, cursed=False, identify=True, protect=False,
+                          cursed_start=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1763,6 +1767,11 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         character["loadout"] = [
             {"archetype": starting, "quantity": 1, "equipped_slot": 2 if category == "armor" else 0},
         ]
+        if cursed_start:
+            archetypes[starting]["equipment_generation"] = {
+                "kind": "weapon", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}
+            character["known_identities"].append("item.scroll.remove-curse")
+            character["loadout"].append({"archetype": "rogue.remove_curse", "quantity": 1})
         if identify:
             character["loadout"].append({"archetype": f"rogue.identify_{category}", "quantity": 2})
         if protect:
@@ -1781,6 +1790,8 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         rows = [json.loads(line) for line in run.stdout.splitlines()]
         actions = [row["action"]["type"] for row in rows if "action" in row]
         self.assertEqual("identify" in actions, identify)
+        if cursed_start:
+            self.assertIn("remove_weapon_curse", [row.get("reason") for row in rows])
         if not identify:
             self.assertIn("try_armor", [row.get("reason") for row in rows])
         if protect:
