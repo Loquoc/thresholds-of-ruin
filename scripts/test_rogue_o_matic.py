@@ -385,6 +385,19 @@ class RogueOMaticPolicyTests(unittest.TestCase):
         turn = picture()
         self.assertEqual(choose(player, turn), (Equip(turn.inventory[2], turn.equipment[0]), "equip_melee"))
 
+        # Enchant the chosen upgrade after the swap has completed.
+        inventory.append({"id": "scroll", "identity": "item.scroll.enchant-weapon", "identified": True,
+                          "name": "enchant weapon", "class": "scroll", "quantity": 1})
+        offers.append({"item": "scroll", "readable": True})
+        offers[1]["equipped_slot"] = 0
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Unequip(turn.equipment[0]), "change_weapon"))
+        del offers[1]["equipped_slot"]
+        turn = picture()
+        self.assertEqual(choose(player, turn), (Equip(turn.inventory[2], turn.equipment[0]), "equip_melee"))
+        offers[2]["equipped_slot"] = 0
+        self.assertEqual(choose(player, picture())[1], "enchant_weapon")
+
     def test_short_ring_detour_requires_an_upgrade_over_the_worn_ring(self):
         here, near = cell("exit", down=True), cell("ring", 1)
         slot = {"id": "ring", "name": "Finger"}

@@ -1743,6 +1743,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
     def test_player_identifies_ground_long_sword_and_upgrades_primary_weapon(self):
         self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43)
 
+    def test_player_enchants_the_ground_weapon_upgrade_after_equipping_it(self):
+        self.check_ground_gear("weapon", "rogue.mace", "rogue.long_sword", 43, enchant_weapon=True)
+
     def test_player_lifts_a_weapon_curse_then_equips_the_ground_upgrade(self):
         self.check_ground_gear("weapon", "rogue.shortbow", "rogue.long_sword", 43, cursed_start=True)
 
@@ -1753,7 +1756,7 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         self.check_ground_gear("armor", "rogue.ring_mail", "rogue.plate_mail", 43, protect=True)
 
     def check_ground_gear(self, category, starting, found, seed, *, cursed=False, identify=True, protect=False,
-                          cursed_start=False):
+                          cursed_start=False, enchant_weapon=False):
         from discovery_package import write_package
         from utility_potions_package import fixture
 
@@ -1769,6 +1772,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         character["loadout"] = [
             {"archetype": starting, "quantity": 1, "equipped_slot": 2 if category == "armor" else 0},
         ]
+        if enchant_weapon:
+            character["known_identities"].append("item.scroll.enchant-weapon")
+            character["loadout"].append({"archetype": "rogue.enchant_weapon", "quantity": 1})
         if cursed_start:
             archetypes[starting]["equipment_generation"] = {
                 "kind": "weapon", "curse_percent": 100, "enchant_percent": 0, "minimum": 1, "maximum": 1}
@@ -1792,6 +1798,9 @@ with Session.connect(sys.argv[1], os.environ["TOR_SERVER_TOKEN"], 1) as game:
         rows = [json.loads(line) for line in run.stdout.splitlines()]
         actions = [row["action"]["type"] for row in rows if "action" in row]
         self.assertEqual("identify" in actions, identify)
+        if enchant_weapon:
+            reasons = [row.get("reason") for row in rows]
+            self.assertLess(reasons.index("equip_melee"), reasons.index("enchant_weapon"))
         if cursed_start:
             self.assertIn("remove_weapon_curse", [row.get("reason") for row in rows])
         if not identify:

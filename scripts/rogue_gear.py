@@ -155,6 +155,8 @@ def improve_worn_gear(turn: Turn) -> tuple[Action, str] | None:
             return UseItem(enchant, ItemUse.READ), "enchant_armor"
     primary = next((s.occupant for s in turn.equipment if s.kind == "weapon"), None)
     if primary and primary.identity in MELEE_WEAPONS and (scroll := scrolls.get("item.scroll.enchant-weapon")):
+        if upgrade := ready_weapon(turn, bow=False):
+            return upgrade
         return UseItem(scroll, ItemUse.READ), "enchant_weapon"
     return None
 
