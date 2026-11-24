@@ -1,7 +1,7 @@
 """Purchased starter techniques and real injury care in ordinary Rogue play.
 
-The production package, its seed and disclosed cells are the only setup. These
-bounded examples establish usable content, not numerical balance or pacing.
+The stock package uses a pinned route entry with unchanged creatures and rules.
+These bounded examples establish usable content, not numerical balance or pacing.
 """
 from scalar_wire import u64
 import unittest
@@ -19,6 +19,7 @@ from rogue_test_support import (
     assert_room_gold_receipt, care_combat_action, disclosed_actor_candidates,
     disclosed_melee_candidate, disclosed_sight_candidate, disclosed_step_action,
     first_floor_foes, disclosed_frames, resolved_events, ordered_combat_events,
+    fixed_walkthrough_package,
 )
 
 
@@ -168,7 +169,7 @@ class RogueTechniquesProcesses(ProcessTestCase):
         return current, target
 
     def apply_first_technique(self, character, selection, identity):
-        self.server(scenario="rogue-exploration", seed=42, character=character)
+        self.server(scenario=fixed_walkthrough_package(self), seed=42, character=character)
         # Current observations and transient events are asserted, not map memory.
         player, _ = self.client(actor=character, omit_memory=True, compact_background=True)
         foe_names = self.assert_first_floor_population(character)
@@ -221,7 +222,7 @@ class RogueTechniquesProcesses(ProcessTestCase):
         self.assertNotIn("spark_lance_fire", content_ids(combat(current)["own_stats"]["abilities"]))
 
     def test_bind_wounds_heals_combat_injury_spends_one_bandage_and_obeys_cooldown(self):
-        self.server(scenario="rogue-exploration", seed=42)
+        self.server(scenario=fixed_walkthrough_package(self), seed=42)
         # This witness inspects stock/HP/cooldown at the queued ACK itself,
         # so request full derived frames, not compact background diagnostics.
         player, current = self.client(omit_memory=True)

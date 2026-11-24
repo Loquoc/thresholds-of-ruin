@@ -168,7 +168,9 @@ class RogueNutritionProcesses(ProcessTestCase):
         meal = next(item for item in observation(initial)["inventory"] if item["name"] == "food ration")
         self.assertEqual(meal["quantity"], "1")
         self.assertIn("Nutrition: 1300/2000 (nourished)", text.command("stats"))
-        self.assertIn("You begin to eat the food ration.", text.command("eat food ration"))
+        eating = text.command("eat food ration")
+        self.assertIn("You begin to eat ", eating)
+        self.assertIn("You finish eating the food ration.", eating)
         current = self.request(observer, {"type": "snapshot"})
         def finished(frame):
             return observed_meal_complete(frame, meal["id"], 1300)

@@ -995,6 +995,11 @@ class Adventurer:
         if not turn.hostiles and (decision := self.prepare(turn)):
             return decision
         if self.trapped(turn):
+            if not turn.holds and any(c.identity == "rogue.bear_trap" and c.active
+                                      and c.remaining_ticks is None for c in turn.conditions):
+                # While pinned, any Move is a paid attempt in place. Do not
+                # turn it into Wait just because there is no walkable tile.
+                return Move(Direction.NORTH), "escape_bear_trap"
             return Wait(), "wait_for_restraint"
         if not returning and not any(g.item.identity == self.objective for g in ground_items):
             if search := self.search_dead_end(turn, memory):

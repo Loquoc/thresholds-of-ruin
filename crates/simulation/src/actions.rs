@@ -18,6 +18,7 @@ struct PreparedAction {
     new_orientation: u8,
     ordinary_movement: Option<tor_world::Direction>,
     requested_destination: Option<(tor_world::Location, u8)>,
+    bear_trap_struggle: bool,
     stair_landings: Vec<(tor_world::Location, u8)>,
     touches: Vec<ActorId>,
     ready_at: u64,
@@ -887,6 +888,7 @@ impl Game {
             transfer,
             ordinary_movement,
             requested_destination,
+            bear_trap_struggle: struggling,
             stair_landings,
             touches,
         })
@@ -897,6 +899,9 @@ impl Game {
         let _diagnostic_span = crate::diagnostics::spans::span("action_effect");
         let id = prepared.actor;
         let kind = prepared.kind.clone();
+        if prepared.bear_trap_struggle {
+            self.resolve_bear_trap_struggle_in_transaction(id)?;
+        }
         if let OutcomeKind::Escaped = kind {
             self.prepare_terminal_escape(id, tor_world::Direction::Up)?;
         }

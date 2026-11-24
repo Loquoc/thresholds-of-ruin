@@ -489,9 +489,11 @@ The eight families use ordinary shared mechanics:
   exposure, while sustain Strength still prevents the loss. A missed arrow leaves
   recoverable ordinary ammunition. Traps remain reusable, so arrow farming is
   possible.
-- **Bear traps** restrict movement for 300 actor-active ticks, not all actions.
-  Actually leaving the trap, including by teleport, frees the actor; hovering in
-  place does not.
+- **Bear traps** hold the creature in place without preventing attacks or other
+  non-movement actions. Moving attempts to break free in place and spends an
+  ordinary turn. The check uses the higher of Athletics and Thievery (DC 14);
+  ordinary waiting does not help. Leaving the trap by teleportation or another
+  displacement frees the creature without a check. Hovering in place does not.
 - **Teleport traps** use the same-floor relocation rules below.
 - **Trapdoors** open permanently only after the destination floor is ready.
   Actors and loose items then pass through a real aperture under gravity, not

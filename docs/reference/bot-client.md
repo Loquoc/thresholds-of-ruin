@@ -150,8 +150,9 @@ closes admission before the next picture necessarily replaces the prompt.
   Chebyshev distance between the visible bodies after translating the observer.
   Use `turn.walkable_directions` to choose candidate steps before scoring them.
   When `turn.falling` is true, Rogue-O-Matic waits until it lands before choosing a step.
-  In Rogue, an attempted step during an active bear-trap struggle spends a wait
-  at the current cell. The actor can still choose an available melee action.
+  In Rogue, a Move while caught in a bear trap spends one turn attempting to
+  break free in place. Even a blocked direction works for this attempt. Waiting
+  does not release the trap. The actor can still choose available melee actions.
 - `turn.inventory` combines carried items with their offered uses. For example,
   an unidentified flask can offer `ItemUse.DRINK` while its identity is
   `None`. A policy decides whether to take that risk.

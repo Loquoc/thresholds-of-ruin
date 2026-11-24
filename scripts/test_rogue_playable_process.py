@@ -38,6 +38,7 @@ from rogue_magic_receipts import (
 from rogue_test_support import (
     DisclosedFloorGraph, assert_room_gold_receipt, disclosed_melee_candidate, disclosed_step_action,
     first_floor_foes, observe_walkthrough_boundaries, walkthrough_search_targets,
+    fixed_walkthrough_package,
 )
 
 
@@ -448,6 +449,13 @@ class WalkthroughMovementPolicyTests(unittest.TestCase):
         with patch.object(driver, "settled_action", return_value=refreshed) as action:
             self.assertEqual(driver.disclosed_step(None, current, "east"), (refreshed, False))
         action.assert_called_once_with(None, {"type": "wait"}, survive=True)
+
+    def test_paid_escape_attempt_replans_without_indicating_a_move(self):
+        driver = RoguePlayableProcesses()
+        trapped, escaped = self.frame(remaining=None), self.frame(tick=100)
+        with patch.object(driver, "settled_action", return_value=escaped) as action:
+            self.assertEqual(driver.disclosed_step(None, trapped, "east"), (escaped, False))
+        action.assert_called_once_with(None, {"type": "move", "direction": "east"}, survive=True)
 
     def test_revisit_waits_until_expiry_and_still_visits_the_required_key(self):
         driver = RoguePlayableProcesses()
@@ -938,10 +946,11 @@ class RogueChecks:
         action = disclosed_step_action(observation(current), direction, wait_for_restraint=True)
         origin = underfoot(current["state"])["key"]
         result = self.settled_action(player, action, survive=survive)
-        moved = action["type"] == "move"
-        if not moved and not observation(result)["combat"]["dead"]:
-            self.assertEqual(underfoot(result["state"])["key"], origin,
-                             "A paid restraint wait or opening must not move the actor")
+        if observation(result)["combat"]["dead"]:
+            return result, False
+        moved = underfoot(result["state"])["key"] != origin
+        if action["type"] != "move":
+            self.assertFalse(moved, "A paid restraint wait or opening must not move the actor")
         return result, moved
 
     def walkthrough_search_step(self, player, current, floor_graph, searched, *,
@@ -1657,7 +1666,7 @@ class RoguePlayableProcesses(RogueChecks, ProcessTestCase):
         self.assertEqual(self.private_receipts(), entered_receipts)
 
     def test_ordinary_rogue_death_stays_terminal_after_reopening(self):
-        server = self.server(scenario="rogue-exploration", seed=42)
+        server = self.server(scenario=fixed_walkthrough_package(self), seed=42)
         # This driver checks terminal/current state, not accumulated map memory.
         player, current = self.client(omit_memory=True, compact_background=True)
         at, visited, floor = (0, 0), set(), set()

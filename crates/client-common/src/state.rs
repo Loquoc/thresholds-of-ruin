@@ -145,7 +145,8 @@ impl ClientState {
     /// Disclosed sightings aligned to the current view, without remembered actors.
     /// Ambiguous/disconnected views start a new chart. All six viewport planes fit.
     pub fn map_memory(&self) -> impl Iterator<Item = crate::map_memory::MapCell<'_>> {
-        self.map_memory.positioned()
+        let viewport = MapWindow::normal().checked_translate(self.state().observation.position);
+        self.map_memory.positioned_in(viewport)
     }
 
     /// Current disclosure wins over aligned stale map memory. This never
@@ -163,7 +164,13 @@ impl ClientState {
                     .collect();
                 crate::map_memory::appearance(cell, &items)
             })
-            .or_else(|| self.map_memory.at(position))
+            .or_else(|| {
+                let viewport = MapWindow::normal().checked_translate(view.position)?;
+                viewport
+                    .contains(position)
+                    .then(|| self.map_memory.at(position))
+                    .flatten()
+            })
     }
 
     /// A validated snapshot establishes a new stream boundary atomically.
@@ -278,10 +285,8 @@ impl ClientState {
             branch: self.branch().clone(),
             base: self.observation_base.clone(),
             coverage: self.map_memory.coverage,
-            cells: self
-                .map_memory()
-                .map(|c| (c.position, c.appearance()))
-                .collect(),
+            placements: self.map_memory.cells.clone(),
+            records: self.map_memory.snapshot_records(),
             status: self.map_hydration.status.clone(),
         })
     }
@@ -297,8 +302,13 @@ impl ClientState {
             return Err(StreamError::WrongObservationBase);
         }
         {
-            self.map_memory
-                .install_snapshot(update.coverage, update.cells);
+            let viewport = MapWindow::normal().checked_translate(self.state().observation.position);
+            self.map_memory.install_snapshot(
+                viewport,
+                update.coverage,
+                update.placements,
+                update.records,
+            );
             self.map_memory.overlay(
                 &self.session.picture.observation,
                 self.session.picture.revision,

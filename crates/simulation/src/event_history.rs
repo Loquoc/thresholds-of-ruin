@@ -2,7 +2,7 @@
 //! from today's senses. Transient witnesses are discarded on checkpoint restore.
 pub(crate) use crate::combat::SourceAbilityDisclosure;
 use crate::combat::{CombatEvent, DisclosedCombatEvent};
-use crate::content_ids::AbilityId;
+use crate::content_ids::{AbilityId, ConditionId};
 use crate::perception::ActorReferenceKind;
 use crate::{ActorId, Game, GameError, Observation};
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,18 @@ type Reference = Option<ActorReferenceKind>;
 
 fn invalid() -> GameError {
     GameError::Rule(crate::abilities::RuleError::InvalidPlan)
+}
+
+fn standalone_condition_cue(effect: &crate::abilities::ResolvedEffect) -> Option<&ConditionId> {
+    use crate::abilities::ResolvedEffect;
+    match effect {
+        ResolvedEffect::ApplyCondition { id, .. } => Some(id),
+        // Rogue's persistent trap should retain the victim-only spring cue.
+        ResolvedEffect::ApplyPersistentCondition { id } if id.as_str() == "rogue.bear_trap" => {
+            Some(id)
+        }
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -1657,11 +1669,7 @@ impl Game {
                         && outcome.target == observer
                         && outcome.result == crate::abilities::OutcomeStatus::Applied =>
                 {
-                    let crate::abilities::ResolvedEffect::ApplyCondition { id, .. } =
-                        outcome.effects.first()?
-                    else {
-                        return None;
-                    };
+                    let id = standalone_condition_cue(outcome.effects.first()?)?;
                     let definition = self.content.rules.condition(id)?;
                     Some(DisclosedCombatEvent::Condition {
                         id: id.clone(),

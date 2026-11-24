@@ -42,7 +42,7 @@ class RoguePlayableContent(unittest.TestCase):
             with self.subTest(character=actor):
                 self.assertEqual(character["id"], actor)
                 self.assertEqual(character["unselected"], "omit")
-                self.assertEqual(character["anchor"], "dungeon/1/start")
+                self.assertEqual(character["anchor"], "dungeon/1/up")
                 # Ground-target acceptance uses this explicit eye-relative
                 # Manhattan offset; do not silently change the driver geometry.
                 self.assertEqual(character["body"]["eye"], [0, 0, 1])
@@ -238,7 +238,7 @@ class RoguePlayableContent(unittest.TestCase):
             "secret_entrances": {"chance_per_mille": 250, "maximum": 2, "dc": 12},
             "hidden_traps": {"count": [1, 2], "dc": 12, "rust_slot": "body_armor", "rust_amount": 1,
                 "sleep_condition": "rogue.sleep", "sleep_duration": 200, "sleep_exposure": "poison",
-                "hazards": {"avoidance_dc": 12, "bear_condition": "rogue.bear_trap", "bear_duration": 300,
+                "hazards": {"avoidance_dc": 12, "bear_condition": "rogue.bear_trap", "bear_escape_dc": 14,
                     "arrow_ammunition": "rogue.arrow", "attack_bonus": 0, "poison_exposure": "poison"}},
         })
 

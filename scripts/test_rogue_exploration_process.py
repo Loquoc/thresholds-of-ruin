@@ -24,7 +24,7 @@ class RogueBundledPolicy(unittest.TestCase):
         self.assertEqual(family["grid"], [3, 3])
         self.assertEqual(family["size"], [26, 7, 2])
         self.assertEqual(family["domain"], {"kind": "open", "max_depth": 1_000_000})
-        self.assertEqual(manifest["characters"][0]["anchor"], "dungeon/1/start")
+        self.assertTrue(all(row["anchor"] == "dungeon/1/up" for row in manifest["characters"]))
         self.assertNotIn("generation_groups", manifest)
         self.assertNotIn("stair_pairs", manifest)
         self.assertNotIn("objectives", manifest)
@@ -59,6 +59,34 @@ class RogueBundledPolicy(unittest.TestCase):
 
 
 class RogueExplorationProcess(ProcessTestCase):
+    def test_bundled_characters_start_on_the_disclosed_up_staircase(self):
+        for scenario, characters in [("rogue-exploration", (1, 2)), ("rogue", (1,))]:
+            for character in characters:
+                for seed in (0, 42, 47):
+                    with self.subTest(scenario=scenario, character=character, seed=seed):
+                        self.save = self.directory / f"{scenario}-{character}-{seed}.db"
+                        server = self.server(scenario=scenario, character=character, seed=seed)
+                        player, initial = self.client(actor=character)
+                        state = initial["state"]
+                        stair = underfoot(state)
+                        combat = state["observation"]["combat"]
+                        self.assertTrue(stair["stairs_up"])
+                        self.assertEqual(combat["goal"]["cell"], stair["key"])
+                        self.assertFalse(combat["terminal"])
+                        player.stop()
+                        server.stop(save=False)
+
+    def test_opening_stair_does_not_exit_without_the_amulet(self):
+        self.server(scenario="rogue-exploration", seed=42)
+        text, _ = self.adventure()
+        output = self.say(text, "up")
+        self.assertIn("You need the Amulet of Yendor to leave the dungeon.", output)
+        _, current = self.client(SPECTATOR_TOKEN, observe=True)
+        state = current["state"]
+        self.assertTrue(underfoot(state)["stairs_up"])
+        self.assertFalse(state["observation"]["combat"]["victory"])
+        self.assertFalse(state["observation"]["combat"]["terminal"])
+
     def geometry_copy(self, name):
         package = self.directory / name
         shutil.copytree(ROOT / "scenarios/tests/rogue-geometry", package,

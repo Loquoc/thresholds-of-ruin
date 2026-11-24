@@ -430,7 +430,10 @@ impl App {
                 .map(|stats| stats.restorable_losses.attributes.strength)
         };
         let previous_loss = strength_loss(&state.state().observation);
-        let was_bear_trapped = bear_trapped(&state.state().observation);
+        // Escape checks send their own authoritative result. The timed hazard
+        // has no such result, so infer only its older wait/expiry feedback.
+        let was_bear_trapped = active_bear_trap(&state.state().observation)
+            .is_some_and(|condition| condition.remaining_ticks.is_some());
         let struggling = self.last_move && was_bear_trapped;
         let old = Some((state.branch().clone(), state.state().revision));
         state.apply(update)?;
@@ -725,7 +728,7 @@ impl App {
         };
     }
 
-    /// Whether the column one step in a direction is open floor or stairs.
+    /// Conservative run eligibility from the current picture, never map art.
     fn open_ahead(&self, direction: Direction) -> bool {
         let Some(state) = &self.state else {
             return false;
@@ -742,27 +745,29 @@ impl App {
             Direction::NorthWest => (-1, -1),
             Direction::Up | Direction::Down => return false,
         };
-        // Hazard disclosure wins over item/creature glyph precedence. Running
-        // must not step onto a known trap merely because an item covers it.
-        if o.visible_cells.iter().any(|cell| {
-            cell.trap.is_some()
-                && (cell.position.x, cell.position.y) == (o.position.x + dx, o.position.y + dy)
-                && cell.position.z == o.position.z
-        }) {
+        let (Some(x), Some(y)) = (o.position.x.checked_add(dx), o.position.y.checked_add(dy))
+        else {
             return false;
+        };
+        let mut feet = None;
+        let mut known_drop = false;
+        for cell in &o.visible_cells {
+            if (cell.position.x, cell.position.y) != (x, y) {
+                continue;
+            }
+            match i64::from(cell.position.z) - i64::from(o.position.z) {
+                0 => feet = Some(cell),
+                1 if cell.door.as_ref().is_some_and(|door| !door.open) => return false,
+                -1 => known_drop = !cell.wall,
+                _ => {}
+            }
         }
-        crate::render::map_tiles(state, &self.palette)
-            .into_iter()
-            .any(|t| {
-                (t.position.x, t.position.y) == (o.position.x + dx, o.position.y + dy)
-                    && matches!(
-                        t.kind,
-                        crate::map::Kind::Floor
-                            | crate::map::Kind::StairsUp
-                            | crate::map::Kind::StairsDown
-                            | crate::map::Kind::Item
-                    )
-            })
+        feet.is_some_and(|cell| {
+            !cell.wall
+                && cell.trap.is_none()
+                && cell.door.as_ref().is_none_or(|door| door.open)
+                && (!known_drop || cell.stairs_up || cell.stairs_down)
+        })
     }
 
     /// A menu row's letter: an item's inventory letter when choosing from
@@ -4681,18 +4686,21 @@ impl HelpPage {
     }
 }
 
-/// Whether the run is over: won or lost with no further play.
-fn bear_trapped(observation: &Observation) -> bool {
+fn active_bear_trap(observation: &Observation) -> Option<&tor_protocol::PersonalCondition> {
     observation
         .combat
-        .as_ref()
-        .and_then(|combat| combat.own_stats.as_ref())
-        .is_some_and(|stats| {
-            stats.conditions.iter().any(|condition| {
-                condition.condition.id == "rogue.bear_trap"
-                    && condition.phase == ConditionPhase::Active
-            })
+        .as_ref()?
+        .own_stats
+        .as_ref()?
+        .conditions
+        .iter()
+        .find(|condition| {
+            condition.condition.id == "rogue.bear_trap" && condition.phase == ConditionPhase::Active
         })
+}
+
+fn bear_trapped(observation: &Observation) -> bool {
+    active_bear_trap(observation).is_some()
 }
 
 fn ended(state: &ClientState) -> bool {

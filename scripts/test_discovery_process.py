@@ -9,7 +9,7 @@ from discovery_package import doors, fixture, generated_package, observation, pa
 from process_harness import (
     ProcessTestCase, ROOT, SPECTATOR_TOKEN, non_graphical, settle_rogue_action, underfoot,
 )
-from rogue_test_support import DisclosedFloorGraph
+from rogue_test_support import DisclosedFloorGraph, disclosed_frames, ordered_combat_events
 
 
 def _native_ambiguous_command_letter(case, window, native):
@@ -366,11 +366,79 @@ class DiscoveryProcesses(ProcessTestCase):
         self.assertEqual(refused["state"], watched["state"])
         self.assertEqual(search_actions(refused), search_actions(watched))
 
+    @non_graphical
+    def test_text_bear_trap_failure_spends_a_turn_and_persists_after_restart(self):
+        data = fixture()
+        data["regions"][0]["traps"] = [{
+            "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
+            "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 100},
+        }]
+        source = write_package(self, data, "bear-trap-failed-escape")
+        server = self.server("--checkpoint-interval", 100000, scenario=source, seed=42)
+        text, _ = self.adventure()
+        spectator, _ = self.client(SPECTATOR_TOKEN)
+        self.say(text, "step east")
+        caught = self.snapshot(spectator)
+        trapped_at = underfoot(caught["state"])["key"]
+        cue = "You struggle, but the bear trap still holds you."
+        for _ in range(4):
+            self.assertNotIn(cue, self.say(text, "wait"))
+        self.assertEqual(self.say(text, "step west").count(cue), 1)
+        before = self.snapshot(spectator)
+        self.assertEqual(int(observation(before)["tick"]) - int(observation(caught)["tick"]), 500)
+        self.assertEqual(underfoot(before["state"])["key"], trapped_at)
+        self.say(text, "save")
+        text.stop(save=False)
+        spectator.stop(save=False)
+        server.stop(save=False)
+        shutil.rmtree(source)
+        self.server("--checkpoint-interval", 100000, scenario=ROOT / "scenarios/two-room", seed=None)
+        text, _ = self.adventure()
+        self.assertEqual(self.say(text, "step west").count(cue), 1)
+        spectator, restored = self.client(SPECTATOR_TOKEN)
+        self.assertEqual(underfoot(restored["state"])["key"], trapped_at)
+
+    @non_graphical
+    def test_text_bear_trap_escape_succeeds_in_place_before_normal_movement(self):
+        data = fixture()
+        data["regions"][0]["traps"] = [{
+            "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
+            "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0},
+        }]
+        self.server(scenario=write_package(self, data, "bear-trap-successful-escape"), seed=42)
+        text, _ = self.adventure()
+        spectator, _ = self.client(SPECTATOR_TOKEN)
+        self.say(text, "step east")
+        trapped_at = underfoot(self.snapshot(spectator)["state"])["key"]
+        self.assertEqual(self.say(text, "step west").count("You break free of the bear trap."), 1)
+        self.assertEqual(underfoot(self.snapshot(spectator)["state"])["key"], trapped_at)
+        self.say(text, "step west")
+        self.assertNotEqual(underfoot(self.snapshot(spectator)["state"])["key"], trapped_at)
+
+    @non_graphical
+    def test_persistent_rogue_bear_trap_discloses_the_spring_on_contact(self):
+        data = fixture()
+        data["regions"][0]["traps"] = [{
+            "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
+            "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0},
+        }]
+        self.server(scenario=write_package(self, data, "bear-trap-spring"), seed=42)
+        player, before = self.client()
+        start = len(player.transcript)
+        trapped = settle_rogue_action(self, player, self.act(player, {"type": "move", "direction": "east"}))
+        conditions = observation(trapped)["combat"]["own_stats"]["conditions"]
+        self.assertTrue(any(row["condition"]["id"] == "rogue.bear_trap" and row["phase"] == "active"
+                            for row in conditions))
+        events = ordered_combat_events(disclosed_frames(player, start), after=before)
+        springs = [event for event in events
+                   if event["type"] == "condition" and event["condition"]["id"] == "rogue.bear_trap"]
+        self.assertEqual(len(springs), 1)
+
     def test_native_movement_struggles_free_of_a_bear_trap(self):
         data = fixture()
         data["regions"][0]["traps"] = [{
             "id": 1, "at": [2, 2, 0], "dc": 100, "avoidance_dc": 100,
-            "kind": {"kind": "bear_trap", "condition": "rogue.bear_trap", "duration": 300},
+            "kind": {"kind": "bear_trap_escape", "condition": "rogue.bear_trap", "escape_dc": 0},
         }]
         self.server(scenario=write_package(self, data, "bear-trap"), seed=42)
         window = self.launch("tor-client-ascii", ["--connect", self.address, "--report-frames"])
@@ -393,17 +461,12 @@ class DiscoveryProcesses(ProcessTestCase):
         self.assertTrue(held(trapped))
         self.assertIn("A bear trap snaps shut on your leg.", trapped["messages"]["turn"])
         self.assertNotIn("You recognize a bear trap.", trapped["messages"]["turn"])
-        current = trapped
-        for _ in range(5):
-            if not held(current):
-                break
-            after = step("left")
-            self.assertGreater(int(observation(after)["tick"]), int(observation(current)["tick"]))
-            self.assertEqual(underfoot(after), underfoot(trapped))
-            self.assertIn("struggle against the bear trap", after["messages"]["turn"])
-            current = after
-        self.assertFalse(held(current))
-        self.assertIn("You get free of the bear trap.", current["messages"]["turn"])
+        escaped = step("left")
+        self.assertGreater(int(observation(escaped)["tick"]), int(observation(trapped)["tick"]))
+        self.assertEqual(underfoot(escaped), underfoot(trapped))
+        self.assertFalse(held(escaped))
+        self.assertEqual(escaped["messages"]["turn"].count("You break free of the bear trap."), 1)
+        self.assertNotIn("You get free of the bear trap.", escaped["messages"]["turn"])
         self.assertNotEqual(underfoot(step("left")), underfoot(trapped))
 
     def test_native_selected_look_examines_only_discovered_adjacent_trap(self):

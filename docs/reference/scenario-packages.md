@@ -822,12 +822,16 @@ for bounds, independent streams and provisional Rogue defaults.
 
 Additional typed trap payloads are `trap_door` (`destination` named anchor and
 `open`), `arrow` (authored `attack_bonus` and `ammunition` catalog key),
-`bear_trap` (`condition`, `duration`), `teleport`, `poison_dart` (independent
+`bear_trap` (`condition`, `duration`), `bear_trap_escape` (`condition`, `escape_dc`),
+`teleport`, `poison_dart` (independent
 `attack_bonus` and `poison_bonus`) and `mysterious`. These are shared mechanisms,
 not item/species name switches. Ammunition references resolve to ordinary pinned
 item definitions; missed arrow shots leave recoverable arrows. Traps are reusable.
-Bear conditions own their actor-active duration; a separate spatial anchor only
-releases that condition when the body actually leaves, never when it merely hovers.
+A timed bear trap uses an actor-active condition. An escape-check trap uses an
+until-removed condition with keep stacking. A movement attempt checks the higher
+skill bonus of Athletics and Thievery; success ends the restraint without moving.
+Both kinds release the creature if its body leaves the trap, not if it merely
+hovers. Generated hazards specify exactly one of `bear_duration` or `bear_escape_dc`.
 
 Items specify `at`, `name` or an `archetype`, and optional `carried_by`. A carried
 item is authored in the region file where its carrier starts, so building a

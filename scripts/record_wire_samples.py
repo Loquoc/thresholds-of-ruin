@@ -233,7 +233,8 @@ SAMPLE_ADVANCEMENT_COMMANDS = [
 
 # Maintained schema examples, not captured outbound client transcripts.
 CLIENT = [
-    {"type": "hello", "protocol": PROTOCOL, "token": "a-sample-credential", "frontend": "headless"},
+    # Test the wire shape without embedding a usable authentication token.
+    {"type": "hello", "protocol": PROTOCOL, "token": "", "frontend": "headless"},
     *({"type": "request", "request_id": f"sample-{i}", "request": request} for i, request in enumerate([
         {"type": "continue"},
         {"type": "save"},
