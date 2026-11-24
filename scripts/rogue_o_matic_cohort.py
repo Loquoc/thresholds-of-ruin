@@ -169,9 +169,11 @@ class FloorVisits:
         metrics = self.floors.setdefault(str(floor), {
             "searches_admitted": 0, "searches_resolved": 0, "searches_failed": 0,
             "moves_admitted": 0,
-            "first_reserve": reserve, "last_reserve": reserve, "lowest_reserve": reserve,
+            "first_reserve": None, "last_reserve": None, "lowest_reserve": None,
         })
         if reserve is not None:
+            if metrics["first_reserve"] is None:
+                metrics["first_reserve"] = reserve
             metrics["last_reserve"] = reserve
             low = metrics["lowest_reserve"]
             metrics["lowest_reserve"] = reserve if low is None else min(low, reserve)

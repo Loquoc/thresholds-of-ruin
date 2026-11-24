@@ -374,10 +374,12 @@ assert get_type_hints(play)["player"] is Adventurer
         def turn(floor, action, status, reserve):
             return {"floor": floor, "action": action, "result": {"status": status}, "nutrition_reserve": reserve}
 
-        rows = [turn(1, {"type": "use_ability", "id": "rogue.search"}, "confirmed", 300),
+        rows = [turn(1, {"type": "wait"}, "confirmed", None),
+                turn(1, {"type": "use_ability", "id": "rogue.search"}, "confirmed", 300),
                 turn(1, {"type": "use_ability", "id": "rogue.search"}, "rejected", 280),
                 turn(1, {"type": "move", "direction": "down"}, "confirmed", 250),
                 turn(2, {"type": "move", "direction": "west"}, "confirmed", 240),
+                turn(2, {"type": "wait"}, "confirmed", None),
                 turn(1, {"type": "wait"}, "confirmed", 310)]
         with tempfile.TemporaryDirectory() as directory:
             trace = Path(directory) / "turns.jsonl"
@@ -391,7 +393,7 @@ assert get_type_hints(play)["player"] is Adventurer
         })
         self.assertEqual(progress["stair_transitions"], [
             {"from": 1, "to": 2, "before_reserve": 250, "after_reserve": 240},
-            {"from": 2, "to": 1, "before_reserve": 240, "after_reserve": 310},
+            {"from": 2, "to": 1, "before_reserve": None, "after_reserve": 310},
         ])
 
     def test_prices_resolved_supply_steps_and_counts_reversals_without_new_terrain(self):
